@@ -2,7 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type
 import { hasLocalHouseAuthority, type Floor, type Metric, type TpLinkDiscoveredDevice, type UnitSystem } from "@climate-twin/contracts";
 import { AlertTriangle, HousePlus, LoaderCircle, RotateCcw, ShieldCheck, Wrench } from "lucide-react";
 import { AppShell } from "../components/AppShell";
-import { type AppPage, type ViewMode } from "../domain";
+import { preferredHouseForProperty, type AppPage, type ViewMode } from "../domain";
 import { useClimateData } from "../useClimateData";
 import { countActionableAlertGroups } from "../alertGrouping";
 import { useI18n } from "../i18n";
@@ -21,6 +21,7 @@ import {
 } from "../pages/LocalAuthPage";
 import { integrationForHouse } from "../integrationScope";
 import { isTpLinkContactDevice } from "../tpLinkDeviceClassification";
+import { twinDashboardHomeViewLocation } from "../pages/TwinDashboard/queryState";
 import { ActivityPage, AlertsPage, DataAnalyticsPage, DeveloperPage, EnergyPage, IntegrationsPage, MaintenancePage, OutdoorWeatherPage, PeopleAccessPage, PortfolioOverview, PropertyManagementPage, SensorManagementPage, StugubyPage, SystemUpdatesPage, TwinDashboard, dismissedTpLinkDevicesKey, firstFloor, freshTpLinkDiscoveryWindowMs, latestIso, pageTitleKeys, settleInBackground, storedDismissedTpLinkDevices, tpLinkDeviceKey } from "./support";
 import type { TpLinkDeviceReference } from "./support";
 import { useAppPart03 } from "./part-03";
@@ -137,13 +138,14 @@ export function renderApp(context: ReturnType<typeof useAppPart03>) {
             integration={state.integration}
             dataMode={climate.dataMode}
             onOpenProperty={(id) => {
-              const firstPropertyHouse = state.houses.find((candidate) => candidate.propertyId === id);
-              if (firstPropertyHouse) applyHouse(firstPropertyHouse.id);
+              const targetProperty = state.properties.find((candidate) => candidate.id === id);
+              const defaultPropertyHouse = preferredHouseForProperty(targetProperty, state.houses);
+              if (defaultPropertyHouse) applyHouse(defaultPropertyHouse.id);
               else {
                 setPropertyId(id);
                 setHouseId("");
               }
-              navigate("properties", firstPropertyHouse?.id ?? null, false, window.location.pathname, id);
+              navigate("properties", defaultPropertyHouse?.id ?? null, false, window.location.pathname, id);
             }}
             onOpenTwin={(id) => { applyHouse(id); navigate("twin", id); }}
             onOpenOutdoor={(id) => { applyHouse(id); navigate("outdoor", id); }}
@@ -562,7 +564,14 @@ export function renderApp(context: ReturnType<typeof useAppPart03>) {
               if (device) setRequestedSensorDevice(device);
               navigate("sensors", house.id);
             }}
-            onOpenLayout={() => navigate("twin", house.id)}
+            onOpenLayout={() => {
+              navigate("twin", house.id);
+              window.history.replaceState(
+                window.history.state,
+                "",
+                twinDashboardHomeViewLocation(window.location.href, "edit"),
+              );
+            }}
           />
         )}
         {page === "integrations" && (readOnly || !houseLocalAuthority) && <section className="route-recovery"><ShieldCheck size={24} aria-hidden="true" /><div><span className="eyebrow">{t(readOnly && workspaceReadOnly ? "properties.guestReadOnly" : "stuguby.eyebrow")}</span><h1>{t(readOnly && workspaceReadOnly ? "properties.adminOnlyTitle" : "stuguby.boundaryTitle")}</h1><p>{t(readOnly && workspaceReadOnly ? "properties.adminOnlyBody" : "stuguby.boundaryBody")}</p></div><button type="button" className="primary-button" onClick={() => navigate("properties", house.id, true)}>{t("nav.properties")}</button></section>}

@@ -4,6 +4,9 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+- Make private bug-report relay configuration available to Compose and
+  Raspberry Pi appliances through a protected, upgrade-safe token mount.
+
 ## 0.29.1 - 2026-08-02
 
 - Let an application role reuse an existing telemetry schema without requiring

@@ -234,6 +234,10 @@ registerDatabaseMethods({
       if (!propertyColumns.some((column) => column.name === "stugby_json")) {
             this.db.exec("ALTER TABLE properties ADD COLUMN stugby_json TEXT");
           }
+      const addedPropertyDefaultHouse = !propertyColumns.some((column) => column.name === "default_house_id");
+      if (addedPropertyDefaultHouse) {
+            this.db.exec("ALTER TABLE properties ADD COLUMN default_house_id TEXT REFERENCES houses(id) ON DELETE SET NULL");
+          }
       const houseColumns = this.db.prepare("PRAGMA table_info(houses)").all() as unknown as Array<{ name: string }>;
       const migrationTimestamp = new Date().toISOString();
       this.db.prepare(`INSERT OR IGNORE INTO properties
@@ -292,6 +296,14 @@ registerDatabaseMethods({
       if (!houseColumns.some((column) => column.name === "deleted_at")) {
             this.db.exec("ALTER TABLE houses ADD COLUMN deleted_at TEXT");
           }
+      if (addedPropertyDefaultHouse) {
+            this.db.exec(`UPDATE properties
+              SET default_house_id = (
+                SELECT house.id FROM houses AS house
+                WHERE house.property_id = properties.id AND house.deleted_at IS NULL
+                ORDER BY house.created_at, house.id LIMIT 1
+              )`);
+          }
       // A short-lived build persisted the Stuguby id as `stugbyId`. Normalize
       // those links before any federation service reads them.
       this.db.exec(`
@@ -328,6 +340,59 @@ registerDatabaseMethods({
               BEFORE UPDATE OF property_id ON houses WHEN NEW.property_id IS NULL OR trim(NEW.property_id) = ''
                 OR NOT EXISTS (SELECT 1 FROM properties property WHERE property.id = NEW.property_id)
               BEGIN SELECT RAISE(ABORT, 'HOUSE_PROPERTY_REQUIRED'); END;
+            DROP TRIGGER IF EXISTS validate_property_default_house_insert;
+            CREATE TRIGGER validate_property_default_house_insert
+              BEFORE INSERT ON properties WHEN NEW.default_house_id IS NOT NULL
+                AND NOT EXISTS (
+                  SELECT 1 FROM houses AS house
+                  WHERE house.id = NEW.default_house_id
+                    AND house.property_id = NEW.id
+                    AND house.deleted_at IS NULL
+                )
+              BEGIN SELECT RAISE(ABORT, 'PROPERTY_DEFAULT_HOUSE_INVALID'); END;
+            DROP TRIGGER IF EXISTS validate_property_default_house_update;
+            CREATE TRIGGER validate_property_default_house_update
+              BEFORE UPDATE OF default_house_id ON properties WHEN NEW.default_house_id IS NOT NULL
+                AND NOT EXISTS (
+                  SELECT 1 FROM houses AS house
+                  WHERE house.id = NEW.default_house_id
+                    AND house.property_id = NEW.id
+                    AND house.deleted_at IS NULL
+                )
+              BEGIN SELECT RAISE(ABORT, 'PROPERTY_DEFAULT_HOUSE_INVALID'); END;
+            DROP TRIGGER IF EXISTS assign_first_property_house;
+            CREATE TRIGGER assign_first_property_house
+              AFTER INSERT ON houses WHEN NEW.deleted_at IS NULL
+              BEGIN
+                UPDATE properties SET default_house_id = NEW.id, updated_at = NEW.updated_at
+                WHERE id = NEW.property_id AND default_house_id IS NULL;
+              END;
+            DROP TRIGGER IF EXISTS maintain_property_default_house_after_update;
+            CREATE TRIGGER maintain_property_default_house_after_update
+              AFTER UPDATE OF property_id, deleted_at ON houses
+              BEGIN
+                UPDATE properties SET default_house_id = (
+                  SELECT house.id FROM houses AS house
+                  WHERE house.property_id = OLD.property_id AND house.deleted_at IS NULL
+                  ORDER BY house.created_at, house.id LIMIT 1
+                ), updated_at = NEW.updated_at
+                WHERE id = OLD.property_id AND default_house_id = OLD.id
+                  AND (NEW.property_id <> OLD.property_id OR NEW.deleted_at IS NOT NULL);
+                UPDATE properties SET default_house_id = NEW.id, updated_at = NEW.updated_at
+                WHERE id = NEW.property_id AND default_house_id IS NULL
+                  AND NEW.deleted_at IS NULL AND NEW.property_id <> OLD.property_id;
+              END;
+            DROP TRIGGER IF EXISTS maintain_property_default_house_after_delete;
+            CREATE TRIGGER maintain_property_default_house_after_delete
+              AFTER DELETE ON houses
+              BEGIN
+                UPDATE properties SET default_house_id = (
+                  SELECT house.id FROM houses AS house
+                  WHERE house.property_id = OLD.property_id AND house.deleted_at IS NULL
+                  ORDER BY house.created_at, house.id LIMIT 1
+                ), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                WHERE id = OLD.property_id AND default_house_id IS NULL;
+              END;
           `);
       this.db.exec("PRAGMA optimize");
       const propertyAreaColumns = this.db.prepare("PRAGMA table_info(property_areas)").all() as unknown as Array<{ name: string }>;

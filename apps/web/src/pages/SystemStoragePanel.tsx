@@ -1,11 +1,15 @@
 import {
   ArchiveRestore,
+  ArrowRight,
   CheckCircle2,
+  ChevronDown,
   CircleAlert,
   Database,
   HardDrive,
   LoaderCircle,
+  RefreshCcw,
   Save,
+  ShieldCheck,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -32,6 +36,59 @@ function cloneSettings(settings: SystemStorageSettings): SystemStorageSettings {
   return { timeseries: { ...settings.timeseries }, backups: { ...settings.backups } };
 }
 
+function sameLocation(left: SystemStorageLocation, right: SystemStorageLocation): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function comparablePath(value: string): string {
+  const normalized = value.replaceAll("\\", "/").replace(/\/+$/u, "");
+  return /^[A-Za-z]:\//u.test(normalized) || normalized.startsWith("//")
+    ? normalized.toLocaleLowerCase()
+    : normalized;
+}
+
+function pathWithinRoots(value: string, roots: string[]): boolean {
+  const candidate = comparablePath(value);
+  return roots.some((root) => candidate.startsWith(`${comparablePath(root)}/`));
+}
+
+function validHostPath(value: string): boolean {
+  return value.length >= 4
+    && value.length <= 500
+    && value === value.trim()
+    && (value.startsWith("/") || /^[A-Za-z]:[\\/]/u.test(value) || /^\\\\[^\\/]+[\\/][^\\/]+[\\/]/u.test(value))
+    && !/[\u0000-\u001f\u007f\s`$"'{}#=]/u.test(value)
+    && !/(?:^|[\\/])\.\.(?:[\\/]|$)/u.test(value)
+    && value !== "/"
+    && !/^[A-Za-z]:[\\/]?$/u.test(value);
+}
+
+function storagePathError(
+  location: SystemStorageLocation | undefined,
+  roots: string[],
+  t: (key: TranslationKey) => string,
+): string | null {
+  if (!location || location.kind === "managed") return null;
+  if (!validHostPath(location.path ?? "")) return t("storage.pathInvalid");
+  if (!pathWithinRoots(location.path ?? "", roots)) return t("storage.pathOutsideRoots");
+  return null;
+}
+
+function pathsOverlap(settings: SystemStorageSettings): boolean {
+  if (!settings.timeseries.path || !settings.backups.path) return false;
+  const timeseries = comparablePath(settings.timeseries.path);
+  const backups = comparablePath(settings.backups.path);
+  return timeseries === backups
+    || timeseries.startsWith(`${backups}/`)
+    || backups.startsWith(`${timeseries}/`);
+}
+
+function suggestedPath(roots: string[], purpose: "timeseries" | "backups"): string {
+  const root = roots[0] ?? "/mnt/stugu";
+  const separator = root.includes("\\") ? "\\" : "/";
+  return `${root.replace(/[\\/]+$/u, "")}${separator}${purpose === "timeseries" ? "telemetry" : "backups"}`;
+}
+
 function locationLabel(location: SystemStorageLocation, purpose: "timeseries" | "backups", t: (key: TranslationKey) => string): string {
   if (location.kind === "managed") return t("storage.kind.managed");
   if (location.kind === "nas-path") return t("storage.kind.nas");
@@ -49,15 +106,20 @@ function capabilityHelp(status: SystemStorageStatus, t: (key: TranslationKey) =>
 function LocationEditor({
   purpose,
   value,
+  allowedRoots,
+  pathError,
   disabled,
   onChange,
 }: Readonly<{
   purpose: "timeseries" | "backups";
   value: SystemStorageLocation;
+  allowedRoots: string[];
+  pathError: string | null;
   disabled: boolean;
   onChange: (value: SystemStorageLocation) => void;
 }>) {
   const { t } = useI18n();
+  const errorId = `storage-${purpose}-path-error`;
   const choices: Array<{ kind: SystemStorageLocationKind; label: TranslationKey; help: TranslationKey }> = purpose === "timeseries"
     ? [
       { kind: "managed", label: "storage.kind.managed", help: "storage.kind.managedTimeseriesHelp" },
@@ -87,14 +149,60 @@ function LocationEditor({
       <input
         value={value.path ?? ""}
         onChange={(event) => onChange({ ...value, path: event.target.value })}
-        placeholder={purpose === "timeseries" ? "/mnt/stugu/telemetry" : "/mnt/stugu/backups"}
+        placeholder={suggestedPath(allowedRoots, purpose)}
+        aria-invalid={pathError ? true : undefined}
+        aria-describedby={pathError ? errorId : undefined}
         autoCapitalize="none"
         autoCorrect="off"
         spellCheck={false}
       />
       <small>{value.kind === "nas-path" ? t("storage.nasPathHelp") : t("storage.pathHelp")}</small>
+      {pathError && <small className="field-error" id={errorId} role="alert">{pathError}</small>}
     </label>}
   </fieldset>;
+}
+
+function StorageChangePlan({
+  current,
+  target,
+}: Readonly<{
+  current: SystemStorageSettings;
+  target: SystemStorageSettings;
+}>) {
+  const { t } = useI18n();
+  const timeseriesChanged = !sameLocation(current.timeseries, target.timeseries);
+  const backupsChanged = !sameLocation(current.backups, target.backups);
+  const summary = timeseriesChanged && backupsChanged
+    ? t("storage.automaticBoth")
+    : timeseriesChanged
+      ? t("storage.automaticTimeseries")
+      : t("storage.automaticBackups");
+  const rows = [
+    ...(timeseriesChanged ? [{ purpose: "timeseries" as const, label: t("storage.primaryTitle") }] : []),
+    ...(backupsChanged ? [{ purpose: "backups" as const, label: t("storage.backupTitle") }] : []),
+  ];
+
+  return <section className="storage-change-plan" aria-labelledby="storage-change-plan-title">
+    <div className="storage-change-plan-heading">
+      <ShieldCheck size={19} aria-hidden="true" />
+      <div>
+        <span className="storage-automatic-badge"><CheckCircle2 size={13} aria-hidden="true" />{t("storage.automatic")}</span>
+        <h3 id="storage-change-plan-title">{t("storage.automaticTitle")}</h3>
+        <p>{summary}</p>
+      </div>
+    </div>
+    <div className="storage-change-routes">
+      {rows.map(({ purpose, label }) => <div key={purpose}>
+        <strong>{label}</strong>
+        <div className="storage-change-route">
+          <span><small>{t("storage.currentLabel")}</small><b>{locationLabel(current[purpose], purpose, t)}</b>{current[purpose].path && <code>{current[purpose].path}</code>}</span>
+          <ArrowRight size={17} aria-hidden="true" />
+          <span><small>{t("storage.newLabel")}</small><b>{locationLabel(target[purpose], purpose, t)}</b>{target[purpose].path && <code>{target[purpose].path}</code>}</span>
+        </div>
+      </div>)}
+    </div>
+    <p className="storage-change-safety">{t("storage.safetyBody")}</p>
+  </section>;
 }
 
 export function SystemStoragePanel() {
@@ -111,7 +219,8 @@ export function SystemStoragePanel() {
       setStatus(next);
       setDraft((current) => {
         const active = next.operation && activePhases.has(next.operation.phase);
-        return !current || active || next.operation?.phase === "complete" ? cloneSettings(next.settings) : current;
+        const visibleSettings = active && next.operation ? next.operation.target : next.settings;
+        return !current || active || next.operation?.phase === "complete" ? cloneSettings(visibleSettings) : current;
       });
       setError(null);
     } catch (loadError) {
@@ -131,19 +240,23 @@ export function SystemStoragePanel() {
   const changed = useMemo(() => Boolean(status && draft
     && JSON.stringify(status.settings) !== JSON.stringify(draft)), [draft, status]);
   const operationActive = Boolean(status?.operation && activePhases.has(status.operation.phase));
+  const timeseriesPathError = storagePathError(draft?.timeseries, status?.allowedRoots ?? [], t);
+  const backupsPathError = storagePathError(draft?.backups, status?.allowedRoots ?? [], t);
+  const overlapError = draft && pathsOverlap(draft) ? t("storage.pathsOverlap") : null;
+  const formValid = !timeseriesPathError && !backupsPathError && !overlapError;
 
   const save = async () => {
-    if (!status || !draft || !changed) return;
+    if (!status || !draft || !changed || !formValid) return;
     const movesTimeseries = JSON.stringify(status.settings.timeseries) !== JSON.stringify(draft.timeseries);
     const confirmation = movesTimeseries ? "MOVE_STORAGE" : "APPLY_STORAGE";
     const prompt = movesTimeseries ? t("storage.confirmMove") : t("storage.confirmBackup");
-    if (!await confirmAction(prompt, t("storage.confirmAction"), true)) return;
+    if (!await confirmAction(prompt, t("storage.confirmAction"), false)) return;
     setBusy("save");
     setError(null);
     try {
       const next = await api.updateSystemStorage({ settings: draft, expectedRevision: status.revision, confirmation });
       setStatus(next);
-      setDraft(cloneSettings(next.settings));
+      setDraft(cloneSettings(next.operation && activePhases.has(next.operation.phase) ? next.operation.target : next.settings));
     } catch (saveError) {
       setError(errorMessage(saveError, t("storage.error")));
     } finally {
@@ -188,32 +301,49 @@ export function SystemStoragePanel() {
 
     {status.operation && <div className={`storage-operation ${status.operation.phase}`} role="status" aria-live="polite">
       {operationActive ? <LoaderCircle className="spin" size={17} aria-hidden="true" /> : status.operation.phase === "complete" ? <CheckCircle2 size={17} aria-hidden="true" /> : <CircleAlert size={17} aria-hidden="true" />}
-      <span><strong>{t(`storage.phase.${status.operation.phase}` as TranslationKey)}</strong>{status.operation.detail && <small>{status.operation.detail}</small>}</span>
+      <span>
+        <strong>{t(`storage.phase.${status.operation.phase}` as TranslationKey)}</strong>
+        {status.operation.detail && <small>{status.operation.detail}</small>}
+        {operationActive && <small>{t("storage.operationContinues")}</small>}
+      </span>
     </div>}
 
     <details className="storage-settings">
-      <summary>{t("storage.configure")}</summary>
+      <summary>
+        <span className="storage-settings-summary-icon"><HardDrive size={17} aria-hidden="true" /></span>
+        <span><strong>{t("storage.configure")}</strong><small>{t("storage.configureHelp")}</small></span>
+        <ChevronDown size={17} aria-hidden="true" />
+      </summary>
       <div className="storage-settings-content">
-        <LocationEditor
-          purpose="timeseries"
-          value={draft.timeseries}
-          disabled={operationActive || !status.capability.available}
-          onChange={(timeseries) => setDraft({ ...draft, timeseries })}
-        />
-        <LocationEditor
-          purpose="backups"
-          value={draft.backups}
-          disabled={operationActive || !status.capability.available}
-          onChange={(backups) => setDraft({ ...draft, backups })}
-        />
-        <div className="storage-safety-note">
-          <strong>{t("storage.safetyTitle")}</strong>
-          <p>{t("storage.safetyBody")}</p>
-          {status.allowedRoots.length > 0 && <p>{t("storage.allowedRoots")} <code>{status.allowedRoots.join(", ")}</code></p>}
+        <div className="storage-editors">
+          <LocationEditor
+            purpose="timeseries"
+            value={draft.timeseries}
+            allowedRoots={status.allowedRoots}
+            pathError={timeseriesPathError}
+            disabled={operationActive || !status.capability.available}
+            onChange={(timeseries) => setDraft({ ...draft, timeseries })}
+          />
+          <LocationEditor
+            purpose="backups"
+            value={draft.backups}
+            allowedRoots={status.allowedRoots}
+            pathError={backupsPathError}
+            disabled={operationActive || !status.capability.available}
+            onChange={(backups) => setDraft({ ...draft, backups })}
+          />
         </div>
-        <button type="button" className="secondary-button" disabled={!changed || busy !== null || operationActive || !status.capability.available} onClick={() => void save()}>
-          <Save size={15} aria-hidden="true" />{busy === "save" ? t("common.saving") : t("storage.save")}
-        </button>
+        {status.allowedRoots.length > 0 && <p className="storage-allowed-roots"><strong>{t("storage.allowedRoots")}</strong>{status.allowedRoots.map((root) => <code key={root}>{root}</code>)}</p>}
+        {changed && <StorageChangePlan current={status.settings} target={draft} />}
+        {overlapError && <p className="field-error storage-form-error" role="alert">{overlapError}</p>}
+        <div className="storage-settings-actions">
+          {changed && <button type="button" className="secondary-button" disabled={busy !== null || operationActive} onClick={() => { setDraft(cloneSettings(status.settings)); setError(null); }}>
+            <RefreshCcw size={15} aria-hidden="true" />{t("storage.reset")}
+          </button>}
+          <button type="button" className="primary-button" disabled={!changed || !formValid || busy !== null || operationActive || !status.capability.available} onClick={() => void save()}>
+            <Save size={15} aria-hidden="true" />{busy === "save" ? t("common.saving") : t("storage.save")}
+          </button>
+        </div>
       </div>
     </details>
   </section>;

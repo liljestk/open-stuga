@@ -298,9 +298,10 @@ export function PropertyStatusLights({ lights }: Readonly<{ lights: readonly Pro
       const label = t(`properties.status.${light.id}` as TranslationKey);
       const level = t(`properties.status.level.${light.level}` as TranslationKey);
       const reason = t(`properties.status.reason.${light.reason}` as TranslationKey);
-      return <article key={light.id} data-status={light.level} aria-label={`${label}: ${level}. ${reason}`} title={reason}>
+      const check = t(`properties.status.check.${light.id}` as TranslationKey);
+      return <article key={light.id} data-status={light.level} aria-label={`${label}: ${level}. ${reason} ${check}`}>
         <span className="property-status-signal" aria-hidden="true" />
-        <span><strong>{label}</strong><small>{level} · {reason}</small></span>
+        <span><strong>{label}</strong><small>{level} · {reason}</small><small className="property-status-check">{check}</small></span>
       </article>;
     })}
   </section>;

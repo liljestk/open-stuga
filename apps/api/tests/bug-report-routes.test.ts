@@ -1,4 +1,7 @@
 import request from "supertest";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApi, type ApiRuntime } from "../src/app.js";
 import { loadConfig } from "../src/config.js";
@@ -170,5 +173,36 @@ describe("bug report routes", () => {
       .send(reportBody())
       .expect(503);
     expect(response.body.error.code).toBe("BUG_REPORTING_UNAVAILABLE");
+  });
+
+  it("loads a mounted relay token while allowing an absent optional Compose mount", () => {
+    const directory = mkdtempSync(join(tmpdir(), "stugu-bug-report-config-"));
+    const tokenFile = join(directory, "relay-token");
+    const missingFile = join(directory, "missing-token");
+    try {
+      writeFileSync(tokenFile, `${RELAY_TOKEN}\n`);
+      expect(loadConfig({
+        NODE_ENV: "test",
+        DATABASE_PATH: ":memory:",
+        BUG_REPORT_RELAY_URL: "https://reports.example.test/reports",
+        BUG_REPORT_RELAY_TOKEN_FILE: tokenFile,
+      })).toMatchObject({
+        bugReportRelayUrl: "https://reports.example.test/reports",
+        bugReportRelayToken: RELAY_TOKEN,
+      });
+      expect(loadConfig({
+        NODE_ENV: "test",
+        DATABASE_PATH: ":memory:",
+        BUG_REPORT_RELAY_TOKEN_FILE: missingFile,
+      })).toMatchObject({ bugReportRelayUrl: null, bugReportRelayToken: null });
+      expect(() => loadConfig({
+        NODE_ENV: "test",
+        DATABASE_PATH: ":memory:",
+        BUG_REPORT_RELAY_URL: "https://reports.example.test/reports",
+        BUG_REPORT_RELAY_TOKEN_FILE: missingFile,
+      })).toThrow(/requires both BUG_REPORT_RELAY_URL and BUG_REPORT_RELAY_TOKEN/u);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 });

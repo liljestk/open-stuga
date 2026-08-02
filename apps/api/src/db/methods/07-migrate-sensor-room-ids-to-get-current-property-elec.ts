@@ -282,6 +282,7 @@ registerDatabaseMethods({
         id: input.id ?? randomUUID(),
         name: this.propertyRequiredText(input.name, "Property name", 200),
         description: this.propertyOptionalText(input.description ?? null, "Property description", 5_000),
+        defaultHouseId: null,
         location: input.location ?? null,
         createdAt: timestamp,
         updatedAt: timestamp,

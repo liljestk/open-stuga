@@ -15,7 +15,7 @@ export const svDataExport = {
   "dataExport.sensors": "Sensorer",
   "dataExport.allSensors": "Alla sensorer ({count})",
   "dataExport.selectedSensors": "{count} sensorer valda",
-  "dataExport.noSelectedData": "Inga valda mätvärden hittades",
+  "dataExport.noSelectedData": "Inga av de valda mätvärdena är tillgängliga",
   "dataExport.measurements": "Mätvärden",
   "dataExport.selectedMeasurements": "{count} mätvärden valda",
   "dataExport.granularity": "Datagranularitet",

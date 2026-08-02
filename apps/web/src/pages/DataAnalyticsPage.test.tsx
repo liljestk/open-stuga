@@ -127,6 +127,8 @@ describe("DataAnalyticsPage", () => {
     expect(sensorsSummary.closest("details")?.open).toBe(false);
     await user.click(performanceSummary);
     const performancePanel = await screen.findByRole("region", { name: "How the Home has been performing" });
+    expect(screen.getAllByText("How the Home has been performing")).toHaveLength(1);
+    expect(screen.getAllByText("A calm recent view of comfort exposure, recovery, openings, energy, completed actions, and monitoring confidence.")).toHaveLength(1);
     await user.click(sensorsSummary);
     expect(await screen.findByRole("heading", { name: "Home sensor analytics" })).not.toBeNull();
     expect(new URLSearchParams(window.location.search).get("tools")).toBe("performance,sensors");

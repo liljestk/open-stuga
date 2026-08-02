@@ -586,4 +586,15 @@ describe("sensor onboarding and management", () => {
     expect(confirmAction).not.toHaveBeenCalled();
     expect(onDeleteSensor).not.toHaveBeenCalled();
   });
+
+  it("distinguishes duplicate sensor names in accessible data actions", () => {
+    const base = createDemoState();
+    const live = base.sensors.find((sensor) => sensor.id === "sensor-living")!;
+    const archived = { ...live, id: "sensor-living-archived", enabled: false };
+    renderPage({ state: { ...base, sensors: [...base.sensors, archived] } });
+
+    expect(screen.getByRole("button", { name: "View data for Living room · Live" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "View data for Living room · Archived" })).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "View data for Living room" })).toBeNull();
+  });
 });

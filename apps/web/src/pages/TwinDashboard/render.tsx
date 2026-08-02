@@ -78,7 +78,7 @@ export function renderTwinDashboard(context: ReturnType<typeof useTwinDashboardP
             <span className={`home-now-icon measurement ${definition.colorScale}`}><MeasurementGlyph definition={definition} size={22} /></span>
             <div className="home-now-copy">
               <span className="eyebrow">{t("home.nowEyebrow")}</span>
-              <small>{t("twin.averageMeasurement", { metric: metricLabel })}</small>
+              <small>{t("twin.averageMeasurement", { metric: `${metricLabel.charAt(0).toLocaleLowerCase(locale)}${metricLabel.slice(1)}` })}</small>
               <h2>{average == null ? t("common.noData") : formatMeasurement(average, definition, units)}</h2>
               <p>{t("home.nowSummary", {
                 reporting: values.length,

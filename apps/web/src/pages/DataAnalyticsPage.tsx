@@ -585,6 +585,7 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
                 definitions={props.state.measurementDefinitions}
                 dataMode={props.dataMode}
                 refreshRevision={refreshRevision}
+                embedded
               />
             </div>}
           </details>

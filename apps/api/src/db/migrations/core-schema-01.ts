@@ -87,6 +87,7 @@ export const CORE_SCHEMA_01 = `
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL CHECK (length(trim(name)) > 0),
         description TEXT,
+        default_house_id TEXT REFERENCES houses(id) ON DELETE SET NULL,
         location_json TEXT,
         stugby_json TEXT CHECK (stugby_json IS NULL OR json_valid(stugby_json)),
         created_at TEXT NOT NULL,

@@ -712,6 +712,21 @@ describe("Stugu app", () => {
     expect(within(homeAssistantSection).getByRole("button", { name: "Check server connection" })).not.toBeNull();
   });
 
+  it("opens Setup's layout action directly in the bookmarkable editor", async () => {
+    const user = userEvent.setup();
+    renderApp();
+    await findPageHeading("Pine House");
+    await user.click(screen.getByRole("link", { name: "Set up" }));
+    await findPageHeading("Connect your home");
+
+    await user.click(screen.getByRole("tab", { name: /Layout & rooms/ }));
+    await user.click(screen.getByRole("button", { name: "Open layout editor" }));
+
+    expect(await screen.findByRole("button", { name: "Save and finish" })).not.toBeNull();
+    expect(window.location.pathname).toBe("/properties/property-pine/homes/house-pine");
+    expect(new URLSearchParams(window.location.search).get("homeView")).toBe("edit");
+  });
+
   it("opens the sensor inventory and guided onboarding workspace", async () => {
     const user = userEvent.setup();
     renderApp();

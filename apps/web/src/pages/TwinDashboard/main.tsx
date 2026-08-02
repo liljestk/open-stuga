@@ -47,11 +47,14 @@ import { useTwinDashboardPart04 } from "./part-04";
 import { useTwinDashboardPart05 } from "./part-05";
 import { renderTwinDashboard } from "./render";
 import {
+  readTwinDashboardHomeView,
   readTwinDashboardQuerySelection,
   selectionWithFloor,
   twinDashboardQueryOptions,
   twinDashboardQueryHasMeaningfulSelection,
+  writeTwinDashboardHomeView,
   writeTwinDashboardQuerySelection,
+  type TwinDashboardHomeView,
   type TwinDashboardQuerySelection,
 } from "./queryState";
 
@@ -95,6 +98,9 @@ function useTwinDashboardQueryState(props: TwinDashboardProps) {
   const [meaningfulQueryState, setMeaningfulQueryState] = useState(() => (
     twinDashboardQueryHasMeaningfulSelection(window.location.search, options)
   ));
+  const [homeView, setHomeViewState] = useState<TwinDashboardHomeView>(() => (
+    readTwinDashboardHomeView(window.location.search)
+  ));
 
   optionsRef.current = options;
   callbacksRef.current = props;
@@ -127,6 +133,9 @@ function useTwinDashboardQueryState(props: TwinDashboardProps) {
 
   useEffect(() => {
     const currentProps = callbacksRef.current;
+    const nextHomeView = readTwinDashboardHomeView(window.location.search);
+    setHomeViewState(nextHomeView);
+    writeTwinDashboardHomeView(nextHomeView, "replace");
     setMeaningfulQueryState(twinDashboardQueryHasMeaningfulSelection(
       window.location.search,
       optionsRef.current,
@@ -144,6 +153,9 @@ function useTwinDashboardQueryState(props: TwinDashboardProps) {
     const expectedPathname = window.location.pathname;
     const restoreSelection = () => {
       if (window.location.pathname !== expectedPathname) return;
+      const nextHomeView = readTwinDashboardHomeView(window.location.search);
+      setHomeViewState(nextHomeView);
+      writeTwinDashboardHomeView(nextHomeView, "replace");
       setMeaningfulQueryState(twinDashboardQueryHasMeaningfulSelection(
         window.location.search,
         optionsRef.current,
@@ -188,7 +200,12 @@ function useTwinDashboardQueryState(props: TwinDashboardProps) {
     setRangeState(next);
   };
 
-  return { props: queryProps, range, setRange, meaningfulQueryState };
+  const setHomeView = (next: TwinDashboardHomeView, mode: "push" | "replace" = "push") => {
+    setHomeViewState(next);
+    writeTwinDashboardHomeView(next, mode);
+  };
+
+  return { props: queryProps, range, setRange, meaningfulQueryState, homeView, setHomeView };
 }
 
 export function TwinDashboard(props: TwinDashboardProps) {

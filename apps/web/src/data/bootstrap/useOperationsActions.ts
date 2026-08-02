@@ -47,7 +47,7 @@ import {
   type SensorPatch,
 } from "../../api";
 import { subscribeToAuthEpoch } from "../../authEpoch";
-import { createDemoState, nextMockReading, snapshotToReadings, timeRangeHours, type ClimateState, type TimeRange } from "../../domain";
+import { createDemoState, nextMockReading, preferredHouseForProperty, snapshotToReadings, timeRangeHours, type ClimateState, type TimeRange } from "../../domain";
 import { appendHistory, enabledDefinitions, legacyForecastSamples, readingSamples, upsertLatest } from "../../measurements";
 import { routeFromLocation } from "../../routing";
 import { publishHouseWeatherUpdate } from "../../useHouseWeather";
@@ -83,6 +83,14 @@ export function useOperationsActions(
       setState((current) => ({
         ...current,
         houses: current.houses.filter((house) => house.id !== houseId),
+        properties: current.properties.map((property) => {
+          if (property.defaultHouseId !== houseId) return property;
+          const replacement = preferredHouseForProperty(
+            { id: property.id, defaultHouseId: null },
+            current.houses.filter((house) => house.id !== houseId),
+          );
+          return { ...property, defaultHouseId: replacement?.id ?? null, updatedAt: new Date().toISOString() };
+        }),
         sensors: current.sensors.filter((sensor) => sensor.houseId !== houseId),
         observations: current.observations.filter((observation) => observation.houseId !== houseId),
         staticParameters: current.staticParameters.filter((parameter) => parameter.houseId !== houseId),

@@ -83,7 +83,7 @@ export const svPart5 = {
   "sensors.contactManageAction": "Redigera dörr/fönster",
   "sensors.contactLegacyStatus": "Arkiverad äldre post",
   "sensors.contactCurrentAssignment": "Nuvarande dörr eller fönster",
-  "sensors.contactNotAttached": "Inte kopplad",
+  "sensors.contactNotAttached": "Inte kopplad till en dörr eller ett fönster",
   "sensors.contactHardwareId": "Enhets-ID",
   "sensors.contactNotAvailable": "Inte tillgänglig",
   "sensors.contactLastUpdate": "Senaste enhetsuppdatering",

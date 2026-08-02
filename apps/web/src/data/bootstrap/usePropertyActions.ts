@@ -48,7 +48,7 @@ import {
   type SensorPatch,
 } from "../../api";
 import { subscribeToAuthEpoch } from "../../authEpoch";
-import { createDemoState, nextMockReading, snapshotToReadings, timeRangeHours, type ClimateState, type TimeRange } from "../../domain";
+import { createDemoState, nextMockReading, preferredHouseForProperty, snapshotToReadings, timeRangeHours, type ClimateState, type TimeRange } from "../../domain";
 import { appendHistory, enabledDefinitions, legacyForecastSamples, readingSamples, upsertLatest } from "../../measurements";
 import { routeFromLocation } from "../../routing";
 import { publishHouseWeatherUpdate } from "../../useHouseWeather";
@@ -274,9 +274,20 @@ export function usePropertyActions(
         const previous = current.houses.find((house) => house.id === houseId);
         const moved = previous?.propertyId !== saved.propertyId;
         const nextHouses = [...current.houses.filter((house) => house.id !== houseId), saved];
+        const properties = moved && previous ? current.properties.map((item) => {
+          if (item.id === previous.propertyId && item.defaultHouseId === houseId) {
+            const replacement = preferredHouseForProperty({ id: item.id, defaultHouseId: null }, nextHouses);
+            return { ...item, defaultHouseId: replacement?.id ?? null, updatedAt: saved.updatedAt };
+          }
+          if (item.id === saved.propertyId && item.defaultHouseId === null) {
+            return { ...item, defaultHouseId: saved.id, updatedAt: saved.updatedAt };
+          }
+          return item;
+        }) : current.properties;
         return {
           ...current,
           houses: nextHouses,
+          properties,
           sensors: synchronizeSensorRoomLabels(current.sensors, houseId, saved.floors),
           propertyNotes: moved
             ? current.propertyNotes.map((item) => item.houseId === houseId
@@ -318,6 +329,9 @@ export function usePropertyActions(
       setState((current) => ({
         ...current,
         houses: [...current.houses.filter((house) => house.id !== saved.id), saved],
+        properties: current.properties.map((property) => property.id === saved.propertyId && property.defaultHouseId === null
+          ? { ...property, defaultHouseId: saved.id, updatedAt: saved.updatedAt }
+          : property),
       }));
       return saved;
     }, [recordInventoryMutation]);

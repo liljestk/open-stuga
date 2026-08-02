@@ -345,6 +345,7 @@ export interface PropertyRow {
   id: string;
   name: string;
   description: string | null;
+  default_house_id: string | null;
   location_json: string | null;
   stugby_json: string | null;
   created_at: string;

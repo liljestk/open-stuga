@@ -346,7 +346,10 @@ export function configureApiPart11(context: ReturnType<typeof configureApiPart10
       const property = context.database.transaction(() => {
         const updated = context.database.updateProperty(propertyId, patch);
         if (!updated) throw new HttpError(404, "NOT_FOUND", "Property not found");
-        context.stuguby.captureCurrentPropertyEntity(updated.id, "property", updated.id, "upsert", Object.keys(patch));
+        const sharedFields = Object.keys(patch).filter((field) => field !== "defaultHouseId");
+        if (sharedFields.length > 0) {
+          context.stuguby.captureCurrentPropertyEntity(updated.id, "property", updated.id, "upsert", sharedFields);
+        }
         return updated;
       });
       context.notifySpatial((runtime) => runtime.scheduler.enqueueScope(

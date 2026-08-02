@@ -232,7 +232,7 @@ export function parsePropertyInput(value: unknown): PropertyCreateInput {
 
 export function parsePropertyPatch(value: unknown): PropertyPatch {
   const body = bodyObject(value);
-  const fields = new Set(["name", "description", "location"]);
+  const fields = new Set(["name", "description", "defaultHouseId", "location"]);
   rejectUnknownFields(body, fields, "Property patch");
   if (![...fields].some((field) => body[field] !== undefined)) {
     throw new HttpError(400, "INVALID_FIELD", "Property patch must contain at least one mutable field");
@@ -240,6 +240,11 @@ export function parsePropertyPatch(value: unknown): PropertyPatch {
   return {
     ...(body.name !== undefined ? { name: propertyText(body, "name", 200) as string } : {}),
     ...(body.description !== undefined ? { description: propertyText(body, "description", 5_000, true) } : {}),
+    ...(body.defaultHouseId !== undefined ? {
+      defaultHouseId: body.defaultHouseId === null
+        ? null
+        : propertyText(body, "defaultHouseId", 200) as string,
+    } : {}),
     ...(body.location !== undefined ? { location: houseLocationValue(body.location, true) } : {}),
   };
 }

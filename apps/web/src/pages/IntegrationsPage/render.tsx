@@ -449,7 +449,7 @@ export function renderIntegrationsPage(context: ReturnType<typeof useIntegration
           aria-labelledby={`setup-tab-${activeSection}`}
         >
           <header className="weather-heading">
-            <div><span className="eyebrow"><CloudSun size={14} aria-hidden="true" />{house.name}</span><h2>{t("setup.advancedWeather")}</h2><p>{t("setup.advancedWeatherDescription")}</p></div>
+            <div><span className="eyebrow"><CloudSun size={14} aria-hidden="true" />{house.name}</span><h2>{t("setup.advancedWeather")}</h2></div>
             <div className="weather-heading-actions">
               <label className="weather-house-picker"><span>{t("common.house")}</span><select value={house.id} onChange={(event) => selectSetupHouse(event.target.value)}>{houses.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name}</option>)}</select></label>
               <span className={`weather-freshness ${house.location ? "fresh" : "stale"}`}>{house.location ? <Check size={14} aria-hidden="true" /> : <MapPin size={14} aria-hidden="true" />}{house.location ? t("weather.locationSet") : t("weather.locationMissing")}</span>

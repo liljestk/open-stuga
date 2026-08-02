@@ -14,6 +14,7 @@ const property: Property = {
   id: "property-main",
   name: "Main estate",
   description: null,
+  defaultHouseId: null,
   location: null,
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-01T00:00:00.000Z",

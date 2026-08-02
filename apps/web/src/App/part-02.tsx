@@ -2,7 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type
 import type { Floor, Metric, TpLinkDiscoveredDevice, UnitSystem } from "@climate-twin/contracts";
 import { AlertTriangle, HousePlus, LoaderCircle, RotateCcw, ShieldCheck, Sparkles, Wrench } from "lucide-react";
 import { AppShell } from "../components/AppShell";
-import { type AppPage, type ViewMode } from "../domain";
+import { preferredHouseForProperty, type AppPage, type ViewMode } from "../domain";
 import { useClimateData } from "../useClimateData";
 import { countActionableAlertGroups } from "../alertGrouping";
 import { useI18n } from "../i18n";
@@ -64,7 +64,8 @@ export function useAppPart02(context: ReturnType<typeof useAppPart01>) {
       }
       const currentHouse = state.houses.find((candidate) => candidate.id === houseId && candidate.propertyId === scopedPropertyId);
       if (currentHouse) return;
-      const nextHouse = state.houses.find((candidate) => candidate.propertyId === scopedPropertyId);
+      const nextProperty = state.properties.find((candidate) => candidate.id === scopedPropertyId);
+      const nextHouse = preferredHouseForProperty(nextProperty, state.houses);
       if (nextHouse) applyHouse(nextHouse.id);
       else {
         setHouseId("");

@@ -112,7 +112,7 @@ export const enPart6 = {
   "sensors.contactManageAction": "Edit door/window",
   "sensors.contactLegacyStatus": "Archived legacy record",
   "sensors.contactCurrentAssignment": "Current door or window",
-  "sensors.contactNotAttached": "Not attached",
+  "sensors.contactNotAttached": "Not linked to a door or window",
   "sensors.contactHardwareId": "Device ID",
   "sensors.contactNotAvailable": "Not available",
   "sensors.contactLastUpdate": "Last device update",

@@ -49,7 +49,8 @@
   gap: 12px;
 }
 
-.floor-plan-layout { position: relative; }
+.floor-plan-layout,
+.building-map-layout { position: relative; }
 
 .outdoor-map-layout > .outdoor-context-card {
   position: relative;
@@ -73,7 +74,8 @@
   flex-basis: auto;
 }
 
-.floor-plan-layout > .outdoor-context-card.collapsed {
+.floor-plan-layout > .outdoor-context-card.collapsed,
+.building-map-layout > .outdoor-context-card.collapsed {
   position: absolute;
   z-index: 11;
   inset: 12px auto auto 12px;

@@ -34,7 +34,7 @@ describe("RoomComfortBoard evidence", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Open Office\. Status: Waiting for data\./ }));
     const panel = view.container.querySelector<HTMLElement>(".room-evidence-panel")!;
 
-    expect(within(panel).getByText("No data yet")).not.toBeNull();
+    expect(within(panel).getAllByText("No data yet")).toHaveLength(3);
     expect(within(panel).queryByText("Good")).toBeNull();
   });
 

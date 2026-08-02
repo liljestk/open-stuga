@@ -249,10 +249,11 @@ export const schemasPart02 = {
           properties: { latitude: { type: "number", minimum: -90, maximum: 90 }, longitude: { type: "number", minimum: -180, maximum: 180 } },
         },
   Property: {
-          type: "object", required: ["id", "name", "description", "location", "createdAt", "updatedAt"], additionalProperties: false,
+          type: "object", required: ["id", "name", "description", "defaultHouseId", "location", "createdAt", "updatedAt"], additionalProperties: false,
           properties: {
             id: { type: "string" }, name: { type: "string", minLength: 1, maxLength: 200 },
             description: { type: ["string", "null"], maxLength: 5_000 },
+            defaultHouseId: { type: ["string", "null"], description: "Child Home preferred when entering this Property without an explicit Home." },
             location: { oneOf: [{ $ref: "#/components/schemas/HouseLocation" }, { type: "null" }] },
             createdAt: { type: "string", format: "date-time", readOnly: true }, updatedAt: { type: "string", format: "date-time", readOnly: true },
           },
@@ -263,7 +264,7 @@ export const schemasPart02 = {
         },
   PropertyPatch: {
           type: "object", minProperties: 1, additionalProperties: false,
-          properties: { name: { type: "string", minLength: 1, maxLength: 200 }, description: { type: ["string", "null"], maxLength: 5_000 }, location: { oneOf: [{ $ref: "#/components/schemas/HouseLocation" }, { type: "null" }] } },
+          properties: { name: { type: "string", minLength: 1, maxLength: 200 }, description: { type: ["string", "null"], maxLength: 5_000 }, defaultHouseId: { type: ["string", "null"], minLength: 1, maxLength: 200 }, location: { oneOf: [{ $ref: "#/components/schemas/HouseLocation" }, { type: "null" }] } },
         },
   PropertyAreaKind: { enum: ["well", "beach", "garage", "plantation", "garden", "field", "forest", "shoreline", "dock", "road", "yard", "building", "other"] },
 } as const;

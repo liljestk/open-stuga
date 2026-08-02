@@ -80,6 +80,17 @@ export const DEMO_PROPERTY_ID = "property-pine";
 export const DEMO_GROUND_ID = "floor-ground";
 export const DEMO_UPPER_ID = "floor-upper";
 
+/** Resolve the designated Home, with a stable oldest-Home fallback for legacy data. */
+export function preferredHouseForProperty(
+  property: Pick<Property, "id" | "defaultHouseId"> | undefined,
+  houses: readonly House[],
+): House | undefined {
+  if (!property) return undefined;
+  const candidates = houses.filter((house) => house.propertyId === property.id);
+  return candidates.find((house) => house.id === property.defaultHouseId)
+    ?? candidates.sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id))[0];
+}
+
 const now = new Date();
 
 const groundFloor: Floor = {
@@ -266,7 +277,7 @@ export function createDemoState(): ClimateState {
       readOnly: false,
       grants: [],
     },
-    properties: [{ id: DEMO_PROPERTY_ID, name: "Pine Estate", description: "Demonstration property", location: null, createdAt: propertyCreatedAt, updatedAt: now.toISOString() }],
+    properties: [{ id: DEMO_PROPERTY_ID, name: "Pine Estate", description: "Demonstration property", defaultHouseId: DEMO_HOUSE_ID, location: null, createdAt: propertyCreatedAt, updatedAt: now.toISOString() }],
     propertyAreas: [],
     areaEquipment: [],
     propertyNotes: [],

@@ -575,6 +575,10 @@ take precedence after restart.
 | `LOCAL_AUTH_BOOTSTRAP_SECRET` | empty | optional high-entropy secret for an explicitly authorized first-owner setup outside loopback |
 | `LOCAL_AUTH_PROXY_SECRET` | empty | advanced non-Compose shared secret authenticating one immediate reverse proxy; minimum 32 bytes |
 | `LOCAL_AUTH_PROXY_SECRET_FILE` | empty | advanced alternative path containing the proxy secret; creates a random credential when the file does not exist |
+| `BUG_REPORT_RELAY_URL` | empty | optional HTTPS bug-report relay endpoint; configure it together with the relay token |
+| `BUG_REPORT_RELAY_TOKEN` | empty | non-Compose inline relay credential; prefer the file form |
+| `BUG_REPORT_RELAY_TOKEN_FILE` | empty | non-Compose alternative file containing the relay credential |
+| `STUGA_BUG_REPORT_SECRET_DIR` | `./secrets/bug-report` | Compose-only host directory containing the relay credential as `relay-token` |
 | `VITE_API_BASE_URL` | empty | compile-time web API base; empty uses same-origin `/api/v1` and `/api/v2` |
 | `VITE_SPATIAL_MAX_SAMPLE_AGE_MS` | `900000` | live sample age limit for 2D/3D clouds and gradient vectors |
 | `VITE_SPATIAL_REPLAY_MAX_SAMPLE_AGE_MS` | `5400000` | wider replay age limit for downsampled stored history |

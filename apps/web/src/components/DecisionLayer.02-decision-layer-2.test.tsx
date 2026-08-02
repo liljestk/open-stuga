@@ -61,7 +61,7 @@ describe("decision layer", () => {
 
     const supportedCard = screen.getByRole("button", { name: /^Open Office\./ });
     expect(within(supportedCard).getByText("Carbon dioxide")).not.toBeNull();
-    expect(supportedCard.getAttribute("aria-label")).toMatch(/Carbon dioxide: —/);
+    expect(supportedCard.getAttribute("aria-label")).toMatch(/Carbon dioxide: No data yet/);
   });
 
   it("uses fresh retained T310 history when the latest room snapshot is temporarily absent", () => {
@@ -222,6 +222,85 @@ describe("decision layer", () => {
     view.rerender(<I18nProvider><HomePulsePanel {...baseProps} alerts={[{ ...warningAlert, severity: "critical", value: 40 }]} monitoring={responseFor("critical")} /></I18nProvider>);
     expect(view.container.querySelector(".pulse-insight.critical")).not.toBeNull();
     expect(screen.queryByRole("button", { name: /^Hide / })).toBeNull();
+  });
+
+  it("does not present partial monitoring evidence as unfinished setup", () => {
+    const state = createDemoState();
+    const house = state.houses[0]!;
+    const roomSensor = state.sensors.find((candidate) => candidate.houseId === house.id)!;
+    const onOpenSetup = vi.fn();
+    const response = monitoringDetail(
+      monitoringSummary({
+        houseId: house.id,
+        status: "inspection-recommended",
+        pulseStatus: "attention",
+        coverage: { enabledSensors: 1, freshSensors: 1 },
+      }),
+      [monitoringInsight({
+        id: "temperature-balance:test",
+        kind: "temperature-balance",
+        severity: "warning",
+        title: "Rooms differ by 6°C",
+        house,
+        sensor: roomSensor,
+        evidence: [
+          { label: "Office temperature", value: 18, unit: "°C" },
+          { label: "Kitchen temperature", value: 24, unit: "°C" },
+        ],
+      })],
+    );
+    const view = render(<I18nProvider><HomePulsePanel
+      house={house}
+      sensors={[roomSensor]}
+      latestMeasurements={{ [roomSensor.id]: { temperature: { ...sample("temperature", 18), sensorId: roomSensor.id } } }}
+      measurementHistory={{}}
+      alerts={[]}
+      alertRules={[]}
+      weather={null}
+      referenceTime={now}
+      monitoring={{ ...response, completeness: "partial" }}
+      onOpenTarget={vi.fn()}
+      onOpenSetup={onOpenSetup}
+      setupDestination="connections"
+    /></I18nProvider>);
+
+    expect(screen.getAllByText("Rooms differ by 6 °C")).toHaveLength(2);
+    expect(screen.queryByRole("button", { name: "Finish setup" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Check connections" })).toBeNull();
+    openHomePulseMore(view.container);
+    expect(screen.getByRole("button", { name: "Inspect room" })).not.toBeNull();
+    expect(onOpenSetup).not.toHaveBeenCalled();
+  });
+
+  it("uses recovery wording when configured sensors need data", () => {
+    const state = createDemoState();
+    const house = state.houses[0]!;
+    const roomSensor = state.sensors.find((candidate) => candidate.houseId === house.id)!;
+    const onOpenSetup = vi.fn();
+    const response = monitoringDetail(monitoringSummary({
+      houseId: house.id,
+      status: "unknown",
+      pulseStatus: "unknown",
+      coverage: { enabledSensors: 1, staleSensors: 1 },
+    }), []);
+    render(<I18nProvider><HomePulsePanel
+      house={house}
+      sensors={[roomSensor]}
+      latestMeasurements={{}}
+      measurementHistory={{}}
+      alerts={[]}
+      alertRules={[]}
+      weather={null}
+      referenceTime={now}
+      monitoring={{ ...response, completeness: "partial" }}
+      onOpenTarget={vi.fn()}
+      onOpenSetup={onOpenSetup}
+      setupDestination="connections"
+    /></I18nProvider>);
+
+    expect(screen.queryByRole("button", { name: "Finish setup" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Check connections" }));
+    expect(onOpenSetup).toHaveBeenCalledOnce();
   });
 
   it("localizes generated Home Pulse guidance and evidence in Finnish", async () => {

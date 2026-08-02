@@ -161,7 +161,7 @@ describe("House soft deletion boundary", () => {
     expect(nexus433.setEnabled("home-target", true)).toMatchObject({ house_id: "home-target", enabled: 1 });
 
     const unaffectedBefore = {
-      properties: runtime.database.db.prepare("SELECT * FROM properties ORDER BY id").all(),
+      properties: runtime.database.db.prepare("SELECT * FROM properties WHERE id <> 'property-main' ORDER BY id").all(),
       houses: runtime.database.db.prepare("SELECT * FROM houses WHERE id <> 'home-target' ORDER BY id").all(),
       sensors: runtime.database.db.prepare("SELECT * FROM sensors WHERE house_id <> 'home-target' ORDER BY id").all(),
       readings: runtime.database.db.prepare(`SELECT reading.* FROM readings AS reading
@@ -189,12 +189,13 @@ describe("House soft deletion boundary", () => {
       (SELECT COUNT(*) FROM static_parameters WHERE house_id = 'home-target') AS parameters,
       (SELECT COUNT(*) FROM assets WHERE house_id = 'home-target') AS assets`).get()).toEqual(retainedCountsBefore);
     expect({
-      properties: runtime.database.db.prepare("SELECT * FROM properties ORDER BY id").all(),
+      properties: runtime.database.db.prepare("SELECT * FROM properties WHERE id <> 'property-main' ORDER BY id").all(),
       houses: runtime.database.db.prepare("SELECT * FROM houses WHERE id <> 'home-target' ORDER BY id").all(),
       sensors: runtime.database.db.prepare("SELECT * FROM sensors WHERE house_id <> 'home-target' ORDER BY id").all(),
       readings: runtime.database.db.prepare(`SELECT reading.* FROM readings AS reading
         JOIN sensors AS sensor ON sensor.id = reading.sensor_id WHERE sensor.house_id <> 'home-target' ORDER BY reading.id`).all(),
     }).toEqual(unaffectedBefore);
+    expect(runtime.database.getProperty("property-main")?.defaultHouseId).toBe("home-sibling");
 
     await request(runtime.app).get("/api/v1/houses/home-target").expect(404);
     const houses = await request(runtime.app).get("/api/v1/houses").expect(200);

@@ -203,6 +203,18 @@ export function usePropertyManagementPagePart05(context: ReturnType<typeof usePr
       } catch { setFeedback({ kind: "error", text: t("properties.propertySaveFailed") }); }
       finally { setPending(false); }
     };
+  const setDefaultHouse = async (houseId: string) => {
+      if (!property || readOnly || pending || property.defaultHouseId === houseId
+        || !houses.some((house) => house.id === houseId)) return;
+      setPending(true);
+      setFeedback(null);
+      try {
+        const house = houses.find((candidate) => candidate.id === houseId)!;
+        await props.onUpdateProperty(property.id, { defaultHouseId: houseId });
+        setFeedback({ kind: "success", text: t("properties.defaultHomeSaved", { home: house.name }) });
+      } catch { setFeedback({ kind: "error", text: t("properties.defaultHomeSaveFailed") }); }
+      finally { setPending(false); }
+    };
   const createHouse = async (event: FormEvent) => {
       event.preventDefault();
       if (!property || readOnly || pending || !newHouseName.trim()) return;
@@ -318,5 +330,5 @@ export function usePropertyManagementPagePart05(context: ReturnType<typeof usePr
       } catch { setFeedback({ kind: "error", text: t("properties.equipmentSaveFailed") }); }
       finally { setPending(false); }
     };
-  return Object.assign(context, { moveVertex, insertVertex, undoVertex, redoVertex, applyCoordinates, saveArea, removeArea, createProperty, saveProperty, createHouse, removeProperty, clearEquipmentDraft, beginEquipmentEdit, saveEquipment });
+  return Object.assign(context, { moveVertex, insertVertex, undoVertex, redoVertex, applyCoordinates, saveArea, removeArea, createProperty, saveProperty, setDefaultHouse, createHouse, removeProperty, clearEquipmentDraft, beginEquipmentEdit, saveEquipment });
 }

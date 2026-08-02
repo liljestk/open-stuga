@@ -116,6 +116,32 @@ describe("PropertyManagementPage", () => {
     }));
   });
 
+  it("lets a Property choose which Home is the default", async () => {
+    const state = createDemoState();
+    const defaultHome = state.houses[0]!;
+    const sauna = {
+      ...defaultHome,
+      id: "house-sauna",
+      name: "Sauna",
+      createdAt: "2026-07-02T08:00:00.000Z",
+      updatedAt: "2026-07-02T08:00:00.000Z",
+    };
+    state.houses = [sauna, defaultHome];
+    state.properties[0] = { ...state.properties[0]!, defaultHouseId: defaultHome.id };
+    const handlers = callbacks();
+    render(<I18nProvider><PropertyManagementPage state={state} {...handlers} /></I18nProvider>);
+
+    fireEvent.click(screen.getByText("Manage property"));
+    expect(screen.getByText("Default home")).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Make Sauna the default home" }));
+
+    await waitFor(() => expect(handlers.onUpdateProperty).toHaveBeenCalledWith(
+      DEMO_PROPERTY_ID,
+      { defaultHouseId: sauna.id },
+    ));
+    expect(await screen.findByText("Sauna is now the default home.")).not.toBeNull();
+  });
+
   it("browses a large property collection directly and shows useful details", () => {
     const state = createDemoState();
     const firstProperty = state.properties[0]!;

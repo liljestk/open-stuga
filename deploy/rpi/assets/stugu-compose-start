@@ -26,6 +26,7 @@ install -d -m 0750 -o "$appliance_user" -g "$appliance_user" \
   "$state_dir/update-release" \
   "$state_dir/secrets" \
   "$state_dir/secrets/apns" \
+  "$state_dir/secrets/bug-report" \
   "$state_dir/secrets/cloudflare" \
   "$state_dir/secrets/r2" \
   "$state_dir/secrets/tapo-history-api" \
@@ -88,6 +89,8 @@ for setting in \
   "STUGA_UPDATE_COMPOSE_ENV_FILE=/persistent/stugu/stugu.env" \
   "STUGA_DOCKER_CONFIG_DIRECTORY=/persistent/stugu/docker-config" \
   "STUGA_COMPOSE_PROJECT_NAME=stugu" \
+  "STUGA_BUG_REPORT_SECRET_DIR=/persistent/stugu/secrets/bug-report" \
+  "BUG_REPORT_RELAY_URL=" \
   "STUGA_R2_SECRET_DIR=/persistent/stugu/secrets/r2"; do
   setting_name="${setting%%=*}"
   if ! grep -q "^${setting_name}=" "$local_env"; then

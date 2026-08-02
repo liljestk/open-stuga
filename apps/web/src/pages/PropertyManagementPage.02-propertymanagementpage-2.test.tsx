@@ -301,10 +301,12 @@ describe("PropertyManagementPage", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Overview" }));
 
     expect(screen.getByLabelText("Property status")).not.toBeNull();
-    expect(screen.getByLabelText(/^Equipment: Check\. No monitored assets are mapped\./)).not.toBeNull();
-    expect(screen.getByLabelText(/^Well: Check\. No monitored assets are mapped\./)).not.toBeNull();
+    expect(screen.getByLabelText(/^Equipment: Not confirmed\. Live monitoring is not linked\./)).not.toBeNull();
+    expect(screen.getByLabelText(/^Well: Not confirmed\. Live monitoring is not linked\./)).not.toBeNull();
     expect(screen.queryByLabelText(/^Infrastructure:/)).toBeNull();
-    expect(within(screen.getByLabelText("Property status")).getAllByText(/No monitored assets are mapped\./)).toHaveLength(2);
+    expect(within(screen.getByLabelText("Property status")).getAllByText(/Live monitoring is not linked\./)).toHaveLength(2);
+    expect(screen.getByText(/Checks active inventory records for anything marked out of service/)).not.toBeNull();
+    expect(screen.getByText(/Checks equipment assigned to wells for anything marked out of service/)).not.toBeNull();
   });
 
   it("keeps the Property overview calm and puts configuration behind one disclosure", () => {

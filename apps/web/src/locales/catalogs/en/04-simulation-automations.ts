@@ -484,7 +484,7 @@ export const enPart4 = {
   "setup.scanAdditionalEmpty": "No additional systems found.",
   "setup.scanAdditionalEmptyDetail": "Your current connection is still active. You can search again or change its saved settings below.",
   "setup.tapoCompatibilityTitle": "Tapo device not found?",
-  "setup.tapoCompatibilityHelp": "Some Tapo plugs, including P110 and P115, require Third-Party Compatibility before Stugu can find them. In the Tapo app, open the plug's settings, turn it on, then search again here.",
+  "setup.tapoCompatibilityHelp": "Some Tapo plugs, including P110 and P115, require Third-Party Compatibility before Stugu can find them. In the Tapo app, open the plug's settings, enable Third-Party Compatibility, then search again here.",
   "setup.addDiscoveredTpLinkTitle": "Add {device}",
   "setup.addDiscoveredTpLinkDescription": "Choose a found device, then enter its TP-Link account details below. Stugu adds it as a separate connection and keeps existing connections active.",
   "setup.reuseDiscoveredTpLinkDescription": "Choose a found device, then confirm whether to import it with the Tapo or Kasa account already saved in Stugu.",

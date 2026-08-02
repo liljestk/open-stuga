@@ -127,7 +127,10 @@ export function usePropertyManagementPagePart01(context: { props: Readonly<Prope
       && property.stuguby.syncState !== "detached"
       && property.stuguby.editPolicy === "read-only",
     );
-  const houses = useMemo(() => state.houses.filter((house) => house.propertyId === property?.id), [property?.id, state.houses]);
+  const houses = useMemo(() => state.houses
+      .filter((house) => house.propertyId === property?.id)
+      .sort((left, right) => Number(right.id === property?.defaultHouseId) - Number(left.id === property?.defaultHouseId)),
+    [property?.defaultHouseId, property?.id, state.houses]);
   const houseReadOnly = useCallback((house: ClimateState["houses"][number]) => (
       readOnly
       || Boolean(house.stuguby

@@ -55,4 +55,30 @@ describe("AnalyticsWorkLimiter", () => {
     await first;
     expect(limiter.snapshot().operations.queued?.cancelled).toBe(1);
   });
+
+  it("reports aborted active work as cancelled instead of failed", async () => {
+    let now = 0;
+    const limiter = new AnalyticsWorkLimiter({ now: () => now });
+    const controller = new AbortController();
+    let rejectTask!: (error: unknown) => void;
+    const task = limiter.run("energy-summary", () => new Promise<void>((_resolve, reject) => {
+      rejectTask = reject;
+    }), controller.signal);
+    await Promise.resolve();
+
+    now = 25;
+    controller.abort();
+    rejectTask(controller.signal.reason);
+    await expect(task).rejects.toMatchObject({ name: "AbortError" });
+    await Promise.resolve();
+
+    expect(limiter.snapshot().operations["energy-summary"]).toMatchObject({
+      started: 1,
+      succeeded: 0,
+      failed: 0,
+      cancelled: 1,
+      averageRunMs: 0,
+      maxRunMs: 0,
+    });
+  });
 });
