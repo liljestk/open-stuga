@@ -67,6 +67,9 @@ import type {
   SensorDataGap,
   SensorLabelDescriptor,
   SensorSnapshot,
+  ScheduledDataExport,
+  ScheduledDataExportInput,
+  ScheduledDataExportUpdate,
   SetupDoctorReport,
   StaticParameter,
   GuestAccessGrant,
@@ -210,6 +213,32 @@ export const apiPart03 = {
   setupDoctor: async () => entity(await request<SetupDoctorReport | { report: SetupDoctorReport }>("/setup/doctor"), "report"),
   dataExportPreview: async (privacyLevel: DataExportPrivacyLevel, includeTelemetry: boolean) => entity(await request<DataExportPreview | { preview: DataExportPreview }>(`/data-export/preview?privacyLevel=${encodeURIComponent(privacyLevel)}&includeTelemetry=${includeTelemetry}`), "preview"),
   dataExportUrl: (privacyLevel: DataExportPrivacyLevel, includeTelemetry: boolean) => `${API_BASE}/data-export?privacyLevel=${encodeURIComponent(privacyLevel)}&includeTelemetry=${includeTelemetry}`,
+  scheduledDataExports: async (houseId: string) => list<ScheduledDataExport>(
+      await request<unknown>(`/houses/${encodeURIComponent(houseId)}/scheduled-data-exports`),
+      ["exports", "data"],
+    ),
+  createScheduledDataExport: async (houseId: string, input: ScheduledDataExportInput) => entity(
+      await request<ScheduledDataExport | { export: ScheduledDataExport }>(`/houses/${encodeURIComponent(houseId)}/scheduled-data-exports`, {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
+      "export",
+    ),
+  updateScheduledDataExport: async (houseId: string, id: string, input: ScheduledDataExportUpdate) => entity(
+      await request<ScheduledDataExport | { export: ScheduledDataExport }>(`/houses/${encodeURIComponent(houseId)}/scheduled-data-exports/${encodeURIComponent(id)}`, {
+        method: "PUT",
+        body: JSON.stringify(input),
+      }),
+      "export",
+    ),
+  deleteScheduledDataExport: (houseId: string, id: string) => request<void>(
+      `/houses/${encodeURIComponent(houseId)}/scheduled-data-exports/${encodeURIComponent(id)}`,
+      { method: "DELETE" },
+    ),
+  runScheduledDataExport: async (houseId: string, id: string) => entity(
+      await request<ScheduledDataExport | { export: ScheduledDataExport }>(`/houses/${encodeURIComponent(houseId)}/scheduled-data-exports/${encodeURIComponent(id)}/run`, { method: "POST" }),
+      "export",
+    ),
   backupStatus: async () => entity(await request<BackupOperationStatus | { backup: BackupOperationStatus }>("/backups/status"), "backup"),
   requestBackup: async () => entity(await request<BackupOperationStatus | { backup: BackupOperationStatus }>("/backups", { method: "POST" }), "backup"),
   createStaticParameter: (parameter: Omit<StaticParameter, "id">) => request<StaticParameter>("/static-parameters", { method: "POST", body: JSON.stringify(parameter) }),

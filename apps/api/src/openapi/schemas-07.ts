@@ -3,6 +3,26 @@ import { STUGBY_MEDIA_TYPE } from "@climate-twin/stuguby-protocol";
 import { jsonRequestBody, jsonResponse, localAuthPaths, localAuthSchemas, operationalOrchestrationPaths, spatialHouseResourcePath, spatialJsonResponse, spatialLayerPaths, spatialLayerSchemas, spatialRequestBody, spatialScopePaths, spatialScopeQueryParameters, stugubyIdParameter, stugubyNodeSecurity, stugubyObject, stugubyPaths, stugubyRequestBody, stugubyResponse, trackingObject, trackingObserverBearerSecurity, trackingObserverSecurity, trackingPathParameter, trackingPaths } from "./support/index.js";
 import type { OpenApiSchema } from "./support/index.js";
 
+const scheduledDataExportInputProperties = {
+  name: { type: "string", minLength: 1, maxLength: 120 },
+  enabled: { type: "boolean" },
+  frequency: { enum: ["daily", "weekly", "monthly"] },
+  timeLocal: { type: "string", pattern: "^(?:[01]\\d|2[0-3]):[0-5]\\d$" },
+  dayOfWeek: { type: ["integer", "null"], minimum: 0, maximum: 6 },
+  dayOfMonth: { type: ["integer", "null"], minimum: 1, maximum: 31 },
+  period: { enum: ["24h", "7d", "30d", "90d"] },
+  sensorIds: { type: "array", minItems: 1, maxItems: 50, items: { type: "string" } },
+  measurementIds: { type: "array", minItems: 1, maxItems: 8, items: { type: "string" } },
+  resolution: { type: "string", pattern: "^(?:raw|1h|1d|[1-9]\\d{0,3}m)$" },
+  aggregation: { enum: ["default", "mean", "sum", "delta", "last", "time_weighted_mean", "min", "max"] },
+  retentionCount: { type: "integer", minimum: 1, maximum: 365 },
+} as const;
+
+const scheduledDataExportInputRequired = [
+  "name", "enabled", "frequency", "timeLocal", "period", "sensorIds", "measurementIds",
+  "resolution", "aggregation", "retentionCount",
+] as const;
+
 export const schemasPart07 = {
   AppleNotesMaintenanceCaptureResult: {
           type: "object", additionalProperties: false, required: ["ok", "deduplicated", "task", "receipt"],
@@ -274,6 +294,27 @@ export const schemasPart07 = {
   DataExportBundle: {
           type: "object", required: ["schemaVersion", "generatedAt", "privacyLevel", "includesTelemetry", "privacyPreview", "data"],
           properties: { schemaVersion: { const: "stugu.export/v1" }, generatedAt: { type: "string", format: "date-time" }, privacyLevel: { enum: ["structure", "operations", "full"] }, includesTelemetry: { type: "boolean" }, privacyPreview: { $ref: "#/components/schemas/DataExportPreview" }, data: { type: "object", additionalProperties: true }, telemetry: { type: "object", additionalProperties: { type: "array", items: { type: "object", additionalProperties: true } } } },
+        },
+  ScheduledDataExportInput: {
+          type: "object", additionalProperties: false, required: scheduledDataExportInputRequired,
+          properties: scheduledDataExportInputProperties,
+        },
+  ScheduledDataExportUpdate: {
+          type: "object", additionalProperties: false, required: [...scheduledDataExportInputRequired, "baseRevision"],
+          properties: { ...scheduledDataExportInputProperties, baseRevision: { type: "integer", minimum: 1 } },
+        },
+  ScheduledDataExport: {
+          type: "object", additionalProperties: false,
+          required: ["id", "houseId", ...scheduledDataExportInputRequired, "dayOfWeek", "dayOfMonth", "nextRunAt", "lastRunAt", "lastRunStatus", "lastRunError", "lastOutputName", "revision", "createdAt", "updatedAt"],
+          properties: {
+            id: { type: "string", format: "uuid" }, houseId: { type: "string" },
+            ...scheduledDataExportInputProperties,
+            nextRunAt: { type: ["string", "null"], format: "date-time" },
+            lastRunAt: { type: ["string", "null"], format: "date-time" },
+            lastRunStatus: { enum: ["never", "pending", "complete", "failed"] },
+            lastRunError: { type: ["string", "null"] }, lastOutputName: { type: ["string", "null"] },
+            revision: { type: "integer", minimum: 1 }, createdAt: { type: "string", format: "date-time" }, updatedAt: { type: "string", format: "date-time" },
+          },
         },
   BackupOperationStatus: {
           type: "object", additionalProperties: false, required: ["available", "schedulerHealthy", "requestId", "state", "requestedAt", "completedAt", "backupPath", "lastError", "latestVerifiedBackupAt", "latestRestoreDrillAt"],

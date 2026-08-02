@@ -170,11 +170,14 @@ with:
 docker compose --profile maintenance run --rm stugu-backup-export
 ```
 
-With the trusted host update agent connected, Owners/Admins can choose these
-locations under **System → Storage**. Paths must already be mounted below
-`STUGA_STORAGE_ALLOWED_ROOTS`. NAS is accepted only for recovery sets; storage
-moves are backed up, restore-tested, journaled, copied, mount-verified, and
-rolled back without deleting the old source.
+With the trusted host update agent connected, Owners/Admins can connect the
+shared NAS under **Set up → Operations** or use the full controls under
+**System → Storage**. Paths must already be mounted below
+`STUGA_STORAGE_ALLOWED_ROOTS`. NAS is accepted only as a recovery and derived
+export target, never for the live telemetry database. Storage moves are backed
+up, restore-tested, journaled, copied, mount-verified, and rolled back without
+deleting the old source. Each Home chooses its scheduled CSV exports under
+**Data & analytics**.
 
 Use `podman compose` in both commands when Podman is the selected runtime.
 See the [lossless telemetry scale plan](docs/telemetry-scale-plan.md) and
