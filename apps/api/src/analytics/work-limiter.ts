@@ -80,6 +80,11 @@ function abortReason(signal?: AbortSignal): Error {
   return new DOMException("The operation was aborted", "AbortError");
 }
 
+function isCancellation(error: unknown, signal?: AbortSignal): boolean {
+  if (signal?.aborted) return true;
+  return error instanceof Error && error.name === "AbortError";
+}
+
 /**
  * One process-wide admission boundary for CPU/database-heavy request work.
  * It deliberately bounds both active work and the waiting queue so load sheds
@@ -215,6 +220,7 @@ export class AnalyticsWorkLimiter {
     const queueMs = Math.max(0, startedAt - item.enqueuedAt);
     stats.totalQueueMs += queueMs;
     stats.maxQueueMs = Math.max(stats.maxQueueMs, queueMs);
+    let includeRunDuration = true;
 
     void Promise.resolve().then(item.task).then(
       (value) => {
@@ -222,13 +228,20 @@ export class AnalyticsWorkLimiter {
         item.resolve(value);
       },
       (error: unknown) => {
-        stats.failed += 1;
+        if (isCancellation(error, item.signal)) {
+          stats.cancelled += 1;
+          includeRunDuration = false;
+        } else {
+          stats.failed += 1;
+        }
         item.reject(error);
       },
     ).finally(() => {
       const runMs = Math.max(0, this.#readClock() - startedAt);
-      stats.totalRunMs += runMs;
-      stats.maxRunMs = Math.max(stats.maxRunMs, runMs);
+      if (includeRunDuration) {
+        stats.totalRunMs += runMs;
+        stats.maxRunMs = Math.max(stats.maxRunMs, runMs);
+      }
       stats.active -= 1;
       this.#active -= 1;
       this.#drain();

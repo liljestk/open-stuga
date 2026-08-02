@@ -28,7 +28,7 @@ interface AppShellProps {
   readOnly?: boolean;
   principalEmail?: string | null;
   onLogout?: () => Promise<void> | void;
-  properties?: Array<Pick<Property, "id" | "name">>;
+  properties?: Array<Pick<Property, "id" | "name"> & Partial<Pick<Property, "defaultHouseId">>>;
   propertyId?: string;
   onProperty?: (propertyId: string) => void;
   houses?: Array<Pick<Home, "id" | "propertyId" | "name" | "timezone" | "stuguby">>;
@@ -152,7 +152,8 @@ export function AppShell({
 }: AppShellProps) {
   const { locale, setLocale, t } = useI18n();
   const activeProperty = properties.find((property) => property.id === propertyId);
-  const propertyHouses = houses.filter((house) => house.propertyId === propertyId);
+  const propertyHouses = houses.filter((house) => house.propertyId === propertyId)
+    .sort((left, right) => Number(right.id === activeProperty?.defaultHouseId) - Number(left.id === activeProperty?.defaultHouseId));
   const activeHome = propertyHouses.find((house) => house.id === houseId);
   const homeOriginLabel = (home: HomeOriginScope) => t(isRemoteHome(home) ? "home.origin.remote" : "home.origin.own");
   const activeTimeZone = activeHome?.timezone;

@@ -210,6 +210,7 @@ export function propertyFromRow(row: PropertyRow): Property {
     id: row.id,
     name: row.name,
     description: row.description,
+    defaultHouseId: row.default_house_id,
     location: row.location_json ? parseJson<HouseLocation>(row.location_json) : null,
     ...(row.stugby_json ? { stuguby: stugubyLinkFromJson<StugubyPropertyLink>(row.stugby_json) } : {}),
     createdAt: row.created_at,

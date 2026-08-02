@@ -27,6 +27,8 @@
 .property-house-group li strong, .property-house-group li small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .property-house-group li strong { font-size: 11px; }
 .property-house-group li small { color: var(--muted); font-size: 10px; }
+.property-default-home { display: inline-flex; align-items: center; gap: 4px; color: var(--success) !important; font-weight: 700; }
+.property-house-group .property-default-home-action { justify-self: start; min-height: 24px; padding: 0; font-size: 10px; }
 .property-house-group li label { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 5px; margin-top: 4px; color: var(--muted); font-size: 10px; }
 .property-house-group li select { min-width: 0; height: 26px; padding: 0 5px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--panel); font-size: 10px; }
 .property-area-list > div:first-child { display: flex; justify-content: space-between; align-items: center; }
@@ -52,6 +54,7 @@
 .property-status-lights strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .property-status-lights strong { font: 700 10px/1.25 "Manrope", sans-serif; }
 .property-status-lights small { color: var(--muted); font-size: 10px; overflow-wrap: anywhere; }
+.property-status-lights .property-status-check { margin-top: 3px; line-height: 1.35; }
 .property-status-signal { width: 13px; height: 13px; border: 2px solid #fff; border-radius: 50%; background: #23844e; box-shadow: 0 0 0 1px color-mix(in srgb, #23844e 55%, var(--line)); }
 .property-status-lights article[data-status="caution"] .property-status-signal { border-radius: 3px; background: #d49112; box-shadow: 0 0 0 1px color-mix(in srgb, #d49112 60%, var(--line)); transform: rotate(45deg) scale(.86); }
 .property-status-lights article[data-status="critical"] .property-status-signal { border-radius: 2px; background: #c43a35; box-shadow: 0 0 0 1px color-mix(in srgb, #c43a35 60%, var(--line)); }

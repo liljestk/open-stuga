@@ -15,7 +15,7 @@ export const enDataExport = {
   "dataExport.sensors": "Sensors",
   "dataExport.allSensors": "All sensors ({count})",
   "dataExport.selectedSensors": "{count} sensors selected",
-  "dataExport.noSelectedData": "No selected measurements detected",
+  "dataExport.noSelectedData": "None of the selected measurements are available",
   "dataExport.measurements": "Measurements",
   "dataExport.selectedMeasurements": "{count} measurements selected",
   "dataExport.granularity": "Data granularity",

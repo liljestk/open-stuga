@@ -230,9 +230,11 @@ export class LocalVisibility {
 
   property(property: Property): Property | null {
     if (!this.restricted || this.#propertyIds.has(property.id)) return property;
-    return this.#derivedPropertyIds.has(property.id)
-      ? { ...property, description: null, location: null }
+    if (!this.#derivedPropertyIds.has(property.id)) return null;
+    const defaultHouseId = property.defaultHouseId && this.house(property.defaultHouseId)
+      ? property.defaultHouseId
       : null;
+    return { ...property, description: null, defaultHouseId, location: null };
   }
 
   house(houseId: string): boolean {

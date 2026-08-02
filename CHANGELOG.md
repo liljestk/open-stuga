@@ -4,6 +4,26 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.30.0 - 2026-08-02
+
+- Let each Property designate a default Home, use it consistently when opening
+  Property and Home views, and keep the choice valid when Homes move or hide.
+- Make telemetry and backup storage changes easier to understand and safer to
+  enter with an explicit move plan, allowed-root validation, overlap checks,
+  resumable progress, and a reset action.
+- Preserve bookmarkable Home view modes, open layout editing directly, centre
+  the 3D Home view, and improve setup, monitoring, analytics, and responsive
+  status wording across English, Finnish, and Swedish.
+- Count cancelled analytics work separately from failures and exclude aborted
+  durations from execution metrics.
+- Make private bug-report relay configuration available to Compose and
+  Raspberry Pi appliances through a protected, upgrade-safe token mount.
+
+Upgrade impact: startup adds and backfills the Property default-Home reference.
+Existing telemetry, storage settings, and Home ownership are preserved. The
+bug-report relay remains optional and requires an explicitly configured URL and
+protected token file.
+
 ## 0.29.1 - 2026-08-02
 
 - Let an application role reuse an existing telemetry schema without requiring

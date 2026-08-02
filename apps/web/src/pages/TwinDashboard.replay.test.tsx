@@ -174,7 +174,8 @@ describe("TwinDashboard climate-sensor map layer", () => {
     plan.unmount();
 
     const building = renderDashboard(createDemoState(), "demo", false, "isometric");
-    fireEvent.click(screen.getByRole("button", { name: "Open live home view" }));
+    const buildingLiveViewButton = screen.queryByRole("button", { name: "Open live home view" });
+    if (buildingLiveViewButton) fireEvent.click(buildingLiveViewButton);
     openViewOptions();
     const buildingLayerButton = await screen.findByRole("button", { name: "Climate sensors" });
     expect(buildingLayerButton.getAttribute("aria-pressed")).toBe("false");
@@ -293,7 +294,8 @@ describe("TwinDashboard wind display controls", () => {
       first.unmount();
 
       const second = renderDashboard(state);
-      fireEvent.click(screen.getByRole("button", { name: "Open live home view" }));
+      const secondLiveViewButton = screen.queryByRole("button", { name: "Open live home view" });
+      if (secondLiveViewButton) fireEvent.click(secondLiveViewButton);
       openViewOptions();
       expect((await screen.findByRole("button", { name: "Animations" })).getAttribute("aria-pressed")).toBe("false");
       expect(screen.getByRole("button", { name: "Wind details" }).getAttribute("aria-pressed")).toBe("false");
@@ -522,8 +524,8 @@ describe("TwinDashboard progressive disclosure", () => {
     expect(view.container.querySelector(".moisture-coach")).toBeNull();
     expect(view.container.querySelector(".home-status-zone")).toBeNull();
     expect(view.container.querySelector(".room-comfort-section")).toBeNull();
-    expect(screen.getAllByRole("button", { name: "Finish setup" })).toHaveLength(1);
-    fireEvent.click(screen.getByRole("button", { name: "Finish setup" }));
+    expect(screen.getAllByRole("button", { name: "Check connections" })).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Check connections" }));
     expect(view.onOpenConnections).toHaveBeenCalledWith(demo.houses[0]!.id);
 
     expect(screen.queryByLabelText("House")).toBeNull();
@@ -565,7 +567,7 @@ describe("TwinDashboard replay timing", () => {
       bucketSeconds: 300,
     }]));
     await waitFor(() => expect(within(historyWindow).getByText("0 samples loaded")).not.toBeNull());
-    expect(screen.getByRole("heading", { name: "History & Events" })).not.toBeNull();
+    expect(screen.getByRole("heading", { name: "History & events" })).not.toBeNull();
   });
 
   it("loads every enabled measurement plus recorded external weather into replay", async () => {

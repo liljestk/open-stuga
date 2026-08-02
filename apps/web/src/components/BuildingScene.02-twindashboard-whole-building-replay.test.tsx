@@ -232,7 +232,7 @@ describe("TwinDashboard whole-building replay", () => {
     expect(view.container.querySelector(".home-status-zone")).toBeNull();
     expect(view.container.querySelector(".moisture-coach")).toBeNull();
     expect(view.container.querySelector(".room-comfort-section")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Finish setup" }));
+    fireEvent.click(screen.getByRole("button", { name: "Check connections" }));
     expect(onOpenConnections).toHaveBeenCalledWith(house.id);
     expect(onOpenSensors).not.toHaveBeenCalled();
   });

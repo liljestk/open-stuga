@@ -435,7 +435,7 @@ export function EnergyPage({ state, house = null, propertyId: requestedPropertyI
         {propertyPrice?.current && <p><strong>{t("energy.priceSummary", {
           effective: propertyPrice.current.effectivePriceCentsPerKwh.toFixed(3),
           raw: propertyPrice.current.rawPriceCentsPerKwh.toFixed(3),
-          provider: propertyPrice.config.provider,
+          provider: propertyPrice.config.provider === "porssisahko" ? "Pörssisähkö.net" : t("energy.priceApi"),
         })}</strong></p>}
         {!readOnly && <details className="energy-contract-editor" open={!propertyPrice?.current}>
           <summary><span>{t(propertyPrice?.current ? "energy.editContract" : "energy.contractTitle")}</span><ChevronDown size={16} aria-hidden="true" /></summary>

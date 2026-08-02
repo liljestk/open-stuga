@@ -8,7 +8,9 @@ import { I18nProvider } from "../i18n";
 import { TwinDashboard } from "./TwinDashboard";
 import {
   defaultTwinDashboardQuerySelection,
+  readTwinDashboardHomeView,
   readTwinDashboardQuerySelection,
+  twinDashboardHomeViewLocation,
   twinDashboardLocation,
   type TwinDashboardQueryOptions,
 } from "./TwinDashboard/queryState";
@@ -72,6 +74,19 @@ afterEach(() => {
 });
 
 describe("TwinDashboard query state", () => {
+  it("validates and preserves bookmarkable Home surface state", () => {
+    expect(readTwinDashboardHomeView("?homeView=edit")).toBe("edit");
+    expect(readTwinDashboardHomeView("?homeView=unknown")).toBe("auto");
+    expect(twinDashboardHomeViewLocation(
+      "https://stugu.test/properties/p/homes/h?view=isometric&keep=1#map",
+      "full",
+    )).toBe("/properties/p/homes/h?view=isometric&keep=1&homeView=full#map");
+    expect(twinDashboardHomeViewLocation(
+      "https://stugu.test/properties/p/homes/h?homeView=live&keep=1",
+      "auto",
+    )).toBe("/properties/p/homes/h?keep=1");
+  });
+
   it("validates values, keeps unrelated parameters, and omits defaults", () => {
     expect(readTwinDashboardQuerySelection(
       "?floor=upper&metric=humidity&view=isometric&sensor=upper-main&range=7d",
@@ -146,6 +161,7 @@ describe("TwinDashboard query state", () => {
     render(<DashboardHarness state={createDemoState()} />);
 
     fireEvent.click(screen.getByRole("button", { name: "Open live home view" }));
+    expect(new URLSearchParams(window.location.search).get("homeView")).toBe("live");
     fireEvent.change(await screen.findByLabelText("Floor"), { target: { value: "floor-upper" } });
     await waitFor(() => expect(new URLSearchParams(window.location.search).get("floor")).toBe("floor-upper"));
     expect(new URLSearchParams(window.location.search).has("sensor")).toBe(false);
@@ -167,6 +183,24 @@ describe("TwinDashboard query state", () => {
       expect(params.get("keep")).toBe("context");
     });
     expect(window.location.hash).toBe("#live");
+  });
+
+  it("restores explicit live and summary surfaces across remounts", async () => {
+    window.history.replaceState({}, "", "/properties/property-pine/homes/house-pine");
+    const first = render(<DashboardHarness state={createDemoState()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Open live home view" }));
+    expect(new URLSearchParams(window.location.search).get("homeView")).toBe("live");
+    first.unmount();
+
+    const second = render(<DashboardHarness state={createDemoState()} />);
+    expect(await screen.findByRole("button", { name: "Hide live home view" })).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Hide live home view" }));
+    expect(new URLSearchParams(window.location.search).get("homeView")).toBe("summary");
+    second.unmount();
+
+    render(<DashboardHarness state={createDemoState()} />);
+    expect(await screen.findByRole("button", { name: "Open live home view" })).not.toBeNull();
   });
 
   it("returns focus to the Home heading when the primary live-view launcher is unavailable", async () => {

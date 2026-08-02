@@ -268,12 +268,12 @@ export function useIntegrationsPagePart05(context: ReturnType<typeof useIntegrat
       : activeSection === "connections"
         ? t("setup.connectionsTitle")
         : activeSection === "weather"
-          ? t("setup.advancedWeather")
+          ? t("setup.workspaceWeather")
         : activeSectionLabel;
   const sectionDescription = activeSection === "connections"
       ? t("setup.connectionsDescription")
       : activeSection === "weather"
-        ? t("setup.advancedWeatherDescription")
+        ? t("placement.weatherDescription")
         : t("setup.description");
   const activateSection = (section: SetupSection) => {
       setActiveSection(section);

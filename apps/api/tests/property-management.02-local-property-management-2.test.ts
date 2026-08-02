@@ -251,6 +251,30 @@ describe("local property management", () => {
 });
 
 describe("legacy property migration", () => {
+  it("backfills the oldest active Home when adding the default designation", () => {
+    const migrated = new ClimateDatabase(":memory:", false);
+    try {
+      const floors = [{ id: "ground", name: "Ground", width: 10, height: 8, elevation: 0, walls: [], rooms: [] }];
+      migrated.createHouse({ id: "legacy-home-a", propertyId: "property-main", name: "A", timezone: "UTC", floors });
+      migrated.createHouse({ id: "legacy-home-b", propertyId: "property-main", name: "B", timezone: "UTC", floors });
+      migrated.db.exec(`
+        DROP TRIGGER validate_property_default_house_insert;
+        DROP TRIGGER validate_property_default_house_update;
+        DROP TRIGGER assign_first_property_house;
+        DROP TRIGGER maintain_property_default_house_after_update;
+        DROP TRIGGER maintain_property_default_house_after_delete;
+        ALTER TABLE properties DROP COLUMN default_house_id;
+      `);
+
+      migrated.migrate();
+
+      expect(migrated.getProperty("property-main")?.defaultHouseId).toBe("legacy-home-a");
+      expect(migrated.db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+    } finally {
+      migrated.close();
+    }
+  });
+
   it("upgrades the legacy Area-only equipment table without losing records", () => {
     const migrated = new ClimateDatabase(":memory:", false);
     try {

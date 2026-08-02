@@ -15,7 +15,7 @@ export const fiDataExport = {
   "dataExport.sensors": "Anturit",
   "dataExport.allSensors": "Kaikki anturit ({count})",
   "dataExport.selectedSensors": "{count} anturia valittu",
-  "dataExport.noSelectedData": "Valittuja mittauksia ei havaittu",
+  "dataExport.noSelectedData": "Valittuja mittauksia ei ole saatavilla",
   "dataExport.measurements": "Mittaukset",
   "dataExport.selectedMeasurements": "{count} mittausta valittu",
   "dataExport.granularity": "Datan tarkkuus",

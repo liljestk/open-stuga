@@ -297,10 +297,25 @@ registerDatabaseMethods({
         if (patch.description !== undefined) {
           next.description = this.propertyOptionalText(patch.description, "Property description", 5_000);
         }
+        if (patch.defaultHouseId !== undefined) {
+          if (patch.defaultHouseId === null) next.defaultHouseId = null;
+          else {
+            const defaultHouse = this.getHouse(patch.defaultHouseId);
+            if (!defaultHouse || defaultHouse.propertyId !== id) {
+              throw new ClimateDataValidationError(
+                422,
+                "PROPERTY_DEFAULT_HOUSE_INVALID",
+                "The default Home must be an active Home in this Property",
+              );
+            }
+            next.defaultHouseId = defaultHouse.id;
+          }
+        }
         if (patch.location !== undefined) next.location = patch.location;
         if (next.location) this.validateHouseLocation(next.location);
-        this.db.prepare(`UPDATE properties SET name = ?, description = ?, location_json = ?, updated_at = ? WHERE id = ?`)
-          .run(next.name, next.description, next.location ? JSON.stringify(next.location) : null, next.updatedAt, id);
+        this.db.prepare(`UPDATE properties SET name = ?, description = ?, default_house_id = ?, location_json = ?, updated_at = ? WHERE id = ?`)
+          .run(next.name, next.description, next.defaultHouseId,
+            next.location ? JSON.stringify(next.location) : null, next.updatedAt, id);
         if (patch.location !== undefined) {
           const rows = this.db.prepare("SELECT * FROM houses WHERE property_id = ? AND deleted_at IS NULL")
             .all(id) as unknown as HouseRow[];

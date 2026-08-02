@@ -5,6 +5,8 @@ export interface Property {
   id: string;
   name: string;
   description: string | null;
+  /** Child Home preferred when this Property needs an initial Home context. */
+  defaultHouseId: string | null;
   /** Default Property weather reference and map centre before other geometry is available. */
   location: HouseLocation | null;
   /** Present only when this row is the local projection of a Stuguby Property. */
@@ -153,7 +155,7 @@ export const DEFAULT_ELECTRICITY_PRICE_ENDPOINT = "https://api.porssisahko.net/v
 
 export type PropertyCreateInput = Pick<Property, "name"> & Partial<Pick<Property, "id" | "description" | "location">>;
 
-export type PropertyPatch = Partial<Pick<Property, "name" | "description" | "location">>;
+export type PropertyPatch = Partial<Pick<Property, "name" | "description" | "defaultHouseId" | "location">>;
 
 /** One WGS84 property-map coordinate. */
 export interface GeoCoordinate {

@@ -330,9 +330,28 @@ export function HomePulsePanel(props: HomePulsePanelProps) {
   };
 
   const hiddenInsightLabel = t(hiddenInsightCount === 1 ? "decision.hiddenInsightOne" : "decision.hiddenInsightMany", { count: hiddenInsightCount });
-  const monitoringUnavailable = !monitoringEvidenceComplete
-    || pulse.coverage.enabledSensors === 0
-    || pulse.coverage.freshSensors + pulse.coverage.estimatedSensors === 0;
+  const enabledSensorCount = props.sensors.filter((sensor) => sensor.enabled).length;
+  const setupIncomplete = enabledSensorCount === 0;
+  const hasLocalSensorData = props.sensors.some((sensor) =>
+    sensor.enabled && Object.keys(props.latestMeasurements[sensor.id] ?? {}).length > 0);
+  const applicableMonitoring = monitoring?.house.houseId === props.house.id ? monitoring : null;
+  const monitoredCoverage = applicableMonitoring?.house.coverage;
+  const coverageNeedsReview = Boolean(monitoredCoverage && enabledSensorCount > 0 && (
+    monitoredCoverage.enabledSensors !== enabledSensorCount
+    || monitoredCoverage.freshSensors !== monitoredCoverage.enabledSensors
+    || monitoredCoverage.estimatedSensors > 0
+    || monitoredCoverage.agingSensors > 0
+    || monitoredCoverage.staleSensors > 0
+    || monitoredCoverage.sensorsWithoutData > 0
+  ));
+  const sourceNeedsReview = applicableMonitoring?.house.blockers.some(
+    (blocker) => blocker.kind === "source-disconnected",
+  ) ?? false;
+  const monitoringNeedsReview = applicableMonitoring ? coverageNeedsReview || sourceNeedsReview : !hasLocalSensorData;
+  const showRemediation = Boolean(props.onOpenSetup && (setupIncomplete || monitoringNeedsReview));
+  const remediationLabel = setupIncomplete
+    ? t("overview.finishSetup")
+    : t(props.setupDestination === "connections" ? "overview.checkConnections" : "overview.checkSensors");
   return (
     <section className={`panel home-pulse ${pulse.status}`} aria-labelledby="home-pulse-heading">
       <div className="home-pulse-header">
@@ -344,7 +363,7 @@ export function HomePulsePanel(props: HomePulsePanelProps) {
         const display = displayHomeInsight(insight, locale, t);
         return <li key={insight.id} className={insight.severity}><span>{t(`decision.severity.${insight.severity}`)}</span><strong>{display.title}</strong></li>;
       })}</ul> : pulse.insights.length === 0 ? monitoringSuccessful && pulse.status === "steady" ? <div className="pulse-calm"><CheckCircle2 size={18} aria-hidden="true" /><span><strong>{t("decision.pulseCalmTitle")}</strong></span></div> : <p className="home-pulse-explanation" data-pulse-empty-state={pulse.status} role="status"><PulseIcon status={pulse.status} /> <span>{t(`decision.pulse.${pulse.status}.body`)}</span></p> : null}
-      {monitoringUnavailable && props.onOpenSetup && <button type="button" className="secondary-button home-pulse-remediation" data-remediation={props.setupDestination ?? "sensors"} onClick={props.onOpenSetup}>{t("overview.finishSetup")}<ArrowRight size={15} aria-hidden="true" /></button>}
+      {showRemediation && props.onOpenSetup && <button type="button" className="secondary-button home-pulse-remediation" data-remediation={props.setupDestination ?? "sensors"} onClick={props.onOpenSetup}>{remediationLabel}<ArrowRight size={15} aria-hidden="true" /></button>}
       <details className="home-pulse-more">
         <summary><span>{t("home.moreInformation")}</span>{visibleInsights.length > 0 && <small>{visibleInsights.length}</small>}<ChevronDown size={15} aria-hidden="true" /></summary>
         <div className="home-pulse-more-content">
@@ -356,7 +375,7 @@ export function HomePulsePanel(props: HomePulsePanelProps) {
             const acknowledge = insight.severity === "critical" && alert && !alert.acknowledgedAt && onAcknowledge
               ? () => onAcknowledge(alert.id)
               : undefined;
-            return <InsightCard key={insight.id} insight={insight} summaryRef={(node) => { if (node) insightSummaryRefs.current.set(fingerprint, node); else insightSummaryRefs.current.delete(fingerprint); }} allowOpen={!monitoringUnavailable || !props.onOpenSetup} {...(canHideInsight(insight) ? { onHide: () => hideInsight(insight) } : {})} {...(acknowledge ? { onAcknowledge: acknowledge } : {})} onOpen={() => {
+            return <InsightCard key={insight.id} insight={insight} summaryRef={(node) => { if (node) insightSummaryRefs.current.set(fingerprint, node); else insightSummaryRefs.current.delete(fingerprint); }} allowOpen={!showRemediation || !props.onOpenSetup} {...(canHideInsight(insight) ? { onHide: () => hideInsight(insight) } : {})} {...(acknowledge ? { onAcknowledge: acknowledge } : {})} onOpen={() => {
               if (insight.target.floorId && insight.target.sensorId) props.onOpenTarget(insight.target.floorId, insight.target.sensorId);
             }} />;
           })}</div>}

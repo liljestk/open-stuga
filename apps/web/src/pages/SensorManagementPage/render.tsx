@@ -74,6 +74,11 @@ import { useSensorManagementPagePart04 } from "./part-04";
 import { Nexus433SendersPanel } from "./Nexus433SendersPanel";
 export function renderSensorManagementPage(context: ReturnType<typeof useSensorManagementPagePart04>) {
   const { state, house, houses, integration, tpLinkDevices, tpLinkDevicesLoading, tpLinkDevicesError, requestedDevice, requestedDeviceId, readOnly, localAuthority, units, onRequestedDeviceHandled, onLoadSeries, onHouse, onRefreshDevices, onCreateSensor, onUpdateSensor, onDeleteSensor, onImportHistoricalData, locale, t, now, tpLinkStatus, formId, pageHeadingRef, editorHeadingRef, editorOpenerRef, importButtonRef, detailsHeadingRef, detailsOpenerRef, detailsRequestGeneration, search, setSearch, filter, setFilter, modelFilter, setModelFilter, mode, setMode, addStep, setAddStep, editingSensorId, setEditingSensorId, attachSensorId, setAttachSensorId, draft, setDraft, errors, setErrors, editorFeedback, setEditorFeedback, pageFeedback, setPageFeedback, contactSetupDevice, contactOpenerRef, submitting, setSubmitting, rowBusyId, setRowBusyId, cleanupBusy, setCleanupBusy, refreshing, setRefreshing, refreshError, setRefreshError, importOpen, setImportOpen, detailsSensor, setDetailsSensor, detailsContactKey, detailSamples, setDetailSamples, detailCursor, setDetailCursor, detailsLoading, setDetailsLoading, detailsError, setDetailsError, detailMetric, setDetailMetric, detailRange, setDetailRange, currentSensors, currentSensorIds, visibleDetailsSensor, visibleDetailsIsContactSensor, visibleDetailsContactDevice, visibleDetailsContactOpening, demoSensors, hasExistingRealBoundSensor, enabledMeasurementDefinitions, detailDefinitions, detailDefinition, detailHistory, usedDeviceIds, homeTpLinkDevices, contactDevices, mappedContactDevices, contactHistoryDevice, contactHistoryOpening, contactStatuses, availableContactDevices, addableDevices, attachableSensors, sensorStatuses, statusCounts, sensorModels, normalizedSearch, visibleSensors, visibleContactDevices, draftHouse, draftFloor, editingSensor, selectableDevices, currentBindingMissing, draftDevice, energyOnlyDraft, placementAnalysisEnabled, placementLayerScope, placementLayers, placementCoverage, placementSuggestion, clearError, beginAdd, beginAddDevice, beginEdit, restoreEditorFocus, cancelEditor, closeImport, loadSensorDetails, closeSensorDetails, openContactDetails, closeContactDetails, chooseSource, chooseDevice, attachDeviceToExistingSensor, beginContactSetup, closeContactSetup, assignContactToOpening, changeDraftHouse, changeDraftFloor, focusFirstError, advanceAdd, retreatAdd, buildPlacement, submitAdd, submitEdit, setArchived, removeSensor, removeDemoSensors, refreshDevices, renderFieldError, fieldA11y, renderDetailsFields, renderBindingField, renderHomeAssistantBindings, renderLocationFields, renderAddEditor, renderEditEditor } = context;
+  const visibleSensorNameCounts = visibleSensors.reduce((counts, sensor) => {
+    const key = sensor.name.trim().toLocaleLowerCase(locale);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+    return counts;
+  }, new Map<string, number>());
   return (
       <>
         <header className="page-heading sensor-page-heading">
@@ -285,7 +290,7 @@ export function renderSensorManagementPage(context: ReturnType<typeof useSensorM
                 <td>{state.measurementDefinitions.find((definition) => definition.id === sample.metric)
                   ? measurementLabel(state.measurementDefinitions.find((definition) => definition.id === sample.metric)!, locale)
                   : sample.metric}</td>
-                <td>{sample.value} {sample.canonicalUnit}</td><td>{sample.source}</td><td>{sample.quality}</td>
+                <td>{sample.value} {sample.canonicalUnit}</td><td>{t(`measurement.source.${sample.source}` as TranslationKey)}</td><td>{t(`measurement.quality.${sample.quality}` as TranslationKey)}</td>
               </tr>)}</tbody>
             </table></div> : !detailsLoading && !detailsError ? <p className="sensor-details-empty">{t("sensors.noData")}</p> : null}
           </>}
@@ -367,7 +372,7 @@ export function renderSensorManagementPage(context: ReturnType<typeof useSensorM
                           : sensor.tpLinkDeviceId ? ` · ${t("sensors.boundTo", { id: sensor.tpLinkDeviceId })}` : ` · ${t("sensors.manual")}`}{lastTimestamp ? ` · ${t("sensors.lastSeen", { time: formatInTimeZone(lastTimestamp, locale, sensorTimeZone, { dateStyle: "short", timeStyle: "short" }) })}` : ""}</small>
                       </div>
                       <div className="sensor-list-actions">
-                        <button type="button" className="secondary-button" disabled={cleanupBusy} aria-expanded={visibleDetailsSensor?.id === sensor.id} aria-controls={visibleDetailsSensor?.id === sensor.id ? "sensor-details-panel" : undefined} onClick={() => void loadSensorDetails(sensor)}><Database size={14} aria-hidden="true" />{t("sensors.detailsAction", { name: sensor.name })}</button>
+                        <button type="button" className="secondary-button" disabled={cleanupBusy} aria-label={(visibleSensorNameCounts.get(sensor.name.trim().toLocaleLowerCase(locale)) ?? 0) > 1 ? `${t("sensors.detailsAction", { name: sensor.name })} · ${t(`sensors.${status}`)}` : undefined} aria-expanded={visibleDetailsSensor?.id === sensor.id} aria-controls={visibleDetailsSensor?.id === sensor.id ? "sensor-details-panel" : undefined} onClick={() => void loadSensorDetails(sensor)}><Database size={14} aria-hidden="true" />{t("sensors.detailsAction", { name: sensor.name })}</button>
                       </div>
                     </li>
                   );

@@ -29,6 +29,7 @@ interface HomePerformancePanelProps {
   definitions: MeasurementDefinition[];
   dataMode: "demo" | "real" | "unknown";
   refreshRevision: number;
+  embedded?: boolean;
 }
 
 interface PerformanceRowProps {
@@ -157,13 +158,20 @@ export function HomePerformancePanel(props: Readonly<HomePerformancePanelProps>)
     ? t("performance.sensors.reviewValue", { count: sensorReviewCount })
     : dash;
 
-  return <section className="home-performance-panel panel" aria-labelledby="home-performance-title">
-    <header className="home-performance-header">
-      <div>
-        <span className="eyebrow"><Gauge size={14} aria-hidden="true" />{t("performance.eyebrow")}</span>
-        <h2 id="home-performance-title">{t("performance.title")}</h2>
-        <p>{t("performance.description")}</p>
-      </div>
+  return <section
+    className="home-performance-panel panel"
+    {...(props.embedded
+      ? { "aria-label": t("performance.title") }
+      : { "aria-labelledby": "home-performance-title" })}
+  >
+    <header className={`home-performance-header${props.embedded ? " embedded" : ""}`}>
+      {props.embedded
+        ? <span className="eyebrow"><Gauge size={14} aria-hidden="true" />{t("performance.eyebrow")}</span>
+        : <div>
+            <span className="eyebrow"><Gauge size={14} aria-hidden="true" />{t("performance.eyebrow")}</span>
+            <h2 id="home-performance-title">{t("performance.title")}</h2>
+            <p>{t("performance.description")}</p>
+          </div>}
       {performance && <PerformanceState state={performance.status} />}
     </header>
 

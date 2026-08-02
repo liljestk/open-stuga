@@ -36,12 +36,22 @@ npm test -w @climate-twin/bug-report-relay
 npm run deploy -w @climate-twin/bug-report-relay
 ```
 
-Configure the local API with the deployed HTTPS URL including `/reports`:
+For Compose, put the shared secret in the dedicated ignored directory and set
+the deployed HTTPS URL, including `/reports`, in `.env`:
 
 ```dotenv
 BUG_REPORT_RELAY_URL=https://stugu-bug-report-relay.example.workers.dev/reports
-BUG_REPORT_RELAY_TOKEN_FILE=./secrets/bug-report-relay-token
+STUGA_BUG_REPORT_SECRET_DIR=./secrets/bug-report
 ```
+
+The token must be the only line in `secrets/bug-report/relay-token`. Compose
+mounts that file read-only and never places its value in the container
+environment. For a Raspberry Pi appliance, place it at
+`/persistent/stugu/secrets/bug-report/relay-token`, set
+`BUG_REPORT_RELAY_URL` with `stuguctl config`, and run `stuguctl restart`.
+
+For a non-Compose API process, configure either `BUG_REPORT_RELAY_TOKEN` or an
+absolute `BUG_REPORT_RELAY_TOKEN_FILE` path alongside the URL.
 
 The relay validates the payload independently, uses constant-time authentication, applies a Cloudflare rate-limit binding, escapes issue content to prevent mentions/HTML injection, and logs only the report ID, outcome, and GitHub issue number.
 

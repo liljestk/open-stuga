@@ -213,8 +213,8 @@ function sparkline(values: number[]): string {
   }).join(" ");
 }
 
-function formattedReading(value: number | null, definition: MeasurementDefinition, units: UnitSystem): string {
-  if (value === null) return "—";
+function formattedReading(value: number | null, definition: MeasurementDefinition, units: UnitSystem, missing: string): string {
+  if (value === null) return missing;
   return formatMeasurement(value, definition, units);
 }
 
@@ -258,11 +258,12 @@ export function RoomComfortBoard(props: Readonly<RoomComfortBoardProps>) {
     const path = sparkline(room.temperatureTrend);
     const ageMinutes = room.updatedAt ? Math.max(0, Math.round((now - Date.parse(room.updatedAt)) / 60_000)) : null;
     const updated = ageMinutes === null ? t("decision.noRecentReading") : relativeTime.format(-ageMinutes, "minute");
+    const missing = t("common.noData");
     const readingLabels = [
-      `${t("common.temperature")}: ${formattedReading(room.temperature, temperatureDefinition, props.units)}`,
-      `${t("common.humidity")}: ${formattedReading(room.humidity, humidityDefinition, props.units)}`,
-      ...(room.supportsCo2 ? [`${t("common.co2")}: ${formattedReading(room.co2, co2Definition, props.units)}`] : []),
-      ...(room.power !== null ? [`${t("common.power")}: ${formattedReading(room.power, powerDefinition, props.units)}`] : []),
+      `${t("common.temperature")}: ${formattedReading(room.temperature, temperatureDefinition, props.units, missing)}`,
+      `${t("common.humidity")}: ${formattedReading(room.humidity, humidityDefinition, props.units, missing)}`,
+      ...(room.supportsCo2 ? [`${t("common.co2")}: ${formattedReading(room.co2, co2Definition, props.units, missing)}`] : []),
+      ...(room.power !== null ? [`${t("common.power")}: ${formattedReading(room.power, powerDefinition, props.units, missing)}`] : []),
     ].join(". ");
     const readingCount = 2 + Number(room.supportsCo2) + Number(room.power !== null);
     const readingClass = readingCount === 2 ? " two-metrics" : readingCount === 4 ? " four-metrics" : "";
@@ -283,10 +284,10 @@ export function RoomComfortBoard(props: Readonly<RoomComfortBoardProps>) {
       >
         <span className="room-card-topline"><strong>{room.room}</strong><span className={`comfort-state ${room.state}`}><ComfortStateIcon state={room.state} />{t(`decision.state.${room.state}`)}</span></span>
         <span className={`room-card-readings${readingClass}`}>
-          <span><b>{formattedReading(room.temperature, temperatureDefinition, props.units)}</b><small>{t("common.temperature")}</small></span>
-          <span><b>{formattedReading(room.humidity, humidityDefinition, props.units)}</b><small><Droplets size={11} aria-hidden="true" />{t("common.humidity")}</small></span>
-          {room.supportsCo2 && <span><b>{formattedReading(room.co2, co2Definition, props.units)}</b><small><Wind size={11} aria-hidden="true" />{t("common.co2")}</small></span>}
-          {room.power !== null && <span><b>{formattedReading(room.power, powerDefinition, props.units)}</b><small><Bolt size={11} aria-hidden="true" />{t("common.power")}</small></span>}
+          <span><b>{formattedReading(room.temperature, temperatureDefinition, props.units, missing)}</b><small>{t("common.temperature")}</small></span>
+          <span><b>{formattedReading(room.humidity, humidityDefinition, props.units, missing)}</b><small><Droplets size={11} aria-hidden="true" />{t("common.humidity")}</small></span>
+          {room.supportsCo2 && <span><b>{formattedReading(room.co2, co2Definition, props.units, missing)}</b><small><Wind size={11} aria-hidden="true" />{t("common.co2")}</small></span>}
+          {room.power !== null && <span><b>{formattedReading(room.power, powerDefinition, props.units, missing)}</b><small><Bolt size={11} aria-hidden="true" />{t("common.power")}</small></span>}
         </span>
         <span className="room-card-footer">
           <span>{updated}</span>
@@ -343,10 +344,10 @@ export function RoomComfortBoard(props: Readonly<RoomComfortBoardProps>) {
           <button type="button" className="icon-button" aria-label={t("common.close")} onClick={closeEvidence}><X size={16} aria-hidden="true" /></button>
         </div>
         <div className="room-evidence-readings">
-          <div><small>{t("common.temperature")}</small><strong>{formattedReading(selectedRoom.temperature, temperatureDefinition, props.units)}</strong></div>
-          <div><small>{t("common.humidity")}</small><strong>{formattedReading(selectedRoom.humidity, humidityDefinition, props.units)}</strong></div>
-          {selectedRoom.supportsCo2 && <div><small>{t("common.co2")}</small><strong>{formattedReading(selectedRoom.co2, co2Definition, props.units)}</strong></div>}
-          {selectedRoom.power !== null && <div><small>{t("common.power")}</small><strong>{formattedReading(selectedRoom.power, powerDefinition, props.units)}</strong></div>}
+          <div><small>{t("common.temperature")}</small><strong>{formattedReading(selectedRoom.temperature, temperatureDefinition, props.units, t("common.noData"))}</strong></div>
+          <div><small>{t("common.humidity")}</small><strong>{formattedReading(selectedRoom.humidity, humidityDefinition, props.units, t("common.noData"))}</strong></div>
+          {selectedRoom.supportsCo2 && <div><small>{t("common.co2")}</small><strong>{formattedReading(selectedRoom.co2, co2Definition, props.units, t("common.noData"))}</strong></div>}
+          {selectedRoom.power !== null && <div><small>{t("common.power")}</small><strong>{formattedReading(selectedRoom.power, powerDefinition, props.units, t("common.noData"))}</strong></div>}
         </div>
         <dl className="room-evidence-metadata">
           <div><dt>{t("decision.coverageLabel")}</dt><dd>{selectedRoom.freshSensorCount} {t("decision.freshOf", { total: selectedRoom.sensorCount })}</dd></div>

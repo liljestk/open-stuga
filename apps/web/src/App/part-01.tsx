@@ -2,7 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type
 import type { Floor, IntegrationDiscoveryJob, IntegrationDiscoveryResult, Metric, TpLinkDiscoveredDevice, UnitSystem } from "@climate-twin/contracts";
 import { AlertTriangle, HousePlus, LoaderCircle, RotateCcw, ShieldCheck, Wrench } from "lucide-react";
 import { AppShell } from "../components/AppShell";
-import { type AppPage, type ViewMode } from "../domain";
+import { preferredHouseForProperty, type AppPage, type ViewMode } from "../domain";
 import { useClimateData } from "../useClimateData";
 import { countActionableAlertGroups } from "../alertGrouping";
 import { useI18n } from "../i18n";
@@ -47,8 +47,9 @@ export function useAppPart01(context: Record<string, never>) {
       ?? initialHouse?.propertyId
       ?? state.properties[0]?.id
       ?? "";
+  const initialProperty = state.properties.find((candidate) => candidate.id === initialPropertyId);
   const initialSelectedHouse = initialHouse
-      ?? (!initialRoute.houseId ? state.houses.find((candidate) => candidate.propertyId === initialPropertyId) : undefined);
+      ?? (!initialRoute.houseId ? preferredHouseForProperty(initialProperty, state.houses) : undefined);
   const [page, setPage] = useState<AppPage>(initialRoute.page);
   const routeLoading = <output className="page-loading"><LoaderCircle className="spin" size={20} aria-hidden="true" />{t("common.loading")}: {t(pageTitleKeys[page])}</output>;
   const [routeNotFound, setRouteNotFound] = useState(Boolean(initialRoute.notFound));

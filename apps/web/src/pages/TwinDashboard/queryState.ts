@@ -12,6 +12,10 @@ export const TWIN_DASHBOARD_QUERY_KEYS = {
   range: "range",
 } as const;
 
+export const TWIN_DASHBOARD_HOME_VIEW_QUERY_KEY = "homeView";
+
+export type TwinDashboardHomeView = "auto" | "summary" | "live" | "edit" | "full";
+
 export const TWIN_DASHBOARD_TIME_RANGES = ["6h", "24h", "7d"] as const satisfies readonly TimeRange[];
 
 export interface TwinDashboardQuerySelection {
@@ -174,6 +178,31 @@ export function writeTwinDashboardQuerySelection(
   mode: "push" | "replace",
 ): void {
   const next = twinDashboardLocation(window.location.href, selection, options);
+  const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  if (next === current) return;
+  if (mode === "push") window.history.pushState(window.history.state, "", next);
+  else window.history.replaceState(window.history.state, "", next);
+}
+
+export function readTwinDashboardHomeView(search: string): TwinDashboardHomeView {
+  const value = new URLSearchParams(search).get(TWIN_DASHBOARD_HOME_VIEW_QUERY_KEY);
+  return value === "summary" || value === "live" || value === "edit" || value === "full"
+    ? value
+    : "auto";
+}
+
+export function twinDashboardHomeViewLocation(href: string, homeView: TwinDashboardHomeView): string {
+  const url = new URL(href);
+  if (homeView === "auto") url.searchParams.delete(TWIN_DASHBOARD_HOME_VIEW_QUERY_KEY);
+  else url.searchParams.set(TWIN_DASHBOARD_HOME_VIEW_QUERY_KEY, homeView);
+  return `${url.pathname}${url.search}${url.hash}`;
+}
+
+export function writeTwinDashboardHomeView(
+  homeView: TwinDashboardHomeView,
+  mode: "push" | "replace",
+): void {
+  const next = twinDashboardHomeViewLocation(window.location.href, homeView);
   const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
   if (next === current) return;
   if (mode === "push") window.history.pushState(window.history.state, "", next);

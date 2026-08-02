@@ -112,6 +112,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     "BUG_REPORT_RELAY_TOKEN_FILE",
     "Bug report relay token",
     32,
+    true,
   );
   if (Boolean(bugReportRelayUrl) !== Boolean(bugReportRelayToken)) {
     throw new Error("Bug reporting requires both BUG_REPORT_RELAY_URL and BUG_REPORT_RELAY_TOKEN");

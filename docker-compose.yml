@@ -266,6 +266,8 @@ services:
       LOCAL_AUTH_PROXY_BIND_ADDRESS: ${BIND_ADDRESS:-127.0.0.1}
       LOCAL_AUTH_PROXY_SECRET_FILE: /app/runtime/proxy/secret
       LOCAL_AUTH_BOOTSTRAP_SECRET: ${LOCAL_AUTH_BOOTSTRAP_SECRET:-}
+      BUG_REPORT_RELAY_URL: ${BUG_REPORT_RELAY_URL:-}
+      BUG_REPORT_RELAY_TOKEN_FILE: /run/secrets/bug-report/relay-token
       DATABASE_PATH: /app/data/climate-twin.sqlite
       STUGBY_IDENTITY_FILE: /app/data/stuguby-identity.json
       STUGBY_NODE_NAME: ${STUGBY_NODE_NAME:-Stugu}
@@ -362,6 +364,7 @@ services:
       - ${TAPO_HISTORY_API_SECRET_DIR:-./secrets/tapo-history-api}:/run/secrets/tapo-history:ro,z
       - ${STUGA_CLOUDFLARE_SECRET_DIR:-./secrets/cloudflare}:/run/secrets/cloudflare:ro,z
       - ${STUGA_APNS_SECRET_DIR:-./secrets/apns}:/run/secrets/apns:ro,z
+      - ${STUGA_BUG_REPORT_SECRET_DIR:-./secrets/bug-report}:/run/secrets/bug-report:ro,z
     read_only: true
     tmpfs:
       - /tmp:size=32m,mode=1777

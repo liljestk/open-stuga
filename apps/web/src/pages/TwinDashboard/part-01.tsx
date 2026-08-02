@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, type FormEvent, type SetStateAction } from "react";
 import { Activity, AlertTriangle, BatteryMedium, Bolt, Box, Check, ChevronDown, Droplets, Edit3, Gauge, History, Home, Map, MapPinPlus, Maximize2, Minimize2, Save, Sparkles, Thermometer, Wind } from "lucide-react";
 import { isAirflowPlanElement, type ConfiguredOpeningState, type ConnectedDeviceState, type ConnectionState, type Floor, type House, type ManualObservation, type ManualObservationInput, type ManualObservationPatch, type MeasurementDefinition, type MeasurementSample, type Metric, type MockScenario, type ObservationConfidence, type ObservationRevision, type ObservationSource, type ObservationTimePrecision, type OpeningStateObservation, type OutdoorTemperatureSample, type Point, type Reading, type Sensor, type StaticParameter, type UnitSystem } from "@climate-twin/contracts";
 import { ReplayControls } from "../../components/ReplayControls";
@@ -43,30 +43,53 @@ import { queryClient } from "../../data/queryClient";
 import { queryKeys } from "../../data/queryKeys";
 import { BuildingScene, FloorPlan, HomeActivityTimeline, MeasurementGlyph, RoomComparisonChart, SensorInspector, SpatialLayerLab, StructureEditor, ThermalSimulationPanel, climateSensorLayerPreferenceKey, connectedDeviceLayerPreferenceKey, energyDeviceLayerPreferenceKey, experimentalVisualizationPreferenceKey, houseLocalDateTimeCandidates, initialClimateSensorLayerVisibility, initialConnectedDeviceLayerVisibility, initialEnergyDeviceLayerVisibility, initialExperimentalVisualizations, initialMapAnimationsEnabled, initialOpeningStateLabelsVisibility, initialOutdoorExtrasVisibility, initialOutdoorInfluenceMetric, localDateTimeValue, localDateValue, mapAnimationsPreferenceKey, mergeOpeningStateObservations, observationConfidences, observationKinds, observationSources, observationTimeFields, observationTimePrecisions, openingStateLabelsPreferenceKey, outdoorExtrasPreferenceKey, outdoorInfluenceMetricPreferenceKey, zonedDateTimeParts } from "./support";
 import type { TwinDashboardProps } from "./support";
+import type { TwinDashboardHomeView } from "./queryState";
 export function useTwinDashboardPart01(context: {
   props: TwinDashboardProps;
   range: TimeRange;
   setRange: (range: TimeRange) => void;
   meaningfulQueryState: boolean;
+  homeView: TwinDashboardHomeView;
+  setHomeView: (homeView: TwinDashboardHomeView, mode?: "push" | "replace") => void;
 }) {
   const { props } = context;
   const { state, house, floor, houseId, floorId, metric, units, viewMode, selectedSensorId, scenario, connection = "live", dataMode = "unknown" } = props;
   const { locale, t } = useI18n();
   const scopedIntegration = useMemo(() => integrationForHouse(state.integration, houseId, Boolean(house.location)), [house.location, houseId, state.integration]);
   const sensorSourceHealthy = scopedIntegration.homeAssistant.connected || scopedIntegration.tpLink.connected;
-  const [editing, setEditing] = useState(false);
-  const [fullPage, setFullPage] = useState(false);
-  const [liveMapOpen, setLiveMapOpen] = useState(context.meaningfulQueryState);
+  const readOnly = props.readOnly ?? false;
+  const editing = context.homeView === "edit" && !readOnly;
+  const fullPage = context.homeView === "full";
+  const liveMapOpen = context.homeView === "auto"
+    ? context.meaningfulQueryState
+    : context.homeView !== "summary";
+  const nextBoolean = (next: SetStateAction<boolean>, current: boolean) => (
+    typeof next === "function" ? next(current) : next
+  );
+  const setEditing = (next: SetStateAction<boolean>) => {
+    const enabled = nextBoolean(next, editing);
+    if (enabled === editing) return;
+    context.setHomeView(enabled ? "edit" : "live");
+  };
+  const setFullPage = (next: SetStateAction<boolean>) => {
+    const enabled = nextBoolean(next, fullPage);
+    if (enabled === fullPage) return;
+    context.setHomeView(enabled ? "full" : "live");
+  };
+  const setLiveMapOpen = (next: SetStateAction<boolean>) => {
+    const enabled = nextBoolean(next, liveMapOpen);
+    if (enabled === liveMapOpen) return;
+    context.setHomeView(enabled ? "live" : "summary");
+  };
   const [historyOpen, setHistoryOpen] = useState(false);
   const [analysisOpen, setAnalysisOpen] = useState(false);
   useEffect(() => {
-    if (context.meaningfulQueryState) setLiveMapOpen(true);
-  }, [context.meaningfulQueryState]);
+    if (context.homeView === "edit" && readOnly) context.setHomeView("live", "replace");
+  }, [context.homeView, readOnly]);
   const fullPagePanelRef = useRef<HTMLElement>(null);
   const fullPageTriggerRef = useRef<HTMLButtonElement>(null);
   const liveMapTriggerRef = useRef<HTMLButtonElement>(null);
   const pageHeadingRef = useRef<HTMLHeadingElement>(null);
-  const readOnly = props.readOnly ?? false;
   const canManageConnectedDevices = props.canManageConnectedDevices ?? false;
   const localAuthority = props.localAuthority ?? true;
   const { range, setRange } = context;

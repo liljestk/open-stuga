@@ -262,6 +262,25 @@ test("clean appliance startup includes every runtime path and repairs interrupte
   );
 });
 
+test("Compose and appliance upgrades expose bug reporting without leaking its token", async () => {
+  const [compose, composeStart, environment] = await Promise.all([
+    readFile(new URL("../../docker-compose.yml", import.meta.url), "utf8"),
+    readFile(new URL("../../deploy/rpi/assets/stugu-compose-start", import.meta.url), "utf8"),
+    readFile(new URL("../../deploy/rpi/assets/stugu.env.example", import.meta.url), "utf8"),
+  ]);
+  const api = compose.match(/^  api:\r?\n(?<body>[\s\S]*?)(?=^  stugu-update-agent:)/mu)?.groups?.body ?? "";
+
+  assert.match(api, /BUG_REPORT_RELAY_URL: \$\{BUG_REPORT_RELAY_URL:-\}/);
+  assert.match(api, /BUG_REPORT_RELAY_TOKEN_FILE: \/run\/secrets\/bug-report\/relay-token/);
+  assert.match(api, /STUGA_BUG_REPORT_SECRET_DIR:-\.\/secrets\/bug-report/);
+  assert.doesNotMatch(api, /^\s+BUG_REPORT_RELAY_TOKEN:/mu);
+  assert.match(environment, /^BUG_REPORT_RELAY_URL=$/mu);
+  assert.match(environment, /^STUGA_BUG_REPORT_SECRET_DIR=\/persistent\/stugu\/secrets\/bug-report$/mu);
+  assert.match(composeStart, /"\$state_dir\/secrets\/bug-report"/);
+  assert.match(composeStart, /STUGA_BUG_REPORT_SECRET_DIR=\/persistent\/stugu\/secrets\/bug-report/);
+  assert.match(composeStart, /"BUG_REPORT_RELAY_URL="/);
+});
+
 test("the appliance exposes secure LAN access and persistent Tailscale by default", async () => {
   const [layer, environment, composeStart, control, tailscaleSource, eepromCompat] = await Promise.all([
     readFile(new URL("../../deploy/rpi/layer/stugu.yaml", import.meta.url), "utf8"),

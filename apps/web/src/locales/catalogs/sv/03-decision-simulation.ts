@@ -141,6 +141,8 @@ export const svPart3 = {
   "overview.openHomeNamed": "Öppna {name}",
   "overview.openOutdoor": "Utomhusdetaljer",
   "overview.finishSetup": "Slutför konfigurationen",
+  "overview.checkConnections": "Kontrollera anslutningar",
+  "overview.checkSensors": "Kontrollera sensorer",
   "overview.connections": "Hemmens anslutningar",
   "overview.connectionTitle": "Sammanfattning av hemmens datakällor",
   "overview.needsAttention": "Behöver uppmärksamhet",

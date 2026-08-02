@@ -128,7 +128,7 @@ export function SensorInspector({
           return (
             <div key={definition.id} role="listitem" className={definition.id === activeDefinition.id ? "selected" : undefined}>
               <span><MeasurementGlyph definition={definition} size={16} />{measurementLabel(definition, locale)}</span>
-              <strong>{value == null ? "—" : formatMeasurement(value, definition, units)}</strong>
+              <strong>{value == null ? t("common.noData") : formatMeasurement(value, definition, units)}</strong>
               <small>
                 <span className={`quality-dot ${sample?.quality ?? "stale"}`} aria-hidden="true" />
                 {sample ? t(`measurement.quality.${sample.quality}` as TranslationKey) : t("common.noData")}
@@ -141,10 +141,10 @@ export function SensorInspector({
       <dl className="sensor-meta">
         <div><dt>{t("twin.sensorFloor")}</dt><dd>{floor.name}</dd></div>
         <div><dt>{t("twin.mountingHeight")}</dt><dd>{round(sensor.z - floor.elevation)} m</dd></div>
-        <div><dt><BatteryMedium size={15} aria-hidden="true" />{t("twin.battery")}</dt><dd>{batteryValue == null ? "—" : `${batteryValue}%`}</dd></div>
-        <div><dt>{t("twin.quality")}</dt><dd><span className={`quality-dot ${selectedSample?.quality ?? "stale"}`} aria-hidden="true" />{selectedSample ? t(`measurement.quality.${selectedSample.quality}` as TranslationKey) : "—"}</dd></div>
-        <div><dt>{t("twin.source")}</dt><dd>{selectedSample ? t(`measurement.source.${selectedSample.source}` as TranslationKey) : "—"}</dd></div>
-        <div><dt>{t("twin.lastReading")}</dt><dd>{selectedSample ? <time dateTime={selectedSample.timestamp}>{formatInTimeZone(selectedSample.timestamp, locale, house.timezone, { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</time> : "—"}</dd></div>
+        <div><dt><BatteryMedium size={15} aria-hidden="true" />{t("twin.battery")}</dt><dd>{batteryValue == null ? t("common.noData") : `${batteryValue}%`}</dd></div>
+        <div><dt>{t("twin.quality")}</dt><dd><span className={`quality-dot ${selectedSample?.quality ?? "stale"}`} aria-hidden="true" />{selectedSample ? t(`measurement.quality.${selectedSample.quality}` as TranslationKey) : t("common.noData")}</dd></div>
+        <div><dt>{t("twin.source")}</dt><dd>{selectedSample ? t(`measurement.source.${selectedSample.source}` as TranslationKey) : t("common.noData")}</dd></div>
+        <div><dt>{t("twin.lastReading")}</dt><dd>{selectedSample ? <time dateTime={selectedSample.timestamp}>{formatInTimeZone(selectedSample.timestamp, locale, house.timezone, { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</time> : t("common.noData")}</dd></div>
       </dl></>}
       {editing && <>
         <p className="sensor-edit-help">{t("twin.sensorEditHint")}</p>

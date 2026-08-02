@@ -145,6 +145,14 @@ describe("LocalAuthPage", () => {
     expect(onAuthenticated).toHaveBeenCalledOnce();
   });
 
+  it("keeps account-creation password requirements off the sign-in form", () => {
+    const view = renderPage({ mode: "login", onAuthenticated: vi.fn() });
+    const password = screen.getByLabelText("Password");
+
+    expect(password).not.toHaveAttribute("minlength");
+    expect(view.queryByText("Use at least 12 characters.")).toBeNull();
+  });
+
   it("allows a local workspace address without a public domain suffix", async () => {
     const user = userEvent.setup();
     const login = vi.spyOn(api, "login").mockResolvedValue(session);

@@ -216,6 +216,8 @@
 
 .setup-recommended-actions > a { justify-content: center; text-decoration: none; }
 
+.setup-steps > .configured-note { margin-top: 18px; }
+
 .setup-checklist-disclosure { margin-top: 16px; border-top: 1px solid var(--line); }
 
 .setup-checklist-disclosure > summary { min-height: 46px; display: flex; align-items: center; color: var(--muted); cursor: pointer; font-size: 11px; font-weight: 700; }

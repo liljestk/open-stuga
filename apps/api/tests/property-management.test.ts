@@ -82,6 +82,47 @@ describe("local property management", () => {
     expect(filtered.body.houses.map((house: { id: string }) => house.id)).toEqual(["first-home"]);
   });
 
+  it("designates and maintains one default Home per Property", async () => {
+    const home = (id: string, propertyId: string) => ({
+      id,
+      propertyId,
+      name: id,
+      timezone: "Europe/Helsinki",
+      floors: [{ id: "ground", name: "Ground", width: 10, height: 8, elevation: 0, walls: [], rooms: [] }],
+    });
+    await request(runtime.app).post("/api/v1/houses").send(home("home-a", "property-main")).expect(201);
+    await request(runtime.app).post("/api/v1/houses").send(home("home-b", "property-main")).expect(201);
+    expect(runtime.database.getProperty("property-main")?.defaultHouseId).toBe("home-a");
+
+    await request(runtime.app).patch("/api/v1/properties/property-main")
+      .send({ defaultHouseId: "home-b" })
+      .expect(200)
+      .expect(({ body }) => expect(body.property.defaultHouseId).toBe("home-b"));
+
+    await request(runtime.app).post("/api/v1/properties")
+      .send({ id: "property-other", name: "Other" })
+      .expect(201);
+    await request(runtime.app).post("/api/v1/houses")
+      .send(home("home-other", "property-other"))
+      .expect(201);
+    await request(runtime.app).patch("/api/v1/properties/property-main")
+      .send({ defaultHouseId: "home-other" })
+      .expect(422)
+      .expect(({ body }) => expect(body.error.code).toBe("PROPERTY_DEFAULT_HOUSE_INVALID"));
+
+    await request(runtime.app).patch("/api/v1/houses/home-b")
+      .send({ propertyId: "property-other" })
+      .expect(200);
+    expect(runtime.database.getProperty("property-main")?.defaultHouseId).toBe("home-a");
+    expect(runtime.database.getProperty("property-other")?.defaultHouseId).toBe("home-other");
+
+    await request(runtime.app).delete("/api/v1/houses/home-a").expect(204);
+    expect(runtime.database.getProperty("property-main")?.defaultHouseId).toBeNull();
+    await request(runtime.app).patch("/api/v1/properties/property-main")
+      .send({ defaultHouseId: "home-a" })
+      .expect(422);
+  });
+
   it("uses Property weather by default while preserving advanced Home overrides", async () => {
     const home = {
       id: "weather-home",

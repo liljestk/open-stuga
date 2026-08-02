@@ -284,7 +284,9 @@ describe("system updates page", () => {
     fireEvent.click(screen.getByText("Configure storage locations"));
     fireEvent.click(screen.getByRole("radio", { name: /Mounted NAS/ }));
     fireEvent.change(screen.getByPlaceholderText("/mnt/stugu/backups"), { target: { value: "/mnt/stugu/nas-backups" } });
-    fireEvent.click(screen.getByRole("button", { name: "Apply storage settings" }));
+    expect(screen.getByRole("heading", { name: "Stugu will migrate this automatically" })).toBeTruthy();
+    expect(screen.getByText("Existing verified recovery sets will be copied to the new location automatically.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Start safe migration" }));
 
     await waitFor(() => expect(save).toHaveBeenCalledWith({
       settings: {
@@ -294,6 +296,46 @@ describe("system updates page", () => {
       expectedRevision: "a".repeat(64),
       confirmation: "APPLY_STORAGE",
     }));
+    expect(confirmAction).toHaveBeenCalledWith(expect.stringContaining("automatic recovery-set migration"), "Start safe migration", false);
+    expect(screen.getByDisplayValue("/mnt/stugu/nas-backups")).toBeTruthy();
+  });
+
+  it("explains and queues an automatic telemetry migration", async () => {
+    vi.spyOn(api, "systemUpdateStatus").mockResolvedValue(status);
+    const save = vi.spyOn(api, "updateSystemStorage").mockImplementation(async (input) => ({
+      ...storageStatus,
+      operation: {
+        id: "27974c49-f62e-4365-9ee7-802c7488557e",
+        phase: "queued",
+        requestedAt: "2026-08-02T10:00:00.000Z",
+        startedAt: null,
+        completedAt: null,
+        updatedAt: "2026-08-02T10:00:00.000Z",
+        detail: "Waiting for the external host agent",
+        previous: storageStatus.settings,
+        target: input.settings,
+      },
+    }));
+    render(<I18nProvider><SystemUpdatesPage /></I18nProvider>);
+
+    await screen.findByRole("heading", { name: "Storage", level: 2 });
+    fireEvent.click(screen.getByText("Configure storage locations"));
+    fireEvent.click(screen.getByRole("radio", { name: /Local SSD directory/ }));
+    fireEvent.change(screen.getByPlaceholderText("/mnt/stugu/telemetry"), { target: { value: "/mnt/stugu/telemetry" } });
+
+    expect(screen.getByText(/Every telemetry sample will be copied/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Start safe migration" }));
+
+    await waitFor(() => expect(save).toHaveBeenCalledWith({
+      settings: {
+        timeseries: { kind: "local-path", path: "/mnt/stugu/telemetry" },
+        backups: { kind: "managed", path: null },
+      },
+      expectedRevision: "a".repeat(64),
+      confirmation: "MOVE_STORAGE",
+    }));
+    expect(confirmAction).toHaveBeenCalledWith(expect.stringContaining("copy every sample"), "Start safe migration", false);
+    expect(screen.getByDisplayValue("/mnt/stugu/telemetry")).toBeTruthy();
   });
 
   it("disables installation when the external agent is not connected", async () => {
