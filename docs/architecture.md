@@ -374,8 +374,8 @@ manual retry. The contract is at-least-once and survives process restarts; this
 bounded delivery ledger is not a general message broker.
 
 Raw archive retention is unlimited in TimescaleDB. With TimeDB enabled,
-`RETENTION_DAYS=0` compacts acknowledged SQLite history immediately; a value of
-30 or more keeps a bounded local cache. The worker reconciles all six telemetry
+`RETENTION_DAYS=0` keeps the complete acknowledged SQLite duplicate; a value of
+30 or more compacts it to a bounded local cache. The worker reconciles all six telemetry
 families before compaction, requires a healthy and caught-up archive, rejects
 mutable dirty rows, and preserves current projections. It pauses without
 deleting anything whenever those proofs are unavailable. Historical, bucketed,

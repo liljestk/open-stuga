@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HostSystemHealth } from "@climate-twin/contracts";
-import { api, type SystemUpdateStatus } from "../api";
+import { api, type SystemStorageStatus, type SystemUpdateStatus } from "../api";
 import { confirmAction } from "../components/ConfirmationProvider";
 import { I18nProvider } from "../i18n";
 import { SystemUpdatesPage } from "./SystemUpdatesPage";
@@ -41,6 +41,23 @@ const status: SystemUpdateStatus = {
     runtime: "docker",
     agentLastSeenAt: "2026-07-23T20:00:00.000Z",
     reason: "ready",
+  },
+  operation: null,
+};
+
+const storageStatus: SystemStorageStatus = {
+  settings: {
+    timeseries: { kind: "managed", path: null },
+    backups: { kind: "managed", path: null },
+  },
+  revision: "a".repeat(64),
+  allowedRoots: ["/mnt/stugu", "/media/stugu"],
+  capability: {
+    available: true,
+    runtime: "raspberry-pi",
+    agentLastSeenAt: "2026-08-02T10:00:00.000Z",
+    reason: "ready",
+    detail: null,
   },
   operation: null,
 };
@@ -100,6 +117,24 @@ const hostHealth: HostSystemHealth = {
     thresholds,
     warningAvailableBytes: 5_368_709_120,
     criticalAvailableBytes: 1_073_741_824,
+    forecast: {
+      state: "stable", sampleCount: 48, observedSeconds: 86_400, growthBytesPerDay: 0,
+      warningAt: null, criticalAt: null, confidence: "medium",
+    },
+  },
+  database: {
+    state: "healthy",
+    sqlite: {
+      state: "healthy", sizeBytes: 12_582_912, usedBytes: 11_534_336, walBytes: 0,
+      pageCount: 3_072, freePages: 256, tableCount: 42,
+    },
+    telemetry: {
+      enabled: false, required: false, state: "disabled", sizeBytes: null,
+      latencyMilliseconds: null, pool: null, queries: null,
+    },
+  },
+  alertDelivery: {
+    telegram: { configured: true, connected: true, lastDeliveryAt: null, error: null },
   },
   alerts: [],
 };
@@ -107,6 +142,7 @@ const hostHealth: HostSystemHealth = {
 beforeEach(() => {
   vi.mocked(confirmAction).mockReset().mockResolvedValue(true);
   vi.spyOn(api, "hostSystemHealth").mockResolvedValue(hostHealth);
+  vi.spyOn(api, "systemStorageStatus").mockResolvedValue(storageStatus);
 });
 afterEach(() => vi.restoreAllMocks());
 
@@ -127,7 +163,11 @@ describe("system updates page", () => {
     fireEvent.click(hostMetricsSummary);
     expect(screen.getByText("24.5%")).toBeTruthy();
     expect(screen.getByText("22.4 ms")).toBeTruthy();
+    expect(screen.getByText("12 MiB")).toBeTruthy();
+    expect(screen.getByText(/No meaningful growth/)).toBeTruthy();
+    expect(screen.getByText(/existing Telegram alert chat/)).toBeTruthy();
     expect(screen.getByRole("link", { name: "/api/v1/system/metrics" }).getAttribute("href")).toBe("/api/v1/system/metrics");
+    expect(screen.getByRole("link", { name: "Export error log" }).getAttribute("href")).toBe("/api/v1/system/error-logs");
     const releaseSummary = screen.getByText("Safer system updates").closest("summary")!;
     const scheduleSummary = screen.getByText("When should updates install?").closest("summary")!;
     expect(releaseSummary.closest("details")?.open).toBe(false);
@@ -220,6 +260,40 @@ describe("system updates page", () => {
       updateDays: expect.arrayContaining(["sun", "mon"]),
       timezone: "Europe/Helsinki",
     })));
+  });
+
+  it("configures an already-mounted NAS recovery target from System settings", async () => {
+    vi.spyOn(api, "systemUpdateStatus").mockResolvedValue(status);
+    const save = vi.spyOn(api, "updateSystemStorage").mockImplementation(async (input) => ({
+      ...storageStatus,
+      operation: {
+        id: "27974c49-f62e-4365-9ee7-802c7488557e",
+        phase: "queued",
+        requestedAt: "2026-08-02T10:00:00.000Z",
+        startedAt: null,
+        completedAt: null,
+        updatedAt: "2026-08-02T10:00:00.000Z",
+        detail: "Waiting for the external host agent",
+        previous: storageStatus.settings,
+        target: input.settings,
+      },
+    }));
+    render(<I18nProvider><SystemUpdatesPage /></I18nProvider>);
+
+    expect(await screen.findByRole("heading", { name: "Storage", level: 2 })).toBeTruthy();
+    fireEvent.click(screen.getByText("Configure storage locations"));
+    fireEvent.click(screen.getByRole("radio", { name: /Mounted NAS/ }));
+    fireEvent.change(screen.getByPlaceholderText("/mnt/stugu/backups"), { target: { value: "/mnt/stugu/nas-backups" } });
+    fireEvent.click(screen.getByRole("button", { name: "Apply storage settings" }));
+
+    await waitFor(() => expect(save).toHaveBeenCalledWith({
+      settings: {
+        timeseries: { kind: "managed", path: null },
+        backups: { kind: "nas-path", path: "/mnt/stugu/nas-backups" },
+      },
+      expectedRevision: "a".repeat(64),
+      confirmation: "APPLY_STORAGE",
+    }));
   });
 
   it("disables installation when the external agent is not connected", async () => {

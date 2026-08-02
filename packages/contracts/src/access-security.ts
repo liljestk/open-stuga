@@ -122,6 +122,7 @@ export type SecurityAuditEventType =
   | "integration.grant.revoked"
   | "system.update.settings.changed"
   | "system.update.requested"
+  | "system.storage.change.requested"
   | "cloudflare.setup.started";
 
 export type SecurityAuditSubjectType =
@@ -131,6 +132,7 @@ export type SecurityAuditSubjectType =
   | "integration-grant"
   | "system-update-settings"
   | "system-update"
+  | "system-storage"
   | "cloudflare-connection";
 
 export type SecurityAuditDetailValue = string | number | boolean | null;

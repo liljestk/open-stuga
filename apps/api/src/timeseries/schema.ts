@@ -11,9 +11,18 @@ export const TELEMETRY_TABLES = [
 
 export type TelemetryTableName = (typeof TELEMETRY_TABLES)[number];
 
+/** Raw tables whose provenance can be removed at the one-way demo-to-real boundary. */
+export const SOURCE_TAGGED_TELEMETRY_TABLES = [
+  "measurement_samples",
+  "legacy_readings",
+  "outdoor_temperature_samples",
+  "electricity_price_samples",
+  "opening_state_samples",
+] as const satisfies readonly TelemetryTableName[];
+
 export interface HypertableDefinition {
-  table: TelemetryTableName;
-  timeColumn: "observed_at" | "starts_at";
+  table: TelemetryTableName | "measurement_ordered_rollups";
+  timeColumn: "observed_at" | "starts_at" | "bucket_start";
   chunkInterval: string;
   segmentBy: string;
   orderBy: string;
@@ -24,18 +33,26 @@ export const HYPERTABLE_DEFINITIONS: readonly HypertableDefinition[] = [
   {
     table: "measurement_samples",
     timeColumn: "observed_at",
-    chunkInterval: "7 days",
+    chunkInterval: "1 day",
     segmentBy: "sensor_id,metric",
     orderBy: "observed_at DESC",
-    coldAfter: "30 days",
+    coldAfter: "7 days",
+  },
+  {
+    table: "measurement_ordered_rollups",
+    timeColumn: "bucket_start",
+    chunkInterval: "7 days",
+    segmentBy: "sensor_id,metric,bucket_seconds,quality_mask,source_scope",
+    orderBy: "bucket_start DESC",
+    coldAfter: "7 days",
   },
   {
     table: "legacy_readings",
     timeColumn: "observed_at",
-    chunkInterval: "7 days",
+    chunkInterval: "1 day",
     segmentBy: "sensor_id",
     orderBy: "observed_at DESC",
-    coldAfter: "30 days",
+    coldAfter: "7 days",
   },
   {
     table: "outdoor_temperature_samples",
@@ -96,11 +113,25 @@ export function measurementAggregateName(bucket: MeasurementBucket): string {
   return `measurement_samples_${MEASUREMENT_BUCKETS[bucket].suffix}`;
 }
 
+export const MEASUREMENT_ANALYTICS_BUCKETS = {
+  "1m": { interval: "1 minute", suffix: "1m" },
+  "5m": { interval: "5 minutes", suffix: "5m" },
+  "1h": { interval: "1 hour", suffix: "1h" },
+  "1d": { interval: "1 day", suffix: "1d" },
+} as const;
+
+export type MeasurementAnalyticsBaseBucket = keyof typeof MEASUREMENT_ANALYTICS_BUCKETS;
+
+export function measurementAnalyticsAggregateName(bucket: MeasurementAnalyticsBaseBucket): string {
+  return `measurement_analytics_v2_${MEASUREMENT_ANALYTICS_BUCKETS[bucket].suffix}`;
+}
+
 export function buildBaseSchemaSql(schemaName: string): string[] {
   const schema = quoteIdentifier(validateSchemaName(schemaName));
   const relation = (name: string) => `${schema}.${quoteIdentifier(name)}`;
 
   return [
+    `CREATE SCHEMA IF NOT EXISTS ${schema}`,
     `CREATE TABLE IF NOT EXISTS ${relation("schema_migrations")} (
       version INTEGER PRIMARY KEY,
       description TEXT NOT NULL,
@@ -150,9 +181,99 @@ export function buildBaseSchemaSql(schemaName: string): string[] {
     `CREATE INDEX IF NOT EXISTS ${quoteIdentifier("measurement_samples_latest_idx")}
       ON ${relation("measurement_samples")} (sensor_id, metric, observed_at DESC)
       INCLUDE (value, canonical_unit, source, quality)`,
+    `CREATE INDEX IF NOT EXISTS ${quoteIdentifier("measurement_samples_good_gap_idx")}
+      ON ${relation("measurement_samples")} (sensor_id, metric, source, observed_at)
+      WHERE quality = 'good'`,
     `CREATE INDEX IF NOT EXISTS ${quoteIdentifier("measurement_samples_synthetic_source_idx")}
       ON ${relation("measurement_samples")} (source)
       WHERE source IN ('mock', 'replay')`,
+    `CREATE TABLE IF NOT EXISTS ${relation("measurement_ordered_rollup_generations")} (
+      sensor_id TEXT NOT NULL CHECK (length(sensor_id) > 0),
+      metric TEXT NOT NULL CHECK (length(metric) > 0),
+      day_start TIMESTAMPTZ NOT NULL CHECK (day_start = date_bin(
+        INTERVAL '1 day', day_start, TIMESTAMPTZ '1970-01-01 00:00:00+00'
+      )),
+      current_seq BIGINT NOT NULL DEFAULT 1 CHECK (current_seq > 0),
+      synced_seq BIGINT NOT NULL DEFAULT 0 CHECK (synced_seq >= 0),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+      PRIMARY KEY (sensor_id, metric, day_start)
+    )`,
+    `CREATE INDEX IF NOT EXISTS ${quoteIdentifier("measurement_ordered_rollup_generations_pending_idx")}
+      ON ${relation("measurement_ordered_rollup_generations")} (updated_at, day_start)
+      WHERE current_seq <> synced_seq`,
+    `CREATE TABLE IF NOT EXISTS ${relation("measurement_ordered_rollup_dirty")} (
+      sensor_id TEXT NOT NULL CHECK (length(sensor_id) > 0),
+      metric TEXT NOT NULL CHECK (length(metric) > 0),
+      day_start TIMESTAMPTZ NOT NULL CHECK (day_start = date_bin(
+        INTERVAL '1 day', day_start, TIMESTAMPTZ '1970-01-01 00:00:00+00'
+      )),
+      bucket_seconds INTEGER NOT NULL CHECK (bucket_seconds IN (60, 900, 3600, 86400)),
+      quality_mask SMALLINT NOT NULL CHECK (quality_mask BETWEEN 1 AND 7),
+      source_scope TEXT NOT NULL CHECK (source_scope IN ('all', 'real')),
+      current_seq BIGINT NOT NULL DEFAULT 1 CHECK (current_seq > 0),
+      clean_seq BIGINT NOT NULL DEFAULT 0 CHECK (clean_seq >= 0),
+      lease_token TEXT,
+      lease_until TIMESTAMPTZ,
+      attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
+      last_error TEXT,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+      PRIMARY KEY (sensor_id, metric, day_start, bucket_seconds, quality_mask, source_scope)
+    )`,
+    `CREATE INDEX IF NOT EXISTS ${quoteIdentifier("measurement_ordered_rollup_dirty_pending_idx")}
+      ON ${relation("measurement_ordered_rollup_dirty")} (updated_at, day_start)
+      WHERE current_seq <> clean_seq`,
+    `INSERT INTO ${relation("measurement_ordered_rollup_generations")} AS generation
+        (sensor_id, metric, day_start, current_seq, synced_seq, updated_at)
+      SELECT sensor_id, metric, day_start, max(current_seq), max(current_seq), max(updated_at)
+      FROM ${relation("measurement_ordered_rollup_dirty")}
+      WHERE NOT EXISTS (
+        SELECT 1 FROM ${relation("schema_migrations")} WHERE version = 6
+      )
+      GROUP BY sensor_id, metric, day_start
+      ON CONFLICT (sensor_id, metric, day_start) DO UPDATE SET
+        current_seq = GREATEST(generation.current_seq, EXCLUDED.current_seq),
+        synced_seq = GREATEST(generation.synced_seq, EXCLUDED.synced_seq),
+        updated_at = GREATEST(generation.updated_at, EXCLUDED.updated_at)`,
+    `CREATE TABLE IF NOT EXISTS ${relation("measurement_ordered_rollups")} (
+      algorithm_version INTEGER NOT NULL CHECK (algorithm_version > 0),
+      sensor_id TEXT NOT NULL CHECK (length(sensor_id) > 0),
+      metric TEXT NOT NULL CHECK (length(metric) > 0),
+      day_start TIMESTAMPTZ NOT NULL CHECK (day_start = date_bin(
+        INTERVAL '1 day', day_start, TIMESTAMPTZ '1970-01-01 00:00:00+00'
+      )),
+      bucket_start TIMESTAMPTZ NOT NULL CHECK (bucket_start = date_trunc('minute', bucket_start)),
+      bucket_seconds INTEGER NOT NULL CHECK (bucket_seconds IN (60, 900, 3600, 86400)),
+      quality_mask SMALLINT NOT NULL CHECK (quality_mask BETWEEN 1 AND 7),
+      source_scope TEXT NOT NULL CHECK (source_scope IN ('all', 'real')),
+      generation BIGINT NOT NULL CHECK (generation > 0),
+      sample_count BIGINT NOT NULL CHECK (sample_count > 0),
+      sum_value DOUBLE PRECISION NOT NULL,
+      minimum DOUBLE PRECISION NOT NULL,
+      maximum DOUBLE PRECISION NOT NULL,
+      first_at TIMESTAMPTZ NOT NULL,
+      first_source TEXT NOT NULL,
+      first_value DOUBLE PRECISION NOT NULL,
+      last_at TIMESTAMPTZ NOT NULL,
+      last_source TEXT NOT NULL,
+      last_value DOUBLE PRECISION NOT NULL,
+      internal_positive_delta DOUBLE PRECISION NOT NULL DEFAULT 0,
+      internal_counter_consumption DOUBLE PRECISION NOT NULL DEFAULT 0,
+      counter_reset_count BIGINT NOT NULL DEFAULT 0 CHECK (counter_reset_count >= 0),
+      weighted_value_seconds DOUBLE PRECISION NOT NULL DEFAULT 0,
+      weighted_seconds DOUBLE PRECISION NOT NULL DEFAULT 0 CHECK (weighted_seconds >= 0),
+      maximum_internal_interval_seconds DOUBLE PRECISION NOT NULL DEFAULT 0
+        CHECK (maximum_internal_interval_seconds >= 0),
+      estimated_sample_count BIGINT NOT NULL DEFAULT 0 CHECK (estimated_sample_count >= 0),
+      stale_sample_count BIGINT NOT NULL DEFAULT 0 CHECK (stale_sample_count >= 0),
+      canonical_unit_min TEXT NOT NULL,
+      canonical_unit_max TEXT NOT NULL,
+      PRIMARY KEY (
+        algorithm_version, sensor_id, metric, bucket_start, bucket_seconds, quality_mask, source_scope
+      )
+    )`,
+    `CREATE INDEX IF NOT EXISTS ${quoteIdentifier("measurement_ordered_rollups_lookup_idx")}
+      ON ${relation("measurement_ordered_rollups")}
+      (sensor_id, metric, bucket_seconds, quality_mask, source_scope, bucket_start)`,
     `CREATE TABLE IF NOT EXISTS ${relation("legacy_readings")} (
       sensor_id TEXT NOT NULL CHECK (length(sensor_id) > 0),
       observed_at TIMESTAMPTZ NOT NULL CHECK (isfinite(observed_at)),
@@ -316,6 +437,9 @@ export function buildBaseSchemaSql(schemaName: string): string[] {
     `INSERT INTO ${relation("schema_migrations")} (version, description)
       VALUES (5, 'Archive every direct heat-pump state observation')
       ON CONFLICT (version) DO NOTHING`,
+    `INSERT INTO ${relation("schema_migrations")} (version, description)
+      VALUES (6, 'Race-safe demand-created ordered telemetry states')
+      ON CONFLICT (version) DO NOTHING`,
   ];
 }
 
@@ -355,4 +479,40 @@ export function buildFallbackAggregateSql(schemaName: string, bucket: Measuremen
     measurements,
   );
   return `CREATE OR REPLACE VIEW ${aggregate} AS ${projection}`;
+}
+
+/**
+ * Mergeable, quality/source-aware summaries used by interactive analytics.
+ * `WITH NO DATA` keeps upgrades bounded; the background policy backfills raw
+ * history while reads fail closed until the requested range is materialized.
+ */
+export function buildMeasurementAnalyticsAggregateSql(
+  schemaName: string,
+  bucket: MeasurementAnalyticsBaseBucket,
+): string {
+  const schema = validateSchemaName(schemaName);
+  const interval = MEASUREMENT_ANALYTICS_BUCKETS[bucket].interval;
+  const aggregate = qualifiedName(schema, measurementAnalyticsAggregateName(bucket));
+  const measurements = qualifiedName(schema, "measurement_samples");
+  return `CREATE MATERIALIZED VIEW ${aggregate}
+    WITH (timescaledb.continuous, timescaledb.materialized_only = true)
+    AS SELECT
+      sensor_id,
+      metric,
+      source,
+      quality,
+      canonical_unit,
+      time_bucket(INTERVAL '${interval}', observed_at) AS bucket_start,
+      count(*)::BIGINT AS sample_count,
+      sum(value)::DOUBLE PRECISION AS sum_value,
+      min(value)::DOUBLE PRECISION AS minimum,
+      max(value)::DOUBLE PRECISION AS maximum,
+      first(value, observed_at)::DOUBLE PRECISION AS first_value,
+      min(observed_at) AS first_at,
+      last(value, observed_at)::DOUBLE PRECISION AS last_value,
+      max(observed_at) AS last_at
+    FROM ${measurements}
+    GROUP BY sensor_id, metric, source, quality, canonical_unit,
+      time_bucket(INTERVAL '${interval}', observed_at)
+    WITH NO DATA`;
 }

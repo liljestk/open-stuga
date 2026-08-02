@@ -45,7 +45,7 @@ export interface APNSNotificationPayload {
 export function operationalNotificationSnapshot(
   channel: Exclude<NotificationSnapshotChannel, "apns">,
   config: AppConfig | undefined,
-  input: { type: "maintenance.due" | "action.verification"; subjectId: string; text: string; data: unknown; silent: boolean },
+  input: { type: "maintenance.due" | "action.verification" | "system.health"; subjectId: string; text: string; data: unknown; silent: boolean },
   destinationId = "primary",
 ): NotificationSnapshot {
   if (channel === "webhook") {

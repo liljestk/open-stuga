@@ -4,6 +4,38 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.29.0 - 2026-08-02
+
+- Keep every raw telemetry sample in TimescaleDB while compressing older chunks
+  and serving long ranges from quality-, source-, unit-, and aggregation-aware
+  1-minute, 5-minute, hourly, and daily rollups.
+- Preserve exact reset-safe counter, time-weighted, and energy-cost semantics
+  through durable ordered rollup state, bounded query deadlines, caches, and
+  keyset-paged raw history/export paths.
+- Make the acknowledged SQLite telemetry copy a bounded 30-day hot cache for
+  new installations while retaining compatibility with explicitly unbounded
+  existing configurations.
+- Add System storage settings for managed volumes, local SSD paths, local
+  recovery paths, and mounted NAS recovery storage under an administrator
+  allowlist.
+- Journal storage migrations across clean PostgreSQL shutdown, restore-tested
+  backup, capacity and filesystem checks, exact mount verification, durable
+  rollback, and manual-intervention fencing without deleting the old source.
+- Add persisted storage-growth forecasts, warning/critical local-capacity
+  alerts, recovery notifications, database/component metrics, bounded error
+  history, and authenticated Prometheus output.
+- Fail backups closed when a configured NAS is missing or replaced, verify
+  recovery-set capacity and restore drills, and preserve encrypted Cloudflare
+  R2 backup handling.
+- Stream federation recovery history and bound terminal notification payload,
+  command, receipt, staging, and job history independently of authoritative
+  telemetry, alert, audit, and revision records.
+
+Upgrade impact: startup creates or repairs Timescale rollups and policies but
+does not install raw-data retention. External storage must already be mounted
+under `STUGA_STORAGE_ALLOWED_ROOTS`; PostgreSQL remains restricted to local
+block storage, while NAS is supported for recovery sets.
+
 ## 0.28.0 - 2026-08-01
 
 - Redesign the responsive web lifecycle from first account and Property setup

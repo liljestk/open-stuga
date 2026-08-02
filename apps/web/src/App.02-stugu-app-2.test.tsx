@@ -16,7 +16,9 @@ import { createDemoState } from "./domain";
 
 import { useClimateData } from "./useClimateData";
 
-import { api } from "./api";
+import { api, ApiRequestError } from "./api";
+
+import { rememberIntegrationDiscovery } from "./integrationDiscoveryStorage";
 
 import { ROUTE_READY_TIMEOUT_MS, findPageHeading, mockClimateData, renderApp } from "./AppTestSupport";
 
@@ -299,5 +301,20 @@ describe("Stugu app", () => {
     await user.click(await screen.findByRole("tab", { name: /Where readings come from/ }));
     expect(await screen.findByRole("radio", { name: /Desk plug/ })).not.toBeNull();
     expect(screen.getByRole("radio", { name: /Heater plug/ })).not.toBeNull();
+  });
+
+  it("forgets an expired discovery job after an API restart", async () => {
+    const climate = mockClimateData();
+    const houseId = climate.state.houses[0]!.id;
+    const jobId = "72d642ee-a2f4-40cb-8d68-5fd663454912";
+    rememberIntegrationDiscovery(houseId, jobId);
+    vi.spyOn(api, "resumeIntegrationDiscovery").mockRejectedValue(
+      new ApiRequestError(404, "DISCOVERY_JOB_NOT_FOUND", "Device discovery job not found"),
+    );
+    vi.mocked(useClimateData).mockReturnValue(climate);
+
+    renderApp();
+
+    await waitFor(() => expect(localStorage.getItem(`stugu.integration-discovery.${houseId}`)).toBeNull());
   });
 });

@@ -187,9 +187,9 @@ export interface AlertEvent {
   resolvedAt: string | null;
 }
 
-export type NotificationSubjectKind = "alert" | "maintenance" | "action-run";
+export type NotificationSubjectKind = "alert" | "maintenance" | "action-run" | "system";
 
-export type NotificationDeliveryStage = "initial" | "escalation" | "reminder" | "due" | "verification";
+export type NotificationDeliveryStage = "initial" | "escalation" | "reminder" | "due" | "verification" | "resolved";
 
 export type NotificationChannel = "webhook" | "telegram" | "apns";
 

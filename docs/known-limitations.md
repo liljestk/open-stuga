@@ -407,8 +407,8 @@ system described in the roadmap.
   5-minute, 1-hour, and 1-day measurement rollups, but disk growth still needs
   monitoring and capacity headroom.
 - Raw Home telemetry is not deleted from TimescaleDB. With TimeDB enabled,
-  `RETENTION_DAYS=0` keeps only acknowledged current projections in SQLite;
-  values of 30 or more keep a guarded local cache. Compaction occurs only after
+  `RETENTION_DAYS=0` keeps the complete acknowledged SQLite duplicate;
+  values of 30 or more compact it to a guarded local cache. Compaction occurs only after
   all six telemetry families are caught up and clean. A full raw JSON export
   is still not archive-streaming; use the verified dual-database backup for a
   complete recovery set.

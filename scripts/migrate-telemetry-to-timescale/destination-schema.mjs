@@ -68,6 +68,20 @@ export async function requireTimescaleDestination(client, schema) {
 export function continuousAggregateSql(schema, aggregate) {
   const relation = `${q(schema)}.${q(aggregate.name)}`;
   const measurements = `${q(schema)}.${q("measurement_samples")}`;
+  if (aggregate.analytics) {
+    return `CREATE MATERIALIZED VIEW ${relation}
+      WITH (timescaledb.continuous, timescaledb.materialized_only = true)
+      AS SELECT sensor_id, metric, source, quality, canonical_unit,
+        time_bucket(INTERVAL '${aggregate.interval}', observed_at) AS bucket_start,
+        count(*)::bigint AS sample_count, sum(value)::double precision AS sum_value,
+        min(value)::double precision AS minimum, max(value)::double precision AS maximum,
+        first(value, observed_at)::double precision AS first_value, min(observed_at) AS first_at,
+        last(value, observed_at)::double precision AS last_value, max(observed_at) AS last_at
+      FROM ${measurements}
+      GROUP BY sensor_id, metric, source, quality, canonical_unit,
+        time_bucket(INTERVAL '${aggregate.interval}', observed_at)
+      WITH NO DATA`;
+  }
   return `CREATE MATERIALIZED VIEW ${relation}
     WITH (timescaledb.continuous, timescaledb.materialized_only = false)
     AS SELECT

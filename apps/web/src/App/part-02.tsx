@@ -25,7 +25,9 @@ import type { TpLinkDeviceReference } from "./support";
 import { useAppPart01 } from "./part-01";
 export function useAppPart02(context: ReturnType<typeof useAppPart01>) {
   const { t, climate, state, workspaceReadOnly, canManagePeople, loadSeriesInBackground, initialRoute, initialHouse, initialPropertyId, initialSelectedHouse, page, setPage, routeLoading, routeNotFound, setRouteNotFound, setRouteRevision, propertyId, setPropertyId, houseId, setHouseId, floorId, setFloorId, metric, setMetric, viewMode, setViewMode, selectedSensorId, setSelectedSensorId, units, setUnitsState, firstHomeName, setFirstHomeName, firstPropertyName, setFirstPropertyName, firstHomePropertyId, setFirstHomePropertyId, bootstrapAction, setBootstrapAction, maintenanceObservationId, setMaintenanceObservationId, requestedSensorDevice, setRequestedSensorDevice, dismissedTpLinkDeviceIds, setDismissedTpLinkDeviceIds, invitationToken, setInvitationToken, logoutUncertain, setLogoutUncertain, previousPage, logout, property, propertyReadOnly, propertyElectricityAvailable, propertyHouses, selectedPropertyHouse, house, activeSharedHouse, houseReadOnly, houseLocalAuthority, locationRoute, readOnly, routeHouse, routeScopeInvalid, effectiveRouteNotFound, floor, measurementDefinitions, availableMeasurements, lastUpdated, openAlertCount, scopedIntegration, availableTpLinkDevices, currentTpLinkDevices, undisclosedTpLinkDevices, discoveredSensorNotice } = context;
-  const previousFocusScope = useRef(`${page}:${locationRoute.propertyId ?? ""}:${locationRoute.houseId ?? ""}`);
+  // Seed from the already-selected scope so initial URL canonicalization is not
+  // mistaken for user-initiated SPA navigation and does not steal focus.
+  const previousFocusScope = useRef(`${page}:${locationRoute.propertyId ?? (page === "twin" ? propertyId : "")}:${locationRoute.houseId ?? (page === "twin" ? houseId : "")}`);
   const applyHouse = useCallback((id: string) => {
       const next = state.houses.find((item) => item.id === id);
       if (!next) return;
@@ -93,13 +95,13 @@ export function useAppPart02(context: ReturnType<typeof useAppPart01>) {
           ? property!.name
           : "";
       document.title = [pageTitle, scopeTitle, t("app.name")].filter(Boolean).join(" — ");
-      const focusScope = `${page}:${locationRoute.propertyId ?? ""}:${locationRoute.houseId ?? ""}`;
+      const focusScope = `${page}:${locationRoute.propertyId ?? (page === "twin" ? propertyId : "")}:${locationRoute.houseId ?? (page === "twin" ? houseId : "")}`;
       if (previousPage.current === page && previousFocusScope.current === focusScope) return;
       previousPage.current = page;
       previousFocusScope.current = focusScope;
       const frame = window.requestAnimationFrame(() => document.getElementById("main-content")?.focus());
       return () => window.cancelAnimationFrame(frame);
-    }, [effectiveRouteNotFound, house, locationRoute.houseId, locationRoute.propertyId, page, property, t]);
+    }, [effectiveRouteNotFound, house, houseId, locationRoute.houseId, locationRoute.propertyId, page, property, propertyId, t]);
   const setUnits = (next: UnitSystem) => {
       if (next === "imperial") {
         writeLocalStorage("climate-twin-units", "imperial");

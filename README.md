@@ -66,7 +66,11 @@ The opt-in demo starts with a two-floor home, ten virtual sensors, temperature, 
   snapshots
 - Threshold alerts with independent Telegram and multi-destination generic
   webhook delivery; Telegram includes guided bot/chat discovery, a delivery
-  test, and per-rule opt-in
+  test, per-rule Home alert opt-in, and automatic deduplicated host-health and
+  storage-forecast alerts with recovery notices
+- Owner/Admin host diagnostics with persisted storage-growth forecasts,
+  SQLite and optional Timescale metrics in the Prometheus feed, and a bounded,
+  redacted error-log export
 - A Home-scoped Apple Notes bridge for iOS Shortcuts: use revocable Shortcut
   grants, capture selected note text as maintenance work, and create dated Stugu
   snapshots without sharing an Apple Account credential or pretending Notes
@@ -157,13 +161,25 @@ storage.
 
 The always-on scheduler keeps its private recovery sets in an engine-managed
 volume so Docker and rootless Podman behave consistently on Linux, macOS, and
-Windows. Export verified scheduled sets to `backups/` with:
+Windows. `STUGA_SCHEDULED_BACKUP_SOURCE` can instead point at an absolute
+mounted NAS directory; keep PostgreSQL itself on local block/SSD storage via
+`STUGA_TIMESERIES_DATA_SOURCE`. Export verified named-volume sets to `backups/`
+with:
 
 ```powershell
 docker compose --profile maintenance run --rm stugu-backup-export
 ```
 
+With the trusted host update agent connected, Owners/Admins can choose these
+locations under **System → Storage**. Paths must already be mounted below
+`STUGA_STORAGE_ALLOWED_ROOTS`. NAS is accepted only for recovery sets; storage
+moves are backed up, restore-tested, journaled, copied, mount-verified, and
+rolled back without deleting the old source.
+
 Use `podman compose` in both commands when Podman is the selected runtime.
+See the [lossless telemetry scale plan](docs/telemetry-scale-plan.md) and
+[backend storage guide](docs/backend-storage.md) for retention, SSD/NAS, alert,
+query-acceleration, and recovery invariants.
 
 Move a running Compose installation to a booted Stugu appliance with an
 optional online seed followed by a short, explicit cutover:

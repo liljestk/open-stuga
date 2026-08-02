@@ -21,6 +21,7 @@ import { HomePerformancePanel } from "../components/HomePerformancePanel";
 import { OpeningAnalyticsPanel } from "../components/OpeningAnalyticsPanel";
 import { ThermalIsolationPanel } from "../components/ThermalIsolationPanel";
 import { MoistureResponsePanel } from "../components/MoistureResponsePanel";
+import { DataExportPanel } from "../components/DataExportPanel";
 import { chartGapThresholdMs, detectSeriesGaps } from "../chartGaps";
 import { formatInTimeZone } from "../dateTime";
 import { useHouseWeather } from "../useHouseWeather";
@@ -50,7 +51,7 @@ interface ContinuityRow {
 type QualityPreset = "good" | "reliable" | "all";
 type AnalyticsTool = "performance" | "openings" | "sensors";
 
-const ANALYTICS_RESOLUTIONS: AnalyticsResolution[] = ["auto", "raw", "1m", "5m", "15m", "1h", "1d"];
+const ANALYTICS_RESOLUTIONS = ["auto", "raw", "1m", "5m", "15m", "30m", "1h", "1d"] as const satisfies readonly AnalyticsResolution[];
 const ANALYTICS_AGGREGATIONS: AnalyticsAggregation[] = ["default", "mean", "sum", "delta", "last", "time_weighted_mean", "min", "max"];
 const QUALITY_PRESETS: QualityPreset[] = ["good", "reliable", "all"];
 const ANALYTICS_TOOLS: AnalyticsTool[] = ["performance", "openings", "sensors"];
@@ -128,7 +129,7 @@ function analyticsStateFromLocation(metricIds: readonly Metric[], sensorIds: rea
   const validRequestedSensors = requestedSensors && requestedSensors !== "none"
     ? [...new Set(requestedSensors.split(",").filter((sensorId) => sensorIds.includes(sensorId)))].sort()
     : [];
-  const resolution = ANALYTICS_RESOLUTIONS.includes(requestedResolution as AnalyticsResolution)
+  const resolution = ANALYTICS_RESOLUTIONS.some((option) => option === requestedResolution)
     ? requestedResolution as AnalyticsResolution
     : DEFAULT_ANALYTICS_STATE.resolution;
   return {
@@ -557,6 +558,13 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
         definitions={props.state.measurementDefinitions}
         units={props.units}
         refreshRevision={refreshRevision}
+      />
+
+      <DataExportPanel
+        state={props.state}
+        house={props.house}
+        units={props.units}
+        dataMode={props.dataMode}
       />
 
       <section className="analytics-primary-tools" aria-labelledby="analytics-primary-tools-title">

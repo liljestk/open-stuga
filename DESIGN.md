@@ -231,9 +231,10 @@ Progressive disclosure applies throughout the product:
 - **Sensors:** health and setup gaps first; discovery, import, and editing open on request.
 - **Inventory:** attention and service state first; search and location filters stay visible, while creation and editing open on request.
 - **Alerts:** active actionable groups first; rule creation and acknowledged history are secondary disclosures.
-- **System:** active host strain first; current CPU, memory, storage, and uptime
-  second; thresholds, platform detail, metrics access, and software updates
-  follow.
+- **System:** active host strain first; current CPU, memory, storage, database,
+  and uptime second; storage forecasts remain explicitly confidence-labelled;
+  thresholds, alert delivery, redacted error export, platform detail, metrics
+  access, and software updates follow.
 - **Outdoor:** current conditions and immediate implications first; forecast detail and model provenance follow.
 - **Set up:** show setup progress and the recommended next incomplete step; keep completed and advanced configuration compact.
 - **API & MCP:** lead with readiness and the shortest working path; reference detail and raw payloads remain expandable.

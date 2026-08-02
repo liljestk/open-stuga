@@ -213,7 +213,19 @@ export function configureApiPart12(context: ReturnType<typeof configureApiPart11
         throw new HttpError(404, "NOT_FOUND", "Property not found");
       }
       const hours = safeInteger(request.query.windowHours, 2, 1, 12);
-      response.json({ report: await context.energyOptimizer.report(propertyId, hours) });
+      const abortController = new AbortController();
+      const abortOnClose = () => abortController.abort();
+      response.once("close", abortOnClose);
+      try {
+        const report = await context.analyticsWorkLimiter.run(
+          "energy-optimization",
+          () => context.energyOptimizer.report(propertyId, hours, new Date(), abortController.signal),
+          abortController.signal,
+        );
+        response.json({ report });
+      } finally {
+        response.off("close", abortOnClose);
+      }
     });
   context.app.get(`${context.prefix}/property-areas`, (request, response) => {
       const page = collectionPage(request.query);

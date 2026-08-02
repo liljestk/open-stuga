@@ -22,6 +22,8 @@ import {
   verifyBatch,
 } from "../migrate-telemetry-to-timescale.mjs";
 import {
+  backupCapacity,
+  backupMinFreeBytes,
   createBackup,
   parseBackupArgs,
   timescaleDumpArguments,
@@ -51,6 +53,29 @@ test("scheduled backups include protected integration data only when its file ex
   assert.deepEqual(
     withSecrets.slice(-5),
     ["--include-secrets", "--secrets-file", "/app/data/integration-secrets.json", "--output", "/app/backups/with-secrets"],
+  );
+});
+
+test("backup capacity reserve is exact and fails closed for invalid configuration", () => {
+  assert.equal(backupMinFreeBytes(undefined), 1024 ** 3);
+  assert.equal(backupMinFreeBytes(" 2147483648 "), 2 * 1024 ** 3);
+  for (const value of ["-1", "1.5", "Infinity", "not-a-size"]) {
+    assert.throws(() => backupMinFreeBytes(value), /BACKUP_MIN_FREE_BYTES/u);
+  }
+
+  assert.deepEqual(backupCapacity(3_000_000_000n, 1_500_000_000, 1_000_000_000), {
+    availableBytes: "3000000000",
+    requiredBytes: "2500000000",
+    minimumFreeBytes: "1000000000",
+    sufficient: true,
+  });
+  assert.equal(
+    backupCapacity(2_499_999_999n, 1_500_000_000, 1_000_000_000).sufficient,
+    false,
+  );
+  assert.equal(
+    backupCapacity(18_446_744_073_709_551_615n, 1, 0).availableBytes,
+    "18446744073709551615",
   );
 });
 
@@ -521,12 +546,15 @@ test("historical import refreshes and verifies every fixed measurement aggregate
     maximumTime: "2026-07-18T10:02:00.000Z",
   }, 654_321);
 
-  assert.equal(reports.length, 3);
+  assert.equal(reports.length, MIGRATION_AGGREGATES.length);
   assert.deepEqual(reports.map(({ name }) => name), MIGRATION_AGGREGATES.map(({ name }) => name));
   assert.equal(reports.every(({ refreshed }) => refreshed), true);
   assert.equal(reports.every(({ rawSamples }) => rawSamples === "2"), true);
   assert.equal(reports.every(({ aggregateSamples }) => aggregateSamples === "2"), true);
-  assert.equal(queries.filter(({ text }) => text.includes("CALL refresh_continuous_aggregate")).length, 3);
+  assert.equal(
+    queries.filter(({ text }) => text.includes("CALL refresh_continuous_aggregate")).length,
+    MIGRATION_AGGREGATES.length,
+  );
   assert.ok(queries.some(({ text, values }) => (
     text.includes("set_config('statement_timeout'") && values[0] === "654321ms"
   )));
@@ -556,7 +584,7 @@ test("new continuous aggregates are created empty and refreshed outside the DDL 
     .map(({ text }, index) => ({ text, index }))
     .filter(({ text }) => text.includes("CREATE MATERIALIZED VIEW"));
   const commitIndex = queries.findIndex(({ text }) => text === "COMMIT");
-  assert.equal(createIndexes.length, 3);
+  assert.equal(createIndexes.length, MIGRATION_AGGREGATES.length);
   assert.equal(createIndexes.every(({ text, index }) => text.includes("WITH NO DATA") && index < commitIndex), true);
   assert.equal(queries.some(({ text }) => text.includes("WITH DATA")), false);
 });
@@ -586,7 +614,7 @@ test("Timescale 2.28 catalog views are retained as continuous aggregates", async
     30_000,
   );
 
-  assert.equal(reports.length, 3);
+  assert.equal(reports.length, MIGRATION_AGGREGATES.length);
   assert.equal(reports.every(({ created, refreshed }) => created === false && refreshed === false), true);
   assert.equal(queries.some(({ text }) => text.includes("FROM pg_class relation")), false);
   assert.equal(queries.some(({ text }) => text.startsWith("DROP VIEW")), false);

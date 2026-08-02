@@ -46,6 +46,21 @@ describe("AlertsPage monitoring coverage", () => {
         availableBytes: 536_870_912, usedPercent: 99.2,
         thresholds: { warningPercent: 85, criticalPercent: 95, warningAfterSeconds: 0, criticalAfterSeconds: 0 },
         warningAvailableBytes: 5_368_709_120, criticalAvailableBytes: 1_073_741_824,
+        forecast: {
+          state: "stable", sampleCount: 48, observedSeconds: 86_400, growthBytesPerDay: 0,
+          warningAt: null, criticalAt: null, confidence: "medium",
+        },
+      },
+      database: {
+        state: "healthy",
+        sqlite: {
+          state: "healthy", sizeBytes: 12_582_912, usedBytes: 11_534_336, walBytes: 0,
+          pageCount: 3_072, freePages: 256, tableCount: 42,
+        },
+        telemetry: {
+          enabled: false, required: false, state: "disabled", sizeBytes: null,
+          latencyMilliseconds: null, pool: null, queries: null,
+        },
       },
       alerts: [{
         id: "host-system-storage-critical", metric: "storage", severity: "critical", value: 99.2,

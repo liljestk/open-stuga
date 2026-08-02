@@ -2,8 +2,9 @@
 
 Stugu supports two deliberately different workflows:
 
-- **Telegram** is a real-time outbound alert channel. A rule must explicitly
-  enable Telegram before Stugu sends anything.
+- **Telegram** is a real-time outbound alert channel. Home sensor rules must
+  explicitly enable it; built-in host-health alerts use the same configured
+  chat automatically.
 - **Apple Notes** is a user-run iOS Shortcuts bridge for maintenance capture
   and dated snapshots. Stugu remains the source of truth.
 
@@ -34,6 +35,12 @@ Workspace contains a Property without a Home.
 6. Open **Alerts**. For each new or existing rule that should leave Stugu,
    enable **Telegram**. The generic webhook and Telegram are separate options.
 
+Once the test succeeds, built-in host warnings for sustained CPU, API,
+memory, temperature, database, low-storage, and trusted storage-forecast
+conditions also use this chat. Stugu deduplicates repeated health samples and
+sends a quiet recovery message when that monitored condition clears. Open
+**System** to see whether this delivery path is configured.
+
 Telegram bots cannot initiate a conversation, so step 3 is required. If no
 chat appears, send `/start` again and retry. A bot already configured with a
 Telegram webhook cannot use `getUpdates` discovery at the same time; use a
@@ -41,8 +48,10 @@ dedicated Stugu bot or remove the other integration first.
 
 ### What an alert contains
 
-Stugu sends a short plain-text summary with the severity, Home and sensor
-label, rule, observed value, threshold, and start time. It does not send floor
+Stugu sends a short plain-text summary. Home alerts include the severity, Home
+and sensor label, rule, observed value, threshold, and start time. Host alerts
+include the affected system metric, interpreted condition, recommended action,
+host label, and start time. It does not send floor
 plans, coordinates, credentials, free-form observation history, or occupant
 information. `protect_content` is requested from Telegram, and informational
 alerts are silent. Telegram cloud chats are not end-to-end encrypted Secret

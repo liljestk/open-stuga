@@ -34,7 +34,7 @@ class RollupPool {
   private dispatch(config: QueryConfig): QueryResult<QueryResultRow> {
     const query = { text: config.text, values: config.values ?? [] };
     this.queries.push(query);
-    return queryResult(query.text.includes("jsonb_to_recordset") ? [{
+    return queryResult(query.text.includes("AS requested(sensor_id TEXT, metric TEXT, aggregation TEXT)") ? [{
       sensor_id: "meter-1",
       metric: "power",
       canonical_unit: "W",
@@ -89,7 +89,7 @@ describe("TimeseriesStore analytics rollup", () => {
       }],
     });
 
-    const rollup = pool.queries.find(({ text }) => text.includes("jsonb_to_recordset"))!;
+    const rollup = pool.queries.find(({ text }) => text.includes("AS requested(sensor_id TEXT, metric TEXT, aggregation TEXT)"))!;
     expect(rollup.values).toEqual([
       JSON.stringify([{ sensor_id: "meter-1", metric: "power", aggregation: "time_weighted_mean" }]),
       FROM,
@@ -97,10 +97,36 @@ describe("TimeseriesStore analytics rollup", () => {
       ["good", "estimated"],
       "1 hour",
       true,
+      3,
+      3_600,
     ]);
-    expect(rollup.text).toContain("sample.observed_at < $3::TIMESTAMPTZ");
+    expect(rollup.text).toContain("measurement_ordered_rollups");
+    expect(rollup.text).toContain("measurement_ordered_rollup_generations");
+    expect(rollup.text).toContain("required_days AS");
+    expect(rollup.text).toContain("required.day_start IS NOT NULL");
+    expect(rollup.text).toContain("dirty.day_start = required.day_start");
+    expect(rollup.text).toContain("dirty.sensor_id IS NULL OR generation.sensor_id IS NULL");
+    expect(rollup.text).toContain("GREATEST(dirty.current_seq, generation.current_seq)");
     expect(rollup.text).toContain("date_bin($5::INTERVAL");
-    expect(rollup.text).toContain("cadences.cadence_seconds * 1.5");
-    expect(rollup.text).not.toContain("LIMIT");
+    expect(rollup.text).toContain("rollup.bucket_seconds = $8::INTEGER");
+    expect(rollup.text).toContain("counts.cadence_seconds * 1.5");
+    expect(rollup.text).toContain("ORDER BY sample.observed_at ASC LIMIT 1");
+    expect(rollup.text).not.toMatch(/LIMIT \$\d/u);
+  });
+
+  it("passes a validated custom minute interval to PostgreSQL", async () => {
+    const pool = new RollupPool();
+    const store = new TimeseriesStore({ pool: pool as unknown as Pool, statementTimeoutMs: 0 });
+
+    await store.measurementAnalyticsRollup({
+      series: [{ sensorId: "meter-1", metric: "power", aggregation: "mean" }],
+      from: FROM,
+      to: TO,
+      resolution: "7m",
+      qualities: ["good"],
+    });
+
+    const rollup = pool.queries.find(({ text }) => text.includes("AS requested(sensor_id TEXT, metric TEXT, aggregation TEXT)"))!;
+    expect(rollup.values[4]).toBe("7 minutes");
   });
 });

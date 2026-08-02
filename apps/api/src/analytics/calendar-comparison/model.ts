@@ -336,14 +336,16 @@ export interface CalendarValueAccumulator {
   coverageDuration: number;
 }
 
-const resolutionSeconds: Record<AnalyticsSeries["resolution"], number> = {
-  raw: 1,
-  "1m": 60,
-  "5m": 300,
-  "15m": 900,
-  "1h": 3_600,
-  "1d": 86_400,
-};
+function resolutionSeconds(resolution: AnalyticsSeries["resolution"]): number {
+  if (resolution === "raw") return 1;
+  if (resolution === "1h") return 3_600;
+  if (resolution === "1d") return 86_400;
+  const minutes = Number(/^(\d{1,4})m$/u.exec(resolution)?.[1]);
+  if (!Number.isSafeInteger(minutes) || minutes < 1 || minutes > 1_440) {
+    throw new RangeError("invalid analytics series resolution");
+  }
+  return minutes * 60;
+}
 
 export interface CalendarAnalyticsRangeSplit {
   middle: string;
@@ -400,7 +402,7 @@ export function appendAnalyticsSeries(
   series: AnalyticsSeries,
   range?: { start: string; end: string },
 ): CalendarValueAccumulator {
-  const duration = resolutionSeconds[series.resolution];
+  const duration = resolutionSeconds(series.resolution);
   const rangeStart = range ? Date.parse(range.start) : Number.NEGATIVE_INFINITY;
   const rangeEnd = range ? Date.parse(range.end) : Number.POSITIVE_INFINITY;
   for (const point of series.points) {

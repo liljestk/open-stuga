@@ -464,13 +464,27 @@ registerDatabaseMethods({
         .get(sensorId, metric, source, timestamp) as unknown as MeasurementSampleRow | undefined;
       return row ? measurementSampleFromRow(row) : null;
     },
-  measurementHistory(sensorId: string, metric: string, from: string, to: string, limit = 20_000): MeasurementSample[] {
+  measurementHistory(
+    sensorId: string,
+    metric: string,
+    from: string,
+    to: string,
+    limit = 20_000,
+    before?: { timestamp: string; source: string },
+  ): MeasurementSample[] {
       if (!this.getSensor(sensorId)) return [];
+      const cursor = before
+        ? "AND (timestamp < ? OR (timestamp = ? AND source < ?))"
+        : "";
+      const parameters: Array<string | number> = [sensorId, metric, from, to];
+      if (before) parameters.push(before.timestamp, before.timestamp, before.source);
+      parameters.push(limit);
       const rows = this.db.prepare(`SELECT sensor_id, metric, value, canonical_unit, timestamp, source, quality FROM (
         SELECT id, sensor_id, metric, value, canonical_unit, timestamp, source, quality
         FROM measurement_samples WHERE sensor_id = ? AND metric = ? AND timestamp >= ? AND timestamp <= ?
-        ORDER BY timestamp DESC, id DESC LIMIT ?
-      ) ORDER BY timestamp ASC, id ASC`).all(sensorId, metric, from, to, limit) as unknown as MeasurementSampleRow[];
+          ${cursor}
+        ORDER BY timestamp DESC, source DESC, id DESC LIMIT ?
+      ) ORDER BY timestamp ASC, source ASC, id ASC`).all(...parameters) as unknown as MeasurementSampleRow[];
       return rows.map(measurementSampleFromRow);
     },
 });

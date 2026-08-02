@@ -213,13 +213,17 @@ registerDatabaseMethods({
       if (!notificationOutboxColumns.some((column) => column.name === "abandoned_at")) {
             this.db.exec("ALTER TABLE notification_outbox ADD COLUMN abandoned_at TEXT");
           }
-      const legacyNotifications = this.db.prepare(`SELECT id, event_id, channel FROM notification_outbox
-            WHERE payload_json IS NULL OR destination_ref IS NULL`).all() as Array<{
-              id: string;
-              event_id: string;
-              channel: "webhook" | "telegram";
-            }>;
-      for (const queued of legacyNotifications) {
+      const listLegacyNotifications = this.db.prepare(`SELECT id, event_id, channel FROM notification_outbox
+            WHERE (payload_json IS NULL OR destination_ref IS NULL) AND id > ? ORDER BY id LIMIT 500`);
+      let legacyNotificationCursor = "";
+      while (true) {
+        const legacyNotifications = listLegacyNotifications.all(legacyNotificationCursor) as Array<{
+          id: string;
+          event_id: string;
+          channel: "webhook" | "telegram";
+        }>;
+        if (legacyNotifications.length === 0) break;
+        for (const queued of legacyNotifications) {
             const event = this.getAlertEvent(queued.event_id);
             const ruleRow = event
               ? this.db.prepare("SELECT * FROM alert_rules WHERE id = ?").get(event.ruleId) as unknown as AlertRuleRow | undefined
@@ -243,17 +247,19 @@ registerDatabaseMethods({
               : JSON.stringify({ version: 1, legacyEventId: queued.event_id, unavailable: true });
             this.db.prepare(`UPDATE notification_outbox SET payload_json = ?, destination_ref = ? WHERE id = ?`)
               .run(payloadJson, legacyNotificationDestinationRef(queued.channel), queued.id);
-          }
+        }
+        legacyNotificationCursor = legacyNotifications.at(-1)!.id;
+      }
       if (!notificationOutboxColumns.some((column) => column.name === "subject_kind")) {
             this.db.exec(`
               DROP TRIGGER IF EXISTS require_notification_outbox_snapshot_insert;
               DROP TRIGGER IF EXISTS preserve_notification_outbox_snapshot_update;
               CREATE TABLE notification_outbox_next (
                 id TEXT PRIMARY KEY,
-                subject_kind TEXT NOT NULL CHECK(subject_kind IN ('alert', 'maintenance', 'action-run')),
+                subject_kind TEXT NOT NULL CHECK(subject_kind IN ('alert', 'maintenance', 'action-run', 'system')),
                 subject_id TEXT NOT NULL,
                 event_id TEXT REFERENCES alert_events(id) ON DELETE RESTRICT,
-                stage TEXT NOT NULL CHECK(stage IN ('initial', 'escalation', 'reminder', 'due', 'verification')),
+                stage TEXT NOT NULL CHECK(stage IN ('initial', 'escalation', 'reminder', 'due', 'verification', 'resolved')),
                 sequence INTEGER NOT NULL DEFAULT 0 CHECK(sequence >= 0),
                 channel TEXT NOT NULL CHECK(channel IN ('webhook', 'telegram', 'apns')),
                 destination_id TEXT NOT NULL,
@@ -296,16 +302,18 @@ registerDatabaseMethods({
       const notificationOutboxSql = (this.db.prepare(
             "SELECT sql FROM sqlite_schema WHERE type = 'table' AND name = 'notification_outbox'",
           ).get() as { sql: string } | undefined)?.sql ?? "";
-      if (!notificationOutboxSql.includes("'apns'")) {
+      if (!notificationOutboxSql.includes("'apns'")
+        || !notificationOutboxSql.includes("'system'")
+        || !notificationOutboxSql.includes("'resolved'")) {
             this.db.exec(`
               DROP TRIGGER IF EXISTS require_notification_outbox_snapshot_insert;
               DROP TRIGGER IF EXISTS preserve_notification_outbox_snapshot_update;
               CREATE TABLE notification_outbox_apns (
                 id TEXT PRIMARY KEY,
-                subject_kind TEXT NOT NULL CHECK(subject_kind IN ('alert', 'maintenance', 'action-run')),
+                subject_kind TEXT NOT NULL CHECK(subject_kind IN ('alert', 'maintenance', 'action-run', 'system')),
                 subject_id TEXT NOT NULL,
                 event_id TEXT REFERENCES alert_events(id) ON DELETE RESTRICT,
-                stage TEXT NOT NULL CHECK(stage IN ('initial', 'escalation', 'reminder', 'due', 'verification')),
+                stage TEXT NOT NULL CHECK(stage IN ('initial', 'escalation', 'reminder', 'due', 'verification', 'resolved')),
                 sequence INTEGER NOT NULL DEFAULT 0 CHECK(sequence >= 0),
                 channel TEXT NOT NULL CHECK(channel IN ('webhook', 'telegram', 'apns')),
                 destination_id TEXT NOT NULL,
@@ -324,13 +332,31 @@ registerDatabaseMethods({
                 abandoned_at TEXT,
                 UNIQUE(subject_kind, subject_id, stage, sequence, channel, destination_id)
               );
-              INSERT INTO notification_outbox_apns SELECT * FROM notification_outbox;
+              INSERT INTO notification_outbox_apns (
+                id, subject_kind, subject_id, event_id, stage, sequence, channel, destination_id,
+                attempts, max_attempts, available_at, locked_at, lock_token, last_error,
+                created_at, delivered_at, payload_json, destination_ref, policy_json,
+                dead_lettered_at, abandoned_at
+              )
+              SELECT id, subject_kind, subject_id, event_id, stage, sequence, channel, destination_id,
+                attempts, max_attempts, available_at, locked_at, lock_token, last_error,
+                created_at, delivered_at, payload_json, destination_ref, policy_json,
+                dead_lettered_at, abandoned_at
+              FROM notification_outbox;
               DROP TABLE notification_outbox;
               ALTER TABLE notification_outbox_apns RENAME TO notification_outbox;
             `);
           }
       this.db.exec(`CREATE INDEX IF NOT EXISTS idx_notification_outbox_due
             ON notification_outbox(delivered_at, dead_lettered_at, available_at, locked_at)`);
+      this.db.exec(`
+            CREATE INDEX IF NOT EXISTS idx_notification_outbox_delivered
+              ON notification_outbox(delivered_at) WHERE delivered_at IS NOT NULL;
+            CREATE INDEX IF NOT EXISTS idx_notification_outbox_dead_lettered
+              ON notification_outbox(dead_lettered_at) WHERE dead_lettered_at IS NOT NULL;
+            CREATE INDEX IF NOT EXISTS idx_notification_outbox_abandoned
+              ON notification_outbox(abandoned_at) WHERE abandoned_at IS NOT NULL;
+          `);
       this.db.exec(`
             CREATE TRIGGER IF NOT EXISTS require_notification_outbox_snapshot_insert
               BEFORE INSERT ON notification_outbox

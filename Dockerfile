@@ -173,14 +173,15 @@ COPY --from=node-base /usr/local/bin/node /usr/local/bin/node
 COPY package.json ./package.json
 COPY scripts/sqlite-snapshot-utils.mjs scripts/stugu-backup.mjs scripts/stugu-backup-scheduler.mjs scripts/stugu-restore-drill.mjs \
   scripts/stugu-r2-backup.mjs scripts/stugu-r2-backup-scheduler.mjs \
-  scripts/stugu-migration-common.mjs scripts/stugu-migration-bundle.mjs scripts/stugu-migration-target.mjs ./scripts/
+  scripts/stugu-migration-common.mjs scripts/stugu-migration-bundle.mjs scripts/stugu-migration-target.mjs \
+  scripts/stugu-storage-helper.mjs scripts/stugu-storage-target.mjs ./scripts/
 COPY scripts/stugu-backup ./scripts/stugu-backup
 COPY scripts/stugu-r2-backup ./scripts/stugu-r2-backup
 COPY scripts/stugu-migration-target ./scripts/stugu-migration-target
 COPY --chmod=755 scripts/export-scheduled-backups.sh ./scripts/export-scheduled-backups.sh
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends age rclone zstd \
+  && apt-get install -y --no-install-recommends age rclone rsync zstd \
   && rm -rf /var/lib/apt/lists/*
 
 RUN install -d -o 1000 -g 1000 -m 0700 /app/backups

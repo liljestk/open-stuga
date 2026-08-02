@@ -31,9 +31,15 @@ import {
 
 import { main } from "./stugu-backup/operations.mjs";
 
-export { parseBackupArgs } from "./stugu-backup/configuration-files.mjs";
+export {
+  backupMinFreeBytes,
+  parseBackupArgs,
+} from "./stugu-backup/configuration-files.mjs";
 
-export { timescaleDumpArguments } from "./stugu-backup/commands-timescale.mjs";
+export {
+  backupCapacity,
+  timescaleDumpArguments,
+} from "./stugu-backup/commands-timescale.mjs";
 
 export { timescaleOwnershipValidationSql } from "./stugu-backup/commands-timescale.mjs";
 

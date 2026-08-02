@@ -394,10 +394,10 @@ export const CORE_SCHEMA_01 = `
       );
       CREATE TABLE IF NOT EXISTS notification_outbox (
         id TEXT PRIMARY KEY,
-        subject_kind TEXT NOT NULL DEFAULT 'alert' CHECK(subject_kind IN ('alert', 'maintenance', 'action-run')),
+        subject_kind TEXT NOT NULL DEFAULT 'alert' CHECK(subject_kind IN ('alert', 'maintenance', 'action-run', 'system')),
         subject_id TEXT NOT NULL,
         event_id TEXT REFERENCES alert_events(id) ON DELETE RESTRICT,
-        stage TEXT NOT NULL DEFAULT 'initial' CHECK(stage IN ('initial', 'escalation', 'reminder', 'due', 'verification')),
+        stage TEXT NOT NULL DEFAULT 'initial' CHECK(stage IN ('initial', 'escalation', 'reminder', 'due', 'verification', 'resolved')),
         sequence INTEGER NOT NULL DEFAULT 0 CHECK(sequence >= 0),
         channel TEXT NOT NULL CHECK(channel IN ('webhook', 'telegram', 'apns')),
         destination_id TEXT NOT NULL DEFAULT 'primary',

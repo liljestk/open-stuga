@@ -148,6 +148,13 @@ registerDatabaseMethods({
           AND abandoned_at IS NULL`)
         .run(abandonedAt.toISOString(), reason.slice(0, 500), id, lockToken).changes) > 0;
     },
+  pruneNotificationDeliveryHistory(deliveredBefore: Date, terminalBefore: Date): number {
+      return Number(this.db.prepare(`DELETE FROM notification_outbox
+        WHERE (delivered_at IS NOT NULL AND delivered_at < ?)
+          OR (delivered_at IS NULL AND dead_lettered_at IS NOT NULL AND dead_lettered_at < ?)
+          OR (delivered_at IS NULL AND abandoned_at IS NOT NULL AND abandoned_at < ?)`)
+        .run(deliveredBefore.toISOString(), terminalBefore.toISOString(), terminalBefore.toISOString()).changes);
+    },
   pendingNotificationCount(): number {
       return Number((this.db.prepare(`SELECT COUNT(*) AS count FROM notification_outbox
         WHERE delivered_at IS NULL AND dead_lettered_at IS NULL AND abandoned_at IS NULL

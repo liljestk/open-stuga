@@ -75,13 +75,13 @@ export const localAuthPaths = {
   "/system/health": {
     get: {
       tags: ["Context"], operationId: "getHostSystemHealth",
-      description: "Owner/Admin-only host CPU, API event-loop responsiveness, memory, data-volume storage, uptime, temperature, and sustained strain alerts.",
+      description: "Owner/Admin-only host CPU, API event-loop responsiveness, memory, database metrics, data-volume storage and forecast, uptime, temperature, alert delivery, and sustained strain alerts.",
       security: [{ localSession: [] }],
       responses: {
         "200": spatialJsonResponse("Current Stugu host health.", {
           type: "object",
           additionalProperties: false,
-          required: ["state", "sampledAt", "hostname", "platform", "architecture", "release", "hostUptimeSeconds", "serviceUptimeSeconds", "cpu", "memory", "storage", "alerts"],
+          required: ["state", "sampledAt", "hostname", "platform", "architecture", "release", "hostUptimeSeconds", "serviceUptimeSeconds", "cpu", "memory", "storage", "database", "alertDelivery", "alerts"],
           properties: {
             state: { enum: ["healthy", "warning", "critical", "unknown"] },
             sampledAt: { type: "string", format: "date-time" },
@@ -94,6 +94,8 @@ export const localAuthPaths = {
             cpu: { type: "object", additionalProperties: true },
             memory: { type: "object", additionalProperties: true },
             storage: { type: "object", additionalProperties: true },
+            database: { type: "object", additionalProperties: true },
+            alertDelivery: { type: "object", additionalProperties: true },
             alerts: { type: "array", items: { type: "object", additionalProperties: true } },
           },
         }),
@@ -115,6 +117,20 @@ export const localAuthPaths = {
       },
     },
   },
+  "/system/error-logs": {
+    get: {
+      tags: ["Context"], operationId: "exportSystemErrorLogs",
+      description: "Download the bounded, redacted system error ledger as newline-delimited JSON. Owner/Admin only.",
+      security: [{ localSession: [] }],
+      responses: {
+        "200": {
+          description: "Redacted error-log export.",
+          content: { "application/x-ndjson": { schema: { type: "string", format: "binary" } } },
+        },
+        "403": { description: "Owner or Admin role required" },
+      },
+    },
+  },
   "/system/updates": {
     get: {
       tags: ["Context"], operationId: "getSystemUpdateStatus",
@@ -123,6 +139,38 @@ export const localAuthPaths = {
       responses: {
         "200": spatialJsonResponse("Current system update status.", { type: "object", additionalProperties: true }),
         "403": { description: "Owner or Admin role required" },
+      },
+    },
+  },
+  "/system/storage": {
+    get: {
+      tags: ["Context"], operationId: "getSystemStorageStatus",
+      description: "Owner/Admin-only primary telemetry and recovery-set storage configuration, host-agent capability, and migration state.",
+      security: [{ localSession: [] }],
+      responses: {
+        "200": spatialJsonResponse("Current storage configuration and operation status.", { type: "object", additionalProperties: true }),
+        "403": { description: "Owner or Admin role required" },
+      },
+    },
+    put: {
+      tags: ["Context"], operationId: "updateSystemStorage",
+      description: "Queues a journaled host storage migration. TimescaleDB accepts managed or local block storage; NAS is recovery-set only.",
+      security: [{ localSession: [], csrfToken: [] }],
+      requestBody: spatialRequestBody({
+        type: "object",
+        additionalProperties: false,
+        required: ["settings", "expectedRevision", "confirmation"],
+        properties: {
+          settings: { type: "object", additionalProperties: true },
+          expectedRevision: { type: "string", pattern: "^[0-9a-f]{64}$" },
+          confirmation: { enum: ["APPLY_STORAGE", "MOVE_STORAGE"] },
+        },
+      }),
+      responses: {
+        "202": spatialJsonResponse("Storage change queued for the trusted host agent.", { type: "object", additionalProperties: true }),
+        "400": { description: "Invalid or unsafe storage settings" },
+        "409": { description: "Stale settings or another maintenance operation is active" },
+        "503": { description: "Compatible host storage agent unavailable" },
       },
     },
   },

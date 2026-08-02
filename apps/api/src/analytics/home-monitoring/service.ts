@@ -43,6 +43,7 @@ export interface HomeMonitoringServiceContext {
   dataMode: DataMode;
   evaluatedAt: string;
   measurementHistory?: MeasurementHistory;
+  warnings?: readonly DerivedAnalyticsWarning[];
 }
 
 export interface HomeMonitoringScope {
@@ -319,7 +320,7 @@ function envelope(
     .sort((left, right) => left.sensorId.localeCompare(right.sensorId)
       || left.metric.localeCompare(right.metric)
       || left.observedAt.localeCompare(right.observedAt));
-  const warnings = monitoringWarnings(summaries);
+  const warnings = [...monitoringWarnings(summaries), ...(context.warnings ?? [])];
   const enabledSensorCount = summaries.reduce((sum, summary) => sum + summary.coverage.enabledSensors, 0);
   const completeness = enabledSensorCount === 0 || evidenceSources.length === 0
     ? "unavailable" as const

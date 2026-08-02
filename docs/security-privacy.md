@@ -276,8 +276,8 @@ basis before correlating environment and wearable data.
 ## Retention policy
 
 Raw Home telemetry is retained permanently in TimescaleDB. With TimeDB enabled,
-`RETENTION_DAYS=0` compacts acknowledged SQLite history to current projections;
-values of 30 or more retain a bounded local cache. Compaction pauses on any
+`RETENTION_DAYS=0` keeps the complete acknowledged SQLite duplicate; values of
+30 or more compact it to a bounded local cache. Compaction pauses on any
 archive uncertainty, and old-range reads fail closed when TimeDB is unavailable.
 Operators must still budget disk, protect backups, and periodically confirm that
 indefinite raw-history retention remains justified. A future TimeDB deletion

@@ -104,9 +104,9 @@ PostgreSQL/TimescaleDB worker defaults needs this one-time persistent bridge
 before cutover:
 
 ```sql
-ALTER SYSTEM SET max_worker_processes = '16';
+ALTER SYSTEM SET max_worker_processes = '8';
 ALTER SYSTEM SET max_parallel_workers = '4';
-ALTER SYSTEM SET timescaledb.max_background_workers = '12';
+ALTER SYSTEM SET timescaledb.max_background_workers = '4';
 ```
 
 Run the statements as `stuga_admin`, restart only the TimescaleDB container,

@@ -3,11 +3,13 @@ import { Pool } from "pg";
 import type { PoolClient, QueryResult, QueryResultRow } from "pg";
 import {
   HYPERTABLE_DEFINITIONS,
+  MEASUREMENT_ANALYTICS_BUCKETS,
   MEASUREMENT_BUCKETS,
   TELEMETRY_TABLES,
   buildBaseSchemaSql,
   buildContinuousAggregateSql,
   buildFallbackAggregateSql,
+  measurementAnalyticsAggregateName,
   measurementAggregateName,
   qualifiedName,
   quoteIdentifier,
@@ -44,183 +46,140 @@ import type {
 } from "../../types.js";
 import { EnergyCostAggregateRow, ExtensionRow, HealthRow, QUERY_TAG_PREFIX, SqlValue, StorageRow, TimescaleStorageRow, abortError, describeError, timeoutValue, timestamp } from "../support/01-default-schema-to-measurement-bucket-from-row.js";
 import { registerTimeseriesStoreMethods, timeseriesStoreState, type TimeseriesStoreInternals } from "../core.js";
+import {
+  measurementCostRollupRequirementsSql,
+  measurementCostRollupSql,
+} from "../measurement-cost-rollup-sql.js";
+
+interface CostRollupRequirementRow extends QueryResultRow {
+  day_start: string | Date;
+  bucket_seconds: string | number;
+}
+
+function postgresErrorCode(error: unknown): string | null {
+  return typeof error === "object" && error !== null && "code" in error
+    ? String((error as { code?: unknown }).code ?? "")
+    : null;
+}
+
+async function refreshContinuousAggregate(
+  store: TimeseriesStoreInternals,
+  aggregate: string,
+  query: AggregateRefreshQuery,
+): Promise<void> {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      await store.__query(
+        "CALL refresh_continuous_aggregate($1::REGCLASS, $2::TIMESTAMPTZ, $3::TIMESTAMPTZ)",
+        [qualifiedName(store.schema, aggregate), query.from ?? null, query.to ?? null],
+        query,
+      );
+      return;
+    } catch (error) {
+      if (postgresErrorCode(error) !== "55P03" || attempt >= 6) throw error;
+      await new Promise<void>((resolve, reject) => {
+        const finish = (): void => {
+          query.signal?.removeEventListener("abort", cancel);
+          resolve();
+        };
+        const cancel = (): void => {
+          clearTimeout(timer);
+          reject(abortError(query.signal!));
+        };
+        const timer = setTimeout(finish, Math.min(2_000, 100 * 2 ** attempt));
+        timer.unref();
+        query.signal?.addEventListener("abort", cancel, { once: true });
+      });
+    }
+  }
+}
+
+async function orderedCostAggregate(
+  store: TimeseriesStoreInternals,
+  query: EnergyCostAggregateQuery,
+  metric: "energy" | "power",
+): Promise<EnergyCostAggregateRecord> {
+  const series = [{
+    sensorId: query.sensorId,
+    metric,
+    aggregation: metric === "energy" ? "delta" as const : "time_weighted_mean" as const,
+  }];
+  const parameters = [
+    query.sensorId, query.from, query.to, query.propertyId, Boolean(query.excludeSynthetic),
+  ];
+  const requirements = await store.__query<CostRollupRequirementRow>(
+    measurementCostRollupRequirementsSql(store.schema),
+    parameters,
+    query,
+  );
+  const byBucket = new Map<60 | 900 | 3600, string[]>();
+  for (const row of requirements.rows) {
+    const bucketSeconds = Number(row.bucket_seconds);
+    if (bucketSeconds !== 60 && bucketSeconds !== 900 && bucketSeconds !== 3600) {
+      throw new Error("Telemetry cost planner returned an invalid ordered-state resolution");
+    }
+    const days = byBucket.get(bucketSeconds) ?? [];
+    days.push(new Date(row.day_start).toISOString());
+    byBucket.set(bucketSeconds, days);
+  }
+  for (const bucketSeconds of [3600, 900, 60] as const) {
+    const days = byBucket.get(bucketSeconds);
+    if (!days?.length) continue;
+    await store.enqueueMeasurementOrderedRollups(
+      series,
+      query.from,
+      query.to,
+      3,
+      query.excludeSynthetic === true ? "real" : "all",
+      bucketSeconds,
+      query,
+      days,
+    );
+  }
+  const result = await store.__query<EnergyCostAggregateRow>(
+    measurementCostRollupSql(store.schema, metric),
+    [...parameters, metric],
+    query,
+  );
+  const row = result.rows[0];
+  if (!row || row.coverage_complete !== true) {
+    throw new Error("Telemetry cost rollups are still materializing the requested history");
+  }
+  return {
+    deltaCount: Number(row.delta_count ?? 0),
+    consumptionKwh: Number(row.consumption_kwh ?? 0),
+    pricedConsumptionKwh: Number(row.priced_consumption_kwh ?? 0),
+    costEur: Number(row.cost_eur ?? 0),
+    totalDurationMs: Number(row.total_duration_ms ?? 0),
+    pricedDurationMs: Number(row.priced_duration_ms ?? 0),
+    maximumIntervalDurationMs: Number(row.maximum_interval_duration_ms ?? 0),
+    coverageFrom: row.coverage_from === null ? null : timestamp(row.coverage_from),
+    coverageUntil: row.coverage_until === null ? null : timestamp(row.coverage_until),
+  };
+}
 
 registerTimeseriesStoreMethods({
-  async energyCostAggregate(this: TimeseriesStoreInternals, query: EnergyCostAggregateQuery): Promise<EnergyCostAggregateRecord> {
-      const measurements = qualifiedName(this.schema, "measurement_samples");
-      const prices = qualifiedName(this.schema, "electricity_price_samples");
-      const result = await this.__query<EnergyCostAggregateRow>(`WITH boundary_sample AS (
-          SELECT observed_at, value, ingested_at, source FROM ${measurements}
-          WHERE sensor_id = $1 AND metric = 'energy' AND quality <> 'stale'
-            AND observed_at < $2::TIMESTAMPTZ
-            AND (NOT $5::BOOLEAN OR source NOT IN ('mock', 'replay'))
-          ORDER BY observed_at DESC, ingested_at DESC, source DESC LIMIT 1
-        ), window_samples AS (
-          SELECT observed_at, value, ingested_at, source FROM ${measurements}
-          WHERE sensor_id = $1 AND metric = 'energy' AND quality <> 'stale'
-            AND observed_at >= $2::TIMESTAMPTZ AND observed_at <= $3::TIMESTAMPTZ
-            AND (NOT $5::BOOLEAN OR source NOT IN ('mock', 'replay'))
-        ), deduplicated AS (
-          SELECT DISTINCT ON (observed_at) observed_at, value
-          FROM (SELECT * FROM boundary_sample UNION ALL SELECT * FROM window_samples) samples
-          ORDER BY observed_at, ingested_at DESC, source DESC
-        ), ordered AS (
-          SELECT observed_at AS current_at, value AS current_value,
-            lag(observed_at) OVER (ORDER BY observed_at) AS previous_at,
-            lag(value) OVER (ORDER BY observed_at) AS previous_value
-          FROM deduplicated
-        ), deltas AS (
-          SELECT previous_at, current_at, GREATEST(previous_at, $2::TIMESTAMPTZ) AS window_start,
-            CASE WHEN current_value >= previous_value THEN current_value - previous_value
-              ELSE GREATEST(0, current_value) END AS base_delta_kwh,
-            EXTRACT(EPOCH FROM (current_at - previous_at)) * 1000.0 AS full_duration_ms
-          FROM ordered
-          WHERE previous_at IS NOT NULL AND current_at > $2::TIMESTAMPTZ
-            AND current_value >= 0 AND previous_value >= 0 AND current_at > previous_at
-        ), normalized AS (
-          SELECT *,
-            base_delta_kwh * EXTRACT(EPOCH FROM (current_at - window_start)) * 1000.0
-              / full_duration_ms AS window_delta_kwh,
-            EXTRACT(EPOCH FROM (current_at - window_start)) * 1000.0 AS window_duration_ms
-          FROM deltas
-        ), latest_prices AS (
-          SELECT DISTINCT ON (starts_at)
-            starts_at, ends_at, raw_price_cents_per_kwh, margin_cents_per_kwh
-          FROM ${prices}
-          WHERE property_id = $4
-            AND (NOT $5::BOOLEAN OR source NOT IN ('mock', 'replay'))
-          ORDER BY starts_at, ingested_at DESC, source DESC
-        ), price_intervals AS (
-          SELECT starts_at,
-            LEAST(ends_at, COALESCE(lead(starts_at) OVER (ORDER BY starts_at), ends_at)) AS ends_at,
-            raw_price_cents_per_kwh, margin_cents_per_kwh
-          FROM latest_prices
-        ), priced AS (
-          SELECT normalized.*, price.raw_price_cents_per_kwh, price.margin_cents_per_kwh,
-            EXTRACT(EPOCH FROM (LEAST(normalized.current_at, price.ends_at)
-              - GREATEST(normalized.window_start, price.starts_at))) * 1000.0 AS overlap_ms
-          FROM normalized JOIN price_intervals AS price
-            ON price.starts_at < normalized.current_at
-            AND price.ends_at > normalized.window_start
-        ), allocations AS (
-          SELECT overlap_ms, base_delta_kwh * overlap_ms / full_duration_ms AS allocated_kwh,
-            raw_price_cents_per_kwh + margin_cents_per_kwh AS effective_price_cents_per_kwh
-          FROM priced WHERE overlap_ms > 0
-        )
-        SELECT
-          (SELECT count(*) FROM normalized) AS delta_count,
-          (SELECT COALESCE(sum(window_delta_kwh), 0) FROM normalized) AS consumption_kwh,
-          (SELECT COALESCE(sum(allocated_kwh), 0) FROM allocations) AS priced_consumption_kwh,
-          (SELECT COALESCE(sum(allocated_kwh * effective_price_cents_per_kwh / 100.0), 0) FROM allocations) AS cost_eur,
-          (SELECT COALESCE(sum(window_duration_ms), 0) FROM normalized) AS total_duration_ms,
-          (SELECT COALESCE(sum(overlap_ms), 0) FROM allocations) AS priced_duration_ms,
-          (SELECT COALESCE(max(full_duration_ms), 0) FROM normalized) AS maximum_interval_duration_ms,
-          (SELECT min(window_start) FROM normalized) AS coverage_from,
-          (SELECT max(current_at) FROM normalized) AS coverage_until`,
-      [query.sensorId, query.from, query.to, query.propertyId, Boolean(query.excludeSynthetic)], query);
-      const row = result.rows[0]!;
-      return {
-        deltaCount: Number(row.delta_count ?? 0),
-        consumptionKwh: Number(row.consumption_kwh ?? 0),
-        pricedConsumptionKwh: Number(row.priced_consumption_kwh ?? 0),
-        costEur: Number(row.cost_eur ?? 0),
-        totalDurationMs: Number(row.total_duration_ms ?? 0),
-        pricedDurationMs: Number(row.priced_duration_ms ?? 0),
-        maximumIntervalDurationMs: Number(row.maximum_interval_duration_ms ?? 0),
-        coverageFrom: row.coverage_from === null ? null : timestamp(row.coverage_from),
-        coverageUntil: row.coverage_until === null ? null : timestamp(row.coverage_until),
-      };
+  async energyCostAggregate(
+    this: TimeseriesStoreInternals,
+    query: EnergyCostAggregateQuery,
+  ): Promise<EnergyCostAggregateRecord> {
+      return this[timeseriesStoreState].costWorkLimiter.run(
+        "energy-cost-rollup",
+        () => orderedCostAggregate(this, query, "energy"),
+        query.signal,
+      );
     },
-  async powerCostAggregate(this: TimeseriesStoreInternals, query: PowerCostAggregateQuery): Promise<EnergyCostAggregateRecord> {
-      const measurements = qualifiedName(this.schema, "measurement_samples");
-      const prices = qualifiedName(this.schema, "electricity_price_samples");
-      const result = await this.__query<EnergyCostAggregateRow>(`WITH boundary_sample AS (
-          SELECT observed_at, value, ingested_at, source FROM ${measurements}
-          WHERE sensor_id = $1 AND metric = 'power' AND quality <> 'stale'
-            AND observed_at <= $2::TIMESTAMPTZ
-            AND (NOT $5::BOOLEAN OR source NOT IN ('mock', 'replay'))
-          ORDER BY observed_at DESC, ingested_at DESC, source DESC LIMIT 1
-        ), window_samples AS (
-          SELECT observed_at, value, ingested_at, source FROM ${measurements}
-          WHERE sensor_id = $1 AND metric = 'power' AND quality <> 'stale'
-            AND observed_at > $2::TIMESTAMPTZ AND observed_at <= $3::TIMESTAMPTZ
-            AND (NOT $5::BOOLEAN OR source NOT IN ('mock', 'replay'))
-        ), deduplicated AS (
-          SELECT DISTINCT ON (observed_at) observed_at, value
-          FROM (SELECT * FROM boundary_sample UNION ALL SELECT * FROM window_samples) samples
-          ORDER BY observed_at, ingested_at DESC, source DESC
-        ), ordered AS (
-          SELECT observed_at AS sample_at, value AS power_watts,
-            lead(observed_at) OVER (ORDER BY observed_at) AS next_at
-          FROM deduplicated
-        ), candidates AS (
-          SELECT power_watts,
-            GREATEST(sample_at, $2::TIMESTAMPTZ) AS window_start,
-            LEAST(
-              COALESCE(next_at, $3::TIMESTAMPTZ),
-              $3::TIMESTAMPTZ,
-              sample_at + INTERVAL '15 minutes'
-            ) AS window_end
-          FROM ordered
-          WHERE power_watts >= 0 AND power_watts < 'Infinity'::DOUBLE PRECISION
-        ), normalized AS (
-          SELECT *,
-            EXTRACT(EPOCH FROM (window_end - window_start)) * 1000.0 AS window_duration_ms,
-            power_watts * EXTRACT(EPOCH FROM (window_end - window_start)) / 3600000.0
-              AS window_energy_kwh
-          FROM candidates
-          WHERE window_end > window_start
-        ), latest_prices AS (
-          SELECT DISTINCT ON (starts_at)
-            starts_at, ends_at, raw_price_cents_per_kwh, margin_cents_per_kwh
-          FROM ${prices}
-          WHERE property_id = $4
-            AND (NOT $5::BOOLEAN OR source NOT IN ('mock', 'replay'))
-          ORDER BY starts_at, ingested_at DESC, source DESC
-        ), price_intervals AS (
-          SELECT starts_at,
-            LEAST(ends_at, COALESCE(lead(starts_at) OVER (ORDER BY starts_at), ends_at)) AS ends_at,
-            raw_price_cents_per_kwh, margin_cents_per_kwh
-          FROM latest_prices
-        ), priced AS (
-          SELECT normalized.*, price.raw_price_cents_per_kwh, price.margin_cents_per_kwh,
-            EXTRACT(EPOCH FROM (
-              LEAST(normalized.window_end, price.ends_at)
-              - GREATEST(normalized.window_start, price.starts_at)
-            )) * 1000.0 AS overlap_ms
-          FROM normalized JOIN price_intervals AS price
-            ON price.starts_at < normalized.window_end
-            AND price.ends_at > normalized.window_start
-        ), allocations AS (
-          SELECT overlap_ms, window_energy_kwh * overlap_ms / window_duration_ms AS allocated_kwh,
-            raw_price_cents_per_kwh + margin_cents_per_kwh AS effective_price_cents_per_kwh
-          FROM priced WHERE overlap_ms > 0
-        )
-        SELECT
-          (SELECT count(*) FROM normalized) AS delta_count,
-          (SELECT COALESCE(sum(window_energy_kwh), 0) FROM normalized) AS consumption_kwh,
-          (SELECT COALESCE(sum(allocated_kwh), 0) FROM allocations) AS priced_consumption_kwh,
-          (SELECT COALESCE(sum(allocated_kwh * effective_price_cents_per_kwh / 100.0), 0) FROM allocations) AS cost_eur,
-          (SELECT COALESCE(sum(window_duration_ms), 0) FROM normalized) AS total_duration_ms,
-          (SELECT COALESCE(sum(overlap_ms), 0) FROM allocations) AS priced_duration_ms,
-          (SELECT COALESCE(max(window_duration_ms), 0) FROM normalized) AS maximum_interval_duration_ms,
-          (SELECT min(window_start) FROM normalized) AS coverage_from,
-          (SELECT max(window_end) FROM normalized) AS coverage_until`,
-      [query.sensorId, query.from, query.to, query.propertyId, Boolean(query.excludeSynthetic)], query);
-      const row = result.rows[0]!;
-      return {
-        deltaCount: Number(row.delta_count ?? 0),
-        consumptionKwh: Number(row.consumption_kwh ?? 0),
-        pricedConsumptionKwh: Number(row.priced_consumption_kwh ?? 0),
-        costEur: Number(row.cost_eur ?? 0),
-        totalDurationMs: Number(row.total_duration_ms ?? 0),
-        pricedDurationMs: Number(row.priced_duration_ms ?? 0),
-        maximumIntervalDurationMs: Number(row.maximum_interval_duration_ms ?? 0),
-        coverageFrom: row.coverage_from === null ? null : timestamp(row.coverage_from),
-        coverageUntil: row.coverage_until === null ? null : timestamp(row.coverage_until),
-      };
+  async powerCostAggregate(
+    this: TimeseriesStoreInternals,
+    query: PowerCostAggregateQuery,
+  ): Promise<EnergyCostAggregateRecord> {
+      return this[timeseriesStoreState].costWorkLimiter.run(
+        "power-cost-rollup",
+        () => orderedCostAggregate(this, query, "power"),
+        query.signal,
+      );
     },
-  /** Refreshes all three Timescale rollups after a historical import. */
+  /** Refreshes mergeable Timescale rollups after a historical import. */
   async refreshMeasurementAggregates(this: TimeseriesStoreInternals, query: AggregateRefreshQuery = {}): Promise<number> {
       const extension = await this.__query<ExtensionRow>(`SELECT (
         SELECT extversion FROM pg_extension WHERE extname = 'timescaledb'
@@ -231,11 +190,13 @@ registerTimeseriesStoreMethods({
       for (const bucket of Object.keys(MEASUREMENT_BUCKETS) as Array<keyof typeof MEASUREMENT_BUCKETS>) {
         const aggregate = measurementAggregateName(bucket);
         if (!await this.__isContinuousAggregate(aggregate, query)) continue;
-        await this.__query(
-          "CALL refresh_continuous_aggregate($1::REGCLASS, $2::TIMESTAMPTZ, $3::TIMESTAMPTZ)",
-          [qualifiedName(this.schema, aggregate), query.from ?? null, query.to ?? null],
-          query,
-        );
+        await refreshContinuousAggregate(this, aggregate, query);
+        refreshed += 1;
+      }
+      for (const bucket of Object.keys(MEASUREMENT_ANALYTICS_BUCKETS) as Array<keyof typeof MEASUREMENT_ANALYTICS_BUCKETS>) {
+        const aggregate = measurementAnalyticsAggregateName(bucket);
+        if (!await this.__isContinuousAggregate(aggregate, query)) continue;
+        await refreshContinuousAggregate(this, aggregate, query);
         refreshed += 1;
       }
       return refreshed;

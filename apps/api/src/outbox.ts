@@ -13,6 +13,16 @@ import {
 
 const DELIVERY_POLL_MS = 250;
 const MAX_RETRY_MS = 15 * 60_000;
+const HISTORY_PRUNE_INTERVAL_MS = 24 * 60 * 60_000;
+const DELIVERED_HISTORY_RETENTION_MS = 180 * 24 * 60 * 60_000;
+const TERMINAL_HISTORY_RETENTION_MS = 365 * 24 * 60 * 60_000;
+
+export interface NotificationDeliveryFailure {
+  channel: NotificationOutboxItem["channel"];
+  subjectKind: NotificationOutboxItem["subjectKind"];
+  message: string;
+  terminal: boolean;
+}
 
 function retryDelay(attempts: number): number {
   return Math.min(MAX_RETRY_MS, 1_000 * 2 ** Math.min(attempts, 10));
@@ -65,6 +75,8 @@ abstract class DurableWorker {
 }
 
 export class NotificationOutboxWorker extends DurableWorker {
+  #nextHistoryPruneAt = 0;
+
   constructor(
     private readonly database: ClimateDatabase,
     private readonly config: AppConfig,
@@ -73,6 +85,7 @@ export class NotificationOutboxWorker extends DurableWorker {
     private readonly fetchImpl: typeof fetch = fetch,
     private readonly telegramConfigurationGeneration: () => number = () => 0,
     private readonly apns: Pick<APNSService, "send"> = new APNSService(),
+    private readonly onDeliveryFailure?: (failure: NotificationDeliveryFailure) => void,
   ) { super(); }
 
   fenceTelegramConfigurationChange(): void {
@@ -83,6 +96,14 @@ export class NotificationOutboxWorker extends DurableWorker {
   }
 
   protected async runOnce(signal: AbortSignal): Promise<void> {
+    const now = Date.now();
+    if (now >= this.#nextHistoryPruneAt) {
+      this.#nextHistoryPruneAt = now + HISTORY_PRUNE_INTERVAL_MS;
+      this.database.pruneNotificationDeliveryHistory(
+        new Date(now - DELIVERED_HISTORY_RETENTION_MS),
+        new Date(now - TERMINAL_HISTORY_RETENTION_MS),
+      );
+    }
     const items = this.database.claimNotificationOutbox(10);
     for (let index = 0; index < items.length; index += 1) {
       const item = items[index]!;
@@ -197,6 +218,11 @@ export class NotificationOutboxWorker extends DurableWorker {
         return;
       }
       const message = error instanceof Error ? error.message : "Notification delivery failed";
+      const terminal = item.attempts + 1 >= item.maxAttempts
+        || (item.channel === "apns" && error instanceof APNSDeliveryError && error.terminal);
+      if (item.attempts === 0 || terminal) {
+        this.onDeliveryFailure?.({ channel: item.channel, subjectKind: item.subjectKind, message, terminal });
+      }
       if (item.channel === "apns" && error instanceof APNSDeliveryError && error.terminal) {
         if (["BadDeviceToken", "DeviceTokenNotForTopic", "Unregistered"].includes(error.reason ?? "")) {
           this.database.disableIOSNotificationRegistration(item.destinationId);

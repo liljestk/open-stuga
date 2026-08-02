@@ -108,6 +108,7 @@ declare module "../core.js" {
     retryNotificationDelivery(id: string, at?: Date): boolean;
     releaseNotificationOutbox(id: string, lockToken: string, availableAt?: Date): boolean;
     abandonNotificationOutbox(id: string, lockToken: string, reason: string, abandonedAt?: Date): boolean;
+    pruneNotificationDeliveryHistory(deliveredBefore: Date, terminalBefore: Date): number;
     pendingNotificationCount(): number;
     listActionPlaybooks(metric?: string, enabledOnly?: boolean): ActionPlaybook[];
     getActionPlaybook(id: string): ActionPlaybook | null;
@@ -141,6 +142,7 @@ declare module "../core.js" {
     retryNotificationDelivery(id: string, at?: Date): boolean;
     releaseNotificationOutbox(id: string, lockToken: string, availableAt?: Date): boolean;
     abandonNotificationOutbox(id: string, lockToken: string, reason: string, abandonedAt?: Date): boolean;
+    pruneNotificationDeliveryHistory(deliveredBefore: Date, terminalBefore: Date): number;
     pendingNotificationCount(): number;
     listActionPlaybooks(metric?: string, enabledOnly?: boolean): ActionPlaybook[];
     getActionPlaybook(id: string): ActionPlaybook | null;

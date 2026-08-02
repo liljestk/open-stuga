@@ -2,6 +2,7 @@ import request from "supertest";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApi, type ApiRuntime } from "../src/app.js";
 import { loadConfig } from "../src/config.js";
+import { SYSTEM_VERSION } from "../src/version.js";
 import { OWNER, setupOwner } from "./local-authTestSupport.js";
 
 const RELAY_TOKEN = "r".repeat(32);
@@ -62,7 +63,7 @@ describe("bug report routes", () => {
     expect(JSON.parse(String(init?.body))).toMatchObject({
       description: reportBody().description,
       contactEmail: OWNER.email,
-      serverVersion: "0.28.0",
+      serverVersion: SYSTEM_VERSION,
     });
     expect(response.body).not.toHaveProperty("issueUrl");
   });

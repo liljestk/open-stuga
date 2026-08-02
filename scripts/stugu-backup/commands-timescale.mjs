@@ -9,6 +9,7 @@ import {
   readFileSync,
   readdirSync,
   statSync,
+  statfsSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -27,7 +28,12 @@ import {
   sha256File,
 } from ".././sqlite-snapshot-utils.mjs";
 
-import { portable, postgresLiteral, redact } from "./configuration-files.mjs";
+import {
+  DEFAULT_BACKUP_MIN_FREE_BYTES,
+  portable,
+  postgresLiteral,
+  redact,
+} from "./configuration-files.mjs";
 
 export function runDirect(executable, arguments_, environment) {
   return new Promise((accept, reject) => {
@@ -100,6 +106,43 @@ export function timescaleDumpArguments(destination) {
     "--no-tablespaces",
     `--file=${destination}`,
   ];
+}
+
+export function backupCapacity(
+  availableBytes,
+  logicalBytes,
+  minimumFreeBytes = DEFAULT_BACKUP_MIN_FREE_BYTES,
+) {
+  const available = BigInt(availableBytes);
+  const database = BigInt(logicalBytes);
+  const reserve = BigInt(minimumFreeBytes);
+  const required = database + reserve;
+  return {
+    availableBytes: available.toString(),
+    requiredBytes: required.toString(),
+    minimumFreeBytes: reserve.toString(),
+    sufficient: available >= required,
+  };
+}
+
+export function assertBackupCapacity(
+  destination,
+  logicalBytes,
+  minimumFreeBytes = DEFAULT_BACKUP_MIN_FREE_BYTES,
+) {
+  const filesystem = statfsSync(dirname(destination), { bigint: true });
+  const capacity = backupCapacity(
+    filesystem.bavail * filesystem.bsize,
+    logicalBytes,
+    minimumFreeBytes,
+  );
+  if (!capacity.sufficient) {
+    throw new Error(
+      `Backup destination has ${capacity.availableBytes} bytes available; `
+      + `${capacity.requiredBytes} bytes are required for the database dump and safety reserve`,
+    );
+  }
+  return capacity;
 }
 
 export function timescaleOwnershipValidationSql(schema, applicationRole) {
@@ -266,6 +309,11 @@ export async function createTimescaleDump(options, destination, validationDestin
   if (!Number.isSafeInteger(logicalBytes) || logicalBytes < 0) {
     throw new Error("TimescaleDB returned an invalid logical database size");
   }
+  const capacity = assertBackupCapacity(
+    destination,
+    logicalBytes,
+    options.backupMinFreeBytes,
+  );
   await runDirect(options.pgDump, timescaleDumpArguments(destination), environment);
   if (!existsSync(destination) || statSync(destination).size === 0) {
     throw new Error("pg_dump did not produce a non-empty custom-format backup");
@@ -281,6 +329,7 @@ export async function createTimescaleDump(options, destination, validationDestin
     status: "included",
     scope: "full-database",
     logicalBytes,
+    capacityPreflight: capacity,
     telemetrySchema: options.schema,
     format: "postgresql-custom",
     catalogVerification: "passed",

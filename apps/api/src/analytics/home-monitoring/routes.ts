@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type express from "express";
 import type {
   DataMode,
+  DerivedAnalyticsWarning,
   HomeMonitoringCollectionResponse,
   HomeMonitoringDetailResponse,
   IntegrationStatus,
@@ -11,7 +12,10 @@ import { HttpError } from "../../app/support/index.js";
 import { LruTtlCache } from "../../cache.js";
 import type { ClimateDatabase } from "../../db.js";
 import type { TelemetryBus } from "../../events.js";
-import type { HybridTelemetryReader } from "../../timeseries/read-facade.js";
+import {
+  IncompleteTelemetryHistoryError,
+  type HybridTelemetryReader,
+} from "../../timeseries/read-facade.js";
 import type { WeatherEventBroker } from "../../weather-events.js";
 import type { AnalyticsWorkLimiter } from "../work-limiter.js";
 import {
@@ -38,6 +42,22 @@ interface HomeMonitoringRouteContext {
     request: express.Request,
     response: express.Response,
   ): string | null;
+}
+
+interface HomeMonitoringHistoryResult {
+  history: Awaited<ReturnType<typeof loadHomeMonitoringHistory>>;
+  warning: DerivedAnalyticsWarning | null;
+}
+
+function incompleteHistoryResult(error: IncompleteTelemetryHistoryError): HomeMonitoringHistoryResult {
+  return {
+    history: {},
+    warning: {
+      code: error.code,
+      message: "Trend history is temporarily unavailable while the telemetry archive recovers.",
+      details: { archiveState: error.archiveState },
+    },
+  };
 }
 
 function dataMode(value: unknown): DataMode {
@@ -75,9 +95,7 @@ export function registerHomeMonitoringRoutes(context: HomeMonitoringRouteContext
     maxBytes: 16 * 1024 * 1024,
     defaultTtlMs: 2_000,
   });
-  const historyCache = new LruTtlCache<
-    Awaited<ReturnType<typeof loadHomeMonitoringHistory>>
-  >({
+  const historyCache = new LruTtlCache<HomeMonitoringHistoryResult>({
     maxEntries: 128,
     maxBytes: 32 * 1024 * 1024,
     defaultTtlMs: 60_000,
@@ -200,19 +218,29 @@ export function registerHomeMonitoringRoutes(context: HomeMonitoringRouteContext
           house.updatedAt,
           sensors,
         ])}`;
-        const measurementHistory = await historyCache.getOrLoad(
+        const historyResult = await historyCache.getOrLoad(
           historyKey,
-          (historySignal) => context.analyticsWorkLimiter.run(
-            "home-monitoring-history",
-            () => loadHomeMonitoringHistory({
-              database: context.database,
-              telemetryReader: context.telemetryReader,
-              scope,
-              evaluatedAt,
-              signal: historySignal,
-            }),
-            historySignal,
-          ),
+          async (historySignal) => {
+            try {
+              return {
+                history: await context.analyticsWorkLimiter.run(
+                  "home-monitoring-history",
+                  () => loadHomeMonitoringHistory({
+                    database: context.database,
+                    telemetryReader: context.telemetryReader,
+                    scope,
+                    evaluatedAt,
+                    signal: historySignal,
+                  }),
+                  historySignal,
+                ),
+                warning: null,
+              };
+            } catch (error) {
+              if (error instanceof IncompleteTelemetryHistoryError) return incompleteHistoryResult(error);
+              throw error;
+            }
+          },
           { serveStale: false, ttlMs: 60_000, signal },
         );
         return getHomeMonitoringDetail({
@@ -222,7 +250,8 @@ export function registerHomeMonitoringRoutes(context: HomeMonitoringRouteContext
           latestWeather: (id) => context.weatherEvents.latest(id)?.weather ?? null,
           dataMode: requestedDataMode,
           evaluatedAt,
-          measurementHistory,
+          measurementHistory: historyResult.history,
+          ...(historyResult.warning ? { warnings: [historyResult.warning] } : {}),
         }, scope);
       }, {
         serveStale: false,

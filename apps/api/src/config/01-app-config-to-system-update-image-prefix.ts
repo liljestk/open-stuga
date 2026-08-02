@@ -83,6 +83,10 @@ export interface AppConfig {
   timeseriesConnectTimeoutMs?: number;
   timeseriesStatementTimeoutMs?: number;
   timeseriesBatchSize?: number;
+  /** Age at which immutable telemetry chunks move to Timescale columnstore. */
+  timeseriesColumnstoreAfterDays?: number;
+  /** Host-visible path whose free space backs PostgreSQL telemetry storage. */
+  timeseriesStoragePath?: string | null;
   ingestApiKey: string | null;
   haUrl: string | null;
   haToken: string | null;

@@ -26,6 +26,7 @@ import { formatInTimeZone, twentyFourHourInputLocale } from "../dateTime";
 import { confirmAction } from "../components/ConfirmationProvider";
 import { useI18n } from "../i18n";
 import { HostSystemPanel } from "./HostSystemPanel";
+import { SystemStoragePanel } from "./SystemStoragePanel";
 import "./SystemUpdatesPage.css";
 
 const days: SystemUpdateDay[] = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
@@ -261,6 +262,7 @@ export function SystemUpdatesPage() {
       </div>
     </header>
     <HostSystemPanel />
+    <SystemStoragePanel />
   </>;
   const updatesHeading = <header className="updates-section-heading">
     <div>

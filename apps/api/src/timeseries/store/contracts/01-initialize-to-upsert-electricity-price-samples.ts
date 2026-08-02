@@ -52,6 +52,7 @@ declare module "../core.js" {
     invalidateInitialization(): void;
     __initialize(control: QueryControl): Promise<TelemetrySchemaInitResult>;
     __detectTimescaleFeatures(control: QueryControl): Promise<ProcedureFeatureRow>;
+    __assertNoRawRetentionPolicy(control: QueryControl): Promise<void>;
     __configureColdStorage(
         hypertables: readonly string[],
         features: ProcedureFeatureRow,
@@ -59,7 +60,7 @@ declare module "../core.js" {
         control: QueryControl,
       ): Promise<ColdStorageMode>;
     __configureContinuousAggregates(
-        policyAvailable: boolean,
+        features: ProcedureFeatureRow,
         warnings: string[],
         control: QueryControl,
       ): Promise<"continuous" | "view" | "unavailable">;

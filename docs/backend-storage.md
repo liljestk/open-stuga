@@ -47,15 +47,47 @@ Ingestion commits to SQLite first. A reconciliation worker pages six telemetry f
 
 Raw-history APIs, MCP, forecasting, energy/thermal analytics, recovery workers, daily findings, and experimental spatial inference share `HybridTelemetryReader` rather than copying historical data between subsystems. It merges the SQLite outbox/current tail with matching Timescale rows by natural key, deterministically orders and bounds results, and filters synthetic `mock`/`replay` rows in real-data mode. Exact local duplicates win; opening snapshots choose the newest state across both stores. If a requested range predates the bounded local cache and TimeDB cannot answer, the read fails closed instead of silently returning a shortened series.
 
-Generic bucketed measurement analytics and sensor-based daily findings use a
-non-mergeable archive rollup path: the reader first waits for reconciliation,
-then PostgreSQL scans the complete half-open range and returns only bounded
-buckets. This avoids application-memory/source-row caps while preserving
-quality filters, reset-aware counters, and time-weighted rates. Raw interactive
-history remains intentionally bounded; the verified dual-database backup is the
-complete recovery/export path.
+Generic measurement analytics no longer scale with the number of raw samples in
+the requested range. Mergeable operations (`mean`, `sum`, `min`, `max`, and
+`last`) read quality-, source-, and unit-aware continuous aggregates at 1-minute,
+5-minute, 1-hour, or 1-day resolution, plus only the partial range edges from raw
+data. Exact ordered operations (reset-aware counter consumption and delta,
+time-weighted mean, and power/energy cost) use durable states built on demand for
+the requested resolution. Those states are keyed by series, UTC day, resolution,
+quality mask, source scope, and algorithm version. A single low-priority worker
+materializes closed days; the current day and partial edges remain bounded raw
+reads. Cost queries choose exact states adaptively: price-stable hours use hourly
+states, tariff-boundary hours fall to 15-minute states, and only affected
+quarters fall to minute states. Tariff allocation is a set-based hourly-slice
+join, so it does not grow with the raw sample cadence. A first historical request
+may return a retryable “still materializing” response instead of falling back to
+a full raw scan. Later requests reuse the states, while a generation ledger makes
+late-sample/import invalidation race-safe and rebuilds only affected variants.
+Raw samples remain the source of truth throughout.
 
-The time-series schema uses seven-day chunks for indoor measurements/readings, 30-day chunks for outdoor weather, opening events, and direct heat-pump observations, and 90-day chunks for electricity prices. Where supported, TimescaleDB configures columnstore or compression after 30, 90, and 180 days respectively. Measurement rollups are available at 5-minute, 1-hour, and 1-day resolutions. These policies change representation, not retention: they do not delete raw rows.
+All Timescale cost-state requests also pass through a dedicated two-operation
+store lane. This covers HTTP, MCP, optimizer, and background callers, including
+the multiple internal SQL round trips needed by one exact result, while leaving
+pool capacity for ingestion and reconciliation.
+
+The raw history API is strictly bounded and uses an opaque `(observed_at,
+source)` keyset cursor, so neither the database nor browser needs to materialize
+an unbounded export. The browser export guard is 50,000 rows. Full-fidelity
+recovery remains the verified dual-database backup path.
+
+The time-series schema uses one-day chunks for indoor measurements/readings,
+seven-day chunks for ordered states, 30-day chunks for outdoor weather, opening
+events, and direct heat-pump observations, and 90-day chunks for electricity
+prices. Where supported, raw chunks and ordered states enter columnstore after
+seven days by default; increase the global age when late imports commonly reach
+further back.
+Continuous aggregates also enter columnstore on resolution-specific schedules.
+These policies change representation, not retention: no raw-data retention
+policy is permitted, and initialization fails if one is detected. That raw
+retention check is intentionally a startup-failing safety invariant. Every
+continuous-aggregate refresh policy is also mandatory: missing or failed policy
+setup keeps the archive unavailable while reconciliation retries, rather than
+serving a stale or raw-scanning historical result.
 
 The base tables and query API also work on ordinary PostgreSQL. When the TimescaleDB extension is unavailable, Stugu uses ordinary aggregate views and forgoes hypertables, continuous refresh, and cold-chunk optimization; initialization reports those capabilities instead of silently claiming them.
 
@@ -96,7 +128,13 @@ one recovery unit. For the complete protocol and lifecycle, see
 
 ## Retention and idempotency
 
-With TimeDB enabled, `RETENTION_DAYS=0` means zero days of SQLite history: acknowledged rows are compacted immediately while the latest projection for each live series is retained. A value of 30 or more keeps that many days as a bounded local cache. The Timescale schema installs no raw-data retention policy, so raw history remains permanent. When TimeDB is deliberately disabled for standalone development, SQLite necessarily retains the only history and is not compacted.
+Fresh generated configuration sets `RETENTION_DAYS=30` to keep a bounded SQLite
+hot cache after durable acknowledgement. An existing installation that omits
+the key retains the backwards-compatible `RETENTION_DAYS=0`, which disables
+compaction and keeps a complete redundant SQLite history. The Timescale schema installs no raw-data retention policy, so
+raw history remains permanent in either mode. When TimeDB is deliberately
+disabled for standalone development, SQLite necessarily retains the only
+history and is not compacted.
 
 Before each compaction the worker requires a healthy, caught-up archive with all six hypertables, flushes mutable rows, proves a stable pass, and takes per-table archived watermarks. It preserves the latest local row for each sensor/metric, legacy sensor, outdoor location, opening identity, and heat-pump connection, plus current/future electricity-price intervals. Rows newer than a durable watermark are never removed. If an older query needs compacted history while TimeDB is unavailable, the API fails closed instead of silently returning an incomplete series. Operational prerequisites remain:
 
@@ -146,11 +184,45 @@ Local `npm run dev` remains a SQLite-only compatibility mode unless `TIMESERIES_
 | `TIMESERIES_CONNECT_TIMEOUT_MS` | `5000` | Connection timeout |
 | `TIMESERIES_STATEMENT_TIMEOUT_MS` | `15000` | Per-statement server timeout |
 | `TIMESERIES_BATCH_SIZE` | `1000` | Maximum archive write batch |
-| `RETENTION_DAYS` | `0` | SQLite history cache after TimeDB acknowledgement; `0` keeps only current projections, or use at least `30` for a bounded cache |
+| `TIMESERIES_COLUMNSTORE_AFTER_DAYS` | `7` | Override the raw/ordered cold-columnstore age; increase above the late-arrival/import window |
+| `TIMESERIES_STORAGE_PATH` | unset locally; `/app/timeseries-data` in Compose | Same-filesystem path used for TimeDB capacity and growth alerts |
+| `STUGA_TIMESERIES_DATA_SOURCE` | `stuga-timeseries-data` | Compose named volume or absolute local block/SSD path for PostgreSQL data |
+| `STUGA_SCHEDULED_BACKUP_SOURCE` | `stuga-scheduled-backups` | Compose named volume or absolute mounted NAS path for scheduled recovery sets |
+| `STUGA_STORAGE_ALLOWED_ROOTS` | dedicated platform roots | Host security policy limiting directories selectable in System settings |
+| `STUGA_TIMESERIES_STORAGE_KIND` | `managed` | Host-agent metadata: `managed` or `local-path` |
+| `STUGA_SCHEDULED_BACKUP_STORAGE_KIND` | `managed` | Host-agent metadata: `managed`, `local-path`, or `nas-path` |
+| `STUGA_SCHEDULED_BACKUP_TARGET_ID` | empty | Internal mount-sentinel identity; do not copy it between targets |
+| `BACKUP_MIN_FREE_BYTES` | `1073741824` | Free-space reserve required in addition to the logical database size before a dump starts |
+| `RETENTION_DAYS` | `30` in fresh generated configuration; otherwise `0` | SQLite hot-cache days after acknowledgement; `0` keeps the complete SQLite duplicate |
 
 Compose generates persistent random database-admin, application-database, and local-proxy secrets on first start and mounts them as files; it does not ship fixed database passwords. PostgreSQL is restricted to the internal Compose backend network, where the supplied API connection disables TLS. For a non-local or externally hosted database, provide the application credential through a protected secret file or secret manager, require TLS, restrict network ingress, and retain the dedicated least-privilege application role. Never log the resolved configuration or put a credential-bearing URL in source control.
 
 The database administrator must create the configured telemetry schema and make the application role its owner before the API or migrator starts. The supplied Compose bootstrap does this automatically. The application role intentionally has no database-level `CREATE` grant, so normal runtime code cannot create arbitrary schemas.
+
+PostgreSQL live data must stay on a local block filesystem, not SMB/NFS. Compose
+can use an absolute local SSD path through `STUGA_TIMESERIES_DATA_SOURCE`.
+Network-attached storage is supported for recovery sets through
+`STUGA_SCHEDULED_BACKUP_SOURCE`; Cloudflare R2 remains an encrypted off-host
+recovery tier, not a query tier.
+
+Owners and Admins can configure both locations under **System → Storage** when
+the trusted host update agent is connected. A host path must already exist
+below one of `STUGA_STORAGE_ALLOWED_ROOTS`; Stugu never mounts a share or stores
+NAS credentials. **Mounted NAS** is recovery-set only. The agent verifies the
+network filesystem and writes a unique sentinel. The scheduler and R2
+replicator require that sentinel on every scan, so a disconnected NAS fails
+closed instead of filling the underlying local directory.
+
+A primary telemetry move is journaled host maintenance, not a direct remount.
+Before changing Compose state, the agent creates and verifies a complete backup,
+runs an isolated restore drill, cleanly stops TimescaleDB, checks PostgreSQL's
+shut-down control state, and copies with ownership, ACLs, extended attributes,
+durable flushes, and a completion marker. It then inspects the daemon's actual
+mount and verifies the PostgreSQL system/catalog identity. The API remains in
+degraded ingest mode for most of the copy, so its durable SQLite outbox buffers
+new samples and hot retention remains paused. An interruption resumes from the
+durable journal; failed verification restores the old settings and services.
+The old source is never deleted or reclaimed automatically.
 
 The PostgreSQL data and both database-credential volumes form one recovery unit. Back them up and restore them together. If either credential volume is accidentally lost while the PostgreSQL data volume survives, stop the API, let `runtime-secrets` create replacement secrets, and run `docker compose --profile maintenance run --rm timeseries-credential-reconcile`. This maintenance job has no network interface; it reaches PostgreSQL only through the private Unix-socket volume and reconciles the administrator and least-privilege application roles with the generated files. Start the API only after the job succeeds.
 
@@ -221,9 +293,16 @@ docker compose --profile maintenance run --rm --no-deps stugu-backup `
 This command deliberately includes both SQLite databases, assets, integration secrets, and a full TimescaleDB dump. Its output therefore contains the complete sensitive household recovery set; move the verified directory to encrypted off-host storage. The service does not publish PostgreSQL or require `pg_dump` on the host.
 
 The always-on scheduler writes verified sets and performs restore drills from
-the private `stuga-scheduled-backups` named volume. Keeping that writable path
-engine-managed avoids host UID/GID and ACL differences across rootful Docker,
-rootless Docker/Podman, Docker Desktop, and Podman machine. Export scheduled
+the private `stuga-scheduled-backups` named volume by default. Set
+`STUGA_SCHEDULED_BACKUP_SOURCE` to an absolute mounted NAS directory to place
+those sets there directly; verify its permissions and durability first. The
+same choice is available under **System → Storage** and additionally installs
+the fail-closed mount sentinel. The
+named-volume default avoids host UID/GID and ACL differences across rootful
+Docker, rootless Docker/Podman, Docker Desktop, and Podman machine. Before
+`pg_dump`, the backup process verifies that the destination has at least the
+logical database size plus `BACKUP_MIN_FREE_BYTES`; it fails closed before a
+large dump can consume the database host's final reserve. Export named-volume
 sets to the protected host backup directory with:
 
 ```powershell
@@ -296,6 +375,19 @@ docker compose exec timescaledb pg_isready -U stuga_admin -d stugu
 docker compose exec timescaledb psql -U stuga_admin -d stugu -c "SELECT pg_size_pretty(pg_database_size(current_database()));"
 ```
 
-Track database and per-table size, ingest lag, oldest/newest timestamp per series, failed archive batches, pool saturation, backup age, and restore-test age. Alert on disk growth rate rather than only a fixed free-space threshold. Run `ANALYZE` normally through PostgreSQL autovacuum, refresh historical rollups after large imports, and investigate query plans before adding indexes; every extra index increases ingest cost.
+The authenticated System page and health endpoint report SQLite and TimeDB
+size, TimeDB latency/pool/query activity, free bytes on the configured TimeDB
+filesystem, and a persisted 30-day growth forecast. Storage warnings trigger at
+85% used or 5 GiB available; critical alerts trigger at 95% used or 1 GiB.
+Medium/high-confidence forecasts warn within 30 days and become critical within
+7 days. Alert transitions use the normal durable notification path, including
+Telegram when configured.
+
+Also track ingest lag, oldest/newest timestamp per series, failed archive
+batches, backup age, and restore-test age. Run `ANALYZE` normally through
+PostgreSQL autovacuum, refresh historical rollups after large imports, and
+investigate query plans before adding indexes; every extra index increases
+ingest cost. High-rate telemetry and operational queues/logs are bounded or
+rolled up; authoritative low-frequency audit/revision records remain retained.
 
 Backups are complete only after a successful restore. Keep at least one recent off-host copy and one older recovery point, and test the documented restore process on a schedule appropriate to the importance of the data.

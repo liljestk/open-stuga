@@ -110,7 +110,7 @@ declare module "../core.js" {
     publishRecoveryChunks(
         grant: StugubyShareGrant,
         kind: StugubyHomeRecoveryKind,
-        records: JsonObject[],
+        records: Iterable<JsonObject>,
         generation: number,
       ): void;
     selectedSensors(grant: StugubyShareGrant, house: House, publications: string[]): Sensor[];

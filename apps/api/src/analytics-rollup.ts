@@ -12,6 +12,7 @@ import {
   MAX_INTERACTIVE_OUTPUT_POINTS,
   buildAnalyticsSummary,
   finalizeAnalyticsResponse,
+  analyticsResolutionSeconds,
   resolveAnalyticsAggregation,
   resolveAnalyticsResolution,
 } from "./analytics.js";
@@ -22,14 +23,6 @@ import type {
   MeasurementAnalyticsRollupResult,
   MeasurementAnalyticsSeriesRecord,
 } from "./timeseries/types.js";
-
-const RESOLUTION_SECONDS: Readonly<Record<MeasurementAnalyticsResolution, number>> = {
-  "1m": 60,
-  "5m": 300,
-  "15m": 900,
-  "1h": 3_600,
-  "1d": 86_400,
-};
 
 export interface PlanAnalyticsRollupInput {
   request: AnalyticsQueryRequest;
@@ -54,7 +47,7 @@ export function planAnalyticsRollup(
   if (resolution === "raw") return null;
   const start = Date.parse(input.request.range.start);
   const end = Date.parse(input.request.range.end);
-  const bucketMs = RESOLUTION_SECONDS[resolution] * 1_000;
+  const bucketMs = analyticsResolutionSeconds(resolution) * 1_000;
   const bucketCount = Math.ceil((end - Math.floor(start / bucketMs) * bucketMs) / bucketMs);
   if (bucketCount > maxPoints) {
     throw new AnalyticsQueryError(
@@ -106,7 +99,7 @@ function rollupPoints(
   end: number,
   resolution: MeasurementAnalyticsResolution,
 ): AnalyticsPoint[] {
-  const bucketMs = RESOLUTION_SECONDS[resolution] * 1_000;
+  const bucketMs = analyticsResolutionSeconds(resolution) * 1_000;
   const firstBucket = Math.floor(start / bucketMs) * bucketMs;
   const cadenceSeconds = Math.max(1, series?.cadenceSeconds ?? 60);
   const expectedPerBucket = Math.max(1, bucketMs / 1_000 / cadenceSeconds);

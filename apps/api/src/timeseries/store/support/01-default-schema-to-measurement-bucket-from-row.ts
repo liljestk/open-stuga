@@ -172,6 +172,7 @@ export interface HeatPumpStateRow extends QueryResultRow {
 }
 
 export interface EnergyCostAggregateRow extends QueryResultRow {
+  coverage_complete?: boolean;
   delta_count: string | number;
   consumption_kwh: number | null;
   priced_consumption_kwh: number | null;

@@ -34,6 +34,12 @@ import { AGENT_VERSION, COMPOSE_CONTRACT, HEARTBEAT_MS, POLL_MS, RELEASE_MANIFES
 
 import { activeServices, applyCloudflareSetupRequest, exactApiVersion, restoreReleaseEnvironment } from "./services-cloudflare.mjs";
 import { applySourceProfileRequest } from "./services-source-profiles.mjs";
+import {
+  applyStorageRequest,
+  publishStorageStatus,
+  STORAGE_JOURNAL_NAME,
+  storageJournalNeedsManualIntervention,
+} from "./services-storage.mjs";
 
 export const APPLIANCE_UPGRADE_REQUIRED = "appliance-upgrade-required";
 
@@ -467,15 +473,30 @@ export function pendingWork(config) {
   if (existsSync(updateJournalPath(config))) {
     return { kind: "update", path: null };
   }
+  if (existsSync(join(config.operationsDirectory, STORAGE_JOURNAL_NAME))) {
+    if (storageJournalNeedsManualIntervention(config)) return null;
+    return { kind: "storage", path: null };
+  }
   const name = readdirSync(config.operationsDirectory)
-    .filter((candidate) => /^(?:request-|cloudflare-request-|source-profile-request-).*\.json$/.test(candidate))
-    .sort()
+    .filter((candidate) => /^(?:request-|cloudflare-request-|source-profile-request-|storage-request-).*\.json$/.test(candidate))
+    .map((candidate) => ({
+      candidate,
+      requestedAt: Date.parse(readJson(join(config.operationsDirectory, candidate))?.requestedAt ?? ""),
+    }))
+    .sort((left, right) => (
+      (Number.isFinite(left.requestedAt) ? left.requestedAt : Number.MAX_SAFE_INTEGER)
+      - (Number.isFinite(right.requestedAt) ? right.requestedAt : Number.MAX_SAFE_INTEGER)
+      || left.candidate.localeCompare(right.candidate)
+    ))
+    .map((entry) => entry.candidate)
     .find(Boolean);
   if (!name) return null;
   return {
     kind: name.startsWith("cloudflare-request-")
       ? "cloudflare"
-      : name.startsWith("source-profile-request-") ? "source-profile" : "update",
+      : name.startsWith("source-profile-request-")
+        ? "source-profile"
+        : name.startsWith("storage-request-") ? "storage" : "update",
     path: join(config.operationsDirectory, name),
   };
 }
@@ -510,7 +531,7 @@ export function heartbeat(config, ready, detail = null, systemUpdateReason = nul
     agentVersion: AGENT_VERSION,
     updateAgentContract: UPDATE_AGENT_CONTRACT,
     composeContract: COMPOSE_CONTRACT,
-    capabilities: ["system-update", "cloudflare-setup", "source-profile"],
+    capabilities: ["system-update", "cloudflare-setup", "source-profile", "storage-settings"],
     ready,
     detail,
     systemUpdateReason,
@@ -526,8 +547,10 @@ export async function publishDockerHeartbeat(config) {
       heartbeat(config, true, transition.detail, transition.reason);
       return { ready: true, detail: transition.detail };
     }
-    heartbeat(config, true);
-    return { ready: true, detail: null };
+    const storageBlock = storageJournalNeedsManualIntervention(config);
+    heartbeat(config, !storageBlock, storageBlock);
+    publishStorageStatus(config);
+    return { ready: !storageBlock, detail: storageBlock };
   } catch (error) {
     const detail = error instanceof Error ? bounded(error.message) : "Docker is unavailable";
     heartbeat(config, false, detail);
@@ -558,6 +581,7 @@ export async function main() {
     try {
       if (work.kind === "cloudflare") await applyCloudflareSetupRequest(config, work.path);
       else if (work.kind === "source-profile") await applySourceProfileRequest(config, work.path);
+      else if (work.kind === "storage") await applyStorageRequest(config, work.path);
       else await applyRequest(config, work.path);
     } finally {
       releaseLock(lock);

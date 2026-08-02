@@ -58,7 +58,7 @@ describe("ConfirmationProvider", () => {
   it("routes every enumerated production confirmation through the shared dialog", () => {
     const source = Object.values(productionUiSources).join("\n");
     expect(source).not.toContain("window.confirm(");
-    expect(source.match(/confirmAction\(/g)).toHaveLength(38);
+    expect(source.match(/confirmAction\(/g)).toHaveLength(39);
   });
 
   it("fails closed without a mounted provider", async () => {

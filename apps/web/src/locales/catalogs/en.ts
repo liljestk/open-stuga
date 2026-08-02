@@ -6,6 +6,7 @@ import { enPart5 } from "./en/05-automations-analytics";
 import { enPart6 } from "./en/06-analytics-developer";
 import { enPart7 } from "./en/07-developer-properties";
 import { enPart8 } from "./en/08-properties-setup";
+import { enDataExport } from "./en/data-export";
 import { enBugReports } from "./en/bug-reports";
 
 export const en = {
@@ -17,6 +18,7 @@ export const en = {
   ...enPart6,
   ...enPart7,
   ...enPart8,
+  ...enDataExport,
   ...enBugReports,
 } as const;
 

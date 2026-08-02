@@ -100,6 +100,7 @@ describe("TimeseriesStore", () => {
       timescaleVersion: "2.28.0",
       hypertables: [
         "measurement_samples",
+        "measurement_ordered_rollups",
         "legacy_readings",
         "outdoor_temperature_samples",
         "electricity_price_samples",
@@ -110,11 +111,60 @@ describe("TimeseriesStore", () => {
       coldStorageMode: "columnstore",
       warnings: [],
     });
-    expect(pool.queries.filter(({ text }) => text.includes("create_hypertable("))).toHaveLength(6);
-    expect(pool.queries.filter(({ text }) => text.includes("CALL add_columnstore_policy"))).toHaveLength(6);
-    expect(pool.queries.filter(({ text }) => text.includes("CREATE MATERIALIZED VIEW"))).toHaveLength(3);
-    expect(pool.queries.filter(({ text }) => text.includes("SELECT add_continuous_aggregate_policy("))).toHaveLength(3);
+    expect(pool.queries.filter(({ text }) => text.includes("create_hypertable("))).toHaveLength(7);
+    expect(pool.queries.filter(({ text }) => text.includes("CALL add_columnstore_policy"))).toHaveLength(14);
+    expect(pool.queries.filter(({ text }) => text.includes("CREATE MATERIALIZED VIEW"))).toHaveLength(7);
+    expect(pool.queries.filter(({ text }) => text.includes("SELECT add_continuous_aggregate_policy("))).toHaveLength(7);
+    expect(pool.queries.some(({ text }) => text.includes("proc_name = 'policy_retention'"))).toBe(true);
     expect(pool.queries.some(({ text }) => text.includes("add_retention_policy"))).toBe(false);
+  });
+
+  it("fails closed when Timescale cannot schedule bounded aggregate refreshes", async () => {
+    const pool = new FakePool(({ text }) => {
+      if (text.includes("AS timescale_version")) return queryResult([{ timescale_version: "2.28.3" }]);
+      if (text.includes("columnstore_available")) {
+        return queryResult([{
+          columnstore_available: false,
+          compression_available: false,
+          continuous_policy_available: false,
+        }]);
+      }
+      if (text.includes("timescaledb_information.hypertables")) {
+        return queryResult([{ configured: true }]);
+      }
+      return queryResult();
+    });
+    const store = storeFor(pool);
+
+    await expect(store.initialize()).rejects.toThrow(
+      "Timescale continuous aggregate refresh policies are required",
+    );
+  });
+
+  it("retries initialization after a transient aggregate-policy failure", async () => {
+    let failPolicy = true;
+    const pool = new FakePool(({ text }) => {
+      if (text.includes("AS timescale_version")) return queryResult([{ timescale_version: "2.28.3" }]);
+      if (text.includes("columnstore_available")) {
+        return queryResult([{
+          columnstore_available: false,
+          compression_available: false,
+          continuous_policy_available: true,
+        }]);
+      }
+      if (text.includes("timescaledb_information.hypertables")) {
+        return queryResult([{ configured: true }]);
+      }
+      if (failPolicy && text.includes("SELECT add_continuous_aggregate_policy(")) {
+        throw new Error("temporary policy lock");
+      }
+      return queryResult();
+    });
+    const store = storeFor(pool);
+
+    await expect(store.initialize()).rejects.toThrow("Only 0 of 7 required telemetry refresh policies");
+    failPolicy = false;
+    await expect(store.initialize()).resolves.toMatchObject({ aggregateMode: "continuous" });
   });
 
   it("recognizes Timescale 2.28 continuous aggregates by catalog instead of relkind", async () => {
@@ -145,15 +195,15 @@ describe("TimeseriesStore", () => {
       warnings: [],
     });
     expect(pool.queries.filter(({ text }) => text.includes("timescaledb_information.continuous_aggregates")))
-      .toHaveLength(3);
+      .toHaveLength(7);
     expect(pool.queries.some(({ text }) => text.includes("DROP VIEW"))).toBe(false);
     expect(pool.queries.some(({ text }) => text.includes("CREATE MATERIALIZED VIEW"))).toBe(false);
 
     await expect(store.refreshMeasurementAggregates({
       from: "2026-07-18T00:00:00.000Z",
       to: "2026-07-19T00:00:00.000Z",
-    })).resolves.toBe(3);
-    expect(pool.queries.filter(({ text }) => text.includes("CALL refresh_continuous_aggregate"))).toHaveLength(3);
+    })).resolves.toBe(7);
+    expect(pool.queries.filter(({ text }) => text.includes("CALL refresh_continuous_aggregate"))).toHaveLength(7);
   });
 
   it("writes samples in one parameterized multi-row upsert and ignores byte-identical retries", async () => {
@@ -185,10 +235,16 @@ describe("TimeseriesStore", () => {
     expect(insert.text).toContain("VALUES ($1, $2, $3, $4, $5, $6, $7, $8), ($9, $10, $11, $12, $13, $14, $15, $16)");
     expect(insert.text).toContain('ON CONFLICT ("sensor_id", "metric", "observed_at", "source") DO UPDATE');
     expect(insert.text).toContain("IS DISTINCT FROM");
+    expect(insert.text).toContain("measurement_ordered_rollup_generations");
+    expect(insert.text).toContain("GREATEST(dirty.current_seq, generation.current_seq)");
+    expect(insert.text).toContain("day.metric = ANY($17::TEXT[])");
+    expect(insert.text).toContain("dirty.day_start = day.day_start");
     expect(insert.text).not.toContain("sensor-1");
+    expect(insert.values).toHaveLength(17);
     expect(insert.values.slice(0, 7)).toEqual([
       "sensor-1", "temperature", "2026-07-18T08:00:00.000Z", "home-assistant", 20.5, "°C", "good",
     ]);
+    expect(insert.values[16]).toEqual([]);
   });
 
   it("maps timestamps consistently and bounds latest/history queries with parameters", async () => {
@@ -332,8 +388,8 @@ describe("TimeseriesStore", () => {
     expect(select.text).not.toContain("sensor-1");
   });
 
-  it("queries quality-weighted thermal buckets directly from permanent measurement history", async () => {
-    const pool = new FakePool(({ text }) => text.includes("WITH source_rows AS")
+  it("queries quality-weighted thermal buckets from materialized history with raw edges", async () => {
+    const pool = new FakePool(({ text }) => text.includes("WITH requested_metrics AS")
       ? queryResult([{
         sensor_id: "sensor-1",
         metric: "temperature",
@@ -343,6 +399,7 @@ describe("TimeseriesStore", () => {
         source: "api",
         quality: "good",
         metadata: {},
+        coverage_complete: true,
       }])
       : queryResult());
     const store = storeFor(pool);
@@ -363,9 +420,10 @@ describe("TimeseriesStore", () => {
       }),
     ]);
 
-    const query = pool.queries.find(({ text }) => text.includes("WITH source_rows AS"))!;
-    expect(query.values).toEqual(["sensor-1", ["temperature", "humidity"], FROM, TO, 15, 250]);
-    expect(query.text).toContain("quality <> 'stale' AND source <> 'replay'");
+    const query = pool.queries.find(({ text }) => text.includes("WITH requested_metrics AS"))!;
+    expect(query.values).toEqual(["sensor-1", ["temperature", "humidity"], FROM, TO, 15, 250, "5 minutes"]);
+    expect(query.text).toContain("measurement_analytics_v2_5m");
+    expect(query.text).toContain("quality IN ('good', 'estimated') AND sample.source <> 'replay'");
     expect(query.text).toContain("CASE quality WHEN 'estimated' THEN 0.25 ELSE 1.0 END");
     expect(query.text).toContain("ROW_NUMBER() OVER (PARTITION BY metric ORDER BY observed_at DESC)");
   });
@@ -538,8 +596,9 @@ describe("TimeseriesStore", () => {
   });
 
   it("aggregates cumulative energy deltas against overlapping persisted price intervals", async () => {
-    const pool = new FakePool(({ text }) => text.includes("WITH boundary_sample AS")
+    const pool = new FakePool(({ text }) => text.includes("rollup.metric = $6::TEXT")
       ? queryResult([{
+        coverage_complete: true,
         delta_count: "3",
         consumption_kwh: 4.5,
         priced_consumption_kwh: 4.25,
@@ -568,11 +627,16 @@ describe("TimeseriesStore", () => {
       coverageFrom: FROM,
       coverageUntil: TO,
     });
-    const query = pool.queries.find(({ text }) => text.includes("WITH boundary_sample AS"))!;
-    expect(query.values).toEqual(["meter-1", FROM, TO, "property-1", false]);
-    expect(query.text).toContain("price.raw_price_cents_per_kwh, price.margin_cents_per_kwh");
+    const query = pool.queries.find(({ text }) => text.includes("rollup.metric = $6::TEXT"))!;
+    expect(query.values).toEqual(["meter-1", FROM, TO, "property-1", false, "energy"]);
+    expect(query.text).not.toContain("metric = 'energy'");
+    expect(query.text).toContain("internal_counter_consumption");
     expect(query.text).toContain("SELECT DISTINCT ON (starts_at)");
-    expect(query.text).toContain("LEAST(normalized.current_at, price.ends_at)");
+    expect(query.text).toContain("measurement_ordered_rollups");
+    expect(query.text).toContain("price_boundaries");
+    expect(query.text).toContain("hour_units");
+    expect(query.text).toContain("quarter_units");
+    expect(query.text).toContain("minute_units");
   });
 
   it("honors cancellation controls for batched measurement windows", async () => {

@@ -50,6 +50,45 @@ export function hostSystemPrometheusMetrics(health: HostSystemHealth): string {
     ...metricLine('stugu_host_storage_bytes{state="total"}', health.storage.totalBytes),
     ...metricLine('stugu_host_storage_bytes{state="used"}', health.storage.usedBytes),
     ...metricLine('stugu_host_storage_bytes{state="available"}', health.storage.availableBytes),
+    "# HELP stugu_host_storage_growth_bytes_per_day Estimated daily consumption of available Stugu data-volume storage.",
+    "# TYPE stugu_host_storage_growth_bytes_per_day gauge",
+    ...metricLine("stugu_host_storage_growth_bytes_per_day", health.storage.forecast.growthBytesPerDay),
+    "# HELP stugu_host_storage_threshold_timestamp_seconds Projected Unix time for a storage threshold crossing.",
+    "# TYPE stugu_host_storage_threshold_timestamp_seconds gauge",
+    ...metricLine(
+      'stugu_host_storage_threshold_timestamp_seconds{threshold="warning"}',
+      health.storage.forecast.warningAt ? Date.parse(health.storage.forecast.warningAt) / 1_000 : null,
+    ),
+    ...metricLine(
+      'stugu_host_storage_threshold_timestamp_seconds{threshold="critical"}',
+      health.storage.forecast.criticalAt ? Date.parse(health.storage.forecast.criticalAt) / 1_000 : null,
+    ),
+    "# HELP stugu_sqlite_database_bytes SQLite control-plane storage by state.",
+    "# TYPE stugu_sqlite_database_bytes gauge",
+    ...metricLine('stugu_sqlite_database_bytes{state="allocated"}', health.database.sqlite.sizeBytes),
+    ...metricLine('stugu_sqlite_database_bytes{state="used"}', health.database.sqlite.usedBytes),
+    ...metricLine('stugu_sqlite_database_bytes{state="wal"}', health.database.sqlite.walBytes),
+    "# HELP stugu_sqlite_database_pages SQLite control-plane pages by state.",
+    "# TYPE stugu_sqlite_database_pages gauge",
+    ...metricLine('stugu_sqlite_database_pages{state="total"}', health.database.sqlite.pageCount),
+    ...metricLine('stugu_sqlite_database_pages{state="free"}', health.database.sqlite.freePages),
+    "# HELP stugu_sqlite_database_tables Number of application tables in the SQLite control plane.",
+    "# TYPE stugu_sqlite_database_tables gauge",
+    ...metricLine("stugu_sqlite_database_tables", health.database.sqlite.tableCount),
+    "# HELP stugu_telemetry_database_enabled Whether the telemetry database is configured.",
+    "# TYPE stugu_telemetry_database_enabled gauge",
+    `stugu_telemetry_database_enabled ${health.database.telemetry.enabled ? 1 : 0}`,
+    "# HELP stugu_telemetry_database_bytes Total telemetry database storage.",
+    "# TYPE stugu_telemetry_database_bytes gauge",
+    ...metricLine("stugu_telemetry_database_bytes", health.database.telemetry.sizeBytes),
+    "# HELP stugu_telemetry_database_latency_seconds Telemetry database health-query latency.",
+    "# TYPE stugu_telemetry_database_latency_seconds gauge",
+    ...metricLine(
+      "stugu_telemetry_database_latency_seconds",
+      health.database.telemetry.latencyMilliseconds === null
+        ? null
+        : health.database.telemetry.latencyMilliseconds / 1_000,
+    ),
     "# HELP stugu_host_uptime_seconds Host uptime.",
     "# TYPE stugu_host_uptime_seconds gauge",
     `stugu_host_uptime_seconds ${health.hostUptimeSeconds}`,
@@ -59,7 +98,38 @@ export function hostSystemPrometheusMetrics(health: HostSystemHealth): string {
     "# HELP stugu_host_alert_active Whether a sustained built-in host alert is active.",
     "# TYPE stugu_host_alert_active gauge",
   ];
-  for (const metric of ["cpu", "event-loop", "memory", "storage", "temperature"] as const) {
+  const pool = health.database.telemetry.pool;
+  if (pool) {
+    lines.push(
+      "# HELP stugu_telemetry_database_pool_connections Telemetry database pool connections by state.",
+      "# TYPE stugu_telemetry_database_pool_connections gauge",
+      `stugu_telemetry_database_pool_connections{state="total"} ${pool.total}`,
+      `stugu_telemetry_database_pool_connections{state="idle"} ${pool.idle}`,
+      `stugu_telemetry_database_pool_connections{state="waiting"} ${pool.waiting}`,
+    );
+  }
+  const queries = health.database.telemetry.queries;
+  if (queries) {
+    lines.push(
+      "# HELP stugu_telemetry_database_queries_active Telemetry database queries currently executing.",
+      "# TYPE stugu_telemetry_database_queries_active gauge",
+      `stugu_telemetry_database_queries_active ${queries.active}`,
+      "# HELP stugu_telemetry_database_queries_total Telemetry database queries by outcome.",
+      "# TYPE stugu_telemetry_database_queries_total counter",
+      `stugu_telemetry_database_queries_total{outcome="started"} ${queries.started}`,
+      `stugu_telemetry_database_queries_total{outcome="succeeded"} ${queries.succeeded}`,
+      `stugu_telemetry_database_queries_total{outcome="failed"} ${queries.failed}`,
+      "# HELP stugu_telemetry_database_query_duration_seconds Telemetry query duration by statistic.",
+      "# TYPE stugu_telemetry_database_query_duration_seconds gauge",
+      `stugu_telemetry_database_query_duration_seconds{statistic="average"} ${queries.averageDurationMilliseconds / 1_000}`,
+      `stugu_telemetry_database_query_duration_seconds{statistic="maximum"} ${queries.maximumDurationMilliseconds / 1_000}`,
+      "# HELP stugu_telemetry_database_pool_wait_seconds Telemetry connection-pool wait by statistic.",
+      "# TYPE stugu_telemetry_database_pool_wait_seconds gauge",
+      `stugu_telemetry_database_pool_wait_seconds{statistic="average"} ${queries.averagePoolWaitMilliseconds / 1_000}`,
+      `stugu_telemetry_database_pool_wait_seconds{statistic="maximum"} ${queries.maximumPoolWaitMilliseconds / 1_000}`,
+    );
+  }
+  for (const metric of ["cpu", "database", "event-loop", "memory", "storage", "storage-forecast", "temperature"] as const) {
     for (const severity of ["warning", "critical"] as const) {
       const active = health.alerts.some((alert) => alert.metric === metric && alert.severity === severity);
       lines.push(`stugu_host_alert_active{metric="${metric}",severity="${severity}"} ${active ? 1 : 0}`);

@@ -403,6 +403,14 @@ describe("registry-driven measurements API", () => {
     }).expect(200);
     expect(truncatedV2.body.truncated).toBe(true);
     expect(truncatedV2.body.samples.map((sample: { timestamp: string }) => sample.timestamp)).toEqual(timestamps.slice(1));
+    expect(truncatedV2.body.nextCursor).toEqual(expect.any(String));
+
+    const olderV2 = await request(runtime.app).get("/api/v2/measurements/history").query({
+      sensorId: "sensor-01", metric: "co2", from: timestamps[0], to: timestamps[2],
+      limit: 2, cursor: truncatedV2.body.nextCursor,
+    }).expect(200);
+    expect(olderV2.body.samples.map((sample: { timestamp: string }) => sample.timestamp)).toEqual([timestamps[0]]);
+    expect(olderV2.body).toMatchObject({ truncated: false, nextCursor: null });
 
     const exactV2 = await request(runtime.app).get("/api/v2/measurements/history").query({
       sensorId: "sensor-01", metric: "co2", from: timestamps[1], to: timestamps[2], limit: 2,

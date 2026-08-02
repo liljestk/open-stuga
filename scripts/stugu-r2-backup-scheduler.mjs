@@ -14,6 +14,7 @@ import {
   findCompletedBackup,
   uploadVerifiedBackup,
 } from "./stugu-r2-backup/transport.mjs";
+import { assertStorageTarget } from "./stugu-storage-target.mjs";
 
 function boundedInteger(value, fallback, minimum, maximum, label) {
   const parsed = Number(value ?? fallback);
@@ -68,6 +69,26 @@ export async function replicateLatest({
 }) {
   const statusPath = join(resolve(operationsDirectory), "status.json");
   const current = readJson(statusPath);
+  try {
+    assertStorageTarget(resolve(backupRoot), environment.BACKUP_STORAGE_TARGET_ID);
+  } catch (error) {
+    const status = {
+      version: 1,
+      provider: "cloudflare-r2",
+      configured: true,
+      schedulerHealthy: false,
+      checkedAt: now.toISOString(),
+      state: "failed",
+      lastAction: "failed",
+      latestBackupName: null,
+      latestUploadedBackupName: current?.latestUploadedBackupName ?? null,
+      latestUploadedAt: current?.latestUploadedAt ?? null,
+      objectKey: current?.objectKey ?? null,
+      lastError: error instanceof Error ? error.message : String(error),
+    };
+    atomicJson(statusPath, status);
+    return status;
+  }
   const latest = verifiedBackupDirectories(backupRoot)[0] ?? null;
   const base = {
     version: 1,

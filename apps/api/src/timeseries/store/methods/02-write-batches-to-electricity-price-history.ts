@@ -3,11 +3,14 @@ import { Pool } from "pg";
 import type { PoolClient, QueryResult, QueryResultRow } from "pg";
 import {
   HYPERTABLE_DEFINITIONS,
+  MEASUREMENT_ANALYTICS_BUCKETS,
   MEASUREMENT_BUCKETS,
+  SOURCE_TAGGED_TELEMETRY_TABLES,
   TELEMETRY_TABLES,
   buildBaseSchemaSql,
   buildContinuousAggregateSql,
   buildFallbackAggregateSql,
+  measurementAnalyticsAggregateName,
   measurementAggregateName,
   qualifiedName,
   quoteIdentifier,
@@ -58,6 +61,18 @@ interface MeasurementGapRow {
   duration_ms: string | number;
 }
 
+interface ThermalMeasurementRow extends QueryResultRow {
+  sensor_id: string;
+  metric: string;
+  value: number | null;
+  canonical_unit: string | null;
+  observed_at: string | Date | null;
+  source: string | null;
+  quality: string | null;
+  metadata: Readonly<Record<string, unknown>> | null;
+  coverage_complete: boolean;
+}
+
 registerTimeseriesStoreMethods({
   async __writeBatches<T>(this: TimeseriesStoreInternals,
       table: (typeof TELEMETRY_TABLES)[number],
@@ -67,6 +82,7 @@ registerTimeseriesStoreMethods({
       records: readonly T[],
       valuesFor: (record: T) => readonly SqlValue[],
       control: QueryControl,
+      markOrderedRollups = false,
     ): Promise<BatchWriteResult> {
       if (records.length === 0) return { attempted: 0, affected: 0 };
       const parameterSafeBatchSize = Math.min(this[timeseriesStoreState].batchSize, Math.floor(60_000 / columns.length));
@@ -90,14 +106,62 @@ registerTimeseriesStoreMethods({
         assignments.push(`${quoteIdentifier("ingested_at")} = clock_timestamp()`);
         const distinctCurrent = updateColumns.map((column) => `current_row.${quoteIdentifier(column)}`).join(", ");
         const distinctIncoming = updateColumns.map((column) => `EXCLUDED.${quoteIdentifier(column)}`).join(", ");
-        const sql = `INSERT INTO ${qualifiedName(this.schema, table)} AS current_row
+        const insertSql = `INSERT INTO ${qualifiedName(this.schema, table)} AS current_row
           (${columns.map(quoteIdentifier).join(", ")})
           VALUES ${tuples.join(", ")}
           ON CONFLICT (${conflictColumns.map(quoteIdentifier).join(", ")}) DO UPDATE SET
             ${assignments.join(", ")}
           WHERE ROW(${distinctCurrent}) IS DISTINCT FROM ROW(${distinctIncoming})`;
+        let sql = insertSql;
+        if (markOrderedRollups) {
+          values.push([...this[timeseriesStoreState].orderedMetrics]);
+          const orderedMetricsParameter = `$${values.length}`;
+          sql = `WITH changed AS (
+              ${insertSql}
+              RETURNING sensor_id, metric, observed_at
+            ), changed_days AS MATERIALIZED (
+              SELECT DISTINCT sensor_id, metric, date_bin(INTERVAL '1 day', observed_at,
+                TIMESTAMPTZ '1970-01-01 00:00:00+00') AS day_start
+              FROM changed
+            ), ordered_days AS (
+              SELECT day.* FROM changed_days day
+              WHERE day.metric = ANY(${orderedMetricsParameter}::TEXT[])
+                OR EXISTS (
+                  SELECT 1 FROM ${qualifiedName(this.schema, "measurement_ordered_rollup_dirty")} dirty
+                  WHERE dirty.sensor_id = day.sensor_id AND dirty.metric = day.metric
+                    AND dirty.day_start = day.day_start
+                )
+            ), generations AS (
+              INSERT INTO ${qualifiedName(this.schema, "measurement_ordered_rollup_generations")} AS generation
+                (sensor_id, metric, day_start, current_seq, synced_seq, updated_at)
+              SELECT sensor_id, metric, day_start, 1, 1, clock_timestamp() FROM ordered_days
+              ON CONFLICT (sensor_id, metric, day_start) DO UPDATE SET
+                current_seq = generation.current_seq + 1,
+                synced_seq = CASE WHEN generation.current_seq <> generation.synced_seq OR EXISTS (
+                  SELECT 1 FROM ${qualifiedName(this.schema, "measurement_ordered_rollup_dirty")} dirty
+                  WHERE dirty.sensor_id = generation.sensor_id
+                    AND dirty.metric = generation.metric
+                    AND dirty.day_start = generation.day_start
+                ) THEN generation.synced_seq ELSE generation.current_seq + 1 END,
+                updated_at = clock_timestamp()
+              RETURNING sensor_id, metric, day_start, current_seq
+            ), dirtied AS (
+              UPDATE ${qualifiedName(this.schema, "measurement_ordered_rollup_dirty")} AS dirty SET
+                current_seq = GREATEST(dirty.current_seq, generation.current_seq), lease_token = NULL,
+                lease_until = NULL, updated_at = clock_timestamp()
+              FROM generations generation
+              WHERE dirty.sensor_id = generation.sensor_id
+                AND dirty.metric = generation.metric
+                AND dirty.day_start = generation.day_start
+              RETURNING 1
+            )
+            SELECT count(*)::BIGINT AS affected FROM changed`;
+        }
         const result = await this.__query(sql, values, control);
-        affected += result.rowCount ?? 0;
+        const reported = markOrderedRollups
+          ? Number((result.rows[0] as { affected?: string | number } | undefined)?.affected ?? result.rowCount ?? 0)
+          : result.rowCount ?? 0;
+        affected += Number.isFinite(reported) ? reported : 0;
       }
       return { attempted: records.length, affected };
     },
@@ -169,13 +233,60 @@ registerTimeseriesStoreMethods({
   async deleteTelemetrySources(this: TimeseriesStoreInternals, sources: readonly string[], control: QueryControl = {}): Promise<number> {
       if (sources.length === 0) return 0;
       let deleted = 0;
-      for (const table of TELEMETRY_TABLES) {
-        const result = await this.__query(
-          `DELETE FROM ${qualifiedName(this.schema, table)} WHERE source = ANY($1::TEXT[])`,
-          [[...sources]],
-          control,
-        );
-        deleted += result.rowCount ?? 0;
+      for (const table of SOURCE_TAGGED_TELEMETRY_TABLES) {
+        if (table === "measurement_samples") {
+          const result = await this.__query<{ affected: string | number }>(`WITH removed AS (
+              DELETE FROM ${qualifiedName(this.schema, table)}
+              WHERE source = ANY($1::TEXT[])
+              RETURNING sensor_id, metric, observed_at
+            ), removed_days AS MATERIALIZED (
+              SELECT DISTINCT sensor_id, metric, date_bin(INTERVAL '1 day', observed_at,
+                TIMESTAMPTZ '1970-01-01 00:00:00+00') AS day_start
+              FROM removed
+            ), ordered_days AS (
+              SELECT day.* FROM removed_days day
+              WHERE day.metric = ANY($2::TEXT[])
+                OR EXISTS (
+                  SELECT 1 FROM ${qualifiedName(this.schema, "measurement_ordered_rollup_dirty")} dirty
+                  WHERE dirty.sensor_id = day.sensor_id AND dirty.metric = day.metric
+                    AND dirty.day_start = day.day_start
+                )
+            ), generations AS (
+              INSERT INTO ${qualifiedName(this.schema, "measurement_ordered_rollup_generations")} AS generation
+                (sensor_id, metric, day_start, current_seq, synced_seq, updated_at)
+              SELECT sensor_id, metric, day_start, 1, 1, clock_timestamp() FROM ordered_days
+              ON CONFLICT (sensor_id, metric, day_start) DO UPDATE SET
+                current_seq = generation.current_seq + 1,
+                synced_seq = CASE WHEN generation.current_seq <> generation.synced_seq OR EXISTS (
+                  SELECT 1 FROM ${qualifiedName(this.schema, "measurement_ordered_rollup_dirty")} dirty
+                  WHERE dirty.sensor_id = generation.sensor_id
+                    AND dirty.metric = generation.metric
+                    AND dirty.day_start = generation.day_start
+                ) THEN generation.synced_seq ELSE generation.current_seq + 1 END,
+                updated_at = clock_timestamp()
+              RETURNING sensor_id, metric, day_start, current_seq
+            ), dirtied AS (
+              UPDATE ${qualifiedName(this.schema, "measurement_ordered_rollup_dirty")} AS dirty SET
+                current_seq = GREATEST(dirty.current_seq, generation.current_seq), lease_token = NULL,
+                lease_until = NULL, updated_at = clock_timestamp()
+              FROM generations generation
+              WHERE dirty.sensor_id = generation.sensor_id
+                AND dirty.metric = generation.metric
+                AND dirty.day_start = generation.day_start
+              RETURNING 1
+            ) SELECT count(*)::BIGINT AS affected FROM removed`, [
+              [...sources],
+              [...this[timeseriesStoreState].orderedMetrics],
+            ], control);
+          deleted += Number(result.rows[0]?.affected ?? 0);
+        } else {
+          const result = await this.__query(
+            `DELETE FROM ${qualifiedName(this.schema, table)} WHERE source = ANY($1::TEXT[])`,
+            [[...sources]],
+            control,
+          );
+          deleted += result.rowCount ?? 0;
+        }
       }
       return deleted;
     },
@@ -231,16 +342,24 @@ registerTimeseriesStoreMethods({
     },
   async measurementHistory(this: TimeseriesStoreInternals, query: MeasurementHistoryQuery): Promise<MeasurementSampleRecord[]> {
       const limit = positiveInteger(query.limit, 20_000, MAX_HISTORY_LIMIT);
+      const values: SqlValue[] = [query.sensorId, query.metric, query.from, query.to];
+      let cursor = "";
+      if (query.before) {
+        values.push(query.before.timestamp, query.before.source);
+        cursor = `AND (observed_at, source) < ($${values.length - 1}::TIMESTAMPTZ, $${values.length}::TEXT)`;
+      }
+      values.push(limit);
       const result = await this.__query<MeasurementRow>(`SELECT sensor_id, metric, value, canonical_unit,
           observed_at, source, quality, metadata
         FROM (
           SELECT sensor_id, metric, value, canonical_unit, observed_at, source, quality, metadata, ingested_at
           FROM ${qualifiedName(this.schema, "measurement_samples")}
           WHERE sensor_id = $1 AND metric = $2 AND observed_at >= $3::TIMESTAMPTZ AND observed_at <= $4::TIMESTAMPTZ
-          ORDER BY observed_at DESC, ingested_at DESC, source DESC
-          LIMIT $5
+            ${cursor}
+          ORDER BY observed_at DESC, source DESC
+          LIMIT $${values.length}
         ) recent
-        ORDER BY observed_at ASC, source ASC`, [query.sensorId, query.metric, query.from, query.to, limit], query);
+        ORDER BY observed_at ASC, source ASC`, values, query);
       return result.rows.map(measurementFromRow);
     },
   async measurementSampleGaps(this: TimeseriesStoreInternals, query: MeasurementGapQuery): Promise<MeasurementGapRecord[]> {
@@ -283,33 +402,112 @@ registerTimeseriesStoreMethods({
       if (metrics.length === 0) return [];
       const bucketMinutes = positiveInteger(query.bucketMinutes, 5, 60);
       const limitPerMetric = positiveInteger(query.limitPerMetric, 5_000, 20_000);
-      const result = await this.__query<MeasurementRow>(`WITH source_rows AS (
-          SELECT sensor_id, metric,
-            date_bin(make_interval(mins => $5::INT), observed_at, TIMESTAMPTZ '2000-01-01 00:00:00+00') AS observed_at,
-            value, canonical_unit, source, quality,
-            CASE quality WHEN 'estimated' THEN 0.25 ELSE 1.0 END AS sample_weight
-          FROM ${qualifiedName(this.schema, "measurement_samples")}
-          WHERE sensor_id = $1 AND metric = ANY($2::TEXT[])
-            AND observed_at >= $3::TIMESTAMPTZ AND observed_at <= $4::TIMESTAMPTZ
-            AND quality <> 'stale' AND source <> 'replay'
+      const base = bucketMinutes === 60 ? "1h" : bucketMinutes % 5 === 0 ? "5m" : "1m";
+      const baseInterval = MEASUREMENT_ANALYTICS_BUCKETS[base].interval;
+      const aggregate = qualifiedName(this.schema, measurementAnalyticsAggregateName(base));
+      const measurements = qualifiedName(this.schema, "measurement_samples");
+      const result = await this.__query<ThermalMeasurementRow>(`WITH requested_metrics AS (
+          SELECT unnest($2::TEXT[]) AS metric
+        ), bounds AS (
+          SELECT date_bin($7::INTERVAL, $3::TIMESTAMPTZ, TIMESTAMPTZ '1970-01-01 00:00:00+00') AS from_bucket,
+            date_bin($7::INTERVAL, $4::TIMESTAMPTZ, TIMESTAMPTZ '1970-01-01 00:00:00+00') AS to_bucket
+        ), limits AS (
+          SELECT CASE WHEN from_bucket = $3::TIMESTAMPTZ THEN from_bucket
+              ELSE from_bucket + $7::INTERVAL END AS full_from,
+            to_bucket AS full_to FROM bounds
+        ), raw_bounds AS (
+          SELECT requested.metric, first_sample.observed_at AS first_at, last_sample.observed_at AS last_at
+          FROM requested_metrics requested CROSS JOIN limits
+          LEFT JOIN LATERAL (
+            SELECT sample.observed_at FROM ${measurements} sample
+            WHERE sample.sensor_id = $1 AND sample.metric = requested.metric
+              AND sample.observed_at >= limits.full_from AND sample.observed_at < limits.full_to
+              AND sample.quality IN ('good', 'estimated') AND sample.source <> 'replay'
+            ORDER BY sample.observed_at ASC LIMIT 1
+          ) first_sample ON TRUE
+          LEFT JOIN LATERAL (
+            SELECT sample.observed_at FROM ${measurements} sample
+            WHERE sample.sensor_id = $1 AND sample.metric = requested.metric
+              AND sample.observed_at >= limits.full_from AND sample.observed_at < limits.full_to
+              AND sample.quality IN ('good', 'estimated') AND sample.source <> 'replay'
+            ORDER BY sample.observed_at DESC LIMIT 1
+          ) last_sample ON TRUE
+        ), aggregate_bounds AS (
+          SELECT requested.metric, first_bucket.bucket_start AS first_bucket,
+            last_bucket.bucket_start AS last_bucket
+          FROM requested_metrics requested CROSS JOIN limits
+          LEFT JOIN LATERAL (
+            SELECT sample.bucket_start FROM ${aggregate} sample
+            WHERE sample.sensor_id = $1 AND sample.metric = requested.metric
+              AND sample.bucket_start >= limits.full_from AND sample.bucket_start < limits.full_to
+              AND sample.quality IN ('good', 'estimated') AND sample.source <> 'replay'
+            ORDER BY sample.bucket_start ASC LIMIT 1
+          ) first_bucket ON TRUE
+          LEFT JOIN LATERAL (
+            SELECT sample.bucket_start FROM ${aggregate} sample
+            WHERE sample.sensor_id = $1 AND sample.metric = requested.metric
+              AND sample.bucket_start >= limits.full_from AND sample.bucket_start < limits.full_to
+              AND sample.quality IN ('good', 'estimated') AND sample.source <> 'replay'
+            ORDER BY sample.bucket_start DESC LIMIT 1
+          ) last_bucket ON TRUE
+        ), coverage AS (
+          SELECT raw.metric, raw.first_at IS NULL OR (
+            aggregate.first_bucket <= date_bin($7::INTERVAL, raw.first_at, TIMESTAMPTZ '1970-01-01 00:00:00+00')
+            AND aggregate.last_bucket >= date_bin($7::INTERVAL, raw.last_at, TIMESTAMPTZ '1970-01-01 00:00:00+00')
+          ) AS complete
+          FROM raw_bounds raw JOIN aggregate_bounds aggregate USING (metric)
+        ), source_rows AS (
+          SELECT sample.metric, sample.bucket_start AS observed_at,
+            sample.sum_value, sample.sample_count, sample.canonical_unit, sample.source, sample.quality
+          FROM ${aggregate} sample CROSS JOIN limits
+          WHERE sample.sensor_id = $1 AND sample.metric = ANY($2::TEXT[])
+            AND sample.bucket_start >= limits.full_from AND sample.bucket_start < limits.full_to
+            AND sample.quality IN ('good', 'estimated') AND sample.source <> 'replay'
+          UNION ALL
+          SELECT sample.metric,
+            date_bin($7::INTERVAL, sample.observed_at, TIMESTAMPTZ '1970-01-01 00:00:00+00'),
+            sample.value, 1::BIGINT, sample.canonical_unit, sample.source, sample.quality
+          FROM ${measurements} sample CROSS JOIN limits
+          WHERE sample.sensor_id = $1 AND sample.metric = ANY($2::TEXT[])
+            AND sample.observed_at >= $3::TIMESTAMPTZ AND sample.observed_at <= $4::TIMESTAMPTZ
+            AND (sample.observed_at < limits.full_from OR sample.observed_at >= limits.full_to)
+            AND sample.quality IN ('good', 'estimated') AND sample.source <> 'replay'
         ), aggregated AS (
-          SELECT sensor_id, metric, observed_at,
-            (SUM(value * sample_weight) / NULLIF(SUM(sample_weight), 0))::DOUBLE PRECISION AS value,
+          SELECT metric,
+            date_bin(make_interval(mins => $5::INT), observed_at, TIMESTAMPTZ '1970-01-01 00:00:00+00') AS observed_at,
+            (SUM(sum_value * CASE quality WHEN 'estimated' THEN 0.25 ELSE 1.0 END)
+              / NULLIF(SUM(sample_count * CASE quality WHEN 'estimated' THEN 0.25 ELSE 1.0 END), 0))::DOUBLE PRECISION AS value,
             MIN(canonical_unit) AS canonical_unit,
             MIN(source) AS source,
             CASE WHEN BOOL_OR(quality = 'good') THEN 'good' ELSE 'estimated' END AS quality,
             '{}'::JSONB AS metadata
           FROM source_rows
-          GROUP BY sensor_id, metric, observed_at
+          GROUP BY metric, date_bin(make_interval(mins => $5::INT), observed_at, TIMESTAMPTZ '1970-01-01 00:00:00+00')
         ), ranked AS (
           SELECT *, ROW_NUMBER() OVER (PARTITION BY metric ORDER BY observed_at DESC) AS bucket_rank
           FROM aggregated
         )
-        SELECT sensor_id, metric, value, canonical_unit, observed_at, source, quality, metadata
-        FROM ranked WHERE bucket_rank <= $6
-        ORDER BY observed_at ASC, metric ASC`,
-      [query.sensorId, metrics, query.from, query.to, bucketMinutes, limitPerMetric], query);
-      return result.rows.map(measurementFromRow);
+        SELECT $1::TEXT AS sensor_id, requested.metric, ranked.value, ranked.canonical_unit,
+          ranked.observed_at, ranked.source, ranked.quality, ranked.metadata,
+          coverage.complete AS coverage_complete
+        FROM requested_metrics requested
+        JOIN coverage USING (metric)
+        LEFT JOIN ranked ON ranked.metric = requested.metric AND ranked.bucket_rank <= $6
+        ORDER BY ranked.observed_at ASC NULLS FIRST, requested.metric ASC`,
+      [query.sensorId, metrics, query.from, query.to, bucketMinutes, limitPerMetric, baseInterval], query);
+      if (result.rows.some((row) => !row.coverage_complete)) {
+        throw new Error("Telemetry rollups are still materializing the requested thermal history");
+      }
+      return result.rows.flatMap((row) => row.observed_at === null ? [] : [measurementFromRow({
+        sensor_id: row.sensor_id,
+        metric: row.metric,
+        value: row.value!,
+        canonical_unit: row.canonical_unit!,
+        observed_at: row.observed_at,
+        source: row.source!,
+        quality: row.quality!,
+        metadata: row.metadata ?? {},
+      })]);
     },
   async measurementWindow(this: TimeseriesStoreInternals, query: MeasurementWindowQuery): Promise<MeasurementSampleRecord[]> {
       if (query.sensorIds.length === 0 || query.metrics.length === 0) return [];

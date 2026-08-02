@@ -388,6 +388,11 @@ export function configureApiPart27(context: ReturnType<typeof configureApiPart26
         response.status(400).json({ error: { code: "INVALID_JSON", message: "Request body is not valid JSON" } });
         return;
       }
+      context.systemErrorLog.record({
+        source: "api",
+        code: error instanceof Error ? error.name : "UNEXPECTED_ERROR",
+        message,
+      });
       response.status(500).json({ error: { code: "INTERNAL_ERROR", message: "The request could not be completed" } });
     });
   const initialRuntimeReady: Promise<void> = Promise.resolve();
@@ -401,7 +406,10 @@ export function configureApiPart27(context: ReturnType<typeof configureApiPart26
           // configuration because it contains a database credential.
           console.error("[telemetry-archive] Optional TimescaleDB archive is unavailable; SQLite buffering continues");
         });
-      void deferred.runtimeReady.then(() => context.telemetryRetention?.start()).catch(() => undefined);
+      void deferred.runtimeReady.then(() => {
+        context.telemetryRetention?.start();
+        context.telemetryOrderedRollups?.start();
+      }).catch(() => undefined);
     }
   const extended = Object.assign(context, {  });
   return extended as typeof extended & { runtimeReady: Promise<void> };

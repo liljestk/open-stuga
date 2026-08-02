@@ -58,7 +58,12 @@ export class EnergyOptimizer {
     this.telemetryReader = telemetryReader;
   }
 
-  async report(propertyId: string, windowHours = 2, now = new Date()): Promise<EnergyOptimizationReport> {
+  async report(
+    propertyId: string,
+    windowHours = 2,
+    now = new Date(),
+    signal?: AbortSignal,
+  ): Promise<EnergyOptimizationReport> {
     const property = this.database.getProperty(propertyId);
     if (!property) throw new Error("Property not found");
     const hours = Math.max(1, Math.min(12, Math.round(windowHours)));
@@ -79,6 +84,7 @@ export class EnergyOptimizer {
           from: priceFrom,
           to: priceUntil,
           limit: 5_000,
+          ...(signal ? { signal } : {}),
         }).then((result) => result.records),
         reader.measurementWindow({
           sensorIds: sensors.map((sensor) => sensor.id),
@@ -86,6 +92,7 @@ export class EnergyOptimizer {
           from,
           to: now.toISOString(),
           limit: 200_000,
+          ...(signal ? { signal } : {}),
         }).then((result) => result.records),
         Promise.allSettled(houses.map((house) => costService.summarize({
           houseId: house.id,
@@ -93,6 +100,7 @@ export class EnergyOptimizer {
           sensorIds: sensors.filter((sensor) => sensor.houseId === house.id).map((sensor) => sensor.id),
           from,
           to: now.toISOString(),
+          ...(signal ? { signal } : {}),
         }))),
       ]);
     const futurePrices = prices.filter((price) => Date.parse(price.endAt) > now.getTime());

@@ -17,45 +17,28 @@ import { monitorEventLoopDelay, type IntervalHistogram } from "node:perf_hooks";
 import type {
   HostSystemAlert,
   HostSystemAlertMetric,
+  HostSystemDatabaseStatus,
   HostSystemHealth,
   HostSystemState,
   HostSystemThresholds,
 } from "@climate-twin/contracts";
 import { hostSystemPrometheusMetrics } from "./host-system-prometheus.js";
-
-const GIBIBYTE = 1_073_741_824;
-const CPU_THRESHOLDS: HostSystemThresholds = {
-  warningPercent: 85,
-  criticalPercent: 95,
-  warningAfterSeconds: 300,
-  criticalAfterSeconds: 120,
-};
-const MEMORY_THRESHOLDS: HostSystemThresholds = {
-  warningPercent: 85,
-  criticalPercent: 95,
-  warningAfterSeconds: 300,
-  criticalAfterSeconds: 120,
-};
-const STORAGE_THRESHOLDS: HostSystemThresholds = {
-  warningPercent: 85,
-  criticalPercent: 95,
-  warningAfterSeconds: 0,
-  criticalAfterSeconds: 0,
-};
-const TEMPERATURE_THRESHOLDS: HostSystemThresholds = {
-  warningPercent: 75,
-  criticalPercent: 85,
-  warningAfterSeconds: 120,
-  criticalAfterSeconds: 30,
-};
-const EVENT_LOOP_THRESHOLDS = {
-  warningMilliseconds: 250,
-  criticalMilliseconds: 1_000,
-  warningAfterSeconds: 120,
-  criticalAfterSeconds: 30,
-} as const;
-const STORAGE_WARNING_AVAILABLE_BYTES = 5 * GIBIBYTE;
-const STORAGE_CRITICAL_AVAILABLE_BYTES = GIBIBYTE;
+import {
+  estimateStorageForecast,
+  InMemoryHostStorageHistory,
+  type HostStorageHistory,
+} from "./host-storage-forecast.js";
+import {
+  buildHostAlertConditions,
+  CPU_THRESHOLDS,
+  EVENT_LOOP_THRESHOLDS,
+  MEMORY_THRESHOLDS,
+  STORAGE_CRITICAL_AVAILABLE_BYTES,
+  STORAGE_THRESHOLDS,
+  STORAGE_WARNING_AVAILABLE_BYTES,
+  TEMPERATURE_THRESHOLDS,
+  type HostAlertCondition,
+} from "./host-system-alert-conditions.js";
 
 export interface HostCpuTimes {
   idle: number;
@@ -108,19 +91,16 @@ export interface HostSystemMonitorOptions {
   source?: HostSystemDataSource;
   sampleIntervalMs?: number;
   cpuSampleWindowMs?: number;
+  storageHistory?: HostStorageHistory;
+  databaseMetrics?: () => Promise<HostSystemDatabaseStatus>;
 }
 
-interface AlertCondition {
-  metric: HostSystemAlertMetric;
-  severity: "warning" | "critical";
-  active: boolean;
-  value: number | null;
-  unit: HostSystemAlert["unit"];
-  threshold: number | null;
-  afterSeconds: number;
-  message: string;
-  recommendation: string;
+export interface HostSystemAlertSnapshot {
+  previous: HostSystemHealth | null;
+  current: HostSystemHealth;
 }
+
+export type HostSystemAlertSnapshotHandler = (snapshot: HostSystemAlertSnapshot) => void;
 
 function rounded(value: number, digits = 1): number {
   return Number(value.toFixed(digits));
@@ -245,24 +225,28 @@ function wait(milliseconds: number): Promise<void> {
   });
 }
 
-function memoryRecommendation(): string {
-  return "Pause unusually heavy imports or analytics and check whether a Stugu service is growing unexpectedly.";
-}
-
-function cpuRecommendation(): string {
-  return "Check active imports, analytics, integrations, and any other workload running on the Stugu host.";
-}
-
-function storageRecommendation(): string {
-  return "Free space on the Stugu data volume or expand it before history, backups, or updates are interrupted.";
-}
-
-function temperatureRecommendation(): string {
-  return "Check airflow around the host, its fan or heatsink, and the room temperature.";
-}
-
-function eventLoopRecommendation(): string {
-  return "Check integrations, history recovery, analytics, and other API work that may be blocking Stugu responses.";
+function unknownDatabaseStatus(): HostSystemDatabaseStatus {
+  return {
+    state: "unknown",
+    sqlite: {
+      state: "unknown",
+      sizeBytes: null,
+      usedBytes: null,
+      walBytes: null,
+      pageCount: null,
+      freePages: null,
+      tableCount: null,
+    },
+    telemetry: {
+      enabled: false,
+      required: false,
+      state: "disabled",
+      sizeBytes: null,
+      latencyMilliseconds: null,
+      pool: null,
+      queries: null,
+    },
+  };
 }
 
 export class HostSystemMonitor {
@@ -271,6 +255,8 @@ export class HostSystemMonitor {
   readonly #sampleIntervalMs: number;
   readonly #cpuSampleWindowMs: number;
   readonly #eventLoopHistogram: IntervalHistogram | null;
+  readonly #storageHistory: HostStorageHistory;
+  readonly #databaseMetrics: (() => Promise<HostSystemDatabaseStatus>) | null;
   readonly #crossedAt = new Map<string, number>();
   #previousCpu: HostCpuTimes | null = null;
   #previousProcessCpu: (HostProcessCpuTimes & { sampledAtMs: number }) | null = null;
@@ -278,6 +264,7 @@ export class HostSystemMonitor {
   #refreshing: Promise<HostSystemHealth> | null = null;
   #timer: NodeJS.Timeout | null = null;
   #eventLoopHistogramEnabled = false;
+  #alertSnapshotHandler: HostSystemAlertSnapshotHandler | null = null;
 
   constructor(options: HostSystemMonitorOptions) {
     this.#source = options.source ?? defaultSource;
@@ -285,6 +272,12 @@ export class HostSystemMonitor {
     this.#sampleIntervalMs = Math.max(1_000, options.sampleIntervalMs ?? 30_000);
     this.#cpuSampleWindowMs = Math.max(0, options.cpuSampleWindowMs ?? 100);
     this.#eventLoopHistogram = options.source ? null : monitorEventLoopDelay({ resolution: 20 });
+    this.#storageHistory = options.storageHistory ?? new InMemoryHostStorageHistory();
+    this.#databaseMetrics = options.databaseMetrics ?? null;
+  }
+
+  setAlertSnapshotHandler(handler: HostSystemAlertSnapshotHandler | null): void {
+    this.#alertSnapshotHandler = handler;
   }
 
   start(): void {
@@ -372,8 +365,8 @@ export class HostSystemMonitor {
     return sample;
   }
 
-  #alerts(now: number, conditions: AlertCondition[]): HostSystemAlert[] {
-    const matured: Array<{ condition: AlertCondition; startedAt: number }> = [];
+  #alerts(now: number, conditions: HostAlertCondition[]): HostSystemAlert[] {
+    const matured: Array<{ condition: HostAlertCondition; startedAt: number }> = [];
     for (const condition of conditions) {
       const key = `${condition.metric}:${condition.severity}`;
       if (!condition.active) {
@@ -386,7 +379,7 @@ export class HostSystemMonitor {
         matured.push({ condition, startedAt });
       }
     }
-    const selected = new Map<HostSystemAlertMetric, { condition: AlertCondition; startedAt: number }>();
+    const selected = new Map<HostSystemAlertMetric, { condition: HostAlertCondition; startedAt: number }>();
     for (const candidate of matured) {
       const current = selected.get(candidate.condition.metric);
       if (!current || candidate.condition.severity === "critical") {
@@ -408,7 +401,7 @@ export class HostSystemMonitor {
 
   async #collect(): Promise<HostSystemHealth> {
     const now = this.#source.nowMs();
-    const [usagePercent, cgroup, temperatureCelsius, storageResult] = await Promise.all([
+    const [usagePercent, cgroup, temperatureCelsius, storageResult, database] = await Promise.all([
       this.#cpuUsagePercent(),
       this.#source.cgroupMemory().catch(() => null),
       this.#source.cpuTemperatureCelsius().catch(() => null),
@@ -416,6 +409,7 @@ export class HostSystemMonitor {
         (value) => ({ value, error: false as const }),
         () => ({ value: null, error: true as const }),
       ),
+      this.#databaseMetrics?.().catch(() => unknownDatabaseStatus()) ?? Promise.resolve(unknownDatabaseStatus()),
     ]);
     const eventLoopDelay = this.#eventLoopDelayMilliseconds();
     const processUsagePercent = this.#processCpuUsagePercent(this.#source.nowMs());
@@ -435,6 +429,19 @@ export class HostSystemMonitor {
     const storageUsedPercent = storageUsed === null || storageTotal === null
       ? null
       : percent(storageUsed, storageTotal);
+    const storageSamples = storageTotal === null || storageAvailable === null
+      ? []
+      : this.#storageHistory.observe({
+        sampledAtMs: now,
+        totalBytes: storageTotal,
+        availableBytes: storageAvailable,
+      });
+    const storageForecast = estimateStorageForecast(
+      storageSamples,
+      now,
+      storageTotal,
+      storageAvailable,
+    );
     const cpuStrainPercent = usagePercent === null
       ? processUsagePercent
       : processUsagePercent === null
@@ -456,106 +463,21 @@ export class HostSystemMonitor {
           || storageUsedPercent >= STORAGE_THRESHOLDS.warningPercent
           ? "warning"
           : "healthy";
-    const conditions: AlertCondition[] = [
-      {
-        metric: "cpu", severity: "warning",
-        active: cpuStrainPercent !== null && cpuStrainPercent >= CPU_THRESHOLDS.warningPercent,
-        value: cpuStrainPercent, unit: "%", threshold: CPU_THRESHOLDS.warningPercent,
-        afterSeconds: CPU_THRESHOLDS.warningAfterSeconds,
-        message: `CPU use has stayed above ${CPU_THRESHOLDS.warningPercent}%.`,
-        recommendation: cpuRecommendation(),
-      },
-      {
-        metric: "cpu", severity: "critical",
-        active: cpuStrainPercent !== null && cpuStrainPercent >= CPU_THRESHOLDS.criticalPercent,
-        value: cpuStrainPercent, unit: "%", threshold: CPU_THRESHOLDS.criticalPercent,
-        afterSeconds: CPU_THRESHOLDS.criticalAfterSeconds,
-        message: `CPU use has stayed above ${CPU_THRESHOLDS.criticalPercent}%.`,
-        recommendation: cpuRecommendation(),
-      },
-      {
-        metric: "event-loop", severity: "warning",
-        active: eventLoopDelay !== null
-          && eventLoopDelay.p95Milliseconds >= EVENT_LOOP_THRESHOLDS.warningMilliseconds,
-        value: eventLoopDelay?.p95Milliseconds ?? null,
-        unit: "ms",
-        threshold: EVENT_LOOP_THRESHOLDS.warningMilliseconds,
-        afterSeconds: EVENT_LOOP_THRESHOLDS.warningAfterSeconds,
-        message: `API response scheduling has stayed above ${EVENT_LOOP_THRESHOLDS.warningMilliseconds} ms (p95).`,
-        recommendation: eventLoopRecommendation(),
-      },
-      {
-        metric: "event-loop", severity: "critical",
-        active: eventLoopDelay !== null
-          && eventLoopDelay.p95Milliseconds >= EVENT_LOOP_THRESHOLDS.criticalMilliseconds,
-        value: eventLoopDelay?.p95Milliseconds ?? null,
-        unit: "ms",
-        threshold: EVENT_LOOP_THRESHOLDS.criticalMilliseconds,
-        afterSeconds: EVENT_LOOP_THRESHOLDS.criticalAfterSeconds,
-        message: `API response scheduling has stayed above ${EVENT_LOOP_THRESHOLDS.criticalMilliseconds} ms (p95).`,
-        recommendation: eventLoopRecommendation(),
-      },
-      {
-        metric: "memory", severity: "warning",
-        active: memoryUsedPercent >= MEMORY_THRESHOLDS.warningPercent,
-        value: memoryUsedPercent, unit: "%", threshold: MEMORY_THRESHOLDS.warningPercent,
-        afterSeconds: MEMORY_THRESHOLDS.warningAfterSeconds,
-        message: `Memory use has stayed above ${MEMORY_THRESHOLDS.warningPercent}%.`,
-        recommendation: memoryRecommendation(),
-      },
-      {
-        metric: "memory", severity: "critical",
-        active: memoryUsedPercent >= MEMORY_THRESHOLDS.criticalPercent,
-        value: memoryUsedPercent, unit: "%", threshold: MEMORY_THRESHOLDS.criticalPercent,
-        afterSeconds: MEMORY_THRESHOLDS.criticalAfterSeconds,
-        message: `Memory use has stayed above ${MEMORY_THRESHOLDS.criticalPercent}%.`,
-        recommendation: memoryRecommendation(),
-      },
-      {
-        metric: "storage", severity: "warning",
-        active: storageUsedPercent !== null && (
-          storageUsedPercent >= STORAGE_THRESHOLDS.warningPercent
-          || storageAvailable! <= STORAGE_WARNING_AVAILABLE_BYTES
-        ),
-        value: storageUsedPercent, unit: "%", threshold: STORAGE_THRESHOLDS.warningPercent,
-        afterSeconds: 0,
-        message: storageAvailable === null
-          ? "Storage space could not be measured."
-          : `The Stugu data volume has ${rounded(storageAvailable / GIBIBYTE)} GiB available.`,
-        recommendation: storageRecommendation(),
-      },
-      {
-        metric: "storage", severity: "critical",
-        active: storageUsedPercent !== null && (
-          storageUsedPercent >= STORAGE_THRESHOLDS.criticalPercent
-          || storageAvailable! <= STORAGE_CRITICAL_AVAILABLE_BYTES
-        ),
-        value: storageUsedPercent, unit: "%", threshold: STORAGE_THRESHOLDS.criticalPercent,
-        afterSeconds: 0,
-        message: storageAvailable === null
-          ? "Storage space could not be measured."
-          : `The Stugu data volume has only ${rounded(storageAvailable / GIBIBYTE)} GiB available.`,
-        recommendation: storageRecommendation(),
-      },
-      {
-        metric: "temperature", severity: "warning",
-        active: temperatureCelsius !== null && temperatureCelsius >= TEMPERATURE_THRESHOLDS.warningPercent,
-        value: temperatureCelsius, unit: "°C", threshold: TEMPERATURE_THRESHOLDS.warningPercent,
-        afterSeconds: TEMPERATURE_THRESHOLDS.warningAfterSeconds,
-        message: `The host temperature has stayed above ${TEMPERATURE_THRESHOLDS.warningPercent} °C.`,
-        recommendation: temperatureRecommendation(),
-      },
-      {
-        metric: "temperature", severity: "critical",
-        active: temperatureCelsius !== null && temperatureCelsius >= TEMPERATURE_THRESHOLDS.criticalPercent,
-        value: temperatureCelsius, unit: "°C", threshold: TEMPERATURE_THRESHOLDS.criticalPercent,
-        afterSeconds: TEMPERATURE_THRESHOLDS.criticalAfterSeconds,
-        message: `The host temperature has stayed above ${TEMPERATURE_THRESHOLDS.criticalPercent} °C.`,
-        recommendation: temperatureRecommendation(),
-      },
-    ];
+    const conditions = buildHostAlertConditions({
+      nowMs: now,
+      cpuStrainPercent,
+      eventLoopP95Milliseconds: eventLoopDelay?.p95Milliseconds ?? null,
+      memoryUsedPercent,
+      storageUsedPercent,
+      storageAvailableBytes: storageAvailable,
+      storageForecast,
+      temperatureCelsius,
+      database,
+    });
     const alerts = this.#alerts(now, conditions);
     if (storageResult.error) {
+      const probeKey = "storage:probe";
+      if (!this.#crossedAt.has(probeKey)) this.#crossedAt.set(probeKey, now);
       alerts.push({
         id: "host-system-storage-warning",
         metric: "storage",
@@ -563,10 +485,12 @@ export class HostSystemMonitor {
         value: null,
         unit: null,
         threshold: null,
-        startedAt: new Date(now).toISOString(),
+        startedAt: new Date(this.#crossedAt.get(probeKey) ?? now).toISOString(),
         message: "Stugu could not measure the available space on its data volume.",
         recommendation: "Check that the data volume is mounted and readable by the Stugu service.",
       });
+    } else {
+      this.#crossedAt.delete("storage:probe");
     }
     const alertState: HostSystemState = alerts.some((alert) => alert.severity === "critical")
       ? "critical"
@@ -576,6 +500,7 @@ export class HostSystemMonitor {
         worstState(cpuUsageState, temperatureState, measuredEventLoopState),
         memoryState,
         storageState,
+        this.#databaseMetrics ? database.state : "healthy",
         alertState,
       ),
       sampledAt: new Date(now).toISOString(),
@@ -620,10 +545,18 @@ export class HostSystemMonitor {
         thresholds: STORAGE_THRESHOLDS,
         warningAvailableBytes: STORAGE_WARNING_AVAILABLE_BYTES,
         criticalAvailableBytes: STORAGE_CRITICAL_AVAILABLE_BYTES,
+        forecast: storageForecast,
       },
+      database,
       alerts,
     };
+    const previous = this.#current;
     this.#current = health;
+    try {
+      this.#alertSnapshotHandler?.({ previous, current: health });
+    } catch {
+      // Health collection remains available if an optional notification sink fails.
+    }
     return health;
   }
 }
