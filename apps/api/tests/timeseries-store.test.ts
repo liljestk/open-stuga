@@ -24,6 +24,15 @@ describe("time-series schema", () => {
     expect(sql.toLowerCase()).not.toContain("delete from");
   });
 
+  it("reuses an existing telemetry schema without requiring database CREATE privilege", () => {
+    const [schemaSql] = buildBaseSchemaSql("telemetry");
+    expect(schemaSql).toContain("FROM pg_catalog.pg_namespace WHERE nspname = 'telemetry'");
+    expect(schemaSql).toContain("EXECUTE format('CREATE SCHEMA %I', 'telemetry')");
+    expect(schemaSql).toContain("WHEN duplicate_schema THEN NULL");
+    expect(schemaSql).not.toContain("CREATE SCHEMA IF NOT EXISTS");
+    expect(schemaSql).not.toContain("insufficient_privilege");
+  });
+
   it("builds equivalent Timescale and PostgreSQL aggregate projections", () => {
     const continuous = buildContinuousAggregateSql("telemetry", "5m");
     const fallback = buildFallbackAggregateSql("telemetry", "5m");
@@ -115,8 +124,67 @@ describe("TimeseriesStore", () => {
     expect(pool.queries.filter(({ text }) => text.includes("CALL add_columnstore_policy"))).toHaveLength(14);
     expect(pool.queries.filter(({ text }) => text.includes("CREATE MATERIALIZED VIEW"))).toHaveLength(7);
     expect(pool.queries.filter(({ text }) => text.includes("SELECT add_continuous_aggregate_policy("))).toHaveLength(7);
+    expect(pool.queries.some(({ text }) => text.includes("remove_continuous_aggregate_policy"))).toBe(false);
     expect(pool.queries.some(({ text }) => text.includes("proc_name = 'policy_retention'"))).toBe(true);
     expect(pool.queries.some(({ text }) => text.includes("add_retention_policy"))).toBe(false);
+  });
+
+  it("replaces only restored bounded measurement refresh policies", async () => {
+    const pool = new FakePool(({ text }) => {
+      if (text.includes("AS timescale_version")) return queryResult([{ timescale_version: "2.28.3" }]);
+      if (text.includes("columnstore_available")) {
+        return queryResult([{
+          columnstore_available: false,
+          compression_available: false,
+          continuous_policy_available: true,
+        }]);
+      }
+      if (text.includes("timescaledb_information.hypertables")) {
+        return queryResult([{ configured: true }]);
+      }
+      if (text.includes("config ->> 'start_offset'")) return queryResult([{ configured: true }]);
+      return queryResult();
+    });
+    const store = storeFor(pool);
+
+    await expect(store.initialize()).resolves.toMatchObject({ aggregateMode: "continuous" });
+    const legacyChecks = pool.queries.filter(({ text }) => text.includes("config ->> 'start_offset'"));
+    expect(legacyChecks).toHaveLength(3);
+    expect(legacyChecks.map(({ values }) => values[1])).toEqual([
+      "measurement_samples_5m",
+      "measurement_samples_1h",
+      "measurement_samples_1d",
+    ]);
+    const removals = pool.queries.filter(({ text }) => text.includes("remove_continuous_aggregate_policy"));
+    expect(removals.map(({ values }) => values[0])).toEqual([
+      "\"telemetry\".\"measurement_samples_5m\"",
+      "\"telemetry\".\"measurement_samples_1h\"",
+      "\"telemetry\".\"measurement_samples_1d\"",
+    ]);
+  });
+
+  it("fails closed when a restored refresh policy cannot be reconciled", async () => {
+    const pool = new FakePool(({ text, values }) => {
+      if (text.includes("AS timescale_version")) return queryResult([{ timescale_version: "2.28.3" }]);
+      if (text.includes("columnstore_available")) {
+        return queryResult([{
+          columnstore_available: false,
+          compression_available: false,
+          continuous_policy_available: true,
+        }]);
+      }
+      if (text.includes("timescaledb_information.hypertables")) {
+        return queryResult([{ configured: true }]);
+      }
+      if (text.includes("config ->> 'start_offset'")) {
+        return queryResult([{ configured: values[1] === "measurement_samples_5m" }]);
+      }
+      if (text.includes("remove_continuous_aggregate_policy")) throw new Error("policy owner mismatch");
+      return queryResult();
+    });
+    const store = storeFor(pool);
+
+    await expect(store.initialize()).rejects.toThrow("Only 6 of 7 required telemetry refresh policies");
   });
 
   it("fails closed when Timescale cannot schedule bounded aggregate refreshes", async () => {

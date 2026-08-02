@@ -127,11 +127,24 @@ export function measurementAnalyticsAggregateName(bucket: MeasurementAnalyticsBa
 }
 
 export function buildBaseSchemaSql(schemaName: string): string[] {
-  const schema = quoteIdentifier(validateSchemaName(schemaName));
+  const validatedSchema = validateSchemaName(schemaName);
+  const schema = quoteIdentifier(validatedSchema);
   const relation = (name: string) => `${schema}.${quoteIdentifier(name)}`;
 
   return [
-    `CREATE SCHEMA IF NOT EXISTS ${schema}`,
+    `DO $stugu_schema$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_catalog.pg_namespace WHERE nspname = '${validatedSchema}'
+      ) THEN
+        BEGIN
+          EXECUTE format('CREATE SCHEMA %I', '${validatedSchema}');
+        EXCEPTION
+          WHEN duplicate_schema THEN NULL;
+        END;
+      END IF;
+    END
+    $stugu_schema$`,
     `CREATE TABLE IF NOT EXISTS ${relation("schema_migrations")} (
       version INTEGER PRIMARY KEY,
       description TEXT NOT NULL,
