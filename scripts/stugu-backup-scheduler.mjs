@@ -1,16 +1,21 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
+  closeSync,
   existsSync,
+  fsyncSync,
   mkdirSync,
+  openSync,
   readFileSync,
   readdirSync,
   renameSync,
   rmSync,
+  statSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
-import { basename, join, resolve, sep } from "node:path";
+import { basename, dirname, join, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import { restoreDrill } from "./stugu-restore-drill.mjs";
 import { assertStorageTarget } from "./stugu-storage-target.mjs";
@@ -45,8 +50,150 @@ function readJson(path) {
 
 function atomicJson(path, value) {
   const temporary = `${path}.${process.pid}.${Date.now()}.tmp`;
-  writeFileSync(temporary, `${JSON.stringify(value, null, 2)}\n`, { encoding: "utf8", flag: "wx", mode: 0o600 });
-  renameSync(temporary, path);
+  let descriptor = null;
+  try {
+    descriptor = openSync(temporary, "wx", 0o600);
+    writeFileSync(descriptor, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+    fsyncSync(descriptor);
+    closeSync(descriptor);
+    descriptor = null;
+    renameSync(temporary, path);
+    fsyncDirectory(dirname(path));
+  } catch (error) {
+    if (descriptor !== null) closeSync(descriptor);
+    rmSync(temporary, { force: true });
+    throw error;
+  }
+}
+
+function fsyncDirectory(path) {
+  if (process.platform === "win32") return;
+  const descriptor = openSync(path, "r");
+  try { fsyncSync(descriptor); } finally { closeSync(descriptor); }
+}
+
+function sha256(value) {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+function validatedDataExportRequest(value, requestName) {
+  const runId = /^data-export-([0-9a-f-]{36})\.request\.json$/iu.exec(requestName)?.[1] ?? "";
+  if (!value || value.schema !== "stugu-data-export-request/v1" || value.runId !== runId
+    || !/^[0-9a-f-]{36}$/iu.test(value.scheduleId)
+    || typeof value.requestedAt !== "string" || !Number.isFinite(Date.parse(value.requestedAt))
+    || value.payloadName !== `data-export-${runId}.csv`
+    || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,239}\.csv$/u.test(value.outputName)
+    || value.relativeDirectory !== `data-exports/${value.scheduleId}`
+    || !Number.isSafeInteger(value.bytes) || value.bytes < 0 || value.bytes > 64 * 1024 * 1024
+    || typeof value.sha256 !== "string" || !/^[0-9a-f]{64}$/u.test(value.sha256)
+    || !Number.isSafeInteger(value.retentionCount) || value.retentionCount < 1 || value.retentionCount > 365
+    || Object.keys(value).some((key) => ![
+      "schema", "runId", "scheduleId", "requestedAt", "payloadName", "outputName",
+      "relativeDirectory", "bytes", "sha256", "retentionCount",
+    ].includes(key))) {
+    throw new Error("Scheduled data export request is invalid");
+  }
+  return value;
+}
+
+function durableDataExport(path, content) {
+  const temporary = `${path}.${process.pid}.${Date.now()}.tmp`;
+  let descriptor = null;
+  try {
+    descriptor = openSync(temporary, "wx", 0o600);
+    writeFileSync(descriptor, content);
+    fsyncSync(descriptor);
+    closeSync(descriptor);
+    descriptor = null;
+    renameSync(temporary, path);
+    fsyncDirectory(dirname(path));
+  } catch (error) {
+    if (descriptor !== null) closeSync(descriptor);
+    rmSync(temporary, { force: true });
+    throw error;
+  }
+}
+
+function pruneDataExports(directory, retentionCount) {
+  const files = readdirSync(directory, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && /^[A-Za-z0-9][A-Za-z0-9._-]{0,239}\.csv$/u.test(entry.name))
+    .map((entry) => ({ name: entry.name, modifiedAt: statSync(join(directory, entry.name)).mtimeMs }))
+    .sort((left, right) => right.modifiedAt - left.modifiedAt || right.name.localeCompare(left.name));
+  for (const entry of files.slice(retentionCount)) unlinkSync(join(directory, entry.name));
+}
+
+export function processDataExportRequests(
+  sourceDirectory = operationsDirectory,
+  destinationRoot = backupRoot,
+  now = () => new Date(),
+) {
+  const names = readdirSync(sourceDirectory)
+    .filter((name) => /^data-export-[0-9a-f-]{36}\.request\.json$/iu.test(name))
+    .sort();
+  const receipts = [];
+  for (const requestName of names) {
+    const requestPath = join(sourceDirectory, requestName);
+    const fallbackRunId = /^data-export-([0-9a-f-]{36})/iu.exec(requestName)?.[1] ?? "";
+    let request = null;
+    let payloadPath = null;
+    try {
+      request = validatedDataExportRequest(readJson(requestPath), requestName);
+      payloadPath = join(sourceDirectory, request.payloadName);
+      if (!existsSync(payloadPath) || statSync(payloadPath).size !== request.bytes) {
+        throw new Error("Scheduled data export payload is missing or incomplete");
+      }
+      const content = readFileSync(payloadPath);
+      if (sha256(content) !== request.sha256) throw new Error("Scheduled data export payload checksum does not match");
+      const directory = resolve(destinationRoot, request.relativeDirectory);
+      const root = resolve(destinationRoot);
+      if (!directory.startsWith(`${root}${sep}`)) throw new Error("Scheduled data export destination escaped its root");
+      mkdirSync(directory, { recursive: true, mode: 0o700 });
+      const output = resolve(directory, request.outputName);
+      if (!output.startsWith(`${directory}${sep}`) || basename(output) !== request.outputName) {
+        throw new Error("Scheduled data export filename is unsafe");
+      }
+      if (existsSync(output)) {
+        const existing = readFileSync(output);
+        if (existing.byteLength !== request.bytes || sha256(existing) !== request.sha256) {
+          throw new Error("Scheduled data export destination already contains a different file");
+        }
+      } else {
+        durableDataExport(output, content);
+      }
+      pruneDataExports(directory, request.retentionCount);
+      const receipt = {
+        schema: "stugu-data-export-receipt/v1",
+        runId: request.runId,
+        scheduleId: request.scheduleId,
+        status: "complete",
+        completedAt: now().toISOString(),
+        outputName: request.outputName,
+        bytes: request.bytes,
+        sha256: request.sha256,
+        error: null,
+      };
+      atomicJson(join(sourceDirectory, `data-export-${request.runId}.receipt.json`), receipt);
+      receipts.push(receipt);
+    } catch (error) {
+      const receipt = {
+        schema: "stugu-data-export-receipt/v1",
+        runId: request?.runId ?? fallbackRunId,
+        scheduleId: request?.scheduleId ?? "",
+        status: "failed",
+        completedAt: now().toISOString(),
+        outputName: null,
+        bytes: 0,
+        sha256: null,
+        error: error instanceof Error ? error.message.slice(0, 2_000) : String(error).slice(0, 2_000),
+      };
+      atomicJson(join(sourceDirectory, `data-export-${fallbackRunId}.receipt.json`), receipt);
+      receipts.push(receipt);
+    } finally {
+      if (payloadPath) rmSync(payloadPath, { force: true });
+      rmSync(requestPath, { force: true });
+    }
+  }
+  return receipts;
 }
 
 function status() {
@@ -134,6 +281,7 @@ async function work() {
     });
     return;
   }
+  processDataExportRequests();
   const requestName = requestFiles()[0] ?? null;
   const due = schedulerTimestampDue(
     current.latestVerifiedBackupAt,

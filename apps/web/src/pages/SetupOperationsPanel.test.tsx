@@ -1,6 +1,6 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   BackupOperationStatus,
   DataExportPreview,
@@ -14,6 +14,15 @@ import { I18nProvider } from "../i18n";
 import { SetupOperationsPanel, SystemOperationsPanel } from "./SetupOperationsPanel";
 
 afterEach(() => vi.restoreAllMocks());
+beforeEach(() => {
+  vi.spyOn(api, "systemStorageStatus").mockResolvedValue({
+    settings: { timeseries: { kind: "managed", path: null }, backups: { kind: "managed", path: null } },
+    revision: "storage-revision",
+    allowedRoots: ["/mnt/stugu"],
+    capability: { available: true, runtime: "docker", agentLastSeenAt: "2026-08-01T10:00:00.000Z", reason: "ready", detail: null },
+    operation: null,
+  });
+});
 
 const doctor: SetupDoctorReport = {
   generatedAt: "2026-08-01T10:00:00.000Z",

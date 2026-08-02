@@ -205,13 +205,24 @@ Network-attached storage is supported for recovery sets through
 `STUGA_SCHEDULED_BACKUP_SOURCE`; Cloudflare R2 remains an encrypted off-host
 recovery tier, not a query tier.
 
-Owners and Admins can configure both locations under **System → Storage** when
-the trusted host update agent is connected. A host path must already exist
-below one of `STUGA_STORAGE_ALLOWED_ROOTS`; Stugu never mounts a share or stores
-NAS credentials. **Mounted NAS** is recovery-set only. The agent verifies the
-network filesystem and writes a unique sentinel. The scheduler and R2
-replicator require that sentinel on every scan, so a disconnected NAS fails
-closed instead of filling the underlying local directory.
+Owners and Admins can connect the shared NAS under **Set up → Operations** or
+configure both locations under **System → Storage** when the trusted host
+update agent is connected. A host path must already exist below one of
+`STUGA_STORAGE_ALLOWED_ROOTS`; Stugu never mounts a share or stores NAS
+credentials. **Mounted NAS is never primary telemetry storage.** It holds
+recovery sets and optional derived CSV exports. The agent verifies the network
+filesystem and writes a unique sentinel. The scheduler and R2 replicator
+require that sentinel on every scan, so a disconnected NAS fails closed instead
+of filling the underlying local directory.
+
+Each Home defines scheduled sensor exports under **Data & analytics**. The API
+renders a bounded CSV in canonical units into the private operations directory
+and publishes a checksummed request only after the file is durable. The
+isolated backup scheduler validates the NAS sentinel, request schema, filename,
+byte count, and SHA-256 digest before copying to
+`data-exports/<schedule-id>/`; it then prunes only that schedule's older files
+and returns a receipt to the API. The API container never receives writable
+access to the NAS mount.
 
 A primary telemetry move is journaled host maintenance, not a direct remount.
 Before changing Compose state, the agent creates and verifies a complete backup,

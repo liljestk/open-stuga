@@ -159,6 +159,7 @@ import { DataOperationsService } from "../data-operations.js";
 import { EnergyOptimizer } from "../energy-optimizer.js";
 import { EnergyCostService } from "../energy-cost.js";
 import { SetupDoctor } from "../setup-doctor.js";
+import { ScheduledDataExportService } from "../scheduled-data-exports.js";
 import { TimeseriesStore } from "../timeseries/store.js";
 import {
   TelemetryArchiveWorker,
@@ -266,6 +267,13 @@ export function configureApiPart03(context: ReturnType<typeof configureApiPart02
       database: context.database,
       telemetryReader,
       ...(context.options.dailyAnalyticsNow ? { now: context.options.dailyAnalyticsNow } : {}),
+    });
+  const scheduledDataExports = new ScheduledDataExportService({
+      database: context.database,
+      telemetryReader,
+      systemStorage: context.systemStorage,
+      dataOperations: context.dataOperations,
+      operationsDirectory: config.backupOperationsDirectory,
     });
   const measurementSnapshotCache = new LruTtlCache<MeasurementSample[]>({
       maxEntries: 64,
@@ -469,7 +477,7 @@ export function configureApiPart03(context: ReturnType<typeof configureApiPart02
         return telemetryArchive?.reconcileNow();
       },
     });
-  const extended = Object.assign(context, { timeseries, telemetryArchive, telemetryRetention, telemetryOrderedRollups, telemetryReader, analyticsWorkLimiter, dailyAnalyticsFindings, measurementSnapshotCache, readingSnapshotCache, status, setupDoctor, energyCost, storedTelegramIdentity, telegram, alertEngine, telemetry, nexus433, measurements, notificationOutbox, mock, replay, wakeSensorGapRecovery, tapoHistory, tapoHistoryFallbackKeys, historyFallbackKey, homeAssistant, heatPumpStates, gree, connectedDevices, tuya });
+  const extended = Object.assign(context, { timeseries, telemetryArchive, telemetryRetention, telemetryOrderedRollups, telemetryReader, analyticsWorkLimiter, dailyAnalyticsFindings, scheduledDataExports, measurementSnapshotCache, readingSnapshotCache, status, setupDoctor, energyCost, storedTelegramIdentity, telegram, alertEngine, telemetry, nexus433, measurements, notificationOutbox, mock, replay, wakeSensorGapRecovery, tapoHistory, tapoHistoryFallbackKeys, historyFallbackKey, homeAssistant, heatPumpStates, gree, connectedDevices, tuya });
   return extended as typeof extended & DeferredContext & {
     sensorGapRecovery: SensorGapRecoveryCoordinator;
     tpLink: TpLinkBridge;

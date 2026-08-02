@@ -1,0 +1,22 @@
+.scheduled-data-exports { margin-top: 20px; padding: 18px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel-soft); display: grid; gap: 14px; }
+.scheduled-data-exports > header { display: flex; justify-content: space-between; gap: 18px; align-items: flex-start; }
+.scheduled-data-exports h3, .scheduled-data-exports p { margin: 0; }
+.scheduled-data-exports header p { color: var(--muted); margin-top: 4px; }
+.scheduled-target { display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto; padding: 6px 9px; border-radius: 999px; font-size: .78rem; font-weight: 700; background: color-mix(in srgb, var(--red) 12%, transparent); color: var(--red); }
+.scheduled-target.connected { background: color-mix(in srgb, var(--positive) 12%, transparent); color: var(--positive); }
+.scheduled-target-callout, .scheduled-quick-create { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 12px; border-radius: var(--radius); background: var(--panel); }
+.scheduled-target-callout p { color: var(--muted); }
+.scheduled-quick-create > div { display: grid; gap: 3px; }
+.scheduled-quick-create small, .scheduled-selection-note, .scheduled-empty { color: var(--muted); }
+.scheduled-advanced { border-top: 1px solid var(--line); padding-top: 10px; }
+.scheduled-advanced > summary { cursor: pointer; font-weight: 700; }
+.scheduled-advanced-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 14px 0; }
+.scheduled-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.scheduled-list li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 0; border-top: 1px solid var(--line); }
+.scheduled-list-main { min-width: 0; display: grid; gap: 2px; }
+.scheduled-list-main span, .scheduled-list-main small { color: var(--muted); }
+.scheduled-list-main .scheduled-run-error { color: var(--red); }
+.scheduled-actions { display: flex; gap: 5px; }
+.scheduled-actions .danger { color: var(--red); }
+.scheduled-loading { display: inline-flex; align-items: center; gap: 7px; }
+@media (max-width: 760px) { .scheduled-data-exports > header, .scheduled-target-callout, .scheduled-quick-create, .scheduled-list li { align-items: stretch; flex-direction: column; } .scheduled-target { width: fit-content; } .scheduled-advanced-fields { grid-template-columns: 1fr; } .scheduled-actions { justify-content: flex-end; } }

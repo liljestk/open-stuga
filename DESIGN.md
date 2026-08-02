@@ -1,6 +1,6 @@
 # Stugu brand and interface system
 
-Version 1.7 · 1 August 2026
+Version 1.8 · 2 August 2026
 
 ## 1. Brand idea
 
@@ -58,7 +58,8 @@ Workspace
   Property with no Home must remain fully usable.
 - **Home** owns floors, rooms, sensors, activity, indoor/outdoor telemetry,
   consumption meters, its Tapo and Home Assistant connections, and an optional
-  advanced weather-location override.
+  advanced weather-location override. It also owns the definition and run
+  history of each scheduled data export.
 - **Maintenance** is Property-owned and may optionally target a Home, Floor,
   Area, structure, or piece of Equipment inside that Property.
 
@@ -108,6 +109,13 @@ unchanged.
 **System** describes the Stugu installation and its host, not a Workspace,
 Property, or Home. Keep it outside the selected Property and Home scope. Only
 Owners and Admins see it.
+
+A shared NAS connection is installation-owned and configured from **Set up**
+(with full storage controls still available under **System**). The data scope,
+format, and recurrence of an export are Home-owned choices under **Data &
+analytics**. Keep expert frequency and retention controls in a closed
+disclosure. Do not add a generic scheduled-jobs destination until multiple job
+types need one operational queue.
 
 Map & assets, Inventory, Notes, and Access are sections inside Property. Inventory
 is the Property-wide catalogue for maintainable equipment; a saved Home, area,

@@ -60,11 +60,12 @@ Implementation status: complete locally for v0.28.0; not deployed to
 - `STUGA_SCHEDULED_BACKUP_SOURCE` accepts a named volume or mounted NAS path for
   verified recovery sets. The existing R2 path encrypts verified sets with age
   before upload and remains independently restorable.
-- Owners/Admins can configure both through System → Storage and the trusted
-  host-agent queue. Host paths are restricted by `STUGA_STORAGE_ALLOWED_ROOTS`;
-  NAS is recovery-only and protected by a live-mount sentinel. Primary moves
-  are backup/restore-drill/copy/verify transactions with durable crash recovery,
-  never direct remounts.
+- Owners/Admins can connect the shared NAS through Set up or configure both
+  locations through System → Storage and the trusted host-agent queue. Host
+  paths are restricted by `STUGA_STORAGE_ALLOWED_ROOTS`; NAS is only a recovery
+  and derived-export target and is protected by a live-mount sentinel. Primary
+  moves are backup/restore-drill/copy/verify transactions with durable crash
+  recovery, never direct remounts.
 - Before `pg_dump`, require destination free space of at least the logical
   database size plus `BACKUP_MIN_FREE_BYTES` (default 1 GiB).
 - Persist filesystem samples and forecast exhaustion. Warn at 85% used, 5 GiB

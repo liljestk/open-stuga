@@ -113,6 +113,7 @@ import { LocationDiscoveryService } from "../../location-discovery.js";
 import { AutomaticWeatherProvider, OpenMeteoWeatherProvider, prefersFmi } from "../../open-meteo.js";
 import { WeatherMonitor } from "../../weather-monitor.js";
 import { DailyAnalyticsFindingsWorker } from "../../daily-analytics-findings.js";
+import { ScheduledDataExportService } from "../../scheduled-data-exports.js";
 import { WeatherRecoveryCoordinator } from "../../weather-recovery.js";
 import { SensorGapRecoveryCoordinator } from "../../sensor-gap-recovery.js";
 import {
@@ -416,6 +417,7 @@ export interface ApiRuntime {
   weather: WeatherService;
   weatherMonitor: WeatherMonitor;
   dailyAnalyticsFindings: DailyAnalyticsFindingsWorker;
+  scheduledDataExports: ScheduledDataExportService;
   weatherRecovery: WeatherRecoveryCoordinator;
   sensorGapRecovery: SensorGapRecoveryCoordinator;
   weatherEvents: WeatherEventBroker;
