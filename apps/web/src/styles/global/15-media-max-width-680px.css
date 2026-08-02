@@ -94,7 +94,8 @@
   .setup-workspace-tabs > button:last-child:nth-child(odd) { grid-column: 1 / -1; }
   .setup-workspace-tabs strong, .setup-workspace-tabs small { overflow: visible; text-overflow: clip; white-space: normal; }
   .connections-workspace .setup-side { grid-template-columns: 1fr; }
-  .connection-provider-grid { grid-template-columns: 1fr; }
+  .connection-provider-grid { grid-template-columns: 1fr; grid-auto-rows: auto; row-gap: 16px; }
+  .connection-provider-grid > * { grid-row-end: auto !important; }
   .setup-connection-scope { grid-template-columns: 1fr; align-items: stretch; }
   .setup-connection-scope > small, .setup-connection-home-picker { grid-column: 1; grid-row: auto; }
   .connection-source-manager-header { grid-template-columns: auto minmax(0, 1fr); padding: 16px; }
