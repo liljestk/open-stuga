@@ -28,6 +28,11 @@ WITH scheduled_jobs AS (
   FROM timescaledb_information.jobs AS jobs
   LEFT JOIN timescaledb_information.job_stats AS stats USING (job_id)
   WHERE jobs.scheduled
+    AND NOT (
+      jobs.proc_name = 'policy_telemetry'
+      AND jobs.proc_schema IN ('_timescaledb_functions', '_timescaledb_internal')
+      AND COALESCE(current_setting('timescaledb.telemetry_level', true), '') = 'off'
+    )
 )
 SELECT json_build_object(
   'checkedAt',
@@ -75,6 +80,11 @@ function nullableDate(value, label) {
   return value;
 }
 
+function nullableRunDate(value, label) {
+  if (value === "infinity" || value === "-infinity") return null;
+  return nullableDate(value, label);
+}
+
 function nonNegativeInteger(value, label) {
   const number = Number(value);
   if (!Number.isSafeInteger(number) || number < 0) {
@@ -96,8 +106,8 @@ function parseJob(value) {
     jobId: value.jobId,
     jobStatus: value.jobStatus,
     nextStart,
-    lastRunStartedAt: nullableDate(value.lastRunStartedAt, "last job start"),
-    lastSuccessfulFinish: nullableDate(value.lastSuccessfulFinish, "last successful finish"),
+    lastRunStartedAt: nullableRunDate(value.lastRunStartedAt, "last job start"),
+    lastSuccessfulFinish: nullableRunDate(value.lastSuccessfulFinish, "last successful finish"),
     lastRunStatus: value.lastRunStatus,
     totalSuccesses: nonNegativeInteger(value.totalSuccesses, "job success count"),
     totalFailures: nonNegativeInteger(value.totalFailures, "job failure count"),

@@ -4,6 +4,20 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.29.1 - 2026-08-02
+
+- Let an application role reuse an existing telemetry schema without requiring
+  database-wide schema creation privilege; a genuinely missing schema still
+  fails closed when the role cannot create it.
+- Exclude only TimescaleDB's built-in telemetry reporter from migration
+  recovery when telemetry is disabled, and normalize restored non-finite run
+  timestamps without weakening checks for real scheduled jobs.
+- Detect and replace restored legacy bounded measurement refresh policies with
+  the current lossless full-history policies before API startup completes.
+
+Upgrade impact: startup repairs affected restored refresh policies in place.
+No raw telemetry is deleted, downsampled, or rewritten.
+
 ## 0.29.0 - 2026-08-02
 
 - Keep every raw telemetry sample in TimescaleDB while compressing older chunks

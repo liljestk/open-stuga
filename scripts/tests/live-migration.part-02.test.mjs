@@ -279,6 +279,26 @@ test("Timescale recovery requires every job due at activation to finish successf
   assert.match(TIMESCALE_RECOVERY_STATUS_SQL, /total_failures/u);
   assert.match(TIMESCALE_RECOVERY_STATUS_SQL, /max_worker_processes/u);
   assert.match(TIMESCALE_RECOVERY_STATUS_SQL, /TimescaleDB Background Worker Scheduler/u);
+  assert.match(TIMESCALE_RECOVERY_STATUS_SQL, /proc_name = 'policy_telemetry'/u);
+  assert.match(TIMESCALE_RECOVERY_STATUS_SQL, /_timescaledb_functions/u);
+  assert.match(TIMESCALE_RECOVERY_STATUS_SQL, /_timescaledb_internal/u);
+  assert.match(TIMESCALE_RECOVERY_STATUS_SQL, /timescaledb\.telemetry_level/u);
+
+  const restoredSentinels = rawStatus({
+    jobs: [{
+      jobId: 1004,
+      jobStatus: "Scheduled",
+      nextStart: null,
+      lastRunStartedAt: "-infinity",
+      lastSuccessfulFinish: "-infinity",
+      lastRunStatus: null,
+      totalSuccesses: 0,
+      totalFailures: 0,
+    }],
+  });
+  assert.equal(restoredSentinels.jobs[0].lastRunStartedAt, null);
+  assert.equal(restoredSentinels.jobs[0].lastSuccessfulFinish, null);
+  assert.equal(createTimescaleActivationBaseline(restoredSentinels).jobs[0].due, true);
 
   const statuses = [running, succeeded];
   let now = 0;

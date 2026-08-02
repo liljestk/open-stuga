@@ -316,9 +316,32 @@ registerTimeseriesStoreMethods({
         [measurementAnalyticsAggregateName("1h"), null, "1 hour", "15 minutes"],
         [measurementAnalyticsAggregateName("1d"), null, "1 day", "1 hour"],
       ] as const;
+      const restoredLegacyPolicyAggregates = new Set([
+        measurementAggregateName("5m"),
+        measurementAggregateName("1h"),
+        measurementAggregateName("1d"),
+      ]);
       const policyFailures: string[] = [];
       for (const [aggregate, startOffset, endOffset, scheduleInterval] of policies) {
         try {
+          if (restoredLegacyPolicyAggregates.has(aggregate)) {
+            const legacyPolicy = await this.__query<{ configured: boolean }>(`SELECT EXISTS (
+                SELECT 1
+                FROM timescaledb_information.jobs
+                WHERE proc_name = 'policy_refresh_continuous_aggregate'
+                  AND proc_schema IN ('_timescaledb_functions', '_timescaledb_internal')
+                  AND hypertable_schema = $1
+                  AND hypertable_name = $2
+                  AND config ->> 'start_offset' IS NOT NULL
+              ) AS configured`, [this.schema, aggregate], control);
+            if (legacyPolicy.rows[0]?.configured === true) {
+              await this.__query(
+                "SELECT remove_continuous_aggregate_policy($1::REGCLASS, if_exists => TRUE)",
+                [qualifiedName(this.schema, aggregate)],
+                control,
+              );
+            }
+          }
           await this.__query(`SELECT add_continuous_aggregate_policy(
               $1::REGCLASS,
               start_offset => $2::INTERVAL,
