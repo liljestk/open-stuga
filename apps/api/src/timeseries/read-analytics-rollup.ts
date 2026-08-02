@@ -3,7 +3,6 @@ import type {
   MeasurementAnalyticsRollupResult,
 } from "./types.js";
 import {
-  IncompleteTelemetryHistoryError,
   aborted,
   type HybridArchiveReadState,
 } from "./read-support.js";
@@ -18,7 +17,6 @@ interface ReadMeasurementAnalyticsRollupOptions {
   archive: AnalyticsRollupArchive | null;
   archivePhase: (() => string | null | undefined) | undefined;
   reconcile: (() => void | Promise<void>) | undefined;
-  localHistoryComplete: boolean;
   realDataMode: boolean;
 }
 
@@ -57,8 +55,9 @@ export async function readMeasurementAnalyticsRollup(
   const cancellation = aborted(query.signal);
   if (cancellation) throw cancellation;
   if (!options.archive?.measurementAnalyticsRollup) {
-    if (options.localHistoryComplete) return null;
-    throw new IncompleteTelemetryHistoryError("not-configured");
+    // The optimized path is optional. Returning null lets the caller use the
+    // raw hybrid archive reader, which still enforces complete-history rules.
+    return null;
   }
 
   let phase = safePhase(options.archivePhase);
@@ -73,8 +72,7 @@ export async function readMeasurementAnalyticsRollup(
     phase = safePhase(options.archivePhase);
   }
   if (phase !== "ready") {
-    if (options.localHistoryComplete) return null;
-    throw new IncompleteTelemetryHistoryError("not-ready");
+    return null;
   }
 
   try {
@@ -89,7 +87,8 @@ export async function readMeasurementAnalyticsRollup(
     const afterFailureCancellation = aborted(query.signal);
     if (afterFailureCancellation) throw afterFailureCancellation;
     requestReconciliation(options.reconcile);
-    if (options.localHistoryComplete) return null;
-    throw new IncompleteTelemetryHistoryError("failed");
+    // A continuous aggregate can briefly lag newly archived raw samples.
+    // Fall through to the raw archive instead of turning that lag into a 503.
+    return null;
   }
 }

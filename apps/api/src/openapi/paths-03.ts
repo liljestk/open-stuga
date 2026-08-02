@@ -115,6 +115,39 @@ export const pathsPart03 = {
           responses: { "200": jsonResponse("Streaming, downloadable local data export.", { $ref: "#/components/schemas/DataExportBundle" }) },
         },
       },
+  "/houses/{houseId}/scheduled-data-exports": {
+        get: {
+          tags: ["Context"], operationId: "listScheduledDataExports",
+          parameters: [{ name: "houseId", in: "path", required: true, schema: { type: "string" } }],
+          responses: { "200": jsonResponse("Home-owned scheduled exports to the shared NAS destination.", { type: "object", additionalProperties: false, required: ["exports"], properties: { exports: { type: "array", items: { $ref: "#/components/schemas/ScheduledDataExport" } } } }) },
+        },
+        post: {
+          tags: ["Context"], operationId: "createScheduledDataExport",
+          parameters: [{ name: "houseId", in: "path", required: true, schema: { type: "string" } }],
+          requestBody: jsonRequestBody({ $ref: "#/components/schemas/ScheduledDataExportInput" }),
+          responses: { "201": jsonResponse("Scheduled export created.", { type: "object", additionalProperties: false, required: ["export"], properties: { export: { $ref: "#/components/schemas/ScheduledDataExport" } } }), "409": { description: "A NAS destination must be configured first" } },
+        },
+      },
+  "/houses/{houseId}/scheduled-data-exports/{id}": {
+        put: {
+          tags: ["Context"], operationId: "updateScheduledDataExport",
+          parameters: [{ name: "houseId", in: "path", required: true, schema: { type: "string" } }, { $ref: "#/components/parameters/Id" }],
+          requestBody: jsonRequestBody({ $ref: "#/components/schemas/ScheduledDataExportUpdate" }),
+          responses: { "200": jsonResponse("Scheduled export updated.", { type: "object", additionalProperties: false, required: ["export"], properties: { export: { $ref: "#/components/schemas/ScheduledDataExport" } } }), "409": { description: "Revision conflict, active run, or missing NAS destination" } },
+        },
+        delete: {
+          tags: ["Context"], operationId: "deleteScheduledDataExport",
+          parameters: [{ name: "houseId", in: "path", required: true, schema: { type: "string" } }, { $ref: "#/components/parameters/Id" }],
+          responses: { "204": { description: "Schedule deleted; existing NAS files are retained" }, "409": { description: "The schedule is running" } },
+        },
+      },
+  "/houses/{houseId}/scheduled-data-exports/{id}/run": {
+        post: {
+          tags: ["Context"], operationId: "runScheduledDataExport",
+          parameters: [{ name: "houseId", in: "path", required: true, schema: { type: "string" } }, { $ref: "#/components/parameters/Id" }],
+          responses: { "202": jsonResponse("CSV generation staged for the isolated NAS worker.", { type: "object", additionalProperties: false, required: ["export"], properties: { export: { $ref: "#/components/schemas/ScheduledDataExport" } } }), "409": { description: "The schedule is already running or the NAS is unavailable" } },
+        },
+      },
   "/backups/status": {
         get: { tags: ["Context"], operationId: "getBackupStatus", responses: { "200": jsonResponse("Backup scheduler and restore-drill status.", { type: "object", additionalProperties: false, required: ["backup"], properties: { backup: { $ref: "#/components/schemas/BackupOperationStatus" } } }) } },
       },

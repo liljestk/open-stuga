@@ -1,3 +1,5 @@
+import { createClientUuid } from "./clientUuid";
+
 const AUTH_CHANNEL_NAME = "stugu-local-auth-epoch";
 const AUTH_EPOCH_TYPE = "auth-epoch";
 
@@ -18,9 +20,7 @@ function authChannel(): BroadcastChannel | null {
 }
 
 function nextEpoch(): string {
-  return typeof globalThis.crypto?.randomUUID === "function"
-    ? globalThis.crypto.randomUUID()
-    : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return createClientUuid();
 }
 
 export function publishAuthEpoch(): void {

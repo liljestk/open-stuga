@@ -2,6 +2,7 @@ import { useEffect, useId, useState, type FormEvent, type ReactNode } from "reac
 import { Building2, ChevronDown, ChevronUp, Copy, Layers3, Plus, Trash2 } from "lucide-react";
 import { floorMetersPerPlanUnit, type Floor, type FloorType, type House, type PlanElement, type RoofDesign, type RoofStyle, type Sensor } from "@climate-twin/contracts";
 import { useI18n, type TranslationKey } from "../i18n";
+import { createClientUuid } from "../clientUuid";
 import { DEFAULT_ROOF_DESIGN, roofPeakZ } from "../architecturalGeometry";
 import { confirmAction } from "./ConfirmationProvider";
 
@@ -81,7 +82,7 @@ function nextElevation(house: House, type: FloorType): number {
 function blankFloor(type: FloorType, name: string, house: House, reference: Floor): Floor {
   const wallHeight = type === "attic" ? .9 : 2.8;
   return {
-    id: crypto.randomUUID(),
+    id: createClientUuid(),
     name,
     type,
     width: reference.width,
@@ -99,22 +100,22 @@ function blankFloor(type: FloorType, name: string, house: House, reference: Floo
 
 function copyFloor(source: Floor, house: House): Floor {
   const nextType: FloorType = inferredFloorType(source) === "ground" ? "upper" : inferredFloorType(source);
-  const wallIdMap = new Map(source.walls.map((wall) => [wall.id, crypto.randomUUID()]));
+  const wallIdMap = new Map(source.walls.map((wall) => [wall.id, createClientUuid()]));
   return {
     ...source,
-    id: crypto.randomUUID(),
+    id: createClientUuid(),
     name: `${source.name} copy`,
     type: nextType,
     elevation: nextElevation(house, nextType),
     walls: source.walls.map((wall) => ({ ...wall, id: wallIdMap.get(wall.id)!, from: { ...wall.from }, to: { ...wall.to } })),
-    rooms: source.rooms.map((room) => ({ ...room, id: crypto.randomUUID(), points: room.points.map((point) => ({ ...point })) })),
+    rooms: source.rooms.map((room) => ({ ...room, id: createClientUuid(), points: room.points.map((point) => ({ ...point })) })),
     planElements: source.planElements?.map((element): PlanElement => {
       if (element.kind !== "door" && element.kind !== "window" && element.kind !== "fireEscape") {
-        return { ...element, id: crypto.randomUUID(), position: { ...element.position } };
+        return { ...element, id: createClientUuid(), position: { ...element.position } };
       }
       return {
         ...element,
-        id: crypto.randomUUID(),
+        id: createClientUuid(),
         position: { ...element.position },
         wallId: wallIdMap.get(element.wallId) ?? element.wallId,
       };
@@ -199,7 +200,7 @@ export function StructureEditor({
     setMutationError(null);
     try {
       const initialFloor: Floor = {
-        id: crypto.randomUUID(), name: defaultFloorName("ground", 0), type: "ground",
+        id: createClientUuid(), name: defaultFloorName("ground", 0), type: "ground",
         width: floor.width, height: floor.height, elevation: 0, ceilingHeight: 2.8, wallHeight: 2.8, walls: [], rooms: [], planElements: [],
       };
       const created = await onHouseCreate({

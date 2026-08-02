@@ -1,4 +1,4 @@
-# Stugu 0.28.0
+# Stugu 0.31.0
 
 Stugu is a local-first digital twin for understanding how environmental conditions change and move through one or more homes. Temperature and relative humidity are the starting point; a measurement registry also supports CO2 and other finite numeric scalar measurements without coupling ingestion, history, alerts, or visualisation to one sensor model. It is designed around TP-Link Tapo H100/H200 hubs with T310/T315 sensors, while keeping ingestion vendor-neutral through a direct local bridge, Home Assistant, and versioned APIs. Internal package names retain the original `climate-twin` identifier for compatibility.
 
@@ -80,7 +80,7 @@ The opt-in demo starts with a two-floor home, ten virtual sensors, temperature, 
   plus complete iPad and Mac Catalyst clients that present the same
   server-hosted product as the web app; Apple-only capture, notifications,
   shortcuts, offline state, and Watch support remain native
-- Versioned REST API, OpenAPI description, and a local stdio MCP server
+- Versioned REST API, OpenAPI description, and local stdio plus authenticated network MCP servers
 - English, Finnish, and Swedish UI foundations, metric/imperial display,
   responsive layout, and accessible controls
 
@@ -170,11 +170,14 @@ with:
 docker compose --profile maintenance run --rm stugu-backup-export
 ```
 
-With the trusted host update agent connected, Owners/Admins can choose these
-locations under **System → Storage**. Paths must already be mounted below
-`STUGA_STORAGE_ALLOWED_ROOTS`. NAS is accepted only for recovery sets; storage
-moves are backed up, restore-tested, journaled, copied, mount-verified, and
-rolled back without deleting the old source.
+With the trusted host update agent connected, Owners/Admins can connect the
+shared NAS under **Set up → Operations** or use the full controls under
+**System → Storage**. Paths must already be mounted below
+`STUGA_STORAGE_ALLOWED_ROOTS`. NAS is accepted only as a recovery and derived
+export target, never for the live telemetry database. Storage moves are backed
+up, restore-tested, journaled, copied, mount-verified, and rolled back without
+deleting the old source. Each Home chooses its scheduled CSV exports under
+**Data & analytics**.
 
 Use `podman compose` in both commands when Podman is the selected runtime.
 See the [lossless telemetry scale plan](docs/telemetry-scale-plan.md) and
@@ -337,7 +340,29 @@ a Stuguby; participant nodes remain outbound-only.
 
 ## MCP
 
-Build once, then configure a local MCP host to spawn:
+Stugu is the MCP server; Codex, another local service, or an RPi application is
+the MCP client. An Owner or Admin can open **Advanced → API & MCP**, select
+**Start network MCP server**, and copy the displayed Streamable HTTP endpoint
+and one-time bearer token. A generic client shape is:
+
+```json
+{
+  "mcpServers": {
+    "stugu": {
+      "type": "streamable-http",
+      "url": "https://stugu.example/api/v1/mcp",
+      "headers": { "Authorization": "Bearer stugu_mcp_..." }
+    }
+  }
+}
+```
+
+Use the exact schema required by the client. Stop the server in the Web UI to
+revoke the token. Put remote access behind TLS or a trusted VPN; a bearer token
+must not travel over an untrusted plain-HTTP connection.
+
+For a client on the same machine, build once and configure it to spawn the
+stdio server directly:
 
 ```json
 {
@@ -351,13 +376,13 @@ Build once, then configure a local MCP host to spawn:
 }
 ```
 
-The MCP process uses the same `DATABASE_PATH` and TimeDB settings as the API, so it can discover
-Properties, Homes, Stugubys, measurement definitions, metric history/forecasts,
-current conditions, electricity/energy analysis, alerts, actions, maintenance,
-integrations, backups, and setup readiness without copying telemetry into an AI
-provider. It opens SQLite read-only and queries TimeDB only for telemetry
-history; it exposes no create, update, delete, import, sharing, synchronization,
-or control tools.
+Both MCP transports use the same `DATABASE_PATH` and TimeDB settings as the API,
+so clients can discover Properties, Homes, Stugubys, measurement definitions,
+metric history/forecasts, current conditions, electricity/energy analysis,
+alerts, actions, maintenance, integrations, backups, and setup readiness without
+copying telemetry into an AI provider. Each MCP process opens SQLite read-only
+and queries TimeDB only for telemetry history; neither exposes create, update,
+delete, import, sharing, synchronization, or control tools.
 Start the API once after an upgrade so migrations are current, and run
 `npm run build` before launching the compiled server.
 

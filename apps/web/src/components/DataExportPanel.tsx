@@ -21,6 +21,8 @@ import {
   type SensorExportTable,
 } from "../sensorDataExport";
 import { twentyFourHourInputLocale } from "../dateTime";
+import { hasBrowserCapability } from "../accessPolicy";
+import { ScheduledDataExportsPanel } from "./ScheduledDataExportsPanel";
 import "./DataExportPanel.css";
 
 type ExportPeriod = "24h" | "7d" | "30d" | "90d" | "custom";
@@ -145,6 +147,7 @@ function downloadBlob(filename: string, blob: Blob): void {
 
 export function DataExportPanel(props: Readonly<DataExportPanelProps>) {
   const { locale, t } = useI18n();
+  const canManageSchedules = hasBrowserCapability(props.state.session.tenant.role, "system-operations");
   const sensors = useMemo(
     () => props.state.sensors.filter((sensor) => sensor.houseId === props.house.id && sensor.enabled),
     [props.house.id, props.state.sensors],
@@ -173,20 +176,23 @@ export function DataExportPanel(props: Readonly<DataExportPanelProps>) {
   const [downloadNotice, setDownloadNotice] = useState<string | null>(null);
   const requestController = useRef<AbortController | null>(null);
   const autoPrepared = useRef(false);
-  const previousSensorIds = useRef(sensors.map((sensor) => sensor.id));
+  const selectableSensors = useMemo(() => sensors.filter((sensor) => (
+    selectedMetricIds.length === 0
+      || selectedMetricIds.some((metric) => sensorSupportsMetric(props.state, sensor, metric))
+  )), [props.state.latestMeasurements, props.state.measurementHistory, selectedMetricIds, sensors]);
+  const previousSelectableSensorIds = useRef(selectableSensors.map((sensor) => sensor.id));
 
   useEffect(() => () => requestController.current?.abort(), []);
 
   useEffect(() => {
-    const nextIds = sensors.map((sensor) => sensor.id);
+    const nextIds = selectableSensors.map((sensor) => sensor.id);
     const available = new Set(nextIds);
     setSelectedSensorIds((current) => {
-      const previouslyAllSelected = current.length === previousSensorIds.current.length
-        && previousSensorIds.current.every((id) => current.includes(id));
+      const previouslyAllSelected = previousSelectableSensorIds.current.every((id) => current.includes(id));
       return previouslyAllSelected ? nextIds : current.filter((id) => available.has(id));
     });
-    previousSensorIds.current = nextIds;
-  }, [sensors]);
+    previousSelectableSensorIds.current = nextIds;
+  }, [selectableSensors]);
 
   useEffect(() => {
     const metricIds = new Set(definitions.map((definition) => definition.id));
@@ -197,8 +203,8 @@ export function DataExportPanel(props: Readonly<DataExportPanelProps>) {
   }, [definitions]);
 
   const selectedSensors = useMemo(
-    () => sensors.filter((sensor) => selectedSensorIds.includes(sensor.id)),
-    [selectedSensorIds, sensors],
+    () => selectableSensors.filter((sensor) => selectedSensorIds.includes(sensor.id)),
+    [selectableSensors, selectedSensorIds],
   );
   const selectedDefinitions = useMemo(
     () => definitions.filter((definition) => selectedMetricIds.includes(definition.id)),
@@ -235,7 +241,7 @@ export function DataExportPanel(props: Readonly<DataExportPanelProps>) {
     period,
     customStart,
     customEnd,
-    sensorIds: [...selectedSensorIds].sort(),
+    sensorIds: selectedSensors.map((sensor) => sensor.id).sort(),
     metricIds: [...selectedMetricIds].sort(),
     granularity,
     customMinutes,
@@ -373,7 +379,13 @@ export function DataExportPanel(props: Readonly<DataExportPanelProps>) {
     }, 0);
   };
 
-  const previewRows = preview?.rows.slice(0, 12) ?? [];
+  const previewRows = useMemo(() => {
+    if (!preview) return [];
+    return preview.rows
+      .filter((row) => preview.columns.some((column) => typeof row.values[column.id] === "number"))
+      .sort((left, right) => right.timestamp.localeCompare(left.timestamp))
+      .slice(0, 12);
+  }, [preview]);
   const numberFormatters = useMemo(() => new Map(selectedDefinitions.map((definition) => [
     definition.id,
     new Intl.NumberFormat(locale, { minimumFractionDigits: definition.precision, maximumFractionDigits: definition.precision }),
@@ -400,10 +412,10 @@ export function DataExportPanel(props: Readonly<DataExportPanelProps>) {
             </select></label>
 
             <div className="field data-export-picker-field"><span>{t("dataExport.sensors")}</span><details className="data-export-picker">
-              <summary>{selectedSensors.length === sensors.length ? t("dataExport.allSensors", { count: sensors.length }) : t("dataExport.selectedSensors", { count: selectedSensors.length })}</summary>
+              <summary>{selectedSensors.length === selectableSensors.length ? t("dataExport.allSensors", { count: selectableSensors.length }) : t("dataExport.selectedSensors", { count: selectedSensors.length })}</summary>
               <div className="data-export-picker-menu">
-                <div className="data-export-picker-actions"><button type="button" onClick={() => setSelectedSensorIds(sensors.map((sensor) => sensor.id))}>{t("sensors.analyticsSelectAll")}</button><button type="button" onClick={() => setSelectedSensorIds([])}>{t("sensors.analyticsClear")}</button></div>
-                <fieldset><legend className="sr-only">{t("dataExport.sensors")}</legend>{sensors.map((sensor) => {
+                <div className="data-export-picker-actions"><button type="button" onClick={() => setSelectedSensorIds(selectableSensors.map((sensor) => sensor.id))}>{t("sensors.analyticsSelectAll")}</button><button type="button" onClick={() => setSelectedSensorIds([])}>{t("sensors.analyticsClear")}</button></div>
+                <fieldset><legend className="sr-only">{t("dataExport.sensors")}</legend>{selectableSensors.map((sensor) => {
                   const available = selectedMetricIds.filter((metric) => sensorSupportsMetric(props.state, sensor, metric))
                     .flatMap((metric) => {
                       const definition = definitions.find((candidate) => candidate.id === metric);
@@ -452,6 +464,16 @@ export function DataExportPanel(props: Readonly<DataExportPanelProps>) {
           {loading && <output className="data-export-progress">{t("dataExport.progress", { complete: progress.complete, total: progress.total })}</output>}
         </form>
 
+        {canManageSchedules && <ScheduledDataExportsPanel
+          house={props.house}
+          period={period}
+          sensorIds={selectedSensorIds}
+          measurementIds={selectedMetricIds}
+          resolution={resolution}
+          aggregation={resolution === "raw" ? "default" : aggregation}
+          configurationError={validationError}
+        />}
+
         {preview && <section className={`data-export-preview ${previewCurrent ? "current" : "stale"}`} aria-labelledby="data-export-preview-title">
           <header><div><span className="eyebrow">{previewCurrent ? t("dataExport.previewReady") : t("dataExport.previewStale")}</span><h3 id="data-export-preview-title">{t("dataExport.previewTitle")}</h3><p>{t("dataExport.previewSummary", { shown: previewRows.length, total: preview.rows.length })}</p></div><span className="data-export-row-count"><Table2 size={14} aria-hidden="true" />{t("dataExport.rows", { count: preview.rows.length })}</span></header>
           {warnings.length > 0 && <ul className="data-export-warnings">{warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>}
@@ -462,7 +484,7 @@ export function DataExportPanel(props: Readonly<DataExportPanelProps>) {
               return <td key={column.id} className={value == null ? "missing" : undefined}>{value == null ? "—" : numberFormatters.get(column.id)?.format(value)}</td>;
             })}</tr>)}</tbody>
           </table></div> : <p className="data-export-empty">{t("dataExport.noRows")}</p>}
-          <footer><p>{previewCurrent ? t("dataExport.downloadHelp") : t("dataExport.staleHelp")}</p><div className="data-export-downloads"><button type="button" className="secondary-button" disabled={!previewCurrent || downloading !== null || preview.rows.length === 0} onClick={() => startDownload("csv")}><Download size={15} aria-hidden="true" />{downloading === "csv" ? t("dataExport.downloading") : t("dataExport.downloadCsv")}</button><button type="button" className="primary-button" disabled={!previewCurrent || downloading !== null || preview.rows.length === 0} onClick={() => startDownload("xlsx")}><FileSpreadsheet size={15} aria-hidden="true" />{downloading === "xlsx" ? t("dataExport.downloading") : t("dataExport.downloadXlsx")}</button></div></footer>
+          <footer><p>{previewCurrent ? t("dataExport.downloadHelp") : t("dataExport.staleHelp")}</p><div className="data-export-downloads"><button type="button" className="secondary-button" disabled={!previewCurrent || downloading !== null || previewRows.length === 0} onClick={() => startDownload("csv")}><Download size={15} aria-hidden="true" />{downloading === "csv" ? t("dataExport.downloading") : t("dataExport.downloadCsv")}</button><button type="button" className="primary-button" disabled={!previewCurrent || downloading !== null || previewRows.length === 0} onClick={() => startDownload("xlsx")}><FileSpreadsheet size={15} aria-hidden="true" />{downloading === "xlsx" ? t("dataExport.downloading") : t("dataExport.downloadXlsx")}</button></div></footer>
         </section>}
         {downloadNotice && <p className="sr-only" role="status" aria-live="polite">{downloadNotice}</p>}
       </div>

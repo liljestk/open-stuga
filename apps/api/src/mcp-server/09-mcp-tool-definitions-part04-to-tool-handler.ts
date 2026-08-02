@@ -93,7 +93,7 @@ import { FmiWeatherProvider, WeatherRequestSupersededError, WeatherService } fro
 import type { StugubyService } from "../stuguby/service.js";
 import { StugubyStore } from "../stuguby/store.js";
 import { confirmationProperty, maintenanceTaskCreateProperties, maintenanceTaskPatchProperties, observationCreateProperties, observationPatchProperties } from "./04-point-schema-to-summarize-mcp-stuguby.js";
-import { resultOutputSchema, server } from "./05-get-mcp-stuguby-to-result-output-schema.js";
+import { resultOutputSchema } from "./05-get-mcp-stuguby-to-result-output-schema.js";
 import { ACTIVE_MCP_TOOL_NAMES, mcpToolDefinitionsPart01 } from "./06-read-only-mcp-tool-names-to-mcp-tool-definitions.js";
 import { mcpToolDefinitionsPart02 } from "./07-mcp-tool-definitions-part02.js";
 import { mcpToolDefinitionsPart03 } from "./08-mcp-tool-definitions-part03.js";
@@ -349,7 +349,7 @@ export const mcpToolDefinitionsPart05 = [
       },
   {
         name: "start_replay",
-        description: "Report that live replay is unavailable over stdio; use the long-running API replay endpoint for observable SSE playback.",
+        description: "Report that live replay is unavailable in the isolated MCP process; use the long-running API replay endpoint for observable SSE playback.",
         inputSchema: {
           type: "object",
           properties: {
@@ -383,7 +383,5 @@ export const mcpTools = mcpToolDefinitions.filter((tool) => ACTIVE_MCP_TOOL_NAME
       ...mcpToolAnnotations(tool.name),
     },
   }));
-
-server.setRequestHandler(ListToolsRequestSchema, () => ({ tools: mcpTools }));
 
 export type ToolHandler = McpToolHandler;

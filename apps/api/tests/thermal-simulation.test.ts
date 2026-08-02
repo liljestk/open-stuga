@@ -1,5 +1,5 @@
 import { SYSTEM_VERSION, type HouseWeather, type MeasurementSample, type OutdoorTemperatureSample } from "@climate-twin/contracts";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import request from "supertest";
 import { createApi, persistWeatherObservation, type ApiRuntime } from "../src/app.js";
 import type { AppConfig } from "../src/config.js";
@@ -268,10 +268,14 @@ describe("thermal simulation API and outdoor persistence", () => {
     runtime = createApi({ config, startBackground: false });
   });
 
-  afterEach(async () => { await runtime.close(); });
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await runtime.close();
+  });
 
   it("exposes the product release independently from the API contract version", async () => {
     const response = await request(runtime.app).get("/api/v1/health").expect(200);
+    expect(response.headers["x-stugu-system-version"]).toBe(SYSTEM_VERSION);
     expect(response.body).toMatchObject({ status: "ok", systemVersion: SYSTEM_VERSION, apiVersion: "v1" });
     expect(response.body.analytics).toMatchObject({
       active: 0,
@@ -451,5 +455,35 @@ describe("thermal simulation API and outdoor persistence", () => {
       .query({ from: "2026-01-01T00:00:00.000Z", to: "2026-01-16T00:00:00.000Z" })
       .expect(400)
       .expect(({ body }) => expect(body.error.code).toBe("RANGE_TOO_LARGE"));
+  });
+
+  it("returns an evidence-empty comparison without querying history when a Home has no temperature sensors", async () => {
+    await request(runtime.app).post("/api/v1/houses").send({
+      id: "empty-home",
+      name: "Empty home",
+      timezone: "Europe/Helsinki",
+      floors: [{ id: "main", name: "Main", width: 2, height: 2, elevation: 0, walls: [], rooms: [] }],
+    }).expect(201);
+    const outdoorRead = vi.spyOn(runtime.telemetryReader, "outdoorTemperatureHistory")
+      .mockRejectedValue(new Error("history should not be queried"));
+
+    const response = await request(runtime.app)
+      .get("/api/v1/houses/empty-home/thermal-isolation")
+      .expect(200);
+
+    expect(outdoorRead).not.toHaveBeenCalled();
+    expect(response.body.isolation.entries.find((entry: { scope: { type: string } }) =>
+      entry.scope.type === "house")).toMatchObject({ score: null, eligibleSensorCount: 0 });
+  });
+
+  it("never turns stored mock telemetry into a real-Home estimate", async () => {
+    vi.spyOn(runtime.database, "isRealDataMode").mockReturnValue(true);
+
+    const response = await request(runtime.app)
+      .get("/api/v1/houses/house-main/thermal-isolation")
+      .expect(200);
+
+    expect(response.body.isolation.entries.find((entry: { scope: { type: string } }) =>
+      entry.scope.type === "house")?.score).toBeNull();
   });
 });

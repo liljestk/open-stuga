@@ -1,7 +1,8 @@
 #!/bin/sh
-# Create A/B aliases for the firmware-selected USB disk while initramfs waits
-# for /dev/disk/by-slot/active/system. The upstream slot mapper deliberately
-# supports only MMC and NVMe because a plain /dev/sda assumption is unsafe.
+# Create A/B aliases for the direct-boot rescue partition while initramfs waits
+# for /dev/disk/by-slot/active/system. USB needs firmware-topology resolution;
+# SD needs this helper because the rescue partition is named bootconfig rather
+# than boot_a or boot_b, which the upstream MMC slot mapper expects.
 
 set -u
 
@@ -22,19 +23,24 @@ read_dt_u32() {
 bootloader_dt="${proc_root}/device-tree/chosen/bootloader"
 boot_mode="$(read_dt_u32 "${bootloader_dt}/boot-mode")" || exit 0
 case "$boot_mode" in
-  4|5) ;;
+  1)
+    boot_disk="mmcblk0"
+    partition_separator="p"
+    ;;
+  4|5)
+    # The resolver is quiet while USB discovery is still in progress.
+    # initramfs calls local-block scripts again until the disk is available.
+    boot_disk="$(STUGU_PROC_ROOT="$proc_root" STUGU_SYS_ROOT="$sys_root" \
+      /usr/bin/stugu-usb-bootdev 2>/dev/null)" || exit 0
+    partition_separator=""
+    ;;
   *) exit 0 ;;
 esac
 
 boot_partition="$(read_dt_u32 "${bootloader_dt}/partition")" || exit 0
 [ "$boot_partition" -gt 0 ] || exit 0
 
-# The resolver is quiet while USB discovery is still in progress. initramfs
-# calls local-block scripts again until the root device becomes available.
-boot_disk="$(STUGU_PROC_ROOT="$proc_root" STUGU_SYS_ROOT="$sys_root" \
-  /usr/bin/stugu-usb-bootdev 2>/dev/null)" || exit 0
-
-boot_device="${dev_root}/${boot_disk}${boot_partition}"
+boot_device="${dev_root}/${boot_disk}${partition_separator}${boot_partition}"
 [ -b "$boot_device" ] || exit 0
 boot_label="$(blkid -s PARTLABEL -o value "$boot_device" 2>/dev/null)" || exit 0
 
@@ -96,7 +102,7 @@ system_b_device=""
 persistent_device=""
 
 for partition_path in \
-  "${sys_root}/class/block/${boot_disk}/${boot_disk}"[0-9]*; do
+  "${sys_root}/class/block/${boot_disk}/${boot_disk}"*; do
   [ -r "${partition_path}/uevent" ] || continue
   partition_name="$(
     sed -n 's/^PARTNAME=//p' "${partition_path}/uevent" 2>/dev/null
@@ -163,7 +169,7 @@ for link_spec in \
 done
 
 : > /run/stugu-usb-ab-ready
-message="Stugu: bound USB boot disk ${boot_disk}, active slot ${active_suffix}"
+message="Stugu: bound direct-boot disk ${boot_disk}, active slot ${active_suffix}"
 echo "$message" >&2
 if [ -w /dev/kmsg ]; then
   echo "$message" > /dev/kmsg 2>/dev/null || :

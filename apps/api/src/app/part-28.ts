@@ -209,6 +209,7 @@ export function configureApiPart28(context: ReturnType<typeof configureApiPart27
       context.electricityPrices.start();
       context.weatherMonitor.start();
       context.dailyAnalyticsFindings.start();
+      context.scheduledDataExports.start();
       context.notifySpatial((runtime) => runtime.start());
     }
   const beginShutdown = (): Promise<void> => {
@@ -232,6 +233,7 @@ export function configureApiPart28(context: ReturnType<typeof configureApiPart27
       context.electricityPrices.stop();
       context.weatherMonitor.stop();
       const stoppingDailyAnalyticsFindings = context.dailyAnalyticsFindings.stop();
+      context.scheduledDataExports.stop();
       for (const closeStream of [...context.activeEventStreams]) closeStream(true);
       context.shutdownPromise = Promise.all([
         context.notificationOutbox.stop(),

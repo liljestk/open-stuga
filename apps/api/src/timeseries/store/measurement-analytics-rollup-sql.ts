@@ -73,8 +73,11 @@ export function mergeableAnalyticsSql(schema: string, base: MeasurementAnalytics
       FROM ${aggregate} sample
       JOIN requested_series requested
         ON requested.sensor_id = sample.sensor_id AND requested.metric = sample.metric
+      JOIN coverage
+        ON coverage.sensor_id = sample.sensor_id AND coverage.metric = sample.metric
       CROSS JOIN limits
       WHERE sample.bucket_start >= limits.full_from AND sample.bucket_start < limits.full_to
+        AND coverage.complete
         AND (NOT $6::BOOLEAN OR sample.source NOT IN ('mock', 'replay'))
       UNION ALL
       SELECT sample.sensor_id, sample.metric,
@@ -85,9 +88,12 @@ export function mergeableAnalyticsSql(schema: string, base: MeasurementAnalytics
       FROM ${measurements} sample
       JOIN requested_series requested
         ON requested.sensor_id = sample.sensor_id AND requested.metric = sample.metric
+      JOIN coverage
+        ON coverage.sensor_id = sample.sensor_id AND coverage.metric = sample.metric
       CROSS JOIN limits
       WHERE sample.observed_at >= $2::TIMESTAMPTZ AND sample.observed_at < $3::TIMESTAMPTZ
-        AND (sample.observed_at < limits.full_from OR sample.observed_at >= limits.full_to)
+        AND (NOT coverage.complete
+          OR sample.observed_at < limits.full_from OR sample.observed_at >= limits.full_to)
         AND (NOT $6::BOOLEAN OR sample.source NOT IN ('mock', 'replay'))
     ), series_counts AS (
       SELECT requested.sensor_id, requested.metric, requested.aggregation,
@@ -97,7 +103,7 @@ export function mergeableAnalyticsSql(schema: string, base: MeasurementAnalytics
         COALESCE(sum(source.sample_count) FILTER (WHERE NOT (source.quality = ANY($4::TEXT[]))), 0)::BIGINT AS excluded_sample_count,
         GREATEST(1.0, EXTRACT(EPOCH FROM ($3::TIMESTAMPTZ - $2::TIMESTAMPTZ))
           / GREATEST(1, COALESCE(sum(source.sample_count) FILTER (WHERE source.quality = ANY($4::TEXT[])), 0)))::DOUBLE PRECISION AS cadence_seconds,
-        bool_and(coverage.complete) AS coverage_complete
+        TRUE AS coverage_complete
       FROM requested_series requested
       JOIN coverage USING (sensor_id, metric)
       LEFT JOIN source_rows source

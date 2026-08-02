@@ -1,0 +1,72 @@
+#!/bin/sh
+# Generate one persistent SSH server identity per appliance installation.
+
+set -eu
+
+shared_base="${STUGU_SHARED_BASE:-/persistent/shared}"
+ssh_directory="${shared_base}/etc/ssh"
+marker="${shared_base}/.stugu-ssh-host-keys-v1"
+key_types="rsa ecdsa ed25519"
+
+valid_host_keys() {
+  for key_type in $key_types; do
+    private_key="${ssh_directory}/ssh_host_${key_type}_key"
+    public_key="${private_key}.pub"
+    [ -s "$private_key" ] && [ -s "$public_key" ] || return 1
+
+    derived_public="$(
+      ssh-keygen -y -P '' -f "$private_key" 2>/dev/null \
+        | awk 'NR == 1 { print $1 " " $2 }'
+    )" || return 1
+    stored_public="$(awk 'NR == 1 { print $1 " " $2 }' "$public_key")"
+    [ -n "$stored_public" ] && [ "$derived_public" = "$stored_public" ] || return 1
+  done
+}
+
+install -d -m 0755 -o root -g root "$ssh_directory"
+
+if [ -f "$marker" ] && [ ! -L "$marker" ] && valid_host_keys; then
+  echo "SSH host keys are already initialized"
+  exit 0
+fi
+
+# A missing receipt means this is a new installation or an incomplete prior
+# initialization. Never adopt keys copied from an image or partial restore.
+for key_type in dsa $key_types; do
+  rm -f -- \
+    "${ssh_directory}/ssh_host_${key_type}_key" \
+    "${ssh_directory}/ssh_host_${key_type}_key.pub"
+done
+
+umask 077
+ssh-keygen -A -f "$shared_base"
+valid_host_keys || {
+  echo "Failed to generate a complete SSH host-key set" >&2
+  exit 1
+}
+
+for key_type in $key_types; do
+  private_key="${ssh_directory}/ssh_host_${key_type}_key"
+  public_key="${private_key}.pub"
+  chown root:root "$private_key" "$public_key"
+  chmod 0600 "$private_key"
+  chmod 0644 "$public_key"
+done
+
+temporary_marker="$(mktemp "${marker}.tmp.XXXXXX")"
+trap 'rm -f -- "$temporary_marker"' EXIT HUP INT TERM
+{
+  printf 'version=1\n'
+  for key_type in $key_types; do
+    fingerprint="$(
+      ssh-keygen -lf "${ssh_directory}/ssh_host_${key_type}_key.pub" -E sha256 \
+        | awk 'NR == 1 { print $2 }'
+    )"
+    printf '%s=%s\n' "$key_type" "$fingerprint"
+  done
+} > "$temporary_marker"
+chmod 0644 "$temporary_marker"
+mv -f "$temporary_marker" "$marker"
+trap - EXIT HUP INT TERM
+
+echo "Generated installation-specific SSH host keys"

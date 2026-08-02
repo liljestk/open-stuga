@@ -496,8 +496,9 @@ export function buildFallbackAggregateSql(schemaName: string, bucket: Measuremen
 
 /**
  * Mergeable, quality/source-aware summaries used by interactive analytics.
- * `WITH NO DATA` keeps upgrades bounded; the background policy backfills raw
- * history while reads fail closed until the requested range is materialized.
+ * `WITH NO DATA` keeps upgrades bounded. The background policy backfills raw
+ * history, while analytics queries aggregate raw rows server-side until the
+ * requested continuous-aggregate range is materialized.
  */
 export function buildMeasurementAnalyticsAggregateSql(
   schemaName: string,

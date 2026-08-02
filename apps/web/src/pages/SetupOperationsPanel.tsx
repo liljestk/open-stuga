@@ -4,6 +4,7 @@ import type { BackupOperationStatus, DataExportPreview, DataExportPrivacyLevel, 
 import { api } from "../api";
 import { formatInTimeZone } from "../dateTime";
 import { useI18n } from "../i18n";
+import { NasExportSetupPanel } from "./NasExportSetupPanel";
 import "./SetupOperationsPanel.css";
 
 type LoadState<T> = { value: T | null; loading: boolean; error: string | null };
@@ -116,8 +117,8 @@ export function SystemOperationsPanel() {
   </div>;
 }
 
-export function SetupOperationsPanel({ house }: Readonly<{ house: House }>) {
-  return <div className="setup-operations-grid"><BulkMappingAssistant house={house} /></div>;
+export function SetupOperationsPanel({ house, canManageSystem = true }: Readonly<{ house: House; canManageSystem?: boolean }>) {
+  return <div className="setup-operations-grid">{canManageSystem && <NasExportSetupPanel />}<BulkMappingAssistant house={house} /></div>;
 }
 
 function BulkMappingAssistant({ house }: Readonly<{ house: House }>) {

@@ -4,6 +4,7 @@ import {
 } from "react";
 import { isAirflowPlanElement, type ConfiguredOpeningState, type Floor, type House, type ManualObservation, type MeasurementDefinition, type MeasurementSample, type OpeningStateObservation, type PlanElement, type Sensor, type UnitSystem } from "@climate-twin/contracts";
 import { useI18n, type TranslationKey } from "../../i18n";
+import { createClientUuid } from "../../clientUuid";
 import { formatMeasurement, formatMeasurementDelta, measurementGradient, measurementLabel, measurementValue, toDisplayValue, type LatestMeasurements } from "../../measurements";
 import { energyDeviceMapStats, isEnergyDeviceSensor } from "../../energyDeviceMap";
 import {
@@ -206,7 +207,7 @@ export function useBuildingScenePart02(context: ReturnType<typeof useBuildingSce
   const addOpeningIn3d = () => {
       const floor = house.floors.find((candidate) => candidate.id === activeFloorId);
       if (!floor || !onFloorChange) return;
-      const id = crypto.randomUUID();
+      const id = createClientUuid();
       const height = defaultPlanElementHeight(floor, addableOpeningKind);
       let element: PlanElement;
       if (addableOpeningKind === "vent") {

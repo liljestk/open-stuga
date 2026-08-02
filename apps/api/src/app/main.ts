@@ -10,12 +10,15 @@ import { registerLocalAuthRoutes } from "./local-auth-routes.js";
 import { registerTenantAdministrationRoutes } from "./tenant-administration-routes.js";
 import { registerSystemUpdateRoutes } from "./system-update-routes.js";
 import { registerSystemStorageRoutes } from "./system-storage-routes.js";
+import { registerScheduledDataExportRoutes } from "./scheduled-data-export-routes.js";
 import { registerHostSystemRoutes } from "./host-system-routes.js";
 import { registerCloudflareSetupRoutes } from "./cloudflare-setup-routes.js";
 import { registerLocationDiscoveryRoutes } from "./location-discovery-routes.js";
 import { registerMeasurementDefinitionRoutes } from "./measurement-definition-routes.js";
 import { registerNexus433Routes } from "./nexus433-routes.js";
 import { registerBugReportRoutes } from "./bug-report-routes.js";
+import { registerLocalMcpRuntimeRoutes, registerLocalMcpTransportRoute } from "./local-mcp-runtime-routes.js";
+import { LocalMcpRuntimeService } from "../local-mcp-runtime.js";
 import { configureApiPart10 } from "./part-10.js";
 import { configureApiPart11 } from "./part-11.js";
 import { configureApiPart12 } from "./part-12.js";
@@ -43,7 +46,9 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
   const context2 = configureApiPart02(context1);
   const context3 = configureApiPart03(context2);
   const context4 = configureApiPart04(context3);
+  const localMcpRuntime = new LocalMcpRuntimeService();
   const context5 = configureApiPart05(context4);
+  registerLocalMcpTransportRoute(context5, localMcpRuntime);
   const context6 = configureApiPart06(context5);
   const context7 = configureApiPart07(context6);
   registerLocalAuthRoutes(context7);
@@ -51,11 +56,13 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
   registerHostSystemRoutes(context7);
   registerSystemUpdateRoutes(context7);
   registerSystemStorageRoutes(context7);
+  registerScheduledDataExportRoutes(context7);
   registerCloudflareSetupRoutes(context7);
   registerLocationDiscoveryRoutes(context7);
   registerMeasurementDefinitionRoutes(context7);
   registerNexus433Routes(context7);
   registerBugReportRoutes(context7);
+  registerLocalMcpRuntimeRoutes(context7, localMcpRuntime);
   const context10 = configureApiPart10(context7);
   const context11 = configureApiPart11(context10);
   const context12 = configureApiPart12(context11);
@@ -75,5 +82,18 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
   const context26 = configureApiPart26(context25);
   const context27 = configureApiPart27(context26);
   const context28 = configureApiPart28(context27);
-  return finishCreateApi(context28);
+  const runtime = finishCreateApi(context28);
+  const stopLocalMcp = async (): Promise<void> => {
+    await localMcpRuntime.stop().catch(() => undefined);
+  };
+  return {
+    ...runtime,
+    beginShutdown: async () => {
+      await Promise.all([runtime.beginShutdown(), stopLocalMcp()]);
+    },
+    close: async () => {
+      await stopLocalMcp();
+      await runtime.close();
+    },
+  };
 }

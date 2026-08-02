@@ -1,5 +1,4 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { MAX_OBSERVATION_RESOLUTION_NOTE_LENGTH, resolvePlanElementOpeningState } from "@climate-twin/contracts";
 import type { StugubyRole, StugubySummary } from "@climate-twin/stuguby-protocol";
@@ -96,7 +95,7 @@ import { createAreaEquipment, createProperty, createPropertyArea, dataMode, data
 import { createAlertRule, createHouse, createMeasurementDefinition, createSensor, deleteSensor, disableMeasurementDefinition, importMeasurements, ingestMeasurements, ingestReadings, queryMeasurementHistory, querySensorHistory, replaceHouseFloor, replaceHouseLayout, thermalSimulation, updateHouse, updateMeasurementDefinition, updateSensor } from "./02-thermal-simulation-to-create-alert-rule.js";
 import { acknowledgeAlert, assetMetadata, createMaintenanceTask, createObservation, deleteAlertRule, deleteAsset, deleteMaintenanceTask, deleteObservation, deleteStaticParameter, discoverIntegrations, homeAssistantConnectionTest, homeAssistantSetup, listMaintenanceTaskRevisions, listMaintenanceTasks, listObservationRevisions, selectMockScenario, startReplay, tpLinkConnectionTest, tpLinkSetup, updateAlertRule, updateMaintenanceTask, updateObservation, uploadAsset, upsertStaticParameter } from "./03-update-alert-rule-to-start-replay.js";
 import { summarizeMcpStuguby } from "./04-point-schema-to-summarize-mcp-stuguby.js";
-import { backupStatus, dailyAnalyticsFindings, getMcpStuguby, houseElectricityPrice, houseEnergyCost, houseEnergySummary, houseOpeningStates, listPropertyNotes, openingActivity, operations, outdoorTemperatureHistory, propertyElectricity, sensorDataGaps, server, thermalIsolation } from "./05-get-mcp-stuguby-to-result-output-schema.js";
+import { backupStatus, createMcpServer, dailyAnalyticsFindings, getMcpStuguby, houseElectricityPrice, houseEnergyCost, houseEnergySummary, houseOpeningStates, listPropertyNotes, openingActivity, operations, outdoorTemperatureHistory, propertyElectricity, sensorDataGaps, thermalIsolation } from "./05-get-mcp-stuguby-to-result-output-schema.js";
 import { ACTIVE_MCP_TOOL_NAMES } from "./06-read-only-mcp-tool-names-to-mcp-tool-definitions.js";
 import { ToolHandler, mcpTools } from "./09-mcp-tool-definitions-part04-to-tool-handler.js";
 import {
@@ -263,7 +262,7 @@ export const allToolHandlers: Record<string, ToolHandler> = {
       runtimeScope: "mcp-process",
       liveConnectionsAvailable: false,
       status: structuredClone(status.value),
-      note: "This stdio process does not start live integration adapters and cannot inspect the API process's connection state.",
+      note: "This isolated MCP process does not start live integration adapters and cannot inspect the API process's connection state.",
     };
   },
   list_sensor_data_gaps: sensorDataGaps,
@@ -275,7 +274,7 @@ export const allToolHandlers: Record<string, ToolHandler> = {
     devices: [],
     available: false,
     runtimeScope: "mcp-process",
-    note: "Live TP-Link inventory belongs to the long-running API process and is unavailable over stdio.",
+    note: "Live TP-Link inventory belongs to the long-running API process and is unavailable in the isolated MCP process.",
   }),
   test_tp_link_connection: tpLinkConnectionTest,
   list_mock_scenarios: () => {
@@ -297,23 +296,47 @@ export const toolHandlers = Object.fromEntries(
 
 validateMcpToolRegistry(mcpTools.map((tool) => tool.name), Object.keys(toolHandlers));
 
-server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
-  const result = await runMcpToolRequest(
-    operations,
-    toolHandlers,
-    request.params.name,
-    objectArguments(request.params.arguments),
-    extra.signal,
-  );
-  return {
-    content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
-    structuredContent: { result },
-  };
-});
+export type ConnectedMcpServer = ReturnType<typeof createMcpServer>;
+export type McpTransport = Parameters<ConnectedMcpServer["connect"]>[0];
 
-export const transport = new StdioServerTransport();
+const connectedServers = new Set<ConnectedMcpServer>();
 
-await server.connect(transport);
+function registerMcpRequestHandlers(server: ConnectedMcpServer): void {
+  server.setRequestHandler(ListToolsRequestSchema, () => ({ tools: mcpTools }));
+  server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
+    const result = await runMcpToolRequest(
+      operations,
+      toolHandlers,
+      request.params.name,
+      objectArguments(request.params.arguments),
+      extra.signal,
+    );
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+      structuredContent: { result },
+    };
+  });
+}
+
+export async function connectMcpTransport(transport: McpTransport): Promise<ConnectedMcpServer> {
+  const server = createMcpServer();
+  registerMcpRequestHandlers(server);
+  server.onclose = () => connectedServers.delete(server);
+  connectedServers.add(server);
+  try {
+    await server.connect(transport);
+    return server;
+  } catch (error) {
+    connectedServers.delete(server);
+    await server.close().catch(() => undefined);
+    throw error;
+  }
+}
+
+export async function disconnectMcpServer(server: ConnectedMcpServer): Promise<void> {
+  if (!connectedServers.delete(server)) return;
+  await server.close();
+}
 
 export let resourcesClosed = false;
 
@@ -344,7 +367,7 @@ export function close(): Promise<void> {
       }
       // Let the protocol flush the response produced by the final handler.
       await new Promise<void>((resolve) => setImmediate(resolve));
-      await server.close();
+      await Promise.all([...connectedServers].map((server) => server.close()));
       if (drainError) throw drainError;
     } finally {
       try {
@@ -359,14 +382,8 @@ export function close(): Promise<void> {
 
 export function requestShutdown(): void {
   void close().catch(() => {
-    // Keep credentials and request contents out of the stdio protocol logs.
+    // Keep credentials and request contents out of protocol logs.
     console.error("Stugu MCP shutdown failed");
     process.exitCode = 1;
   });
 }
-
-process.once("SIGINT", requestShutdown);
-
-process.once("SIGTERM", requestShutdown);
-
-process.stdin.once("end", requestShutdown);

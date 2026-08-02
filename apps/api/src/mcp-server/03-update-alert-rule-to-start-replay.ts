@@ -347,7 +347,7 @@ export function homeAssistantSetup(): object {
     notes: [
       "Saved credentials are write-only and live outside SQLite.",
       "The MCP server deliberately does not accept or write credentials; keep secrets out of model and tool arguments.",
-      "A stdio MCP process does not mirror the separate API process's live WebSocket connection state.",
+      "An isolated MCP process does not mirror the separate API process's live WebSocket connection state.",
       "Saving a real integration permanently disables and purges demo telemetry for this database.",
     ],
   };
@@ -370,7 +370,7 @@ export function tpLinkSetup(): object {
     notes: [
       "Credentials are never returned and are stored outside SQLite.",
       "The MCP server deliberately does not accept or write credentials; keep secrets out of model and tool arguments.",
-      "The stdio MCP process deliberately does not start a second continuous hub poller beside the API process.",
+      "The isolated MCP process deliberately does not start a second continuous hub poller beside the API process.",
       "LAN discovery includes H100/H200 hubs and energy devices that python-kasa verifies through Module.Energy using saved TP-Link credentials; energy devices expose power, plus cumulative energy only when python-kasa provides consumption_total.",
       "Saving a real integration permanently disables and purges demo telemetry for this database.",
     ],
@@ -382,7 +382,7 @@ export function homeAssistantConnectionTest(): object {
     ok: false,
     available: false,
     runtimeScope: "mcp-process",
-    message: "Live Home Assistant connection testing belongs to the long-running API process and is unavailable over stdio.",
+    message: "Live Home Assistant connection testing belongs to the long-running API process and is unavailable in the isolated MCP process.",
   };
 }
 
@@ -391,7 +391,7 @@ export function tpLinkConnectionTest(): object {
     ok: false,
     available: false,
     runtimeScope: "mcp-process",
-    message: "Live TP-Link connection testing belongs to the long-running API process and is unavailable over stdio.",
+    message: "Live TP-Link connection testing belongs to the long-running API process and is unavailable in the isolated MCP process.",
   };
 }
 
@@ -426,6 +426,6 @@ export function startReplay(args: Record<string, unknown>): object {
     available: false,
     replay: { ...replay.state, count: 0 },
     runtimeScope: "mcp-process",
-    note: "No replay was started because stdio has no observable live event consumer; use the API replay endpoint.",
+    note: "No replay was started because the isolated MCP process has no observable live event consumer; use the API replay endpoint.",
   };
 }

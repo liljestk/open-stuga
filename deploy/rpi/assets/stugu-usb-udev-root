@@ -1,8 +1,8 @@
 #!/bin/sh
-# Preserve the firmware-qualified USB A/B aliases across switch_root. The
-# initramfs creates the aliases before mounting the immutable EROFS root, then
-# this script turns that trusted mapping into direct udev DEVLINK rules for the
-# real-root coldplug pass.
+# Preserve the firmware-qualified direct-boot A/B aliases across switch_root.
+# The initramfs creates the aliases before mounting the immutable EROFS root,
+# then this script turns that trusted mapping into direct udev DEVLINK rules
+# for the real-root coldplug pass.
 
 set -u
 
@@ -40,7 +40,7 @@ emit_rule() {
   partition="$(readlink "${slot_root}/${alias_path}" 2>/dev/null)" || return 1
 
   case "$partition" in
-    /dev/sd*[0-9]) ;;
+    /dev/sd*[0-9]|/dev/mmcblk[0-9]p[0-9]*) ;;
     *) return 1 ;;
   esac
 
@@ -65,4 +65,4 @@ if ! mount -o bind "$rule_source" "$rule_target"; then
   exit 1
 fi
 
-report "Stugu: USB udev rules bound into real root"
+report "Stugu: direct-boot udev rules bound into real root"

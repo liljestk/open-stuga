@@ -2,6 +2,7 @@ import { useEffect, useId, useMemo, useRef, useState, type ChangeEvent, type CSS
 import { BoxSelect, Grid3X3, ImagePlus, MapPinPlus, MousePointer2, PenLine, Plus, RotateCcw, RotateCw, Trash2 } from "lucide-react";
 import { floorMetersPerPlanUnit, isAirflowPlanElement, wallLengthPlanUnits, type ConfiguredOpeningState, type Floor, type House, type ManualObservation, type MeasurementDefinition, type MeasurementSample, type OpeningStateObservation, type PlanElement, type PlanElementKind, type Point, type Room, type Sensor, type UnitSystem, type Wall } from "@climate-twin/contracts";
 import { clamp, round, type ViewMode } from "../../domain";
+import { createClientUuid } from "../../clientUuid";
 import { useI18n, type TranslationKey } from "../../i18n";
 import { formatMeasurement, formatMeasurementDelta, measurementGradient, measurementLabel, measurementValue, toDisplayValue, type LatestMeasurements } from "../../measurements";
 import { energyDeviceMapStats, isEnergyDeviceSensor } from "../../energyDeviceMap";
@@ -86,7 +87,7 @@ export function useFloorPlanPart03(context: ReturnType<typeof useFloorPlanPart02
         setPlacementError(placementFailureMessage(result.failure));
         return false;
       }
-      const id = crypto.randomUUID();
+      const id = createClientUuid();
       let element: PlanElement;
       if (planElementKind === "door") {
         if (!("wallId" in result.placement) || !result.placement.wallId) return false;

@@ -1,4 +1,4 @@
-import type { House, HouseWeather, ManualObservation, ManualObservationInput, Sensor, TpLinkDiscoveredDevice } from "@climate-twin/contracts";
+import { SYSTEM_VERSION, type House, type HouseWeather, type ManualObservation, type ManualObservationInput, type Sensor, type TpLinkDiscoveredDevice } from "@climate-twin/contracts";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -23,12 +23,58 @@ afterEach(() => {
 });
 
 describe("local session API client", () => {
+  it("refuses an unverifiable or mismatched API runtime before bootstrapping", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock
+      .mockResolvedValueOnce(new Response("{}", {
+        status: 200,
+        headers: { "Content-Type": "application/json", "X-Api-Version": "v1" },
+      }))
+      .mockResolvedValueOnce(new Response("{}", {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+          "X-Api-Version": "v1",
+          "X-Stugu-System-Version": "0.28.0",
+        },
+      }));
+
+    await expect(api.session()).rejects.toMatchObject({
+      name: "ApiVersionMismatchError",
+      code: "API_RUNTIME_VERSION_MISMATCH",
+      expectedVersion: SYSTEM_VERSION,
+      actualVersion: null,
+    });
+    await expect(api.session()).rejects.toMatchObject({
+      name: "ApiVersionMismatchError",
+      expectedVersion: SYSTEM_VERSION,
+      actualVersion: "0.28.0",
+    });
+  });
+
+  it("rejects a stale session document when a cross-origin proxy hides version headers", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(JSON.stringify({
+      systemVersion: "0.28.0",
+      authenticated: true,
+    }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    }));
+
+    await expect(api.session()).rejects.toMatchObject({
+      name: "ApiVersionMismatchError",
+      expectedVersion: SYSTEM_VERSION,
+      actualVersion: "0.28.0",
+    });
+  });
+
   it("includes cookie credentials on shared API requests", async () => {
     const fetchMock = vi.mocked(fetch);
     fetchMock.mockResolvedValue({
       ok: true,
       status: 200,
       json: async () => ({
+        systemVersion: SYSTEM_VERSION,
         authenticated: true,
         principal: { type: "local", email: "owner@example.test" },
         tenant: { id: "local", name: "Local Stugu", role: "owner" },
@@ -49,6 +95,7 @@ describe("local session API client", () => {
     const fetchMock = vi.mocked(fetch);
     fetchMock
       .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({
+        systemVersion: SYSTEM_VERSION,
         authenticated: true,
         principal: { type: "local", email: "owner@example.test" },
         tenant: { id: "local", name: "Local Stugu", role: "owner" },
@@ -73,6 +120,7 @@ describe("local session API client", () => {
     const fetchMock = vi.mocked(fetch);
     fetchMock
       .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({
+        systemVersion: SYSTEM_VERSION,
         authenticated: true,
         principal: { type: "local", email: "owner@example.test" },
         tenant: { id: "local", name: "Local Stugu", role: "owner" },
@@ -83,6 +131,7 @@ describe("local session API client", () => {
       }) } as Response)
       .mockResolvedValueOnce({ ok: false, status: 401, json: async () => ({ error: { code: "UNAUTHORIZED", message: "Sign in" } }) } as Response)
       .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({
+        systemVersion: SYSTEM_VERSION,
         authenticated: true,
         principal: { type: "local", email: "owner@example.test" },
         tenant: { id: "local", name: "Local Stugu", role: "owner" },
@@ -103,6 +152,7 @@ describe("local session API client", () => {
     const fetchMock = vi.mocked(fetch);
     fetchMock
       .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({
+        systemVersion: SYSTEM_VERSION,
         authenticated: true,
         principal: { type: "local", email: "guest@example.test" },
         tenant: { id: "local", name: "Local Stugu", role: "guest" },
@@ -113,6 +163,7 @@ describe("local session API client", () => {
       }) } as Response)
       .mockResolvedValueOnce({ ok: false, status: 401, json: async () => ({ error: { code: "UNAUTHORIZED", message: "Expired" } }) } as Response)
       .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({
+        systemVersion: SYSTEM_VERSION,
         authenticated: true,
         principal: { type: "local", email: "guest@example.test" },
         tenant: { id: "local", name: "Local Stugu", role: "guest" },
@@ -136,6 +187,7 @@ describe("local session API client", () => {
     const dispose = subscribeToApiAuthorizationChanges(onAuthorization);
     fetchMock
       .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({
+        systemVersion: SYSTEM_VERSION,
         authenticated: true,
         principal: { type: "local", email: "owner@example.test" },
         tenant: { id: "local", name: "Local Stugu", role: "owner" },

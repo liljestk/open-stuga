@@ -131,6 +131,7 @@ import {
 } from "../../spatialLayers";
 import { publishAuthEpoch } from "../../authEpoch";
 import { recordApiError } from "../../bugReportDiagnostics";
+import { API_RUNTIME_VERSION_HEADER, assertApiRuntimeVersion } from "../../apiRuntimeVersion";
 import type { HouseGeoreferencePatch } from "./part-01";
 import { API_BASE, API_REQUEST_TIMEOUT_MS, API_V2_BASE, ApiRequestError, COLLECTION_PAGE_SIZE, SAFE_HTTP_METHODS, activeRequestControllers, apiClientState, apiRequestGeneration, assertSafeApiPath, authorizationChange, notifyAuthorizationChange } from "./part-02";
 import type { SystemUpdateLiveStatus } from "./part-02";
@@ -171,6 +172,13 @@ export async function requestFrom<T>(
         throw new DOMException("The authenticated session changed", "AbortError");
       }
     };
+    assertCurrentGeneration();
+    const responseHeadersAvailable = typeof response.headers?.get === "function";
+    const runtimeVersion = responseHeadersAvailable
+      ? response.headers.get(API_RUNTIME_VERSION_HEADER)
+      : null;
+    const apiVersionReported = responseHeadersAvailable && response.headers.get("x-api-version") !== null;
+    assertApiRuntimeVersion(runtimeVersion, apiVersionReported);
     if (!response.ok) {
       if (response.status === 401) apiClientState.csrfToken = null;
       let payload: unknown;
@@ -301,7 +309,8 @@ export function memberSummary(value: TenantMemberSummary): TenantMemberSummary {
   return { ...value, email: value.email.trim().toLowerCase(), grants: Array.isArray(value.grants) ? value.grants : [] };
 }
 
-export function rememberSession(session: AppSession): AppSession {
+export function rememberSession(session: AppSession & { systemVersion?: unknown }): AppSession {
+  assertApiRuntimeVersion(typeof session.systemVersion === "string" ? session.systemVersion : null, true);
   apiClientState.csrfToken = session.authenticated && typeof session.csrfToken === "string" && session.csrfToken
     ? session.csrfToken
     : null;

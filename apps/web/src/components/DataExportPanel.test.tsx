@@ -1,8 +1,8 @@
 import axe from "axe-core";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { AnalyticsQueryRequest, AnalyticsQueryResponse } from "@climate-twin/contracts";
+import type { AnalyticsQueryRequest, AnalyticsQueryResponse, Sensor } from "@climate-twin/contracts";
 import { api } from "../api";
 import { createDemoState } from "../domain";
 import { I18nProvider } from "../i18n";
@@ -68,9 +68,55 @@ function responseFor(input: AnalyticsQueryRequest): AnalyticsQueryResponse {
   };
 }
 
+function responseWithLeadingGaps(input: AnalyticsQueryRequest): AnalyticsQueryResponse {
+  const response = responseFor(input);
+  const start = Date.parse(input.range.start);
+  const latest = new Date(Date.parse(input.range.end) - 60_000).toISOString();
+  return {
+    ...response,
+    series: response.series.map((series) => {
+      const populated = series.points[0]!;
+      return {
+        ...series,
+        points: [
+          ...Array.from({ length: 12 }, (_, index) => ({
+            ...populated,
+            timestamp: new Date(start + index * 15 * 60_000).toISOString(),
+            value: null,
+            minimum: null,
+            maximum: null,
+            sampleCount: 0,
+            coverage: 0,
+          })),
+          { ...populated, timestamp: latest },
+        ],
+      };
+    }),
+  };
+}
+
 describe("DataExportPanel", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    vi.spyOn(api, "scheduledDataExports").mockResolvedValue([]);
+    vi.spyOn(api, "systemStorageStatus").mockResolvedValue({
+      settings: { timeseries: { kind: "managed", path: null }, backups: { kind: "nas-path", path: "/mnt/stugu/nas" } },
+      revision: "storage-revision",
+      allowedRoots: ["/mnt/stugu"],
+      capability: { available: true, runtime: "docker", agentLastSeenAt: "2026-08-01T10:00:00.000Z", reason: "ready", detail: null },
+      operation: null,
+    });
+  });
+
+  it("does not expose installation-owned schedules to a Guest", () => {
+    const state = createDemoState();
+    state.session = { ...state.session, tenant: { ...state.session.tenant, role: "guest" } };
+    const house = state.houses[0]!;
+
+    render(<I18nProvider><DataExportPanel state={state} house={house} units="metric" dataMode="demo" /></I18nProvider>);
+
+    expect(screen.queryByText("Scheduled NAS exports")).toBeNull();
+    expect(api.scheduledDataExports).not.toHaveBeenCalled();
   });
 
   it("previews the requested 30-day, all-sensor, temperature and humidity export before download", async () => {
@@ -111,5 +157,69 @@ describe("DataExportPanel", () => {
     await user.type(screen.getByRole("spinbutton", { name: /Minutes per bucket/ }), "7");
     await user.click(screen.getByRole("button", { name: "Update preview" }));
     await waitFor(() => expect(analyticsQuery.mock.calls.at(-1)?.[0]).toMatchObject({ resolution: "7m", aggregation: "mean" }));
+  });
+
+  it("previews recent readings instead of leading empty buckets", async () => {
+    const fullState = createDemoState();
+    const state = { ...fullState, sensors: [fullState.sensors[0]!] };
+    const house = state.houses[0]!;
+    vi.spyOn(api, "analyticsQuery").mockImplementation(async (input) => responseWithLeadingGaps(input));
+    const user = userEvent.setup();
+    render(<I18nProvider><DataExportPanel state={state} house={house} units="metric" dataMode="demo" /></I18nProvider>);
+
+    await user.click(screen.getByText("Export sensor data").closest("summary")!);
+
+    const preview = await screen.findByRole("region", { name: "Sensor data export preview" });
+    expect(within(preview).getByText("20.0")).not.toBeNull();
+    expect(within(preview).getByText("50")).not.toBeNull();
+    expect(screen.getByText("Showing recent rows with readings (1 of 13 total rows).")).not.toBeNull();
+  });
+
+  it("shows and exports only sensors supporting a selected measurement", async () => {
+    const fullState = createDemoState();
+    const house = fullState.houses[0]!;
+    const temperatureSensor: Sensor = {
+      ...fullState.sensors[0]!,
+      id: "temperature-only",
+      name: "Temperature sensor",
+      measurementEntityIds: { temperature: "sensor.temperature" },
+      temperatureEntityId: "sensor.temperature",
+    };
+    delete temperatureSensor.humidityEntityId;
+    const humiditySensor: Sensor = {
+      ...fullState.sensors[1]!,
+      id: "humidity-only",
+      name: "Humidity sensor",
+      measurementEntityIds: { humidity: "sensor.humidity" },
+      humidityEntityId: "sensor.humidity",
+    };
+    delete humiditySensor.temperatureEntityId;
+    const state = {
+      ...fullState,
+      sensors: [temperatureSensor, humiditySensor],
+      latestMeasurements: {},
+      measurementHistory: {},
+    };
+    const analyticsQuery = vi.spyOn(api, "analyticsQuery").mockImplementation(async (input) => responseFor(input));
+    const user = userEvent.setup();
+    render(<I18nProvider><DataExportPanel state={state} house={house} units="metric" dataMode="demo" /></I18nProvider>);
+
+    await user.click(screen.getByText("Export sensor data").closest("summary")!);
+    await waitFor(() => expect(analyticsQuery).toHaveBeenCalled());
+    const measurementPicker = screen.getByText("2 measurements selected").closest(".data-export-picker-field") as HTMLElement;
+    await user.click(within(measurementPicker).getByText("2 measurements selected"));
+    await user.click(within(measurementPicker).getByText("Humidity").closest("label")!.querySelector<HTMLInputElement>("input")!);
+
+    const sensorSummary = await screen.findByText("All sensors (1)");
+    const sensorPicker = sensorSummary.closest(".data-export-picker-field") as HTMLElement;
+    await user.click(sensorSummary);
+    expect(within(sensorPicker).getByText("Temperature sensor")).not.toBeNull();
+    expect(within(sensorPicker).queryByText("Humidity sensor")).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Update preview" }));
+    await waitFor(() => expect(analyticsQuery.mock.calls.at(-1)?.[0]).toMatchObject({
+      measurementIds: ["temperature"],
+      scope: { entityIds: ["temperature-only"] },
+    }));
   });
 });

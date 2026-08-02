@@ -94,7 +94,8 @@
   .setup-workspace-tabs > button:last-child:nth-child(odd) { grid-column: 1 / -1; }
   .setup-workspace-tabs strong, .setup-workspace-tabs small { overflow: visible; text-overflow: clip; white-space: normal; }
   .connections-workspace .setup-side { grid-template-columns: 1fr; }
-  .connection-provider-grid { grid-template-columns: 1fr; }
+  .connection-provider-grid { grid-template-columns: 1fr; grid-auto-rows: auto; row-gap: 16px; }
+  .connection-provider-grid > * { grid-row-end: auto !important; }
   .setup-connection-scope { grid-template-columns: 1fr; align-items: stretch; }
   .setup-connection-scope > small, .setup-connection-home-picker { grid-column: 1; grid-row: auto; }
   .connection-source-manager-header { grid-template-columns: auto minmax(0, 1fr); padding: 16px; }
@@ -158,6 +159,9 @@
   .weather-warning-list { grid-template-columns: 1fr; }
   .weather-section > .weather-attribution a { width: 100%; margin-left: 23px; }
   .endpoint-list > div { grid-template-columns: 1fr; gap: 5px; padding: 8px 0; }
+  .mcp-runtime-control { align-items: stretch; flex-direction: column; }
+  .mcp-runtime-control > button { width: 100%; }
+  .mcp-network-endpoints > div { grid-template-columns: 1fr; }
   .endpoint-list a, .endpoint-list .endpoint-value, .icon-button.small, .segmented button { min-height: 40px; }
   .icon-button.small { width: 40px; height: 40px; }
   .sensor-overview { grid-template-columns: 1fr 1fr; }

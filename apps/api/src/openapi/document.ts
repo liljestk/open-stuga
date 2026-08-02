@@ -52,6 +52,7 @@ export const combinedOpenApiDocument = {
           localSession: { type: "apiKey", in: "cookie", name: "stuga_session", description: "Opaque HttpOnly SameSite=Strict local session cookie." },
           csrfToken: { type: "apiKey", in: "header", name: "X-CSRF-Token", description: "Session-bound token required together with the session cookie on unsafe methods." },
           ingestKey: { type: "apiKey", in: "header", name: "X-API-Key", description: "Optional, configured by INGEST_API_KEY." },
+          mcpBearer: { type: "http", scheme: "bearer", bearerFormat: "opaque", description: "One-time-displayed token generated when an Owner/Admin starts the network MCP runtime." },
           notesGrant: { type: "http", scheme: "bearer", bearerFormat: "opaque", description: "One-time, house-scoped Apple Notes Shortcut grant. The local server stores only its SHA-256 hash." },
           tapoWorkerBearer: { type: "http", scheme: "bearer", bearerFormat: "opaque", description: "Route-scoped token for the isolated Appium Tapo export worker." },
           trackingObserverBearer: { type: "http", scheme: "bearer", bearerFormat: "opaque", description: "Installation-bound credential accepted only by tracking observation and heartbeat routes." },

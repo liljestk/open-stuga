@@ -36,6 +36,14 @@ The optional `INGEST_API_KEY` is a separate machine credential for ingestion
 and read-only Prometheus host-metrics scraping. It does not create a browser
 session or grant interactive account access.
 
+Raspberry Pi factory images contain no reusable SSH server host private keys.
+Each installation generates and validates its own host keys before SSH starts,
+stores their fingerprint receipt and keys on the persistent partition, and
+retains them across A/B and application updates. The operator recovery public
+key embedded at build time is a separate login authorization; use a different
+operator key per appliance when reducing cross-device credential blast radius
+is more important than using one recovery key for the fleet.
+
 ## Secrets
 
 - The guided setup sends Home Assistant, TP-Link, and Telegram credentials to
@@ -234,8 +242,12 @@ production rollout.
   verify `X-Stugu-Signature` against the raw body in constant time and enforce
   an `X-Stugu-Timestamp` replay window. HMAC alone does not prevent replay, and
   bearer tokens alone do not provide body-level integrity.
-- MCP is a local read-only inspection interface. Run the stdio process only for
-  a trusted MCP host: it bypasses browser sessions and Guest grants even though
+- MCP is a read-only inspection interface that bypasses browser sessions and
+  Guest grants. Run stdio only for a trusted local MCP host. The optional
+  Streamable HTTP endpoint must be explicitly started by an Owner/Admin and
+  uses a separate high-entropy bearer token that is shown once, stored only as
+  a digest, and revoked on stop or process exit. It rejects browser-origin
+  requests, but the bearer still requires TLS or a trusted VPN in transit.
   SQLite query-only enforcement and the fail-closed tool registry prevent
   mutations. Provider lookup and LAN-discovery tools still make explicit
   outbound or local-network requests.

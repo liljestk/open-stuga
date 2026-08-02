@@ -6,12 +6,25 @@ import { I18nProvider } from "../i18n";
 
 const mocks = vi.hoisted(() => ({
   result: null as ThermalIsolationResult | null,
+  error: false,
+  errorCode: null as string | null,
+  errorStatus: null as number | null,
+  errorDetail: null as string | null,
   run: vi.fn(),
   reset: vi.fn(),
 }));
 
 vi.mock("../useThermalIsolation", () => ({
-  useThermalIsolation: () => ({ result: mocks.result, loading: false, error: false, run: mocks.run, reset: mocks.reset }),
+  useThermalIsolation: () => ({
+    result: mocks.result,
+    loading: false,
+    error: mocks.error,
+    errorCode: mocks.errorCode,
+    errorStatus: mocks.errorStatus,
+    errorDetail: mocks.errorDetail,
+    run: mocks.run,
+    reset: mocks.reset,
+  }),
 }));
 
 import { ThermalIsolationPanel } from "./ThermalIsolationPanel";
@@ -87,12 +100,16 @@ function result(): ThermalIsolationResult {
 describe("ThermalIsolationPanel", () => {
   beforeEach(() => {
     mocks.result = result();
+    mocks.error = false;
+    mocks.errorCode = null;
+    mocks.errorStatus = null;
+    mocks.errorDetail = null;
     mocks.run.mockClear();
   });
 
   it("shows the whole-home score, floor and room comparison, insights, and sensor evidence", async () => {
     const house = createDemoState().houses[0]!;
-    render(<I18nProvider><ThermalIsolationPanel house={house} units="metric" /></I18nProvider>);
+    render(<I18nProvider><ThermalIsolationPanel house={house} units="metric" dataMode="real" /></I18nProvider>);
 
     expect(screen.getByRole("heading", { name: "Thermal isolation comparison" })).not.toBeNull();
     expect(screen.getByText("Whole-Home isolation score")).not.toBeNull();
@@ -116,10 +133,66 @@ describe("ThermalIsolationPanel", () => {
     }];
     const house = createDemoState().houses[0]!;
 
-    render(<I18nProvider><ThermalIsolationPanel house={house} units="metric" /></I18nProvider>);
+    render(<I18nProvider><ThermalIsolationPanel house={house} units="metric" dataMode="real" /></I18nProvider>);
 
     expect(screen.getByText("Model confidence is limited")).not.toBeNull();
     expect(screen.getByText("Every floor has a usable model. Treat comparisons as directional until confidence improves.")).not.toBeNull();
     expect(screen.queryByText(/Only 100%/)).toBeNull();
+  });
+
+  it("identifies an API runtime that does not support the comparison", () => {
+    mocks.result = null;
+    mocks.error = true;
+    mocks.errorStatus = 404;
+    const house = createDemoState().houses[0]!;
+
+    render(<I18nProvider><ThermalIsolationPanel house={house} units="metric" dataMode="real" /></I18nProvider>);
+
+    expect(screen.getByRole("alert")).toHaveTextContent("The thermal comparison is unavailable");
+    expect(screen.getByRole("alert")).toHaveTextContent("Update or restart Stugu");
+    expect(screen.queryByText(/measurements are unchanged/i)).toBeNull();
+  });
+
+  it("states plainly when a real Home has too little recorded evidence", () => {
+    const emptyResult = result();
+    const houseEntry = emptyResult.entries[0]!;
+    houseEntry.score = null;
+    houseEntry.rating = null;
+    houseEntry.eligibleSensorCount = 0;
+    emptyResult.entries = [houseEntry];
+    emptyResult.insights = [];
+    mocks.result = emptyResult;
+    const house = createDemoState().houses[0]!;
+
+    render(<I18nProvider><ThermalIsolationPanel house={house} units="metric" dataMode="real" /></I18nProvider>);
+
+    const status = screen.getByRole("status");
+    expect(status).toHaveTextContent("Not enough recorded temperature evidence yet");
+    expect(status).toHaveTextContent("Demo estimates are never substituted for a real Home");
+    expect(screen.queryByText("Whole-Home isolation score")).toBeNull();
+  });
+
+  it("labels a simulated result as a demo estimate", () => {
+    const house = createDemoState().houses[0]!;
+
+    render(<I18nProvider><ThermalIsolationPanel house={house} units="metric" dataMode="demo" /></I18nProvider>);
+
+    expect(screen.getByRole("status")).toHaveTextContent("Demo estimate");
+    expect(screen.getByRole("status")).toHaveTextContent("not an estimate of this Home");
+  });
+
+  it("shows a specific archive recovery message with technical details", () => {
+    mocks.result = null;
+    mocks.error = true;
+    mocks.errorStatus = 503;
+    mocks.errorCode = "TELEMETRY_ARCHIVE_REQUIRED";
+    mocks.errorDetail = "Complete telemetry history is temporarily unavailable";
+    const house = createDemoState().houses[0]!;
+
+    render(<I18nProvider><ThermalIsolationPanel house={house} units="metric" dataMode="real" /></I18nProvider>);
+
+    expect(screen.getByRole("alert")).toHaveTextContent("Historical temperature data is not ready");
+    fireEvent.click(screen.getByText("Technical details"));
+    expect(screen.getByRole("alert")).toHaveTextContent("HTTP 503 · TELEMETRY_ARCHIVE_REQUIRED");
   });
 });

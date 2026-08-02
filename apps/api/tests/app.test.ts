@@ -40,6 +40,23 @@ describe("Climate Twin API v1", () => {
     expect(loadConfig({ NODE_ENV: "production", DATABASE_PATH: ":memory:", MOCK_ENABLED: "false" }).mockEnabled).toBe(false);
   });
 
+  it("does not let a temporary review database take over the primary API port", () => {
+    expect(() => loadConfig({
+      NODE_ENV: "development",
+      DATABASE_PATH: "./.tmp-runtime/review.sqlite",
+    })).toThrow(/Refusing to serve a \.tmp-runtime database on primary API port 8787/);
+    expect(loadConfig({
+      NODE_ENV: "development",
+      DATABASE_PATH: "./.tmp-runtime/review.sqlite",
+      PORT: "8790",
+    }).port).toBe(8790);
+    expect(loadConfig({
+      NODE_ENV: "development",
+      DATABASE_PATH: "./.tmp-runtime/review.sqlite",
+      ALLOW_TEMPORARY_DATABASE_ON_PRIMARY_PORT: "true",
+    }).port).toBe(8787);
+  });
+
   it("keeps Stuguby inert but available and validates its node configuration", async () => {
     const defaults = loadConfig({ NODE_ENV: "test", DATABASE_PATH: ":memory:" });
     expect(defaults).toMatchObject({
@@ -553,6 +570,7 @@ describe("Climate Twin API v1", () => {
       .set("Sec-Fetch-Site", "same-site")
       .expect(201);
     expect(trusted.headers["access-control-allow-origin"]).toBe(config.corsOrigin);
+    expect(trusted.headers["access-control-expose-headers"]).toContain("x-stugu-system-version");
 
     await request(runtime.app).options("/api/v1/mock/tick")
       .set("Origin", config.corsOrigin!)

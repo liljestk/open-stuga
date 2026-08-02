@@ -55,7 +55,7 @@ import { publishHouseWeatherUpdate } from "../../../useHouseWeather";
 
 export type DataMode = IntegrationStatus["mock"]["mode"] | "unknown";
 
-export type BootstrapStatus = "loading" | "setup-required" | "login-required" | "ready" | "empty" | "unavailable";
+export type BootstrapStatus = "loading" | "setup-required" | "login-required" | "ready" | "empty" | "unavailable" | "incompatible";
 
 export type SeriesLoadStatus = "idle" | "loading" | "ready" | "error";
 
