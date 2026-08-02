@@ -10,6 +10,7 @@ import { registerLocalAuthRoutes } from "./local-auth-routes.js";
 import { registerTenantAdministrationRoutes } from "./tenant-administration-routes.js";
 import { registerSystemUpdateRoutes } from "./system-update-routes.js";
 import { registerSystemStorageRoutes } from "./system-storage-routes.js";
+import { registerScheduledDataExportRoutes } from "./scheduled-data-export-routes.js";
 import { registerHostSystemRoutes } from "./host-system-routes.js";
 import { registerCloudflareSetupRoutes } from "./cloudflare-setup-routes.js";
 import { registerLocationDiscoveryRoutes } from "./location-discovery-routes.js";
@@ -55,6 +56,7 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
   registerHostSystemRoutes(context7);
   registerSystemUpdateRoutes(context7);
   registerSystemStorageRoutes(context7);
+  registerScheduledDataExportRoutes(context7);
   registerCloudflareSetupRoutes(context7);
   registerLocationDiscoveryRoutes(context7);
   registerMeasurementDefinitionRoutes(context7);

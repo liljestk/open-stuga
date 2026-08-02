@@ -21,6 +21,8 @@ import {
   type SensorExportTable,
 } from "../sensorDataExport";
 import { twentyFourHourInputLocale } from "../dateTime";
+import { hasBrowserCapability } from "../accessPolicy";
+import { ScheduledDataExportsPanel } from "./ScheduledDataExportsPanel";
 import "./DataExportPanel.css";
 
 type ExportPeriod = "24h" | "7d" | "30d" | "90d" | "custom";
@@ -145,6 +147,7 @@ function downloadBlob(filename: string, blob: Blob): void {
 
 export function DataExportPanel(props: Readonly<DataExportPanelProps>) {
   const { locale, t } = useI18n();
+  const canManageSchedules = hasBrowserCapability(props.state.session.tenant.role, "system-operations");
   const sensors = useMemo(
     () => props.state.sensors.filter((sensor) => sensor.houseId === props.house.id && sensor.enabled),
     [props.house.id, props.state.sensors],
@@ -460,6 +463,16 @@ export function DataExportPanel(props: Readonly<DataExportPanelProps>) {
           {(validationError || error) && <p className="inline-error data-export-error" role="alert">{validationError ?? error}</p>}
           {loading && <output className="data-export-progress">{t("dataExport.progress", { complete: progress.complete, total: progress.total })}</output>}
         </form>
+
+        {canManageSchedules && <ScheduledDataExportsPanel
+          house={props.house}
+          period={period}
+          sensorIds={selectedSensorIds}
+          measurementIds={selectedMetricIds}
+          resolution={resolution}
+          aggregation={resolution === "raw" ? "default" : aggregation}
+          configurationError={validationError}
+        />}
 
         {preview && <section className={`data-export-preview ${previewCurrent ? "current" : "stale"}`} aria-labelledby="data-export-preview-title">
           <header><div><span className="eyebrow">{previewCurrent ? t("dataExport.previewReady") : t("dataExport.previewStale")}</span><h3 id="data-export-preview-title">{t("dataExport.previewTitle")}</h3><p>{t("dataExport.previewSummary", { shown: previewRows.length, total: preview.rows.length })}</p></div><span className="data-export-row-count"><Table2 size={14} aria-hidden="true" />{t("dataExport.rows", { count: preview.rows.length })}</span></header>

@@ -98,6 +98,25 @@ function responseWithLeadingGaps(input: AnalyticsQueryRequest): AnalyticsQueryRe
 describe("DataExportPanel", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    vi.spyOn(api, "scheduledDataExports").mockResolvedValue([]);
+    vi.spyOn(api, "systemStorageStatus").mockResolvedValue({
+      settings: { timeseries: { kind: "managed", path: null }, backups: { kind: "nas-path", path: "/mnt/stugu/nas" } },
+      revision: "storage-revision",
+      allowedRoots: ["/mnt/stugu"],
+      capability: { available: true, runtime: "docker", agentLastSeenAt: "2026-08-01T10:00:00.000Z", reason: "ready", detail: null },
+      operation: null,
+    });
+  });
+
+  it("does not expose installation-owned schedules to a Guest", () => {
+    const state = createDemoState();
+    state.session = { ...state.session, tenant: { ...state.session.tenant, role: "guest" } };
+    const house = state.houses[0]!;
+
+    render(<I18nProvider><DataExportPanel state={state} house={house} units="metric" dataMode="demo" /></I18nProvider>);
+
+    expect(screen.queryByText("Scheduled NAS exports")).toBeNull();
+    expect(api.scheduledDataExports).not.toHaveBeenCalled();
   });
 
   it("previews the requested 30-day, all-sensor, temperature and humidity export before download", async () => {
