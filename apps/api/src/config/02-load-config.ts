@@ -12,9 +12,18 @@ import {
 import { AppConfig, booleanValue, boundedInteger, environmentTuple, exportIntervalMinutes, githubRepository, httpEndpoint, inferredStugubyPublicOrigin, localAuthProxySecret, nonNegativeInteger, normalizedEmailList, optional, optionalFileSecret, positiveInteger, stugubyPublicOrigin, systemUpdateImagePrefix, timeseriesPassword, timeseriesSslMode } from "./01-app-config-to-system-update-image-prefix.js";
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
+  const port = positiveInteger(env.PORT, 8787);
   const databasePath = env.DATABASE_PATH === ":memory:"
     ? ":memory:"
     : resolve(env.DATABASE_PATH ?? "./data/climate-twin.sqlite");
+  const temporaryDatabase = databasePath !== ":memory:"
+    && databasePath.replaceAll("\\", "/").split("/").includes(".tmp-runtime");
+  if (port === 8787 && temporaryDatabase
+    && !booleanValue(env.ALLOW_TEMPORARY_DATABASE_ON_PRIMARY_PORT, false)) {
+    throw new Error(
+      "Refusing to serve a .tmp-runtime database on primary API port 8787; use another port or explicitly set ALLOW_TEMPORARY_DATABASE_ON_PRIMARY_PORT=true",
+    );
+  }
   const integrationSecretsFile = resolve(env.INTEGRATION_SECRETS_FILE
     ?? (databasePath === ":memory:" ? "./data/integration-secrets.json" : join(dirname(databasePath), "integration-secrets.json")));
   const stugubyIdentityFile = databasePath === ":memory:"
@@ -278,7 +287,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     && inferredStugubyPublicOrigin(env.CLOUDFLARE_ACCESS_PUBLIC_ORIGIN) !== null;
 
   return {
-    port: positiveInteger(env.PORT, 8787),
+    port,
     apiHost: optional(env.API_HOST) ?? "127.0.0.1",
     databasePath,
     spatialLayersEnabled: booleanValue(env.SPATIAL_LAYERS_ENABLED, env.NODE_ENV !== "test"),

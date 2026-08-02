@@ -161,6 +161,47 @@ export interface HybridTelemetryReaderOptions {
   archiveWindowConcurrency?: number;
 }
 
+function qualityWeightedThermalBuckets(
+  samples: readonly MeasurementSample[],
+  bucketMinutes: number,
+  limitPerMetric: number,
+): MeasurementSample[] {
+  const bucketMs = bucketMinutes * 60_000;
+  const grouped = new Map<string, MeasurementSample[]>();
+  for (const sample of samples) {
+    const timestamp = Date.parse(sample.timestamp);
+    if (!Number.isFinite(timestamp)) continue;
+    const bucketTimestamp = new Date(Math.floor(timestamp / bucketMs) * bucketMs).toISOString();
+    const key = JSON.stringify([sample.sensorId, sample.metric, bucketTimestamp]);
+    const bucket = grouped.get(key) ?? [];
+    bucket.push(sample);
+    grouped.set(key, bucket);
+  }
+
+  const byMetric = new Map<string, MeasurementSample[]>();
+  for (const [key, bucket] of grouped) {
+    const [sensorId, metric, timestamp] = JSON.parse(key) as [string, string, string];
+    const weighted = bucket.reduce((total, sample) => total + sample.value * (sample.quality === "estimated" ? 0.25 : 1), 0);
+    const weight = bucket.reduce((total, sample) => total + (sample.quality === "estimated" ? 0.25 : 1), 0);
+    const result: MeasurementSample = {
+      sensorId,
+      metric,
+      timestamp,
+      value: weighted / weight,
+      canonicalUnit: [...bucket].sort((left, right) => left.canonicalUnit.localeCompare(right.canonicalUnit))[0]!.canonicalUnit,
+      source: [...bucket].sort((left, right) => left.source.localeCompare(right.source))[0]!.source,
+      quality: bucket.some((sample) => sample.quality === "good") ? "good" : "estimated",
+    };
+    const series = byMetric.get(metric) ?? [];
+    series.push(result);
+    byMetric.set(metric, series);
+  }
+  return [...byMetric.values()].flatMap((series) => series
+    .sort((left, right) => left.timestamp.localeCompare(right.timestamp))
+    .slice(-limitPerMetric))
+    .sort(compareMeasurements);
+}
+
 export class HybridTelemetryReader {
   readonly #local: LocalTelemetryReader;
   readonly #archive: ArchiveTelemetryReader | null;
@@ -303,15 +344,58 @@ export class HybridTelemetryReader {
       local,
       signal: query.signal,
       archiveRead: async () => {
-        if (!this.#archive!.thermalMeasurementHistory) {
-          throw new Error("Thermal archive reads are unavailable");
+        try {
+          if (!this.#archive!.thermalMeasurementHistory) {
+            throw new Error("Thermal rollup reads are unavailable");
+          }
+          return (await this.#archive!.thermalMeasurementHistory({
+            ...query,
+            metrics,
+            bucketMinutes,
+            limitPerMetric,
+          })).map(archivedMeasurement);
+        } catch (error) {
+          const cancellation = aborted(query.signal);
+          if (cancellation) throw cancellation;
+          this.#requestReconciliation();
+          let raw: MeasurementSampleRecord[];
+          if (this.#archive!.measurementWindow) {
+            raw = await this.#archive!.measurementWindow({
+              sensorIds: [query.sensorId],
+              metrics,
+              from: query.from,
+              to: query.to,
+              limit: MAX_WINDOW_LIMIT,
+              ...(query.signal ? { signal: query.signal } : {}),
+              ...(query.timeoutMs === undefined ? {} : { timeoutMs: query.timeoutMs }),
+            });
+            if (raw.length >= MAX_WINDOW_LIMIT) throw error;
+          } else {
+            const pages = await mapWithConcurrency(metrics, this.#archiveWindowConcurrency, (metric) => (
+              this.#archive!.measurementHistory({
+                sensorId: query.sensorId,
+                metric,
+                from: query.from,
+                to: query.to,
+                limit: MAX_HISTORY_LIMIT,
+                ...(query.signal ? { signal: query.signal } : {}),
+                ...(query.timeoutMs === undefined ? {} : { timeoutMs: query.timeoutMs }),
+              })
+            ));
+            if (pages.some((page) => page.length >= MAX_HISTORY_LIMIT)) throw error;
+            raw = pages.flat();
+          }
+          const realMode = this.#local.isRealDataMode();
+          return qualityWeightedThermalBuckets(
+            raw.map(archivedMeasurement).filter((sample) => (
+              (sample.quality === "good" || sample.quality === "estimated")
+              && sample.source !== "replay"
+              && (!realMode || !isSyntheticSource(sample.source))
+            )),
+            bucketMinutes,
+            limitPerMetric,
+          );
         }
-        return (await this.#archive!.thermalMeasurementHistory({
-          ...query,
-          metrics,
-          bucketMinutes,
-          limitPerMetric,
-        })).map(archivedMeasurement);
       },
       key: (record) => JSON.stringify([record.sensorId, record.metric, record.timestamp]),
       compare: compareMeasurements,
@@ -357,14 +441,10 @@ export class HybridTelemetryReader {
   async measurementAnalyticsRollup(
     query: Omit<MeasurementAnalyticsRollupQuery, "excludeSynthetic">,
   ): Promise<HybridMeasurementAnalyticsRollupResult | null> {
-    const localHistoryComplete = this.#isLocalHistoryComplete({
-      family: "measurement", from: query.from, to: query.to,
-    });
     return readMeasurementAnalyticsRollup({
       archive: this.#archive,
       archivePhase: this.#archivePhase,
       reconcile: this.#reconcile,
-      localHistoryComplete,
       realDataMode: this.#local.isRealDataMode(),
     }, query);
   }

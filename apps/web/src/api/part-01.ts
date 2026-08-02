@@ -136,11 +136,28 @@ import { API_BASE, API_REQUEST_TIMEOUT_MS, API_V2_BASE, ApiRequestError, COLLECT
 import type { ApiAuthorizationChange, AppleNotesSetupMetadata, CloudflareSetupOperation, CloudflareSetupPhase, CloudflareSetupStartInput, CloudflareSetupStartResult, CloudflareSetupStatus, CoordinateDefaults, CreateHouseInput, CreateSensorInput, HistoricalImportResult, HomeAssistantDiscoveredInstance, HouseGeoreferencePatch, HousePatch, IntegrationDiscoveryResult, LocationSuggestion, MaintenanceTaskFilters, MeasurementHistoryPage, OutdoorTemperatureHistoryPage, SensorMeasurementPage, SensorPatch, StugubyAuthorityTransfer, StugubyDetailResponse, StugubyHomeProjection, StugubyInvitationCreated, StugubyListResponse, StugubyLocalInvitation, StugubyLocalMember, StugubyLocalPublicationCatalog, StugubyPropertyAdoption, StugubyRemoteTelemetrySample, SystemRelease, SystemUpdateDay, SystemUpdateLiveStatus, SystemUpdateOperation, SystemUpdateSettings, SystemUpdateStatus, TenantMembersResponse, TpLinkDiscoveredSource, TpLinkHistoryExportJob, TpLinkHistoryExportJobStatus, TpLinkHistoryExportJobsResponse, TpLinkHistoryExportProvider } from "./support";
 import type { SystemStorageSettings, SystemStorageStatus } from "./support";
 
+export interface LocalMcpRuntimeStatus {
+  state: "stopped" | "starting" | "running" | "stopping" | "error";
+  endpointPath: "/api/v1/mcp";
+  pid: number | null;
+  startedAt: string | null;
+  toolCount: number | null;
+  serverVersion: string | null;
+  errorCode: "build_missing" | "start_failed" | "unexpected_exit" | "stop_failed" | null;
+}
+
+export interface LocalMcpRuntimeStartResult extends LocalMcpRuntimeStatus {
+  accessToken: string | null;
+}
+
 
 
 export const apiPart01 = {
   session: async () => rememberSession(await request<AppSession>("/session")),
   hostSystemHealth: () => request<HostSystemHealth>("/system/health"),
+  localMcpRuntimeStatus: () => request<LocalMcpRuntimeStatus>("/system/mcp-runtime"),
+  startLocalMcpRuntime: () => request<LocalMcpRuntimeStartResult>("/system/mcp-runtime/start", { method: "POST" }),
+  stopLocalMcpRuntime: () => request<LocalMcpRuntimeStatus>("/system/mcp-runtime/stop", { method: "POST" }),
   systemUpdateStatus: () => request<SystemUpdateStatus>("/system/updates"),
   checkSystemUpdates: () => request<SystemUpdateStatus>("/system/updates/check", { method: "POST" }),
   updateSystemUpdateSettings: (settings: SystemUpdateSettings) => request<SystemUpdateStatus>("/system/updates/settings", {

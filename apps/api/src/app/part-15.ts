@@ -351,41 +351,50 @@ export function configureApiPart15(context: ReturnType<typeof configureApiPart14
       response.once("close", abortOnClose);
       const startedAt = performance.now();
       try {
-        const isolation = await context.analyticsWorkLimiter.run("thermal-isolation", async () => {
-          const [outdoorRead, indoorReads] = await Promise.all([
-            context.telemetryReader.outdoorTemperatureHistory({
-              houseId: house.id,
-              locationKey: outdoorLocationKey(house.location),
-              from: new Date(Date.parse(from) - boundaryPaddingMs).toISOString(),
-              to: new Date(Date.parse(to) + boundaryPaddingMs).toISOString(),
-              limit: 50_000,
-              signal: abortController.signal,
-            }),
-            mapWithConcurrency(sensors, 2, (sensor) => (
-              context.telemetryReader.thermalMeasurementHistory({
-                sensorId: sensor.id,
-                metrics: ["temperature"],
-                from,
-                to,
-                bucketMinutes: 5,
-                limitPerMetric: 5_000,
-                signal: abortController.signal,
-              })
-            )),
-          ]);
-          const indoorSamplesBySensor = new Map(sensors.map((sensor, index) => [
-            sensor.id,
-            indoorReads[index]!.records,
-          ]));
-          return runThermalIsolationAsync({
+        const isolation = sensors.length === 0
+          ? await runThermalIsolationAsync({
             house,
             sensors,
-            indoorSamplesBySensor,
-            outdoorSamples: outdoorRead.records,
+            indoorSamplesBySensor: new Map<string, MeasurementSample[]>(),
+            outdoorSamples: [],
             from,
             to,
-          }, { signal: abortController.signal });
-        }, abortController.signal);
+          }, { signal: abortController.signal })
+          : await context.analyticsWorkLimiter.run("thermal-isolation", async () => {
+            const [outdoorRead, indoorReads] = await Promise.all([
+              context.telemetryReader.outdoorTemperatureHistory({
+                houseId: house.id,
+                locationKey: outdoorLocationKey(house.location),
+                from: new Date(Date.parse(from) - boundaryPaddingMs).toISOString(),
+                to: new Date(Date.parse(to) + boundaryPaddingMs).toISOString(),
+                limit: 50_000,
+                signal: abortController.signal,
+              }),
+              mapWithConcurrency(sensors, 2, (sensor) => (
+                context.telemetryReader.thermalMeasurementHistory({
+                  sensorId: sensor.id,
+                  metrics: ["temperature"],
+                  from,
+                  to,
+                  bucketMinutes: 5,
+                  limitPerMetric: 5_000,
+                  signal: abortController.signal,
+                })
+              )),
+            ]);
+            const indoorSamplesBySensor = new Map(sensors.map((sensor, index) => [
+              sensor.id,
+              indoorReads[index]!.records,
+            ]));
+            return runThermalIsolationAsync({
+              house,
+              sensors,
+              indoorSamplesBySensor,
+              outdoorSamples: outdoorRead.records,
+              from,
+              to,
+            }, { signal: abortController.signal });
+          }, abortController.signal);
         if (abortController.signal.aborted) return;
         response.setHeader("cache-control", "no-store");
         response.setHeader(

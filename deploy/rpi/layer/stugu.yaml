@@ -73,6 +73,7 @@ mmdebstrap:
     - cloud-guest-utils
     - curl
     - gdisk
+    - iproute2
     - nano
     - systemd-timesyncd
     - tailscale
@@ -90,6 +91,7 @@ mmdebstrap:
       install -d -m 0755 "$1/etc/systemd/system/containerd.service.d"
       install -d -m 0755 "$1/etc/systemd/system/docker.service.d"
       install -d -m 0755 "$1/etc/systemd/system/persistent-shared-init.service.d"
+      install -d -m 0755 "$1/etc/systemd/system/ssh.service.d"
       install -d -m 0755 "$1/etc/systemd/system/systemd-networkd-wait-online.service.d"
       install -d -m 0755 "$1/etc/systemd/system/tailscaled.service.d"
       install -d -m 0755 "$1/etc/systemd/timesyncd.conf.d"
@@ -125,6 +127,8 @@ mmdebstrap:
         "$1/usr/bin/stugu-usb-udev-slot"
       install -m 0644 "${IGconf_stugu_assetdir}/99-rpi-00-stugu-usb.rules" \
         "$1/etc/udev/rules.d/99-rpi-00-stugu-usb.rules"
+      install -m 0644 "${IGconf_stugu_assetdir}/70-stugu-gpio.rules" \
+        "$1/etc/udev/rules.d/70-stugu-gpio.rules"
       install -m 0755 "${IGconf_stugu_assetdir}/stugu-usb-initramfs-hook" \
         "$1/etc/initramfs-tools/hooks/stugu-usb-bootdev"
       install -m 0755 "${IGconf_stugu_assetdir}/stugu-usb-ab-root" \
@@ -137,6 +141,8 @@ mmdebstrap:
         "$1/usr/bin/rpi-slot-tryboot"
       install -m 0755 "${IGconf_stugu_assetdir}/rpi-persistent-shared-init" \
         "$1/usr/local/sbin/stugu-persistent-shared-init"
+      install -m 0755 "${IGconf_stugu_assetdir}/stugu-init-ssh-host-keys" \
+        "$1/usr/local/sbin/stugu-init-ssh-host-keys"
       install -m 0755 "${IGconf_stugu_assetdir}/stugu-eeprom-compat" \
         "$1/usr/local/sbin/stugu-eeprom-compat"
       install -m 0755 "${IGconf_stugu_assetdir}/stuguctl" \
@@ -151,6 +157,10 @@ mmdebstrap:
         "$1/etc/systemd/system/stugu-eeprom-compat.service"
       install -m 0644 "${IGconf_stugu_assetdir}/stugu-timesyncd.conf" \
         "$1/etc/systemd/timesyncd.conf.d/stugu.conf"
+
+      # An image must never carry an SSH server identity that clones inherit.
+      # The persistent initializer generates fresh keys on each first boot.
+      find "$1/etc/ssh" -maxdepth 1 -type f -name 'ssh_host_*' -delete
 
       # The Pi 4 USB rescue path boots this FAT payload directly. Keep the
       # firmware's automatic kernel/initramfs pairing: explicit late [pi4]
@@ -213,6 +223,7 @@ mmdebstrap:
 
       cat > "$1/etc/rpi-image-gen/slot-shared.d/stugu.conf" <<-'EOF'
       Version=1
+      Path=/etc/ssh
       Path=/var/lib/docker
       Path=/var/lib/containerd
       Path=/var/lib/tailscale
@@ -243,12 +254,20 @@ mmdebstrap:
       EOF
       chmod 0644 "$1/etc/systemd/system/tailscaled.service.d/stugu-shared-storage.conf"
 
+      cat > "$1/etc/systemd/system/ssh.service.d/stugu-host-keys.conf" <<-'EOF'
+      [Unit]
+      Requires=etc-ssh.mount
+      After=etc-ssh.mount
+      EOF
+      chmod 0644 "$1/etc/systemd/system/ssh.service.d/stugu-host-keys.conf"
+
       # image-rota installs its stock initializer after layer customization.
       # Override its command with Stugu's release-aware, idempotent seeder.
       cat > "$1/etc/systemd/system/persistent-shared-init.service.d/stugu.conf" <<-'EOF'
       [Service]
       ExecStart=
       ExecStart=/usr/local/sbin/stugu-persistent-shared-init
+      ExecStartPost=/usr/local/sbin/stugu-init-ssh-host-keys
       EOF
       chmod 0644 "$1/etc/systemd/system/persistent-shared-init.service.d/stugu.conf"
 

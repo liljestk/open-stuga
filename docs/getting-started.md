@@ -497,6 +497,7 @@ take precedence after restart.
 | `PORT` | `8787` | API listen port; Compose fixes the container port to 8787 |
 | `API_HOST` | `127.0.0.1` | local API bind; Compose overrides this to its private container interface |
 | `DATABASE_PATH` | `./data/climate-twin.sqlite` | SQLite file; Compose uses `/app/data/climate-twin.sqlite` |
+| `ALLOW_TEMPORARY_DATABASE_ON_PRIMARY_PORT` | `false` | explicit review-only escape hatch; `.tmp-runtime` databases must otherwise use a port other than 8787 |
 | `INTEGRATION_SECRETS_FILE` | next to `DATABASE_PATH` | protected JSON file for credentials saved through the setup page; Compose uses `/app/data/integration-secrets.json` |
 | `MOCK_ENABLED` | `false` | opt in to sample inventory and synthetic telemetry before a database's first start |
 | `MOCK_INTERVAL_MS` | `2000` | synthetic event interval |

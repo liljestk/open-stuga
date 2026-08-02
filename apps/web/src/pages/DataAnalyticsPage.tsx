@@ -655,7 +655,7 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
             <span className="analytics-tool-copy"><strong>{t("isolation.title")}</strong><small>{t("isolation.description")}</small></span>
             <ChevronDown className="analytics-tool-chevron" size={18} aria-hidden="true" />
           </summary>
-          {isolationOpen && <ThermalIsolationPanel house={props.house} units={props.units} embedded />}
+          {isolationOpen && <ThermalIsolationPanel house={props.house} units={props.units} dataMode={props.dataMode} embedded />}
         </details>
 
         <details className="analytics-tool" onToggle={(event) => setMoistureOpen(event.currentTarget.open)}>

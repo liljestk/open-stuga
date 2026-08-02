@@ -25,6 +25,7 @@ import { replaceLoadedHouseTelemetry, seriesStateKey, useClimateData, withoutDem
 
 import { deferred, twoHouseFixture } from "./useClimateDataTestSupport";
 import { writeLocalStorage } from "./browserStorage";
+import { ApiVersionMismatchError, assertApiRuntimeVersion } from "./apiRuntimeVersion";
 
 const mocks = vi.hoisted(() => ({
   session: vi.fn(),
@@ -275,6 +276,34 @@ describe("useClimateData", () => {
     expect(mocks.subscribeToEvents).not.toHaveBeenCalled();
     expect(result.current.state.houses).toEqual([]);
     expect(result.current.bootstrapError).toBeNull();
+  });
+
+  it("stops before workspace requests when the API runtime is stale", async () => {
+    mocks.session.mockRejectedValueOnce(new ApiVersionMismatchError("0.28.0"));
+
+    const { result } = renderHook(() => useClimateData());
+    await waitFor(() => expect(result.current.bootstrapStatus).toBe("incompatible"));
+
+    expect(mocks.properties).not.toHaveBeenCalled();
+    expect(mocks.houses).not.toHaveBeenCalled();
+    expect(result.current.bootstrapError).toContain("cannot use API 0.28.0");
+  });
+
+  it("blocks an open workspace as soon as a changed API reports another version", async () => {
+    const { result } = renderHook(() => useClimateData());
+    await waitFor(() => expect(result.current.bootstrapStatus).toBe("ready"));
+
+    act(() => {
+      try {
+        assertApiRuntimeVersion("0.28.0", true);
+      } catch (error) {
+        expect(error).toBeInstanceOf(ApiVersionMismatchError);
+      }
+    });
+
+    await waitFor(() => expect(result.current.bootstrapStatus).toBe("incompatible"));
+    expect(mocks.cancelPendingApiRequests).toHaveBeenCalled();
+    expect(result.current.connection).toBe("offline");
   });
 
   it("purges every exposed workspace cache and stays locked after local sign-out", async () => {

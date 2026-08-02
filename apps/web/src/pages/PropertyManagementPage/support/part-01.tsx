@@ -66,6 +66,7 @@ import type {
   HomeMonitoringCollectionResponse,
 } from "@climate-twin/contracts";
 import { api, ApiRequestError, subscribeToTrackingEvents, type HouseGeoreferencePatch } from "../../../api";
+import { createClientUuid } from "../../../clientUuid";
 import { EquipmentQrLabel } from "../../../components/EquipmentQrLabel";
 import { StugubyMark } from "../../../components/StugubyMark";
 import type { ClimateState } from "../../../domain";
@@ -278,7 +279,7 @@ export function areaDraft(area: PropertyArea): AreaDraft {
 
 export function firstHouseFloor(name: string): HouseCreateInput["floors"][number] {
   return {
-    id: crypto.randomUUID(), name, type: "ground", width: 10, height: 8, elevation: 0, ceilingHeight: 2.8, wallHeight: 2.8,
+    id: createClientUuid(), name, type: "ground", width: 10, height: 8, elevation: 0, ceilingHeight: 2.8, wallHeight: 2.8,
     walls: [], rooms: [], planElements: [],
   };
 }

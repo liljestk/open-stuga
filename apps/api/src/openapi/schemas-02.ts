@@ -231,9 +231,10 @@ export const schemasPart02 = {
         },
   AppSession: {
           type: "object",
-          required: ["authenticated", "principal", "tenant", "availableTenants", "readOnly", "grants"],
+          required: ["systemVersion", "authenticated", "principal", "tenant", "availableTenants", "readOnly", "grants"],
           additionalProperties: false,
           properties: {
+            systemVersion: { type: "string", description: "Exact Stugu runtime version used for web/API compatibility checks." },
             authenticated: { type: "boolean" },
             principal: { type: "object", required: ["type", "email"], properties: { type: { type: "string" }, email: { type: ["string", "null"] } } },
             tenant: { type: "object", required: ["id", "name", "role"], properties: { id: { type: "string" }, name: { type: "string" }, role: { enum: ["owner", "admin", "member", "guest", "service"] } } },

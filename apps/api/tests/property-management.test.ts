@@ -14,6 +14,8 @@ import { createApi, type ApiRuntime } from "../src/app.js";
 
 import { loadConfig } from "../src/config.js";
 
+import { SYSTEM_VERSION } from "../src/version.js";
+
 import { ClimateDatabase, outdoorLocationKey } from "../src/db.js";
 
 import { createMainHouse, polygon } from "./property-managementTestSupport.js";
@@ -40,6 +42,7 @@ describe("local property management", () => {
     });
     const session = await request(runtime.app).get("/api/v1/session").expect(200);
     expect(session.body).toEqual({
+      systemVersion: SYSTEM_VERSION,
       authenticated: false,
       principal: { type: "setup-required", email: null },
       tenant: { id: "local", name: "Local Stugu", role: "owner" },

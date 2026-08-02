@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "../i18n";
+import { api } from "../api";
 import { browserFacingApiBase, DeveloperPage } from "./DeveloperPage";
 import { setupDoctorRemediationHref } from "./SetupOperationsPanel";
 
@@ -53,6 +54,10 @@ describe("DeveloperPage", () => {
   });
 
   it("keeps workspace system operations out of non-admin developer access", () => {
+    vi.spyOn(api, "localMcpRuntimeStatus").mockResolvedValue({
+      state: "stopped", endpointPath: "/api/v1/mcp", pid: null, startedAt: null,
+      toolCount: null, serverVersion: null, errorCode: null,
+    });
     localStorage.setItem("climate-twin-locale", "en");
     const view = render(<I18nProvider><DeveloperPage /></I18nProvider>);
 
@@ -61,6 +66,41 @@ describe("DeveloperPage", () => {
 
     view.rerender(<I18nProvider><DeveloperPage canManageSystem /></I18nProvider>);
     expect(screen.getByText("Export, backup, and restore confidence")).toBeTruthy();
+  });
+
+  it("starts a protected network MCP endpoint and shows its one-time connection details", async () => {
+    const user = userEvent.setup();
+    const stopped = {
+      state: "stopped" as const, endpointPath: "/api/v1/mcp" as const, pid: null, startedAt: null,
+      toolCount: null, serverVersion: null, errorCode: null,
+    };
+    const running = {
+      state: "running" as const, endpointPath: "/api/v1/mcp" as const, pid: 4321,
+      startedAt: "2026-08-02T12:00:00.000Z", toolCount: 61, serverVersion: "0.30.0", errorCode: null,
+    };
+    vi.spyOn(api, "localMcpRuntimeStatus").mockResolvedValue(stopped);
+    const start = vi.spyOn(api, "startLocalMcpRuntime").mockResolvedValue({
+      ...running,
+      accessToken: "stugu_mcp_test-token-shown-once",
+    });
+    const stop = vi.spyOn(api, "stopLocalMcpRuntime").mockResolvedValue(stopped);
+    localStorage.setItem("climate-twin-locale", "en");
+    render(<I18nProvider><DeveloperPage canManageSystem /></I18nProvider>);
+
+    await user.click(await screen.findByRole("button", { name: "Start MCP server" }));
+
+    expect(start).toHaveBeenCalledOnce();
+    expect(await screen.findByText("Network MCP is running")).toBeTruthy();
+    expect((screen.getByRole("textbox", { name: "Streamable HTTP address" }) as HTMLInputElement).value)
+      .toBe(`${window.location.origin}/api/v1/mcp`);
+    expect((screen.getByLabelText("One-time access token") as HTMLInputElement).value)
+      .toBe("stugu_mcp_test-token-shown-once");
+    expect(screen.getByText(/will not show it again/i)).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Stop MCP server" }));
+    expect(stop).toHaveBeenCalledOnce();
+    expect(await screen.findByText("Network MCP is stopped")).toBeTruthy();
+    expect(screen.queryByLabelText("One-time access token")).toBeNull();
   });
 
   it("announces when copying is unavailable in a non-secure local context", async () => {

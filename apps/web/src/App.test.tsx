@@ -311,6 +311,20 @@ describe("Stugu app", () => {
     expect(climate.retryBootstrap).toHaveBeenCalledOnce();
   });
 
+  it("blocks the workspace when the web app and API versions differ", () => {
+    const climate = mockClimateData();
+    climate.bootstrapStatus = "incompatible";
+    climate.bootstrapError = "Stugu web 0.30.0 cannot use API 0.28.0.";
+    vi.mocked(useClimateData).mockReturnValue(climate);
+
+    renderApp();
+
+    expect(screen.getByRole("heading", { level: 1, name: "Stugu is running different versions" })).toBeTruthy();
+    expect(screen.getByText(/No readings or settings have been changed/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Reload Stugu" })).toBeTruthy();
+    expect(screen.queryByRole("navigation", { name: "Primary navigation" })).toBeNull();
+  });
+
   it("recovers from an unknown route through the visible overview action", async () => {
     const user = userEvent.setup();
     window.history.replaceState(null, "", "/removed-feature");

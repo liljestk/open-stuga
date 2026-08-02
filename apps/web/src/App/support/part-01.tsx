@@ -12,6 +12,7 @@ import { locationForRoute, routeFromLocation } from "../../routing";
 import { StuguMark } from "../../components/StuguMark";
 import { RouteErrorBoundary } from "../../components/RouteErrorBoundary";
 import { readLocalStorage, writeLocalStorage } from "../../browserStorage";
+import { createClientUuid } from "../../clientUuid";
 import {
   clearInvitationBootstrapStorage,
   clearInvitationFragment,
@@ -117,7 +118,7 @@ export function latestIso(values: Array<string | null | undefined>): string | nu
 
 export function firstFloor(name: string): Floor {
   return {
-    id: crypto.randomUUID(),
+    id: createClientUuid(),
     name,
     type: "ground",
     width: 10,

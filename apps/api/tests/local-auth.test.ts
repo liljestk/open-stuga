@@ -12,6 +12,8 @@ import { createApi, type ApiRuntime } from "../src/app.js";
 
 import { loadConfig } from "../src/config.js";
 
+import { SYSTEM_VERSION } from "../src/version.js";
+
 import { OWNER, authRuntime, privateIpv4Address, sessionCookie, setupOwner, streamTextToEnd } from "./local-authTestSupport.js";
 
 describe("local account authentication and authorization", () => {
@@ -41,7 +43,7 @@ describe("local account authentication and authorization", () => {
     runtimes.push(runtime);
 
     const initial = await request(runtime.app).get("/api/v1/session").expect(200);
-    expect(initial.body).toMatchObject({ authenticated: false, setupRequired: true, readOnly: true });
+    expect(initial.body).toMatchObject({ systemVersion: SYSTEM_VERSION, authenticated: false, setupRequired: true, readOnly: true });
     expect(initial.headers["cache-control"]).toBe("private, no-store");
     await request(runtime.app).get("/api/v1/houses").expect(401, {
       error: { code: "SETUP_REQUIRED", message: "Create the first local Owner before using the API" },
@@ -55,7 +57,7 @@ describe("local account authentication and authorization", () => {
 
     const agent = request.agent(runtime.app);
     const setup = await agent.post("/api/v1/auth/setup").send(OWNER).expect(201);
-    expect(setup.body).toMatchObject({ authenticated: true, readOnly: false, principal: { email: OWNER.email } });
+    expect(setup.body).toMatchObject({ systemVersion: SYSTEM_VERSION, authenticated: true, readOnly: false, principal: { email: OWNER.email } });
     expect(setup.headers["cache-control"]).toBe("private, no-store");
     const setCookies = setup.headers["set-cookie"] as unknown as string[];
     expect(setCookies.some((cookie) => /stuga_session=.*HttpOnly.*SameSite=Strict/i.test(cookie))).toBe(true);

@@ -10,6 +10,7 @@ import "../../components/decisionLayer.css";
 import "../OperationsPages.css";
 import { formatInTimeZone } from "../../dateTime";
 import { clamp, round, type ClimateState, type TimeRange, type ViewMode } from "../../domain";
+import { createClientUuid } from "../../clientUuid";
 import { useI18n, type TranslationKey } from "../../i18n";
 import { definitionFor, displayUnit, enabledDefinitions, formatMeasurement, formatMeasurementDelta, measurementComparisonColor, measurementDomain, measurementLabel, measurementValue, samplesAt, type LatestMeasurements } from "../../measurements";
 import { isEnergyDeviceSensor } from "../../energyDeviceMap";
@@ -55,7 +56,7 @@ export function useTwinDashboardPart05(context: ReturnType<typeof useTwinDashboa
           houseId,
           scopeType: "house",
           scopeId: houseId,
-          key: label.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "") || crypto.randomUUID(),
+          key: label.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "") || createClientUuid(),
           label,
           value,
           unit: parameterUnit.trim() || null,

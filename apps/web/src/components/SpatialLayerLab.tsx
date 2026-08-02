@@ -3,6 +3,7 @@ import { Check, ChevronDown, FlaskConical, Plus, RefreshCw, Save } from "lucide-
 import type { Sensor } from "@climate-twin/contracts";
 import type { SpatialContextEventKind } from "@climate-twin/spatial-layers";
 import { api } from "../api";
+import { createClientUuid } from "../clientUuid";
 import type {
   SpatialContextEvent,
   SpatialCalibrationSession,
@@ -42,7 +43,7 @@ function localDateTimeInput(value = new Date()): string {
 }
 
 function identifier(prefix: string): string {
-  return typeof globalThis.crypto?.randomUUID === "function" ? `${prefix}-${globalThis.crypto.randomUUID()}` : `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  return `${prefix}-${createClientUuid()}`;
 }
 
 function assignmentsFromCatalog(layers: UseSpatialLayersResult): SpatialLayerAssignment[] {

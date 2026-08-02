@@ -6,6 +6,7 @@ import { nexus433Api } from "./api/nexus433";
 import { bugReportApi } from "./api/bug-reports";
 
 export * from "./api/support";
+export * from "./apiRuntimeVersion";
 export const api = {
   ...apiPart01,
   ...apiPart02,

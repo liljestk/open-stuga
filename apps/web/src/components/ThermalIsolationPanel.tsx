@@ -7,16 +7,36 @@ import type {
   ThermalIsolationResult,
   UnitSystem,
 } from "@climate-twin/contracts";
-import { useI18n } from "../i18n";
+import { useI18n, type TranslationKey } from "../i18n";
 import { useThermalIsolation } from "../useThermalIsolation";
 
 interface ThermalIsolationPanelProps {
   house: House;
   units: UnitSystem;
+  dataMode: "demo" | "real" | "unknown";
   embedded?: boolean;
 }
 
 const WINDOW_OPTIONS = [24, 7 * 24, 14 * 24] as const;
+
+function errorCopy(errorCode: string | null, errorStatus: number | null): {
+  title: TranslationKey;
+  help: TranslationKey;
+} {
+  if (errorCode === "THERMAL_SCOPE_TOO_LARGE") {
+    return { title: "isolation.errorScope", help: "isolation.errorScopeHelp" };
+  }
+  if (errorCode === "RANGE_TOO_LARGE") {
+    return { title: "isolation.errorRange", help: "isolation.errorRangeHelp" };
+  }
+  if (errorCode === "TELEMETRY_ARCHIVE_REQUIRED") {
+    return { title: "isolation.errorHistory", help: "isolation.errorHistoryHelp" };
+  }
+  if ((errorStatus === 404 && errorCode === null) || errorStatus === 501) {
+    return { title: "isolation.errorUnavailable", help: "isolation.errorUnavailableHelp" };
+  }
+  return { title: "isolation.error", help: "isolation.errorHelp" };
+}
 
 function numeric(value: number | null, locale: string, digits = 1): string {
   return value === null ? "—" : new Intl.NumberFormat(locale, { maximumFractionDigits: digits }).format(value);
@@ -97,10 +117,11 @@ function ComparisonRows({
   </div>;
 }
 
-export function ThermalIsolationPanel({ house, units, embedded = false }: Readonly<ThermalIsolationPanelProps>) {
+export function ThermalIsolationPanel({ house, units, dataMode, embedded = false }: Readonly<ThermalIsolationPanelProps>) {
   const { locale, t } = useI18n();
   const [windowHours, setWindowHours] = useState<number>(7 * 24);
-  const { result, loading, error, run } = useThermalIsolation(house.id);
+  const { result, loading, error, errorCode, errorStatus, errorDetail, run } = useThermalIsolation(house.id);
+  const errorMessage = errorCopy(errorCode, errorStatus);
 
   const refresh = useCallback(() => {
     const to = new Date();
@@ -115,6 +136,13 @@ export function ThermalIsolationPanel({ house, units, embedded = false }: Readon
   const houseEntry = result?.entries.find((entry) => entry.scope.type === "house") ?? null;
   const sensorEntries = result?.entries.filter((entry) => entry.scope.type === "sensor") ?? [];
   const entryById = useMemo(() => new Map(result?.entries.map((entry) => [entry.scope.id, entry]) ?? []), [result]);
+  const noRecordedEvidence = Boolean(houseEntry && houseEntry.score === null);
+  const demoEstimate = Boolean(dataMode === "demo" && houseEntry && houseEntry.score !== null);
+  const technicalError = [
+    errorStatus === null ? null : `HTTP ${errorStatus}`,
+    errorCode,
+    errorDetail,
+  ].filter((item): item is string => Boolean(item)).join(" · ");
 
   return <section className={`${embedded ? "analytics-tool-content" : "panel"} thermal-isolation-panel`} aria-label={embedded ? t("isolation.title") : undefined} aria-labelledby={embedded ? undefined : "thermal-isolation-title"}>
     {embedded ? <div className="isolation-embedded-toolbar">
@@ -135,8 +163,10 @@ export function ThermalIsolationPanel({ house, units, embedded = false }: Readon
     </header>}
 
     {loading && !result && <output className="isolation-loading">{t("isolation.calculating")}</output>}
-    {error && <div className="isolation-error" role="alert"><TriangleAlert size={18} aria-hidden="true" /><div><strong>{t("isolation.error")}</strong><p>{t("isolation.errorHelp")}</p></div></div>}
-    {houseEntry && <>
+    {error && <div className="isolation-error" role="alert"><TriangleAlert size={18} aria-hidden="true" /><div><strong>{t(errorMessage.title)}</strong><p>{t(errorMessage.help)}</p>{technicalError && <details><summary>{t("bootstrap.technicalDetails")}</summary><code>{technicalError}</code></details>}</div></div>}
+    {demoEstimate && <div className="isolation-evidence-state demo" role="status"><ShieldCheck size={18} aria-hidden="true" /><div><strong>{t("isolation.demoEvidence")}</strong><p>{t("isolation.demoEvidenceHelp")}</p></div></div>}
+    {noRecordedEvidence && <div className="isolation-evidence-state empty" role="status"><Thermometer size={18} aria-hidden="true" /><div><strong>{t("isolation.noRecordedData")}</strong><p>{t("isolation.noRecordedDataHelp")}</p></div></div>}
+    {houseEntry && !noRecordedEvidence && <>
       <div className="isolation-house-summary">
         <article className={`isolation-score-card ${houseEntry.rating ?? "unavailable"}`}>
           <div className="isolation-score-icon"><Home size={19} aria-hidden="true" /></div>

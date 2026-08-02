@@ -394,6 +394,45 @@ describe("HybridTelemetryReader", () => {
     expect(result).toEqual({ result: { series: [] }, archiveState: "merged" });
   });
 
+  it("uses raw archive samples when thermal rollups briefly lag live ingestion", async () => {
+    const reconcile = vi.fn(async () => undefined);
+    const thermalMeasurementHistory = vi.fn(async () => {
+      throw new Error("rollup coverage is behind the raw archive");
+    });
+    const measurementWindow = vi.fn(async () => [
+      measurement("2026-07-18T00:01:00.000Z", 20),
+      { ...measurement("2026-07-18T00:02:00.000Z", 24), quality: "estimated" as const },
+    ]);
+    const reader = new HybridTelemetryReader({
+      local: localReader({ isRealDataMode: vi.fn(() => true) }),
+      archive: { ...archiveReader(), thermalMeasurementHistory, measurementWindow },
+      archivePhase: () => "ready",
+      reconcile,
+      localHistoryComplete: false,
+    });
+
+    const result = await reader.thermalMeasurementHistory({
+      sensorId: "sensor-a",
+      metrics: ["temperature"],
+      from: FROM,
+      to: TO,
+      bucketMinutes: 15,
+      limitPerMetric: 100,
+    });
+
+    expect(thermalMeasurementHistory).toHaveBeenCalledOnce();
+    expect(measurementWindow).toHaveBeenCalledWith(expect.objectContaining({
+      sensorIds: ["sensor-a"], metrics: ["temperature"], limit: 250_000,
+    }));
+    expect(reconcile).toHaveBeenCalledOnce();
+    expect(result.records).toEqual([expect.objectContaining({
+      timestamp: "2026-07-18T00:00:00.000Z",
+      value: 20.8,
+      quality: "good",
+    })]);
+    expect(result.provenance.archiveState).toBe("merged");
+  });
+
   it("supports legacy and outdoor families with the same conflict policy and restores archived conditions", async () => {
     const overlapAt = "2026-07-18T00:20:00.000Z";
     const local = localReader({

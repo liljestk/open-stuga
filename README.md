@@ -80,7 +80,7 @@ The opt-in demo starts with a two-floor home, ten virtual sensors, temperature, 
   plus complete iPad and Mac Catalyst clients that present the same
   server-hosted product as the web app; Apple-only capture, notifications,
   shortcuts, offline state, and Watch support remain native
-- Versioned REST API, OpenAPI description, and a local stdio MCP server
+- Versioned REST API, OpenAPI description, and local stdio plus authenticated network MCP servers
 - English, Finnish, and Swedish UI foundations, metric/imperial display,
   responsive layout, and accessible controls
 
@@ -337,7 +337,29 @@ a Stuguby; participant nodes remain outbound-only.
 
 ## MCP
 
-Build once, then configure a local MCP host to spawn:
+Stugu is the MCP server; Codex, another local service, or an RPi application is
+the MCP client. An Owner or Admin can open **Advanced → API & MCP**, select
+**Start network MCP server**, and copy the displayed Streamable HTTP endpoint
+and one-time bearer token. A generic client shape is:
+
+```json
+{
+  "mcpServers": {
+    "stugu": {
+      "type": "streamable-http",
+      "url": "https://stugu.example/api/v1/mcp",
+      "headers": { "Authorization": "Bearer stugu_mcp_..." }
+    }
+  }
+}
+```
+
+Use the exact schema required by the client. Stop the server in the Web UI to
+revoke the token. Put remote access behind TLS or a trusted VPN; a bearer token
+must not travel over an untrusted plain-HTTP connection.
+
+For a client on the same machine, build once and configure it to spawn the
+stdio server directly:
 
 ```json
 {
@@ -351,13 +373,13 @@ Build once, then configure a local MCP host to spawn:
 }
 ```
 
-The MCP process uses the same `DATABASE_PATH` and TimeDB settings as the API, so it can discover
-Properties, Homes, Stugubys, measurement definitions, metric history/forecasts,
-current conditions, electricity/energy analysis, alerts, actions, maintenance,
-integrations, backups, and setup readiness without copying telemetry into an AI
-provider. It opens SQLite read-only and queries TimeDB only for telemetry
-history; it exposes no create, update, delete, import, sharing, synchronization,
-or control tools.
+Both MCP transports use the same `DATABASE_PATH` and TimeDB settings as the API,
+so clients can discover Properties, Homes, Stugubys, measurement definitions,
+metric history/forecasts, current conditions, electricity/energy analysis,
+alerts, actions, maintenance, integrations, backups, and setup readiness without
+copying telemetry into an AI provider. Each MCP process opens SQLite read-only
+and queries TimeDB only for telemetry history; neither exposes create, update,
+delete, import, sharing, synchronization, or control tools.
 Start the API once after an upgrade so migrations are current, and run
 `npm run build` before launching the compiled server.
 

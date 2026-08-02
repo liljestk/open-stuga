@@ -374,6 +374,7 @@ export function configureApiPart05(context: ReturnType<typeof configureApiPart04
       response.setHeader("x-content-type-options", "nosniff");
       response.setHeader("referrer-policy", "no-referrer");
       response.setHeader("x-api-version", request.path.startsWith(v2Prefix) ? "v2" : "v1");
+      response.setHeader("x-stugu-system-version", SYSTEM_VERSION);
       if (request.path.startsWith(prefix) || request.path.startsWith(v2Prefix)) {
         // Account and Guest scope are carried by an HttpOnly cookie. Never let a
         // browser or shared intermediary reuse one account's API representation
@@ -393,6 +394,7 @@ export function configureApiPart05(context: ReturnType<typeof configureApiPart04
       if (config.corsOrigin && originAllowed && normalizedOrigin(origin) === normalizedOrigin(config.corsOrigin)) {
         response.setHeader("access-control-allow-origin", normalizedOrigin(config.corsOrigin)!);
         response.setHeader("access-control-allow-credentials", "true");
+        response.setHeader("access-control-expose-headers", "x-api-version, x-stugu-system-version");
         response.setHeader("vary", "Origin");
         response.setHeader("access-control-allow-methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
         response.setHeader("access-control-allow-headers", "Content-Type,Authorization,X-API-Key,X-CSRF-Token,X-Stugu-Bootstrap-Secret,Last-Event-ID");

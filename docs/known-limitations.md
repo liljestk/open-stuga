@@ -348,9 +348,10 @@ system described in the roadmap.
 - Neither v1 nor v2 SSE has a durable event ID/resume cursor. The bundled client
   subscribes before hydrating, buffers intervening events, and refreshes the
   relevant snapshot/history after reconnects. Other clients must do the same.
-- MCP authorization is the ability to launch the local stdio process and access
-  its configured stores; it does not use browser account sessions or Guest grants. The
-  current MCP surface is inspection-only, opens SQLite read-only, and queries
+- MCP authorization is either the ability to launch the local stdio process or
+  possession of the one-time bearer from an explicitly Web-started Streamable
+  HTTP runtime. It does not use browser account sessions or Guest grants. The
+  MCP surface is inspection-only, opens SQLite read-only, and queries
   TimeDB only for telemetry history. It cannot
   create, update, delete, import, migrate, share, synchronize, or control local
   state.

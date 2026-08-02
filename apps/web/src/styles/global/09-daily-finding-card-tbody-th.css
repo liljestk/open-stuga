@@ -32,6 +32,20 @@
 
 .isolation-error p { margin: 2px 0 0; color: var(--muted); }
 
+.isolation-error details { margin-top: 8px; color: var(--muted); }
+
+.isolation-error code { display: block; margin-top: 6px; overflow-wrap: anywhere; white-space: normal; }
+
+.isolation-evidence-state { display: flex; align-items: flex-start; gap: 10px; padding: 16px 18px; border-top: 1px solid var(--line); }
+
+.isolation-evidence-state svg { flex: 0 0 auto; margin-top: 1px; }
+
+.isolation-evidence-state p { margin: 2px 0 0; color: var(--muted); }
+
+.isolation-evidence-state.demo { color: var(--action); background: var(--action-soft); }
+
+.isolation-evidence-state.empty { color: var(--yellow); background: var(--yellow-soft); }
+
 .isolation-house-summary { display: grid; grid-template-columns: minmax(220px, .72fr) minmax(0, 1.8fr); gap: 1px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: var(--line); }
 
 .isolation-score-card { display: flex; align-items: center; gap: 13px; min-height: 122px; padding: 18px; background: linear-gradient(135deg, var(--panel), var(--panel-soft)); }

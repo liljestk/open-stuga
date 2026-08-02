@@ -1,0 +1,2 @@
+# Permit the unprivileged Nexus433 container to read the fixed appliance GPIO chip.
+SUBSYSTEM=="gpio", KERNEL=="gpiochip0", GROUP="gpio", MODE="0660"

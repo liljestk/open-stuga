@@ -50,6 +50,9 @@ export function renderApp(context: ReturnType<typeof useAppPart03>) {
         onCancelInvitation={() => setInvitationToken(null)}
       />;
     }
+  if (climate.bootstrapStatus === "incompatible") {
+      return <main className="bootstrap-screen"><section className="bootstrap-card" aria-labelledby="bootstrap-incompatible-title"><StuguMark /><span className="bootstrap-icon exception" aria-hidden="true"><AlertTriangle size={22} /></span><div><span className="eyebrow">{t("bootstrap.incompatibleEyebrow")}</span><h1 id="bootstrap-incompatible-title">{t("bootstrap.incompatibleTitle")}</h1><p>{t("bootstrap.incompatibleBody")}</p></div><button type="button" className="primary-button" onClick={() => window.location.reload()}><RotateCcw size={16} aria-hidden="true" />{t("bootstrap.reload")}</button>{climate.bootstrapError && <details><summary>{t("bootstrap.technicalDetails")}</summary><code>{climate.bootstrapError}</code></details>}</section></main>;
+    }
   if (climate.bootstrapStatus === "unavailable") {
       return <main className="bootstrap-screen"><section className="bootstrap-card" aria-labelledby="bootstrap-unavailable-title"><StuguMark /><span className="bootstrap-icon exception" aria-hidden="true"><AlertTriangle size={22} /></span><div><span className="eyebrow">{t("bootstrap.connectionEyebrow")}</span><h1 id="bootstrap-unavailable-title">{t("bootstrap.unavailableTitle")}</h1><p>{t("bootstrap.unavailableBody")}</p></div><button type="button" className="primary-button" onClick={climate.retryBootstrap}><RotateCcw size={16} aria-hidden="true" />{t("bootstrap.retry")}</button>{climate.bootstrapError && <details><summary>{t("bootstrap.technicalDetails")}</summary><code>{climate.bootstrapError}</code></details>}</section></main>;
     }

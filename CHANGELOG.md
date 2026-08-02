@@ -4,6 +4,19 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+- Prevent temporary review databases from silently taking over the primary API
+  port, and distinguish missing thermal evidence, unavailable history, and
+  explicitly simulated demo estimates in the thermal comparison.
+- Keep file export and thermal comparison available from complete raw archive
+  samples while optimized telemetry rollups catch up with live ingestion.
+- Generate SSH server host keys independently on each Raspberry Pi appliance's
+  first boot and preserve them across A/B and application updates instead of
+  allowing a cloned factory image to reuse one server identity.
+
+Upgrade impact: the first OS image adopting this change rotates an existing
+appliance's SSH host fingerprint once. Verify the new fingerprint through a
+trusted local or Raspberry Pi Connect console before updating `known_hosts`.
+
 ## 0.30.0 - 2026-08-02
 
 - Let each Property designate a default Home, use it consistently when opening

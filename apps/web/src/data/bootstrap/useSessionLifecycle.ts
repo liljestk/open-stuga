@@ -46,6 +46,7 @@ import {
   type MeasurementHistoryPage,
   type SensorPatch,
 } from "../../api";
+import { ApiVersionMismatchError, subscribeToApiVersionMismatch } from "../../apiRuntimeVersion";
 import { subscribeToAuthEpoch } from "../../authEpoch";
 import { createDemoState, nextMockReading, snapshotToReadings, timeRangeHours, type ClimateState, type TimeRange } from "../../domain";
 import { appendHistory, enabledDefinitions, legacyForecastSamples, readingSamples, upsertLatest } from "../../measurements";
@@ -93,6 +94,20 @@ export function useSessionLifecycle(
       setStreamConnections(offline);
       setPollingFallback(false);
     }, []);
+  const enterIncompatibleState = useCallback((error: ApiVersionMismatchError) => {
+      sessionLifecycleEpoch.current += 1;
+      cancelPendingApiRequests();
+      for (const unsubscribe of activeStreamUnsubscribers.current) unsubscribe();
+      activeStreamUnsubscribers.current.clear();
+      for (const release of activeStreamGateReleases.current) release();
+      apiAvailable.current = false;
+      hasHydratedActiveHouse.current = false;
+      resetStreamConnections();
+      setBootstrapError(error.message);
+      setBootstrapStatus("incompatible");
+      setLoading(false);
+    }, [resetStreamConnections]);
+  useEffect(() => subscribeToApiVersionMismatch(enterIncompatibleState), [enterIncompatibleState]);
   const handleHeartbeat = useCallback((data: unknown) => {
       const pollingCompatibility = isPollingCompatibilityHeartbeat(data);
       if (heartbeatFallbackTimer.current !== null) window.clearTimeout(heartbeatFallbackTimer.current);
@@ -275,6 +290,10 @@ export function useSessionLifecycle(
           if (unsubscribeStreams) activeStreamUnsubscribers.current.delete(unsubscribeStreams);
           unsubscribeStreams?.();
           unsubscribeStreams = undefined;
+          if (error instanceof ApiVersionMismatchError) {
+            if (!invalidated()) enterIncompatibleState(error);
+            return;
+          }
           if (!invalidated()) {
             apiAvailable.current = false;
             resetStreamConnections();
@@ -328,6 +347,6 @@ export function useSessionLifecycle(
         if (unsubscribeStreams) activeStreamUnsubscribers.current.delete(unsubscribeStreams);
         unsubscribeStreams?.();
       };
-    }, [bootstrapAttempt, handleHeartbeat, loadHouseData, refreshTpLinkDevices, resetStreamConnections, sessionLocked, updateStreamConnection]);
+    }, [bootstrapAttempt, enterIncompatibleState, handleHeartbeat, loadHouseData, refreshTpLinkDevices, resetStreamConnections, sessionLocked, updateStreamConnection]);
   return Object.assign(context, { scheduleActiveHouseResync, updateStreamConnection, resetStreamConnections, handleHeartbeat });
 }

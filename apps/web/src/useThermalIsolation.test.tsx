@@ -56,5 +56,29 @@ describe("useThermalIsolation", () => {
     expect(result.current.result).toBeNull();
     expect(result.current.loading).toBe(false);
     expect(result.current.error).toBe(true);
+    expect(result.current.errorCode).toBeNull();
+    expect(result.current.errorStatus).toBeNull();
+    expect(result.current.errorDetail).toBe("network unavailable");
+  });
+
+  it("preserves API error details for an accurate recovery message", async () => {
+    mocks.thermalIsolation.mockRejectedValueOnce({
+      status: 422,
+      code: "THERMAL_SCOPE_TOO_LARGE",
+      message: "Too many sensors",
+    });
+    const { result } = renderHook(() => useThermalIsolation("house-a"));
+
+    await act(async () => {
+      await result.current.run({
+        from: "2026-07-01T00:00:00.000Z",
+        to: "2026-07-08T00:00:00.000Z",
+      });
+    });
+
+    expect(result.current.error).toBe(true);
+    expect(result.current.errorCode).toBe("THERMAL_SCOPE_TOO_LARGE");
+    expect(result.current.errorStatus).toBe(422);
+    expect(result.current.errorDetail).toBe("Too many sensors");
   });
 });

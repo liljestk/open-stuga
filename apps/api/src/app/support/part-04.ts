@@ -391,8 +391,9 @@ export function requireJsonContentType(request: Request): void {
   }
 }
 
-export function sessionDocument(identity: LocalAuthIdentity, csrfToken?: string): AppSession {
+export function sessionDocument(identity: LocalAuthIdentity, csrfToken?: string): AppSession & { systemVersion: string } {
   return {
+    systemVersion: SYSTEM_VERSION,
     authenticated: true,
     principal: { type: "local", email: identity.email },
     tenant: { id: "local", name: "Local Stugu", role: identity.role },

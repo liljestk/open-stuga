@@ -177,12 +177,21 @@ test("factory capability and rollback contract are explicit", () => {
 
   const layer = source("deploy/rpi/layer/stugu.yaml");
   const start = source("deploy/rpi/assets/stugu-compose-start");
+  const gpioRules = source("deploy/rpi/assets/70-stugu-gpio.rules");
   const control = source("deploy/rpi/assets/stuguctl");
   assert.match(layer, /STUGA_RELEASE_ENV_SCHEMA=3/);
   assert.match(layer, /STUGA_MQTT_IMAGE=\$\{IGconf_stugu_mqtt_image\}/);
   assert.match(layer, /STUGA_NEXUS433_IMAGE=\$\{IGconf_stugu_nexus433_image\}/);
+  assert.match(layer, /70-stugu-gpio\.rules/);
   assert.match(start, /release-v3\.env/);
   assert.match(start, /known-good-v3\.env/);
-  assert.match(start, /stat --format=%g \/dev\/gpiochip0/);
+  assert.match(start, /getent group gpio 2>\/dev\/null[\s\S]*\|\| true/);
+  assert.match(start, /grep -c '\^STUGA_GPIO_GID='/);
+  assert.match(start, /awk -v replacement="STUGA_GPIO_GID=\$gpio_gid"/);
+  assert.doesNotMatch(start, /stat --format=%g \/dev\/gpiochip0/);
+  assert.match(gpioRules, /SUBSYSTEM=="gpio"/);
+  assert.match(gpioRules, /KERNEL=="gpiochip0"/);
+  assert.match(gpioRules, /GROUP="gpio"/);
+  assert.match(gpioRules, /MODE="0660"/);
   assert.match(control, /known-good-v3\.env/);
 });

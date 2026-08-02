@@ -147,6 +147,44 @@
 
 .endpoint-copy-status { flex-basis: 100%; color: var(--positive); font-size: 10px; line-height: 1.3; text-align: right; }
 
+.mcp-runtime-control { grid-column: 1 / -1; min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-top: 16px; border-top: 1px solid var(--line); }
+
+.mcp-runtime-summary { min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 10px; }
+
+.mcp-runtime-summary > span:last-child, .mcp-network-heading > span { min-width: 0; display: grid; gap: 2px; }
+
+.mcp-runtime-summary strong, .mcp-network-heading strong { font: 700 12px/1.3 "Manrope", sans-serif; }
+
+.mcp-runtime-summary small, .mcp-network-heading small { color: var(--muted); font-size: 10px; line-height: 1.45; }
+
+.mcp-runtime-state-icon { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 50%; color: var(--muted); background: var(--panel-soft); }
+
+.mcp-runtime-control.running .mcp-runtime-state-icon { color: var(--positive); background: var(--positive-soft); }
+
+.mcp-runtime-control.starting .mcp-runtime-state-icon, .mcp-runtime-control.stopping .mcp-runtime-state-icon { color: var(--action); background: var(--action-soft); }
+
+.mcp-runtime-control.error .mcp-runtime-state-icon { color: var(--red); background: var(--red-soft); }
+
+.mcp-runtime-control > button { flex: 0 0 auto; min-height: 40px; }
+
+.mcp-runtime-error { grid-column: 1 / -1; margin: -3px 0 0; color: var(--red); font-size: 10px; line-height: 1.4; }
+
+.mcp-network-connection { grid-column: 1 / -1; min-width: 0; padding: 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel-soft); }
+
+.mcp-network-heading { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px; align-items: start; }
+
+.mcp-network-heading > svg { margin-top: 1px; color: var(--action); }
+
+.mcp-network-endpoints { margin-top: 10px; }
+
+.mcp-network-endpoints > div { grid-template-columns: 150px minmax(0, 1fr); }
+
+.mcp-network-endpoints .endpoint-value[type="password"] { letter-spacing: .12em; }
+
+.mcp-token-note { margin: 9px 0 0; color: var(--muted); font-size: 10px; line-height: 1.45; }
+
+.mcp-token-note.warning { color: var(--yellow); }
+
 .endpoint-copy-status.failed { color: var(--red); }
 
 .table-scroll { overflow-x: auto; margin-top: 14px; }

@@ -58,7 +58,13 @@ fi
 for path in $paths; do
   echo "persistent-shared-init: seeding $path for release $release"
   if [ -d "$path" ]; then
-    rsync -aHAXS --numeric-ids --checksum "$path/" "${shared_base}${path}/"
+    if [ "$path" = "/etc/ssh" ]; then
+      # Host identities belong to installations, never image releases.
+      rsync -aHAXS --numeric-ids --checksum --exclude='ssh_host_*' \
+        "$path/" "${shared_base}${path}/"
+    else
+      rsync -aHAXS --numeric-ids --checksum "$path/" "${shared_base}${path}/"
+    fi
   fi
 done
 

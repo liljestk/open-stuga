@@ -10,6 +10,7 @@ import "../../components/decisionLayer.css";
 import "../OperationsPages.css";
 import { formatInTimeZone } from "../../dateTime";
 import { clamp, round, type ClimateState, type TimeRange, type ViewMode } from "../../domain";
+import { createClientUuid } from "../../clientUuid";
 import { useI18n, type TranslationKey } from "../../i18n";
 import { definitionFor, displayUnit, enabledDefinitions, formatMeasurement, formatMeasurementDelta, measurementComparisonColor, measurementDomain, measurementLabel, measurementValue, samplesAt, type LatestMeasurements } from "../../measurements";
 import { isEnergyDeviceSensor } from "../../energyDeviceMap";
@@ -183,7 +184,7 @@ export function useTwinDashboardPart01(context: {
       setConnectedDeviceError(null);
       try {
         const result = await api.commandConnectedDevice(connectionId, {
-          operationId: crypto.randomUUID(),
+          operationId: createClientUuid(),
           power,
         });
         cacheConnectedDevice(result.state);

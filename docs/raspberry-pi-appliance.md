@@ -190,6 +190,13 @@ The outputs are written to `dist/rpi/`:
   deploy it to the Pi 4 USB appliance.
 - `stugu-rpi4-<version>.sha256` — checksums for both.
 
+The factory image contains no SSH server host private keys. Each installed disk
+generates a fresh RSA, ECDSA, and Ed25519 host-key set from the Pi's kernel RNG
+on first boot, before SSH can start. The keys live under the persistent shared
+partition and survive A/B slot changes and application releases. The key passed
+through `RPI_SSH_PUBLIC_KEY_FILE` is separate: it authorizes operator login and
+may also be made per-device, but its private half never enters the image.
+
 Before compression, the build validates the raw image with Linux `sfdisk` and
 `mtools`. It fails unless the protective MBR, GPT, six aligned/named
 partitions, filesystem signatures, current Pi firmware, complete rescue
@@ -356,6 +363,7 @@ Connect through SSH using the key from step 2:
 ssh stugu@stugu.local
 stuguctl status
 stuguctl access
+cat /persistent/shared/.stugu-ssh-host-keys-v1
 cat /proc/cmdline
 findmnt -no SOURCE /
 grep -w memory /sys/fs/cgroup/cgroup.controllers
@@ -382,6 +390,11 @@ Open the URL printed by Tailscale, authorize the device, then run
 `stuguctl access` again for its Tailnet URL. Tailscale traffic is encrypted,
 but direct LAN access is plain HTTP and should remain on a trusted private
 network. Use Cloudflare Access or another TLS reverse proxy for public access.
+
+The SSH host-key receipt lists the installation's SHA-256 fingerprints. Record
+the Ed25519 fingerprint through a trusted local or Raspberry Pi Connect console
+before approving the first SSH connection. A later unexpected fingerprint
+change requires investigation; normal application and A/B updates retain it.
 
 ## 7. Automatic GitHub application releases
 

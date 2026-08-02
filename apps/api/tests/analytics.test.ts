@@ -277,4 +277,41 @@ describe("analytics query API", () => {
     });
     expect(response.body.series[0].points[0]).toMatchObject({ value: 20, sampleCount: 1_800, coverage: 1 });
   });
+
+  it("falls back to complete raw archive data while a continuous aggregate catches up", async () => {
+    await runtime.close();
+    const database = new ClimateDatabase(":memory:", true);
+    database.activateRealDataMode();
+    const measurementAnalyticsRollup = vi.fn(async () => {
+      throw new Error("continuous aggregate is still materializing");
+    });
+    const measurementWindow = vi.fn(async () => [
+      { sensorId: "sensor-01", metric: "temperature", value: 20, canonicalUnit: "C", timestamp: "2026-07-19T10:00:00.000Z", source: "api" as const, quality: "good" as const },
+      { sensorId: "sensor-01", metric: "temperature", value: 21, canonicalUnit: "C", timestamp: "2026-07-19T10:05:00.000Z", source: "api" as const, quality: "good" as const },
+      { sensorId: "sensor-01", metric: "temperature", value: 22, canonicalUnit: "C", timestamp: "2026-07-19T10:10:00.000Z", source: "api" as const, quality: "good" as const },
+    ]);
+    const archive: ArchiveTelemetryReader = {
+      measurementHistory: vi.fn(async () => []),
+      measurementWindow,
+      measurementAnalyticsRollup,
+      legacyReadingHistory: vi.fn(async () => []),
+      outdoorTemperatureHistory: vi.fn(async () => []),
+    };
+    const telemetryReader = new HybridTelemetryReader({
+      local: database,
+      archive,
+      archivePhase: () => "ready",
+      localHistoryComplete: false,
+    });
+    runtime = createApi({ config, database, telemetryReader, startBackground: false });
+
+    const response = await request(runtime.app).post("/api/v2/analytics/query").send(query()).expect(200);
+
+    expect(measurementAnalyticsRollup).toHaveBeenCalledOnce();
+    expect(measurementWindow).toHaveBeenCalledOnce();
+    expect(response.body).toMatchObject({
+      quality: { sampleCount: 3 },
+      series: [{ provenance: { archiveState: "merged" }, summary: { mean: 21 } }],
+    });
+  });
 });

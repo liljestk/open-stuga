@@ -1,18 +1,20 @@
 # API, weather, MCP, Home Assistant alerts, DayOps, and OpenWearable
 
-Stugu exposes one local workspace through three transports:
+Stugu exposes one local workspace through four transports:
 
 - REST under `/api/v1` for the original temperature/humidity compatibility
   contract and `/api/v2` for registered sparse measurements;
 - server-sent events at `/api/v1/stream` for compatibility readings,
   provider-neutral weather snapshots, and integration state, plus
   `/api/v2/measurements/events` for per-metric live updates;
-- a local stdio MCP server for trusted agent/tool hosts.
+- a local stdio MCP server for trusted same-host agent/tool clients;
+- an explicitly started, bearer-protected Streamable HTTP MCP server for
+  trusted network clients.
 
 Browser HTTP requests use built-in local accounts and a server-managed HttpOnly
 session. The API enforces owner/administrator roles and read-only Guest scopes;
-account and session administration are deliberately not added to the trusted
-local stdio MCP. The ingestion API key, when configured, remains a separate
+account and session administration are deliberately not added to either MCP
+transport. The ingestion API key, when configured, remains a separate
 machine credential rather than a browser account session.
 
 Outbound alerts can independently target Telegram and as many as 16 generic
@@ -557,7 +559,45 @@ untrusted-upload security boundary: use trusted assets until signature/content
 verification, dimension/complexity limits, and application authentication are
 added.
 
-## MCP stdio server
+## MCP servers
+
+Stugu is the MCP server. Codex, another service, or software running on an RPi
+is the MCP client.
+
+### Network Streamable HTTP server
+
+An Owner or Admin can open **Advanced → API & MCP** in Stugu and select
+**Start network MCP server**. The page displays the endpoint and a bearer token
+only for that successful start request. Configure the remote MCP client with
+the displayed URL and header:
+
+```text
+Authorization: Bearer stugu_mcp_...
+```
+
+The endpoint is `/api/v1/mcp` on the existing Stugu Web address, including the
+normal Compose/RPi published port; no second external port is needed. It accepts
+MCP Streamable HTTP `POST` requests and is available only while the Web-started
+runtime is running. Stopping it or restarting the API revokes the token. Use TLS
+or a trusted VPN before sending the bearer across a network. Browser cookies do
+not authorize this machine endpoint, and requests carrying a browser `Origin`
+header are rejected.
+
+Client configuration formats vary. A common shape is:
+
+```json
+{
+  "mcpServers": {
+    "stugu": {
+      "type": "streamable-http",
+      "url": "https://stugu.example/api/v1/mcp",
+      "headers": { "Authorization": "Bearer stugu_mcp_..." }
+    }
+  }
+}
+```
+
+### Local stdio server
 
 Install dependencies and build, then configure a trusted MCP host to launch:
 
@@ -595,13 +635,14 @@ An MCP client's executable can similarly be `docker` with arguments `compose`,
 `exec`, `-T`, `api`, `node`, `apps/api/dist/mcp-server.js` and the repository as
 its working directory.
 
-The local stdio server exposes 61 inspection tools. It opens the existing
-SQLite database in read-only/query-only mode and uses the configured TimeDB for
-telemetry history. Its fail-closed allowlist has no create, update, delete, import, migration, sharing,
-synchronization, or control tools. Start the API once after an upgrade so the
-database schema is current. Raw credentials, binary asset downloads, SSE
-streams, invitation secrets, federation event payloads, and browser
-account/session administration are also excluded.
+Both MCP transports expose the same 61 inspection tools. Each MCP process opens
+the existing SQLite database in read-only/query-only mode and uses the
+configured TimeDB for telemetry history. The fail-closed allowlist has no
+create, update, delete, import, migration, sharing, synchronization, or control
+tools. Start the API once after an upgrade so the database schema is current.
+Raw credentials, binary asset downloads, SSE streams, invitation secrets,
+federation event payloads, and browser account/session administration are also
+excluded.
 
 ### Properties, Homes, and Stuguby
 
@@ -711,9 +752,10 @@ Location search, coordinate defaults, weather, and LAN discovery additionally
 carry <code>openWorldHint=true</code> because they contact a provider or local
 network when explicitly called.
 
-The stdio process itself is the authorization boundary, so only a trusted host
-should launch it. Browser sessions and Guest grants do not constrain its
-inspection results. Credentials cannot be configured through MCP, and
+For stdio, the ability to launch the process is the authorization boundary. For
+Streamable HTTP, the dedicated bearer token is the authorization boundary;
+Stugu stores only its digest and shows the token once. Browser sessions and
+Guest grants do not constrain MCP inspection results. Credentials cannot be configured through MCP, and
 connection and replay status are process-local: the MCP process cannot inspect
 a separately running API process's WebSocket, TP-Link poller, or event bus.
 

@@ -355,7 +355,7 @@ export function configureApiPart07(context: ReturnType<typeof configureApiPart06
           grants: [],
           setupRequired: true,
         };
-        response.json(session);
+        response.json({ ...session, systemVersion: SYSTEM_VERSION });
         return;
       }
       const principal = response.locals.localPrincipal as LocalRequestPrincipal | undefined;

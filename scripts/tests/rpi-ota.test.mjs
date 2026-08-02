@@ -87,6 +87,33 @@ test("the appliance grows storage before local shared mounts without an ordering
   assert.match(layer, /persistent-shared-init\.service\.d\/stugu\.conf[\s\S]*ExecStart=[\s\S]*ExecStart=\/usr\/local\/sbin\/stugu-persistent-shared-init/);
 });
 
+test("factory appliances generate persistent SSH host keys per installation", async () => {
+  const [layer, sharedInit, hostKeyInit] = await Promise.all([
+    readFile(new URL("../../deploy/rpi/layer/stugu.yaml", import.meta.url), "utf8"),
+    readFile(
+      new URL("../../deploy/rpi/assets/rpi-persistent-shared-init", import.meta.url),
+      "utf8",
+    ),
+    readFile(
+      new URL("../../deploy/rpi/assets/stugu-init-ssh-host-keys", import.meta.url),
+      "utf8",
+    ),
+  ]);
+
+  assert.match(layer, /find "\$1\/etc\/ssh"[^\n]*-name 'ssh_host_\*' -delete/);
+  assert.match(layer, /Path=\/etc\/ssh/);
+  assert.match(sharedInit, /\/etc\/ssh[\s\S]*--exclude='ssh_host_\*'/);
+  assert.match(layer, /stugu-init-ssh-host-keys"[\s\S]*\/usr\/local\/sbin\/stugu-init-ssh-host-keys/);
+  assert.match(layer, /ssh\.service\.d\/stugu-host-keys\.conf[\s\S]*Requires=etc-ssh\.mount[\s\S]*After=etc-ssh\.mount/);
+  assert.match(layer, /ExecStartPost=\/usr\/local\/sbin\/stugu-init-ssh-host-keys/);
+  assert.match(hostKeyInit, /\.stugu-ssh-host-keys-v1/);
+  assert.match(hostKeyInit, /for key_type in dsa \$key_types/);
+  assert.match(hostKeyInit, /ssh-keygen -A -f "\$shared_base"/);
+  assert.match(hostKeyInit, /ssh-keygen -y -P '' -f "\$private_key"/);
+  assert.match(hostKeyInit, /chmod 0600 "\$private_key"/);
+  assert.match(hostKeyInit, /ssh-keygen -lf[\s\S]*-E sha256/);
+});
+
 test("the appliance layer and build overrides use the declared Stugu variable prefix", async () => {
   const [layer, buildScript] = await Promise.all([
     readFile(new URL("../../deploy/rpi/layer/stugu.yaml", import.meta.url), "utf8"),
@@ -158,6 +185,8 @@ test("the USB appliance binds A/B slots to the firmware-selected boot disk", asy
   assert.doesNotMatch(resolver, /match="sda"/);
 
   assert.match(rootBinder, /boot_mode[\s\S]*4\|5/);
+  assert.match(rootBinder, /1\)[\s\S]*boot_disk="mmcblk0"/);
+  assert.match(rootBinder, /partition_separator="p"/);
   assert.match(rootBinder, /stugu-usb-bootdev/);
   for (const label of [
     "bootconfig",
@@ -186,10 +215,11 @@ test("the USB appliance binds A/B slots to the firmware-selected boot disk", asy
 
   assert.match(rootUdevBinder, /\/run\/stugu-usb-ab-ready/);
   assert.match(rootUdevBinder, /readlink "\$\{slot_root\}\/\$\{alias_path\}"/);
+  assert.match(rootUdevBinder, /\/dev\/mmcblk\[0-9\]p\[0-9\]\*/);
   assert.match(rootUdevBinder, /KERNEL==\\?"\$\{partition\}\\?"/);
   assert.match(rootUdevBinder, /SYMLINK\+=\\?"\$\{devlink\}\\?"/);
   assert.match(rootUdevBinder, /mount -o bind "\$rule_source" "\$rule_target"/);
-  assert.match(rootUdevBinder, /USB udev rules bound into real root/);
+  assert.match(rootUdevBinder, /direct-boot udev rules bound into real root/);
 
   assert.match(initramfsHook, /copy_exec \/usr\/bin\/stugu-usb-bootdev/);
   assert.match(initramfsHook, /copy_exec \/usr\/bin\/stugu-usb-udev-slot/);
@@ -294,6 +324,7 @@ test("the appliance exposes secure LAN access and persistent Tailscale by defaul
   assert.match(tailscaleSource, /pkgs\.tailscale\.com\/stable\/debian[\s\S]*Suites: trixie/);
   assert.match(layer, /trixie\.noarmor\.gpg/);
   assert.match(layer, /packages:[\s\S]*- tailscale/);
+  assert.match(layer, /packages:[\s\S]*- iproute2/);
   assert.match(layer, /Path=\/var\/lib\/tailscale/);
   assert.match(layer, /tailscaled\.service\.d[\s\S]*Requires=stugu-data-grow\.service var-lib-tailscale\.mount/);
   assert.match(layer, /enable-units "\$1" tailscaled stugu-data-grow stugu/);

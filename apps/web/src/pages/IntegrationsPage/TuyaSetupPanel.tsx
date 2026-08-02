@@ -18,6 +18,7 @@ import type {
   TuyaDiscoveredDevice,
 } from "@climate-twin/contracts";
 import { api } from "../../api";
+import { createClientUuid } from "../../clientUuid";
 import { confirmAction } from "../../components/ConfirmationProvider";
 import { formatInTimeZone } from "../../dateTime";
 import { useConnectedDevicesQuery } from "../../data/connectedDevicesQuery";
@@ -113,7 +114,7 @@ function TuyaDeviceCard({
     setFeedback(null);
     try {
       const result = await api.commandConnectedDevice(connection.id, {
-        operationId: crypto.randomUUID(),
+        operationId: createClientUuid(),
         ...change,
       });
       setState(result.state);

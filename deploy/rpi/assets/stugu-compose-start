@@ -108,12 +108,17 @@ for setting_name in SYSTEM_UPDATE_REPOSITORY SYSTEM_UPDATE_IMAGE_PREFIX; do
     )
   fi
 done
-if ! grep -q '^STUGA_GPIO_GID=' "$local_env" && [[ -c /dev/gpiochip0 ]]; then
-  gpio_gid="$(stat --format=%g /dev/gpiochip0)"
-  if [[ ! "$gpio_gid" =~ ^[0-9]+$ ]]; then
-    echo "The gpiochip0 device has an invalid group id" >&2
-    exit 1
-  fi
+gpio_gid="$(getent group gpio 2>/dev/null | awk -F: 'NR == 1 { print $3 }' || true)"
+if [[ ! "$gpio_gid" =~ ^[1-9][0-9]*$ ]]; then
+  echo "The appliance gpio group has an invalid group id" >&2
+  exit 1
+fi
+gpio_gid_settings="$(grep -c '^STUGA_GPIO_GID=' "$local_env" || true)"
+if (( gpio_gid_settings > 1 )); then
+  echo "STUGA_GPIO_GID must be configured at most once" >&2
+  exit 1
+fi
+if (( gpio_gid_settings == 0 )); then
   missing_appliance_settings+=("STUGA_GPIO_GID=$gpio_gid")
 fi
 if (( ${#missing_appliance_settings[@]} > 0 )); then
@@ -121,6 +126,26 @@ if (( ${#missing_appliance_settings[@]} > 0 )); then
   cat "$local_env" > "$temporary_env"
   printf '\n# Target paths added by an appliance upgrade.\n' >> "$temporary_env"
   printf '%s\n' "${missing_appliance_settings[@]}" >> "$temporary_env"
+  chown "$appliance_user:$appliance_user" "$temporary_env"
+  chmod 0640 "$temporary_env"
+  mv -f "$temporary_env" "$local_env"
+fi
+
+# This value describes the immutable host image, not operator configuration.
+# Reconcile older persisted environments that captured root's GID before the
+# gpio udev permission rule was installed.
+if ! grep -qx "STUGA_GPIO_GID=$gpio_gid" "$local_env"; then
+  temporary_env="$(mktemp "$state_dir/.stugu.env.XXXXXX")"
+  if ! awk -v replacement="STUGA_GPIO_GID=$gpio_gid" '
+    BEGIN { replaced = 0 }
+    /^STUGA_GPIO_GID=/ { print replacement; replaced++; next }
+    { print }
+    END { if (replaced != 1) exit 42 }
+  ' "$local_env" > "$temporary_env"; then
+    rm -f "$temporary_env"
+    echo "Failed to reconcile STUGA_GPIO_GID" >&2
+    exit 1
+  fi
   chown "$appliance_user:$appliance_user" "$temporary_env"
   chmod 0640 "$temporary_env"
   mv -f "$temporary_env" "$local_env"

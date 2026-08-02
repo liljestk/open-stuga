@@ -462,19 +462,21 @@ export function sensorDataGaps(args: Record<string, unknown>): unknown {
   ).filter((gap) => !houseId || database.getSensor(gap.sensorId)?.houseId === houseId);
 }
 
-export const server = new Server(
-  { name: isChatgptMcpProfile ? "stugu-chatgpt" : "stugu-local", version: SYSTEM_VERSION },
-  {
-    capabilities: { tools: {} },
-    instructions: isChatgptMcpProfile
-      ? chatgptMcpServerInstructions
-      : [
-          "This Stugu stdio MCP is a read-only inspection surface over its configured local SQLite workspace.",
-          "It cannot inspect a separately running API process's in-memory connections or event bus.",
-          "Create, update, delete, import, migration, sharing, synchronization, control, raw credentials, SSE streams, and binary asset downloads are intentionally excluded.",
-        ].join(" "),
-  },
-);
+export function createMcpServer(): Server {
+  return new Server(
+    { name: isChatgptMcpProfile ? "stugu-chatgpt" : "stugu-local", version: SYSTEM_VERSION },
+    {
+      capabilities: { tools: {} },
+      instructions: isChatgptMcpProfile
+        ? chatgptMcpServerInstructions
+        : [
+            "This Stugu MCP is a read-only inspection surface over its configured local SQLite workspace.",
+            "It cannot inspect a separately running API process's in-memory connections or event bus.",
+            "Create, update, delete, import, migration, sharing, synchronization, control, raw credentials, SSE streams, and binary asset downloads are intentionally excluded.",
+          ].join(" "),
+    },
+  );
+}
 
 export const operations = new McpOperationTracker();
 

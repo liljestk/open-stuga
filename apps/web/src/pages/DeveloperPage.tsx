@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { Braces, Check, ChevronDown, Clipboard, ExternalLink, Radio, ServerCog, TerminalSquare, TriangleAlert } from "lucide-react";
-import { API_BASE, API_V2_BASE } from "../api";
+import { Braces, Check, ChevronDown, CircleCheck, CircleOff, Clipboard, Clock3, ExternalLink, KeyRound, Play, Radio, ServerCog, Square, TerminalSquare, TriangleAlert, Wifi } from "lucide-react";
+import { api, API_BASE, API_V2_BASE } from "../api";
 import { useI18n } from "../i18n";
 import { SystemOperationsPanel } from "./SetupOperationsPanel";
 
@@ -19,15 +19,48 @@ export function DeveloperPage({ canManageSystem = false }: { canManageSystem?: b
   const { t } = useI18n();
   const [copyResult, setCopyResult] = useState<{ id: string; status: "copied" | "failed" } | null>(null);
   const [operationsOpen, setOperationsOpen] = useState(false);
+  const [mcpRuntime, setMcpRuntime] = useState<Awaited<ReturnType<typeof api.localMcpRuntimeStatus>> | null>(null);
+  const [mcpRuntimeLoading, setMcpRuntimeLoading] = useState(false);
+  const [mcpRuntimeAction, setMcpRuntimeAction] = useState<"start" | "stop" | null>(null);
+  const [mcpRuntimeRequestError, setMcpRuntimeRequestError] = useState<"load" | "start" | "stop" | null>(null);
+  const [mcpAccessToken, setMcpAccessToken] = useState<string | null>(null);
   const clearCopyResultTimer = useRef<number | null>(null);
   const origin = typeof window === "undefined" ? "http://localhost:8787" : window.location.origin;
   const absoluteBase = browserFacingApiBase(API_BASE, origin);
   const absoluteV2Base = browserFacingApiBase(API_V2_BASE, origin);
+  const mcpHttpEndpoint = `${absoluteBase}/mcp`;
   const mcpCommand = "node apps/api/dist/mcp-server.js";
 
   useEffect(() => () => {
     if (clearCopyResultTimer.current !== null) window.clearTimeout(clearCopyResultTimer.current);
   }, []);
+
+  useEffect(() => {
+    if (!canManageSystem) return;
+    let active = true;
+    setMcpRuntimeLoading(true);
+    setMcpRuntimeRequestError(null);
+    void api.localMcpRuntimeStatus().then((status) => {
+      if (!active) return;
+      setMcpRuntime(status);
+      if (status.state !== "running") setMcpAccessToken(null);
+    }).catch(() => {
+      if (active) setMcpRuntimeRequestError("load");
+    }).finally(() => {
+      if (active) setMcpRuntimeLoading(false);
+    });
+    const refresh = window.setInterval(() => {
+      void api.localMcpRuntimeStatus().then((status) => {
+        if (!active) return;
+        setMcpRuntime(status);
+        if (status.state !== "running") setMcpAccessToken(null);
+      }).catch(() => undefined);
+    }, 5000);
+    return () => {
+      active = false;
+      window.clearInterval(refresh);
+    };
+  }, [canManageSystem]);
 
   const showCopyResult = (id: string, status: "copied" | "failed") => {
     setCopyResult({ id, status });
@@ -54,6 +87,67 @@ export function DeveloperPage({ canManageSystem = false }: { canManageSystem?: b
     }
   };
 
+  const changeMcpRuntime = async (action: "start" | "stop") => {
+    setMcpRuntimeAction(action);
+    setMcpRuntimeRequestError(null);
+    if (action === "stop") setMcpAccessToken(null);
+    try {
+      if (action === "start") {
+        const result = await api.startLocalMcpRuntime();
+        setMcpRuntime(result);
+        setMcpAccessToken(result.accessToken);
+      } else {
+        setMcpRuntime(await api.stopLocalMcpRuntime());
+      }
+    } catch {
+      setMcpRuntimeRequestError(action);
+    } finally {
+      setMcpRuntimeAction(null);
+    }
+  };
+
+  const displayedMcpState = mcpRuntimeAction === "start"
+    ? "starting"
+    : mcpRuntimeAction === "stop"
+      ? "stopping"
+      : mcpRuntime?.state ?? "stopped";
+  const mcpStateLabel = mcpRuntimeLoading
+    ? t("developer.mcpChecking")
+    : displayedMcpState === "running"
+      ? t("developer.mcpRunning")
+      : displayedMcpState === "starting"
+        ? t("developer.mcpStarting")
+        : displayedMcpState === "stopping"
+          ? t("developer.mcpStopping")
+          : displayedMcpState === "error"
+            ? t("developer.mcpError")
+            : t("developer.mcpStopped");
+  const mcpStateDetail = displayedMcpState === "running"
+    ? t("developer.mcpRunningDetail", { count: mcpRuntime?.toolCount ?? 0 })
+    : displayedMcpState === "starting"
+      ? t("developer.mcpStartingDetail")
+      : displayedMcpState === "stopping"
+        ? t("developer.mcpStoppingDetail")
+        : displayedMcpState === "error" && mcpRuntime?.errorCode === "build_missing"
+          ? t("developer.mcpBuildMissing")
+          : displayedMcpState === "error"
+            ? t("developer.mcpErrorDetail")
+            : t("developer.mcpStoppedDetail");
+  const mcpStateIcon = displayedMcpState === "running"
+    ? <CircleCheck size={18} aria-hidden="true" />
+    : displayedMcpState === "starting" || displayedMcpState === "stopping" || mcpRuntimeLoading
+      ? <Clock3 size={18} aria-hidden="true" />
+      : displayedMcpState === "error"
+        ? <TriangleAlert size={18} aria-hidden="true" />
+        : <CircleOff size={18} aria-hidden="true" />;
+  const mcpRequestError = mcpRuntimeRequestError === "start"
+    ? t("developer.mcpStartFailed")
+    : mcpRuntimeRequestError === "stop"
+      ? t("developer.mcpStopFailed")
+      : mcpRuntimeRequestError === "load"
+        ? t("developer.mcpStatusFailed")
+        : null;
+
   return (
     <>
       <header className="page-heading"><div><span className="eyebrow"><Braces size={14} aria-hidden="true" />{t("developer.contractsEyebrow")}</span><h1>{t("developer.title")}</h1><p>{t("developer.description")}</p></div></header>
@@ -76,6 +170,23 @@ export function DeveloperPage({ canManageSystem = false }: { canManageSystem?: b
             <Endpoint label={t("developer.mcpCommand")} value={mcpCommand} icon={<TerminalSquare size={15} />} status={copyResult?.id === "mcp" ? copyResult.status : null} onCopy={() => copy("mcp", mcpCommand)} />
             <div><dt><Braces size={15} aria-hidden="true" />{t("developer.resources")}</dt><dd>{t("developer.resourceList")}</dd></div>
           </dl>
+          {canManageSystem && <>
+            <div className={`mcp-runtime-control ${displayedMcpState}`} aria-live="polite">
+              <div className="mcp-runtime-summary"><span className="mcp-runtime-state-icon">{mcpStateIcon}</span><span><strong>{mcpStateLabel}</strong><small>{mcpStateDetail}</small></span></div>
+              {displayedMcpState === "running"
+                ? <button type="button" className="secondary-button" onClick={() => void changeMcpRuntime("stop")} disabled={mcpRuntimeAction !== null}><Square size={15} aria-hidden="true" />{t("developer.mcpStop")}</button>
+                : <button type="button" className="primary-button" onClick={() => void changeMcpRuntime("start")} disabled={mcpRuntimeLoading || mcpRuntimeAction !== null}><Play size={15} aria-hidden="true" />{t("developer.mcpStart")}</button>}
+            </div>
+            {mcpRequestError && <p className="mcp-runtime-error" role="alert">{mcpRequestError}</p>}
+            {displayedMcpState === "running" && <div className="mcp-network-connection">
+              <div className="mcp-network-heading"><Wifi size={16} aria-hidden="true" /><span><strong>{t("developer.mcpNetworkTitle")}</strong><small>{t("developer.mcpNetworkHelp")}</small></span></div>
+              <dl className="endpoint-list mcp-network-endpoints">
+                <Endpoint label={t("developer.mcpHttpEndpoint")} value={mcpHttpEndpoint} icon={<Wifi size={15} />} status={copyResult?.id === "mcp-http" ? copyResult.status : null} onCopy={() => copy("mcp-http", mcpHttpEndpoint)} />
+                {mcpAccessToken && <Endpoint sensitive label={t("developer.mcpAccessToken")} value={mcpAccessToken} icon={<KeyRound size={15} />} status={copyResult?.id === "mcp-token" ? copyResult.status : null} onCopy={() => copy("mcp-token", mcpAccessToken)} />}
+              </dl>
+              <p className={mcpAccessToken ? "mcp-token-note" : "mcp-token-note warning"}>{mcpAccessToken ? t("developer.mcpTokenOnce") : t("developer.mcpTokenHidden")}</p>
+            </div>}
+          </>}
         </section>
       </div>
       <details className="panel route-table developer-route-disclosure">
@@ -102,7 +213,7 @@ export function DeveloperPage({ canManageSystem = false }: { canManageSystem?: b
   );
 }
 
-function Endpoint({ label, value, icon, status, onCopy }: { label: string; value: string; icon: React.ReactNode; status: "copied" | "failed" | null; onCopy: () => void }) {
+function Endpoint({ label, value, icon, status, onCopy, sensitive = false }: { label: string; value: string; icon: React.ReactNode; status: "copied" | "failed" | null; onCopy: () => void; sensitive?: boolean }) {
   const { t } = useI18n();
   let statusText = "";
   let statusIcon = <Clipboard size={15} aria-hidden="true" />;
@@ -115,5 +226,5 @@ function Endpoint({ label, value, icon, status, onCopy }: { label: string; value
     statusIcon = <TriangleAlert size={15} aria-hidden="true" />;
   }
 
-  return <div><dt>{icon}{label}</dt><dd><input className="endpoint-value" aria-label={label} readOnly value={value} onFocus={(event) => event.currentTarget.select()} /><button type="button" className="icon-button endpoint-copy-button" onClick={onCopy} aria-label={`${t("developer.copy")}: ${label}`} title={statusText || undefined}>{statusIcon}</button>{statusText && <span className={`endpoint-copy-status ${status}`} role="status">{statusText}</span>}</dd></div>;
+  return <div><dt>{icon}{label}</dt><dd><input className="endpoint-value" aria-label={label} readOnly type={sensitive ? "password" : "text"} autoComplete="off" spellCheck={false} value={value} onFocus={(event) => event.currentTarget.select()} /><button type="button" className="icon-button endpoint-copy-button" onClick={onCopy} aria-label={`${t("developer.copy")}: ${label}`} title={statusText || undefined}>{statusIcon}</button>{statusText && <span className={`endpoint-copy-status ${status}`} role="status">{statusText}</span>}</dd></div>;
 }

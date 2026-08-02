@@ -132,7 +132,7 @@ export const mcpToolDefinitionsPart03 = [
       },
   {
         name: "ingest_measurements",
-        description: "Atomically persist 1-1000 validated registry measurement samples with server-assigned API provenance and durable alert evaluation. A separate API process's SSE bus is not available over stdio.",
+        description: "Atomically persist 1-1000 validated registry measurement samples with server-assigned API provenance and durable alert evaluation. A separate API process's SSE bus is unavailable to the isolated MCP process.",
         inputSchema: { type: "object", properties: { samples: { type: "array", minItems: 1, maxItems: 1000, items: measurementSampleSchema } }, required: ["samples"], additionalProperties: false },
       },
   {
