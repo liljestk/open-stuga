@@ -13,6 +13,16 @@ interface DiscoveryJobEnvelope {
   job: IntegrationDiscoveryJob;
 }
 
+interface ActiveDiscoveryWait {
+  controller: AbortController;
+  promise: Promise<IntegrationDiscoveryResult>;
+  settled: boolean;
+  subscribers: number;
+}
+
+const activeDiscoveryWaits = new Map<string, ActiveDiscoveryWait>();
+const discoveryJobRequests = new Map<string, Promise<DiscoveryJobEnvelope>>();
+
 function abortReason(signal: AbortSignal): unknown {
   return signal.reason ?? new DOMException("Device discovery subscription cancelled", "AbortError");
 }
@@ -38,6 +48,31 @@ function completedResult(job: IntegrationDiscoveryJob): IntegrationDiscoveryResu
   throw new Error(job.error?.trim() || "Device discovery failed");
 }
 
+async function withCallerAbort<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return promise;
+  if (signal.aborted) throw abortReason(signal);
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const dispose = () => signal.removeEventListener("abort", abort);
+    const finish = (callback: (value: T) => void, value: T) => {
+      if (settled) return;
+      settled = true;
+      dispose();
+      callback(value);
+    };
+    const fail = (error: unknown) => {
+      if (settled) return;
+      settled = true;
+      dispose();
+      reject(error);
+    };
+    const abort = () => fail(abortReason(signal));
+    signal.addEventListener("abort", abort, { once: true });
+    promise.then((value) => finish(resolve, value), fail);
+    if (signal.aborted) abort();
+  });
+}
+
 async function pollDiscoveryJob(
   job: IntegrationDiscoveryJob,
   deadlineAt: number,
@@ -57,7 +92,7 @@ async function pollDiscoveryJob(
   }
 }
 
-export async function waitForIntegrationDiscovery(
+async function waitForIntegrationDiscoveryOnce(
   job: IntegrationDiscoveryJob,
   signal?: AbortSignal,
 ): Promise<IntegrationDiscoveryResult> {
@@ -124,6 +159,84 @@ export async function waitForIntegrationDiscovery(
   });
 }
 
+function activeDiscoveryWait(job: IntegrationDiscoveryJob): ActiveDiscoveryWait {
+  const existing = activeDiscoveryWaits.get(job.id);
+  if (existing) return existing;
+  const controller = new AbortController();
+  const entry: ActiveDiscoveryWait = {
+    controller,
+    promise: waitForIntegrationDiscoveryOnce(job, controller.signal),
+    settled: false,
+    subscribers: 0,
+  };
+  activeDiscoveryWaits.set(job.id, entry);
+  const settle = () => {
+    entry.settled = true;
+    if (activeDiscoveryWaits.get(job.id) === entry) activeDiscoveryWaits.delete(job.id);
+  };
+  void entry.promise.then(settle, settle);
+  return entry;
+}
+
+function joinDiscoveryWait(
+  jobId: string,
+  entry: ActiveDiscoveryWait,
+  signal?: AbortSignal,
+): Promise<IntegrationDiscoveryResult> {
+  if (signal?.aborted) return Promise.reject(abortReason(signal));
+  entry.subscribers += 1;
+  return new Promise<IntegrationDiscoveryResult>((resolve, reject) => {
+    let settled = false;
+    const release = () => {
+      signal?.removeEventListener("abort", abort);
+      entry.subscribers = Math.max(0, entry.subscribers - 1);
+      if (entry.subscribers !== 0 || entry.settled) return;
+      if (activeDiscoveryWaits.get(jobId) === entry) activeDiscoveryWaits.delete(jobId);
+      entry.controller.abort(new DOMException("Device discovery has no active browser watcher", "AbortError"));
+    };
+    const finish = (result: IntegrationDiscoveryResult) => {
+      if (settled) return;
+      settled = true;
+      release();
+      resolve(result);
+    };
+    const fail = (error: unknown) => {
+      if (settled) return;
+      settled = true;
+      release();
+      reject(error);
+    };
+    const abort = () => fail(abortReason(signal!));
+    signal?.addEventListener("abort", abort, { once: true });
+    entry.promise.then(finish, fail);
+    if (signal?.aborted) abort();
+  });
+}
+
+export async function waitForIntegrationDiscovery(
+  job: IntegrationDiscoveryJob,
+  signal?: AbortSignal,
+): Promise<IntegrationDiscoveryResult> {
+  if (signal?.aborted) throw abortReason(signal);
+  const immediate = completedResult(job);
+  if (immediate) return immediate;
+  return joinDiscoveryWait(job.id, activeDiscoveryWait(job), signal);
+}
+
+function discoveryJobRequest(jobId: string): Promise<DiscoveryJobEnvelope> {
+  const existing = discoveryJobRequests.get(jobId);
+  if (existing) return existing;
+  const pending = request<DiscoveryJobEnvelope>(
+    `/integrations/discovery-jobs/${encodeURIComponent(jobId)}`,
+  );
+  discoveryJobRequests.set(jobId, pending);
+  const settle = () => {
+    if (discoveryJobRequests.get(jobId) === pending) discoveryJobRequests.delete(jobId);
+  };
+  void pending.then(settle, settle);
+  return pending;
+}
+
 export async function discoverIntegrationsInBackground(
   houseId: string,
   tpLinkCredentials?: { username: string; password: string },
@@ -140,18 +253,18 @@ export async function discoverIntegrationsInBackground(
       } : {}),
     }),
   });
+  const waiting = waitForIntegrationDiscovery(response.job, signal);
   onStarted?.(response.job);
-  return waitForIntegrationDiscovery(response.job, signal);
+  return waiting;
 }
 
 export async function resumeIntegrationDiscovery(
   jobId: string,
   signal?: AbortSignal,
 ): Promise<IntegrationDiscoveryResult> {
-  const response = await request<DiscoveryJobEnvelope>(
-    `/integrations/discovery-jobs/${encodeURIComponent(jobId)}`,
-    signal ? { signal } : undefined,
-  );
+  const active = activeDiscoveryWaits.get(jobId);
+  if (active) return joinDiscoveryWait(jobId, active, signal);
+  const response = await withCallerAbort(discoveryJobRequest(jobId), signal);
   return waitForIntegrationDiscovery(response.job, signal);
 }
 

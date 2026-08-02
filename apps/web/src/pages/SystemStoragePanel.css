@@ -1,0 +1,44 @@
+.system-storage-panel { display: grid; gap: 14px; margin: 0 0 22px; padding: 17px 18px; }
+.storage-panel-heading { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; gap: 11px; }
+.storage-panel-heading > svg { margin-top: 3px; color: var(--action); }
+.storage-panel-heading h2 { margin: 3px 0 0; font: 700 18px/1.2 "Manrope", sans-serif; letter-spacing: -.02em; }
+.storage-panel-heading p { max-width: 72ch; margin: 4px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.storage-agent-state { display: inline-flex; align-items: center; gap: 5px; padding: 5px 8px; border-radius: 999px; font-size: 10px; font-weight: 700; white-space: nowrap; }
+.storage-agent-state.ready { color: var(--positive); background: var(--positive-soft); }
+.storage-agent-state.unavailable { color: var(--yellow); background: var(--yellow-soft); }
+.storage-current { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+.storage-current > div { display: flex; gap: 9px; min-width: 0; padding: 11px; border: 1px solid var(--line); border-radius: 9px; background: var(--panel-soft); }
+.storage-current svg { flex: 0 0 auto; color: var(--action); }
+.storage-current span { display: grid; min-width: 0; gap: 2px; }
+.storage-current small { color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.storage-current strong { font-size: 12px; }
+.storage-current code, .storage-safety-note code { overflow-wrap: anywhere; font-size: 10px; }
+.storage-warning, .storage-loading { display: flex; align-items: flex-start; gap: 7px; margin: 0; color: var(--yellow); font-size: 11px; line-height: 1.45; }
+.storage-operation { display: flex; align-items: flex-start; gap: 8px; padding: 10px 11px; border-left: 3px solid var(--action); border-radius: 7px; background: var(--action-soft); }
+.storage-operation.complete { border-left-color: var(--positive); background: var(--positive-soft); }
+.storage-operation.failed, .storage-operation.manual-intervention { border-left-color: var(--red); background: var(--red-soft); }
+.storage-operation > span { display: grid; gap: 2px; }
+.storage-operation small { color: var(--muted); line-height: 1.4; }
+.storage-settings { border-top: 1px solid var(--line); padding-top: 11px; }
+.storage-settings > summary { width: max-content; cursor: pointer; color: var(--action); font-size: 11px; font-weight: 700; }
+.storage-settings-content { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; margin-top: 13px; }
+.storage-location { min-width: 0; margin: 0; padding: 12px; border: 1px solid var(--line); border-radius: 9px; }
+.storage-location legend { padding: 0 4px; font-size: 11px; font-weight: 700; }
+.storage-location > p { margin: 0 0 10px; color: var(--muted); font-size: 10px; line-height: 1.45; }
+.storage-kind-options { display: grid; gap: 6px; }
+.storage-kind-options > label { display: flex; gap: 8px; padding: 8px; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; }
+.storage-kind-options > label:has(input:checked) { border-color: color-mix(in srgb, var(--action) 48%, var(--line)); background: color-mix(in srgb, var(--action) 6%, var(--panel)); }
+.storage-kind-options input { margin-top: 2px; }
+.storage-kind-options span { display: grid; gap: 2px; }
+.storage-kind-options strong { font-size: 11px; }
+.storage-kind-options small, .storage-path-field small { color: var(--muted); font-size: 10px; line-height: 1.4; }
+.storage-path-field { display: grid; gap: 5px; margin-top: 10px; }
+.storage-safety-note { grid-column: 1 / -1; padding: 10px 12px; border-radius: 8px; background: var(--panel-soft); font-size: 10px; line-height: 1.45; }
+.storage-safety-note p { margin: 3px 0 0; color: var(--muted); }
+.storage-settings-content > .secondary-button { justify-self: start; }
+@media (max-width: 760px) {
+  .storage-panel-heading { grid-template-columns: auto minmax(0, 1fr); }
+  .storage-agent-state { grid-column: 2; justify-self: start; }
+  .storage-current, .storage-settings-content { grid-template-columns: 1fr; }
+  .storage-safety-note { grid-column: auto; }
+}

@@ -500,7 +500,7 @@ take precedence after restart.
 | `INTEGRATION_SECRETS_FILE` | next to `DATABASE_PATH` | protected JSON file for credentials saved through the setup page; Compose uses `/app/data/integration-secrets.json` |
 | `MOCK_ENABLED` | `false` | opt in to sample inventory and synthetic telemetry before a database's first start |
 | `MOCK_INTERVAL_MS` | `2000` | synthetic event interval |
-| `RETENTION_DAYS` | `0` | SQLite history cache after TimeDB acknowledgement; `0` keeps current projections only, or use at least `30` for a bounded cache |
+| `RETENTION_DAYS` | `30` in `.env.example`; unset remains `0` | SQLite history cache after TimeDB acknowledgement; `0` keeps the complete duplicate, or use at least `30` for a bounded cache |
 | `INGEST_API_KEY` | empty | optional machine secret for external ingestion and Prometheus host-metrics scraping |
 | `HA_URL` | `http://homeassistant.local:8123` | Home Assistant base URL |
 | `HA_TOKEN` | empty | private Home Assistant access token |

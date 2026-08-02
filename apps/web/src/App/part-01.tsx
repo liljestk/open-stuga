@@ -7,7 +7,7 @@ import { useClimateData } from "../useClimateData";
 import { countActionableAlertGroups } from "../alertGrouping";
 import { useI18n } from "../i18n";
 import { enabledDefinitions } from "../measurements";
-import { api, type CreateHouseInput } from "../api";
+import { api, ApiRequestError, type CreateHouseInput } from "../api";
 import { locationForRoute, routeFromLocation } from "../routing";
 import { StuguMark } from "../components/StuguMark";
 import { RouteErrorBoundary } from "../components/RouteErrorBoundary";
@@ -20,7 +20,7 @@ import {
   LocalAuthPage,
 } from "../pages/LocalAuthPage";
 import { integrationForHouse } from "../integrationScope";
-import { rememberedIntegrationDiscovery } from "../integrationDiscoveryStorage";
+import { forgetIntegrationDiscovery, rememberedIntegrationDiscovery } from "../integrationDiscoveryStorage";
 import { houseHasTpLinkOpeningBinding } from "../tpLinkDeviceClassification";
 import { ActivityPage, AlertsPage, DataAnalyticsPage, DeveloperPage, EnergyPage, IntegrationsPage, MaintenancePage, OutdoorWeatherPage, PeopleAccessPage, PortfolioOverview, PropertyManagementPage, SensorManagementPage, StugubyPage, SystemUpdatesPage, TwinDashboard, dismissedIntegrationDiscoveryJobsKey, dismissedTpLinkDevicesKey, firstFloor, freshTpLinkDiscoveryWindowMs, latestIso, pageTitleKeys, settleInBackground, storedDismissedIntegrationDiscoveryJobs, storedDismissedTpLinkDevices, tpLinkDeviceKey } from "./support";
 import type { TpLinkDeviceReference } from "./support";
@@ -95,7 +95,11 @@ export function useAppPart01(context: Record<string, never>) {
           ...current,
           [houseId]: { jobId, houseId, result },
         }));
-      }).catch(() => undefined).finally(() => {
+      }).catch((error: unknown) => {
+        if (error instanceof ApiRequestError && error.status === 404) {
+          forgetIntegrationDiscovery(houseId, jobId);
+        }
+      }).finally(() => {
         if (integrationDiscoverySubscriptions.current.get(houseId)?.controller === controller) {
           integrationDiscoverySubscriptions.current.delete(houseId);
         }

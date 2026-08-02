@@ -35,6 +35,18 @@ export const DEFAULT_APPLICATION_ROLE = "stuga_app";
 
 export const DEFAULT_ADMIN_ROLE = "stuga_admin";
 
+export const DEFAULT_BACKUP_MIN_FREE_BYTES = 1024 * 1024 * 1024;
+
+export function backupMinFreeBytes(value) {
+  const raw = value === undefined ? "" : String(value).trim();
+  if (!raw) return DEFAULT_BACKUP_MIN_FREE_BYTES;
+  const parsed = Number(raw);
+  if (!Number.isSafeInteger(parsed) || parsed < 0) {
+    throw new Error("BACKUP_MIN_FREE_BYTES must be a non-negative safe integer");
+  }
+  return parsed;
+}
+
 export function timestampForPath(date = new Date()) {
   return date.toISOString().replaceAll(":", "-").replace(".", "-");
 }
@@ -181,6 +193,7 @@ export function parseBackupArgs(argv, env = process.env, now = new Date()) {
 
   parsed.pgDump ??= "pg_dump";
   parsed.pgRestore ??= "pg_restore";
+  parsed.backupMinFreeBytes = backupMinFreeBytes(env.BACKUP_MIN_FREE_BYTES);
   if (parsed.includeSecrets && parsed.includeSecretsIfPresent) {
     throw new Error("Configure only one of --include-secrets or --include-secrets-if-present");
   }

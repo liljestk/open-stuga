@@ -203,6 +203,23 @@ export function configureApiPart11(context: ReturnType<typeof configureApiPart10
       if (Date.parse(from) > Date.parse(to)) throw new HttpError(400, "INVALID_RANGE", "from must be before to");
       const limit = safeInteger(request.query.limit, 20_000, 1, 50_000);
       const bucketSeconds = boundedQueryInteger(request.query.bucketSeconds, "bucketSeconds", 1, 86_400);
+      let before: { timestamp: string; source: string } | undefined;
+      if (typeof request.query.cursor === "string" && request.query.cursor) {
+        if (bucketSeconds !== null) {
+          throw new HttpError(400, "INVALID_CURSOR", "cursor is supported only for raw history");
+        }
+        try {
+          const decoded = JSON.parse(Buffer.from(request.query.cursor, "base64url").toString("utf8")) as unknown;
+          if (!Array.isArray(decoded) || decoded.length !== 2
+            || typeof decoded[0] !== "string" || !Number.isFinite(Date.parse(decoded[0]))
+            || typeof decoded[1] !== "string" || decoded[1].length === 0 || decoded[1].length > 200) {
+            throw new Error();
+          }
+          before = { timestamp: new Date(decoded[0]).toISOString(), source: decoded[1] };
+        } catch {
+          throw new HttpError(400, "INVALID_CURSOR", "cursor is invalid");
+        }
+      }
       const rawLimit = bucketSeconds === null ? limit + 1 : 100_000;
       const archived = (await context.telemetryReader.measurementHistory({
         sensorId: request.query.sensorId,
@@ -210,11 +227,15 @@ export function configureApiPart11(context: ReturnType<typeof configureApiPart10
         from,
         to,
         limit: rawLimit,
+        ...(before ? { before } : {}),
       })).records;
       const requestedSamples = bucketSeconds === null ? archived : bucketMeasurementSamples(archived, bucketSeconds);
       const truncated = requestedSamples.length > limit || (bucketSeconds !== null && archived.length === rawLimit);
       const samples = truncated ? requestedSamples.slice(-limit) : requestedSamples;
-      response.json({ samples, from, to, bucketSeconds, truncated });
+      const nextCursor = bucketSeconds === null && truncated && samples[0]
+        ? Buffer.from(JSON.stringify([samples[0].timestamp, samples[0].source]), "utf8").toString("base64url")
+        : null;
+      response.json({ samples, from, to, bucketSeconds, truncated, nextCursor });
     });
   context.app.get(`${context.v2Prefix}/sensors/:id/measurements`, (request, response) => {
       if (!context.database.getSensor(request.params.id) || !context.visibility(response).sensor(request.params.id)) {

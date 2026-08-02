@@ -130,8 +130,8 @@ export const TARGET_TABLES = Object.freeze({
 });
 
 export const MIGRATION_HYPERTABLES = Object.freeze([
-  { table: "measurement_samples", timeColumn: "observed_at", chunkInterval: "7 days" },
-  { table: "legacy_readings", timeColumn: "observed_at", chunkInterval: "7 days" },
+  { table: "measurement_samples", timeColumn: "observed_at", chunkInterval: "1 day" },
+  { table: "legacy_readings", timeColumn: "observed_at", chunkInterval: "1 day" },
   { table: "outdoor_temperature_samples", timeColumn: "observed_at", chunkInterval: "30 days" },
   { table: "electricity_price_samples", timeColumn: "starts_at", chunkInterval: "90 days" },
   { table: "opening_state_samples", timeColumn: "observed_at", chunkInterval: "30 days" },
@@ -142,6 +142,10 @@ export const MIGRATION_AGGREGATES = Object.freeze([
   { name: "measurement_samples_5m", interval: "5 minutes" },
   { name: "measurement_samples_1h", interval: "1 hour" },
   { name: "measurement_samples_1d", interval: "1 day" },
+  { name: "measurement_analytics_v2_1m", interval: "1 minute", analytics: true },
+  { name: "measurement_analytics_v2_5m", interval: "5 minutes", analytics: true },
+  { name: "measurement_analytics_v2_1h", interval: "1 hour", analytics: true },
+  { name: "measurement_analytics_v2_1d", interval: "1 day", analytics: true },
 ]);
 
 export function help() {

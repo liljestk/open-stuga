@@ -62,6 +62,7 @@ declare module "../core.js" {
         records: readonly T[],
         valuesFor: (record: T) => readonly SqlValue[],
         control: QueryControl,
+        markOrderedRollups?: boolean,
       ): Promise<BatchWriteResult>;
     getArchiveCheckpoint(sourceId: string, tableName: ArchiveTableName, control?: QueryControl): Promise<ArchiveCheckpoint | null>;
     archiveCheckpoint(sourceId: string, tableName: ArchiveTableName, control?: QueryControl): Promise<number>;

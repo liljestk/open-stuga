@@ -16,17 +16,11 @@ import type {
 } from "@climate-twin/contracts";
 import type { HybridArchiveReadState } from "./timeseries/read-facade.js";
 
-const RESOLUTION_SECONDS = {
-  "1m": 60,
-  "5m": 300,
-  "15m": 900,
-  "1h": 3_600,
-  "1d": 86_400,
-} as const;
+const MAX_CUSTOM_RESOLUTION_MINUTES = 1_440;
 
 export const MAX_INTERACTIVE_OUTPUT_POINTS = 100_000;
 
-type BucketResolution = keyof typeof RESOLUTION_SECONDS;
+type BucketResolution = Exclude<AnalyticsResolution, "auto" | "raw">;
 
 export class AnalyticsQueryError extends Error {
   constructor(
@@ -92,6 +86,32 @@ function validTimezone(value: unknown): string {
   return timezone;
 }
 
+function analyticsResolution(value: unknown): AnalyticsResolution {
+  if (value === "auto" || value === "raw" || value === "1h" || value === "1d") return value;
+  if (typeof value === "string") {
+    const match = /^(\d{1,4})m$/u.exec(value);
+    const minutes = Number(match?.[1]);
+    if (Number.isSafeInteger(minutes) && minutes >= 1 && minutes <= MAX_CUSTOM_RESOLUTION_MINUTES) {
+      return `${minutes}m`;
+    }
+  }
+  throw new AnalyticsQueryError(
+    400,
+    "INVALID_ANALYTICS_RESOLUTION",
+    `resolution must be auto, raw, 1h, 1d, or a minute interval from 1m to ${MAX_CUSTOM_RESOLUTION_MINUTES}m`,
+  );
+}
+
+export function analyticsResolutionSeconds(resolution: BucketResolution): number {
+  if (resolution === "1h") return 3_600;
+  if (resolution === "1d") return 86_400;
+  const minutes = Number(/^(\d{1,4})m$/u.exec(resolution)?.[1]);
+  if (!Number.isSafeInteger(minutes) || minutes < 1 || minutes > MAX_CUSTOM_RESOLUTION_MINUTES) {
+    throw new AnalyticsQueryError(400, "INVALID_ANALYTICS_RESOLUTION", "resolution is not supported");
+  }
+  return minutes * 60;
+}
+
 export function parseAnalyticsQueryRequest(value: unknown, now = Date.now()): AnalyticsQueryRequest {
   const body = objectValue(value);
   rejectUnknown(body, [
@@ -120,15 +140,12 @@ export function parseAnalyticsQueryRequest(value: unknown, now = Date.now()): An
     throw new AnalyticsQueryError(422, "ANALYTICS_RANGE_TOO_LARGE", "Interactive analytics queries are limited to ten years");
   }
 
-  const resolutions: AnalyticsResolution[] = ["auto", "raw", "1m", "5m", "15m", "1h", "1d"];
-  if (!resolutions.includes(body.resolution as AnalyticsResolution)) {
-    throw new AnalyticsQueryError(400, "INVALID_ANALYTICS_RESOLUTION", "resolution is not supported");
-  }
+  const resolution = analyticsResolution(body.resolution);
   const aggregations: AnalyticsAggregation[] = ["default", "mean", "sum", "delta", "last", "time_weighted_mean", "min", "max"];
   if (!aggregations.includes(body.aggregation as AnalyticsAggregation)) {
     throw new AnalyticsQueryError(400, "INVALID_ANALYTICS_AGGREGATION", "aggregation is not supported");
   }
-  if (body.resolution === "raw" && body.aggregation !== "default" && body.aggregation !== "last") {
+  if (resolution === "raw" && body.aggregation !== "default" && body.aggregation !== "last") {
     throw new AnalyticsQueryError(422, "RAW_AGGREGATION_NOT_ALLOWED", "Raw queries cannot apply a bucket aggregation");
   }
 
@@ -166,7 +183,7 @@ export function parseAnalyticsQueryRequest(value: unknown, now = Date.now()): An
     },
     measurementIds: stringList(body.measurementIds, "measurementIds", 8),
     range: { start, end, timezone: validTimezone(rangeBody.timezone) },
-    resolution: body.resolution as AnalyticsResolution,
+    resolution,
     aggregation: body.aggregation as AnalyticsAggregation,
     ...(qualityFilter ? { qualityFilter } : {}),
     include: [...includes] as NonNullable<AnalyticsQueryRequest["include"]>,
@@ -252,7 +269,7 @@ export function resolveAnalyticsResolution(
   const durationSeconds = (Date.parse(end) - Date.parse(start)) / 1_000;
   if (durationSeconds <= maxPoints * 60) return "1m";
   for (const candidate of ["5m", "15m", "1h", "1d"] as const) {
-    if (Math.ceil(durationSeconds / RESOLUTION_SECONDS[candidate]) <= maxPoints) return candidate;
+    if (Math.ceil(durationSeconds / analyticsResolutionSeconds(candidate)) <= maxPoints) return candidate;
   }
   return "1d";
 }
@@ -385,7 +402,7 @@ function bucketPoints(
   resolution: BucketResolution,
   aggregation: Exclude<AnalyticsAggregation, "default">,
 ): AnalyticsPoint[] {
-  const bucketMs = RESOLUTION_SECONDS[resolution] * 1_000;
+  const bucketMs = analyticsResolutionSeconds(resolution) * 1_000;
   const firstBucket = Math.floor(start / bucketMs) * bucketMs;
   const rangeSeconds = (end - start) / 1_000;
   const cadenceSeconds = inferredCadenceSeconds(samples, rangeSeconds);
@@ -513,7 +530,7 @@ export function buildAnalyticsResponse(input: BuildAnalyticsResponseInput): Anal
   });
   const includedSamples = rangeSamples.filter((sample) => includedQualitySet.has(sample.quality));
   const excludedSampleCount = rangeSamples.length - includedSamples.length;
-  const bucketMs = resolution === "raw" ? null : RESOLUTION_SECONDS[resolution] * 1_000;
+  const bucketMs = resolution === "raw" ? null : analyticsResolutionSeconds(resolution) * 1_000;
   const bucketCount = bucketMs === null ? null : Math.ceil((end - Math.floor(start / bucketMs) * bucketMs) / bucketMs);
   if (bucketCount !== null && bucketCount > maxPoints) {
     throw new AnalyticsQueryError(

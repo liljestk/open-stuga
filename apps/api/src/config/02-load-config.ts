@@ -339,6 +339,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     timeseriesConnectTimeoutMs: positiveInteger(env.TIMESERIES_CONNECT_TIMEOUT_MS, 5_000),
     timeseriesStatementTimeoutMs: positiveInteger(env.TIMESERIES_STATEMENT_TIMEOUT_MS, 15_000),
     timeseriesBatchSize: positiveInteger(env.TIMESERIES_BATCH_SIZE, 1_000),
+    timeseriesColumnstoreAfterDays: positiveInteger(env.TIMESERIES_COLUMNSTORE_AFTER_DAYS, 7),
+    timeseriesStoragePath: optional(env.TIMESERIES_STORAGE_PATH)
+      ? resolve(env.TIMESERIES_STORAGE_PATH!)
+      : null,
     ingestApiKey: optional(env.INGEST_API_KEY),
     haUrl: ha?.url ?? null,
     haToken: ha?.token ?? null,

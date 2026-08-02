@@ -3,11 +3,14 @@ import { Pool } from "pg";
 import type { PoolClient, QueryResult, QueryResultRow } from "pg";
 import {
   HYPERTABLE_DEFINITIONS,
+  MEASUREMENT_ANALYTICS_BUCKETS,
   MEASUREMENT_BUCKETS,
   TELEMETRY_TABLES,
   buildBaseSchemaSql,
   buildContinuousAggregateSql,
   buildFallbackAggregateSql,
+  buildMeasurementAnalyticsAggregateSql,
+  measurementAnalyticsAggregateName,
   measurementAggregateName,
   qualifiedName,
   quoteIdentifier,
@@ -98,6 +101,11 @@ registerTimeseriesStoreMethods({
               [qualifiedName(this.schema, definition.table), definition.timeColumn, definition.chunkInterval],
               control,
             );
+            await this.__query(
+              "SELECT set_chunk_time_interval($1::REGCLASS, $2::INTERVAL)",
+              [qualifiedName(this.schema, definition.table), definition.chunkInterval],
+              control,
+            );
           } catch (error) {
             if (control.signal?.aborted) throw abortError(control.signal);
             warnings.push(`Could not convert ${definition.table} to a hypertable: ${describeError(error)}`);
@@ -128,9 +136,10 @@ registerTimeseriesStoreMethods({
       const features = timescaleVersion
         ? await this.__detectTimescaleFeatures(control)
         : { columnstore_available: false, compression_available: false, continuous_policy_available: false };
+      if (timescaleVersion) await this.__assertNoRawRetentionPolicy(control);
       const coldStorageMode = await this.__configureColdStorage(hypertables, features, warnings, control);
       const aggregateMode = hypertables.includes("measurement_samples")
-        ? await this.__configureContinuousAggregates(features.continuous_policy_available, warnings, control)
+        ? await this.__configureContinuousAggregates(features, warnings, control)
         : await this.__configureFallbackAggregates(warnings, control);
 
       return {
@@ -142,6 +151,17 @@ registerTimeseriesStoreMethods({
         coldStorageMode,
         warnings,
       };
+    },
+  async __assertNoRawRetentionPolicy(this: TimeseriesStoreInternals, control: QueryControl): Promise<void> {
+      const result = await this.__query<{ configured: boolean }>(`SELECT EXISTS (
+          SELECT 1 FROM timescaledb_information.jobs
+          WHERE proc_name = 'policy_retention'
+            AND hypertable_schema = $1
+            AND hypertable_name = ANY($2::TEXT[])
+        ) AS configured`, [this.schema, [...TELEMETRY_TABLES]], control);
+      if (result.rows[0]?.configured === true) {
+        throw new Error("Raw telemetry retention policy detected; Stugu requires lossless raw history");
+      }
     },
   async __detectTimescaleFeatures(this: TimeseriesStoreInternals, control: QueryControl): Promise<ProcedureFeatureRow> {
       const result = await this.__query<ProcedureFeatureRow>(`SELECT
@@ -174,7 +194,12 @@ registerTimeseriesStoreMethods({
             )`, [], control);
             await this.__query(
               "CALL add_columnstore_policy($1::REGCLASS, after => $2::INTERVAL, if_not_exists => TRUE)",
-              [qualifiedName(this.schema, definition.table), definition.coldAfter],
+              [
+                qualifiedName(this.schema, definition.table),
+                this[timeseriesStoreState].coldStorageAfterDays === null
+                  ? definition.coldAfter
+                  : `${this[timeseriesStoreState].coldStorageAfterDays} days`,
+              ],
               control,
             );
             configured += 1;
@@ -197,7 +222,12 @@ registerTimeseriesStoreMethods({
             )`, [], control);
             await this.__query(
               "SELECT add_compression_policy($1::REGCLASS, $2::INTERVAL, if_not_exists => TRUE)",
-              [qualifiedName(this.schema, definition.table), definition.coldAfter],
+              [
+                qualifiedName(this.schema, definition.table),
+                this[timeseriesStoreState].coldStorageAfterDays === null
+                  ? definition.coldAfter
+                  : `${this[timeseriesStoreState].coldStorageAfterDays} days`,
+              ],
               control,
             );
             configured += 1;
@@ -211,7 +241,7 @@ registerTimeseriesStoreMethods({
       return "none";
     },
   async __configureContinuousAggregates(this: TimeseriesStoreInternals,
-      policyAvailable: boolean,
+      features: ProcedureFeatureRow,
       warnings: string[],
       control: QueryControl,
     ): Promise<"continuous" | "view" | "unavailable"> {
@@ -229,37 +259,89 @@ registerTimeseriesStoreMethods({
           }
           await this.__query(buildContinuousAggregateSql(this.schema, bucket), [], control);
         }
+        for (const bucket of Object.keys(MEASUREMENT_ANALYTICS_BUCKETS) as Array<keyof typeof MEASUREMENT_ANALYTICS_BUCKETS>) {
+          const name = measurementAnalyticsAggregateName(bucket);
+          if (await this.__isContinuousAggregate(name, control)) continue;
+          const kind = await this.__relationKind(name, control);
+          if (kind !== null) throw new Error(`Cannot replace ${name}: unexpected relation kind ${kind}`);
+          await this.__query(buildMeasurementAnalyticsAggregateSql(this.schema, bucket), [], control);
+        }
       } catch (error) {
         if (control.signal?.aborted) throw abortError(control.signal);
         warnings.push(`Continuous aggregate setup failed: ${describeError(error)}`);
-        return this.__configureFallbackAggregates(warnings, control, true);
+        throw new Error(
+          "Timescale continuous aggregates are required for bounded telemetry analytics",
+          { cause: error },
+        );
       }
 
-      if (policyAvailable) {
-        const policies = [
-          ["5m", "30 days", "5 minutes", "5 minutes"],
-          ["1h", "1 year", "1 hour", "1 hour"],
-          ["1d", "10 years", "1 day", "1 day"],
+      if (features.columnstore_available) {
+        const columnstore: ReadonlyArray<readonly [string, string, string]> = [
+          [measurementAggregateName("5m"), "sensor_id,metric", "30 days"],
+          [measurementAggregateName("1h"), "sensor_id,metric", "30 days"],
+          [measurementAggregateName("1d"), "sensor_id,metric", "30 days"],
+          [measurementAnalyticsAggregateName("1m"), "sensor_id,metric,source,quality,canonical_unit", "1 day"],
+          [measurementAnalyticsAggregateName("5m"), "sensor_id,metric,source,quality,canonical_unit", "7 days"],
+          [measurementAnalyticsAggregateName("1h"), "sensor_id,metric,source,quality,canonical_unit", "30 days"],
+          [measurementAnalyticsAggregateName("1d"), "sensor_id,metric,source,quality,canonical_unit", "90 days"],
         ] as const;
-        for (const [bucket, startOffset, endOffset, scheduleInterval] of policies) {
+        for (const [aggregate, segmentBy, after] of columnstore) {
           try {
-            await this.__query(`SELECT add_continuous_aggregate_policy(
-                $1::REGCLASS,
-                start_offset => $2::INTERVAL,
-                end_offset => $3::INTERVAL,
-                schedule_interval => $4::INTERVAL,
-                if_not_exists => TRUE
-              )`, [
-              qualifiedName(this.schema, measurementAggregateName(bucket)),
-              startOffset,
-              endOffset,
-              scheduleInterval,
-            ], control);
+            await this.__query(`ALTER MATERIALIZED VIEW ${qualifiedName(this.schema, aggregate)} SET (
+              timescaledb.enable_columnstore = true,
+              timescaledb.segmentby = '${segmentBy}',
+              timescaledb.orderby = 'bucket_start DESC'
+            )`, [], control);
+            await this.__query(
+              "CALL add_columnstore_policy($1::REGCLASS, after => $2::INTERVAL, if_not_exists => TRUE)",
+              [qualifiedName(this.schema, aggregate), after],
+              control,
+            );
           } catch (error) {
             if (control.signal?.aborted) throw abortError(control.signal);
-            warnings.push(`Refresh policy setup failed for ${bucket} aggregates: ${describeError(error)}`);
+            warnings.push(`Columnstore setup failed for ${aggregate}: ${describeError(error)}`);
           }
         }
+      }
+
+      if (!features.continuous_policy_available) {
+        throw new Error("Timescale continuous aggregate refresh policies are required for bounded telemetry analytics");
+      }
+      const policies: ReadonlyArray<readonly [string, string | null, string, string]> = [
+        [measurementAggregateName("5m"), null, "5 minutes", "5 minutes"],
+        [measurementAggregateName("1h"), null, "1 hour", "1 hour"],
+        [measurementAggregateName("1d"), null, "1 day", "1 day"],
+        [measurementAnalyticsAggregateName("1m"), null, "1 minute", "1 minute"],
+        [measurementAnalyticsAggregateName("5m"), null, "5 minutes", "5 minutes"],
+        [measurementAnalyticsAggregateName("1h"), null, "1 hour", "15 minutes"],
+        [measurementAnalyticsAggregateName("1d"), null, "1 day", "1 hour"],
+      ] as const;
+      const policyFailures: string[] = [];
+      for (const [aggregate, startOffset, endOffset, scheduleInterval] of policies) {
+        try {
+          await this.__query(`SELECT add_continuous_aggregate_policy(
+              $1::REGCLASS,
+              start_offset => $2::INTERVAL,
+              end_offset => $3::INTERVAL,
+              schedule_interval => $4::INTERVAL,
+              if_not_exists => TRUE
+            )`, [
+            qualifiedName(this.schema, aggregate),
+            startOffset,
+            endOffset,
+            scheduleInterval,
+          ], control);
+        } catch (error) {
+          if (control.signal?.aborted) throw abortError(control.signal);
+          const warning = `Refresh policy setup failed for ${aggregate}: ${describeError(error)}`;
+          warnings.push(warning);
+          policyFailures.push(warning);
+        }
+      }
+      if (policyFailures.length > 0) {
+        throw new Error(
+          `Only ${policies.length - policyFailures.length} of ${policies.length} required telemetry refresh policies were configured`,
+        );
       }
       return "continuous";
     },
@@ -319,6 +401,7 @@ registerTimeseriesStoreMethods({
           sample.canonicalUnit, sample.quality, sample.metadata ?? {},
         ],
         control,
+        true,
       );
     },
   async upsertLegacyReadings(this: TimeseriesStoreInternals,

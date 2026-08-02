@@ -93,13 +93,13 @@ services:
       - -c
       - max_connections=30
       - -c
-      # One scheduler plus the current policy set needs more than PostgreSQL's
-      # eight default worker slots; retain four separate parallel-query slots.
-      - max_worker_processes=16
+      # One scheduler plus three concurrent policy jobs bounds Pi background
+      # churn; retain four separate parallel-query slots for maintenance.
+      - max_worker_processes=8
       - -c
       - max_parallel_workers=4
       - -c
-      - timescaledb.max_background_workers=12
+      - timescaledb.max_background_workers=4
       - -c
       - wal_compression=on
       - -c
@@ -109,7 +109,7 @@ services:
     expose:
       - "5432"
     volumes:
-      - stuga-timeseries-data:/var/lib/postgresql/data
+      - ${STUGA_TIMESERIES_DATA_SOURCE:-stuga-timeseries-data}:/var/lib/postgresql/data
       - stuga-timeseries-socket:/var/run/postgresql
       - stuga-timeseries-admin-secret:/run/stuga-admin:ro
       - stuga-timeseries-app-secret:/run/stuga-app:ro
@@ -286,8 +286,8 @@ services:
       STUGA_LOCAL_UI_PORT: ${APP_PORT:-8080}
       MOCK_ENABLED: ${MOCK_ENABLED:-false}
       MOCK_INTERVAL_MS: ${MOCK_INTERVAL_MS:-2000}
-      # Zero compacts acknowledged SQLite history to current projections.
-      # Values >=30 retain a bounded cache after healthy TimeDB reconciliation.
+      # Fresh generated configuration sets 30. The fallback remains zero so an
+      # older deployment cannot begin pruning merely because it omitted the key.
       RETENTION_DAYS: ${RETENTION_DAYS:-0}
       TIMESERIES_ENABLED: "true"
       # SQLite is the crash-safe local outbox, so ingestion can buffer during a
@@ -303,6 +303,8 @@ services:
       TIMESERIES_CONNECT_TIMEOUT_MS: ${TIMESERIES_CONNECT_TIMEOUT_MS:-5000}
       TIMESERIES_STATEMENT_TIMEOUT_MS: ${TIMESERIES_STATEMENT_TIMEOUT_MS:-15000}
       TIMESERIES_BATCH_SIZE: ${TIMESERIES_BATCH_SIZE:-1000}
+      TIMESERIES_COLUMNSTORE_AFTER_DAYS: ${TIMESERIES_COLUMNSTORE_AFTER_DAYS:-7}
+      TIMESERIES_STORAGE_PATH: /app/timeseries-data
       INGEST_API_KEY: ${INGEST_API_KEY:-}
       HA_URL: ${HA_URL:-}
       HA_TOKEN: ${HA_TOKEN:-}
@@ -348,12 +350,13 @@ services:
       - "8787"
     volumes:
       - climate-twin-data:/app/data
+      - ${STUGA_TIMESERIES_DATA_SOURCE:-stuga-timeseries-data}:/app/timeseries-data:ro
       - stuga-timeseries-app-secret:/app/runtime/db:ro
       - stuga-proxy-secret:/app/runtime/proxy:ro
       - stuga-tapo-worker-secret:/app/runtime/tapo:ro
       - stuga-source-ingress-subscriber-secret:/run/secrets/source-ingress:ro
       - stuga-backup-operations:/app/runtime/backup-operations
-      - stuga-scheduled-backups:/app/backups:ro
+      - ${STUGA_SCHEDULED_BACKUP_SOURCE:-stuga-scheduled-backups}:/app/backups:ro
       - ${STUGA_UPDATE_OPERATIONS_DIRECTORY:-./data/update-operations}:/app/runtime/update-operations:${STUGA_UPDATE_OPERATIONS_MOUNT_OPTIONS:-z}
       - ${STUGA_CONFIG_DIRECTORY:-./config}:/app/config:ro,z
       - ${TAPO_HISTORY_API_SECRET_DIR:-./secrets/tapo-history-api}:/run/secrets/tapo-history:ro,z
@@ -402,6 +405,7 @@ services:
       # interpolate STUGA_CLOUDFLARE_SECRET_DIR as a host bind source.
       STUGA_UPDATE_CLOUDFLARE_SECRET_DIR: /persistent/stugu/secrets/cloudflare
       STUGA_UPDATE_PROFILE_ENV_FILE: /persistent/stugu/settings/${STUGA_MIGRATION_ENV_FILENAME:-.env}
+      STUGA_STORAGE_ALLOWED_ROOTS: ${STUGA_STORAGE_ALLOWED_ROOTS:-}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - .:/opt/stugu:ro,z
@@ -534,15 +538,19 @@ services:
       - --secrets-file
       - /app/data/integration-secrets.json
     environment:
+      BACKUP_MIN_FREE_BYTES: ${BACKUP_MIN_FREE_BYTES:-1073741824}
       TIMESERIES_HOST: timescaledb
       TIMESERIES_PORT: "5432"
       TIMESERIES_DATABASE: ${TIMESERIES_DATABASE:-stuga}
       TIMESERIES_USER: stuga_app
       TIMESERIES_PASSWORD_FILE: /app/runtime/db/password
+      TIMESERIES_ADMIN_USER: stuga_admin
+      TIMESERIES_ADMIN_PASSWORD_FILE: /app/runtime/admin/password
       TIMESERIES_SSL_MODE: disable
     volumes:
       - climate-twin-data:/app/data:ro
       - stuga-timeseries-app-secret:/app/runtime/db:ro
+      - stuga-timeseries-admin-secret:/app/runtime/admin:ro
       - ${STUGA_BACKUP_DIRECTORY:-./backups}:/app/backups:z
     read_only: true
     tmpfs:
@@ -562,9 +570,34 @@ services:
     user: ${STUGA_HOST_BIND_USER:-1000:1000}
     entrypoint: ["/app/scripts/export-scheduled-backups.sh"]
     volumes:
-      - stuga-scheduled-backups:/app/scheduled-backups:ro
+      - ${STUGA_SCHEDULED_BACKUP_SOURCE:-stuga-scheduled-backups}:/app/scheduled-backups:ro
       - ${STUGA_BACKUP_DIRECTORY:-./backups}:/app/backups:z
     read_only: true
+    security_opt:
+      - no-new-privileges:true
+    network_mode: none
+
+  # Mounted only by a trusted, journaled host-agent request. The agent supplies
+  # a generated JSON override with exact long-syntax source/target mounts, so
+  # user paths never pass through shell or Compose interpolation.
+  stugu-storage-helper:
+    profiles: ["maintenance"]
+    image: ${STUGA_BACKUP_IMAGE:-stugu-backup:local}
+    build:
+      context: .
+      target: backup
+    restart: "no"
+    user: "0:0"
+    entrypoint: ["node", "/app/scripts/stugu-storage-helper.mjs"]
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
     security_opt:
       - no-new-privileges:true
     network_mode: none
@@ -601,7 +634,7 @@ services:
       TIMESERIES_SSL_MODE: disable
     volumes:
       - climate-twin-data:/app/data
-      - stuga-timeseries-data:/app/timeseries-data:ro
+      - ${STUGA_TIMESERIES_DATA_SOURCE:-stuga-timeseries-data}:/app/timeseries-data:ro
       - stuga-timeseries-admin-secret:/app/runtime/admin:ro
       - ${STUGA_MIGRATION_DIRECTORY:-./data/migrations}:/app/migrations:z
       - ${STUGA_MIGRATION_SETTINGS_DIRECTORY:-.}:/app/target-settings:z
@@ -634,7 +667,9 @@ services:
       BACKUP_OPERATIONS_DIRECTORY: /app/runtime/backup-operations
       BACKUP_DIRECTORY: /app/backups
       BACKUP_INTERVAL_HOURS: ${BACKUP_INTERVAL_HOURS:-24}
+      BACKUP_MIN_FREE_BYTES: ${BACKUP_MIN_FREE_BYTES:-1073741824}
       BACKUP_RETENTION_COUNT: ${BACKUP_RETENTION_COUNT:-30}
+      BACKUP_STORAGE_TARGET_ID: ${STUGA_SCHEDULED_BACKUP_TARGET_ID:-}
       RESTORE_DRILL_INTERVAL_DAYS: ${RESTORE_DRILL_INTERVAL_DAYS:-30}
       TIMESERIES_HOST: timescaledb
       TIMESERIES_PORT: "5432"
@@ -649,7 +684,7 @@ services:
       - stuga-timeseries-app-secret:/app/runtime/db:ro
       - stuga-timeseries-admin-secret:/app/runtime/admin:ro
       - stuga-backup-operations:/app/runtime/backup-operations
-      - stuga-scheduled-backups:/app/backups
+      - ${STUGA_SCHEDULED_BACKUP_SOURCE:-stuga-scheduled-backups}:/app/backups
     read_only: true
     tmpfs:
       - /tmp:size=64m,mode=1777
@@ -684,8 +719,9 @@ services:
       STUGU_R2_AGE_RECIPIENT_FILE: /run/secrets/r2/age-recipient
       STUGU_R2_POLL_INTERVAL_SECONDS: ${STUGU_R2_POLL_INTERVAL_SECONDS:-60}
       STUGU_R2_RETRY_INTERVAL_MINUTES: ${STUGU_R2_RETRY_INTERVAL_MINUTES:-15}
+      BACKUP_STORAGE_TARGET_ID: ${STUGA_SCHEDULED_BACKUP_TARGET_ID:-}
     volumes:
-      - stuga-scheduled-backups:/app/backups:ro
+      - ${STUGA_SCHEDULED_BACKUP_SOURCE:-stuga-scheduled-backups}:/app/backups:ro
       - stuga-r2-backup-operations:/app/runtime/r2-backup-operations
       - ${STUGA_R2_SECRET_DIR:-./secrets/r2}:/run/secrets/r2:ro,z
     read_only: true

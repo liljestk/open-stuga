@@ -41,7 +41,7 @@ export class FakePool {
 
   readonly client = {
     processID: 4_242,
-    query: async (config: QueryConfig) => this.dispatch(config, false),
+    query: async (config: QueryConfig | string, values?: unknown[]) => this.dispatch(config, false, values),
     release: this.releases,
   } as unknown as PoolClient;
 
@@ -58,12 +58,13 @@ export class FakePool {
   }
 
   private dispatch(
-    config: QueryConfig,
+    config: QueryConfig | string,
     direct: boolean,
+    positionalValues: unknown[] = [],
   ): Promise<QueryResult<QueryResultRow>> {
     const query = {
-      text: config.text,
-      values: config.values ?? [],
+      text: typeof config === "string" ? config : config.text,
+      values: typeof config === "string" ? positionalValues : config.values ?? [],
       direct,
     };
     this.queries.push(query);

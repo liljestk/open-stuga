@@ -1,10 +1,12 @@
 import {
+  Bell,
   CheckCircle2,
   ChevronDown,
   CircleAlert,
   Clock3,
   Cpu,
   Database,
+  Download,
   Gauge,
   HardDrive,
   HelpCircle,
@@ -108,20 +110,30 @@ function AlertCard({ alert, health }: { alert: HostSystemAlert; health: HostSyst
   const { t, locale } = useI18n();
   const title = alert.metric === "cpu"
     ? t("systemHealth.alert.cpu")
+    : alert.metric === "database"
+      ? t("systemHealth.alert.database")
     : alert.metric === "event-loop"
       ? t("systemHealth.alert.eventLoop")
     : alert.metric === "memory"
       ? t("systemHealth.alert.memory")
       : alert.metric === "storage"
         ? t("systemHealth.alert.storage")
+        : alert.metric === "storage-forecast"
+          ? t("systemHealth.alert.storageForecast")
         : t("systemHealth.alert.temperature");
   const elapsed = duration(Math.max(0, (Date.parse(health.sampledAt) - Date.parse(alert.startedAt)) / 1_000), locale);
   const body = alert.metric === "cpu"
     ? t("systemHealth.alertBody.cpu", { value: percent(alert.value, locale), duration: elapsed })
+    : alert.metric === "database"
+      ? t("systemHealth.alertBody.database", { duration: elapsed })
     : alert.metric === "event-loop"
       ? t("systemHealth.alertBody.eventLoop", { value: milliseconds(alert.value, locale), duration: elapsed })
     : alert.metric === "memory"
       ? t("systemHealth.alertBody.memory", { value: percent(alert.value, locale), duration: elapsed })
+      : alert.metric === "storage-forecast"
+        ? t("systemHealth.alertBody.storageForecast", {
+          days: new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(alert.value ?? 0),
+        })
       : alert.metric === "temperature"
         ? t("systemHealth.alertBody.temperature", {
           value: alert.value === null ? "—" : new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(alert.value),
@@ -132,11 +144,13 @@ function AlertCard({ alert, health }: { alert: HostSystemAlert; health: HostSyst
           : t("systemHealth.alertBody.storage", { available: bytes(health.storage.availableBytes, locale) });
   const action = alert.metric === "cpu"
     ? t("systemHealth.action.cpu")
+    : alert.metric === "database"
+      ? t("systemHealth.action.database")
     : alert.metric === "event-loop"
       ? t("systemHealth.action.eventLoop")
     : alert.metric === "memory"
       ? t("systemHealth.action.memory")
-      : alert.metric === "storage"
+      : alert.metric === "storage" || alert.metric === "storage-forecast"
         ? t("systemHealth.action.storage")
         : t("systemHealth.action.temperature");
   return <article className={`host-system-alert ${alert.severity}`}>
@@ -208,6 +222,31 @@ export function HostSystemPanel() {
     : ` · ${new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(health.cpu.temperatureCelsius)} °C`;
   const eventLoop = health.cpu.eventLoop;
   const metricsPath = `${API_BASE}/system/metrics`;
+  const errorLogsPath = `${API_BASE}/system/error-logs`;
+  const storageForecast = health.storage.forecast;
+  const forecastAt = storageForecast?.warningAt ?? storageForecast?.criticalAt ?? null;
+  const forecastContext = !storageForecast || storageForecast.state === "collecting"
+    ? t("systemHealth.storageForecastCollecting")
+    : storageForecast.state === "stable" || !forecastAt
+      ? t("systemHealth.storageForecastStable", {
+        duration: duration(storageForecast.observedSeconds, locale),
+      })
+      : t("systemHealth.storageForecastProjected", {
+        days: new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(Math.max(
+          0,
+          (Date.parse(forecastAt) - Date.parse(health.sampledAt)) / 86_400_000,
+        )),
+        confidence: t(`systemHealth.confidence.${storageForecast.confidence ?? "low"}`),
+      });
+  const telemetry = health.database?.telemetry;
+  const databaseContext = !telemetry || telemetry.state === "disabled"
+    ? t("systemHealth.databaseSqliteOnly", { tables: health.database?.sqlite.tableCount ?? 0 })
+    : telemetry.state === "healthy"
+      ? t("systemHealth.databaseTelemetryReady", {
+        latency: milliseconds(telemetry.latencyMilliseconds, locale),
+      })
+      : t("systemHealth.databaseTelemetryUnavailable");
+  const telegramDelivery = health.alertDelivery?.telegram;
   return <section className={`panel host-system-panel ${health.state}`} aria-labelledby="host-system-title">
     <div className="panel-header host-system-header">
       <div>
@@ -281,10 +320,17 @@ export function HostSystemPanel() {
         value={health.storage.usedPercent === null ? t("systemHealth.unavailableShort") : percent(health.storage.usedPercent, locale)}
         context={health.storage.availableBytes === null
           ? t("systemHealth.storageUnknown")
-          : t("systemHealth.storageContext", { available: bytes(health.storage.availableBytes, locale), total: bytes(health.storage.totalBytes, locale) })}
+          : `${t("systemHealth.storageContext", { available: bytes(health.storage.availableBytes, locale), total: bytes(health.storage.totalBytes, locale) })} · ${forecastContext}`}
         state={health.storage.state}
         progress={health.storage.usedPercent}
       />
+      {health.database && <MetricCard
+        icon={Database}
+        label={t("systemHealth.database")}
+        value={bytes(health.database.sqlite.sizeBytes, locale)}
+        context={databaseContext}
+        state={health.database.state}
+      />}
       <MetricCard
         icon={Clock3}
         label={t("systemHealth.uptime")}
@@ -296,11 +342,29 @@ export function HostSystemPanel() {
 
         <p>{t("systemHealth.metricsBody")}</p>
         <a href={metricsPath} target="_blank" rel="noreferrer"><code>{metricsPath}</code></a>
+        <div className={`host-system-delivery ${telegramDelivery?.error ? "warning" : telegramDelivery?.connected ? "ready" : "unknown"}`}>
+          <Bell size={16} aria-hidden="true" />
+          <span>
+            <strong>{t("systemHealth.telegramTitle")}</strong>
+            <small>{telegramDelivery?.error
+              ? t("systemHealth.telegramError")
+              : !telegramDelivery?.configured
+                ? t("systemHealth.telegramNotConfigured")
+                : telegramDelivery.connected
+                  ? t("systemHealth.telegramReady")
+                  : t("systemHealth.telegramConfigured")}</small>
+          </span>
+        </div>
+        <div className="host-system-log-export">
+          <span><strong>{t("systemHealth.errorLogsTitle")}</strong><small>{t("systemHealth.errorLogsBody")}</small></span>
+          <a className="secondary-button" href={errorLogsPath} download><Download size={15} aria-hidden="true" />{t("systemHealth.errorLogsExport")}</a>
+        </div>
         <dl>
           <div><dt><Cpu size={14} aria-hidden="true" />{t("systemHealth.cpu")}</dt><dd>{t("systemHealth.thresholdCpu", { warning: health.cpu.usageThresholds.warningPercent, critical: health.cpu.usageThresholds.criticalPercent })}</dd></div>
           {eventLoop && <div><dt><Gauge size={14} aria-hidden="true" />{t("systemHealth.eventLoop")}</dt><dd>{t("systemHealth.thresholdMilliseconds", { warning: eventLoop.thresholds.warningMilliseconds, critical: eventLoop.thresholds.criticalMilliseconds })}</dd></div>}
           <div><dt><MemoryStick size={14} aria-hidden="true" />{t("systemHealth.memory")}</dt><dd>{t("systemHealth.thresholdPercent", { warning: health.memory.thresholds.warningPercent, critical: health.memory.thresholds.criticalPercent })}</dd></div>
           <div><dt><HardDrive size={14} aria-hidden="true" />{t("systemHealth.storage")}</dt><dd>{t("systemHealth.thresholdStorage", { warning: bytes(health.storage.warningAvailableBytes, locale), critical: bytes(health.storage.criticalAvailableBytes, locale) })}</dd></div>
+          <div><dt><Database size={14} aria-hidden="true" />{t("systemHealth.database")}</dt><dd>{t("systemHealth.thresholdDatabase")}</dd></div>
           <div><dt><Thermometer size={14} aria-hidden="true" />{t("systemHealth.temperature")}</dt><dd>{t("systemHealth.thresholdTemperature", { warning: health.cpu.temperatureThresholds.warningPercent, critical: health.cpu.temperatureThresholds.criticalPercent })}</dd></div>
         </dl>
         <p className="host-system-identity">{health.hostname} · {health.platform} {health.release} · {health.architecture}</p>

@@ -61,6 +61,25 @@ export function optional(value) {
   return normalized ? normalized : null;
 }
 
+function storageAllowedRoots(value, projectDirectory, runtime) {
+  const configured = optional(value)?.split(",").map((entry) => entry.trim()).filter(Boolean) ?? [];
+  const defaults = process.platform === "win32"
+    ? [resolve(projectDirectory, "data", "storage")]
+    : [
+      ...(runtime === "raspberry-pi" ? ["/persistent/stugu"] : []),
+      "/mnt/stugu",
+      "/media/stugu",
+      "/srv/stugu-storage",
+    ];
+  const roots = configured.length > 0 ? configured : defaults;
+  if (roots.length > 32 || roots.some((root) => root.length > 500
+    || /[\u0000-\u001f\u007f\s`$"'{}#=]/u.test(root)
+    || !(root.startsWith("/") || /^[A-Za-z]:[\\/]/u.test(root)))) {
+    throw new Error("STUGA_STORAGE_ALLOWED_ROOTS must contain safe comma-separated absolute paths");
+  }
+  return [...new Set(roots.map((root) => root.replace(/[\\/]+$/u, "")))];
+}
+
 export function trustedRepository(value) {
   const repository = optional(value) ?? "liljestk/open-stuga";
   if (!/^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/.test(repository)) {
@@ -105,12 +124,13 @@ export function readAgentConfig(env = process.env, cwd = process.cwd(), args = p
     optional(env.SYSTEM_UPDATE_OPERATIONS_DIRECTORY) ?? join("data", "update-operations"),
   );
   const repository = trustedRepository(env.SYSTEM_UPDATE_REPOSITORY);
+  const runtime = updateRuntime(env.SYSTEM_UPDATE_RUNTIME);
   const config = {
     projectDirectory,
     operationsDirectory,
     repository,
     imagePrefix: trustedImagePrefix(env.SYSTEM_UPDATE_IMAGE_PREFIX, repository),
-    runtime: updateRuntime(env.SYSTEM_UPDATE_RUNTIME),
+    runtime,
     factoryReleaseEnvFile: resolve(
       projectDirectory,
       optional(env.STUGA_FACTORY_RELEASE_ENV_FILE) ?? "release.env",
@@ -134,6 +154,7 @@ export function readAgentConfig(env = process.env, cwd = process.cwd(), args = p
       projectDirectory,
       optional(env.STUGA_UPDATE_PROFILE_ENV_FILE) ?? ".env",
     ),
+    storageAllowedRoots: storageAllowedRoots(env.STUGA_STORAGE_ALLOWED_ROOTS, projectDirectory, runtime),
     once: args.includes("--once"),
   };
   const releasePaths = [
@@ -796,7 +817,7 @@ export function releaseEnvironmentFiles(config) {
 export function composeArguments(config) {
   const args = ["compose"];
   if (config.composeProjectName) args.push("--project-name", config.composeProjectName);
-  const localEnv = join(config.projectDirectory, ".env");
+  const localEnv = config.composeProfileEnvironmentFile ?? join(config.projectDirectory, ".env");
   if (existsSync(localEnv)) args.push("--env-file", localEnv);
   for (const releaseEnv of releaseEnvironmentFiles(config)) {
     args.push("--env-file", releaseEnv);
@@ -806,9 +827,21 @@ export function composeArguments(config) {
 }
 
 export async function compose(config, args, timeoutMs = UPDATE_TIMEOUT_MS) {
+  const env = { ...process.env };
+  // These values are mutable host settings. A containerized agent inherited
+  // their old values when it started; remove them so the persistent env file
+  // remains the single interpolation source for nested Compose.
+  for (const key of [
+    "STUGA_TIMESERIES_DATA_SOURCE",
+    "STUGA_TIMESERIES_STORAGE_KIND",
+    "STUGA_SCHEDULED_BACKUP_SOURCE",
+    "STUGA_SCHEDULED_BACKUP_STORAGE_KIND",
+    "STUGA_SCHEDULED_BACKUP_TARGET_ID",
+  ]) delete env[key];
   return runCommand("docker", [...composeArguments(config), ...args], {
     cwd: config.projectDirectory,
     timeoutMs,
+    env,
   });
 }
 

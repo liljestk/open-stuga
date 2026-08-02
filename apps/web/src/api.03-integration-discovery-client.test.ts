@@ -139,6 +139,66 @@ describe("integration discovery API client", () => {
     );
   });
 
+  it("shares one event stream between the setup page and app-level watcher", async () => {
+    class FakeEventSource {
+      static instances: FakeEventSource[] = [];
+      readonly listeners = new Map<string, EventListener>();
+      onerror: ((event: Event) => void) | null = null;
+
+      constructor() {
+        FakeEventSource.instances.push(this);
+      }
+
+      addEventListener(type: string, listener: EventListenerOrEventListenerObject): void {
+        if (typeof listener === "function") this.listeners.set(type, listener);
+      }
+
+      close(): void {}
+
+      emit(type: string, data: unknown): void {
+        this.listeners.get(type)?.(new MessageEvent(type, { data: JSON.stringify(data) }));
+      }
+    }
+    vi.stubGlobal("EventSource", FakeEventSource);
+    const job = {
+      id: "72d642ee-a2f4-40cb-8d68-5fd663454912",
+      houseId: "house-main",
+      status: "running" as const,
+      createdAt: "2026-07-28T10:00:00.000Z",
+      updatedAt: "2026-07-28T10:00:00.000Z",
+      expiresAt: "2026-07-28T11:00:00.000Z",
+      result: null,
+      error: null,
+    };
+    const result: Awaited<ReturnType<typeof api.resumeIntegrationDiscovery>> = {
+      homeAssistant: [],
+      tpLink: [],
+      warnings: [],
+    };
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      status: 202,
+      json: async () => ({ job }),
+    } as Response);
+    let appWatcher: Promise<typeof result> | undefined;
+
+    const pageWatcher = api.discoverIntegrations("house-main", undefined, (started) => {
+      appWatcher = api.resumeIntegrationDiscovery(started.id);
+    });
+    await vi.waitFor(() => expect(FakeEventSource.instances).toHaveLength(1));
+
+    expect(fetch).toHaveBeenCalledTimes(1);
+    FakeEventSource.instances[0]?.emit("integration-discovery", {
+      ...job,
+      status: "completed",
+      result,
+    });
+
+    await expect(pageWatcher).resolves.toEqual(result);
+    await expect(appWatcher).resolves.toEqual(result);
+    expect(FakeEventSource.instances).toHaveLength(1);
+  });
+
   it("closes the browser subscription without cancelling the server job", async () => {
     class FakeEventSource {
       static latest: FakeEventSource | null = null;

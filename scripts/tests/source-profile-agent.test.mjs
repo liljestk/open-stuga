@@ -76,6 +76,6 @@ test("agent advertises source-profile control without enabling it", (t) => {
   const config = fixture(t);
   heartbeat(config, true);
   const status = JSON.parse(readFileSync(join(config.operationsDirectory, "agent-status.json"), "utf8"));
-  assert.deepEqual(status.capabilities, ["system-update", "cloudflare-setup", "source-profile"]);
+  assert.deepEqual(status.capabilities, ["system-update", "cloudflare-setup", "source-profile", "storage-settings"]);
   assert.equal(readFileSync(join(config.projectDirectory, ".env"), "utf8"), "COMPOSE_PROFILES=self-update\n");
 });

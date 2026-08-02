@@ -31,7 +31,7 @@ export function localObservationDate(date = new Date(), timeZone?: string): stri
   return localObservationDateTime(date, timeZone).slice(0, 10);
 }
 
-function houseLocalDateTimeCandidates(value: string, timeZone: string): string[] | null {
+export function houseLocalDateTimeCandidates(value: string, timeZone: string): string[] | null {
   const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(value);
   if (!match) return null;
   const [year, month, day, hour, minute] = match.slice(1).map(Number) as [number, number, number, number, number];

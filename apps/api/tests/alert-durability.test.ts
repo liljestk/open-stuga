@@ -68,6 +68,49 @@ function telegramSuccessFetch() {
 }
 
 describe("durable alert history and notification snapshots", () => {
+  it("bounds terminal notification payload history without touching pending work", () => {
+    const directory = mkdtempSync(join(tmpdir(), "stugu-notification-retention-"));
+    const databasePath = join(directory, "climate.sqlite");
+    const config = alertConfig(directory, databasePath);
+    const database = new ClimateDatabase(databasePath, true);
+    try {
+      for (const subjectId of ["old-delivered", "old-dead", "old-abandoned", "recent-delivered", "recent-dead", "pending"]) {
+        expect(database.enqueueOperationalNotification({
+          subjectKind: "system",
+          subjectId,
+          stage: "initial",
+          webhookEnabled: true,
+          telegramEnabled: false,
+          config,
+          type: "system.health",
+          text: subjectId,
+          data: {},
+        })).toBe(1);
+      }
+      const terminal = database.db.prepare(`UPDATE notification_outbox
+        SET delivered_at=?, dead_lettered_at=?, abandoned_at=? WHERE subject_id=?`);
+      terminal.run("2024-01-01T00:00:00.000Z", null, null, "old-delivered");
+      terminal.run(null, "2024-01-01T00:00:00.000Z", null, "old-dead");
+      terminal.run(null, null, "2024-01-01T00:00:00.000Z", "old-abandoned");
+      terminal.run("2025-06-01T00:00:00.000Z", null, null, "recent-delivered");
+      terminal.run(null, "2025-06-01T00:00:00.000Z", null, "recent-dead");
+
+      expect(database.pruneNotificationDeliveryHistory(
+        new Date("2025-01-01T00:00:00.000Z"),
+        new Date("2025-01-01T00:00:00.000Z"),
+      )).toBe(3);
+      expect((database.db.prepare("SELECT subject_id FROM notification_outbox ORDER BY subject_id")
+        .all() as Array<{ subject_id: string }>).map((row) => row.subject_id)).toEqual([
+        "pending",
+        "recent-dead",
+        "recent-delivered",
+      ]);
+    } finally {
+      database.close();
+      rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    }
+  });
+
   it("reconciles accepted samples after restart and retries the queue atomically", () => {
     const directory = mkdtempSync(join(tmpdir(), "stugu-alert-evaluation-queue-"));
     const databasePath = join(directory, "climate.sqlite");

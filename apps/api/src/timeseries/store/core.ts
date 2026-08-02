@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
 import type { PoolClient, QueryResult, QueryResultRow } from "pg";
+import { AnalyticsWorkLimiter } from "../../analytics/work-limiter.js";
 import {
   installRegisteredMethods,
   type AssertNoMethodKeys,
@@ -61,6 +62,9 @@ export interface TimeseriesStoreState {
   closed: boolean;
   lastPoolError: Error | null;
   initializePromise: Promise<TelemetrySchemaInitResult> | null;
+  orderedMetrics: Set<string>;
+  coldStorageAfterDays: number | null;
+  costWorkLimiter: AnalyticsWorkLimiter;
   queryMetrics: {
     active: number;
     started: number;
@@ -84,6 +88,9 @@ export function createTimeseriesStoreState(): TimeseriesStoreState {
     closed: false,
     lastPoolError: null,
     initializePromise: null,
+    orderedMetrics: new Set(),
+    coldStorageAfterDays: null,
+    costWorkLimiter: undefined as unknown as AnalyticsWorkLimiter,
     queryMetrics: {
       active: 0,
       started: 0,
@@ -116,6 +123,12 @@ export class TimeseriesStoreCore {
       this.schema = validateSchemaName(options.schema ?? DEFAULT_SCHEMA);
       this[timeseriesStoreState].batchSize = positiveInteger(options.batchSize, DEFAULT_BATCH_SIZE, 5_000);
       this[timeseriesStoreState].defaultTimeoutMs = timeoutValue(options.statementTimeoutMs, DEFAULT_STATEMENT_TIMEOUT_MS);
+      this[timeseriesStoreState].orderedMetrics = new Set(
+        (options.orderedMetricIds ?? []).filter((metric) => metric.trim().length > 0),
+      );
+      this[timeseriesStoreState].coldStorageAfterDays = options.coldStorageAfterDays === undefined
+        ? null
+        : positiveInteger(options.coldStorageAfterDays, 7, 3_650);
       this[timeseriesStoreState].ownsPool = options.pool === undefined;
       this[timeseriesStoreState].closeInjectedPool = options.closeInjectedPool ?? false;
 
@@ -124,6 +137,10 @@ export class TimeseriesStoreCore {
         DEFAULT_POOL_SIZE,
         100,
       );
+      this[timeseriesStoreState].costWorkLimiter = new AnalyticsWorkLimiter({
+        maxConcurrent: Math.min(2, max),
+        maxQueued: 32,
+      });
       const connectionTimeoutMillis = timeoutValue(
         options.connectionTimeoutMs ?? (
           typeof options.poolConfig?.connectionTimeoutMillis === "number"

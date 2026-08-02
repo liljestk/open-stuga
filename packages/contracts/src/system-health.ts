@@ -2,7 +2,14 @@ import type { AlertSeverity } from "./sensors-alerts.js";
 
 export type HostSystemState = "healthy" | "warning" | "critical" | "unknown";
 
-export type HostSystemAlertMetric = "cpu" | "event-loop" | "memory" | "storage" | "temperature";
+export type HostSystemAlertMetric =
+  | "cpu"
+  | "database"
+  | "event-loop"
+  | "memory"
+  | "storage"
+  | "storage-forecast"
+  | "temperature";
 
 export interface HostSystemThresholds {
   warningPercent: number;
@@ -69,6 +76,76 @@ export interface HostSystemStorageStatus {
   thresholds: HostSystemThresholds;
   warningAvailableBytes: number;
   criticalAvailableBytes: number;
+  forecast: HostSystemStorageForecast;
+}
+
+export type HostSystemStorageForecastState = "collecting" | "stable" | "projected";
+
+export type HostSystemForecastConfidence = "low" | "medium" | "high";
+
+export interface HostSystemStorageForecast {
+  state: HostSystemStorageForecastState;
+  sampleCount: number;
+  observedSeconds: number;
+  /** Positive values mean that available storage is being consumed. */
+  growthBytesPerDay: number | null;
+  warningAt: string | null;
+  criticalAt: string | null;
+  confidence: HostSystemForecastConfidence | null;
+}
+
+export interface HostSystemSqliteStatus {
+  state: HostSystemState;
+  sizeBytes: number | null;
+  usedBytes: number | null;
+  walBytes: number | null;
+  pageCount: number | null;
+  freePages: number | null;
+  tableCount: number | null;
+}
+
+export interface HostSystemDatabasePoolStatus {
+  total: number;
+  idle: number;
+  waiting: number;
+}
+
+export interface HostSystemDatabaseQueryStatus {
+  active: number;
+  started: number;
+  succeeded: number;
+  failed: number;
+  averageDurationMilliseconds: number;
+  maximumDurationMilliseconds: number;
+  averagePoolWaitMilliseconds: number;
+  maximumPoolWaitMilliseconds: number;
+}
+
+export interface HostSystemTelemetryDatabaseStatus {
+  enabled: boolean;
+  required: boolean;
+  state: HostSystemState | "disabled";
+  sizeBytes: number | null;
+  latencyMilliseconds: number | null;
+  pool: HostSystemDatabasePoolStatus | null;
+  queries: HostSystemDatabaseQueryStatus | null;
+}
+
+export interface HostSystemDatabaseStatus {
+  state: HostSystemState;
+  sqlite: HostSystemSqliteStatus;
+  telemetry: HostSystemTelemetryDatabaseStatus;
+}
+
+export interface HostSystemTelegramAlertDeliveryStatus {
+  configured: boolean;
+  connected: boolean | null;
+  lastDeliveryAt: string | null;
+  error: string | null;
+}
+
+export interface HostSystemAlertDeliveryStatus {
+  telegram: HostSystemTelegramAlertDeliveryStatus;
 }
 
 export interface HostSystemHealth {
@@ -83,5 +160,8 @@ export interface HostSystemHealth {
   cpu: HostSystemCpuStatus;
   memory: HostSystemMemoryStatus;
   storage: HostSystemStorageStatus;
+  database: HostSystemDatabaseStatus;
+  /** Added by the authenticated API representation when delivery state is available. */
+  alertDelivery?: HostSystemAlertDeliveryStatus;
   alerts: HostSystemAlert[];
 }

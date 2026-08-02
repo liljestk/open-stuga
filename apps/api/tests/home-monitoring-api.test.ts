@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import request from "supertest";
 import { createApi, type ApiRuntime } from "../src/app.js";
 import type { AppConfig } from "../src/config.js";
+import { IncompleteTelemetryHistoryError } from "../src/timeseries/read-facade.js";
 
 const config: AppConfig = {
   port: 0,
@@ -265,6 +266,25 @@ describe("Home monitoring API", () => {
     expect(unavailable.body.warnings).toContainEqual(expect.objectContaining({
       code: "monitoring.missing-evidence",
     }));
+  });
+
+  it("returns explicit partial evidence while the telemetry archive recovers", async () => {
+    const history = vi.spyOn(runtime.telemetryReader, "measurementAnalyticsRollup")
+      .mockRejectedValue(new IncompleteTelemetryHistoryError("failed"));
+
+    const detail = await request(runtime.app)
+      .get("/api/v2/monitoring/houses/home-one?dataMode=live&include=insights")
+      .expect(200);
+
+    expect(history).toHaveBeenCalledOnce();
+    expect(detail.body).toMatchObject({
+      completeness: "partial",
+      warnings: expect.arrayContaining([expect.objectContaining({
+        code: "TELEMETRY_ARCHIVE_REQUIRED",
+        details: { archiveState: "failed" },
+      })]),
+    });
+    expect(detail.body.evidenceSources).not.toHaveLength(0);
   });
 
   it("rejects cross-mode, invalid includes, and unknown Homes", async () => {

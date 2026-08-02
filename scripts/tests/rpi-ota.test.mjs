@@ -651,7 +651,10 @@ test("the appliance exposes a health-gated migration receiver with rollback", as
   assert.match(compose, /stugu-migration:[\s\S]*stugu-migration-target\.mjs/);
   assert.match(compose, /--include-secrets-if-present/);
   assert.match(compose, /STUGA_MIGRATION_DIRECTORY[^\n]*:\/app\/migrations/);
-  assert.match(compose, /stuga-timeseries-data:\/app\/timeseries-data:ro/);
+  assert.match(
+    compose,
+    /\$\{STUGA_TIMESERIES_DATA_SOURCE:-stuga-timeseries-data\}:\/app\/timeseries-data:ro/,
+  );
   assert.match(compose, /STUGA_MIGRATION_SETTINGS_DIRECTORY[^\n]*:\/app\/target-settings:z/);
   assert.match(compose, /STUGA_MIGRATION_ENV_FILENAME:-\.env/);
   assert.doesNotMatch(compose, /STUGA_MIGRATION_ENV_FILE[^\n]*:\/app\/target-settings/);

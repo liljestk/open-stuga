@@ -72,6 +72,26 @@ describe("analytics query API", () => {
     expect(response.body.series[0].points).toHaveLength(3);
   });
 
+  it("accepts whole-minute custom resolutions for export buckets", async () => {
+    const response = await request(runtime.app).post("/api/v2/analytics/query").send(query({
+      resolution: "7m",
+      maxPointsPerSeries: 500,
+    })).expect(200);
+
+    expect(response.body).toMatchObject({ resolution: "7m", series: [{ resolution: "7m", aggregation: "mean" }] });
+    const timestamps = response.body.series[0].points.map((point: { timestamp: string }) => Date.parse(point.timestamp));
+    expect(timestamps.slice(1).map((timestamp: number, index: number) => timestamp - timestamps[index])).toEqual(
+      Array.from({ length: Math.max(0, timestamps.length - 1) }, () => 7 * 60_000),
+    );
+  });
+
+  it("rejects custom resolutions outside the supported whole-minute range", async () => {
+    for (const resolution of ["0m", "1441m", "7.5m", "7minutes"]) {
+      await request(runtime.app).post("/api/v2/analytics/query").send(query({ resolution })).expect(400)
+        .expect(({ body }) => expect(body.error.code).toBe("INVALID_ANALYTICS_RESOLUTION"));
+    }
+  });
+
   it("treats the requested end as exclusive", async () => {
     runtime.database.insertMeasurementSamples([
       { sensorId: "sensor-01", metric: "temperature", value: 99, canonicalUnit: "Â°C", timestamp: "2026-07-19T10:15:00.000Z", source: "api", quality: "good" },

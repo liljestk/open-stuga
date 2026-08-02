@@ -134,6 +134,7 @@ import {
 import { publishAuthEpoch } from "../authEpoch";
 import { API_BASE, API_REQUEST_TIMEOUT_MS, API_V2_BASE, ApiRequestError, COLLECTION_PAGE_SIZE, SAFE_API_PATH, SAFE_HTTP_METHODS, STREAM_STABILITY_DELAY_MS, TRACKING_EVENT_TYPES, activeRequestControllers, apiClientState, apiRequestGeneration, assertSafeApiPath, authorizationChange, authorizationListeners, cancelPendingApiRequests, collectionPagePath, completeAuthentication, completeCollection, entity, houseResponse, isPollingHeartbeat, list, memberSummary, notifyAuthorizationChange, observationResponse, rememberSession, request, requestFrom, requestV2, sensorResponse, spatialConfigurationResponse, subscribeToApiAuthorizationChanges, subscribeToEvents, subscribeToMeasurementEvents, subscribeToSpatialLayerEvents, subscribeToSystemUpdateEvents, subscribeToTrackingEvents, updateHouseGeoreference } from "./support";
 import type { ApiAuthorizationChange, AppleNotesSetupMetadata, CloudflareSetupOperation, CloudflareSetupPhase, CloudflareSetupStartInput, CloudflareSetupStartResult, CloudflareSetupStatus, CoordinateDefaults, CreateHouseInput, CreateSensorInput, HistoricalImportResult, HomeAssistantDiscoveredInstance, HouseGeoreferencePatch, HousePatch, IntegrationDiscoveryResult, LocationSuggestion, MaintenanceTaskFilters, MeasurementHistoryPage, OutdoorTemperatureHistoryPage, SensorMeasurementPage, SensorPatch, StugubyAuthorityTransfer, StugubyDetailResponse, StugubyHomeProjection, StugubyInvitationCreated, StugubyListResponse, StugubyLocalInvitation, StugubyLocalMember, StugubyLocalPublicationCatalog, StugubyPropertyAdoption, StugubyRemoteTelemetrySample, SystemRelease, SystemUpdateDay, SystemUpdateLiveStatus, SystemUpdateOperation, SystemUpdateSettings, SystemUpdateStatus, TenantMembersResponse, TpLinkDiscoveredSource, TpLinkHistoryExportJob, TpLinkHistoryExportJobStatus, TpLinkHistoryExportJobsResponse, TpLinkHistoryExportProvider } from "./support";
+import type { SystemStorageSettings, SystemStorageStatus } from "./support";
 
 
 
@@ -147,6 +148,15 @@ export const apiPart01 = {
       body: JSON.stringify(settings),
     }),
   installLatestSystemUpdate: () => request<SystemUpdateStatus>("/system/updates/install", { method: "POST" }),
+  systemStorageStatus: () => request<SystemStorageStatus>("/system/storage"),
+  updateSystemStorage: (input: {
+    settings: SystemStorageSettings;
+    expectedRevision: string;
+    confirmation: "APPLY_STORAGE" | "MOVE_STORAGE";
+  }) => request<SystemStorageStatus>("/system/storage", {
+      method: "PUT",
+      body: JSON.stringify(input),
+    }),
   cloudflareSetupStatus: () => request<CloudflareSetupStatus>("/cloudflare/setup"),
   startCloudflareSetup: (input: CloudflareSetupStartInput) => request<CloudflareSetupStartResult>("/cloudflare/setup/start", {
       method: "POST",

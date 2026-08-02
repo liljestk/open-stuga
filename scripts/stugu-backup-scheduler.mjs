@@ -13,9 +13,11 @@ import {
 import { basename, join, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import { restoreDrill } from "./stugu-restore-drill.mjs";
+import { assertStorageTarget } from "./stugu-storage-target.mjs";
 
 const operationsDirectory = resolve(process.env.BACKUP_OPERATIONS_DIRECTORY ?? "/app/runtime/backup-operations");
 const backupRoot = resolve(process.env.BACKUP_DIRECTORY ?? "/app/backups");
+const expectedStorageTargetId = process.env.BACKUP_STORAGE_TARGET_ID ?? "";
 
 export function boundedSchedulerInteger(value, fallback, minimum, maximum, name) {
   const raw = value?.trim();
@@ -117,6 +119,21 @@ let running = false;
 async function work() {
   if (running) return;
   const current = status();
+  try {
+    assertStorageTarget(backupRoot, expectedStorageTargetId);
+  } catch (error) {
+    atomicJson(join(operationsDirectory, "status.json"), {
+      ...current,
+      version: 1,
+      available: true,
+      schedulerHealthy: false,
+      state: "failed",
+      completedAt: new Date().toISOString(),
+      backupPath: null,
+      lastError: error instanceof Error ? error.message : String(error),
+    });
+    return;
+  }
   const requestName = requestFiles()[0] ?? null;
   const due = schedulerTimestampDue(
     current.latestVerifiedBackupAt,

@@ -103,7 +103,10 @@ import { runThermalSimulation } from "../thermal-simulation.js";
 import { runThermalIsolation } from "../thermal-isolation.js";
 import { SYSTEM_VERSION } from "../version.js";
 import { SystemUpdateError, SystemUpdateService } from "../system-updates.js";
+import { SystemStorageService } from "../system-storage.js";
 import { HostSystemMonitor } from "../host-system.js";
+import { HostDatabaseMetricsCollector, SqliteHostStorageHistory } from "../host-database-metrics.js";
+import { SystemErrorLog } from "../system-error-log.js";
 import { LocationDiscoveryService } from "../location-discovery.js";
 import { AutomaticWeatherProvider, OpenMeteoWeatherProvider, prefersFmi } from "../open-meteo.js";
 import { WeatherMonitor } from "../weather-monitor.js";
@@ -199,10 +202,12 @@ export function configureApiPart02(context: ReturnType<typeof configureApiPart01
   config.timeseriesConnectTimeoutMs ??= 5_000;
   config.timeseriesStatementTimeoutMs ??= 15_000;
   config.timeseriesBatchSize ??= 1_000;
+  config.timeseriesColumnstoreAfterDays ??= 7;
   if (config.timeseriesRequired && !config.timeseriesEnabled) {
       throw new Error("timeseriesRequired=true requires timeseriesEnabled=true");
     }
   const database = context.options.database ?? new ClimateDatabase(config.databasePath);
+  const systemErrorLog = new SystemErrorLog(database);
   const recoveredSecrets = recoverCoordinatedIntegrationSecrets(config.integrationSecretsFile, database);
   if (recoveredSecrets) {
     config.homeAssistantConnections = recoveredSecrets.homeAssistantConnections ?? [];
@@ -244,7 +249,19 @@ export function configureApiPart02(context: ReturnType<typeof configureApiPart01
       imagePrefix: config.systemUpdateImagePrefix,
       operationsDirectory: config.systemUpdateOperationsDirectory,
     });
-  const hostSystem = new HostSystemMonitor({ storagePath: config.databasePath });
+  const systemStorage = new SystemStorageService({
+      operationsDirectory: config.systemUpdateOperationsDirectory,
+    });
+  const hostDatabaseMetrics = new HostDatabaseMetricsCollector(database, {
+      databasePath: config.databasePath,
+      telemetryEnabled: config.timeseriesEnabled,
+      telemetryRequired: config.timeseriesRequired,
+    });
+  const hostSystem = new HostSystemMonitor({
+      storagePath: config.timeseriesStoragePath ?? config.databasePath,
+      storageHistory: new SqliteHostStorageHistory(database),
+      databaseMetrics: () => hostDatabaseMetrics.snapshot(),
+    });
   const cloudflareSetup = context.options.cloudflareSetup ?? new CloudflareSetupService({
       operationsDirectory: config.systemUpdateOperationsDirectory,
       deploymentFile: config.cloudflareSetupDeploymentFile,
@@ -352,6 +369,6 @@ export function configureApiPart02(context: ReturnType<typeof configureApiPart01
             ...(config.timeseriesSslCa ? { ca: config.timeseriesSslCa } : {}),
             ...(isIP(config.timeseriesHost) === 0 ? { servername: config.timeseriesHost } : {}),
           };
-  const extended = Object.assign(context, { database, trackingFlags, trackingStore, tracking, systemUpdates, hostSystem, cloudflareSetup, dataOperations, energyOptimizer, integrationMetadata, localAuth, recordSecurityAudit, cloudflareAccess, authAbuseLimiter, trackingObserverAbuseLimiter, dataMode, bus, stuguby, assertSensorHouseMoveAllowed, timeseriesSsl });
+  const extended = Object.assign(context, { database, systemErrorLog, trackingFlags, trackingStore, tracking, systemUpdates, systemStorage, hostDatabaseMetrics, hostSystem, cloudflareSetup, dataOperations, energyOptimizer, integrationMetadata, localAuth, recordSecurityAudit, cloudflareAccess, authAbuseLimiter, trackingObserverAbuseLimiter, dataMode, bus, stuguby, assertSensorHouseMoveAllowed, timeseriesSsl });
   return extended;
 }

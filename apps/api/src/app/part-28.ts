@@ -244,7 +244,10 @@ export function configureApiPart28(context: ReturnType<typeof configureApiPart27
         context.weatherRecovery.stop(),
         stoppingDailyAnalyticsFindings,
         context.spatialLayers?.stop() ?? Promise.resolve(),
-        (context.telemetryRetention?.stop() ?? Promise.resolve()).then(() => context.telemetryArchive?.stop()),
+        Promise.all([
+          context.telemetryRetention?.stop() ?? Promise.resolve(),
+          context.telemetryOrderedRollups?.stop() ?? Promise.resolve(),
+        ]).then(() => context.telemetryArchive?.stop()),
       ]).then(() => undefined);
       return context.shutdownPromise;
     };

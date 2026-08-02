@@ -1,37 +1,63 @@
 import type { QueryResultRow } from "pg";
+import { MEASUREMENT_ANALYTICS_BUCKETS, type MeasurementAnalyticsBaseBucket } from "../../schema.js";
 import type {
   MeasurementAnalyticsAggregation,
   MeasurementAnalyticsRollupQuery,
   MeasurementAnalyticsRollupResult,
+  MeasurementAnalyticsSeriesQuery,
   MeasurementAnalyticsSeriesRecord,
   MeasurementAnalyticsResolution,
 } from "../../types.js";
-import { qualifiedName } from "../../schema.js";
 import { timestamp } from "../support/01-default-schema-to-measurement-bucket-from-row.js";
 import { registerTimeseriesStoreMethods, type TimeseriesStoreInternals } from "../core.js";
+import { mergeableAnalyticsSql, orderedAnalyticsSql } from "../measurement-analytics-rollup-sql.js";
 
-const ANALYTICS_INTERVALS: Readonly<Record<MeasurementAnalyticsResolution, string>> = {
-  "1m": "1 minute",
-  "5m": "5 minutes",
-  "15m": "15 minutes",
-  "1h": "1 hour",
-  "1d": "1 day",
-};
+function analyticsInterval(resolution: MeasurementAnalyticsResolution): string {
+  if (resolution === "1h") return "1 hour";
+  if (resolution === "1d") return "1 day";
+  const minutes = Number(/^(\d{1,4})m$/u.exec(resolution)?.[1]);
+  if (!Number.isSafeInteger(minutes) || minutes < 1 || minutes > 1_440) {
+    throw new RangeError("invalid analytics rollup resolution");
+  }
+  return `${minutes} ${minutes === 1 ? "minute" : "minutes"}`;
+}
+
+function baseBucket(resolution: MeasurementAnalyticsResolution): MeasurementAnalyticsBaseBucket {
+  if (resolution === "1d") return "1d";
+  if (resolution === "1h") return "1h";
+  const minutes = Number(/^(\d{1,4})m$/u.exec(resolution)?.[1]);
+  if (minutes === 1_440) return "1d";
+  if (minutes >= 60 && minutes % 60 === 0) return "1h";
+  if (minutes >= 5 && minutes % 5 === 0) return "5m";
+  return "1m";
+}
+
+function orderedBucketSeconds(resolution: MeasurementAnalyticsResolution): 60 | 900 | 3600 | 86400 {
+  if (resolution === "1d") return 86_400;
+  if (resolution === "1h") return 3_600;
+  const minutes = Number(/^(\d{1,4})m$/u.exec(resolution)?.[1]);
+  if (minutes % 1_440 === 0) return 86_400;
+  if (minutes % 60 === 0) return 3_600;
+  if (minutes % 15 === 0) return 900;
+  return 60;
+}
+
+function qualityMask(qualities: readonly string[]): number {
+  return qualities.reduce((mask, quality) => (
+    mask | (quality === "good" ? 1 : quality === "estimated" ? 2 : quality === "stale" ? 4 : 0)
+  ), 0);
+}
 
 const ANALYTICS_AGGREGATIONS = new Set<MeasurementAnalyticsAggregation>([
-  "mean",
-  "sum",
-  "delta",
-  "last",
-  "time_weighted_mean",
-  "min",
-  "max",
+  "mean", "sum", "delta", "last", "time_weighted_mean", "min", "max",
 ]);
 
 interface MeasurementAnalyticsRow extends QueryResultRow {
   sensor_id: string;
   metric: string;
   canonical_unit: string | null;
+  unit_consistent?: boolean;
+  coverage_complete?: boolean;
   included_sample_count: string | number;
   excluded_sample_count: string | number;
   cadence_seconds: string | number;
@@ -50,6 +76,86 @@ function finiteNumber(value: string | number | null, fallback = 0): number {
   return Number.isFinite(result) ? result : fallback;
 }
 
+function emptySeries(series: readonly MeasurementAnalyticsSeriesQuery[]): Map<string, MeasurementAnalyticsSeriesRecord> {
+  return new Map(series.map((requested) => [JSON.stringify([requested.sensorId, requested.metric]), {
+    sensorId: requested.sensorId,
+    metric: requested.metric,
+    canonicalUnit: "",
+    sampleCount: 0,
+    excludedSampleCount: 0,
+    cadenceSeconds: 60,
+    buckets: [],
+  }]));
+}
+
+async function executeRollup(
+  store: TimeseriesStoreInternals,
+  query: MeasurementAnalyticsRollupQuery,
+  series: readonly MeasurementAnalyticsSeriesQuery[],
+  ordered: boolean,
+): Promise<MeasurementAnalyticsSeriesRecord[]> {
+  if (series.length === 0) return [];
+  const mask = qualityMask(query.qualities);
+  const sourceScope = query.excludeSynthetic === true ? "real" : "all";
+  if (ordered) {
+    await store.enqueueMeasurementOrderedRollups(
+      series,
+      query.from,
+      query.to,
+      mask,
+      sourceScope,
+      orderedBucketSeconds(query.resolution),
+      query,
+    );
+  }
+  const targetInterval = analyticsInterval(query.resolution);
+  const base = baseBucket(query.resolution);
+  const sql = ordered ? orderedAnalyticsSql(store.schema) : mergeableAnalyticsSql(store.schema, base);
+  const seventhParameter = ordered ? mask : MEASUREMENT_ANALYTICS_BUCKETS[base].interval;
+  const result = await store.__query<MeasurementAnalyticsRow>(sql, [
+    JSON.stringify(series.map((item) => ({
+      sensor_id: item.sensorId,
+      metric: item.metric,
+      aggregation: item.aggregation,
+    }))),
+    query.from,
+    query.to,
+    [...query.qualities],
+    targetInterval,
+    query.excludeSynthetic === true,
+    seventhParameter,
+    ...(ordered ? [orderedBucketSeconds(query.resolution)] : []),
+  ], query);
+
+  if (result.rows.some((row) => row.coverage_complete === false)) {
+    throw new Error("Telemetry rollups are still materializing the requested history");
+  }
+  if (result.rows.some((row) => row.unit_consistent === false)) {
+    throw new Error("Telemetry analytics found mixed canonical units in one series");
+  }
+  const bySeries = emptySeries(series);
+  for (const row of result.rows) {
+    const record = bySeries.get(JSON.stringify([row.sensor_id, row.metric]));
+    if (!record) continue;
+    record.canonicalUnit = row.canonical_unit ?? "";
+    record.sampleCount = finiteNumber(row.included_sample_count);
+    record.excludedSampleCount = finiteNumber(row.excluded_sample_count);
+    record.cadenceSeconds = Math.max(1, finiteNumber(row.cadence_seconds, 60));
+    if (row.bucket_start === null || row.minimum === null || row.maximum === null) continue;
+    record.buckets.push({
+      bucketStart: timestamp(row.bucket_start),
+      value: row.rollup_value === null ? null : finiteNumber(row.rollup_value),
+      minimum: finiteNumber(row.minimum),
+      maximum: finiteNumber(row.maximum),
+      sampleCount: finiteNumber(row.bucket_sample_count),
+      estimatedSampleCount: finiteNumber(row.estimated_sample_count),
+      staleSampleCount: finiteNumber(row.stale_sample_count),
+      counterResetCount: finiteNumber(row.counter_reset_count),
+    });
+  }
+  return [...bySeries.values()];
+}
+
 registerTimeseriesStoreMethods({
   async measurementAnalyticsRollup(
     this: TimeseriesStoreInternals,
@@ -57,8 +163,8 @@ registerTimeseriesStoreMethods({
   ): Promise<MeasurementAnalyticsRollupResult> {
     if (query.series.length === 0) return { series: [] };
     if (query.series.length > 400) throw new RangeError("analytics rollups support at most 400 series");
-    if (query.qualities.length === 0 || query.qualities.length > 3) {
-      throw new RangeError("analytics rollups require between 1 and 3 quality values");
+    if (query.qualities.length === 0 || query.qualities.length > 3 || qualityMask(query.qualities) === 0) {
+      throw new RangeError("analytics rollups require between 1 and 3 known quality values");
     }
     const keys = new Set<string>();
     for (const series of query.series) {
@@ -69,180 +175,17 @@ registerTimeseriesStoreMethods({
       if (keys.has(key)) throw new RangeError("analytics rollup series must be unique");
       keys.add(key);
     }
-    const interval = ANALYTICS_INTERVALS[query.resolution];
-    const measurements = qualifiedName(this.schema, "measurement_samples");
-    const result = await this.__query<MeasurementAnalyticsRow>(`WITH requested_series AS (
-        SELECT DISTINCT sensor_id, metric, aggregation
-        FROM jsonb_to_recordset($1::JSONB)
-          AS requested(sensor_id TEXT, metric TEXT, aggregation TEXT)
-      ), scoped AS (
-        SELECT sample.sensor_id, sample.metric, sample.observed_at, sample.value,
-          sample.canonical_unit, sample.source, sample.quality, sample.ingested_at,
-          requested.aggregation
-        FROM ${measurements} AS sample
-        JOIN requested_series AS requested
-          ON requested.sensor_id = sample.sensor_id AND requested.metric = sample.metric
-        WHERE sample.observed_at >= $2::TIMESTAMPTZ
-          AND sample.observed_at < $3::TIMESTAMPTZ
-          AND (NOT $6::BOOLEAN OR sample.source NOT IN ('mock', 'replay'))
-      ), series_counts AS (
-        SELECT requested.sensor_id, requested.metric, requested.aggregation,
-          COALESCE(MIN(scoped.canonical_unit) FILTER (
-            WHERE scoped.quality = ANY($4::TEXT[])
-          ), '') AS canonical_unit,
-          COUNT(scoped.observed_at) FILTER (
-            WHERE scoped.quality = ANY($4::TEXT[])
-          )::BIGINT AS included_sample_count,
-          COUNT(scoped.observed_at) FILTER (
-            WHERE scoped.observed_at IS NOT NULL
-              AND NOT (scoped.quality = ANY($4::TEXT[]))
-          )::BIGINT AS excluded_sample_count
-        FROM requested_series AS requested
-        LEFT JOIN scoped
-          ON scoped.sensor_id = requested.sensor_id AND scoped.metric = requested.metric
-        GROUP BY requested.sensor_id, requested.metric, requested.aggregation
-      ), included AS (
-        SELECT * FROM scoped WHERE quality = ANY($4::TEXT[])
-      ), distinct_times AS (
-        SELECT DISTINCT sensor_id, metric, observed_at FROM included
-      ), cadence_steps AS (
-        SELECT sensor_id, metric,
-          EXTRACT(EPOCH FROM observed_at - LAG(observed_at) OVER (
-            PARTITION BY sensor_id, metric ORDER BY observed_at
-          ))::DOUBLE PRECISION AS step_seconds
-        FROM distinct_times
-      ), cadences AS (
-        SELECT counts.sensor_id, counts.metric, counts.aggregation,
-          counts.canonical_unit, counts.included_sample_count, counts.excluded_sample_count,
-          GREATEST(1.0, COALESCE(
-            percentile_cont(0.5) WITHIN GROUP (ORDER BY steps.step_seconds)
-              FILTER (WHERE steps.step_seconds > 0 AND steps.step_seconds <= 86400),
-            GREATEST(
-              60.0,
-              EXTRACT(EPOCH FROM ($3::TIMESTAMPTZ - $2::TIMESTAMPTZ))
-                / GREATEST(1, counts.included_sample_count)
-            )
-          ))::DOUBLE PRECISION AS cadence_seconds
-        FROM series_counts AS counts
-        LEFT JOIN cadence_steps AS steps
-          ON steps.sensor_id = counts.sensor_id AND steps.metric = counts.metric
-        GROUP BY counts.sensor_id, counts.metric, counts.aggregation,
-          counts.canonical_unit, counts.included_sample_count, counts.excluded_sample_count
-      ), bucketed AS (
-        SELECT included.*,
-          date_bin($5::INTERVAL, observed_at, TIMESTAMPTZ '1970-01-01 00:00:00+00') AS bucket_start
-        FROM included
-      ), ordered AS (
-        SELECT bucketed.*,
-          LAG(value) OVER (
-            PARTITION BY sensor_id, metric
-            ORDER BY observed_at, source, ingested_at
-          ) AS previous_value,
-          LEAD(observed_at) OVER (
-            PARTITION BY sensor_id, metric, bucket_start
-            ORDER BY observed_at, source, ingested_at
-          ) AS next_bucket_at
-        FROM bucketed
-      ), bucket_aggregates AS (
-        SELECT ordered.sensor_id, ordered.metric, ordered.bucket_start,
-          COUNT(*)::BIGINT AS bucket_sample_count,
-          AVG(ordered.value)::DOUBLE PRECISION AS mean_value,
-          SUM(ordered.value)::DOUBLE PRECISION AS sum_value,
-          MIN(ordered.value)::DOUBLE PRECISION AS minimum,
-          MAX(ordered.value)::DOUBLE PRECISION AS maximum,
-          (array_agg(
-            ordered.value ORDER BY ordered.observed_at DESC, ordered.source DESC, ordered.ingested_at DESC
-          ))[1]::DOUBLE PRECISION AS last_value,
-          SUM(CASE
-            WHEN ordered.previous_value IS NULL THEN NULL
-            WHEN ordered.value >= ordered.previous_value THEN ordered.value - ordered.previous_value
-            ELSE 0
-          END)::DOUBLE PRECISION AS delta_value,
-          COUNT(*) FILTER (
-            WHERE ordered.previous_value IS NOT NULL AND ordered.value < ordered.previous_value
-          )::BIGINT AS counter_reset_count,
-          COUNT(*) FILTER (WHERE ordered.quality = 'estimated')::BIGINT AS estimated_sample_count,
-          COUNT(*) FILTER (WHERE ordered.quality = 'stale')::BIGINT AS stale_sample_count,
-          (
-            SUM(ordered.value * LEAST(
-              GREATEST(EXTRACT(EPOCH FROM (
-                COALESCE(ordered.next_bucket_at, ordered.bucket_start + $5::INTERVAL) - ordered.observed_at
-              )), 0.0),
-              cadences.cadence_seconds * 1.5
-            ))
-            / NULLIF(SUM(LEAST(
-              GREATEST(EXTRACT(EPOCH FROM (
-                COALESCE(ordered.next_bucket_at, ordered.bucket_start + $5::INTERVAL) - ordered.observed_at
-              )), 0.0),
-              cadences.cadence_seconds * 1.5
-            )), 0)
-          )::DOUBLE PRECISION AS time_weighted_value
-        FROM ordered
-        JOIN cadences
-          ON cadences.sensor_id = ordered.sensor_id AND cadences.metric = ordered.metric
-        GROUP BY ordered.sensor_id, ordered.metric, ordered.bucket_start
-      )
-      SELECT cadences.sensor_id, cadences.metric, cadences.canonical_unit,
-        cadences.included_sample_count, cadences.excluded_sample_count, cadences.cadence_seconds,
-        buckets.bucket_start,
-        CASE cadences.aggregation
-          WHEN 'mean' THEN buckets.mean_value
-          WHEN 'sum' THEN buckets.sum_value
-          WHEN 'delta' THEN buckets.delta_value
-          WHEN 'last' THEN buckets.last_value
-          WHEN 'time_weighted_mean' THEN COALESCE(buckets.time_weighted_value, buckets.last_value)
-          WHEN 'min' THEN buckets.minimum
-          WHEN 'max' THEN buckets.maximum
-        END::DOUBLE PRECISION AS rollup_value,
-        buckets.minimum, buckets.maximum, buckets.bucket_sample_count,
-        buckets.estimated_sample_count, buckets.stale_sample_count, buckets.counter_reset_count
-      FROM cadences
-      LEFT JOIN bucket_aggregates AS buckets
-        ON buckets.sensor_id = cadences.sensor_id AND buckets.metric = cadences.metric
-      ORDER BY cadences.sensor_id, cadences.metric, buckets.bucket_start`, [
-      JSON.stringify(query.series.map((series) => ({
-        sensor_id: series.sensorId,
-        metric: series.metric,
-        aggregation: series.aggregation,
-      }))),
-      query.from,
-      query.to,
-      [...query.qualities],
-      interval,
-      query.excludeSynthetic === true,
-    ], query);
-
-    const bySeries = new Map<string, MeasurementAnalyticsSeriesRecord>();
-    for (const requested of query.series) {
-      bySeries.set(JSON.stringify([requested.sensorId, requested.metric]), {
-        sensorId: requested.sensorId,
-        metric: requested.metric,
-        canonicalUnit: "",
-        sampleCount: 0,
-        excludedSampleCount: 0,
-        cadenceSeconds: 60,
-        buckets: [],
-      });
-    }
-    for (const row of result.rows) {
-      const record = bySeries.get(JSON.stringify([row.sensor_id, row.metric]));
-      if (!record) continue;
-      record.canonicalUnit = row.canonical_unit ?? "";
-      record.sampleCount = finiteNumber(row.included_sample_count);
-      record.excludedSampleCount = finiteNumber(row.excluded_sample_count);
-      record.cadenceSeconds = Math.max(1, finiteNumber(row.cadence_seconds, 60));
-      if (row.bucket_start === null || row.minimum === null || row.maximum === null) continue;
-      record.buckets.push({
-        bucketStart: timestamp(row.bucket_start),
-        value: row.rollup_value === null ? null : finiteNumber(row.rollup_value),
-        minimum: finiteNumber(row.minimum),
-        maximum: finiteNumber(row.maximum),
-        sampleCount: finiteNumber(row.bucket_sample_count),
-        estimatedSampleCount: finiteNumber(row.estimated_sample_count),
-        staleSampleCount: finiteNumber(row.stale_sample_count),
-        counterResetCount: finiteNumber(row.counter_reset_count),
-      });
-    }
-    return { series: [...bySeries.values()] };
+    const ordered = query.series.filter(({ aggregation }) => (
+      aggregation === "delta" || aggregation === "time_weighted_mean"
+    ));
+    const mergeable = query.series.filter((item) => !ordered.includes(item));
+    const [mergeableRecords, orderedRecords] = await Promise.all([
+      executeRollup(this, query, mergeable, false),
+      executeRollup(this, query, ordered, true),
+    ]);
+    const records = new Map([...mergeableRecords, ...orderedRecords].map((record) => [
+      JSON.stringify([record.sensorId, record.metric]), record,
+    ]));
+    return { series: query.series.map((item) => records.get(JSON.stringify([item.sensorId, item.metric]))!) };
   },
 });

@@ -50,6 +50,16 @@ export { applyCloudflareSetupRequest } from "./stugu-update-agent/services-cloud
 
 export { applyRequest } from "./stugu-update-agent/update-loop.mjs";
 
+export {
+  applyStorageRequest,
+  publishStorageStatus,
+  readStorageConfiguration,
+  storageRevision,
+  validatedStorageRequest,
+  validatedStorageSettings,
+  writeStorageConfiguration,
+} from "./stugu-update-agent/services-storage.mjs";
+
 export { main } from "./stugu-update-agent/update-loop.mjs";
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

@@ -7,6 +7,8 @@ import {
   type HostSystemDataSource,
 } from "../src/host-system.js";
 import { createApi } from "../src/app.js";
+import { enqueueHostSystemAlertNotifications } from "../src/host-system-notifications.js";
+import { redactSystemErrorMessage } from "../src/system-error-log.js";
 import { config } from "./appTestSupport.js";
 
 const GIBIBYTE = 1_073_741_824;
@@ -15,7 +17,7 @@ function source(options: {
   now: () => number;
   cpu: HostCpuTimes[];
   memoryUsedPercent?: number;
-  storageAvailableGiB?: number;
+  storageAvailableGiB?: number | (() => number);
   temperatureCelsius?: number | null;
   eventLoopP95Milliseconds?: number | null;
   eventLoopMaxMilliseconds?: number | null;
@@ -45,10 +47,12 @@ function source(options: {
       limitBytes: memoryLimit,
       usedBytes: memoryLimit * (options.memoryUsedPercent ?? 50) / 100,
     }),
-    storage: async () => ({
-      totalBytes: 100 * GIBIBYTE,
-      availableBytes: (options.storageAvailableGiB ?? 60) * GIBIBYTE,
-    }),
+    storage: async () => {
+      const available = typeof options.storageAvailableGiB === "function"
+        ? options.storageAvailableGiB()
+        : options.storageAvailableGiB ?? 60;
+      return { totalBytes: 100 * GIBIBYTE, availableBytes: available * GIBIBYTE };
+    },
     cpuTemperatureCelsius: async () => options.temperatureCelsius ?? null,
     eventLoopDelayMilliseconds: () => options.eventLoopP95Milliseconds === undefined
       || options.eventLoopP95Milliseconds === null
@@ -210,6 +214,58 @@ describe("host system monitoring", () => {
     expect(health.cpu.eventLoop.state).toBe("critical");
   });
 
+  it("projects sustained storage growth without alerting on low-confidence history", async () => {
+    let now = Date.parse("2026-07-30T12:00:00.000Z");
+    let availableGiB = 60;
+    const monitor = new HostSystemMonitor({
+      storagePath: ":memory:",
+      cpuSampleWindowMs: 0,
+      source: source({
+        now: () => now,
+        cpu: [{ idle: 0, total: 0 }, { idle: 80, total: 100 }],
+        storageAvailableGiB: () => availableGiB,
+      }),
+    });
+
+    await monitor.refresh();
+    for (const nextAvailable of [50, 40]) {
+      now += 8 * 60 * 60_000;
+      availableGiB = nextAvailable;
+      const lowConfidence = await monitor.refresh();
+      expect(lowConfidence.alerts).not.toEqual(expect.arrayContaining([
+        expect.objectContaining({ metric: "storage-forecast" }),
+      ]));
+    }
+    now += 8 * 60 * 60_000;
+    availableGiB = 30;
+    const projected = await monitor.refresh();
+
+    expect(projected.storage.forecast).toMatchObject({
+      state: "projected",
+      confidence: "medium",
+      sampleCount: 4,
+      growthBytesPerDay: 30 * GIBIBYTE,
+      warningAt: expect.any(String),
+      criticalAt: expect.any(String),
+    });
+    expect(projected.alerts).toEqual(expect.arrayContaining([
+      expect.objectContaining({ metric: "storage-forecast", severity: "critical" }),
+    ]));
+    expect(await monitor.prometheusMetrics()).toContain("stugu_host_storage_growth_bytes_per_day");
+  });
+
+  it("keeps a storage-probe alert stable across repeated failed samples", async () => {
+    let now = Date.parse("2026-07-30T12:00:00.000Z");
+    const failingSource = source({ now: () => now, cpu: [{ idle: 0, total: 0 }, { idle: 80, total: 100 }] });
+    failingSource.storage = async () => { throw new Error("volume unavailable"); };
+    const monitor = new HostSystemMonitor({ storagePath: ":memory:", cpuSampleWindowMs: 0, source: failingSource });
+    const first = await monitor.refresh();
+    now += 30_000;
+    const second = await monitor.refresh();
+    expect(second.alerts.find((alert) => alert.metric === "storage")?.startedAt)
+      .toBe(first.alerts.find((alert) => alert.metric === "storage")?.startedAt);
+  });
+
   it("serves owner-only JSON health and Prometheus representations", async () => {
     const runtime = createApi({ config, startBackground: false });
     try {
@@ -219,6 +275,8 @@ describe("host system monitoring", () => {
           cpu: { usagePercent: expect.any(Number) },
           memory: { totalBytes: expect.any(Number), usedPercent: expect.any(Number) },
           storage: { totalBytes: expect.any(Number), usedPercent: expect.any(Number) },
+          database: { sqlite: { sizeBytes: expect.any(Number), tableCount: expect.any(Number) } },
+          alertDelivery: { telegram: { configured: false } },
           alerts: expect.any(Array),
         });
       });
@@ -226,10 +284,26 @@ describe("host system monitoring", () => {
         expect(headers["content-type"]).toContain("text/plain");
         expect(text).toContain("# TYPE stugu_host_cpu_usage_percent gauge");
         expect(text).toContain("stugu_host_storage_bytes");
+        expect(text).toContain("stugu_sqlite_database_bytes");
+      });
+      runtime.systemErrorLog.record({
+        source: "test",
+        code: "EXPORT_TEST",
+        message: "token=super-secret owner@example.test https://private.test/path?q=secret",
+      });
+      await request(runtime.app).get("/api/v1/system/error-logs").expect(200).expect(({ text, headers }) => {
+        expect(headers["content-type"]).toContain("application/x-ndjson");
+        expect(headers["content-disposition"]).toContain("stugu-error-logs-");
+        expect(text).toContain("EXPORT_TEST");
+        expect(text).toContain("[redacted]");
+        expect(text).not.toContain("super-secret");
+        expect(text).not.toContain("owner@example.test");
+        expect(text).not.toContain("private.test");
       });
       await request(runtime.app).get("/api/v1/openapi.json").expect(200).expect(({ body }) => {
         expect(body.paths["/system/health"].get.operationId).toBe("getHostSystemHealth");
         expect(body.paths["/system/metrics"].get.operationId).toBe("getHostSystemPrometheusMetrics");
+        expect(body.paths["/system/error-logs"].get.operationId).toBe("exportSystemErrorLogs");
       });
     } finally {
       await runtime.close();
@@ -254,8 +328,85 @@ describe("host system monitoring", () => {
       await request(runtime.app).get("/api/v1/system/health")
         .set("x-api-key", "metrics-test-key")
         .expect(401);
+      await request(runtime.app).get("/api/v1/system/error-logs")
+        .set("x-api-key", "metrics-test-key")
+        .expect(401);
     } finally {
       await runtime.close();
     }
+  });
+
+  it("deduplicates active Telegram host alerts and queues a recovery", async () => {
+    const telegramConfig = {
+      ...config,
+      telegramBotToken: "123456:abcdefghijklmnopqrstuvwxyzABCDE",
+      telegramChatId: "99112233",
+    };
+    const runtime = createApi({ config: telegramConfig, startBackground: false });
+    try {
+      const baseline = await runtime.hostSystem.refresh();
+      const alert = {
+        id: "host-system-database-warning",
+        metric: "database" as const,
+        severity: "warning" as const,
+        value: null,
+        unit: null,
+        threshold: null,
+        startedAt: baseline.sampledAt,
+        message: "The telemetry database is unavailable.",
+        recommendation: "Check the database.",
+      };
+      const active = { ...baseline, state: "warning" as const, alerts: [...baseline.alerts, alert] };
+      expect(enqueueHostSystemAlertNotifications(runtime.database, telegramConfig, {
+        previous: baseline,
+        current: active,
+      })).toBe(1);
+      expect(enqueueHostSystemAlertNotifications(runtime.database, telegramConfig, {
+        previous: active,
+        current: active,
+      })).toBe(0);
+      const critical = {
+        ...alert,
+        id: "host-system-database-critical",
+        severity: "critical" as const,
+        startedAt: new Date(Date.parse(alert.startedAt) + 1_000).toISOString(),
+      };
+      const escalated = { ...active, state: "critical" as const, alerts: [...active.alerts, critical] };
+      expect(enqueueHostSystemAlertNotifications(runtime.database, telegramConfig, {
+        previous: active,
+        current: escalated,
+      })).toBe(1);
+      expect(enqueueHostSystemAlertNotifications(runtime.database, telegramConfig, {
+        previous: escalated,
+        current: active,
+      })).toBe(1);
+      const recovered = {
+        ...baseline,
+        sampledAt: new Date(Date.parse(baseline.sampledAt) + 60_000).toISOString(),
+      };
+      expect(enqueueHostSystemAlertNotifications(runtime.database, telegramConfig, {
+        previous: active,
+        current: recovered,
+      })).toBe(1);
+      expect(runtime.database.listNotificationDeliveries()).toEqual(expect.arrayContaining([
+        expect.objectContaining({ subjectKind: "system", stage: "initial", channel: "telegram" }),
+        expect.objectContaining({ subjectKind: "system", stage: "resolved", channel: "telegram" }),
+      ]));
+    } finally {
+      await runtime.close();
+    }
+  });
+
+  it("redacts credentials and personal identifiers before log storage", () => {
+    const redacted = redactSystemErrorMessage(
+      "Bearer abc token=secret user@example.test 192.168.1.8 123456:abcdefghijklmnopqrstuvwxyzABCDE C:\\Users\\owner\\private.db /home/owner/private.db",
+    );
+    expect(redacted).not.toContain("abc");
+    expect(redacted).not.toContain("secret");
+    expect(redacted).not.toContain("user@example.test");
+    expect(redacted).not.toContain("192.168.1.8");
+    expect(redacted).not.toContain("abcdefghijklmnopqrstuvwxyzABCDE");
+    expect(redacted).not.toContain("owner");
+    expect(redacted).not.toContain("private.db");
   });
 });

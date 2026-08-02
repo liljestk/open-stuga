@@ -1,4 +1,4 @@
-import type { HeatPumpState } from "@climate-twin/contracts";
+import type { AnalyticsResolution, HeatPumpState } from "@climate-twin/contracts";
 import type { Pool, PoolConfig } from "pg";
 
 export type TelemetryQuality = "good" | "estimated" | "stale" | (string & {});
@@ -147,7 +147,7 @@ export interface MeasurementBucketRecord {
   canonicalUnit: string;
 }
 
-export type MeasurementAnalyticsResolution = "1m" | "5m" | "15m" | "1h" | "1d";
+export type MeasurementAnalyticsResolution = Exclude<AnalyticsResolution, "auto" | "raw">;
 
 export type MeasurementAnalyticsAggregation =
   | "mean"
@@ -211,6 +211,8 @@ export interface MeasurementHistoryQuery extends QueryControl {
   from: string;
   to: string;
   limit?: number;
+  /** Exclusive descending keyset boundary for lossless bounded pagination. */
+  before?: { timestamp: string; source: string };
 }
 
 /** A bounded database-side search for adjacent good samples separated by a real hole. */
@@ -314,7 +316,23 @@ export interface TelemetryStoreOptions {
   statementTimeoutMs?: number;
   applicationName?: string;
   batchSize?: number;
+  /** Metrics whose ordered semantics need the exact, asynchronously rebuilt accelerator. */
+  orderedMetricIds?: readonly string[];
+  /** Overrides the default per-table columnstore age without adding a retention policy. */
+  coldStorageAfterDays?: number;
   onPoolError?: (error: Error) => void;
+}
+
+export interface MeasurementOrderedRollupWorkResult {
+  processed: boolean;
+  sensorId?: string;
+  metric?: string;
+  dayStart?: string;
+  bucketSeconds?: number;
+  qualityMask?: number;
+  sourceScope?: "all" | "real";
+  generatedRows?: number;
+  stale?: boolean;
 }
 
 export type AggregateMode = "continuous" | "view" | "unavailable";

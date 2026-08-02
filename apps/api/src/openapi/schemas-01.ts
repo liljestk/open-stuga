@@ -3,6 +3,18 @@ import { STUGBY_MEDIA_TYPE } from "@climate-twin/stuguby-protocol";
 import { jsonRequestBody, jsonResponse, localAuthPaths, localAuthSchemas, operationalOrchestrationPaths, spatialHouseResourcePath, spatialJsonResponse, spatialLayerPaths, spatialLayerSchemas, spatialRequestBody, spatialScopePaths, spatialScopeQueryParameters, stugubyIdParameter, stugubyNodeSecurity, stugubyObject, stugubyPaths, stugubyRequestBody, stugubyResponse, trackingObject, trackingObserverBearerSecurity, trackingObserverSecurity, trackingPathParameter, trackingPaths } from "./support/index.js";
 import type { OpenApiSchema } from "./support/index.js";
 
+const minuteAnalyticsResolution = {
+  type: "string",
+  pattern: "^(?:[1-9]|[1-9][0-9]|[1-9][0-9]{2}|1[0-3][0-9]{2}|14[0-3][0-9]|1440)m$",
+  description: "A whole-minute bucket from 1m through 1440m.",
+} as const;
+const analyticsResolution = {
+  anyOf: [{ enum: ["auto", "raw", "1h", "1d"] }, minuteAnalyticsResolution],
+} as const;
+const resolvedAnalyticsResolution = {
+  anyOf: [{ enum: ["raw", "1h", "1d"] }, minuteAnalyticsResolution],
+} as const;
+
 export const schemasPart01 = {
   ...localAuthSchemas,
   ...spatialLayerSchemas,
@@ -87,7 +99,7 @@ export const schemasPart01 = {
                 timezone: { type: "string", minLength: 1, maxLength: 100 },
               },
             },
-            resolution: { enum: ["auto", "raw", "1m", "5m", "15m", "1h", "1d"] },
+            resolution: analyticsResolution,
             aggregation: { enum: ["default", "mean", "sum", "delta", "last", "time_weighted_mean", "min", "max"] },
             qualityFilter: {
               type: "object", additionalProperties: false, required: ["include"],
@@ -318,7 +330,7 @@ export const schemasPart01 = {
           properties: {
             apiVersion: { const: "1.0" }, requestId: { type: "string" }, dataMode: { enum: ["live", "demo"] },
             resolvedRange: { $ref: "#/components/schemas/AnalyticsQueryRequest/properties/range" },
-            resolution: { enum: ["raw", "1m", "5m", "15m", "1h", "1d"] },
+            resolution: resolvedAnalyticsResolution,
             series: {
               type: "array", items: {
                 type: "object", additionalProperties: false,
@@ -327,7 +339,7 @@ export const schemasPart01 = {
                   entityId: { type: "string" }, entityLabel: { type: "string" }, measurementId: { type: "string" }, canonicalUnit: { type: "string" },
                   truthClass: { enum: ["observed", "derived", "estimated", "inferred", "forecast", "simulated"] },
                   aggregation: { enum: ["raw", "mean", "sum", "delta", "last", "time_weighted_mean", "min", "max"] },
-                  resolution: { enum: ["raw", "1m", "5m", "15m", "1h", "1d"] },
+                  resolution: resolvedAnalyticsResolution,
                   points: { type: "array", items: { type: "object", required: ["timestamp", "value", "minimum", "maximum", "sampleCount", "coverage", "qualityFlags"], properties: {
                     timestamp: { type: "string", format: "date-time" }, value: { type: ["number", "null"] }, minimum: { type: ["number", "null"] }, maximum: { type: ["number", "null"] },
                     sampleCount: { type: "integer", minimum: 0 }, coverage: { type: "number", minimum: 0, maximum: 1 }, qualityFlags: { type: "array", items: { type: "string" } },

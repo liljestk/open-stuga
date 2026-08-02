@@ -94,6 +94,10 @@ import {
 import { StugubyError, enabledDataset, grantExpired, parseIso, sha256 } from "../support/01-stuguby-error-to-without-local-grant-identity.js";
 import { registerStugubyServiceMethods, stugubyServiceState, type StugubyServiceInternals } from "../core.js";
 
+function* mapRecoveryRows<Row>(rows: Iterable<Row>, mapper: (row: Row) => unknown): IterableIterator<JsonObject> {
+  for (const row of rows) yield mapper(row) as JsonObject;
+}
+
 registerStugubyServiceMethods({
   publishFullRecoveryTelemetry(this: StugubyServiceInternals,
       grant: StugubyShareGrant,
@@ -226,12 +230,12 @@ registerStugubyServiceMethods({
           enabled: Boolean(rule.enabled),
           retiredAt: rule.retired_at,
         }));
-      const alertEvents = (this.database.db.prepare(`SELECT event.* FROM alert_events event
+      const alertEvents = mapRecoveryRows(this.database.db.prepare(`SELECT event.* FROM alert_events event
         JOIN sensors sensor ON sensor.id=event.sensor_id WHERE sensor.house_id=? ORDER BY event.started_at,event.id`)
-        .all(house.id) as Array<{
+        .iterate(house.id) as NodeJS.Iterator<{
           id: string; rule_id: string; sensor_id: string; metric: string; value: number; threshold: number;
           severity: string; started_at: string; acknowledged_at: string | null; resolved_at: string | null;
-        }>).map((event) => ({
+        }>, (event) => ({
           eventKey: sha256(`stuguby-alert\n${grant.stugubyId}\n${event.id}`),
           ruleKey: ruleKey(event.rule_id),
           sensorPublicationId: sensorPublication(event.sensor_id),
@@ -261,11 +265,11 @@ registerStugubyServiceMethods({
           label: parameter.label,
         };
       });
-      const openingStates = (this.database.db.prepare(`SELECT id,floor_id,element_id,state,open_fraction,observed_at,valid_until
-        FROM opening_state_observations WHERE house_id=? ORDER BY observed_at,id`).all(house.id) as Array<{
+      const openingStates = mapRecoveryRows(this.database.db.prepare(`SELECT id,floor_id,element_id,state,open_fraction,observed_at,valid_until
+        FROM opening_state_observations WHERE house_id=? ORDER BY observed_at,id`).iterate(house.id) as NodeJS.Iterator<{
           id: string; floor_id: string; element_id: string; state: string; open_fraction: number | null;
           observed_at: string; valid_until: string | null;
-        }>).map((item) => ({
+        }>, (item) => ({
           openingKey: sha256(`stuguby-opening\n${grant.stugubyId}\n${item.id}`),
           floorPublicationId: floorPublication(item.floor_id),
           planElementPublicationId: elementPublication(item.element_id),
@@ -274,12 +278,12 @@ registerStugubyServiceMethods({
           observedAt: item.observed_at,
           validUntil: item.valid_until,
         }));
-      const weather = (this.database.db.prepare(`SELECT location_key,timestamp,temperature_c,source,fetched_at,
+      const weather = mapRecoveryRows(this.database.db.prepare(`SELECT location_key,timestamp,temperature_c,source,fetched_at,
         station_id,station_name,conditions_json FROM outdoor_temperature_samples WHERE house_id=?
-        ORDER BY timestamp,rowid`).all(house.id) as Array<{
+        ORDER BY timestamp,rowid`).iterate(house.id) as NodeJS.Iterator<{
           location_key: string; timestamp: string; temperature_c: number; source: string; fetched_at: string;
           station_id: string | null; station_name: string | null; conditions_json: string | null;
-        }>).map((item) => ({
+        }>, (item) => ({
           weatherKey: sha256(`stuguby-weather\n${grant.stugubyId}\n${item.location_key}\n${item.timestamp}\n${item.source}`),
           locationKey: item.location_key,
           timestamp: item.timestamp,
@@ -290,11 +294,11 @@ registerStugubyServiceMethods({
           stationName: item.station_name,
           conditions: item.conditions_json ? JSON.parse(item.conditions_json) as JsonValue : null,
         }));
-      const electricity = (this.database.db.prepare(`SELECT start_at,end_at,raw_price_cents_per_kwh,
+      const electricity = mapRecoveryRows(this.database.db.prepare(`SELECT start_at,end_at,raw_price_cents_per_kwh,
         margin_cents_per_kwh,fetched_at FROM electricity_price_points WHERE property_id=? ORDER BY start_at`)
-        .all(house.propertyId) as Array<{
+        .iterate(house.propertyId) as NodeJS.Iterator<{
           start_at: string; end_at: string; raw_price_cents_per_kwh: number; margin_cents_per_kwh: number; fetched_at: string;
-        }>).map((item) => ({
+        }>, (item) => ({
           priceKey: sha256(`stuguby-price\n${grant.stugubyId}\n${item.start_at}`),
           startAt: item.start_at,
           endAt: item.end_at,
@@ -317,7 +321,7 @@ registerStugubyServiceMethods({
           createdAt: asset.createdAt,
         };
       });
-      const archives: Array<[StugubyHomeRecoveryKind, JsonObject[]]> = [
+      const archives: Array<[StugubyHomeRecoveryKind, Iterable<JsonObject>]> = [
         ["measurement-definitions", definitions as unknown as JsonObject[]],
         ["alert-rules", rules as unknown as JsonObject[]],
         ["alert-events", alertEvents as unknown as JsonObject[]],
@@ -333,41 +337,48 @@ registerStugubyServiceMethods({
   publishRecoveryChunks(this: StugubyServiceInternals,
       grant: StugubyShareGrant,
       kind: StugubyHomeRecoveryKind,
-      records: JsonObject[],
+      records: Iterable<JsonObject>,
       generation: number,
     ): void {
-      const chunks: JsonObject[][] = [];
+      let pending: JsonObject[] | null = null;
       let current: JsonObject[] = [];
       let bytes = 0;
-      for (const record of records) {
-        const recordBytes = Buffer.byteLength(JSON.stringify(record), "utf8") + 1;
-        if (current.length > 0 && (current.length >= 1_000 || bytes + recordBytes > 450_000)) {
-          chunks.push(current);
-          current = [];
-          bytes = 0;
-        }
-        current.push(record);
-        bytes += recordBytes;
-      }
-      if (current.length > 0 || chunks.length === 0) chunks.push(current);
-      chunks.forEach((chunk, index) => {
-        const chunkId = sha256(`${grant.id}\n${grant.epoch}\n${generation}\n${kind}\n${index}\n${canonicalJson(chunk)}`);
+      let chunkIndex = 0;
+      const publish = (chunk: JsonObject[], complete: boolean): void => {
+        const chunkId = sha256(`${grant.id}\n${grant.epoch}\n${generation}\n${kind}\n${chunkIndex}\n${canonicalJson(chunk)}`);
         const payload: StugubyHomeRecoveryPayload = {
           publicationId: grant.publicationId,
           chunkId,
           generation,
           kind,
-          complete: index === chunks.length - 1,
+          complete,
           records: chunk,
         };
         this.publishDataset(
           grant,
           "home.recovery.v1",
           payload,
-          `${grant.publicationId}:recovery:${kind}:${index}`,
+          `${grant.publicationId}:recovery:${kind}:${chunkIndex}`,
           generation,
         );
-      });
+        chunkIndex += 1;
+      };
+      for (const record of records) {
+        const recordBytes = Buffer.byteLength(JSON.stringify(record), "utf8") + 1;
+        if (current.length > 0 && (current.length >= 1_000 || bytes + recordBytes > 450_000)) {
+          if (pending) publish(pending, false);
+          pending = current;
+          current = [];
+          bytes = 0;
+        }
+        current.push(record);
+        bytes += recordBytes;
+      }
+      if (current.length > 0) {
+        if (pending) publish(pending, false);
+        pending = current;
+      }
+      publish(pending ?? [], true);
     },
   selectedSensors(this: StugubyServiceInternals, grant: StugubyShareGrant, house: House, publications: string[]): Sensor[] {
       const sensors = this.database.listSensors(house.id);

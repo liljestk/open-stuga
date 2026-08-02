@@ -328,16 +328,16 @@ registerDatabaseMethods({
       return inserted;
     },
   enqueueOperationalNotification(input: {
-      subjectKind: Extract<NotificationSubjectKind, "maintenance" | "action-run">;
+      subjectKind: Extract<NotificationSubjectKind, "maintenance" | "action-run" | "system">;
       subjectId: string;
-      stage: Extract<NotificationDeliveryStage, "due" | "verification">;
+      stage: Extract<NotificationDeliveryStage, "due" | "verification" | "initial" | "resolved">;
       sequence?: number;
       policy?: AlertDeliveryPolicy;
       severity?: "info" | "warning" | "critical";
       webhookEnabled: boolean;
       telegramEnabled: boolean;
       config?: import("../../config.js").AppConfig;
-      type: "maintenance.due" | "action.verification";
+      type: "maintenance.due" | "action.verification" | "system.health";
       text: string;
       data: unknown;
       now?: Date;

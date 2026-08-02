@@ -176,6 +176,7 @@ export interface MeasurementHistoryPage {
   to: string;
   bucketSeconds: number | null;
   truncated: boolean;
+  nextCursor?: string | null;
 }
 
 export interface OutdoorTemperatureHistoryPage {

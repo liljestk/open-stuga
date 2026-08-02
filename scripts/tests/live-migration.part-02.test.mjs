@@ -456,9 +456,9 @@ test("migration archive recovery waits for ready, caught-up, clean state", async
 test("Compose reserves a consistent Timescale and PostgreSQL worker budget", () => {
   const compose = readFileSync(new URL("../../docker-compose.yml", import.meta.url), "utf8");
   const setting = (name) => Number(compose.match(new RegExp(`- ${name}=(\\d+)`, "u"))?.[1]);
-  assert.equal(setting("max_worker_processes"), 16);
+  assert.equal(setting("max_worker_processes"), 8);
   assert.equal(setting("max_parallel_workers"), 4);
-  assert.equal(setting("timescaledb.max_background_workers"), 12);
+  assert.equal(setting("timescaledb.max_background_workers"), 4);
   assert.equal(
     setting("max_worker_processes"),
     setting("max_parallel_workers") + setting("timescaledb.max_background_workers"),

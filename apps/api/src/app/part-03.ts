@@ -126,6 +126,7 @@ import {
 } from "../weather-events.js";
 import { TelegramService, TelegramServiceError } from "../telegram.js";
 import { NotificationOutboxWorker } from "../outbox.js";
+import { enqueueHostSystemAlertNotifications } from "../host-system-notifications.js";
 import { apnsConfigured } from "../apns.js";
 import { normalizeAlertDeliveryPolicy } from "../notification-policy.js";
 import {
@@ -169,6 +170,7 @@ import {
   IncompleteTelemetryHistoryError,
 } from "../timeseries/read-facade.js";
 import { TelemetryRetentionWorker } from "../timeseries/retention-worker.js";
+import { TelemetryOrderedRollupWorker } from "../timeseries/ordered-rollup-worker.js";
 import {
   AnalyticsQueryError,
   buildAnalyticsResponse,
@@ -222,7 +224,12 @@ export function configureApiPart03(context: ReturnType<typeof configureApiPart02
       connectionTimeoutMs: config.timeseriesConnectTimeoutMs,
       statementTimeoutMs: config.timeseriesStatementTimeoutMs,
       batchSize: config.timeseriesBatchSize,
+      orderedMetricIds: context.database.listMeasurementDefinitions(false)
+        .filter((definition) => definition.kind === "rate" || definition.kind === "cumulative_counter")
+        .map((definition) => definition.id),
+      coldStorageAfterDays: config.timeseriesColumnstoreAfterDays,
     }) : null;
+  context.hostDatabaseMetrics.setTimeseries(timeseries);
   const heatPumpStates = new HeatPumpStateStore(context.database);
   const connectedDevices = new ConnectedDeviceStore(context.database);
   const telemetryArchive = timeseries
@@ -236,6 +243,7 @@ export function configureApiPart03(context: ReturnType<typeof configureApiPart02
   const telemetryRetention = telemetryArchive && config.retentionDays > 0
       ? new TelemetryRetentionWorker(context.database, telemetryArchive, config.retentionDays)
       : null;
+  const telemetryOrderedRollups = timeseries ? new TelemetryOrderedRollupWorker(timeseries) : null;
   const telemetryReader = context.options.telemetryReader ?? new HybridTelemetryReader({
       local: context.database,
       archive: timeseries,
@@ -295,7 +303,19 @@ export function configureApiPart03(context: ReturnType<typeof configureApiPart02
       telegram,
       fetch,
       () => deferred.telegramDeliveryGeneration,
+      undefined,
+      (failure) => context.systemErrorLog.record({
+        level: failure.terminal ? "error" : "warning",
+        source: `notifications.${failure.channel}`,
+        code: failure.terminal ? "DELIVERY_DEAD_LETTERED" : "DELIVERY_FAILED",
+        message: failure.message,
+      }),
     );
+  context.hostSystem.setAlertSnapshotHandler((snapshot) => {
+      if (enqueueHostSystemAlertNotifications(context.database, config, snapshot) > 0) {
+        notificationOutbox.wake();
+      }
+    });
   const mock = new MockEngine(context.database, telemetry, config, context.dataMode);
   const replay = new ReplayEngine(context.database, context.bus);
   const initialSensorGapRecovery: SensorGapRecoveryCoordinator | null = null;
@@ -449,7 +469,7 @@ export function configureApiPart03(context: ReturnType<typeof configureApiPart02
         return telemetryArchive?.reconcileNow();
       },
     });
-  const extended = Object.assign(context, { timeseries, telemetryArchive, telemetryRetention, telemetryReader, analyticsWorkLimiter, dailyAnalyticsFindings, measurementSnapshotCache, readingSnapshotCache, status, setupDoctor, energyCost, storedTelegramIdentity, telegram, alertEngine, telemetry, nexus433, measurements, notificationOutbox, mock, replay, wakeSensorGapRecovery, tapoHistory, tapoHistoryFallbackKeys, historyFallbackKey, homeAssistant, heatPumpStates, gree, connectedDevices, tuya });
+  const extended = Object.assign(context, { timeseries, telemetryArchive, telemetryRetention, telemetryOrderedRollups, telemetryReader, analyticsWorkLimiter, dailyAnalyticsFindings, measurementSnapshotCache, readingSnapshotCache, status, setupDoctor, energyCost, storedTelegramIdentity, telegram, alertEngine, telemetry, nexus433, measurements, notificationOutbox, mock, replay, wakeSensorGapRecovery, tapoHistory, tapoHistoryFallbackKeys, historyFallbackKey, homeAssistant, heatPumpStates, gree, connectedDevices, tuya });
   return extended as typeof extended & DeferredContext & {
     sensorGapRecovery: SensorGapRecoveryCoordinator;
     tpLink: TpLinkBridge;

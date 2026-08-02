@@ -128,7 +128,8 @@ declare module "../core.js" {
     latestMeasurementSamples(houseId?: string): MeasurementSample[];
     getLatestMeasurementSample(sensorId: string, metric: string): MeasurementSample | null;
     measurementSampleAtOrBefore(sensorId: string, metric: string, source: SensorDataGapSource, timestamp: string): MeasurementSample | null;
-    measurementHistory(sensorId: string, metric: string, from: string, to: string, limit?: number): MeasurementSample[];
+    measurementHistory(sensorId: string, metric: string, from: string, to: string, limit?: number,
+      before?: { timestamp: string; source: string }): MeasurementSample[];
   }
 
   interface ClimateDatabaseCore {
@@ -145,6 +146,7 @@ declare module "../core.js" {
     latestMeasurementSamples(houseId?: string): MeasurementSample[];
     getLatestMeasurementSample(sensorId: string, metric: string): MeasurementSample | null;
     measurementSampleAtOrBefore(sensorId: string, metric: string, source: SensorDataGapSource, timestamp: string): MeasurementSample | null;
-    measurementHistory(sensorId: string, metric: string, from: string, to: string, limit?: number): MeasurementSample[];
+    measurementHistory(sensorId: string, metric: string, from: string, to: string, limit?: number,
+      before?: { timestamp: string; source: string }): MeasurementSample[];
   }
 }

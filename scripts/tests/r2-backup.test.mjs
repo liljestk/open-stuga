@@ -119,7 +119,10 @@ test("Compose isolates R2 egress from live databases and the decryption identity
   const initializer = compose.match(
     /^  r2-backup-operations-init:\r?\n(?<body>[\s\S]*?)(?=^  update-operations-init:)/mu,
   )?.groups?.body ?? "";
-  assert.match(service, /stuga-scheduled-backups:\/app\/backups:ro/u);
+  assert.match(
+    service,
+    /\$\{STUGA_SCHEDULED_BACKUP_SOURCE:-stuga-scheduled-backups\}:\/app\/backups:ro/u,
+  );
   assert.match(service, /stuga-r2-backup-operations:\/app\/runtime\/r2-backup-operations/u);
   assert.match(service, /- backup-egress/u);
   assert.match(service, /cap_drop:\r?\n\s+- ALL/u);

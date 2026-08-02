@@ -110,9 +110,13 @@ describe("Climate Twin API v1", () => {
     expect(loadConfig({
       NODE_ENV: "test", DATABASE_PATH: ":memory:", RETENTION_DAYS: "30", TIMESERIES_ENABLED: "true",
     }).retentionDays).toBe(30);
+    expect(loadConfig({
+      NODE_ENV: "test", DATABASE_PATH: ":memory:", TIMESERIES_ENABLED: "true",
+    }).retentionDays).toBe(0);
+    expect(loadConfig({ NODE_ENV: "test", DATABASE_PATH: ":memory:" }).retentionDays).toBe(0);
   });
 
-  it("refuses a SQLite-only raw export when zero-day TimeDB compaction owns history", async () => {
+  it("refuses a SQLite-only raw export when TimeDB owns complete history", async () => {
     await runtime.close();
     runtime = createApi({
       config: loadConfig({

@@ -142,9 +142,11 @@ const measurementHistoryPageRequest = async (
     limit = 500,
     bucketSeconds?: number,
     signal?: AbortSignal,
+    cursor?: string | null,
   ) => {
     const query = new URLSearchParams({ sensorId, metric, from, to, limit: String(limit) });
     if (bucketSeconds !== undefined) query.set("bucketSeconds", String(bucketSeconds));
+    if (cursor) query.set("cursor", cursor);
     const result = await requestV2<Partial<Omit<MeasurementHistoryPage, "samples">> & { samples: MeasurementSample[] }>(
       `/measurements/history?${query.toString()}`,
       signal ? { signal } : undefined,
@@ -155,6 +157,7 @@ const measurementHistoryPageRequest = async (
       to: result.to ?? to,
       bucketSeconds: result.bucketSeconds ?? null,
       truncated: result.truncated ?? result.samples.length >= limit,
+      nextCursor: result.nextCursor ?? null,
     } satisfies MeasurementHistoryPage;
   };
 

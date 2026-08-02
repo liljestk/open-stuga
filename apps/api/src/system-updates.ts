@@ -41,6 +41,9 @@ const ACTIVE_PHASES = new Set<SystemUpdatePhase>([
   "verifying",
   "rolling-back",
 ]);
+const ACTIVE_STORAGE_PHASES = new Set([
+  "queued", "validating", "backing-up", "quiescing", "copying", "applying", "verifying", "rolling-back", "manual-intervention",
+]);
 const DAY_NAMES = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"] as const;
 
 export type SystemUpdateDay = typeof DAY_NAMES[number];
@@ -563,6 +566,12 @@ export class SystemUpdateService {
     if (status.operation && ACTIVE_PHASES.has(status.operation.phase)) {
       if (status.operation.version === release.version) return status;
       throw new SystemUpdateError(409, "UPDATE_IN_PROGRESS", "Another system update is already in progress");
+    }
+    const storage = this.#directory
+      ? readJson(join(this.#directory, "storage-status.json")) as { operation?: { phase?: unknown } } | null
+      : null;
+    if (typeof storage?.operation?.phase === "string" && ACTIVE_STORAGE_PHASES.has(storage.operation.phase)) {
+      throw new SystemUpdateError(409, "SYSTEM_MAINTENANCE_IN_PROGRESS", "A storage change is already in progress");
     }
     const manifest = await this.#releaseManifest(release);
 

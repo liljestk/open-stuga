@@ -97,7 +97,14 @@ export interface LocalTelemetryReader {
     minimumGapMs: number,
     limit?: number,
   ): MeasurementGapRecord[];
-  measurementHistory(sensorId: string, metric: string, from: string, to: string, limit?: number): MeasurementSample[];
+  measurementHistory(
+    sensorId: string,
+    metric: string,
+    from: string,
+    to: string,
+    limit?: number,
+    before?: { timestamp: string; source: string },
+  ): MeasurementSample[];
   thermalTemperatureHistory?(
     sensorId: string, from: string, to: string, bucketMinutes?: number, limit?: number,
   ): MeasurementSample[];
@@ -173,7 +180,14 @@ export class HybridTelemetryReader {
 
   async measurementHistory(query: MeasurementHistoryQuery): Promise<HybridTelemetryReadResult<MeasurementSample>> {
     const limit = positiveLimit(query.limit, DEFAULT_HISTORY_LIMIT, MAX_HISTORY_LIMIT);
-    const local = this.#local.measurementHistory(query.sensorId, query.metric, query.from, query.to, limit);
+    const local = this.#local.measurementHistory(
+      query.sensorId,
+      query.metric,
+      query.from,
+      query.to,
+      limit,
+      query.before,
+    );
     return this.#read({
       family: "measurement",
       from: query.from,
