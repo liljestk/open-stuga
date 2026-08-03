@@ -9,6 +9,7 @@ Before=stugu-host-update-reconcile.service
 
 [Service]
 Type=simple
+Group=stugu
 ExecStartPre=/usr/bin/install -d -m 0700 /persistent/stugu/host-update /persistent/stugu/host-update/cache /persistent/stugu/rauc
 ExecStart=/usr/sbin/stugu-host-updated
 Restart=on-failure

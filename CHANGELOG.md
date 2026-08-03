@@ -4,6 +4,19 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.32.3 - 2026-08-03
+
+- Preserve the `stugu` group on the signed host updater's systemd runtime
+  directory so appliance operators can use the documented `stuguctl
+  host-update` interface without root access.
+- Retain the Raspberry Pi 4 USB 3 topology correction, H500 compatibility,
+  exact-device qualification, signed RAUC/TUF updater, and rollback controls
+  from the rejected 0.32.2 preview candidate.
+
+Upgrade impact: this patch supersedes the unpublished 0.32.2 candidate. Host
+activation remains disabled unless the immutable image contains a receipt for
+the exact Pi, EEPROM, USB bridge, and storage fingerprint.
+
 ## 0.32.2 - 2026-08-03
 
 - Correct Raspberry Pi 4 USB 3 boot-disk topology matching by translating the
