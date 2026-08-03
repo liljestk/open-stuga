@@ -410,6 +410,15 @@ test("factory builds fail closed unless Linux validates the complete SSD layout"
   ]);
 
   assert.match(buildScript, /validate-rpi-image\.sh" "\$raw_image"[\s\S]*zstd/);
+  assert.match(buildScript, /readonly target_dir="\$build_root\/chroot-\$version"/u);
+  assert.match(
+    buildScript,
+    /readonly sbom_source="\$target_dir\/stugu-host-sbom\.spdx\.json"/u,
+  );
+  assert.doesNotMatch(
+    buildScript,
+    /readonly sbom_source="\$output_dir\/stugu-host-sbom\.spdx\.json"/u,
+  );
   assert.match(buildScript, /TUF root roles \{left\} and \{right\} must use separate keys/u);
   assert.match(buildScript, /timedelta\(days=365\)/u);
   assert.match(buildScript, /2\*\*53 - 1/u);

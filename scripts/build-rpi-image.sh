@@ -517,11 +517,12 @@ mkdir -p "$build_root" "$dist_dir"
 )
 
 readonly output_dir="$build_root/image-stugu"
+readonly target_dir="$build_root/chroot-$version"
 readonly raw_image="$output_dir/stugu.img"
 readonly ota_source="$output_dir/update.tar.zst"
 readonly boot_source="$output_dir/boot.vfat"
 readonly system_source="$output_dir/system.erofs"
-readonly sbom_source="$output_dir/stugu-host-sbom.spdx.json"
+readonly sbom_source="$target_dir/stugu-host-sbom.spdx.json"
 readonly ota_name="stugu-rpi4-$version-ota.tar.zst"
 readonly factory_name="stugu-rpi4-$version.img.zst"
 readonly host_inputs="$dist_dir/host-inputs"
