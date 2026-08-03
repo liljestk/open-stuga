@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 import os
 from pathlib import Path
 import time
 
 from .command import CommandRunner
 from .config import UpdaterConfig
+from .durable import read_bounded_regular
 from .errors import UpdaterError
 from .platform import ApplianceDisk
 
@@ -16,6 +18,46 @@ from .platform import ApplianceDisk
 @dataclass(frozen=True)
 class HealthResult:
     checks: dict[str, str]
+
+
+def qualification_watchdog_seconds(path: Path) -> int:
+    try:
+        data = read_bounded_regular(path, maximum=64 * 1024)
+        assert isinstance(data, bytes)
+        value = json.loads(data.decode("utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, UpdaterError) as error:
+        raise UpdaterError(
+            "HEALTH_QUALIFICATION_INVALID",
+            "The immutable hardware qualification cannot be read",
+        ) from error
+    seconds = value.get("watchdogSeconds") if isinstance(value, dict) else None
+    if (
+        not isinstance(value, dict)
+        or value.get("schema") != "stugu-pi4-qualification/v1"
+        or value.get("activationEnabled") is not True
+        or isinstance(seconds, bool)
+        or not isinstance(seconds, int)
+        or not 0 <= seconds <= 15
+    ):
+        raise UpdaterError(
+            "HEALTH_QUALIFICATION_INVALID",
+            "The immutable hardware qualification has no watchdog policy",
+        )
+    return seconds
+
+
+def runtime_watchdog_status(required_seconds: int, runtime_value: str) -> str:
+    inactive = not runtime_value or runtime_value in {"0", "0us", "infinity"}
+    if required_seconds > 0 and inactive:
+        raise UpdaterError(
+            "HEALTH_WATCHDOG_INACTIVE", "The qualified system watchdog is not active"
+        )
+    if required_seconds == 0 and not inactive:
+        raise UpdaterError(
+            "HEALTH_WATCHDOG_POLICY_MISMATCH",
+            "The system watchdog is active despite the qualification policy",
+        )
+    return "disabled-by-policy" if inactive else "passed"
 
 
 class HealthChecker:
@@ -145,10 +187,9 @@ class HealthChecker:
             ["systemctl", "show", "--property=RuntimeWatchdogUSec", "--value"],
             timeout=10,
         ).stdout.strip()
-        if not watchdog or watchdog in {"0", "0us", "infinity"}:
-            raise UpdaterError(
-                "HEALTH_WATCHDOG_INACTIVE", "The system watchdog is not active"
-            )
+        watchdog_status = runtime_watchdog_status(
+            qualification_watchdog_seconds(self.config.paths.qualification), watchdog
+        )
         for unit in (
             "containerd.service",
             "docker.service",
@@ -191,7 +232,7 @@ class HealthChecker:
                 "persistent": "passed",
                 "bootconfig": "passed",
                 "clock": "passed",
-                "watchdog": "passed",
+                "watchdog": watchdog_status,
                 "containerRuntime": "passed",
                 "containers": "passed",
                 "sqlite": "passed",

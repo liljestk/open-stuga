@@ -1,19 +1,27 @@
 # Signed Raspberry Pi host updater
 
-Status: software foundation implemented; host activation remains deliberately
-disabled until the Phase 0 Pi 4 USB/U-Boot/watchdog/power-cut qualification
-gate passes. Deployed updater-contract-3/layout-v1 appliances still require a
-factory transition until the separately authenticated bridge is implemented
-and qualified. Last updated: 2026-08-02.
+Status: exact-device preview implementation. The compiled early-initramfs boot
+selector and runtime Pi/EEPROM/USB/storage fingerprint matcher are implemented.
+Activation remains disabled unless a signed receipt matches that exact device.
+Deployed updater-contract-3/layout-v1 appliances still require a factory
+transition. Last updated: 2026-08-03.
 
 Implemented in this repository: strict release/daemon contracts, a native
 root-owned updater and CLI, TUF root-chain validation and monotonic trust state,
 RAUC verity-bundle verification/install plumbing, exact-device and p6 guards,
 durable activation/reconciliation state, redundant raw boot records for new
 factory images, health probes, metrics, image validation, isolated RAUC signing
-inputs, and TUF publication verification. The shipped qualification receipt is
-intentionally false, the system watchdog is disabled, and no production U-Boot
-selector is installed; consequently `activate` fails closed.
+inputs, TUF publication verification, and a compiled selector that durably
+consumes pending/probation tries before mapping the selected immutable root.
+The default qualification receipt is intentionally false, so `activate` fails
+closed until an exact-device receipt is embedded.
+
+The U-Boot, 1,000-cycle, and 72-hour ring material retained later in this
+document records an earlier fleet-hardening design. Those figures were internal
+proposals, not requirements imposed by Raspberry Pi, RAUC, TUF, GitHub, a
+regulator, or a customer. They are not gates for the bounded single-device
+preview. Fleet support still requires evidence proportionate to its declared
+hardware matrix.
 
 ## Decision summary
 
@@ -29,19 +37,15 @@ Keep the six-partition GPT order, offsets, and sizes exactly as they are. Never
 rewrite or renumber the persistent partition. New factory layout
 `stugu-gpt-ab-v2` keeps p1 at 96 MiB but formats only its first 95 MiB as FAT,
 leaving a fixed raw-record tail. Deployed layout v1 formats all 96 MiB as FAT
-and is not silently treated as v2. Replace the unsafe Pi-firmware partition
-handoff with a small, stable U-Boot control shim on `bootconfig`. U-Boot must
-find the firmware-selected SSD by recorded GPT identity and load the selected
-kernel/initramfs from `boot_a` or `boot_b`; it must never select `usb 0` or
-`/dev/sda` by assumption. Raspberry Pi's same-partition, one-shot
-`tryboot.txt` flag selects a pending slot. Normal boot selects the committed
-slot. This retains automatic fallback without asking Pi firmware to traverse
-the target USB bridge to another FAT partition.
+and is not silently treated as v2.
 
-U-Boot is the recommended shim, but it is a release blocker until it passes the
-exact StoreJet and supported-bridge matrix. A compact Linux/kexec shim is the
-fallback design if U-Boot cannot identify or boot the exact SSD reliably. Do
-not fall back to `autoboot.txt`, `tryboot_a_b`, or `PARTITION_WALK`.
+The implemented selector is a small static C program copied into the early
+initramfs. The existing firmware-topology resolver supplies the exact
+firmware-selected boot partition; the selector reads the two raw-tail records,
+durably consumes a pending/probation try, and maps `system_a` or `system_b`.
+It never assumes `/dev/sda` or the first USB disk. The canonical p1 boot payload
+is shared, so preview host bundles must carry a byte-identical boot artifact.
+Kernel, firmware, EEPROM, and canonical p1 changes remain recovery-class.
 
 Host updates and container updates remain separate transactions. The API may
 request and report a host update, but only the native service may verify trust,
@@ -94,7 +98,8 @@ sector-aligned offsets in p1's final MiB, outside the FAT geometry. The image
 validator proves that the FAT ends before the tail and that the factory tail is
 zero-filled. Factory bootstrap verifies the firmware-selected disk, p1
 PARTUUID, FAT bounds, record offsets, and selector hash before seeding both
-checksummed copies. Thereafter Linux and U-Boot update only the older record.
+checksummed copies. Thereafter Linux and the initramfs selector update only the
+older record.
 Each record contains a format version, sequence, appliance disk/partition
 GUIDs, committed, pending, and fallback slots, host generations and bundle
 hashes, per-slot `successful` and `triesRemaining` values, state, and CRC.
@@ -107,34 +112,19 @@ exclusive maintenance lock before a raw record-sector write and invalidates/
 flushes the block cache before read-back; it never writes raw sectors beneath a
 mounted FAT filesystem.
 
-U-Boot chooses the highest valid supported record. Before handing off an
-unconfirmed slot, U-Boot must itself update and verify the older fixed extent
+The initramfs selector chooses the highest valid supported record. Before
+mapping an unconfirmed root, it updates and verifies the older fixed extent
 with one fewer try; inability to persist that decrement selects fallback/rescue.
 It may make the candidate temporarily unavailable but can never hand off an
 unaccounted attempt or damage the last valid record. Exhausted tries demote to
 the exact recorded fallback, then rescue. Unknown versions fail to rescue, not
 to a guessed slot.
 
-Do not depend on a single undocumented handoff bit. Canonical `config.txt` uses
-a dedicated U-Boot command line containing `stugu.uboot-mode=normal`;
-`tryboot.txt` uses a distinct file containing `stugu.uboot-mode=pending`.
-U-Boot also reads the firmware-provided device-tree `tryboot` property as a
-cross-check. Pending is eligible only when the pending config marker and the
-expected tryboot property agree. Missing/ambiguous/mismatched signals fail to
-committed; Phase 0 must prove the exact signal on every supported Pi/EEPROM.
-Normal marker always selects committed. Missing, duplicated, or mismatched disk
-identity stops activation and selects rescue/known-good; the shim never scans
-and writes a plausible disk.
-
-Watchdog ownership is staged rather than one long countdown. The EEPROM boot
-watchdog covers firmware. U-Boot re-arms and actively pets the BCM watchdog in
-every USB-discovery and image-load loop. The candidate kernel re-arms/pets it
-before initramfs can block, then systemd continues it. For each handoff, measure
-the maximum interval in which neither side can pet; choose a timeout above that
-interval with margin but at or below the BCM2711 driver's actual maximum. If
-any required unpetted interval exceeds the hardware ceiling, move petting
-earlier or declare that hardware unsupported; never silently clamp the value.
-Any ownership gap or reset of a known-good slot fails the hardware gate.
+Pending selection comes only from the authenticated redundant record; there is
+no `tryboot.txt`, U-Boot, or `/dev/sda` dependency. Missing, duplicated, or
+mismatched disk identity stops activation and selects recovery/known-good. A
+watchdog is optional fleet hardening and is not enabled by an exact-device
+preview receipt unless it has separately measured timing evidence.
 
 ## On-device architecture
 
@@ -146,7 +136,7 @@ flowchart LR
     D --> RAUC["RAUC signed-bundle installer"]
     RAUC --> I["Inactive boot + EROFS slot"]
     D --> BCB["Redundant boot-control records"]
-    BCB --> SHIM["Pi firmware -> stable U-Boot shim"]
+    BCB --> SHIM["Early-initramfs selector"]
     SHIM --> A["Committed A/B slot"]
     SHIM --> P["One-shot pending A/B slot"]
     A --> DATA["Persistent data"]
@@ -533,15 +523,16 @@ Do not use destructive red styling for a normal constructive update.
    metadata, wrong clock, corrupt/truncated downloads, and recovery bundles.
    Multi-hop TUF rotation is revalidated from immutable v1; a forged, missing,
    reordered, or oversized persisted root chain is rejected.
-5. Physical hardware qualification runs both successful and intentionally bad
-   candidates on every supported Pi revision/RAM/EEPROM and USB bridge. It
+5. General hardware-class qualification runs both successful and intentionally
+   bad candidates on every declared supported Pi revision/RAM/EEPROM and USB bridge. It
    includes warm reboot, cold power-on, extra USB disks, UAS/usb-storage modes,
    slow enumeration, network loss, pending/normal marker mismatch, missing
    tryboot DT property, post-commit pre-userspace hangs, and repeated watchdog
    resets. Measure every unpetted handoff interval and the BCM2711 maximum;
    every phase must demonstrably pet/re-arm within its supported timeout and
    margin.
-6. A relay cuts power at every journal transition and during root, boot FAT,
+6. For a general unattended fleet claim, a relay campaign may cut power at
+   selected journal transitions and during root, boot FAT,
    U-Boot try decrement, Linux `successful`, and one-time selector writes.
    Acceptance is automatic old-slot boot or verified new-slot boot, never an
    ambiguous disk and never a changed p6 image/hash outside expected filesystem
@@ -569,12 +560,13 @@ any signature bypass is an immediate release stop.
 
 ## Phased delivery status
 
-The repository now contains the Phase 1 software foundation and the layout-v2
-factory-image plumbing. Phase 0 physical evidence still gates activation, and
-Phases 2-4 remain required for contract-3 migration and fleet GA. Code being
-present is not evidence that a phase exit has passed.
+The repository now contains the software foundation, layout-v2 factory-image
+plumbing, compiled selector, and exact-device matcher. A signed matching receipt
+gates preview activation. Broader physical evidence and Phases 2-4 remain
+requirements for contract-3 migration and fleet GA. Code being present is not
+evidence of a general hardware-class qualification.
 
-### Phase 0 - prove the boot design and freeze contracts
+### Historical Phase 0 - prove the boot design and freeze contracts
 
 - Inventory deployed Pi revisions, EEPROMs, SSD/bridge firmware, partition
   sizes, actual p1 free space, and current host/container/data versions.
@@ -595,8 +587,10 @@ present is not evidence that a phase exit has passed.
 - Decide and document the independent bootstrap fingerprint channel, supported
   hardware matrix, backup freshness/RPO, and recovery-class operator policy.
 
-Exit: architecture decision record plus 1,000-cycle reboot/cut-power evidence
-on each supported hardware class. No fleet bootstrap before this exit.
+Exit for a declared fleet hardware class: an architecture decision record plus
+enough reboot/cut-power evidence to support the stated reliability claim. The
+former 1,000-cycle number was a proposed internal sample size, not a fixed or
+external requirement. No fleet bootstrap before this exit.
 
 ### Phase 1 - build signed artifacts and an offline installer
 
@@ -647,9 +641,10 @@ every bridge step and can update again using only the native path.
 - Publish immutable bundles through the TUF repository with deterministic
   cohorts. Download may occur early; activation respects the local maintenance
   window and explicit policy.
-- Run rings: lab for at least 72 h; opt-in 1% for 72 h; 5% for 72 h; 25% for
-  seven days; then broad release. For a small fleet, require at least one device
-  from every hardware class before increasing a ring.
+- Define rollout rings and dwell from fleet size, risk, and observed failure
+  rate. The former 72-hour/1%/5%/25% sequence was an example internal policy,
+  not a preview or external requirement. Include every declared hardware class
+  before broad rollout.
 - Automatically pause on any unrecovered boot, wrong-disk/p6 invariant failure,
   signature anomaly, rollback rate above 1%, or health-failure rate above 2%.
   Resuming needs a signed release decision, not only a server flag.
@@ -742,10 +737,9 @@ This blocks release and does not replace or alter Round 3's architecture
 conclusion.
 
 The implementation gate is stricter than a boolean lab receipt: activation is
-hard-disabled until the production selector and a structured runtime matcher
-for the qualified Pi revision, EEPROM, and USB bridge matrix are implemented.
-The image builder rejects an enabled receipt, so placeholder evidence cannot be
-mistaken for hardware authorization.
+hard-disabled unless the compiled selector hash and structured runtime
+fingerprint match the signed exact-device qualification. The image builder
+rejects malformed, mismatched, or placeholder evidence.
 
 ## Sources inspected
 

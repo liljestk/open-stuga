@@ -27,7 +27,7 @@ from .platform import ApplianceDisk, DeviceResolver
 
 
 BOOTCONFIG_MOUNT = Path("/bootfs")
-SELECTOR = BOOTCONFIG_MOUNT / "stugu-boot.scr"
+SELECTOR = Path("/usr/bin/stugu-boot-select")
 ZERO_SHA256 = "0" * 64
 
 

@@ -553,6 +553,7 @@ def validate_request(value: object) -> dict[str, object]:
         "activate",
         "cancel",
         "status",
+        "hardware-id",
         "export-diagnostics",
         "reconcile",
     }

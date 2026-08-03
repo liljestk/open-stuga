@@ -1,11 +1,10 @@
 # Signed host-update release runbook
 
-This runbook covers the implemented `stugu-gpt-ab-v2` release path. It does
-not authorize host activation: the repository default is deliberately
-unqualified, and deployed layout-v1/updater-contract-3 appliances cannot use
-the raw-tail bootstrap. See
-[signed-host-updater-plan.md](signed-host-updater-plan.md) for the remaining
-hardware and migration gates.
+This runbook covers the implemented `stugu-gpt-ab-v2` release path. Images are
+unqualified by default. A preview may activate only when its signed receipt
+matches the exact runtime Pi, EEPROM, USB bridge, and storage fingerprint.
+Deployed layout-v1/updater-contract-3 appliances cannot use the raw-tail
+bootstrap and still require a factory transition.
 
 ## Trust boundary
 
@@ -45,11 +44,10 @@ validated boot/root images, SPDX SBOM, in-toto provenance, and matching
 container release manifest. The upstream `*-ota.tar.zst` is a build byproduct,
 not an installable or published host release.
 
-The current implementation rejects every enabled
-`RPI_HOST_HARDWARE_QUALIFICATION_FILE`. An enabled receipt is not sufficient:
-the production selector, runtime Pi/EEPROM/USB matrix matcher, and physical
-power-cut gate must first be implemented and reviewed. Omitting the file embeds
-the fail-closed receipt and a zero watchdog setting.
+The image builder accepts an enabled `RPI_HOST_HARDWARE_QUALIFICATION_FILE`
+only when it validates the compiled early-initramfs selector hash and the exact
+runtime hardware fingerprint contract. Omitting the file embeds the fail-closed
+receipt. A receipt for another Pi, EEPROM, USB bridge, or disk does not match.
 
 ## 2. Sign and verify the RAUC bundle
 
@@ -157,6 +155,7 @@ role and local physical confirmation; do not lower normal anti-rollback state.
 Read-only checks and staging are available through the native daemon:
 
 ```sh
+stuguctl host-update hardware-id
 stuguctl host-update status
 stuguctl host-update check --channel stable
 stuguctl host-update stage --channel stable
@@ -175,21 +174,21 @@ directly. Inspect service logs and the bounded persistent state under
 `/persistent/stugu/host-update/`; export sanitized diagnostics with
 `stuguctl host-update export-diagnostics`.
 
-## Release blockers
+## Preview boundary and fleet blockers
 
-The following remain hard blockers for host activation and fleet rollout:
+The compiled initramfs selector, redundant boot records, and exact runtime
+matcher permit a bounded exact-device preview. The 1,000-cycle and 72-hour
+figures in the historical architecture plan were internal fleet-hardening
+proposals, not external requirements and not preview gates.
 
-- production U-Boot selector and exact firmware-selected-disk implementation;
-- measured watchdog handoffs and 1,000-cycle reboot/power-cut evidence for every
-  supported Pi 4/EEPROM/StoreJet/USB-bridge class;
-- complete health dwell including expected container digests, Timescale
-  semantics, and configured NAS sentinel policy;
-- per-slot Docker/containerd runtime-state separation and migration executor;
-- signed recovery media and operator drill;
-- authenticated layout-v1/contract-3 fixed-extent bridge, or an explicit
-  factory-transition policy;
-- API/UI capability integration, canary telemetry, pause thresholds, and
-  production TUF/HSM operations.
+For this preview, the RAUC boot artifact must be byte-identical to the active
+boot slot. Only the inactive immutable root is replaced; kernel, firmware,
+EEPROM, and canonical p1 changes remain recovery-class. A verified off-device
+backup, disposable test disk, normal activation, bounded rollback drill, p6
+invariance check, and healthy application reconciliation are mandatory.
 
-Any wrong-disk write, p6 raw change, signature bypass, unrecovered boot, or
-ambiguous selector result stops the release.
+General unattended rollout still needs a declared hardware support matrix,
+broader recovery evidence, production key custody and TUF operations, canary
+telemetry, and an explicit layout-v1 transition policy. Any wrong-disk write,
+p6 raw change, signature bypass, unrecovered boot, or ambiguous selector result
+stops both the preview and the release.

@@ -307,6 +307,54 @@ describe("direct TP-Link H100/H200 bridge", () => {
     })]);
   });
 
+  it("persists identity-verified DHCP address swaps atomically", async () => {
+    temporaryDirectory = mkdtempSync(join(tmpdir(), "climate-twin-tp-link-address-swap-"));
+    const secretsPath = join(temporaryDirectory, "secrets.json");
+    const helperPath = join(temporaryDirectory, "fake-swapping-tp-link-helper.mjs");
+    const savedConnections = [
+      {
+        id: "hub-a", houseId: "house-main", host: "192.168.68.54",
+        username: "local@example.test", password: "secret", deviceId: "stable-hub-a",
+      },
+      {
+        id: "hub-b", houseId: "house-main", host: "192.168.68.56",
+        username: "local@example.test", password: "secret", deviceId: "stable-hub-b",
+      },
+    ];
+    writeIntegrationSecrets(secretsPath, { version: 1, tpLinkConnections: savedConnections });
+    writeFileSync(helperPath, `
+      const currentHost = process.env.TP_LINK_HOST;
+      const sourceDeviceId = currentHost === "192.168.68.54" ? "stable-hub-a" : "stable-hub-b";
+      const host = currentHost === "192.168.68.54" ? "192.168.68.56" : "192.168.68.54";
+      process.stdout.write(JSON.stringify({
+        type: "host-change", previousHost: currentHost, host, sourceDeviceId
+      }) + "\\n");
+      process.stdout.write(JSON.stringify({
+        type: "snapshot", timestamp: new Date().toISOString(), hubModel: "H200",
+        sourceType: "hub", sourceModel: "H200", sourceDeviceId, devices: []
+      }) + "\\n");
+      setInterval(() => {}, 1000);
+    `);
+    const config: AppConfig = {
+      port: 0, apiHost: "127.0.0.1", databasePath: ":memory:", integrationSecretsFile: secretsPath,
+      assetDirectory: temporaryDirectory, mockEnabled: false, mockIntervalMs: 2_000, retentionDays: 730,
+      ingestApiKey: null, haUrl: null, haToken: null, haEntityMapFile: null,
+      tpLinkHost: null, tpLinkUsername: null, tpLinkPassword: null,
+      tpLinkConnections: savedConnections, tpLinkDeviceMapFile: null, tpLinkPollIntervalMs: 10_000,
+      tpLinkPython: process.execPath, tpLinkBridgeScript: helperPath,
+      alertWebhookUrl: null, alertWebhookBearerToken: null, corsOrigin: null,
+    };
+    runtime = createApi({ config, startBackground: false });
+    runtime.tpLink.start();
+
+    await waitFor(() => config.tpLinkConnections?.find((connection) => connection.id === "hub-a")?.host === "192.168.68.56"
+      && config.tpLinkConnections?.find((connection) => connection.id === "hub-b")?.host === "192.168.68.54");
+    expect(readIntegrationSecrets(secretsPath).tpLinkConnections).toEqual([
+      expect.objectContaining({ id: "hub-a", host: "192.168.68.56", deviceId: "stable-hub-a" }),
+      expect.objectContaining({ id: "hub-b", host: "192.168.68.54", deviceId: "stable-hub-b" }),
+    ]);
+  });
+
   it("rejects a recovered address when the helper reports a different physical source", async () => {
     temporaryDirectory = mkdtempSync(join(tmpdir(), "climate-twin-tp-link-recovery-mismatch-"));
     const secretsPath = join(temporaryDirectory, "secrets.json");

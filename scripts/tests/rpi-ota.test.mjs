@@ -471,6 +471,11 @@ test("host boot-control records live outside FAT and activation is qualification
     await readFile(new URL("../build-rpi-image.sh", import.meta.url), "utf8"),
     /Generated from the immutable hardware qualification receipt[\s\S]*RuntimeWatchdogSec=\{seconds\}s/u,
   );
+  const builder = await readFile(new URL("../build-rpi-image.sh", import.meta.url), "utf8");
+  assert.match(builder, /aarch64-linux-gnu-gcc/u);
+  assert.match(builder, /-Werror -static/u);
+  assert.match(builder, /boot selector is not an AArch64 executable/u);
+  assert.match(builder, /boot selector must be static for early initramfs/u);
 });
 
 test("clean appliances default to guarded automatic GitHub container updates", async () => {
@@ -585,6 +590,8 @@ test("local publishing owns expensive builds and hosted release work is an expli
   assert.match(publisher, /"buildx",\s*\n\s*"build"/);
   assert.match(publisher, /"linux\/amd64"[\s\S]*ARCH: "arm64"/);
   assert.match(publisher, /qemu-user-static/);
+  assert.match(publisher, /gcc-aarch64-linux-gnu/);
+  assert.match(publisher, /libc6-dev-arm64-cross/);
   assert.match(publisher, /binfmt_misc\/(?:qemu-)?aarch64/);
   assert.match(publisher, /"--volume",\s*\n\s*"\/rpi-build"/);
   assert.match(publisher, /RPI_BUILD_ROOT: "\/rpi-build"/);
@@ -620,6 +627,8 @@ test("local release options and output names are deterministic", () => {
     "--host-update-base-url",
     "https://updates.example.test/stugu",
     "--publish",
+    "--prerelease",
+    "--keep-draft",
     "--reuse-containers",
     "--upload-factory",
   ]);
@@ -628,6 +637,8 @@ test("local release options and output names are deterministic", () => {
   assert.equal(options.hostGeneration, "42");
   assert.equal(options.hostTufRoot, "root.json");
   assert.equal(options.publish, true);
+  assert.equal(options.prerelease, true);
+  assert.equal(options.keepDraft, true);
   assert.equal(options.reuseContainers, true);
   assert.equal(options.uploadFactory, true);
   assert.throws(() => parseArguments(["--skip-checks"]), /Unknown argument/);

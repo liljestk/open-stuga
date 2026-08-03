@@ -2,6 +2,16 @@
 
 Date: 2026-08-02
 
+> Superseding preview decision, 2026-08-03: the compiled early-initramfs boot
+> selector, exact runtime hardware fingerprint, activation receipt validation,
+> and unchanged-boot-artifact guard are now implemented and regression-tested.
+> The original decision below remains as a historical review record. It no
+> longer prohibits a clearly labelled, exact-device preview after its backup,
+> signing, normal activation, and rollback checks pass. It still does not
+> authorize general unattended fleet rollout. The earlier 1,000-cycle and
+> 72-hour figures were internal fleet-hardening proposals, not external
+> requirements.
+
 ## Review scope
 
 This record covers the Phase 1 software foundation and layout-v2 factory-image
@@ -47,7 +57,7 @@ because the unreleasable working tree still declares 0.29.0. A version bump is
 deferred until every release gate, including required hardware evidence, can be
 truthfully satisfied.
 
-## Hard release blockers
+## Historical hard release blockers (superseded for the exact-device preview)
 
 - `HARDWARE_ACTIVATION_IMPLEMENTED` is deliberately false. The production
   U-Boot selector and exact runtime Pi/EEPROM/USB hardware-matrix matcher do not
@@ -105,10 +115,13 @@ publication-verifier local-input TOCTOU, target-role continuity, and accidental
 omission of publication history. Regression tests and the real RAUC/TUF HTTPS
 ceremony cover these corrections.
 
-## Release decision
+## Historical release decision
 
-`BLOCKED`. The implementation foundation may not be versioned or published
+`BLOCKED` was the decision on 2026-08-02. At that point, the implementation
+foundation could not be versioned or published
 until a post-implementation Claude review returns a valid verdict and every
 hard hardware/later-phase blocker above is completed. No product version was
 bumped, no changes were staged or committed, no branch was pushed, and no
-GitHub release or production host artifact was created.
+GitHub release or production host artifact was created. The superseding
+2026-08-03 decision above permits only the bounded exact-device preview and
+does not convert this historical record into fleet approval.

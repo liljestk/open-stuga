@@ -4,6 +4,29 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.32.0 - 2026-08-03
+
+- Add capability-based TP-Link Tapo H500 discovery and polling with an
+  instance-scoped compatibility adapter for `python-kasa` 0.10.2. H100/H200
+  instances retain their normal protocol path, and Stugu reports when H500
+  firmware hides paired children from the local API.
+- Add the signed layout-v2 Raspberry Pi host-update preview: TUF metadata,
+  RAUC bundles, exact-device qualification, redundant boot records, a compiled
+  early-initramfs A/B root selector, durable probation/reconciliation, and
+  fail-closed p6 and wrong-disk guards.
+- Add independent host signing/publication verification, updater/container
+  mutation interlocks, hardware identity diagnostics, and a draft/prerelease
+  release path for hardware validation.
+- Persist identity-verified TP-Link DHCP address swaps atomically so temporary
+  address collisions cannot restart the API.
+
+Upgrade impact: application updates preserve existing H100/H200 connections and
+data. H500 visibility is limited to children exposed by the hub's local API.
+Host activation is preview-only, requires a new layout-v2 factory image and an
+exact matching hardware receipt, and currently permits only an unchanged boot
+artifact with inactive-root A/B replacement. Existing layout-v1 appliances
+require a backed-up factory transition.
+
 ## 0.31.0 - 2026-08-02
 
 - Add an Owner/Admin-started, bearer-protected Streamable HTTP MCP endpoint

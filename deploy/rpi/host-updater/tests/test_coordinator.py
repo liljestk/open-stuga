@@ -88,6 +88,26 @@ class BootTrialStateTests(unittest.TestCase):
             },
         )
 
+    def test_hardware_id_reports_the_firmware_selected_disk(self) -> None:
+        disk = SimpleNamespace(path=Path("/dev/sda"), active_slot="a")
+        coordinator = Coordinator.__new__(Coordinator)
+        coordinator.resolver = SimpleNamespace(resolve=lambda: disk)
+        with patch(
+            "stugu_host_updater.coordinator.hardware_fingerprint",
+            return_value="sha256:" + "a" * 64,
+        ) as fingerprint:
+            result = coordinator.hardware_id()
+        fingerprint.assert_called_once_with(disk)
+        self.assertEqual(
+            result,
+            {
+                "schema": "stugu-host-hardware-id/v1",
+                "fingerprint": "sha256:" + "a" * 64,
+                "bootDisk": str(Path("/dev/sda")),
+                "activeSlot": "a",
+            },
+        )
+
     def test_pending_and_probation_require_bootloader_consumed_attempts(self) -> None:
         require_trial_record(
             self.record(tries=1),

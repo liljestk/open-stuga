@@ -46,6 +46,22 @@ boot_label="$(blkid -s PARTLABEL -o value "$boot_device" 2>/dev/null)" || exit 0
 
 bootconfig_active_suffix() {
   selected_suffix="a"
+
+  # New images select the root slot from redundant records in p1's raw tail.
+  # The helper durably consumes pending/probation attempts before mounting a
+  # candidate root. A zero-initialized factory tail selects slot A until the
+  # first-boot bootstrap service seeds its signed appliance identity.
+  if command -v stugu-boot-select >/dev/null 2>&1; then
+    selected_suffix="$(stugu-boot-select "$boot_device")" || return 1
+    case "$selected_suffix" in
+      a|b) printf '%s\n' "$selected_suffix"; return 0 ;;
+      *) return 1 ;;
+    esac
+  fi
+
+  # Compatibility for pre-host-updater images. This path is absent from newly
+  # generated initramfs images and remains only so an older rescue payload can
+  # still boot its recorded root slot.
   marker_file="${STUGU_BOOTCONFIG_SLOT_FILE:-}"
   marker_mount=""
 

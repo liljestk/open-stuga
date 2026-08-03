@@ -5,6 +5,7 @@ import json
 import tempfile
 import unittest
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from stugu_host_updater.config import Paths, UpdaterConfig
 from stugu_host_updater.contracts import ReleaseManifest
@@ -134,6 +135,21 @@ class PreflightPolicyTests(unittest.TestCase):
         raw["bootShim"]["requiresRecoveryClassUpdate"] = True  # type: ignore[index]
         with self.assertRaisesRegex(ActivationBlocked, "Recovery-class"):
             self.preflight._manifest(ReleaseManifest.parse(raw), trust(), False)
+
+    def test_ordinary_update_must_keep_the_shared_boot_payload(self) -> None:
+        manifest = ReleaseManifest.parse(release_manifest())
+        boot = SimpleNamespace(path=Path("/dev/sda2"), size=256 * 1024**2)
+        disk = SimpleNamespace(active_slot="a", slot=lambda suffix, kind: boot)
+        with patch(
+            "stugu_host_updater.preflight.hash_prefix",
+            return_value=manifest.artifacts.boot_sha256,
+        ):
+            self.preflight._shared_boot_compatibility(manifest, disk)
+        with (
+            patch("stugu_host_updater.preflight.hash_prefix", return_value="f" * 64),
+            self.assertRaisesRegex(ActivationBlocked, "Kernel or firmware"),
+        ):
+            self.preflight._shared_boot_compatibility(manifest, disk)
 
     def test_updater_and_boot_shim_minimums_are_enforced(self) -> None:
         raw = release_manifest()

@@ -31,7 +31,7 @@ from .durable import (
 from .errors import ContractError, TrustError, UpdaterError
 from .health import HealthChecker
 from .metrics import MetricsExporter
-from .platform import ApplianceDisk, DeviceResolver
+from .platform import ApplianceDisk, DeviceResolver, hardware_fingerprint
 from .preflight import Preflight
 from .rauc import RaucClient
 from .repository import TufRepository, VerifiedTarget
@@ -248,6 +248,17 @@ class Coordinator:
             "phase": "idle",
             "detail": "No host update is active",
             "updatedAt": None,
+        }
+
+    def hardware_id(self) -> dict[str, object]:
+        """Report the exact local qualification identity without mutating state."""
+
+        disk = self.resolver.resolve()
+        return {
+            "schema": "stugu-host-hardware-id/v1",
+            "fingerprint": hardware_fingerprint(disk),
+            "bootDisk": str(disk.path),
+            "activeSlot": disk.active_slot,
         }
 
     def _journal(self) -> dict[str, object] | None:
@@ -708,7 +719,7 @@ class Coordinator:
                 targetSlot=target,
                 trial=1,
             )
-            self.runner.run(["reboot", "0", "tryboot"], timeout=10)
+            self.runner.run(["systemctl", "reboot"], timeout=10)
             return status
 
     def cancel(self) -> dict[str, object]:
@@ -781,7 +792,7 @@ class Coordinator:
                     trial=2,
                     health=result.checks,
                 )
-                self.runner.run(["reboot", "0", "tryboot"], timeout=10)
+                self.runner.run(["systemctl", "reboot"], timeout=10)
                 return status
             if journal["phase"] == "pending" and trial_count == 1:
                 slots = dict(record.slots)
@@ -845,6 +856,8 @@ class Coordinator:
         try:
             if operation == "status":
                 return self.status()
+            if operation == "hardware-id":
+                return self.hardware_id()
             if operation == "check":
                 return self.check(str(request.get("channel", "stable")))
             if operation == "stage":

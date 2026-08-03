@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import hashlib
 import json
 from pathlib import Path
 import tempfile
@@ -37,11 +38,67 @@ def record(sequence: int = 10) -> BootRecord:
 
 
 class BootControlTests(unittest.TestCase):
-    def test_hardware_receipt_cannot_enable_unimplemented_activation(self) -> None:
-        self.assertFalse(HARDWARE_ACTIVATION_IMPLEMENTED)
-        store = BootControlStore(Path("/receipt"), Path("/qualification"), 1)
-        with self.assertRaisesRegex(ActivationBlocked, "production selector"):
-            store._qualification(object())  # type: ignore[arg-type]
+    def test_hardware_receipt_requires_the_exact_runtime_fingerprint(self) -> None:
+        self.assertTrue(HARDWARE_ACTIVATION_IMPLEMENTED)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            selector = root / "stugu-boot-select"
+            selector.write_bytes(b"selector")
+            selector_sha = hashlib.sha256(selector.read_bytes()).hexdigest()
+            qualification = root / "qualification.json"
+            qualification.write_text(
+                json.dumps(
+                    {
+                        "schema": "stugu-pi4-qualification/v1",
+                        "activationEnabled": True,
+                        "bootShimGeneration": 1,
+                        "evidence": "e" * 64,
+                        "selectorSha256": selector_sha,
+                        "watchdogSeconds": 0,
+                        "recordOffsets": list(RECORD_OFFSETS),
+                        "hardwareMatrix": ["sha256:" + "a" * 64],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            watchdog = root / "stugu-watchdog.conf"
+            watchdog.write_text(
+                "[Manager]\n"
+                "# Generated from the immutable hardware qualification receipt.\n"
+                "RuntimeWatchdogSec=0s\n",
+                encoding="ascii",
+            )
+            receipt = BootstrapReceipt(
+                disk_guid=record().disk_guid,
+                bootconfig_partuuid=record().bootconfig_partuuid,
+                bootconfig_device=Path("/dev/disk/by-partuuid/test"),
+                mountpoint=Path("/bootfs"),
+                records=(
+                    RecordExtent(RECORD_OFFSETS[0]),
+                    RecordExtent(RECORD_OFFSETS[1]),
+                ),
+                boot_shim_generation=1,
+                selector_path=selector,
+                selector_sha256=selector_sha,
+            )
+            store = BootControlStore(Path("/receipt"), qualification, 1)
+            with (
+                patch("stugu_host_updater.bootcontrol.WATCHDOG_CONFIG", watchdog),
+                patch(
+                    "stugu_host_updater.bootcontrol.hardware_fingerprint",
+                    return_value="sha256:" + "a" * 64,
+                ),
+            ):
+                store._qualification(receipt, object())  # type: ignore[arg-type]
+            with (
+                patch("stugu_host_updater.bootcontrol.WATCHDOG_CONFIG", watchdog),
+                patch(
+                    "stugu_host_updater.bootcontrol.hardware_fingerprint",
+                    return_value="sha256:" + "b" * 64,
+                ),
+                self.assertRaisesRegex(ActivationBlocked, "not qualified"),
+            ):
+                store._qualification(receipt, object())  # type: ignore[arg-type]
 
     def test_record_round_trips_in_one_fixed_sector_aligned_extent(self) -> None:
         original = record()
@@ -94,7 +151,7 @@ class BootControlTests(unittest.TestCase):
             mountpoint=Path("/bootfs"),
             records=(RecordExtent(RECORD_OFFSETS[0]), RecordExtent(RECORD_OFFSETS[1])),
             boot_shim_generation=1,
-            selector_path=Path("/bootfs/stugu-boot.scr"),
+            selector_path=Path("/usr/bin/stugu-boot-select"),
             selector_sha256="0" * 64,
         )
         store = BootControlStore(Path("/receipt"), Path("/qualification"), 1)
@@ -121,7 +178,7 @@ class BootControlTests(unittest.TestCase):
             "recordSize": RECORD_SIZE,
             "recordOffsets": list(RECORD_OFFSETS),
             "bootShimGeneration": 1,
-            "selectorPath": "/bootfs/stugu-boot.scr",
+            "selectorPath": "/usr/bin/stugu-boot-select",
             "selectorSha256": "0" * 64,
         }
         with tempfile.TemporaryDirectory() as directory:
@@ -145,7 +202,7 @@ class BootControlTests(unittest.TestCase):
             mountpoint=Path("/bootfs"),
             records=(RecordExtent(RECORD_OFFSETS[0]), RecordExtent(RECORD_OFFSETS[1])),
             boot_shim_generation=1,
-            selector_path=Path("/bootfs/stugu-boot.scr"),
+            selector_path=Path("/usr/bin/stugu-boot-select"),
             selector_sha256="0" * 64,
         )
         with (

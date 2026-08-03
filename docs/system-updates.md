@@ -162,11 +162,13 @@ appliance's `stugu` Compose project so unattended updates inspect the running
 services.
 
 The UI-managed path currently updates Stugu's release containers. New
-layout-v2 factory images also contain the public-anchor-only foundation for a
-native TUF + RAUC host updater, exposed as `stuguctl host-update`. It can check
-and stage a signed OS/kernel/Linux-firmware bundle, but activation is
-deliberately disabled until the exact Pi 4 USB boot shim, watchdog, recovery,
-and power-cut matrix is qualified. The updater never writes p6 as a raw device.
+layout-v2 factory images also contain a native TUF + RAUC host updater and
+early-initramfs A/B root selector, exposed as `stuguctl host-update`. It can
+activate only when a signed qualification receipt matches the exact runtime Pi,
+EEPROM, USB bridge, and storage fingerprint. Preview bundles must use a
+byte-identical shared boot artifact and therefore update only the inactive
+immutable root; kernel, firmware, EEPROM, and canonical p1 changes remain
+recovery-class. The updater never writes p6 as a raw device.
 
 Deployed layout-v1/updater-contract-3 appliances still require a validated
 factory transition: their 96 MiB FAT fills p1 and cannot safely use layout-v2's

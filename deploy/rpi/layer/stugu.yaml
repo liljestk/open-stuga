@@ -165,6 +165,8 @@ mmdebstrap:
         "$1/usr/local/sbin/stugu-eeprom-compat"
       install -m 0755 "${IGconf_stugu_assetdir}/stuguctl" \
         "$1/usr/local/bin/stuguctl"
+      install -m 0755 "${IGconf_stugu_assetdir}/stugu-boot-select" \
+        "$1/usr/bin/stugu-boot-select"
       cp -a "${IGconf_stugu_hostupdaterdir}/stugu_host_updater" \
         "$1/usr/lib/stugu-host-updater/"
       find "$1/usr/lib/stugu-host-updater/stugu_host_updater" \

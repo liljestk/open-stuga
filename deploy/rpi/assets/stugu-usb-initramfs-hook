@@ -12,4 +12,5 @@ esac
 
 copy_exec /usr/bin/stugu-usb-bootdev
 copy_exec /usr/bin/stugu-usb-udev-slot
+copy_exec /usr/bin/stugu-boot-select
 copy_file config /etc/udev/rules.d/99-rpi-00-stugu-usb.rules

@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
+import json
 import os
 from pathlib import Path
+import re
 import stat
 from typing import Any
 import uuid
@@ -23,6 +26,7 @@ EXPECTED_PARTITIONS = {
     "system_b": (5, 3 * 1024**3, "erofs", LINUX_FILESYSTEM),
     "persistent": (6, 1 * 1024**3, "ext4", LINUX_FILESYSTEM),
 }
+HARDWARE_VALUE = re.compile(r"^[ -~]{1,160}$")
 
 
 @dataclass(frozen=True)
@@ -220,6 +224,128 @@ class DeviceResolver:
             partitions,
             active_slot,
         )
+
+
+def _hardware_text(path: Path, label: str) -> str:
+    try:
+        data = path.read_bytes()
+    except OSError as error:
+        raise PreflightError(
+            "HARDWARE_IDENTITY_UNAVAILABLE", f"{label} is unavailable"
+        ) from error
+    value = " ".join(data.rstrip(b"\x00\r\n ").decode("ascii").split())
+    if not HARDWARE_VALUE.fullmatch(value):
+        raise PreflightError("HARDWARE_IDENTITY_INVALID", f"{label} is invalid")
+    return value
+
+
+def _bootloader_timestamp(path: Path) -> int:
+    try:
+        data = path.read_bytes()
+    except OSError as error:
+        raise PreflightError(
+            "HARDWARE_IDENTITY_UNAVAILABLE",
+            "EEPROM bootloader identity is unavailable",
+        ) from error
+    if len(data) != 4:
+        raise PreflightError(
+            "HARDWARE_IDENTITY_INVALID", "EEPROM bootloader identity is invalid"
+        )
+    return int.from_bytes(data, byteorder="big", signed=False)
+
+
+def _pi_revision(cpuinfo: Path) -> str:
+    try:
+        lines = cpuinfo.read_text(encoding="ascii").splitlines()
+    except (OSError, UnicodeDecodeError) as error:
+        raise PreflightError(
+            "HARDWARE_IDENTITY_UNAVAILABLE", "Raspberry Pi revision is unavailable"
+        ) from error
+    revisions = [
+        line.split(":", 1)[1].strip().lower()
+        for line in lines
+        if line.split(":", 1)[0].strip().lower() == "revision" and ":" in line
+    ]
+    if len(revisions) != 1 or not re.fullmatch(r"[0-9a-f]{4,16}", revisions[0]):
+        raise PreflightError(
+            "HARDWARE_IDENTITY_INVALID", "Raspberry Pi revision is invalid"
+        )
+    return revisions[0]
+
+
+def hardware_fingerprint(
+    disk: ApplianceDisk,
+    *,
+    proc_root: Path = Path("/proc"),
+    sys_root: Path = Path("/sys"),
+) -> str:
+    """Hash the exact Pi, EEPROM, USB bridge, and storage hardware identity."""
+
+    try:
+        block_path = (sys_root / "class" / "block" / disk.name).resolve(strict=True)
+    except OSError as error:
+        raise PreflightError(
+            "HARDWARE_IDENTITY_UNAVAILABLE", "Boot disk sysfs identity is unavailable"
+        ) from error
+    storage_device = block_path / "device"
+    try:
+        storage_device = storage_device.resolve(strict=True)
+    except OSError as error:
+        raise PreflightError(
+            "HARDWARE_IDENTITY_UNAVAILABLE", "Storage device identity is unavailable"
+        ) from error
+
+    usb_device: Path | None = None
+    usb_interface: Path | None = None
+    for candidate in (storage_device, *storage_device.parents):
+        if usb_interface is None and (candidate / "bInterfaceClass").is_file():
+            usb_interface = candidate
+        if (candidate / "idVendor").is_file() and (candidate / "idProduct").is_file():
+            usb_device = candidate
+            break
+    if usb_device is None or usb_interface is None:
+        raise PreflightError(
+            "HARDWARE_IDENTITY_UNAVAILABLE",
+            "Boot disk is not attached through an identifiable USB bridge",
+        )
+    try:
+        interface_driver = (usb_interface / "driver").resolve(strict=True).name
+    except OSError as error:
+        raise PreflightError(
+            "HARDWARE_IDENTITY_UNAVAILABLE", "USB storage driver is unavailable"
+        ) from error
+
+    storage_serial = " ".join(disk.disk_serial.split())
+    identity = {
+        "schema": "stugu-pi4-usb-hardware/v1",
+        "piModel": _hardware_text(proc_root / "device-tree" / "model", "Pi model"),
+        "piRevision": _pi_revision(proc_root / "cpuinfo"),
+        "eepromBuildTimestamp": _bootloader_timestamp(
+            proc_root / "device-tree" / "chosen" / "bootloader" / "build-timestamp"
+        ),
+        "usbVendorId": _hardware_text(usb_device / "idVendor", "USB vendor ID").lower(),
+        "usbProductId": _hardware_text(
+            usb_device / "idProduct", "USB product ID"
+        ).lower(),
+        "usbDeviceRevision": _hardware_text(
+            usb_device / "bcdDevice", "USB device revision"
+        ).lower(),
+        "usbDriver": interface_driver,
+        "storageVendor": _hardware_text(storage_device / "vendor", "Storage vendor"),
+        "storageModel": _hardware_text(storage_device / "model", "Storage model"),
+        "storageRevision": _hardware_text(
+            storage_device / "rev", "Storage firmware revision"
+        ),
+        "storageSerial": storage_serial,
+    }
+    if not HARDWARE_VALUE.fullmatch(identity["storageSerial"]):
+        raise PreflightError(
+            "HARDWARE_IDENTITY_INVALID", "Storage serial is missing or invalid"
+        )
+    canonical = json.dumps(
+        identity, ensure_ascii=True, sort_keys=True, separators=(",", ":")
+    ).encode("ascii")
+    return f"sha256:{hashlib.sha256(canonical).hexdigest()}"
 
 
 def require_block_device(path: Path) -> None:

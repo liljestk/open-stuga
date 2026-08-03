@@ -17,6 +17,7 @@ from .contracts import ReleaseManifest
 from .durable import TrustState
 from .errors import ActivationBlocked, PreflightError
 from .platform import ApplianceDisk, DeviceResolver
+from .rauc import hash_prefix
 
 
 ACTIVE_PHASES = frozenset(
@@ -297,6 +298,23 @@ class Preflight:
                 "Current known-good slot is below the signed fallback floor",
             )
 
+    @staticmethod
+    def _shared_boot_compatibility(
+        manifest: ReleaseManifest, disk: ApplianceDisk
+    ) -> None:
+        """Keep ordinary A/B updates compatible with the immutable p1 boot payload."""
+
+        active_boot = disk.slot(disk.active_slot, "boot")
+        if (
+            manifest.artifacts.boot_size != active_boot.size
+            or hash_prefix(active_boot.path, manifest.artifacts.boot_size)
+            != manifest.artifacts.boot_sha256
+        ):
+            raise ActivationBlocked(
+                "Kernel or firmware changes require a recovery-class update while "
+                "the direct-boot payload is shared"
+            )
+
     def _environment(self, trust: TrustState, *, bundle_length: int) -> PreflightResult:
         trusted_time = self.trusted_time(trust)
         self._interlocks()
@@ -348,4 +366,6 @@ class Preflight:
     ) -> PreflightResult:
         self._manifest(manifest, trust, repair)
         self._hardware(manifest)
-        return self._environment(trust, bundle_length=bundle_length)
+        result = self._environment(trust, bundle_length=bundle_length)
+        self._shared_boot_compatibility(manifest, result.disk)
+        return result

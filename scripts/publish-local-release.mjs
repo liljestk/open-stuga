@@ -55,6 +55,8 @@ Options:
   --host-qualification PATH
                            Immutable lab receipt; omit to disable activation
   --upload-factory         Also attach the factory image to the public release
+  --prerelease             Mark the published GitHub release as a preview
+  --keep-draft             Build, push, and upload, but leave the release draft
   --help                   Show this help
 
 The factory image stays under dist/rpi by default. Never upload a factory image
@@ -72,6 +74,8 @@ export function parseArguments(argv) {
   const options = {
     builder: "stugu-release-local",
     help: false,
+    keepDraft: false,
+    prerelease: false,
     publish: false,
     reuseContainers: false,
     uploadFactory: false,
@@ -115,6 +119,12 @@ export function parseArguments(argv) {
       case "--notes-file":
         options.notesFile = optionValue(argv, index, argument);
         index += 1;
+        break;
+      case "--keep-draft":
+        options.keepDraft = true;
+        break;
+      case "--prerelease":
+        options.prerelease = true;
         break;
       case "--publish":
         options.publish = true;
@@ -464,7 +474,7 @@ function buildRaspberryPi({
     [
       "set -Eeuo pipefail",
       "apt-get update",
-      "apt-get install --yes --no-install-recommends binfmt-support ca-certificates debian-archive-keyring git openssl python3-cryptography python3-tuf qemu-user-static zstd",
+      "apt-get install --yes --no-install-recommends binfmt-support ca-certificates debian-archive-keyring gcc-aarch64-linux-gnu git libc6-dev-arm64-cross openssl python3-cryptography python3-tuf qemu-user-static zstd",
       "mountpoint --quiet /proc/sys/fs/binfmt_misc || mount -t binfmt_misc binfmt_misc /proc/sys/fs/binfmt_misc",
       "test -r /proc/sys/fs/binfmt_misc/aarch64 || test -r /proc/sys/fs/binfmt_misc/qemu-aarch64",
       "bash scripts/build-rpi-image.sh",
@@ -524,7 +534,7 @@ function writeReleaseManifest(artifacts, repository, version, tag, imageRefs) {
 function inspectRelease(tag, repository) {
   const viewed = invoke(
     "gh",
-    ["release", "view", tag, "--repo", repository, "--json", "isDraft,url"],
+    ["release", "view", tag, "--repo", repository, "--json", "isDraft,isPrerelease,url"],
     { allowFailure: true, capture: true, quiet: true },
   );
   if (viewed.status === 0) return JSON.parse(viewed.stdout);
@@ -534,12 +544,20 @@ function inspectRelease(tag, repository) {
   return null;
 }
 
-function ensureRelease(tag, version, repository, notesFile) {
+function ensureRelease(tag, version, repository, notesFile, prerelease) {
   const existing = inspectRelease(tag, repository);
   if (existing && !existing.isDraft) {
     throw new Error(`Release ${tag} is already published and immutable`);
   }
-  if (existing) return existing;
+  if (existing) {
+    if (existing.isPrerelease !== prerelease) {
+      invoke("gh", [
+        "release", "edit", tag, "--repo", repository, "--draft",
+        `--prerelease=${prerelease ? "true" : "false"}`,
+      ]);
+    }
+    return { ...existing, isPrerelease: prerelease };
+  }
   const arguments_ = [
     "release",
     "create",
@@ -551,6 +569,7 @@ function ensureRelease(tag, version, repository, notesFile) {
     "--title",
     `Stugu ${version}`,
   ];
+  if (prerelease) arguments_.push("--prerelease");
   if (notesFile) arguments_.push("--notes-file", notesFile);
   else arguments_.push("--generate-notes");
   invoke("gh", arguments_);
@@ -638,6 +657,7 @@ async function main(argv = process.argv.slice(2), env = process.env) {
   Raspberry Pi:    factory image + signed-host inputs
   Host generation: ${hostGeneration ?? "not supplied"}
   Host activation: ${hostQualification ? "qualification receipt supplied" : "disabled"}
+  GitHub release:  ${options.keepDraft ? "draft" : options.prerelease ? "preview" : "stable"}
   Factory upload:  ${options.uploadFactory ? "yes" : "no; retained locally"}`);
   if (!options.publish) {
     console.log("\nPreview only. Add --publish to build, push, and upload this release.");
@@ -707,12 +727,15 @@ async function main(argv = process.argv.slice(2), env = process.env) {
   });
   await prepareReleaseChecksums(artifacts, options.uploadFactory);
 
-  const release = ensureRelease(tag, version, repository, notesFile);
+  const release = ensureRelease(tag, version, repository, notesFile, options.prerelease);
   uploadReleaseAssets(tag, repository, artifacts, {
     uploadFactory: options.uploadFactory,
   });
-  if (release.isDraft) {
-    invoke("gh", ["release", "edit", tag, "--repo", repository, "--draft=false"]);
+  if (release.isDraft && !options.keepDraft) {
+    invoke("gh", [
+      "release", "edit", tag, "--repo", repository, "--draft=false",
+      `--prerelease=${options.prerelease ? "true" : "false"}`,
+    ]);
   }
 
   const url = capture(
@@ -720,7 +743,8 @@ async function main(argv = process.argv.slice(2), env = process.env) {
     ["release", "view", tag, "--repo", repository, "--json", "url", "--jq", ".url"],
     { quiet: true },
   );
-  console.log(`\nPublished ${tag} from ${commit}\n${url}`);
+  const outcome = options.keepDraft ? "Prepared draft" : options.prerelease ? "Published preview" : "Published";
+  console.log(`\n${outcome} ${tag} from ${commit}\n${url}`);
   console.log(`Factory image retained at ${artifacts.factory}`);
   console.log(`Host signing inputs retained at ${artifacts.hostInputsDirectory}`);
 }

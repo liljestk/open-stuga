@@ -9,9 +9,11 @@ and its device identity remains persistent.
 
 The operating-system release is immutable: do not use `apt upgrade` on the
 appliance. Layout-v2 factory images include a public-anchor-only TUF + RAUC host
-updater foundation, but activation remains disabled until the exact Pi 4 USB
-boot shim/watchdog/power-cut gate passes. Production OS, kernel, and boot
-firmware changes therefore still use a newly validated factory image. Pi 4 USB
+updater and an early-initramfs A/B root selector. Activation is fail-closed
+unless a signed receipt matches the exact runtime Pi, EEPROM, USB bridge, and
+storage fingerprint. Preview bundles must keep the shared boot artifact
+byte-identical; kernel and boot-firmware changes still use a newly validated
+factory image. Pi 4 USB
 firmware partition handoff is intentionally not used because it boot-looped on
 supported USB-SATA bridges. Direct boot waits six seconds after essential
 drivers load so slower bridges can enumerate before the immutable system slot
@@ -435,11 +437,12 @@ System updates**.
 
 Each installation creates a verified backup before pulling the exact release
 images. It replaces only the application containers, waits for health checks,
-and restores the previous image set on failure. The dormant native host updater
-may check and stage a signed host bundle, but OS/kernel activation remains
-blocked until its hardware qualification gate passes. Until then those changes
-require a new validated factory image and an off-device backup or migration;
-Raspberry Pi Connect OS deployment remains disabled on Pi 4 USB.
+and restores the previous image set on failure. The native host updater may
+check, stage, and activate a signed root-filesystem preview only on the exact
+hardware fingerprint named by its qualification receipt. A verified off-device
+backup and rollback drill remain required. Kernel, firmware, and canonical p1
+changes require a new validated factory image; Raspberry Pi Connect OS
+deployment remains disabled on Pi 4 USB.
 
 ### One-time updater contract 3 transition
 
@@ -473,15 +476,16 @@ stuguctl restart      # pull/reconcile the images pinned by this OS release
 stuguctl reboot       # gracefully reboot the appliance host
 stuguctl poweroff     # gracefully halt the host before disconnecting power
 stuguctl backup       # complete application backup
+stuguctl host-update hardware-id # exact-device qualification input
 stuguctl host-update status # native signed-host updater status (activation gated)
 stuguctl migration    # authenticated live-migration receiver and rollback tools
 stuguctl images       # exact immutable image references
 ```
 
 `restart` reconciles the Stugu application; it does not reboot the host.
-`host-update check` and `host-update stage` are diagnostic until the immutable
-hardware qualification receipt enables activation. Never bypass that receipt or
-invoke RAUC directly.
+`host-update check` and `host-update stage` remain read-only/staging operations.
+Activation requires an immutable exact-device qualification receipt. Never
+bypass that receipt or invoke RAUC directly.
 `reboot` and `poweroff` remain available when application configuration is
 broken. They reject extra arguments and use sudoers entries for only the exact
 `systemctl reboot` and `systemctl poweroff` command lines; they do not grant

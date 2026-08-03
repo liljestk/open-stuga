@@ -38,7 +38,13 @@ def client(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="stugu-host-update")
     parser.add_argument("--socket", type=Path, default=DEFAULT_SOCKET)
     subparsers = parser.add_subparsers(dest="operation", required=True)
-    for operation in ("status", "cancel", "export-diagnostics", "reconcile"):
+    for operation in (
+        "status",
+        "hardware-id",
+        "cancel",
+        "export-diagnostics",
+        "reconcile",
+    ):
         subparsers.add_parser(operation)
     for operation in ("check", "stage"):
         child = subparsers.add_parser(operation)

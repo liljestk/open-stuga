@@ -23,6 +23,7 @@ Optional environment variables:
   RPI_WIFI_PROFILE               iwd .psk profile to embed
   RPI_WIFI_COUNTRY               Two-letter country code; required with Wi-Fi
   RPI_IMAGE_GEN_INSTALL_DEPS=1   Run rpi-image-gen's dependency installer
+  RPI_BOOT_SELECTOR_CC           AArch64 C compiler override
   RPI_EXPORT_FACTORY_IMAGE=0     Export only the OTA artifact (used by CI)
   RPI_FACTORY_BUILD=0            Permit a build without first-access credentials
   STUGA_HOST_GENERATION          Monotonic unsigned host generation (required)
@@ -221,6 +222,51 @@ cleanup() {
 trap cleanup EXIT
 
 cp -a "$repo_root/deploy/rpi/." "$stage_dir/"
+selector_cc="${RPI_BOOT_SELECTOR_CC:-}"
+if [[ -z "$selector_cc" ]]; then
+  case "$(uname -m)" in
+    aarch64|arm64) selector_cc=cc ;;
+    x86_64|amd64) selector_cc=aarch64-linux-gnu-gcc ;;
+    *)
+      echo "Unsupported build architecture for the AArch64 boot selector: $(uname -m)" >&2
+      exit 1
+      ;;
+  esac
+fi
+if ! command -v "$selector_cc" >/dev/null 2>&1; then
+  echo "Missing AArch64 boot-selector compiler: $selector_cc" >&2
+  exit 1
+fi
+"$selector_cc" -std=c11 -O2 -Wall -Wextra -Werror -static \
+  "$repo_root/deploy/rpi/boot-selector/stugu-boot-select.c" \
+  -o "$stage_dir/assets/stugu-boot-select"
+chmod 0755 "$stage_dir/assets/stugu-boot-select"
+python3 - "$stage_dir/assets/stugu-boot-select" <<'PY'
+from pathlib import Path
+import struct
+import sys
+
+path = Path(sys.argv[1])
+data = path.read_bytes()
+if len(data) < 64 or data[:6] != b"\x7fELF\x02\x01":
+    raise SystemExit("boot selector is not a little-endian ELF64 executable")
+if struct.unpack_from("<H", data, 18)[0] != 183:
+    raise SystemExit("boot selector is not an AArch64 executable")
+program_offset = struct.unpack_from("<Q", data, 32)[0]
+program_size = struct.unpack_from("<H", data, 54)[0]
+program_count = struct.unpack_from("<H", data, 56)[0]
+if (
+    program_size < 4
+    or program_count == 0
+    or program_offset + program_size * program_count > len(data)
+):
+    raise SystemExit("boot selector has an invalid program-header table")
+if any(
+    struct.unpack_from("<I", data, program_offset + index * program_size)[0] == 3
+    for index in range(program_count)
+):
+    raise SystemExit("boot selector must be static for early initramfs")
+PY
 install -m 0444 "$host_tuf_root_file" "$stage_dir/assets/stugu-host-tuf-root.json"
 install -m 0444 "$host_rauc_ca_file" "$stage_dir/assets/stugu-host-rauc-ca.pem"
 if [[ -n "$host_qualification_file" ]]; then
@@ -228,13 +274,15 @@ if [[ -n "$host_qualification_file" ]]; then
     "$stage_dir/assets/stugu-hardware-qualification.json"
 fi
 python3 - "$stage_dir/assets/stugu-hardware-qualification.json" \
-  "$stage_dir/assets/stugu-system-watchdog.conf" <<'PY'
+  "$stage_dir/assets/stugu-system-watchdog.conf" \
+  "$stage_dir/assets/stugu-boot-select" <<'PY'
+import hashlib
 import json
 from pathlib import Path
 import re
 import sys
 
-qualification_path, watchdog_path = map(Path, sys.argv[1:])
+qualification_path, watchdog_path, selector_path = map(Path, sys.argv[1:])
 try:
     value = json.loads(qualification_path.read_text(encoding="utf-8"))
 except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
@@ -252,10 +300,6 @@ if (
     raise SystemExit("hardware qualification receipt shape is invalid")
 seconds = 0
 if value["activationEnabled"]:
-    raise SystemExit(
-        "host activation cannot be enabled until the production selector, "
-        "runtime hardware-matrix matcher, and physical gate are implemented"
-    )
     evidence = value.get("evidence")
     selector = value.get("selectorSha256")
     matrix = value.get("hardwareMatrix")
@@ -271,12 +315,19 @@ if value["activationEnabled"]:
         or selector == "0" * 64
         or isinstance(seconds, bool)
         or not isinstance(seconds, int)
-        or not 1 <= seconds <= 15
+        or not 0 <= seconds <= 15
         or not isinstance(matrix, list)
         or not matrix
-        or any(not isinstance(item, str) or not item or len(item) > 120 for item in matrix)
+        or any(
+            not isinstance(item, str)
+            or not re.fullmatch(r"sha256:[0-9a-f]{64}", item)
+            for item in matrix
+        )
     ):
         raise SystemExit("enabled hardware qualification receipt is incomplete or unsafe")
+    actual_selector = hashlib.sha256(selector_path.read_bytes()).hexdigest()
+    if selector != actual_selector:
+        raise SystemExit("hardware qualification selector hash does not match this build")
 watchdog_path.write_text(
     "[Manager]\n"
     "# Generated from the immutable hardware qualification receipt.\n"

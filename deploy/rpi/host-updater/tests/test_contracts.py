@@ -116,6 +116,20 @@ class ReleaseContractTests(unittest.TestCase):
                 }
             )
 
+    def test_hardware_id_is_a_parameterless_read_only_request(self) -> None:
+        self.assertEqual(
+            validate_request(
+                {
+                    "schema": "stugu-host-update-request/v1",
+                    "operation": "hardware-id",
+                }
+            ),
+            {
+                "schema": "stugu-host-update-request/v1",
+                "operation": "hardware-id",
+            },
+        )
+
     def test_operation_specific_flags_are_rejected_elsewhere(self) -> None:
         for operation, field in (("status", "confirm"), ("activate", "repair")):
             with (

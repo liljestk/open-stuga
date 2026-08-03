@@ -20,7 +20,7 @@ import zlib
 from .command import CommandRunner
 from .contracts import canonical_json, decode_json
 from .errors import ActivationBlocked, ContractError, TrustError, UpdaterError
-from .platform import ApplianceDisk
+from .platform import ApplianceDisk, hardware_fingerprint
 
 
 RECORD_SIZE = 4096
@@ -32,9 +32,9 @@ MAGIC = b"STUGUBC1"
 HEADER = struct.Struct("<8sHHQI")
 CRC = struct.Struct("<I")
 STATES = frozenset({"successful", "pending", "probation", "fallback", "rescue"})
-# Phase 0 has not produced a production selector or a runtime matcher for the
-# qualified Pi/EEPROM/USB matrix. A receipt alone must never enable activation.
-HARDWARE_ACTIVATION_IMPLEMENTED = False
+# The early-initramfs selector durably consumes redundant boot attempts and the
+# runtime matcher binds activation to an exact Pi/EEPROM/USB/storage identity.
+HARDWARE_ACTIVATION_IMPLEMENTED = True
 
 
 @dataclass(frozen=True)
@@ -261,7 +261,7 @@ class BootstrapReceipt:
             or not bootconfig_posix.is_absolute()
             or not mountpoint_posix.is_absolute()
             or bootconfig_posix != PurePosixPath("/dev/disk/by-partuuid") / partuuid
-            or selector_posix != mountpoint_posix / "stugu-boot.scr"
+            or selector_posix != PurePosixPath("/usr/bin/stugu-boot-select")
             or not isinstance(selector_sha, str)
             or len(selector_sha) != 64
             or any(character not in "0123456789abcdef" for character in selector_sha)
@@ -292,7 +292,7 @@ class BootControlStore:
         self.expected_boot_shim_generation = expected_boot_shim_generation
         self.runner = runner or CommandRunner()
 
-    def _qualification(self, receipt: BootstrapReceipt) -> None:
+    def _qualification(self, receipt: BootstrapReceipt, disk: ApplianceDisk) -> None:
         if not HARDWARE_ACTIVATION_IMPLEMENTED:
             raise ActivationBlocked(
                 "Host activation awaits the production selector and hardware-matrix matcher"
@@ -335,17 +335,24 @@ class BootControlStore:
             or selector_sha == "0" * 64
             or isinstance(watchdog, bool)
             or not isinstance(watchdog, int)
-            or not 1 <= watchdog <= 15
+            or not 0 <= watchdog <= 15
             or value.get("recordOffsets") != list(RECORD_OFFSETS)
             or not isinstance(matrix, list)
             or not matrix
             or any(
-                not isinstance(item, str) or not item or len(item) > 120
+                not isinstance(item, str)
+                or not item.startswith("sha256:")
+                or len(item) != 71
+                or any(character not in "0123456789abcdef" for character in item[7:])
                 for item in matrix
             )
         ):
             raise ActivationBlocked(
-                "Pi 4 host activation has not passed the hardware power-cut gate"
+                "Pi 4 host activation has no approved single-device qualification"
+            )
+        if hardware_fingerprint(disk) not in matrix:
+            raise ActivationBlocked(
+                "This Pi, EEPROM, USB bridge, and storage device are not qualified"
             )
         if value.get("bootShimGeneration") != receipt.boot_shim_generation:
             raise ActivationBlocked(
@@ -386,8 +393,6 @@ class BootControlStore:
             raise ActivationBlocked(
                 "Bootstrap receipt does not match the configured boot-shim generation"
             )
-        if require_qualification:
-            self._qualification(receipt)
         options = self.runner.run(
             [
                 "findmnt",
@@ -490,7 +495,7 @@ class BootControlStore:
         *,
         require_qualification: bool = True,
     ) -> tuple[BootRecord, int]:
-        receipt = self._receipt(require_qualification=require_qualification)
+        receipt = self._receipt(require_qualification=False)
         bootconfig = disk.partitions["bootconfig"]
         if (
             receipt.disk_guid != disk.disk_guid
@@ -501,10 +506,12 @@ class BootControlStore:
             raise TrustError(
                 "Boot-control identity does not match the active appliance disk"
             )
+        if require_qualification:
+            self._qualification(receipt, disk)
         return self._read_device(receipt, bootconfig.path)
 
     def write(self, record: BootRecord, disk: ApplianceDisk) -> None:
-        receipt = self._receipt()
+        receipt = self._receipt(require_qualification=False)
         bootconfig = disk.partitions["bootconfig"]
         if (
             receipt.disk_guid != disk.disk_guid
@@ -515,6 +522,7 @@ class BootControlStore:
             raise TrustError(
                 "Boot-control write does not target the active appliance disk"
             )
+        self._qualification(receipt, disk)
         flags = os.O_RDWR | os.O_CLOEXEC | getattr(os, "O_DSYNC", 0)
         descriptor = self._open_verified_device(receipt, bootconfig.path, flags)
         unmounted = False
