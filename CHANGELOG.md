@@ -4,6 +4,16 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.32.1 - 2026-08-03
+
+- Collect the generated host SBOM from rpi-image-gen's versioned target
+  directory so the local Pi release publisher can complete the signed-host
+  input set instead of failing after the factory image was built.
+
+Upgrade impact: no runtime behavior changes relative to 0.32.0. This patch
+supersedes the unpublished 0.32.0 release attempt and is the hardware-test
+artifact for the bundled H500 and exact-device host-updater preview.
+
 ## 0.32.0 - 2026-08-03
 
 - Add capability-based TP-Link Tapo H500 discovery and polling with an
