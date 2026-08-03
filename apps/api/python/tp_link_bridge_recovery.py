@@ -50,6 +50,7 @@ async def recover_device_history(
             )
         if device is None:
             raise RuntimeError(f"No supported TP-Link device responded at {host}")
+        install_h500_compatibility(device)
         await device.update(update_children=True)
         source_id = source_device_id(device)
         if expected_source_device_id and source_id != expected_source_device_id:
@@ -314,8 +315,8 @@ def recovery_targets(reference_hosts: list[str]) -> list[str]:
 def _recovery_source(
     host: str, device: Any, expected_device_id: str | None
 ) -> dict[str, Any] | None:
-    model = str(device.model).upper().split("(", 1)[0].strip()
-    is_hub = model in {"H100", "H200"}
+    model = normalized_device_model(device)
+    is_hub = is_supported_hub(model)
     if not is_hub and not direct_energy_snapshots(device):
         return None
     if expected_device_id and not _device_matches(device, expected_device_id):
@@ -353,6 +354,7 @@ async def _probe_recovery_target(
             )
             if device is None:
                 return None
+            install_h500_compatibility(device)
             await device.update(update_children=True)
         return _recovery_source(host, device, expected_device_id)
     except asyncio.CancelledError:
@@ -398,6 +400,7 @@ async def _inspect_recovery_discovery_device(
 ) -> dict[str, Any] | None:
     try:
         async with semaphore:
+            install_h500_compatibility(device)
             await device.update(update_children=True)
         return _recovery_source(host, device, expected_device_id)
     except asyncio.CancelledError:

@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+export PYTHONPATH=/usr/lib/stugu-host-updater
+exec /usr/bin/python3 -m stugu_host_updater.rauc_backend "$@"
+

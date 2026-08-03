@@ -7,7 +7,7 @@ Start here:
 
 1. [Install and run](getting-started.md) — guided local, Docker, Podman, and
    Raspberry Pi paths, mock data, configuration, backup, and uninstall.
-2. [Direct TP-Link H100/H200](tp-link-direct.md) — poll T310/T315 child sensors
+2. [Direct TP-Link H100/H200/H500](tp-link-direct.md) — poll locally exposed T310/T315 child sensors
    over the local LAN without requiring Home Assistant.
 3. [Direct Gree/Wilfa heat pumps](gree-direct.md) — discover and monitor
    compatible air-source heat pumps locally without requiring Home Assistant.

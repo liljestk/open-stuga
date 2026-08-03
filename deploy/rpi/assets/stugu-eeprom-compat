@@ -17,20 +17,6 @@ if [[ "$(value_for BOOT_ORDER)" == "$desired_boot_order" &&
   exit 0
 fi
 
-temporary_config="$(mktemp /run/stugu-eeprom-config.XXXXXX)"
-cleanup() {
-  rm -f "$temporary_config"
-}
-trap cleanup EXIT
-
-awk '
-  !/^(BOOT_ORDER|ENABLE_SELF_UPDATE|USB_MSD_PWR_OFF_TIME)=/
-' <<<"$current" > "$temporary_config"
-cat >> "$temporary_config" <<EOF
-ENABLE_SELF_UPDATE=$desired_self_update
-BOOT_ORDER=$desired_boot_order
-USB_MSD_PWR_OFF_TIME=$desired_usb_power_off
-EOF
-
-rpi-eeprom-config --apply "$temporary_config"
-echo "Scheduled the current stable EEPROM with Stugu USB compatibility settings"
+touch /run/stugu-eeprom-incompatible
+echo "Stugu EEPROM USB compatibility settings differ; recovery-class local maintenance is required" >&2
+echo "The appliance will not mutate EEPROM during ordinary startup or host update." >&2

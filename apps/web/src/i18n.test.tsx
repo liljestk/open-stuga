@@ -36,7 +36,7 @@ function technicalLiteral(value: string): boolean {
     || /^(GET|POST)( v2)?$/.test(value)
     || /^(TP_LINK_|HA_)/.test(value)
     || value === "Europe/Helsinki"
-    || /^(Home Assistant|TP-Link|TP-Link H100\/H200|TP-Link Tapo · Direct \/ Home Assistant|DayOps \/ OpenWearable webhook)( ·)?$/.test(value);
+    || /^(Home Assistant|TP-Link|TP-Link H100\/H200(?:\/H500)?|TP-Link Tapo · Direct \/ Home Assistant|DayOps \/ OpenWearable webhook)( ·)?$/.test(value);
 }
 
 function userFacingLiterals(fileName: string, source: string): string[] {
@@ -135,7 +135,7 @@ describe("localization coverage", () => {
         translationCatalogs[locale]["setup.step2body"],
         translationCatalogs[locale]["setup.step3body"],
       ].join(" ");
-      expect(setupCopy, locale).not.toMatch(/TP-Link|Home Assistant|H100|H200|Tapo/);
+      expect(setupCopy, locale).not.toMatch(/TP-Link|Home Assistant|H100|H200|H500|Tapo/);
     }
   });
 

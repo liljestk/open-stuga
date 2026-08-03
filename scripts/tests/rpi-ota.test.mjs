@@ -17,6 +17,7 @@ import {
   requirePublicReleaseRepository,
   requireReleaseRepositoryTag,
   repositoryFromRemote,
+  validateHostReleaseSettings,
 } from "../publish-local-release.mjs";
 
 const baseEnv = {
@@ -409,6 +410,9 @@ test("factory builds fail closed unless Linux validates the complete SSD layout"
   ]);
 
   assert.match(buildScript, /validate-rpi-image\.sh" "\$raw_image"[\s\S]*zstd/);
+  assert.match(buildScript, /TUF root roles \{left\} and \{right\} must use separate keys/u);
+  assert.match(buildScript, /timedelta\(days=365\)/u);
+  assert.match(buildScript, /2\*\*53 - 1/u);
   assert.match(validator, /sfdisk --verify/);
   assert.match(validator, /partition table is not GPT/);
   for (const label of [
@@ -438,6 +442,40 @@ test("factory builds fail closed unless Linux validates the complete SSD layout"
   assert.match(validator, /2025-01-22 GPT autoboot partition-number fix/);
   assert.match(validator, /boot_a and boot_b differ/);
   assert.match(validator, /system_a and system_b differ/);
+});
+
+test("host boot-control records live outside FAT and activation is qualification-gated", async () => {
+  const [patch, validator, layer, daemonUnit, bootstrapUnit, qualification, raucConfig, watchdog] = await Promise.all([
+    readFile(new URL("../../deploy/rpi/patches/0001-pi4-usb-rescue-bootconfig.patch", import.meta.url), "utf8"),
+    readFile(new URL("../validate-rpi-image.sh", import.meta.url), "utf8"),
+    readFile(new URL("../../deploy/rpi/layer/stugu.yaml", import.meta.url), "utf8"),
+    readFile(new URL("../../deploy/rpi/assets/stugu-host-updated.service", import.meta.url), "utf8"),
+    readFile(new URL("../../deploy/rpi/assets/stugu-host-bootstrap.service", import.meta.url), "utf8"),
+    readFile(new URL("../../deploy/rpi/assets/stugu-hardware-qualification.json", import.meta.url), "utf8"),
+    readFile(new URL("../../deploy/rpi/assets/stugu-rauc-system.conf", import.meta.url), "utf8"),
+    readFile(new URL("../../deploy/rpi/assets/stugu-system-watchdog.conf", import.meta.url), "utf8"),
+  ]);
+  assert.match(patch, /partition bootconfig[\s\S]*size = 96M/u);
+  assert.match(patch, /final MiB outside FAT[\s\S]*size = 95M/u);
+  assert.match(validator, /fixed record tail is not zero-initialized/u);
+  assert.match(layer, /stugu-host-bootstrap\.service/u);
+  assert.match(layer, /enable-units[\s\S]*stugu-host-bootstrap/u);
+  assert.doesNotMatch(`${daemonUnit}\n${bootstrapUnit}`, /ProtectSystem|PrivateTmp|ReadWritePaths/u);
+  assert.equal(JSON.parse(qualification).activationEnabled, false);
+  assert.deepEqual(JSON.parse(qualification).recordOffsets, [99614720, 99618816]);
+  assert.match(raucConfig, /compatible=stugu-rpi4-usb:stugu-gpt-ab-v2:arm64/u);
+  assert.match(raucConfig, /check-purpose=codesign/u);
+  assert.match(watchdog, /RuntimeWatchdogSec=0s/u);
+  assert.match(layer, /-name '\*\.pyc'[\s\S]*-name __pycache__/u);
+  assert.match(
+    await readFile(new URL("../build-rpi-image.sh", import.meta.url), "utf8"),
+    /Generated from the immutable hardware qualification receipt[\s\S]*RuntimeWatchdogSec=\{seconds\}s/u,
+  );
+  const builder = await readFile(new URL("../build-rpi-image.sh", import.meta.url), "utf8");
+  assert.match(builder, /aarch64-linux-gnu-gcc/u);
+  assert.match(builder, /-Werror -static/u);
+  assert.match(builder, /boot selector is not an AArch64 executable/u);
+  assert.match(builder, /boot selector must be static for early initramfs/u);
 });
 
 test("clean appliances default to guarded automatic GitHub container updates", async () => {
@@ -539,11 +577,21 @@ test("local publishing owns expensive builds and hosted release work is an expli
   assert.doesNotMatch(workflow, /^\s{2}release:\s*$/mu);
   assert.doesNotMatch(workflow, /github\.event\.release/);
   assert.doesNotMatch(workflow, /deploy-rpi-ota|RPI_CONNECT_API_TOKEN/);
+  assert.match(
+    workflow,
+    /writeFileSync\("dist\/rpi\/release\/stugu-release-manifest-v1\.json"[\s\S]*writeFileSync\("dist\/rpi\/host-inputs\/stugu-release-manifest-v1\.json"/u,
+  );
+  assert.match(workflow, /Upload host inputs for the isolated RAUC signer/u);
+  assert.doesNotMatch(workflow, /RPI_HOST_(?:RAUC|TUF)_(?:PRIVATE_)?KEY/u);
+  assert.doesNotMatch(workflow, /build-host-update-bundle|build:host-bundle/u);
+  assert.match(workflow, /overwrite_files: false/u);
 
   assert.match(publisher, /linux\/amd64,linux\/arm64/);
   assert.match(publisher, /"buildx",\s*\n\s*"build"/);
   assert.match(publisher, /"linux\/amd64"[\s\S]*ARCH: "arm64"/);
   assert.match(publisher, /qemu-user-static/);
+  assert.match(publisher, /gcc-aarch64-linux-gnu/);
+  assert.match(publisher, /libc6-dev-arm64-cross/);
   assert.match(publisher, /binfmt_misc\/(?:qemu-)?aarch64/);
   assert.match(publisher, /"--volume",\s*\n\s*"\/rpi-build"/);
   assert.match(publisher, /RPI_BUILD_ROOT: "\/rpi-build"/);
@@ -554,6 +602,10 @@ test("local publishing owns expensive builds and hosted release work is an expli
   assert.match(publisher, /"release",\s*\n\s*"upload"/);
   assert.doesNotMatch(publisher, /confirm-nexus433-compliance/);
   assert.match(publisher, /artifacts\.nexus433SourceChecksum/);
+  assert.match(
+    publisher,
+    /copyFileSync\(artifacts\.releaseManifest, artifacts\.hostContainerManifest\)/u,
+  );
   assert.match(publisher, /--publish/);
   assert.doesNotMatch(publisher, /deploy-rpi-ota|Deploy OTA/);
   assert.doesNotMatch(publisher, /const paths = \[artifacts\.ota/);
@@ -566,16 +618,38 @@ test("local release options and output names are deterministic", () => {
     "v1.2.3",
     "--ssh-public-key",
     "recovery.pub",
+    "--host-generation",
+    "42",
+    "--host-tuf-root",
+    "root.json",
+    "--host-rauc-ca",
+    "rauc-ca.pem",
+    "--host-update-base-url",
+    "https://updates.example.test/stugu",
     "--publish",
+    "--prerelease",
+    "--keep-draft",
     "--reuse-containers",
     "--upload-factory",
   ]);
   assert.equal(options.tag, "v1.2.3");
   assert.equal(options.sshPublicKey, "recovery.pub");
+  assert.equal(options.hostGeneration, "42");
+  assert.equal(options.hostTufRoot, "root.json");
   assert.equal(options.publish, true);
+  assert.equal(options.prerelease, true);
+  assert.equal(options.keepDraft, true);
   assert.equal(options.reuseContainers, true);
   assert.equal(options.uploadFactory, true);
   assert.throws(() => parseArguments(["--skip-checks"]), /Unknown argument/);
+  assert.doesNotThrow(() => validateHostReleaseSettings({
+    generation: "42",
+    baseUrl: "https://updates.example.test/stugu",
+  }));
+  assert.throws(
+    () => validateHostReleaseSettings({ generation: "0", baseUrl: "http://updates.test" }),
+    /generation/u,
+  );
   assert.doesNotThrow(() => requirePublicReleaseRepository("owner/releases", "PUBLIC"));
   assert.throws(
     () => requirePublicReleaseRepository("owner/private-source", "PRIVATE"),
@@ -604,6 +678,11 @@ test("local release options and output names are deterministic", () => {
   assert.match(artifacts.localCiReport, /stugu-1\.2\.3-local-ci\.json$/);
   assert.equal(artifacts.localCiChecksum, `${artifacts.localCiReport}.sha256`);
   assert.match(artifacts.releaseManifest, /stugu-release-manifest-v1\.json$/);
+  assert.match(artifacts.hostBoot, /host-inputs[\\/]boot\.vfat$/);
+  assert.match(artifacts.hostRoot, /host-inputs[\\/]system\.erofs$/);
+  assert.match(artifacts.hostContainerManifest, /host-inputs[\\/]stugu-release-manifest-v1\.json$/);
+  assert.match(artifacts.hostBundle, /stugu-rpi4-1\.2\.3-host\.raucb$/);
+  assert.equal(artifacts.hostTargetRequest, `${artifacts.hostBundle}.tuf-target.json`);
   assert.match(
     artifacts.nexus433Source,
     /stugu-nexus433-corresponding-source-1\.2\.3\.tar\.gz$/,

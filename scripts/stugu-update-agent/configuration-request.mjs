@@ -125,12 +125,16 @@ export function readAgentConfig(env = process.env, cwd = process.cwd(), args = p
   );
   const repository = trustedRepository(env.SYSTEM_UPDATE_REPOSITORY);
   const runtime = updateRuntime(env.SYSTEM_UPDATE_RUNTIME);
+  const configuredHostUpdateJournal = optional(env.STUGA_HOST_UPDATE_JOURNAL);
   const config = {
     projectDirectory,
     operationsDirectory,
     repository,
     imagePrefix: trustedImagePrefix(env.SYSTEM_UPDATE_IMAGE_PREFIX, repository),
     runtime,
+    hostUpdateJournal: configuredHostUpdateJournal
+      ? resolve(projectDirectory, configuredHostUpdateJournal)
+      : runtime === "raspberry-pi" ? "/persistent/stugu/host-update/journal.json" : null,
     factoryReleaseEnvFile: resolve(
       projectDirectory,
       optional(env.STUGA_FACTORY_RELEASE_ENV_FILE) ?? "release.env",

@@ -2,7 +2,8 @@
 
 Stugu can poll three local TP-Link source shapes without Home Assistant:
 
-- Tapo T310 and T315 climate children paired to an H100 or H200 hub;
+- Tapo T310 and T315 climate children paired to an H100, H200, or H500 hub and
+  exposed by that hub's local API;
 - paired hub children that expose a boolean python-kasa contact-state capability; and
 - one discovered or manually addressed TP-Link/Kasa device (or one strip and its outlets)
   that the pinned python-kasa library exposes through `Module.Energy`.
@@ -16,6 +17,13 @@ not provide `consumption_total`, so a typical direct Tapo smart energy device
 provides power but not Stugu's cumulative-energy metric. Some legacy Kasa
 emeter devices provide a total-since-reboot counter; that counter can decrease
 after a device reboot and is not a certified billing total.
+
+H500 support is also capability-based. Stugu can discover, authenticate, save,
+identity-check, and poll an H500. Current H500 firmware can report that paired
+devices exist while returning no child list over the local API. Stugu tolerates
+that response, keeps the connection, and reports the limitation explicitly; it
+does not invent child devices or claim their readings. Cameras, recordings,
+face recognition, and H500 storage/NAS features are outside this integration.
 
 `electricity_price` never comes from a TP-Link device. By default Stugu fetches
 it per property from Pörssisähkö; see [electricity prices and contracts](electricity-prices.md). It may also be supplied through a Home
@@ -49,7 +57,7 @@ The credentials authenticate devices on the local network; they do not
 enumerate every device attached to the TP-Link cloud account.
 Select the owning Home and open **Set up > Connections** at
 `/properties/{propertyId}/homes/{homeId}/setup/connections`, then select
-**Find devices**. Choose an H100/H200 hub or a supported energy device, or enter
+**Find devices**. Choose an H100/H200/H500 hub or a supported energy device, or enter
 a reserved IP address manually if discovery is blocked by Wi-Fi isolation,
 VLANs, or Docker networking. The scan uses saved TP-Link credentials or
 credentials currently entered in the setup form to update non-hub devices and
@@ -58,17 +66,17 @@ such as HS110 can normally be verified over their older local protocol without
 credentials. Draft credentials used for discovery are not saved. Enter the same
 account used by the Tapo/Kasa app and select **Save and connect**.
 
-These are two separate discovery stages. **Find devices** locates H100/H200
+These are two separate discovery stages. **Find devices** locates H100/H200/H500
 hubs, supported energy devices, and any Home Assistant instance; it does not
 enumerate the T310/T315 devices paired to a hub. Hub addresses can be reported
 without authentication. Verifying an energy device's capability requires saved
 TP-Link credentials because `python-kasa` must update the device before its
 modules are available. The credentials are also required for the direct local
-connection. Only after that connection starts can the H100/H200 report its
+connection. Only after that connection starts can the hub report its
 paired child sensors or a direct endpoint report live Energy data.
 
 Connections saved in Stugu are owned by the selected Home. One Home can have
-an H100/H200 plus one or more directly polled energy sockets, and each connection
+an H100/H200/H500 plus one or more directly polled energy sockets, and each connection
 runs independently with its own LAN host and status. `TP_LINK_HOST` remains a
 single advanced environment override for legacy deployments.
 
@@ -79,7 +87,9 @@ replace the connections that are already polling. Add each discovered energy
 endpoint as its own sensor afterward so Stugu stores both its connection ID and
 device ID and keeps readings from the sockets independent.
 
-An H200 may initially connect without returning its child list. After saving,
+An H200 may initially connect without returning its child list. An H500 may
+report a non-zero paired count while exposing no children over the LAN API.
+After saving,
 the setup page checks the integration status and child-device endpoint for up
 to 30 seconds. Keep the page open while it reports that discovery is settling.
 If no sensors appear, use **Check again**, confirm the children are paired and
@@ -133,7 +143,7 @@ GET  /api/v1/integrations/tp-link/setup
 ```
 
 `tpLink.connected` should be `true` and the mapped/discovered counts should be
-non-zero. `hubModel` is `H100` or `H200` for a hub and `null` for a direct energy
+non-zero. `hubModel` is `H100`, `H200`, or `H500` for a hub and `null` for a direct energy
 endpoint. Climate readings and generic power/energy samples have
 `source: "tp-link"`. The helper uses a fixed-rate schedule at
 `TP_LINK_POLL_INTERVAL_MS` (two seconds by default). Temperature or humidity
@@ -175,8 +185,9 @@ containing missing buckets returns `partial`. Recovered rows are inserted
 idempotently without live events or historical alert delivery.
 
 Canary each hub model and firmware separately. An H100 fixture or live result
-does not prove that the H200 child-command wrapper is identical, and a firmware
-update can remove or reshape either retained-history command.
+does not prove that the H200 or H500 child-command wrapper is identical. H500
+retained climate history is not claimed until separately hardware-validated,
+and a firmware update can remove or reshape any retained-history command.
 
 For a dual-bound sensor, a partial local result next tries the matching Home
 Assistant recorder entity. When that is unavailable or incomplete, the optional
@@ -261,6 +272,9 @@ credentials are removed. Use a separate database for demonstrations.
   manual confirmation.
 - Confirm `python --version` is 3.11 or newer and `python-kasa` is installed.
 - Re-run the helper with `--list` after firmware changes or re-pairing.
+- For H500, a successful connection with an explicit "reports paired devices"
+  warning means credentials were saved but the firmware withheld those children
+  from the local API. Stugu cannot use them until the hub exposes them locally.
 - Treat an offline mapped child as a radio/power issue; cached hub values are
   not ingested while the child reports offline.
 - Do not expect local climate recovery to recreate the original two-second

@@ -1,0 +1,20 @@
+[Unit]
+Description=Seed Stugu fixed host boot-control records
+Documentation=https://github.com/liljestk/open-stuga/blob/main/docs/system-updates.md
+RequiresMountsFor=/bootfs /persistent/stugu
+After=bootfs.mount stugu-data-grow.service
+Before=stugu-eeprom-compat.service stugu-host-updated.service stugu.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/stugu-host-bootstrap
+RemainAfterExit=yes
+UMask=0077
+NoNewPrivileges=yes
+# Filesystem namespacing would leave p1 mounted in the host namespace while
+# this service performs its fixed raw writes, so it is deliberately avoided.
+CapabilityBoundingSet=CAP_DAC_OVERRIDE CAP_SYS_ADMIN CAP_SYS_RAWIO
+AmbientCapabilities=CAP_DAC_OVERRIDE CAP_SYS_ADMIN CAP_SYS_RAWIO
+
+[Install]
+WantedBy=multi-user.target

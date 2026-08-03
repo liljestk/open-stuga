@@ -29,7 +29,7 @@ export interface TpLinkConnectionStatus {
   lastPollAt: string | null;
   mappedDevices: number;
   discoveredDevices: number;
-  hubModel: "H100" | "H200" | null;
+  hubModel: "H100" | "H200" | "H500" | null;
   error: string | null;
   /** Safe local endpoint metadata. Optional for older Stugu servers. */
   host?: string | null;
@@ -61,7 +61,7 @@ export interface IntegrationStatus {
     lastPollAt: string | null;
     mappedDevices: number;
     discoveredDevices: number;
-    hubModel: "H100" | "H200" | null;
+    hubModel: "H100" | "H200" | "H500" | null;
     error: string | null;
     /** Present only when the aggregate represents one source. */
     host?: string | null;

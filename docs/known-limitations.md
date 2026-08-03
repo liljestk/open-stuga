@@ -73,9 +73,13 @@ system described in the roadmap.
 
 ## Physical ingest correctness
 
-- Direct H100/H200 ingestion depends on the community-maintained `python-kasa`
+- Direct H100/H200/H500 ingestion depends on the community-maintained `python-kasa`
   implementation of TP-Link's local protocol. Supported firmware fixtures can
   lag new hub firmware; validate before upgrading a working deployment.
+- H500 can authenticate while reporting paired devices that its LAN child-list
+  commands do not expose. Stugu keeps that state explicit and ingests only
+  locally enumerated children; H500 cameras, recordings, recognition, and
+  storage/NAS features are not supported.
 - T310/T315 child state does not provide a distinct source measurement time
   through this path. Direct samples use the successful local poll time. Values
   are written on change and at least every minute when unchanged.

@@ -3,6 +3,9 @@ import { randomUUID } from "node:crypto";
 import {
   closeSync,
   existsSync,
+  fstatSync,
+  fsyncSync,
+  lstatSync,
   mkdirSync,
   openSync,
   readFileSync,
@@ -10,6 +13,7 @@ import {
   renameSync,
   rmSync,
   statSync,
+  utimesSync,
   writeFileSync,
 } from "node:fs";
 
@@ -45,6 +49,10 @@ export const APPLIANCE_UPGRADE_REQUIRED = "appliance-upgrade-required";
 
 export const APPLIANCE_UPGRADE_DETAIL = "This Raspberry Pi uses an older updater boot contract. Create a verified backup, install a factory image with updater contract 3, and restore the backup before installing another container release.";
 
+export const HOST_UPDATE_ACTIVE = "host-update-active";
+
+export const HOST_UPDATE_ACTIVE_DETAIL = "A signed host update is staged or being reconciled; container and storage mutations are paused.";
+
 export const UPDATE_JOURNAL_SCHEMA = "stugu-system-update-journal/v1";
 
 const UPDATE_JOURNAL_NAME = "update-journal.json";
@@ -70,6 +78,23 @@ const UPDATE_SERVICE_NAMES = new Set([
   "mqtt",
   "nexus433",
 ]);
+const HOST_UPDATE_TERMINAL_PHASES = new Set([
+  "complete",
+  "cancelled",
+  "returned",
+]);
+const MUTATION_LOCK_SCHEMA = "stugu-mutation-lock/v1";
+const MUTATION_LOCK_STALE_MS = 2 * 60 * 60_000;
+const MUTATION_LOCK_HEARTBEAT_MS = 30_000;
+
+function bootIdentity() {
+  try {
+    const value = readFileSync("/proc/sys/kernel/random/boot_id", "ascii").trim().toLowerCase();
+    return /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/u.test(value) ? value : "unknown";
+  } catch {
+    return "unknown";
+  }
+}
 
 export function updateJournalPath(config) {
   return join(config.operationsDirectory, UPDATE_JOURNAL_NAME);
@@ -179,6 +204,20 @@ export function applianceUpdateTransition(config) {
   } catch {
     return { reason: APPLIANCE_UPGRADE_REQUIRED, detail: APPLIANCE_UPGRADE_DETAIL };
   }
+}
+
+export function hostUpdateInterlock(config) {
+  if (!config.hostUpdateJournal || !existsSync(config.hostUpdateJournal)) return null;
+  try {
+    const journal = readJson(config.hostUpdateJournal);
+    if (
+      journal?.schema === "stugu-host-update-journal/v1"
+      && HOST_UPDATE_TERMINAL_PHASES.has(journal.phase)
+    ) return null;
+  } catch {
+    // A malformed or unreadable interlock must never be treated as idle.
+  }
+  return { reason: HOST_UPDATE_ACTIVE, detail: HOST_UPDATE_ACTIVE_DETAIL };
 }
 
 export async function applyRequest(config, requestPath, dependencies = {}) {
@@ -470,6 +509,7 @@ export async function applyRequest(config, requestPath, dependencies = {}) {
 }
 
 export function pendingWork(config) {
+  if (hostUpdateInterlock(config)) return null;
   if (existsSync(updateJournalPath(config))) {
     return { kind: "update", path: null };
   }
@@ -503,25 +543,77 @@ export function pendingWork(config) {
 
 export function acquireLock(config) {
   const path = join(config.operationsDirectory, "agent.lock");
-  try {
+  const bootId = bootIdentity();
+  const create = () => {
     const descriptor = openSync(path, "wx", 0o640);
-    writeFileSync(descriptor, `${process.pid} ${new Date().toISOString()}\n`);
-    return { path, descriptor };
-  } catch (error) {
-    if (error?.code !== "EEXIST") throw error;
-    const age = Date.now() - statSync(path).mtimeMs;
-    if (age <= 2 * 60 * 60_000) return null;
-    rmSync(path, { force: true });
-    const descriptor = openSync(path, "wx", 0o640);
-    writeFileSync(descriptor, `${process.pid} ${new Date().toISOString()}\n`);
-    return { path, descriptor };
+    const identity = fstatSync(descriptor);
+    try {
+      writeFileSync(descriptor, `${MUTATION_LOCK_SCHEMA} container-updater ${bootId} ${process.pid}\n`);
+      fsyncSync(descriptor);
+    } catch (error) {
+      closeSync(descriptor);
+      try {
+        const current = lstatSync(path);
+        if (current.dev === identity.dev && current.ino === identity.ino) rmSync(path);
+      } catch { /* A failed lock creation remains unavailable to the caller. */ }
+      throw error;
+    }
+    const heartbeatTimer = setInterval(() => {
+      try {
+        const current = lstatSync(path);
+        if (current.dev !== identity.dev || current.ino !== identity.ino) return;
+        const timestamp = new Date();
+        utimesSync(path, timestamp, timestamp);
+      } catch { /* Lost ownership is handled by the active mutation. */ }
+    }, MUTATION_LOCK_HEARTBEAT_MS);
+    heartbeatTimer.unref?.();
+    return { path, descriptor, heartbeatTimer, identity };
+  };
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      return create();
+    } catch (error) {
+      if (error?.code !== "EEXIST") throw error;
+    }
+    let existing;
+    let previousBoot = "unknown";
+    try {
+      existing = lstatSync(path);
+      const match = readFileSync(path, "ascii").match(
+        /^stugu-mutation-lock\/v1 (?:host-updater|container-updater) ((?:[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})|unknown) [0-9]+\r?\n$/u,
+      );
+      previousBoot = match?.[1] ?? "unknown";
+    } catch (error) {
+      if (error?.code === "ENOENT") continue;
+      return null;
+    }
+    const age = Date.now() - existing.mtimeMs;
+    const foreignBoot = bootId !== "unknown" && previousBoot !== "unknown" && bootId !== previousBoot;
+    if (!foreignBoot && age <= MUTATION_LOCK_STALE_MS) return null;
+    try {
+      const current = lstatSync(path);
+      if (current.dev !== existing.dev || current.ino !== existing.ino) continue;
+      rmSync(path);
+    } catch (error) {
+      if (error?.code === "ENOENT") continue;
+      return null;
+    }
   }
+  return null;
 }
 
 export function releaseLock(lock) {
   if (!lock) return;
+  clearInterval(lock.heartbeatTimer);
   closeSync(lock.descriptor);
-  rmSync(lock.path, { force: true });
+  try {
+    const current = lstatSync(lock.path);
+    if (current.dev === lock.identity.dev && current.ino === lock.identity.ino) {
+      rmSync(lock.path);
+    }
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+  }
 }
 
 export function heartbeat(config, ready, detail = null, systemUpdateReason = null) {
@@ -546,6 +638,11 @@ export async function publishDockerHeartbeat(config) {
     if (transition) {
       heartbeat(config, true, transition.detail, transition.reason);
       return { ready: true, detail: transition.detail };
+    }
+    const hostUpdate = hostUpdateInterlock(config);
+    if (hostUpdate) {
+      heartbeat(config, false, hostUpdate.detail, hostUpdate.reason);
+      return { ready: false, detail: hostUpdate.detail };
     }
     const storageBlock = storageJournalNeedsManualIntervention(config);
     heartbeat(config, !storageBlock, storageBlock);

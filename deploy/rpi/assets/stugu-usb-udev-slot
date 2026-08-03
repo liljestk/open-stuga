@@ -61,6 +61,7 @@ case "$boot_label" in
 esac
 
 slot=""
+fixed_slot=""
 case "$partition_label" in
   bootconfig) slot="disk/by-slot/bootconfig" ;;
   persistent) slot="disk/by-slot/persistent" ;;
@@ -69,10 +70,17 @@ case "$partition_label" in
   "boot_${other_suffix}") slot="disk/by-slot/other/boot" ;;
   "system_${other_suffix}") slot="disk/by-slot/other/system" ;;
 esac
+case "$partition_label" in
+  boot_a) fixed_slot="disk/by-slot/a/boot" ;;
+  system_a) fixed_slot="disk/by-slot/a/system" ;;
+  boot_b) fixed_slot="disk/by-slot/b/boot" ;;
+  system_b) fixed_slot="disk/by-slot/b/system" ;;
+esac
 
 if [ "$udev_fmt" -eq 1 ]; then
   echo "RPI_ONBOOTDEV=1"
   [ -n "$slot" ] && echo "STUGU_SLOT=$slot"
+  [ -n "$fixed_slot" ] && echo "STUGU_FIXED_SLOT=$fixed_slot"
 elif [ -n "$slot" ]; then
   echo "$slot"
 fi

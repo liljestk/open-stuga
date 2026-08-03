@@ -271,6 +271,10 @@ export function configureApiPart24(context: ReturnType<typeof configureApiPart23
         ? validation.details.sourceAlias.trim()
         : "";
       const testedSourceAlias = rawTestedAlias && rawTestedAlias.length <= 512 ? rawTestedAlias : null;
+      const rawValidationWarning = typeof validation.details?.warning === "string"
+        ? validation.details.warning.trim()
+        : "";
+      const validationWarning = rawValidationWarning ? rawValidationWarning.slice(0, 500) : null;
       const identityKey = (value: string | null | undefined): string | null => value?.trim().toUpperCase() || null;
       const testedIdentity = identityKey(testedDeviceId);
       const requestedConnection = requestedConnectionId
@@ -418,6 +422,10 @@ export function configureApiPart24(context: ReturnType<typeof configureApiPart23
       config.tpLinkConnections = connections;
       if (legacyConnection) config.tpLinkLegacyDisabled = true;
       context.status.value.tpLink.configured = true;
+      // A successful validation warning describes a device capability, not a
+      // failed connection. The live bridge will surface it with connected=true
+      // after the first poll; keeping it out of the interim status avoids
+      // presenting a verified H500 as failed while its worker starts.
       context.status.value.tpLink.error = null;
       const previousConnectionStatuses = new Map((context.status.value.tpLink.connections ?? [])
         .map((candidate) => [candidate.id, candidate] as const));
@@ -453,6 +461,7 @@ export function configureApiPart24(context: ReturnType<typeof configureApiPart23
         sourceType: resolvedSourceType ?? null,
         sourceModel: resolvedSourceModel ?? null,
         sourceAlias: resolvedSourceAlias ?? null,
+        warning: validationWarning,
         integration: structuredClone(context.status.value),
       });
     });

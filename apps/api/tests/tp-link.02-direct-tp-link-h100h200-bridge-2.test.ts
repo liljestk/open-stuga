@@ -18,7 +18,7 @@ import { ipv4BroadcastAddress, loadTpLinkDeviceMappings, normalizeTpLinkTemperat
 
 import { waitFor } from "./tp-linkTestSupport.js";
 
-describe("direct TP-Link H100/H200 bridge", () => {
+describe("direct TP-Link H100/H200/H500 bridge", () => {
   let runtime: ApiRuntime | null = null;
 
   let temporaryDirectory: string | null = null;
@@ -217,7 +217,7 @@ describe("direct TP-Link H100/H200 bridge", () => {
     expect(cleared.body.devices[0].mappedSensorId).toBeNull();
   });
 
-  it("discovers H100/H200 hubs and capability-verified energy devices", async () => {
+  it("discovers H100/H200/H500 hubs and capability-verified energy devices", async () => {
     temporaryDirectory = mkdtempSync(join(tmpdir(), "climate-twin-tp-link-lan-discovery-"));
     const helperPath = join(temporaryDirectory, "fake-lan-discovery-helper.mjs");
     writeFileSync(helperPath, `
@@ -227,6 +227,7 @@ describe("direct TP-Link H100/H200 bridge", () => {
         type: "discovery",
         sources: [
           { host: "192.168.1.42", model: "H200", alias: "Hall hub", sourceType: "hub", deviceId: "h200-source", credential: "must-not-leak" },
+          { host: "192.168.1.43", model: "H500", alias: "HomeBase", sourceType: "hub", deviceId: "h500-source", credential: "must-not-leak" },
           { host: "192.168.1.41", model: "P110", alias: "Laundry plug", sourceType: "energy-device", deviceId: "p110-source", credential: "must-not-leak" },
           { host: "192.168.1.40", model: "P100", alias: "Unverified plug" }
         ],
@@ -255,8 +256,50 @@ describe("direct TP-Link H100/H200 bridge", () => {
       sources: [
         { host: "192.168.1.41", model: "P110", alias: "Laundry plug", sourceType: "energy-device", deviceId: "p110-source", configuredConnectionId: "saved-laundry" },
         { host: "192.168.1.42", model: "H200", alias: "Hall hub", sourceType: "hub", deviceId: "h200-source" },
+        { host: "192.168.1.43", model: "H500", alias: "HomeBase", sourceType: "hub", deviceId: "h500-source" },
       ],
       warnings: ["One directed broadcast was unreachable"],
+    });
+  });
+
+  it("keeps an H500 connected while surfacing hidden local children", async () => {
+    temporaryDirectory = mkdtempSync(join(tmpdir(), "climate-twin-tp-link-h500-"));
+    const helperPath = join(temporaryDirectory, "fake-h500-helper.mjs");
+    const warning = "H500 connected, but its local API reports 3 paired devices and exposes 0 to Stugu; only locally exposed devices are available.";
+    writeFileSync(helperPath, `
+      process.stdout.write(JSON.stringify({
+        type: "snapshot", timestamp: new Date().toISOString(), sourceType: "hub",
+        hubModel: "H500", sourceDeviceId: "h500-source", reportedChildCount: 3,
+        warning: ${JSON.stringify(warning)}, devices: []
+      }) + "\\n");
+      if (process.argv.includes("--list")) process.exit(0);
+      setInterval(() => {}, 1000);
+    `);
+    const config: AppConfig = {
+      port: 0, apiHost: "127.0.0.1", databasePath: ":memory:",
+      integrationSecretsFile: join(temporaryDirectory, "secrets.json"), assetDirectory: temporaryDirectory,
+      mockEnabled: false, mockIntervalMs: 2_000, retentionDays: 730, ingestApiKey: null,
+      haUrl: null, haToken: null, haEntityMapFile: null,
+      tpLinkHost: "192.168.1.50", tpLinkUsername: "user", tpLinkPassword: "password",
+      tpLinkDeviceMapFile: null, tpLinkPollIntervalMs: 10_000,
+      tpLinkPython: process.execPath, tpLinkBridgeScript: helperPath,
+      alertWebhookUrl: null, alertWebhookBearerToken: null, corsOrigin: null,
+    };
+    runtime = createApi({ config, startBackground: false });
+    await expect(runtime.tpLink.testCredentials("192.168.1.50", "user", "password"))
+      .resolves.toMatchObject({
+        ok: true,
+        connected: true,
+        message: warning,
+        details: { model: "H500", sourceType: "hub", warning },
+      });
+    runtime.tpLink.start();
+
+    await waitFor(() => runtime?.status.value.tpLink.connected === true);
+    expect(runtime.status.value.tpLink).toMatchObject({
+      connected: true,
+      hubModel: "H500",
+      error: warning,
     });
   });
 

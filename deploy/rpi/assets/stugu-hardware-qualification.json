@@ -1,0 +1,10 @@
+{
+  "schema": "stugu-pi4-qualification/v1",
+  "activationEnabled": false,
+  "bootShimGeneration": 1,
+  "evidence": "not-qualified",
+  "selectorSha256": "not-qualified",
+  "watchdogSeconds": 0,
+  "recordOffsets": [99614720, 99618816],
+  "hardwareMatrix": []
+}

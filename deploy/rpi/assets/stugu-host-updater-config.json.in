@@ -1,0 +1,33 @@
+{
+  "schema": "stugu-host-updater-config/v1",
+  "metadataBaseUrl": "@METADATA_BASE_URL@",
+  "targetBaseUrl": "@TARGET_BASE_URL@",
+  "targets": {
+    "stable": "channels/stable/stugu-rpi4-usb.raucb",
+    "preview": "channels/preview/stugu-rpi4-usb.raucb"
+  },
+  "product": "stugu-rpi4-usb",
+  "layout": "stugu-gpt-ab-v2",
+  "model": "raspberry-pi-4",
+  "hostGeneration": @HOST_GENERATION@,
+  "updaterContract": 4,
+  "bootShimGeneration": 1,
+  "dataEpoch": 1,
+  "readableDataEpochs": [1],
+  "runtimeState": {
+    "dockerEpoch": 1,
+    "tailscaleEpoch": 1
+  },
+  "maximumBundleBytes": 4294967296,
+  "paths": {
+    "state": "/persistent/stugu/host-update",
+    "cache": "/persistent/stugu/host-update/cache",
+    "immutableRoot": "/usr/share/stugu-host-updater/tuf-root.json",
+    "raucKeyring": "/usr/share/stugu-host-updater/rauc-ca.pem",
+    "qualification": "/usr/share/stugu-host-updater/hardware-qualification.json",
+    "socket": "/run/stugu-host-update/updater.sock",
+    "lock": "/run/lock/stugu-host-update.lock",
+    "persistentMount": "/persistent",
+    "releaseManifestName": "stugu-host-manifest.json"
+  }
+}

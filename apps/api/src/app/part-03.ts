@@ -66,7 +66,7 @@ import {
 } from "../db.js";
 import { TelemetryBus } from "../events.js";
 import { HomeAssistantBridge, testHomeAssistantCredentials } from "../home-assistant.js";
-import { mergeTpLinkHistoryRecovery, TpLinkBridge } from "../tp-link.js";
+import { mergeTpLinkHistoryRecovery, TpLinkBridge, type TpLinkConnectionUpdate } from "../tp-link.js";
 import { GreeBridge } from "../gree.js";
 import { HeatPumpStateStore } from "../heat-pump-state.js";
 import { ConnectedDeviceStore } from "../connected-device-store.js";
@@ -204,6 +204,39 @@ type DeferredContext = {
 };
 
 type NormalizedApiConfig = { [Key in keyof AppConfig]-?: Exclude<AppConfig[Key], undefined> };
+
+type PendingTpLinkConnectionUpdate = Omit<TpLinkConnectionUpdate, "previousHost">;
+
+function applyTpLinkConnectionUpdate(
+  current: TpLinkConnectionSecret,
+  update: PendingTpLinkConnectionUpdate,
+): TpLinkConnectionSecret {
+  const next: TpLinkConnectionSecret = {
+    ...current,
+    host: update.host,
+    ...(update.deviceId ? { deviceId: update.deviceId } : {}),
+    ...(update.sourceType ? { sourceType: update.sourceType } : {}),
+    ...(update.sourceModel ? { sourceModel: update.sourceModel } : {}),
+    ...(update.sourceAlias ? { sourceAlias: update.sourceAlias } : {}),
+  };
+  if (update.sourceAlias === null) delete next.sourceAlias;
+  return next;
+}
+
+function tpLinkConnectionsConflict(connections: TpLinkConnectionSecret[]): boolean {
+  const ids = new Set<string>();
+  const houseHosts = new Set<string>();
+  const deviceIds = new Set<string>();
+  for (const connection of connections) {
+    const houseHost = `${connection.houseId.trim()}\u0000${connection.host.trim().toLowerCase()}`;
+    const deviceId = connection.deviceId?.trim().toUpperCase();
+    if (ids.has(connection.id) || houseHosts.has(houseHost) || (deviceId && deviceIds.has(deviceId))) return true;
+    ids.add(connection.id);
+    houseHosts.add(houseHost);
+    if (deviceId) deviceIds.add(deviceId);
+  }
+  return false;
+}
 
 export function configureApiPart03(context: ReturnType<typeof configureApiPart02>) {
   const deferred = context as typeof context & DeferredContext;
@@ -355,6 +388,7 @@ export function configureApiPart03(context: ReturnType<typeof configureApiPart02
         && !nexus433.isMetricAvailable(sensorId, metric)
       ),
     });
+  const pendingTpLinkConnectionUpdates = new Map<string, PendingTpLinkConnectionUpdate>();
   deferred.tpLink = new TpLinkBridge(config, telemetry, measurements, context.database, status, {
       onAvailabilityChange: wakeSensorGapRecovery,
       onOpeningStateRecorded: (observation) => deferred.notifyOpeningStateRecorded(observation),
@@ -389,35 +423,45 @@ export function configureApiPart03(context: ReturnType<typeof configureApiPart02
         const existing = config.tpLinkConnections ?? [];
         const current = existing.find((connection) => connection.id === update.id);
         if (!current || current.houseId !== update.houseId) return;
-        if (update.host !== current.host && current.host !== update.previousHost) return;
+        const pending = pendingTpLinkConnectionUpdates.get(update.id);
+        const effectiveCurrent = pending ? applyTpLinkConnectionUpdate(current, pending) : current;
+        if (update.host !== effectiveCurrent.host && effectiveCurrent.host !== update.previousHost) return;
         if (update.deviceId && update.deviceId.length > 1_024) return;
         if (update.sourceModel && update.sourceModel.length > 128) return;
         if (update.sourceAlias && update.sourceAlias.length > 512) return;
-        if (current.deviceId && update.deviceId
-          && current.deviceId.trim().toUpperCase() !== update.deviceId.trim().toUpperCase()) return;
-        const nextConnection: TpLinkConnectionSecret = {
-          ...current,
+        if (effectiveCurrent.deviceId && update.deviceId
+          && effectiveCurrent.deviceId.trim().toUpperCase() !== update.deviceId.trim().toUpperCase()) return;
+        const staged: PendingTpLinkConnectionUpdate = {
+          id: current.id,
+          houseId: current.houseId,
           host: update.host,
-          ...(update.deviceId ? { deviceId: update.deviceId } : {}),
-          ...(update.sourceType ? { sourceType: update.sourceType } : {}),
-          ...(update.sourceModel ? { sourceModel: update.sourceModel } : {}),
-          ...(update.sourceAlias ? { sourceAlias: update.sourceAlias } : {}),
+          ...(update.deviceId ? { deviceId: update.deviceId } : pending?.deviceId ? { deviceId: pending.deviceId } : {}),
+          ...(update.sourceType ? { sourceType: update.sourceType } : pending?.sourceType ? { sourceType: pending.sourceType } : {}),
+          ...(update.sourceModel ? { sourceModel: update.sourceModel } : pending?.sourceModel ? { sourceModel: pending.sourceModel } : {}),
+          ...(update.sourceAlias !== undefined
+            ? { sourceAlias: update.sourceAlias }
+            : pending && "sourceAlias" in pending ? { sourceAlias: pending.sourceAlias } : {}),
         };
-        if (update.sourceAlias === null) delete nextConnection.sourceAlias;
-        if (nextConnection.host === current.host
-          && nextConnection.deviceId === current.deviceId
-          && nextConnection.sourceType === current.sourceType
-          && nextConnection.sourceModel === current.sourceModel
-          && nextConnection.sourceAlias === current.sourceAlias) return;
-        const connections = existing.map((connection) => connection.id === current.id ? nextConnection : connection);
+        const nextConnection = applyTpLinkConnectionUpdate(current, staged);
+        if (JSON.stringify(nextConnection) === JSON.stringify(current)) pendingTpLinkConnectionUpdates.delete(current.id);
+        else pendingTpLinkConnectionUpdates.set(current.id, staged);
+        const connections = existing.map((connection) => {
+          const connectionUpdate = pendingTpLinkConnectionUpdates.get(connection.id);
+          return connectionUpdate ? applyTpLinkConnectionUpdate(connection, connectionUpdate) : connection;
+        });
+        if (tpLinkConnectionsConflict(connections) || pendingTpLinkConnectionUpdates.size === 0) return;
+        const committedUpdates = [...pendingTpLinkConnectionUpdates.values()];
         updateIntegrationSecrets(config.integrationSecretsFile, { tpLinkConnections: connections });
         config.tpLinkConnections = connections;
-        context.integrationMetadata.saveTpLink({
-          id: nextConnection.id,
-          houseId: nextConnection.houseId,
-          host: nextConnection.host,
-          reason: "identity-refreshed",
-        });
+        pendingTpLinkConnectionUpdates.clear();
+        for (const committed of committedUpdates) {
+          context.integrationMetadata.saveTpLink({
+            id: committed.id,
+            houseId: committed.houseId,
+            host: committed.host,
+            reason: "identity-refreshed",
+          });
+        }
       },
     });
   const gree = new GreeBridge(config, status, heatPumpStates, context.bus, {

@@ -17,6 +17,12 @@
 # X-Env-Var-assetdir-Valid: dir
 # X-Env-Var-assetdir-Set: y
 #
+# X-Env-Var-hostupdaterdir: ${@SRCROOT}/host-updater
+# X-Env-Var-hostupdaterdir-Desc: Native signed host updater Python package.
+# X-Env-Var-hostupdaterdir-Required: y
+# X-Env-Var-hostupdaterdir-Valid: dir
+# X-Env-Var-hostupdaterdir-Set: y
+#
 # X-Env-Var-api_image: ghcr.io/liljestk/open-stuga-api:${IGconf_artefact_version}
 # X-Env-Var-api_image-Desc: Immutable API container reference.
 # X-Env-Var-api_image-Required: y
@@ -75,8 +81,14 @@ mmdebstrap:
     - gdisk
     - iproute2
     - nano
+    - python3
+    - python3-cryptography
+    - python3-tuf
+    - rauc
     - systemd-timesyncd
     - tailscale
+    - u-boot-rpi
+    - u-boot-tools
   customize-hooks:
     - |-
       set -eu
@@ -87,9 +99,15 @@ mmdebstrap:
       install -d -m 0755 "$1/usr/local/sbin"
       install -d -m 0755 "$1/usr/local/bin"
       install -d -m 0755 "$1/usr/lib/tmpfiles.d"
+      install -d -m 0755 "$1/usr/lib/stugu-host-updater"
+      install -d -m 0755 "$1/usr/share/stugu-host-updater"
+      install -d -m 0755 "$1/etc/rauc"
+      install -d -m 0755 "$1/etc/stugu-host-update"
       install -d -m 0755 "$1/etc/systemd/system"
+      install -d -m 0755 "$1/etc/systemd/system.conf.d"
       install -d -m 0755 "$1/etc/systemd/system/containerd.service.d"
       install -d -m 0755 "$1/etc/systemd/system/docker.service.d"
+      install -d -m 0755 "$1/etc/systemd/system/bootfs.mount.d"
       install -d -m 0755 "$1/etc/systemd/system/persistent-shared-init.service.d"
       install -d -m 0755 "$1/etc/systemd/system/ssh.service.d"
       install -d -m 0755 "$1/etc/systemd/system/systemd-networkd-wait-online.service.d"
@@ -147,6 +165,48 @@ mmdebstrap:
         "$1/usr/local/sbin/stugu-eeprom-compat"
       install -m 0755 "${IGconf_stugu_assetdir}/stuguctl" \
         "$1/usr/local/bin/stuguctl"
+      install -m 0755 "${IGconf_stugu_assetdir}/stugu-boot-select" \
+        "$1/usr/bin/stugu-boot-select"
+      cp -a "${IGconf_stugu_hostupdaterdir}/stugu_host_updater" \
+        "$1/usr/lib/stugu-host-updater/"
+      find "$1/usr/lib/stugu-host-updater/stugu_host_updater" \
+        -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete
+      find "$1/usr/lib/stugu-host-updater/stugu_host_updater" \
+        -depth -type d -name __pycache__ -exec rm -rf -- {} +
+      find "$1/usr/lib/stugu-host-updater/stugu_host_updater" -type d -exec chmod 0755 {} +
+      find "$1/usr/lib/stugu-host-updater/stugu_host_updater" -type f -exec chmod 0644 {} +
+      install -m 0755 "${IGconf_stugu_assetdir}/stugu-host-updated" \
+        "$1/usr/sbin/stugu-host-updated"
+      install -m 0755 "${IGconf_stugu_assetdir}/stugu-host-bootstrap" \
+        "$1/usr/sbin/stugu-host-bootstrap"
+      install -m 0755 "${IGconf_stugu_assetdir}/stugu-host-update" \
+        "$1/usr/bin/stugu-host-update"
+      install -m 0755 "${IGconf_stugu_assetdir}/stugu-rauc-boot" \
+        "$1/usr/lib/stugu-host-updater/stugu-rauc-boot"
+      install -m 0644 "${IGconf_stugu_assetdir}/stugu-host-updater-config.json" \
+        "$1/etc/stugu-host-update/config.json"
+      install -m 0444 "${IGconf_stugu_assetdir}/stugu-host-tuf-root.json" \
+        "$1/usr/share/stugu-host-updater/tuf-root.json"
+      install -m 0444 "${IGconf_stugu_assetdir}/stugu-host-rauc-ca.pem" \
+        "$1/usr/share/stugu-host-updater/rauc-ca.pem"
+      install -m 0444 "${IGconf_stugu_assetdir}/stugu-hardware-qualification.json" \
+        "$1/usr/share/stugu-host-updater/hardware-qualification.json"
+      install -m 0444 "${IGconf_stugu_assetdir}/stugu-host-generation" \
+        "$1/etc/stugu-host-generation"
+      install -m 0644 "${IGconf_stugu_assetdir}/stugu-rauc-system.conf" \
+        "$1/etc/rauc/system.conf"
+      install -m 0644 "${IGconf_stugu_assetdir}/stugu-host-updated.service" \
+        "$1/etc/systemd/system/stugu-host-updated.service"
+      install -m 0644 "${IGconf_stugu_assetdir}/stugu-host-bootstrap.service" \
+        "$1/etc/systemd/system/stugu-host-bootstrap.service"
+      install -m 0644 "${IGconf_stugu_assetdir}/stugu-host-update-reconcile.service" \
+        "$1/etc/systemd/system/stugu-host-update-reconcile.service"
+      install -m 0644 "${IGconf_stugu_assetdir}/stugu-host-update-tmpfiles.conf" \
+        "$1/usr/lib/tmpfiles.d/stugu-host-update.conf"
+      install -m 0644 "${IGconf_stugu_assetdir}/stugu-system-watchdog.conf" \
+        "$1/etc/systemd/system.conf.d/stugu-watchdog.conf"
+      install -m 0644 "${IGconf_stugu_assetdir}/stugu-bootfs-read-only.conf" \
+        "$1/etc/systemd/system/bootfs.mount.d/stugu-read-only.conf"
       install -m 0644 "${IGconf_stugu_assetdir}/stugu-lock.conf" \
         "$1/usr/lib/tmpfiles.d/stugu-lock.conf"
       install -m 0644 "${IGconf_stugu_assetdir}/stugu.service" \
@@ -202,6 +262,9 @@ mmdebstrap:
       BOOTFS="/bootfs"
       EOF
       chmod 0644 "$1/etc/default/rpi-eeprom-update"
+      # EEPROM has no redundant bank. Ordinary appliance startup must never
+      # schedule a write; recovery-class local maintenance owns that risk.
+      ln -sf /dev/null "$1/etc/systemd/system/rpi-eeprom-update.service"
 
       cat > "$1/opt/stugu/release.env" <<-EOF
       STUGA_RELEASE_ENV_SCHEMA=3
@@ -280,4 +343,4 @@ mmdebstrap:
       ${IGconf_device_user1} ALL=(root) NOPASSWD: /usr/bin/tailscale up --operator=${IGconf_device_user1}
       EOF
       chmod 0440 "$1/etc/sudoers.d/020_stuguctl"
-    - $BDEBSTRAP_HOOKS/enable-units "$1" tailscaled stugu-data-grow stugu-eeprom-compat stugu systemd-timesyncd
+    - $BDEBSTRAP_HOOKS/enable-units "$1" tailscaled stugu-data-grow stugu-eeprom-compat stugu stugu-host-bootstrap stugu-host-updated stugu-host-update-reconcile systemd-timesyncd

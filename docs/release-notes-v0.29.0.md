@@ -14,6 +14,8 @@ normal charts and analytics use bounded, quality-aware rollups and caches.
   needed.
 - System storage settings for managed storage, local SSD paths, and mounted NAS
   recovery storage.
+- Home-owned scheduled CSV exports to a connected NAS, with daily, weekly, and
+  monthly timing plus per-schedule retention controls.
 - Storage-capacity forecasting, warning/critical alerts, recovery notices, and
   expanded Prometheus/database metrics.
 - Restore-tested local and encrypted Cloudflare recovery sets with NAS mount
@@ -23,7 +25,7 @@ normal charts and analytics use bounded, quality-aware rollups and caches.
 
 The upgrade creates or repairs Timescale rollups and compression policies. It
 does not delete or downsample raw telemetry. Keep PostgreSQL on local block/SSD
-storage; use NAS for recovery sets. Any external path must already be mounted
-and included in `STUGA_STORAGE_ALLOWED_ROOTS` before selecting it in System
-settings. Storage moves are journaled, verified, and retain the previous source
-for manual recovery.
+storage; use NAS only for recovery sets and derived exports. Any external path
+must already be mounted and included in `STUGA_STORAGE_ALLOWED_ROOTS` before
+selecting it in Set up or System settings. Storage moves are journaled,
+verified, and retain the previous source for manual recovery.

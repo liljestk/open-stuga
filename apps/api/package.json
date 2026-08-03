@@ -1,6 +1,6 @@
 {
   "name": "@climate-twin/api",
-  "version": "0.31.0",
+  "version": "0.32.0",
   "private": true,
   "type": "module",
   "engines": {
@@ -12,7 +12,7 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
-    "test:coverage": "vitest run --coverage --coverage.reporter=text --coverage.reporter=lcov",
+    "test:coverage": "vitest run --coverage --coverage.reporter=text --coverage.reporter=lcov --maxWorkers=4",
     "test:watch": "vitest",
     "mcp": "cd ../.. && tsx --env-file-if-exists=.env apps/api/src/mcp-server.ts",
     "mcp:chatgpt": "cd ../.. && tsx --env-file-if-exists=.env apps/api/src/chatgpt-mcp-server.ts"

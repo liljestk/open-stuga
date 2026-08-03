@@ -50,15 +50,19 @@ emit_rule() {
     >> "$rule_source"
 }
 
-emit_rule bootconfig disk/by-slot/bootconfig &&
-  emit_rule active/boot disk/by-slot/active/boot &&
-  emit_rule active/system disk/by-slot/active/system &&
-  emit_rule other/boot disk/by-slot/other/boot &&
-  emit_rule other/system disk/by-slot/other/system &&
-  emit_rule persistent disk/by-slot/persistent || {
-    report "Stugu: cannot translate USB slot aliases into udev rules"
-    exit 1
-  }
+if ! emit_rule bootconfig disk/by-slot/bootconfig ||
+  ! emit_rule active/boot disk/by-slot/active/boot ||
+  ! emit_rule active/system disk/by-slot/active/system ||
+  ! emit_rule other/boot disk/by-slot/other/boot ||
+  ! emit_rule other/system disk/by-slot/other/system ||
+  ! emit_rule a/boot disk/by-slot/a/boot ||
+  ! emit_rule a/system disk/by-slot/a/system ||
+  ! emit_rule b/boot disk/by-slot/b/boot ||
+  ! emit_rule b/system disk/by-slot/b/system ||
+  ! emit_rule persistent disk/by-slot/persistent; then
+  report "Stugu: cannot translate USB slot aliases into udev rules"
+  exit 1
+fi
 
 if ! mount -o bind "$rule_source" "$rule_target"; then
   report "Stugu: failed to bind USB udev rules into real root"

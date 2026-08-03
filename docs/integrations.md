@@ -36,7 +36,7 @@ The **Set up** Home selector at
 timezone, map placement, orientation, Home Assistant credentials, and direct
 TP-Link connections. Each configured Home runs its own Home Assistant WebSocket
 session. A Home may also run
-multiple TP-Link workers for an H100/H200 and one or more energy sockets.
+multiple TP-Link workers for an H100/H200/H500 and one or more energy sockets.
 
 Sensor availability is checked on adapter transitions and every 30 seconds. A
 periodic 30-day stored-history scan also finds holes that span an API restart.
@@ -727,7 +727,7 @@ excluded.
 | <code>discover_integrations</code> | Run best-effort LAN discovery for Home Assistant and supported TP-Link hubs or energy devices |
 | <code>get_home_assistant_setup</code> | Get Home Assistant setup guidance without credentials |
 | <code>test_home_assistant_connection</code> | Report redacted Home Assistant state visible to this process |
-| <code>get_tp_link_setup</code> | Get direct H100/H200 setup and mapping guidance without credentials |
+| <code>get_tp_link_setup</code> | Get direct H100/H200/H500 setup and mapping guidance without credentials |
 | <code>list_tp_link_devices</code> | List sanitized TP-Link child devices cached in this process |
 | <code>test_tp_link_connection</code> | Report redacted TP-Link state visible to this process |
 

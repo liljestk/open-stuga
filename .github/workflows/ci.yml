@@ -74,6 +74,55 @@ jobs:
           CODE_SIGNING_ALLOWED=NO
           build
 
+  host-updater-native:
+    name: Signed host updater (Debian Trixie native gate)
+    if: ${{ inputs.confirm_hosted_run }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Verify a signed RAUC publication through TUF over HTTPS
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            --volume "$GITHUB_WORKSPACE:/workspace:ro" \
+            --workdir /workspace \
+            debian:trixie-slim@sha256:020c0d20b9880058cbe785a9db107156c3c75c2ac944a6aa7ab59f2add76a7bd \
+            bash -lc '
+              set -euo pipefail
+              apt-get update >/dev/null
+              DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends \
+                ca-certificates openssl python3-cryptography python3-securesystemslib \
+                python3-tuf rauc squashfs-tools >/dev/null
+              python3 scripts/tests/host-publication-e2e.py
+            '
+
+      - name: Exercise Linux-only updater durability and process safety
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm --init \
+            --entrypoint sh \
+            --volume "$GITHUB_WORKSPACE:/workspace:ro" \
+            --tmpfs /workspace/data:rw,exec,mode=1777 \
+            --volume /var/run/docker.sock:/var/run/docker.sock \
+            --workdir /workspace \
+            docker:28-cli@sha256:625d9431a9f54c5a2bc90f24f0e1c3d55b1349fd857dd85035f98c2c9acbdd4d \
+            -lc '
+              set -euo pipefail
+              apk add --no-cache nodejs >/dev/null
+              node --test \
+                scripts/tests/system-update-agent.test.mjs \
+                scripts/tests/host-update-agent-interlock.test.mjs \
+                scripts/tests/update-agent-process-safety.test.mjs \
+                scripts/tests/update-agent-service.test.mjs \
+                scripts/tests/source-profile-agent.test.mjs \
+                scripts/tests/storage-agent.test.mjs
+            '
+
   validate:
     if: ${{ inputs.confirm_hosted_run }}
     runs-on: ubuntu-latest
@@ -110,8 +159,14 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
-      - name: Lint TP-Link bridge
-        run: python -m ruff check apps/api/python apps/api/python_tests && python -m ruff format --check apps/api/python apps/api/python_tests
+      - name: Lint Python components
+        run: >-
+          python -m ruff check apps/api/python apps/api/python_tests
+          deploy/rpi/host-updater scripts/verify-host-tuf-publication.py
+          scripts/tests/host-publication-e2e.py &&
+          python -m ruff format --check apps/api/python apps/api/python_tests
+          deploy/rpi/host-updater scripts/verify-host-tuf-publication.py
+          scripts/tests/host-publication-e2e.py
 
       - name: Test with coverage
         run: npm run test:coverage

@@ -14,6 +14,10 @@ import type {
 import { MeasurementService, RuntimeStatus, TelemetryService } from "../../services.js";
 
 export const TP_LINK_LOCAL_CLIMATE_HISTORY_CAPABILITY_REVISION = "t310-t315-retained-history-v1";
+export const TP_LINK_HUB_MODELS = ["H100", "H200", "H500"] as const;
+export function isTpLinkHubModel(value: string): value is typeof TP_LINK_HUB_MODELS[number] {
+  return (TP_LINK_HUB_MODELS as readonly string[]).includes(value);
+}
 
 export interface TpLinkDeviceMapping {
   deviceId: string;
@@ -41,6 +45,8 @@ export interface TpLinkSnapshotMessage {
   sourceType?: "hub" | "energy-device";
   sourceDeviceId?: string | null;
   sourceAlias?: string | null;
+  reportedChildCount?: number | null;
+  warning?: string | null;
   devices: TpLinkSnapshotDevice[];
 }
 

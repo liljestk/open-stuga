@@ -1,6 +1,6 @@
-# Stugu 0.31.0
+# Stugu 0.32.0
 
-Stugu is a local-first digital twin for understanding how environmental conditions change and move through one or more homes. Temperature and relative humidity are the starting point; a measurement registry also supports CO2 and other finite numeric scalar measurements without coupling ingestion, history, alerts, or visualisation to one sensor model. It is designed around TP-Link Tapo H100/H200 hubs with T310/T315 sensors, while keeping ingestion vendor-neutral through a direct local bridge, Home Assistant, and versioned APIs. Internal package names retain the original `climate-twin` identifier for compatibility.
+Stugu is a local-first digital twin for understanding how environmental conditions change and move through one or more homes. Temperature and relative humidity are the starting point; a measurement registry also supports CO2 and other finite numeric scalar measurements without coupling ingestion, history, alerts, or visualisation to one sensor model. It is designed around TP-Link Tapo H100/H200 hubs and locally exposed H500 children with T310/T315 sensors, while keeping ingestion vendor-neutral through a direct local bridge, Home Assistant, and versioned APIs. Internal package names retain the original `climate-twin` identifier for compatibility.
 
 The opt-in demo starts with a two-floor home, ten virtual sensors, temperature, humidity and CO2 telemetry, historical data, forecasts, alert rules, and replay. Set `MOCK_ENABLED=true` before the first start; no hardware or cloud account is needed to evaluate it. Normal installs use the guided Property-and-Home setup instead.
 
@@ -37,7 +37,7 @@ The opt-in demo starts with a two-floor home, ten virtual sensors, temperature, 
   boundary observations, fitted reconstructions, untouched holdout metrics,
   empirical bands, residuals, and a bounded
   weather scenario; observed and simulated values remain separate
-- Direct local H100/H200 and supported Tuya Wi-Fi device polling, Home
+- Direct local H100/H200/H500 and supported Tuya Wi-Fi device polling, Home
   Assistant WebSocket ingestion, and a mock scenario generator
 - Durable TP-Link gap recovery: local retained history first, an optional
   operator-maintained private adapter second, then a disabled-by-default,

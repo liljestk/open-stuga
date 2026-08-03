@@ -304,7 +304,7 @@ export const mcpToolDefinitionsPart04 = [
 export const mcpToolDefinitionsPart05 = [
   {
         name: "get_tp_link_setup",
-        description: "Get direct H100/H200 setup, mapping, and real-data-mode guidance without secrets.",
+        description: "Get direct H100/H200/H500 setup, mapping, and real-data-mode guidance without secrets.",
         inputSchema: { type: "object", properties: {}, additionalProperties: false },
       },
   {
