@@ -12,7 +12,7 @@ import type {
   SensorMetricAvailability,
 } from "../../sensor-gap-recovery.js";
 import { MeasurementService, RuntimeStatus, TelemetryService } from "../../services.js";
-import { CLIMATE_UNCHANGED_HEARTBEAT_MS, CachedTpLinkDevice, REDUNDANT_SOURCE_HANDOVER_MIN_MS, STATE_UNCHANGED_HEARTBEAT_MS, STATUS_UNCHANGED_HEARTBEAT_MS, TpLinkContactEventsMessage, TpLinkSnapshotMessage, finiteNumber, nonEmptyString, normalizeTpLinkTemperature } from "../support/01-tp-link-local-climate-history-capability-revision-to.js";
+import { CLIMATE_UNCHANGED_HEARTBEAT_MS, CachedTpLinkDevice, REDUNDANT_SOURCE_HANDOVER_MIN_MS, STATE_UNCHANGED_HEARTBEAT_MS, STATUS_UNCHANGED_HEARTBEAT_MS, TpLinkContactEventsMessage, TpLinkSnapshotMessage, finiteNumber, isTpLinkHubModel, nonEmptyString, normalizeTpLinkTemperature } from "../support/01-tp-link-local-climate-history-capability-revision-to.js";
 import { registerTpLinkConnectionBridgeMethods, tpLinkConnectionBridgeState, type TpLinkConnectionBridgeInternals } from "../core.js";
 
 registerTpLinkConnectionBridgeMethods({
@@ -85,7 +85,7 @@ registerTpLinkConnectionBridgeMethods({
       const sourceType = message.sourceType ?? "hub";
       const sourceModel = hubModel.slice(0, 128);
       const sourceAlias = nonEmptyString(message.sourceAlias)?.slice(0, 512) ?? null;
-      const supportedHub = hubModel === "H100" || hubModel === "H200";
+      const supportedHub = isTpLinkHubModel(hubModel);
       if (!supportedHub && sourceType !== "energy-device") {
         this[tpLinkConnectionBridgeState].status.value.tpLink.connected = false;
         this[tpLinkConnectionBridgeState].status.value.tpLink.error = `Unsupported TP-Link source model ${message.hubModel || "unknown"}`;
@@ -266,7 +266,8 @@ registerTpLinkConnectionBridgeMethods({
         if (energy !== null) this.ingestElectricityMeasurement(deviceId, sensorId, "energy", energy, "kWh", timestamp, timestampMs, issues);
       }
 
-      this[tpLinkConnectionBridgeState].status.value.tpLink.error = [this[tpLinkConnectionBridgeState].mappingWarning, ...issues].filter(Boolean).join("; ") || null;
+      const helperWarning = nonEmptyString(message.warning)?.slice(0, 500) ?? null;
+      this[tpLinkConnectionBridgeState].status.value.tpLink.error = [helperWarning, this[tpLinkConnectionBridgeState].mappingWarning, ...issues].filter(Boolean).join("; ") || null;
       this.publishStatusIfNeeded();
       this.notifyAvailabilityChangeIfNeeded();
       const contactEventsEnabled = this[tpLinkConnectionBridgeState].contactEventsEnabled;

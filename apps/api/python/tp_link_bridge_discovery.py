@@ -15,8 +15,8 @@ async def _inspect_discovered_source(
     semaphore: asyncio.Semaphore,
 ) -> tuple[dict[str, Any] | None, str | None]:
     try:
-        model = str(device.model).upper().split("(", 1)[0].strip()
-        source_type: str | None = "hub" if model in {"H100", "H200"} else None
+        model = normalized_device_model(device)
+        source_type: str | None = "hub" if is_supported_hub(model) else None
         if source_type is None:
             energy_snapshots = direct_energy_snapshots(device)
             if not energy_snapshots:
@@ -120,7 +120,7 @@ async def discover_sources(username: str, password: str) -> None:
     if recovery_hosts and username and password:
         # Docker networks may pass only some LAN broadcasts. Always supplement
         # them with a bounded same-/24 unicast scan around saved sources so a
-        # responding H200 cannot mask a legacy HS110 or another energy device.
+        # responding hub cannot mask a legacy HS110 or another energy device.
         known_hosts = {source["host"] for source in sources}
         direct_targets = [host for host in recovery_hosts if host not in known_hosts]
         recovered = (

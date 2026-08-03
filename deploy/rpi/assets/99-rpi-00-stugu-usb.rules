@@ -3,3 +3,5 @@
 SUBSYSTEM=="block", KERNEL=="sd*[0-9]", ENV{ID_PART_ENTRY_NAME}=="?*", ACTION=="add|change", \
   IMPORT{program}="/usr/bin/stugu-usb-udev-slot -u -l $env{ID_PART_ENTRY_NAME} -d $env{DEVNAME}", \
   ENV{STUGU_SLOT}=="?*", SYMLINK+="$env{STUGU_SLOT}"
+SUBSYSTEM=="block", KERNEL=="sd*[0-9]", ACTION=="add|change", \
+  ENV{RPI_ONBOOTDEV}=="1", ENV{STUGU_FIXED_SLOT}=="?*", SYMLINK+="$env{STUGU_FIXED_SLOT}"

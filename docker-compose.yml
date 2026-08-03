@@ -408,6 +408,7 @@ services:
       # interpolate STUGA_CLOUDFLARE_SECRET_DIR as a host bind source.
       STUGA_UPDATE_CLOUDFLARE_SECRET_DIR: /persistent/stugu/secrets/cloudflare
       STUGA_UPDATE_PROFILE_ENV_FILE: /persistent/stugu/settings/${STUGA_MIGRATION_ENV_FILENAME:-.env}
+      STUGA_HOST_UPDATE_JOURNAL: /persistent/stugu/host-update/journal.json
       STUGA_STORAGE_ALLOWED_ROOTS: ${STUGA_STORAGE_ALLOWED_ROOTS:-}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
@@ -417,6 +418,7 @@ services:
       - ${STUGA_DOCKER_CONFIG_DIRECTORY:-./data/docker-config}:/persistent/stugu/docker-config:ro,z
       - ${STUGA_MIGRATION_SETTINGS_DIRECTORY:-.}:/persistent/stugu/settings:z
       - ${STUGA_CLOUDFLARE_SECRET_DIR:-./secrets/cloudflare}:/persistent/stugu/secrets/cloudflare:z
+      - ${STUGA_HOST_UPDATE_DIRECTORY:-./data/host-update}:/persistent/stugu/host-update:ro,z
     read_only: true
     tmpfs:
       - /tmp:size=32m,mode=1777

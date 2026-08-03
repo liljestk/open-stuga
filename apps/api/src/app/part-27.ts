@@ -201,13 +201,13 @@ export function configureApiPart27(context: ReturnType<typeof configureApiPart26
       response.json({
       configured: houseStatus.configured,
       connections: houseStatus.connections ?? [],
-      supportedHubs: ["H100", "H200"],
+      supportedHubs: ["H100", "H200", "H500"],
       supportedClimateSensors: ["T310", "T315"],
       supportedContactSensors: ["T110"],
       supportedEnergyDevices: "Configured TP-Link/Kasa hosts that python-kasa exposes through Module.Energy",
       steps: [
         "Install python-kasa from apps/api/python/requirements.txt (already included in the Docker image).",
-        "Select the owning house, discover an H100/H200 hub or supported energy device, or enter a reserved LAN address, then save the house-scoped TP-Link connection.",
+        "Select the owning house, discover an H100/H200/H500 hub or supported energy device, or enter a reserved LAN address, then save the house-scoped TP-Link connection.",
         "Inspect /api/v1/integrations/tp-link/devices for normalized climate, contact, and energy devices.",
         "Assign a discovered device by PATCHing its stable deviceId into a sensor's tpLinkDeviceId field.",
         "Attach a T110 contact to an operable door or window by saving a Tapo stateBinding on that floor-plan element.",
@@ -222,7 +222,8 @@ export function configureApiPart27(context: ReturnType<typeof configureApiPart26
         "Home Assistant and direct TP-Link bridges can run at the same time, but the same physical child should be mapped through only one path.",
         "Direct smart energy devices provide power when current_consumption is available and cumulative kWh only when consumption_total is available; daily/monthly reset counters are not mapped to energy.",
         "TP-Link provides consumption only. Property electricity prices are fetched separately from the configured price API (Pörssisähkö by default).",
-        "LAN Find devices discovers H100/H200 hubs and uses saved or request-scoped draft TP-Link credentials to include devices that python-kasa verifies through Module.Energy; draft credentials are never persisted.",
+        "LAN Find devices discovers H100/H200/H500 hubs and uses saved or request-scoped draft TP-Link credentials to include devices that python-kasa verifies through Module.Energy; draft credentials are never persisted.",
+        "H500 support is capability-based: Stugu uses only child devices exposed by the hub's local API and reports when the hub advertises additional paired devices that remain hidden.",
         "Saving a real integration permanently disables mock telemetry for this database and purges existing demo samples and mock-derived alert events.",
       ],
       });

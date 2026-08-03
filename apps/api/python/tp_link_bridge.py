@@ -33,10 +33,12 @@ if _BRIDGE_DIRECTORY not in sys.path:
 
 import tp_link_bridge_common as bridge_common
 import tp_link_bridge_discovery as bridge_discovery
+import tp_link_bridge_h500 as bridge_h500
 import tp_link_bridge_recovery as bridge_recovery
 import tp_link_bridge_runtime as bridge_runtime
 from tp_link_bridge_common import *
 from tp_link_bridge_discovery import *
+from tp_link_bridge_h500 import *
 from tp_link_bridge_recovery import *
 from tp_link_bridge_runtime import *
 
@@ -48,6 +50,7 @@ class _BridgeFacadeModule(ModuleType):
         super().__setattr__(name, value)
         for domain in (
             bridge_common,
+            bridge_h500,
             bridge_recovery,
             bridge_runtime,
             bridge_discovery,

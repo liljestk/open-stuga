@@ -1,0 +1,30 @@
+[Unit]
+Description=Stugu signed host updater
+Documentation=https://github.com/liljestk/open-stuga/blob/main/docs/system-updates.md
+RequiresMountsFor=/persistent/stugu
+Requires=stugu-host-bootstrap.service stugu-eeprom-compat.service
+After=local-fs.target stugu-data-grow.service stugu-host-bootstrap.service stugu-eeprom-compat.service systemd-timesyncd.service
+Wants=systemd-timesyncd.service
+Before=stugu-host-update-reconcile.service
+
+[Service]
+Type=simple
+ExecStartPre=/usr/bin/install -d -m 0700 /persistent/stugu/host-update /persistent/stugu/host-update/cache /persistent/stugu/rauc
+ExecStart=/usr/sbin/stugu-host-updated
+Restart=on-failure
+RestartSec=30s
+RuntimeDirectory=stugu-host-update
+RuntimeDirectoryMode=0750
+UMask=0077
+NoNewPrivileges=yes
+# Do not enable systemd filesystem namespacing here: boot-control writes must
+# prove p1 is unmounted in the host mount namespace, not only a private view.
+CapabilityBoundingSet=CAP_CHOWN CAP_DAC_OVERRIDE CAP_FOWNER CAP_SYS_ADMIN CAP_SYS_RAWIO
+AmbientCapabilities=CAP_CHOWN CAP_DAC_OVERRIDE CAP_FOWNER CAP_SYS_ADMIN CAP_SYS_RAWIO
+SystemCallArchitectures=native
+LockPersonality=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+
+[Install]
+WantedBy=multi-user.target

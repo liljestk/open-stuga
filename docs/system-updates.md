@@ -147,6 +147,11 @@ partition and is health-checked with the same last-known-good container
 fallback used at boot. Clean appliances default to stable automatic releases
 on Sunday at 03:00 UTC; an Owner can change or disable that schedule.
 
+Host staging/activation and container, storage, and migration changes share
+fail-closed mutation locks. While a host journal is nonterminal, malformed, or
+needs recovery, the container update agent reports itself paused and starts no
+new mutation.
+
 The appliance passes its persistent deployment environment to the update
 agent's nested Compose client. Configuration, secrets, update state, and
 migration state therefore remain on the shared persistent partition when
@@ -156,13 +161,21 @@ cannot resolve local image defaults. The nested client is pinned to the
 appliance's `stugu` Compose project so unattended updates inspect the running
 services.
 
-The UI-managed path updates Stugu's release containers. Full operating-system,
-kernel, and firmware changes require a newly validated factory image and a
-backup or migration. Raspberry Pi Connect OS deployment is disabled for Pi 4
-USB because partition handoff was not reliable on the supported USB bridge.
-This separation lets the same UI and GitHub release policy work on Docker
-Desktop, ordinary Docker Engine, and the appliance without giving the
-application container root or Docker access.
+The UI-managed path currently updates Stugu's release containers. New
+layout-v2 factory images also contain the public-anchor-only foundation for a
+native TUF + RAUC host updater, exposed as `stuguctl host-update`. It can check
+and stage a signed OS/kernel/Linux-firmware bundle, but activation is
+deliberately disabled until the exact Pi 4 USB boot shim, watchdog, recovery,
+and power-cut matrix is qualified. The updater never writes p6 as a raw device.
+
+Deployed layout-v1/updater-contract-3 appliances still require a validated
+factory transition: their 96 MiB FAT fills p1 and cannot safely use layout-v2's
+raw boot-record tail. A future authenticated fixed-extent bridge remains a hard
+release gate. Do not shrink/rebuild that FAT or bypass the qualification receipt.
+Raspberry Pi Connect OS deployment remains disabled because partition handoff
+was not reliable on the supported USB bridge. See the
+[host release runbook](host-update-release.md) and
+[architecture/gates](signed-host-updater-plan.md).
 
 ## Recovery
 

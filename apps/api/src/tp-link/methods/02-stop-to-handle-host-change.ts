@@ -12,7 +12,7 @@ import type {
   SensorMetricAvailability,
 } from "../../sensor-gap-recovery.js";
 import { MeasurementService, RuntimeStatus, TelemetryService } from "../../services.js";
-import { TpLinkCredentialTestResult, TpLinkDiscoveredSource, TpLinkHelperMessage, TpLinkHostChangeMessage, TpLinkSourceDiscoveryResult, ipv4Octets, nonEmptyString, safeTpLinkHistoryFailure, tpLinkDiscoveryTargets } from "../support/01-tp-link-local-climate-history-capability-revision-to.js";
+import { TpLinkCredentialTestResult, TpLinkDiscoveredSource, TpLinkHelperMessage, TpLinkHostChangeMessage, TpLinkSourceDiscoveryResult, ipv4Octets, isTpLinkHubModel, nonEmptyString, safeTpLinkHistoryFailure, tpLinkDiscoveryTargets } from "../support/01-tp-link-local-climate-history-capability-revision-to.js";
 import { registerTpLinkConnectionBridgeMethods, tpLinkConnectionBridgeState, type TpLinkConnectionBridgeInternals } from "../core.js";
 
 registerTpLinkConnectionBridgeMethods({
@@ -108,11 +108,11 @@ registerTpLinkConnectionBridgeMethods({
             const declaredSourceType = nonEmptyString(item.sourceType);
             const sourceType = declaredSourceType === "hub" || declaredSourceType === "energy-device"
               ? declaredSourceType
-              : model === "H100" || model === "H200" ? "hub" : null;
+              : model && isTpLinkHubModel(model) ? "hub" : null;
             const rawDeviceId = nonEmptyString(item.deviceId);
             const deviceId = rawDeviceId && rawDeviceId.length <= 1_024 ? rawDeviceId : null;
             if (!host || !model || !sourceType) return [];
-            if (sourceType === "hub" && model !== "H100" && model !== "H200") return [];
+            if (sourceType === "hub" && !isTpLinkHubModel(model)) return [];
             return [{ host, model, alias: nonEmptyString(item.alias), sourceType, deviceId }];
           });
           const warnings = Array.isArray(message.warnings)
@@ -175,10 +175,11 @@ registerTpLinkConnectionBridgeMethods({
               const deviceId = nonEmptyString((candidate as Record<string, unknown>).deviceId);
               return deviceId && deviceId.length <= 1_024 ? [deviceId] : [];
             });
+            const warning = nonEmptyString(snapshot.warning)?.slice(0, 500) ?? null;
             finish({
               ok: true,
               connected: true,
-              message: "TP-Link credentials and local device polling are available.",
+              message: warning ?? "TP-Link credentials and local device polling are available.",
               details: {
                 model: nonEmptyString(snapshot.hubModel),
                 sourceType: snapshot.sourceType === "hub" || snapshot.sourceType === "energy-device"
@@ -188,6 +189,7 @@ registerTpLinkConnectionBridgeMethods({
                 deviceCount: snapshot.devices.length,
                 sourceDeviceId: nonEmptyString(snapshot.sourceDeviceId),
                 deviceIds: [...new Set(deviceIds)].slice(0, 2_048),
+                warning,
               },
             });
             return;

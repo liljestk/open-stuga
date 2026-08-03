@@ -27,6 +27,10 @@ case "${1:-}" in
     [[ "$#" -eq 1 ]] || { echo "Usage: stuguctl poweroff" >&2; exit 2; }
     exec sudo -n /usr/bin/systemctl poweroff
     ;;
+  host-update)
+    shift
+    exec /usr/bin/stugu-host-update "$@"
+    ;;
 esac
 
 if [[ "$(grep -c '^SYSTEM_UPDATE_IMAGE_PREFIX=' "$local_env")" -ne 1 ]]; then
@@ -130,6 +134,7 @@ Commands:
   reboot      Gracefully reboot the appliance host
   poweroff    Gracefully power off the appliance host
   backup      Create a complete Stugu backup
+  host-update Check, stage, activate, or inspect a signed host update
   migration   Receive, verify, apply, or roll back a live system migration
   images      Show the active known-good container references
 EOF

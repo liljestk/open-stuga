@@ -281,7 +281,7 @@ export const apiPart03 = {
   } & (
     { username: string; password: string; credentialSourceConnectionId?: never }
     | { credentialSourceConnectionId: string; username?: never; password?: never }
-  )) => request<{ ok: boolean; configured: boolean; created?: boolean; connectionId?: string; houseId?: string; deviceId?: string | null; sourceType?: "hub" | "energy-device" | null; sourceModel?: string | null; sourceAlias?: string | null; integration: IntegrationStatus }>("/integrations/tp-link/config", {
+  )) => request<{ ok: boolean; configured: boolean; created?: boolean; connectionId?: string; houseId?: string; deviceId?: string | null; sourceType?: "hub" | "energy-device" | null; sourceModel?: string | null; sourceAlias?: string | null; warning?: string | null; integration: IntegrationStatus }>("/integrations/tp-link/config", {
       method: "PUT",
       body: JSON.stringify(configuration),
     }),

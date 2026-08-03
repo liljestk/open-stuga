@@ -330,11 +330,11 @@ Manual coordinates and timezone overrides remain under **Advanced**.
 
 To connect a real hub (the mock workflow is not a prerequisite):
 
-1. Follow [direct TP-Link H100/H200 setup](tp-link-direct.md).
+1. Follow [direct TP-Link H100/H200/H500 setup](tp-link-direct.md).
 2. For local development, install
    `apps/api/python/requirements.txt`; the Docker image already includes it.
 3. Select the Home that owns the hub, open **Set up > Connections**, choose the
-   discovered H100/H200 (or open the manual connection fields), and enter the
+   discovered H100/H200/H500 (or open the manual connection fields), and enter the
    same account used by the Tapo app.
 4. Open **Sensors**, choose **Add sensor**, and select a discovered T310/T315.
    Name it, choose its floor and room, and place it on the plan. The binding is
@@ -506,7 +506,7 @@ take precedence after restart.
 | `HA_URL` | `http://homeassistant.local:8123` | Home Assistant base URL |
 | `HA_TOKEN` | empty | private Home Assistant access token |
 | `HA_ENTITY_MAP_FILE` | `./config/home-assistant.entities.json` | mapping file path |
-| `TP_LINK_HOST` | empty | reserved LAN address or hostname of an H100/H200 hub |
+| `TP_LINK_HOST` | empty | reserved LAN address or hostname of an H100/H200/H500 hub |
 | `TP_LINK_USERNAME` | empty | TP-Link account email used for local hub authentication |
 | `TP_LINK_PASSWORD` | empty | TP-Link account password used for local hub authentication |
 | `TP_LINK_DEVICE_MAP_FILE` | `./config/tp-link.devices.json` | optional legacy child-device-to-sensor bootstrap map; in-app mappings are stored in SQLite |

@@ -145,13 +145,17 @@ for required_device in \
   [ -b "$required_device" ] || exit 0
 done
 
-mkdir -p "${slot_root}/active" "${slot_root}/other"
+mkdir -p "${slot_root}/active" "${slot_root}/other" "${slot_root}/a" "${slot_root}/b"
 ln -sf "$bootconfig_device" "${slot_root}/bootconfig" || exit 0
 ln -sf "$active_boot_device" "${slot_root}/active/boot" || exit 0
 ln -sf "$active_system_device" "${slot_root}/active/system" || exit 0
 ln -sf "$other_boot_device" "${slot_root}/other/boot" || exit 0
 ln -sf "$other_system_device" "${slot_root}/other/system" || exit 0
 ln -sf "$persistent_device" "${slot_root}/persistent" || exit 0
+ln -sf "$boot_a_device" "${slot_root}/a/boot" || exit 0
+ln -sf "$system_a_device" "${slot_root}/a/system" || exit 0
+ln -sf "$boot_b_device" "${slot_root}/b/boot" || exit 0
+ln -sf "$system_b_device" "${slot_root}/b/system" || exit 0
 
 # initramfs uses klibc's deliberately small ln implementation. Verify every
 # link before allowing the upstream fail-closed root guard to continue.
@@ -166,6 +170,17 @@ for link_spec in \
   link_target="${link_spec#*:}"
   [ -L "$link_path" ] || exit 0
   [ "$(readlink "$link_path" 2>/dev/null)" = "$link_target" ] || exit 0
+done
+
+for fixed_link_spec in \
+  "${slot_root}/a/boot:$boot_a_device" \
+  "${slot_root}/a/system:$system_a_device" \
+  "${slot_root}/b/boot:$boot_b_device" \
+  "${slot_root}/b/system:$system_b_device"; do
+  fixed_link_path="${fixed_link_spec%%:*}"
+  fixed_link_target="${fixed_link_spec#*:}"
+  [ -L "$fixed_link_path" ] || exit 0
+  [ "$(readlink "$fixed_link_path" 2>/dev/null)" = "$fixed_link_target" ] || exit 0
 done
 
 : > /run/stugu-usb-ab-ready

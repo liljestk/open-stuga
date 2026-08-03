@@ -318,6 +318,7 @@ test("agent configuration is portable and pins one trusted release namespace", (
     assert.equal(config.releaseEnvFile, join(directory, ".stugu-release.env"));
     assert.equal(config.composeProfileEnvironmentFile, join(directory, ".env"));
     assert.equal(config.runtime, "docker");
+    assert.equal(config.hostUpdateJournal, null);
     assert.equal(config.composeProjectName, null);
     assert.equal(composeArguments(config).includes("--project-name"), false);
 
@@ -357,6 +358,10 @@ test("containerized updater preserves host paths for nested Compose", () => {
   assert.ok(service.includes(
     "STUGA_UPDATE_PROFILE_ENV_FILE: /persistent/stugu/settings/${STUGA_MIGRATION_ENV_FILENAME:-.env}",
   ));
+  assert.ok(service.includes(
+    "${STUGA_HOST_UPDATE_DIRECTORY:-./data/host-update}:/persistent/stugu/host-update:ro,z",
+  ));
+  assert.match(service, /STUGA_HOST_UPDATE_JOURNAL: \/persistent\/stugu\/host-update\/journal\.json/u);
 });
 
 test("system updates include only optional release services that are already running", async () => {

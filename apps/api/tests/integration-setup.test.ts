@@ -127,6 +127,60 @@ describe("guided integration setup", () => {
     expect(readFileSync(secretsPath, "utf8")).not.toContain("SQLite");
   });
 
+  it("saves an H500 connection while preserving its local child-enumeration warning", async () => {
+    directory = mkdtempSync(join(tmpdir(), "climate-twin-h500-setup-"));
+    const secretsPath = join(directory, "integrations.json");
+    const warning = "H500 connected, but its local API reports 3 paired devices and exposes 0 to Stugu; only locally exposed devices are available.";
+    runtime = createApi({
+      config: loadConfig({ NODE_ENV: "test", DATABASE_PATH: ":memory:", INTEGRATION_SECRETS_FILE: secretsPath }),
+      startBackground: false,
+      tpLinkCredentialTester: async () => ({
+        ok: true,
+        connected: true,
+        message: warning,
+        details: {
+          model: "H500",
+          sourceType: "hub",
+          sourceDeviceId: "h500-stable-id",
+          warning,
+        },
+      }),
+    });
+
+    const configured = await request(runtime.app).put("/api/v1/integrations/tp-link/config").send({
+      houseId: "house-main",
+      host: "192.168.1.50",
+      username: "owner@example.test",
+      password: "h500-secret",
+    }).expect(200);
+
+    expect(configured.body).toMatchObject({
+      ok: true,
+      configured: true,
+      sourceType: "hub",
+      sourceModel: "H500",
+      warning,
+      integration: {
+        tpLink: {
+          configured: true,
+          error: null,
+          connections: [expect.objectContaining({ sourceModel: "H500", error: null })],
+        },
+      },
+    });
+    expect(JSON.stringify(configured.body)).not.toContain("h500-secret");
+    expect(readIntegrationSecrets(secretsPath).tpLinkConnections).toEqual([
+      expect.objectContaining({
+        host: "192.168.1.50",
+        username: "owner@example.test",
+        password: "h500-secret",
+        deviceId: "h500-stable-id",
+        sourceType: "hub",
+        sourceModel: "H500",
+      }),
+    ]);
+  });
+
   it("follows stable TP-Link identities across address changes without overwriting different hardware", async () => {
     directory = mkdtempSync(join(tmpdir(), "climate-twin-tp-link-identities-"));
     const secretsPath = join(directory, "integrations.json");

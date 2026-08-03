@@ -44,6 +44,7 @@ export function imageDefinitions(prefix, tag) {
 export function artifactDefinitions(repositoryRoot, version) {
   const directory = resolve(repositoryRoot, "dist", "rpi");
   const releaseDirectory = resolve(directory, "release");
+  const hostInputsDirectory = resolve(directory, "host-inputs");
   const localCi = localCiReportPaths(repositoryRoot, version);
   const nexus433Source = nexus433SourceArtifactNames(version);
   return {
@@ -58,6 +59,20 @@ export function artifactDefinitions(repositoryRoot, version) {
       `stugu-rpi4-${version}-factory.sha256`,
     ),
     releaseManifest: resolve(releaseDirectory, releaseManifestAsset),
+    hostInputsDirectory,
+    hostBoot: resolve(hostInputsDirectory, "boot.vfat"),
+    hostRoot: resolve(hostInputsDirectory, "system.erofs"),
+    hostSbom: resolve(hostInputsDirectory, "stugu-host-sbom.spdx.json"),
+    hostProvenance: resolve(
+      hostInputsDirectory,
+      "stugu-host-provenance.intoto.jsonl",
+    ),
+    hostContainerManifest: resolve(hostInputsDirectory, releaseManifestAsset),
+    hostBundle: resolve(releaseDirectory, `stugu-rpi4-${version}-host.raucb`),
+    hostTargetRequest: resolve(
+      releaseDirectory,
+      `stugu-rpi4-${version}-host.raucb.tuf-target.json`,
+    ),
     nexus433Source: resolve(releaseDirectory, nexus433Source.bundle),
     nexus433SourceChecksum: resolve(releaseDirectory, nexus433Source.checksum),
     localCiReport: localCi.report,

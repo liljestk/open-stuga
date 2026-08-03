@@ -98,9 +98,9 @@ export type DiscoveryOutcome = "idle" | "found" | "empty" | "error";
 
 export type TpLinkChildDiscovery =
   | { phase: "idle" }
-  | { phase: "settling"; hubModel: "H100" | "H200" | null; baselineLastPollAt: string | null }
-  | { phase: "found"; count: number; hubModel: "H100" | "H200" | null }
-  | { phase: "empty" | "error"; hubModel: "H100" | "H200" | null };
+  | { phase: "settling"; hubModel: "H100" | "H200" | "H500" | null; baselineLastPollAt: string | null }
+  | { phase: "found"; count: number; hubModel: "H100" | "H200" | "H500" | null }
+  | { phase: "empty" | "error"; hubModel: "H100" | "H200" | "H500" | null };
 
 export const setupSectionOrder: SetupSection[] = ["overview", "layout", "connections", "weather", "operations", "automations"];
 

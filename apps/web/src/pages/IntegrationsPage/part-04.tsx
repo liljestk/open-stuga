@@ -197,7 +197,7 @@ export function useIntegrationsPagePart04(context: ReturnType<typeof useIntegrat
       if (activeSection !== "connections" || !integration.tpLink.configured) return;
       void loadTpLinkExportJobs();
     }, [activeSection, integration.tpLink.configured]);
-  const settleTpLinkChildren = async (hubModel: "H100" | "H200" | null) => {
+  const settleTpLinkChildren = async (hubModel: "H100" | "H200" | "H500" | null) => {
       const targetHouseId = house.id;
       setTpLinkChildDiscovery({
         phase: "settling",
@@ -321,12 +321,12 @@ export function useIntegrationsPagePart04(context: ReturnType<typeof useIntegrat
         setTpLinkSettingsOpen(false);
         setTpLinkFeedback({
           kind: "success",
-          message: t(editingConnection || created
+          message: `${t(editingConnection || created
             ? editingConnection ? "setup.tpLinkConnectionUpdated" : "setup.tpLinkConnectionAdded"
             : "setup.tpLinkConnectionAlreadySaved", {
             device: confirmedSourceName,
             home: requestHomeName,
-          }),
+          })}${configured.warning ? ` ${configured.warning}` : ""}`,
         });
         const placementDeviceId = configured.deviceId ?? selectedSource?.deviceId ?? null;
         const placementSourceType = configured.sourceType
@@ -345,10 +345,14 @@ export function useIntegrationsPagePart04(context: ReturnType<typeof useIntegrat
           });
         }
         const discoveredHubModel = selectedSource?.sourceType !== "energy-device"
-          && (selectedSource?.model === "H100" || selectedSource?.model === "H200")
+          && (selectedSource?.model === "H100" || selectedSource?.model === "H200" || selectedSource?.model === "H500")
           ? selectedSource.model
           : null;
-        const hubModel = confirmedIntegration.tpLink.hubModel ?? discoveredHubModel;
+        const configuredHubModel = configured.sourceType === "hub"
+          && (configured.sourceModel === "H100" || configured.sourceModel === "H200" || configured.sourceModel === "H500")
+          ? configured.sourceModel
+          : null;
+        const hubModel = confirmedIntegration.tpLink.hubModel ?? configuredHubModel ?? discoveredHubModel;
         if (hubModel) void settleTpLinkChildren(hubModel);
         else {
           stopTpLinkChildDiscovery();

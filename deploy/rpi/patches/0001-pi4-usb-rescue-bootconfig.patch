@@ -2,13 +2,22 @@ diff --git a/image/gpt/ab_userdata/genimage.cfg.in.erofs b/image/gpt/ab_userdata
 index d0acb69..fe02013 100644
 --- a/image/gpt/ab_userdata/genimage.cfg.in.erofs
 +++ b/image/gpt/ab_userdata/genimage.cfg.in.erofs
-@@ -81,5 +81,6 @@ image bootconfig.vfat {
+@@ -36,6 +36,7 @@ image <IMAGE_NAME>.<IMAGE_SUFFIX> {
+    partition bootconfig {
+       in-partition-table = true
+       image = bootconfig.vfat
++      size = 96M
+       partition-type-uuid = F
+       bootable = true
+    }
+@@ -81,5 +81,7 @@ image bootconfig.vfat {
 -      file "autoboot.txt" { image = "autoboot.txt" }
 -      extraargs = "-s 1 -S <SECTOR_SIZE>"
 +      extraargs = "-s 4 -S <SECTOR_SIZE>"
     }
 -   size = 32M
-+   size = 96M
++   # Leave the final MiB outside FAT for two fixed raw boot-control records.
++   size = 95M
 +   mountpoint = "/boot/rescue-firmware"
 +   exec-pre = "<SLOTP> BOOT"
  }
@@ -16,13 +25,22 @@ diff --git a/image/gpt/ab_userdata/genimage.cfg.in.ext4 b/image/gpt/ab_userdata/
 index cd6aa59..981fd94 100644
 --- a/image/gpt/ab_userdata/genimage.cfg.in.ext4
 +++ b/image/gpt/ab_userdata/genimage.cfg.in.ext4
-@@ -81,5 +81,6 @@ image bootconfig.vfat {
+@@ -36,6 +36,7 @@ image <IMAGE_NAME>.<IMAGE_SUFFIX> {
+    partition bootconfig {
+       in-partition-table = true
+       image = bootconfig.vfat
++      size = 96M
+       partition-type-uuid = F
+       bootable = true
+    }
+@@ -81,5 +81,7 @@ image bootconfig.vfat {
 -      file "autoboot.txt" { image = "autoboot.txt" }
 -      extraargs = "-s 1 -S <SECTOR_SIZE>"
 +      extraargs = "-s 4 -S <SECTOR_SIZE>"
     }
 -   size = 32M
-+   size = 96M
++   # Leave the final MiB outside FAT for two fixed raw boot-control records.
++   size = 95M
 +   mountpoint = "/boot/rescue-firmware"
 +   exec-pre = "<SLOTP> BOOT"
  }

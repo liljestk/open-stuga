@@ -1,0 +1,14 @@
+[Unit]
+Description=Reconcile Stugu host update after boot
+Requires=stugu-host-updated.service
+After=stugu-host-updated.service stugu.service network-online.target
+Wants=stugu.service network-online.target
+ConditionPathExists=/persistent/stugu/host-update/journal.json
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/stugu-host-update reconcile
+TimeoutStartSec=15min
+
+[Install]
+WantedBy=multi-user.target

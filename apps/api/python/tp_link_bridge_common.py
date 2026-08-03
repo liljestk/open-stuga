@@ -1,4 +1,4 @@
-# ruff: noqa: F401
+# ruff: noqa: F401, F403, F405
 """Poll a local TP-Link hub or energy device and emit snapshots as NDJSON."""
 
 from __future__ import annotations
@@ -14,6 +14,8 @@ import time
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
+
+from tp_link_bridge_h500 import *
 
 try:
     from kasa import Discover, Module

@@ -181,6 +181,16 @@ with image_path.open("rb", buffering=0) as handle:
             fail(f"{name} FAT boot-sector signature is missing")
         if boot_sector[54:62] != b"FAT16   " and boot_sector[82:90] != b"FAT32   ":
             fail(f"{name} does not contain a recognized FAT filesystem")
+        if name == "bootconfig":
+            bytes_per_sector = struct.unpack_from("<H", boot_sector, 11)[0]
+            total16 = struct.unpack_from("<H", boot_sector, 19)[0]
+            total32 = struct.unpack_from("<I", boot_sector, 32)[0]
+            filesystem_bytes = bytes_per_sector * (total16 or total32)
+            if not 90 * 1024 * 1024 <= filesystem_bytes <= 95 * 1024 * 1024:
+                fail("bootconfig FAT must end before the fixed record tail")
+            reserved = read_at(handle, offset + 95 * 1024 * 1024, 1024 * 1024)
+            if any(reserved):
+                fail("bootconfig fixed record tail is not zero-initialized")
 
     for partition, (name, _, _) in zip(partitions[3:5], EXPECTED[3:5]):
         offset = int(partition["start"]) * SECTOR_SIZE + 1024

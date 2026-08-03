@@ -8,11 +8,14 @@ with health checks and container rollback. Tailscale is installed and enabled,
 and its device identity remains persistent.
 
 The operating-system release is immutable: do not use `apt upgrade` on the
-appliance. Install kernel, firmware, and base-system changes through a newly
-validated factory image. Pi 4 USB firmware partition handoff is intentionally
-not used because it boot-looped on supported USB-SATA bridges. Direct boot
-waits six seconds after essential drivers load so slower bridges can enumerate
-before the immutable system slot is mapped.
+appliance. Layout-v2 factory images include a public-anchor-only TUF + RAUC host
+updater foundation, but activation remains disabled until the exact Pi 4 USB
+boot shim/watchdog/power-cut gate passes. Production OS, kernel, and boot
+firmware changes therefore still use a newly validated factory image. Pi 4 USB
+firmware partition handoff is intentionally not used because it boot-looped on
+supported USB-SATA bridges. Direct boot waits six seconds after essential
+drivers load so slower bridges can enumerate before the immutable system slot
+is mapped.
 
 ## What is automated
 
@@ -22,6 +25,8 @@ before the immutable system slot is mapped.
   partition and ext4 filesystem to fill the complete external disk.
 - A complete first-partition rescue payload boots directly and selects slot A
   by default from a validated marker, avoiding Pi 4 USB partition handoff.
+- New factory images reserve p1's final MiB outside FAT for redundant host
+  boot-control records; factory validation proves the boundary is zero-filled.
 - The direct-boot command line keeps `rootwait`, adds `rootdelay=6`, and enables
   the cgroup v2 memory controller for Docker limits and memory metrics.
 - Docker and containerd state are shared across both OS slots.
@@ -166,6 +171,10 @@ The first command can install `rpi-image-gen` dependencies and will ask for
 
 ```sh
 RPI_IMAGE_GEN_INSTALL_DEPS=1 \
+STUGA_HOST_GENERATION=42 \
+RPI_HOST_TUF_ROOT_FILE=/secure/public/root.json \
+RPI_HOST_RAUC_CA_FILE=/secure/public/rauc-ca.pem \
+RPI_HOST_UPDATE_BASE_URL=https://updates.example.net/stugu \
 RPI_SSH_PUBLIC_KEY_FILE="$HOME/.ssh/stuga_appliance.pub" \
 RPI_CONNECT_AUTH_KEY_FILE=/tmp/stugu-connect.authkey \
 bash scripts/build-rpi-image.sh
@@ -176,6 +185,10 @@ For Wi-Fi, add both variables:
 ```sh
 RPI_WIFI_PROFILE=/secure/path/MyNetwork.psk \
 RPI_WIFI_COUNTRY=FI \
+STUGA_HOST_GENERATION=42 \
+RPI_HOST_TUF_ROOT_FILE=/secure/public/root.json \
+RPI_HOST_RAUC_CA_FILE=/secure/public/rauc-ca.pem \
+RPI_HOST_UPDATE_BASE_URL=https://updates.example.net/stugu \
 RPI_SSH_PUBLIC_KEY_FILE="$HOME/.ssh/stuga_appliance.pub" \
 RPI_CONNECT_AUTH_KEY_FILE=/tmp/stugu-connect.authkey \
 bash scripts/build-rpi-image.sh
@@ -189,6 +202,9 @@ The outputs are written to `dist/rpi/`:
 - `stugu-rpi4-<version>-ota.tar.zst` — generated A/B build byproduct; do not
   deploy it to the Pi 4 USB appliance.
 - `stugu-rpi4-<version>.sha256` — checksums for both.
+- `host-inputs/` — validated boot/root, SBOM, provenance, and container
+  manifest inputs for the isolated RAUC signer; this directory is not itself an
+  installable update.
 
 The factory image contains no SSH server host private keys. Each installed disk
 generates a fresh RSA, ECDSA, and Ed25519 host-key set from the Pi's kernel RNG
@@ -199,7 +215,8 @@ may also be made per-device, but its private half never enters the image.
 
 Before compression, the build validates the raw image with Linux `sfdisk` and
 `mtools`. It fails unless the protective MBR, GPT, six aligned/named
-partitions, filesystem signatures, current Pi firmware, complete rescue
+partitions, the layout-v2 95 MiB FAT/raw-tail boundary, filesystem signatures,
+current Pi firmware, complete rescue
 payload, automatic kernel/initramfs pairing, `rootwait rootdelay=6`,
 `cgroup_enable=memory`, and identical factory A/B slots are all valid.
 
@@ -234,6 +251,10 @@ npm run release:local -- \
   --repository OWNER/stugu-releases \
   --image-prefix ghcr.io/OWNER/open-stuga \
   --notes-file release-notes.md \
+  --host-generation 42 \
+  --host-tuf-root /secure/public/root.json \
+  --host-rauc-ca /secure/public/rauc-ca.pem \
+  --host-update-base-url https://updates.example.net/stugu \
   --ssh-public-key "$HOME/.ssh/stuga_appliance.pub"
 ```
 
@@ -244,6 +265,10 @@ npm run release:local -- \
   --repository OWNER/stugu-releases \
   --image-prefix ghcr.io/OWNER/open-stuga \
   --notes-file release-notes.md \
+  --host-generation 42 \
+  --host-tuf-root /secure/public/root.json \
+  --host-rauc-ca /secure/public/rauc-ca.pem \
+  --host-update-base-url https://updates.example.net/stugu \
   --ssh-public-key "$HOME/.ssh/stuga_appliance.pub" \
   --publish
 ```
@@ -260,10 +285,12 @@ publisher verifies both tag locations and refuses a private or untagged
 artifact repository before starting CI or builds. It also requires a clean
 checkout at the pushed source tag on `origin/main`, runs local CI, builds and
 pushes all AMD64/ARM64 containers, resolves their registry digests, builds the
-Pi artifacts in a pinned privileged ARM64 Debian container, creates a draft
+Pi factory image and public-key-only host signing inputs in a pinned privileged
+ARM64 Debian container, creates a draft
 GitHub Release, uploads the immutable image manifest, local CI receipt, and
 checksums, plus the Nexus433 corresponding-source bundle and its checksum, and
-then publishes the release.
+then publishes the release. RAUC and TUF private-key operations remain a
+separate ceremony; see [the signed host-update runbook](host-update-release.md).
 
 The factory image remains under `dist/rpi/` by default. Add
 `--upload-factory` only when it contains no Connect auth key, Wi-Fi profile, or
@@ -300,7 +327,7 @@ by the appliance updater. When source code is private, point
 `SYSTEM_UPDATE_IMAGE_PREFIX` pointed at the published image namespace.
 Create the matching release tag in that repository first, then pass
 `--repository OWNER/RELEASE-REPO --image-prefix ghcr.io/OWNER/IMAGE-PREFIX` to
-the local publisher. Those values are embedded into the factory/OTA appliance
+the local publisher. Those values are embedded into the factory appliance
 settings, while the source tag is still checked against `origin/main`.
 
 If local Docker is temporarily unavailable, manually dispatch
@@ -308,9 +335,11 @@ If local Docker is temporarily unavailable, manually dispatch
 **Confirm use of hosted runners**. The workflow builds and preserves the
 verified Nexus433 corresponding-source archive before any container job can
 run; there is no source-publication bypass. It is an explicit paid build
-fallback for the source repository and does not publish the cross-repository
-immutable manifest required by appliance self-updates. Use the local publisher
-for an installable appliance release.
+fallback that emits the factory image, immutable container manifest, and
+short-lived public-key-only host signing inputs. It does not sign or publish a
+RAUC/TUF host update, and a private source release is not the public feed needed
+by appliances. Use the local publisher for a separate public artifact
+repository.
 
 ## 5. Write the external disk once
 
@@ -406,9 +435,11 @@ System updates**.
 
 Each installation creates a verified backup before pulling the exact release
 images. It replaces only the application containers, waits for health checks,
-and restores the previous image set on failure. Operating-system, kernel, and
-firmware changes require a new validated factory image and an off-device backup
-or migration; Raspberry Pi Connect OS deployment remains disabled on Pi 4 USB.
+and restores the previous image set on failure. The dormant native host updater
+may check and stage a signed host bundle, but OS/kernel activation remains
+blocked until its hardware qualification gate passes. Until then those changes
+require a new validated factory image and an off-device backup or migration;
+Raspberry Pi Connect OS deployment remains disabled on Pi 4 USB.
 
 ### One-time updater contract 3 transition
 
@@ -442,11 +473,15 @@ stuguctl restart      # pull/reconcile the images pinned by this OS release
 stuguctl reboot       # gracefully reboot the appliance host
 stuguctl poweroff     # gracefully halt the host before disconnecting power
 stuguctl backup       # complete application backup
+stuguctl host-update status # native signed-host updater status (activation gated)
 stuguctl migration    # authenticated live-migration receiver and rollback tools
 stuguctl images       # exact immutable image references
 ```
 
 `restart` reconciles the Stugu application; it does not reboot the host.
+`host-update check` and `host-update stage` are diagnostic until the immutable
+hardware qualification receipt enables activation. Never bypass that receipt or
+invoke RAUC directly.
 `reboot` and `poweroff` remain available when application configuration is
 broken. They reject extra arguments and use sudoers entries for only the exact
 `systemctl reboot` and `systemctl poweroff` command lines; they do not grant

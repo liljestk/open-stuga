@@ -2,6 +2,7 @@
 
 import { createHash } from "node:crypto";
 import {
+  copyFileSync,
   createReadStream,
   existsSync,
   mkdirSync,
@@ -37,6 +38,11 @@ Usage:
 
 Required for publishing:
   --ssh-public-key PATH    Recovery public key embedded in the factory image
+  --host-generation N      Monotonic host generation embedded in both slots
+  --host-tuf-root PATH     Offline-approved public TUF root v1
+  --host-rauc-ca PATH      Offline-approved public RAUC CA certificate
+  --host-update-base-url URL
+                           HTTPS base URL of the TUF repository
   --publish                Execute registry and GitHub writes; otherwise preview
 
 Options:
@@ -46,6 +52,8 @@ Options:
   --image-prefix PREFIX    GHCR prefix (default: ghcr.io/<owner>/<repo>)
   --builder NAME           Buildx builder (default: stugu-release-local)
   --reuse-containers       Reuse and resolve already-published image tags
+  --host-qualification PATH
+                           Immutable lab receipt; omit to disable activation
   --upload-factory         Also attach the factory image to the public release
   --help                   Show this help
 
@@ -82,6 +90,26 @@ export function parseArguments(argv) {
         break;
       case "--image-prefix":
         options.imagePrefix = optionValue(argv, index, argument);
+        index += 1;
+        break;
+      case "--host-generation":
+        options.hostGeneration = optionValue(argv, index, argument);
+        index += 1;
+        break;
+      case "--host-qualification":
+        options.hostQualification = optionValue(argv, index, argument);
+        index += 1;
+        break;
+      case "--host-rauc-ca":
+        options.hostRaucCa = optionValue(argv, index, argument);
+        index += 1;
+        break;
+      case "--host-tuf-root":
+        options.hostTufRoot = optionValue(argv, index, argument);
+        index += 1;
+        break;
+      case "--host-update-base-url":
+        options.hostUpdateBaseUrl = optionValue(argv, index, argument);
         index += 1;
         break;
       case "--notes-file":
@@ -210,6 +238,25 @@ function validatePublicKey(path) {
   }
 }
 
+export function validateHostReleaseSettings({ generation, baseUrl }) {
+  const parsedGeneration = Number(generation);
+  if (!/^[1-9][0-9]*$/u.test(generation ?? "")
+    || !Number.isSafeInteger(parsedGeneration)
+    || parsedGeneration < 1) {
+    throw new Error("Host generation must be a positive monotonic integer");
+  }
+  let parsed;
+  try {
+    parsed = new URL(baseUrl);
+  } catch {
+    throw new Error("Host update base URL must be HTTPS");
+  }
+  if (parsed.protocol !== "https:" || parsed.username || parsed.password
+    || parsed.search || parsed.hash) {
+    throw new Error("Host update base URL must be HTTPS without credentials, query, or fragment");
+  }
+}
+
 async function sha256(path) {
   return new Promise((resolveHash, reject) => {
     const hash = createHash("sha256");
@@ -328,6 +375,11 @@ function resolveImages(images) {
 
 function buildRaspberryPi({
   artifacts,
+  hostGeneration,
+  hostQualification,
+  hostRaucCa,
+  hostTufRoot,
+  hostUpdateBaseUrl,
   imagePrefix,
   imageRefs,
   repository,
@@ -358,9 +410,19 @@ function buildRaspberryPi({
     "/rpi-build",
     "--volume",
     `${sshPublicKey}:/run/secrets/stugu-appliance.pub:ro`,
+    "--volume",
+    `${hostTufRoot}:/run/secrets/stugu-host-tuf-root.json:ro`,
+    "--volume",
+    `${hostRaucCa}:/run/secrets/stugu-host-rauc-ca.pem:ro`,
     "--workdir",
     "/workspace",
   ];
+  if (hostQualification) {
+    dockerArguments.push(
+      "--volume",
+      `${hostQualification}:/run/secrets/stugu-host-qualification.json:ro`,
+    );
+  }
   const variables = {
     STUGA_VERSION: tag,
     STUGA_IMAGE_TAG: tag,
@@ -373,13 +435,21 @@ function buildRaspberryPi({
     STUGA_UPDATE_AGENT_IMAGE: imageRefs["update-agent"],
     STUGA_MQTT_IMAGE: imageRefs.mqtt,
     STUGA_NEXUS433_IMAGE: imageRefs.nexus433,
+    STUGA_HOST_GENERATION: hostGeneration,
     RPI_FACTORY_BUILD: "1",
     RPI_BUILD_ROOT: "/rpi-build",
     RPI_EXPORT_FACTORY_IMAGE: "1",
     RPI_IMAGE_GEN_INSTALL_DEPS: "1",
     RPI_SSH_PUBLIC_KEY_FILE: "/run/secrets/stugu-appliance.pub",
+    RPI_HOST_TUF_ROOT_FILE: "/run/secrets/stugu-host-tuf-root.json",
+    RPI_HOST_RAUC_CA_FILE: "/run/secrets/stugu-host-rauc-ca.pem",
+    RPI_HOST_UPDATE_BASE_URL: hostUpdateBaseUrl,
     ARCH: "arm64",
   };
+  if (hostQualification) {
+    variables.RPI_HOST_HARDWARE_QUALIFICATION_FILE =
+      "/run/secrets/stugu-host-qualification.json";
+  }
   if (typeof process.getuid === "function" && typeof process.getgid === "function") {
     variables.HOST_UID = String(process.getuid());
     variables.HOST_GID = String(process.getgid());
@@ -394,7 +464,7 @@ function buildRaspberryPi({
     [
       "set -Eeuo pipefail",
       "apt-get update",
-      "apt-get install --yes --no-install-recommends binfmt-support ca-certificates debian-archive-keyring git qemu-user-static zstd",
+      "apt-get install --yes --no-install-recommends binfmt-support ca-certificates debian-archive-keyring git openssl python3-cryptography python3-tuf qemu-user-static zstd",
       "mountpoint --quiet /proc/sys/fs/binfmt_misc || mount -t binfmt_misc binfmt_misc /proc/sys/fs/binfmt_misc",
       "test -r /proc/sys/fs/binfmt_misc/aarch64 || test -r /proc/sys/fs/binfmt_misc/qemu-aarch64",
       "bash scripts/build-rpi-image.sh",
@@ -405,6 +475,12 @@ function buildRaspberryPi({
   requireFile(artifacts.ota, "OTA artifact");
   requireFile(artifacts.factory, "factory image");
   requireFile(artifacts.combinedChecksum, "local checksum");
+  requireFile(artifacts.hostBoot, "host boot image");
+  requireFile(artifacts.hostRoot, "host root image");
+  requireFile(artifacts.hostSbom, "host SBOM");
+  requireFile(artifacts.hostProvenance, "host provenance");
+  copyFileSync(artifacts.releaseManifest, artifacts.hostContainerManifest);
+  requireFile(artifacts.hostContainerManifest, "host container release manifest");
 }
 
 async function prepareReleaseChecksums(artifacts, uploadFactory) {
@@ -534,6 +610,20 @@ async function main(argv = process.argv.slice(2), env = process.env) {
   const sshPublicKey = resolve(
     options.sshPublicKey ?? env.RPI_FACTORY_SSH_PUBLIC_KEY_FILE ?? "",
   );
+  const hostGeneration = options.hostGeneration ?? env.STUGA_HOST_GENERATION;
+  const hostTufRoot = resolve(
+    options.hostTufRoot ?? env.RPI_HOST_TUF_ROOT_FILE ?? "",
+  );
+  const hostRaucCa = resolve(
+    options.hostRaucCa ?? env.RPI_HOST_RAUC_CA_FILE ?? "",
+  );
+  const hostUpdateBaseUrl =
+    options.hostUpdateBaseUrl ?? env.RPI_HOST_UPDATE_BASE_URL;
+  const hostQualificationValue =
+    options.hostQualification ?? env.RPI_HOST_HARDWARE_QUALIFICATION_FILE;
+  const hostQualification = hostQualificationValue
+    ? resolve(hostQualificationValue)
+    : undefined;
   const notesFile = options.notesFile ? resolve(options.notesFile) : undefined;
   if (repository !== sourceRepository && !notesFile) {
     throw new Error("--notes-file is required when publishing to a separate artifact repository");
@@ -545,7 +635,9 @@ async function main(argv = process.argv.slice(2), env = process.env) {
   Tag:             ${tag}
   Repository:      ${repository}
   Image platforms: linux/amd64, linux/arm64
-  Raspberry Pi:    OTA + factory image
+  Raspberry Pi:    factory image + signed-host inputs
+  Host generation: ${hostGeneration ?? "not supplied"}
+  Host activation: ${hostQualification ? "qualification receipt supplied" : "disabled"}
   Factory upload:  ${options.uploadFactory ? "yes" : "no; retained locally"}`);
   if (!options.publish) {
     console.log("\nPreview only. Add --publish to build, push, and upload this release.");
@@ -555,7 +647,19 @@ async function main(argv = process.argv.slice(2), env = process.env) {
   if (!options.sshPublicKey && !env.RPI_FACTORY_SSH_PUBLIC_KEY_FILE) {
     throw new Error("--ssh-public-key is required with --publish");
   }
+  if ((!options.hostTufRoot && !env.RPI_HOST_TUF_ROOT_FILE)
+    || (!options.hostRaucCa && !env.RPI_HOST_RAUC_CA_FILE)
+    || !hostGeneration
+    || !hostUpdateBaseUrl) {
+    throw new Error(
+      "--host-generation, --host-tuf-root, --host-rauc-ca, and --host-update-base-url are required with --publish",
+    );
+  }
   validatePublicKey(sshPublicKey);
+  validateHostReleaseSettings({ generation: hostGeneration, baseUrl: hostUpdateBaseUrl });
+  requireFile(hostTufRoot, "TUF root v1");
+  requireFile(hostRaucCa, "RAUC CA certificate");
+  if (hostQualification) requireFile(hostQualification, "hardware qualification receipt");
   if (notesFile) requireFile(notesFile, "release notes");
 
   const commit = verifyGitRelease(tag);
@@ -590,6 +694,11 @@ async function main(argv = process.argv.slice(2), env = process.env) {
   writeReleaseManifest(artifacts, repository, version, tag, imageRefs);
   buildRaspberryPi({
     artifacts,
+    hostGeneration,
+    hostQualification,
+    hostRaucCa,
+    hostTufRoot,
+    hostUpdateBaseUrl,
     imagePrefix,
     imageRefs,
     repository,
@@ -613,6 +722,7 @@ async function main(argv = process.argv.slice(2), env = process.env) {
   );
   console.log(`\nPublished ${tag} from ${commit}\n${url}`);
   console.log(`Factory image retained at ${artifacts.factory}`);
+  console.log(`Host signing inputs retained at ${artifacts.hostInputsDirectory}`);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

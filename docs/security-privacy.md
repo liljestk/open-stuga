@@ -166,7 +166,7 @@ Recommended flows are narrowly scoped:
 | Source | Destination | Purpose |
 | --- | --- | --- |
 | Stugu API | Home Assistant `8123/tcp` | authenticated WebSocket state events |
-| Stugu API | H100/H200 local address | authenticated direct local polling |
+| Stugu API | H100/H200/H500 local address | authenticated direct local polling |
 | User browser | Stugu web/API port | authenticated UI, `/api/v1`, and `/api/v2` |
 | User browser | `tile.openstreetmap.org:443` | attributed location-picker tiles only |
 | Stugu API | `opendata.fmi.fi:443` | WFS observation and point-forecast requests |

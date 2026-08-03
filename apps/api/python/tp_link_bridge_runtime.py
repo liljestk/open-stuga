@@ -260,6 +260,7 @@ async def connect_and_poll(
         )
         if device is None:
             raise RuntimeError(f"No supported TP-Link device responded at {host}")
+        install_h500_compatibility(device)
         await device.update(update_children=True)
         device_id = source_device_id(device)
         if expected_device_id and device_id != expected_device_id:
@@ -268,11 +269,11 @@ async def connect_and_poll(
             )
         if device_id is not None and on_identity is not None:
             on_identity(device_id)
-        model = str(device.model).upper().split("(", 1)[0].strip()
-        is_hub = model in {"H100", "H200"}
+        model = normalized_device_model(device)
+        is_hub = is_supported_hub(model)
         if not is_hub and not direct_energy_snapshots(device):
             raise RuntimeError(
-                f"Device at {host} is {model}, not an H100/H200 hub or a device "
+                f"Device at {host} is {model}, not an H100/H200/H500 hub or a device "
                 "with a python-kasa Energy module"
             )
         try:
@@ -302,6 +303,7 @@ async def connect_and_poll(
                 if is_hub
                 else direct_energy_snapshots(device)
             )
+            warning = h500_child_enumeration_warning(device, len(snapshots))
             emit(
                 {
                     "type": "snapshot",
@@ -312,6 +314,8 @@ async def connect_and_poll(
                     "sourceAlias": (
                         str(source_alias) if source_alias is not None else None
                     ),
+                    "reportedChildCount": reported_child_count(device),
+                    "warning": warning,
                     "devices": snapshots,
                 }
             )

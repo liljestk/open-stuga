@@ -356,7 +356,7 @@ export function homeAssistantSetup(): object {
 export function tpLinkSetup(): object {
   return {
     configured: status.value.tpLink.configured,
-    supportedHubs: ["H100", "H200"],
+    supportedHubs: ["H100", "H200", "H500"],
     supportedClimateSensors: ["T310", "T315"],
     supportedEnergyDevices: "Configured TP-Link/Kasa hosts that python-kasa exposes through Module.Energy",
     steps: [
@@ -371,7 +371,7 @@ export function tpLinkSetup(): object {
       "Credentials are never returned and are stored outside SQLite.",
       "The MCP server deliberately does not accept or write credentials; keep secrets out of model and tool arguments.",
       "The isolated MCP process deliberately does not start a second continuous hub poller beside the API process.",
-      "LAN discovery includes H100/H200 hubs and energy devices that python-kasa verifies through Module.Energy using saved TP-Link credentials; energy devices expose power, plus cumulative energy only when python-kasa provides consumption_total.",
+      "LAN discovery includes H100/H200/H500 hubs and energy devices that python-kasa verifies through Module.Energy using saved TP-Link credentials; H500 children are available only when its firmware exposes them over the local API; energy devices expose power, plus cumulative energy only when python-kasa provides consumption_total.",
       "Saving a real integration permanently disables and purges demo telemetry for this database.",
     ],
   };
