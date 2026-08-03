@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
 import {
   createDeployment,
@@ -181,6 +186,7 @@ test("the USB appliance binds A/B slots to the firmware-selected boot disk", asy
   assert.match(resolver, /root-hub-port-number/);
   assert.match(resolver, /route-string/);
   assert.match(resolver, /usb-version/);
+  assert.match(resolver, /linux_root_port=\$\(\(root_port - 1\)\)/);
   assert.match(resolver, /\/lun/);
   assert.match(resolver, /bus\/usb\/devices/);
   assert.doesNotMatch(resolver, /match="sda"/);
@@ -265,6 +271,72 @@ test("the USB appliance binds A/B slots to the firmware-selected boot disk", asy
   assert.match(buildScript, /IGconf_image_idp_schema=\$usb_idp_schema/);
   assert.match(buildScript, /"nvme", "usb"/);
 });
+
+test(
+  "the Pi 4 USB resolver translates the firmware USB 3 root port",
+  { skip: process.platform === "win32" },
+  () => {
+    const directory = mkdtempSync(join(tmpdir(), "stugu-pi4-usb-resolver-"));
+    const procRoot = join(directory, "proc");
+    const sysRoot = join(directory, "sys");
+    const usbDt = join(procRoot, "device-tree", "chosen", "bootloader", "usb");
+    const usbDevice = join(sysRoot, "bus", "usb", "devices", "2-2");
+    const blockPath = join(
+      usbDevice,
+      "2-2:1.0",
+      "host0",
+      "target0:0:0",
+      "0:0:0:0",
+      "block",
+      "sda",
+    );
+    const decoyDevice = join(sysRoot, "bus", "usb", "devices", "2-3");
+    const decoyBlockPath = join(
+      decoyDevice,
+      "2-3:1.0",
+      "host1",
+      "target1:0:0",
+      "1:0:0:0",
+      "block",
+      "sdb",
+    );
+
+    try {
+      mkdirSync(usbDt, { recursive: true });
+      mkdirSync(blockPath, { recursive: true });
+      mkdirSync(decoyBlockPath, { recursive: true });
+      for (const [name, value] of [
+        ["usb-version", 3],
+        ["root-hub-port-number", 3],
+        ["route-string", 0],
+        ["lun", 0],
+      ]) {
+        const encoded = Buffer.alloc(4);
+        encoded.writeUInt32BE(value);
+        writeFileSync(join(usbDt, name), encoded);
+      }
+      writeFileSync(join(usbDevice, "devpath"), "2\n");
+      writeFileSync(join(usbDevice, "version"), "3.00\n");
+      writeFileSync(join(decoyDevice, "devpath"), "3\n");
+      writeFileSync(join(decoyDevice, "version"), "3.00\n");
+
+      const resolver = fileURLToPath(
+        new URL("../../deploy/rpi/assets/stugu-usb-bootdev", import.meta.url),
+      );
+      const output = execFileSync("sh", [resolver], {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          STUGU_PROC_ROOT: procRoot,
+          STUGU_SYS_ROOT: sysRoot,
+        },
+      });
+      assert.equal(output, "sda\n");
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  },
+);
 
 test("clean appliance startup includes every runtime path and repairs interrupted Timescale init", async () => {
   const [dockerfile, composeStart, environment] = await Promise.all([

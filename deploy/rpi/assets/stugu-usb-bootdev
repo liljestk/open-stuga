@@ -37,9 +37,20 @@ case "$usb_version" in
 esac
 [ "$root_port" -gt 0 ] || die "invalid USB root port ${root_port}"
 
+# BCM2711's VL805 reports the raw xHCI port number to firmware. Linux splits
+# the controller into USB 2 and USB 3 root hubs, so its USB 3 devpaths omit the
+# preceding USB 2 root-hub port. For example, the same Pi 4 port is firmware
+# root port 3 and Linux devpath 2. USB 2 devpaths already use the firmware
+# number and need no translation.
+linux_root_port="$root_port"
+if [ "$usb_version" -eq 3 ]; then
+  [ "$root_port" -gt 1 ] || die "invalid Pi 4 USB 3 root port ${root_port}"
+  linux_root_port=$((root_port - 1))
+fi
+
 # xHCI stores downstream hub ports as least-significant-first nibbles.
 # Linux exposes the same topology as a devpath such as 1.4.2.
-devpath="$root_port"
+devpath="$linux_root_port"
 depth=0
 while [ "$route" -ne 0 ]; do
   port=$((route & 15))

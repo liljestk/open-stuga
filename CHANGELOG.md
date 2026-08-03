@@ -4,6 +4,17 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.32.2 - 2026-08-03
+
+- Correct Raspberry Pi 4 USB 3 boot-disk topology matching by translating the
+  firmware VL805 root-port number to Linux's split USB 3 root-hub devpath.
+- Add a Linux regression test with a decoy disk on the uncorrected topology so
+  the strict resolver cannot silently select the wrong device.
+
+Upgrade impact: this patch supersedes the unpublished 0.32.1 candidate and is
+the bundled H500 and signed host-updater hardware-test release. The resolver
+remains fail-closed; no sole-disk fallback is included.
+
 ## 0.32.1 - 2026-08-03
 
 - Collect the generated host SBOM from rpi-image-gen's versioned target
