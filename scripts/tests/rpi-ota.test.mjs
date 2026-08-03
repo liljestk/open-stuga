@@ -541,6 +541,9 @@ test("host boot-control records live outside FAT and activation is qualification
   assert.match(validator, /fixed record tail is not zero-initialized/u);
   assert.match(layer, /stugu-host-bootstrap\.service/u);
   assert.match(layer, /enable-units[\s\S]*stugu-host-bootstrap/u);
+  assert.match(daemonUnit, /^Group=stugu$/mu);
+  assert.match(daemonUnit, /^RuntimeDirectory=stugu-host-update$/mu);
+  assert.match(daemonUnit, /^RuntimeDirectoryMode=0750$/mu);
   assert.doesNotMatch(`${daemonUnit}\n${bootstrapUnit}`, /ProtectSystem|PrivateTmp|ReadWritePaths/u);
   assert.equal(JSON.parse(qualification).activationEnabled, false);
   assert.deepEqual(JSON.parse(qualification).recordOffsets, [99614720, 99618816]);
