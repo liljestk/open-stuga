@@ -345,6 +345,37 @@ and the active-slot marker are therefore not established causes of this boot
 failure. The build may retain a monolithic archive for deterministic
 compatibility, but `rootdelay=6` is the hardware candidate under test.
 
+## 2026-08-03 USB 3 topology correction
+
+The exact `v0.32.1` factory image repeatedly reset before mounting its root on
+a Verbatim Portable USB 3.0 drive. Raising `rootdelay` from 6 to 30 seconds did
+not change the result. Both boot slots, the selector records, GPT, and the
+persistent filesystem remained byte-identical to the flashed image.
+
+Netconsole isolated the reset to the A/B root guard. The drive was fully
+enumerated as `/dev/sda` by 3.4 seconds, but the strict resolver created no
+slot aliases and the guard rebooted at 37.6 seconds. Instrumentation recorded:
+
+- firmware USB version `3`, root port `3`, route `0`, and LUN `0`;
+- Linux USB device `2-2`, devpath `2`, version `3.00`; and
+- strict match count `0` before a disposable sole-disk fallback bound
+  `/dev/sda` and mounted EROFS root `/dev/sda4`.
+
+BCM2711's VL805 reports a raw xHCI root-port number to firmware. Linux exposes
+USB 2 and USB 3 as separate root hubs, so Pi 4 USB 3 devpaths omit the preceding
+USB 2 root-hub port. The production resolver must therefore translate a Pi 4
+USB 3 firmware root port `n` to Linux root devpath `n - 1`, while leaving USB 2
+topology unchanged. The sole-disk fallback was diagnostic only and is forbidden
+from released images.
+
+A production-strict initramfs carrying only that correction then booted the
+same factory disk without netconsole. SSH returned about 25 seconds after
+power-on, active root resolved to `/dev/sda4`, and persistent expanded to about
+925 GiB. The deliberately hybrid image retained the old resolver in its
+immutable 0.32.1 root, so the userspace host bootstrap failed on that old copy;
+the exact 0.32.2 factory image must verify both initramfs boot and userspace
+bootstrap together.
+
 ## Required design
 
 Separate Pi 4 USB results still require the established direct-boot design:
