@@ -276,10 +276,10 @@ version=${version}
 format=verity
 
 [image.rootfs]
-filename=system.erofs
+filename=system.img
 
 [image.boot]
-filename=boot.vfat
+filename=boot.img
 `;
 }
 

@@ -127,8 +127,8 @@ def build_bundle(work: Path, ca: Path, leaf: Path, leaf_key: Path) -> tuple[Path
     bundle_input.mkdir(mode=0o700)
     files = {
         # Keep the fixture above RAUC's minimum squashfs size after compression.
-        "boot.vfat": os.urandom(16 * 1024),
-        "system.erofs": os.urandom(16 * 1024),
+        "boot.img": os.urandom(16 * 1024),
+        "system.img": os.urandom(16 * 1024),
         "stugu-release-manifest-v1.json": b"{}\n",
         "stugu-host-sbom.spdx.json": b"{}\n",
         "stugu-host-provenance.intoto.jsonl": b"{}\n",
@@ -158,10 +158,10 @@ def build_bundle(work: Path, ca: Path, leaf: Path, leaf_key: Path) -> tuple[Path
         },
         "rollback": {"minimumFallbackGeneration": 41},
         "artifacts": {
-            "bootSha256": digest(files["boot.vfat"]),
-            "bootSize": len(files["boot.vfat"]),
-            "rootSha256": digest(files["system.erofs"]),
-            "rootSize": len(files["system.erofs"]),
+            "bootSha256": digest(files["boot.img"]),
+            "bootSize": len(files["boot.img"]),
+            "rootSha256": digest(files["system.img"]),
+            "rootSize": len(files["system.img"]),
         },
         "supplyChain": {
             "sbomFile": "stugu-host-sbom.spdx.json",
@@ -182,8 +182,8 @@ def build_bundle(work: Path, ca: Path, leaf: Path, leaf_key: Path) -> tuple[Path
         b"[update]\n"
         b"compatible=stugu-rpi4-usb:stugu-gpt-ab-v2:arm64\n"
         b"version=1.2.3\n\n[bundle]\nformat=verity\n\n"
-        b"[image.rootfs]\nfilename=system.erofs\n\n"
-        b"[image.boot]\nfilename=boot.vfat\n",
+        b"[image.rootfs]\nfilename=system.img\n\n"
+        b"[image.boot]\nfilename=boot.img\n",
     )
     backend = work / "rauc-boot-backend"
     write(backend, b"#!/bin/sh\nprintf 'a\\n'\n", 0o700)

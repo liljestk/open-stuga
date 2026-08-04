@@ -4,6 +4,19 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.34.2 - 2026-08-04
+
+- Package the immutable boot and EROFS root payloads as generic `.img` members
+  inside signed RAUC bundles so RAUC 1.13 selects its raw-copy handler for the
+  appliance's raw A/B slots.
+- Require the updater and release tests to accept only those raw-compatible
+  bundle member names while preserving the exact signed image hashes.
+
+Upgrade impact: this release supersedes the unpublished 0.34.1 preview as host
+generation 6. It retains the combined H500, H200, Gree, telemetry-retention,
+mobile overview, RAUC service, and signed A/B updater changes without a
+persistent-data migration.
+
 ## 0.34.1 - 2026-08-04
 
 - Install Debian's `rauc-service` package so signed host updates have the

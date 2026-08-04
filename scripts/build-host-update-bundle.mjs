@@ -98,8 +98,8 @@ function verifyRaucInfo(value, manifest) {
     throw new Error("RAUC verification returned an incompatible bundle description");
   }
   const expected = new Map([
-    ["rootfs", { filename: "system.erofs", checksum: manifest.artifacts.rootSha256, size: manifest.artifacts.rootSize }],
-    ["boot", { filename: "boot.vfat", checksum: manifest.artifacts.bootSha256, size: manifest.artifacts.bootSize }],
+    ["rootfs", { filename: "system.img", checksum: manifest.artifacts.rootSha256, size: manifest.artifacts.rootSize }],
+    ["boot", { filename: "boot.img", checksum: manifest.artifacts.bootSha256, size: manifest.artifacts.bootSize }],
   ]);
   for (const image of value.images) {
     const declaration = expected.get(image?.["slot-class"]);
@@ -222,8 +222,8 @@ export async function main(argv = process.argv.slice(2)) {
     const input = join(work, "input");
     mkdirSync(input, { mode: 0o700 });
     const inputFiles = {
-      boot: join(input, "boot.vfat"),
-      root: join(input, "system.erofs"),
+      boot: join(input, "boot.img"),
+      root: join(input, "system.img"),
       sbom: join(input, "stugu-host-sbom.spdx.json"),
       provenance: join(input, "stugu-host-provenance.intoto.jsonl"),
       containerManifest: join(input, "stugu-release-manifest-v1.json"),

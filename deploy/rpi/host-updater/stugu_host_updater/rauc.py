@@ -165,8 +165,8 @@ class RaucClient:
             allowed = {
                 manifest_name,
                 manifest.container_manifest_file,
-                "boot.vfat",
-                "system.erofs",
+                "boot.img",
+                "system.img",
                 manifest.supply_chain.sbom_file,
                 manifest.supply_chain.provenance_file,
                 *(migration.filename for migration in manifest.migrations),
@@ -201,12 +201,12 @@ class RaucClient:
                     )
             expected_images = {
                 "boot": (
-                    "boot.vfat",
+                    "boot.img",
                     manifest.artifacts.boot_sha256,
                     manifest.artifacts.boot_size,
                 ),
                 "rootfs": (
-                    "system.erofs",
+                    "system.img",
                     manifest.artifacts.root_sha256,
                     manifest.artifacts.root_size,
                 ),
