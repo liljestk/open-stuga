@@ -406,8 +406,8 @@ class ReleaseManifest:
         payload_names = [
             "stugu-host-manifest.json",
             "manifest.raucm",
-            "boot.vfat",
-            "system.erofs",
+            "boot.img",
+            "system.img",
             container_manifest_file,
             supply_chain.sbom_file,
             supply_chain.provenance_file,

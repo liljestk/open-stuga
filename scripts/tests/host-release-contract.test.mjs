@@ -134,6 +134,9 @@ test("RAUC manifest contains only the two inactive slot classes and verity", () 
   assert.match(value, /compatible=stugu-rpi4-usb:stugu-gpt-ab-v2:arm64/u);
   assert.match(value, /\[bundle\]\nformat=verity/u);
   assert.deepEqual([...value.matchAll(/^\[image\.([^\]]+)\]$/gmu)].map((match) => match[1]), ["rootfs", "boot"]);
+  assert.match(value, /\[image\.rootfs\]\nfilename=system\.img/u);
+  assert.match(value, /\[image\.boot\]\nfilename=boot\.img/u);
+  assert.doesNotMatch(value, /filename=.*\.(?:erofs|vfat)$/mu);
   assert.doesNotMatch(value, /hook|persistent/iu);
 });
 

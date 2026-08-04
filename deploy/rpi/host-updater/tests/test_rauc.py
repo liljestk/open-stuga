@@ -18,14 +18,14 @@ def bundle_info() -> dict[str, object]:
         "images": [
             {
                 "slot-class": "rootfs",
-                "filename": "system.erofs",
+                "filename": "system.img",
                 "checksum": "b" * 64,
                 "size": 3 * 1024 * 1024 * 1024,
                 "hooks": [],
             },
             {
                 "slot-class": "boot",
-                "filename": "boot.vfat",
+                "filename": "boot.img",
                 "checksum": "a" * 64,
                 "size": 256 * 1024 * 1024,
                 "hooks": [],
