@@ -308,8 +308,11 @@ export function SystemUpdateOverview({
     || host.targetGeneration === undefined
     || !host.targetDigest);
   const projectionBlocked = appMetadataMissing || hostMetadataMissing;
+  const appBlockedReason = app.capability.reason === "ready" ? null : app.capability.reason;
   const hostManagedExternally = ["platform-managed-externally", "not-raspberry-pi"].includes(host.reason ?? "");
   const hostReasonBlocks = Boolean(host.reason && !hostManagedExternally);
+  const applicationCapabilityBlocks = !app.capability.available && appBlockedReason !== null;
+  const overallBlocked = projectionBlocked || applicationCapabilityBlocks || hostReasonBlocks || unboundPreparedHost;
   const workflowAllowsNewUpdate = !workflow || [
     "complete", "cancelled", "failed", "returned", "host-returned",
   ].includes(workflow.phase);
@@ -351,7 +354,7 @@ export function SystemUpdateOverview({
     "host-stage-requested", "host-stage-queueing", "host-staging", "restarting", "host-verifying",
     "staging-host", "activating-host", "verifying-host",
   ].includes(workflow.phase));
-  const overallTone = recovery || projectionBlocked || workflowFailed || applicationFailed || hostReturned
+  const overallTone = recovery || overallBlocked || workflowFailed || applicationFailed || hostReturned
     ? "attention"
     : available || awaitingRestart || active
       ? "available"
@@ -360,14 +363,14 @@ export function SystemUpdateOverview({
     ? t("updates.overall.recoveryNeeded")
     : awaitingRestart
       ? t("updates.overall.awaitingRestart")
-      : projectionBlocked
-        ? t("updates.overall.blocked")
-        : applicationFailed
-          ? t("updates.overall.applicationFailed")
-          : workflowFailed
-            ? t("updates.overall.failed")
-            : hostReturned
-              ? t("updates.overall.hostReturned")
+      : applicationFailed
+        ? t("updates.overall.applicationFailed")
+        : workflowFailed
+          ? t("updates.overall.failed")
+          : hostReturned
+            ? t("updates.overall.hostReturned")
+            : overallBlocked
+              ? t("updates.overall.blocked")
               : active
                 ? t("updates.overall.inProgress")
                 : available
@@ -377,17 +380,18 @@ export function SystemUpdateOverview({
     ? t("updates.overall.recoveryNeededHelp")
     : awaitingRestart
       ? t("updates.overall.awaitingRestartHelp")
-      : projectionBlocked
-        ? t("updates.overall.blockedHelp")
-        : applicationFailed
-          ? t("updates.overall.applicationFailedHelp")
-          : workflowFailed
+      : applicationFailed
+        ? t("updates.overall.applicationFailedHelp")
+        : workflowFailed
+          ? t("updates.overall.failedHelp")
+          : hostReturned
             ? t("updates.overall.failedHelp")
-            : available
-              ? t("updates.overall.availableHelp")
-              : t("updates.overall.currentHelp");
-  const appBlockedReason = app.capability.reason === "ready" ? null : app.capability.reason;
-  const appState = applicationFailed || appMetadataMissing
+            : overallBlocked
+              ? t("updates.overall.blockedHelp")
+              : available
+                ? t("updates.overall.availableHelp")
+                : t("updates.overall.currentHelp");
+  const appState = applicationFailed || appMetadataMissing || applicationCapabilityBlocks
     ? t("updates.component.blocked")
     : applicationWorkflowActive || app.operation && ["queued", "preparing", "backup", "pulling", "applying", "verifying", "rolling-back"].includes(app.operation.phase)
       ? t("updates.component.inProgress")

@@ -107,6 +107,65 @@ const v2Status: SystemUpdateStatus = {
   workflow: null,
 };
 
+const currentV2Status: SystemUpdateStatus = {
+  ...v2Status,
+  latestVersion: status.currentVersion,
+  updateAvailable: false,
+  latestRelease: null,
+  application: {
+    ...v2Status.application!,
+    latestVersion: status.currentVersion,
+    updateAvailable: false,
+  },
+  host: {
+    ...v2Status.host!,
+    phase: "current",
+    updateAvailable: false,
+    targetVersion: null,
+    targetGeneration: null,
+    targetDigest: null,
+  },
+};
+
+const blockedSummaryCases: ReadonlyArray<{ name: string; componentName: string; blockedStatus: SystemUpdateStatus }> = [
+  {
+    name: "the host updater is unavailable",
+    componentName: "Host system",
+    blockedStatus: {
+      ...currentV2Status,
+      host: {
+        ...currentV2Status.host!,
+        supported: false,
+        phase: "unavailable",
+        reason: "bridge-not-connected",
+        detail: "The host update bridge is not connected",
+      },
+    },
+  },
+  {
+    name: "the application update agent is offline",
+    componentName: "Application",
+    blockedStatus: {
+      ...currentV2Status,
+      capability: {
+        available: false,
+        runtime: "raspberry-pi",
+        agentLastSeenAt: null,
+        reason: "agent-not-connected",
+      },
+      application: {
+        ...currentV2Status.application!,
+        capability: {
+          available: false,
+          runtime: "raspberry-pi",
+          agentLastSeenAt: null,
+          reason: "agent-not-connected",
+        },
+      },
+    },
+  },
+];
+
 const stagedStatus: SystemUpdateStatus = {
   ...v2Status,
   revision: 12,
@@ -250,9 +309,9 @@ afterEach(() => {
 describe("system updates page", () => {
   it("treats a non-Pi host as managed separately instead of an action item", async () => {
     vi.spyOn(api, "systemUpdateStatus").mockResolvedValue({
-      ...v2Status,
+      ...currentV2Status,
       host: {
-        ...v2Status.host!,
+        ...currentV2Status.host!,
         supported: false,
         phase: "unavailable",
         reason: "not-raspberry-pi",
@@ -269,6 +328,19 @@ describe("system updates page", () => {
     expect(within(hostCard).getByText("Managed separately")).toBeTruthy();
     expect(within(hostCard).getByText(/managed outside Stugu/)).toBeTruthy();
     expect(within(hostCard).queryByText("Action needed")).toBeNull();
+    expect(screen.getByRole("heading", { name: "Stugu is up to date", level: 2 })).toBeTruthy();
+  });
+
+  it.each(blockedSummaryCases)("fails the overall summary closed when $name", async ({ blockedStatus, componentName }) => {
+    vi.spyOn(api, "systemUpdateStatus").mockResolvedValue(blockedStatus);
+    render(<I18nProvider><SystemUpdatesPage /></I18nProvider>);
+
+    const heading = await screen.findByRole("heading", { name: "Update information needs attention", level: 2 });
+    expect(heading.closest("section")?.classList.contains("attention")).toBe(true);
+    expect(screen.getByText("A trusted target is incomplete, so Stugu will not start the update.")).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Stugu is up to date", level: 2 })).toBeNull();
+    const component = screen.getByRole("heading", { name: componentName, level: 3 }).closest("article")!;
+    expect(within(component).getByText("Action needed")).toBeTruthy();
   });
 
   it("keeps completed update history out of the default view", async () => {
@@ -719,6 +791,7 @@ describe("system updates page", () => {
     });
     render(<I18nProvider><SystemUpdatesPage /></I18nProvider>);
 
+    expect(await screen.findByRole("heading", { name: "Update information needs attention", level: 2 })).toBeTruthy();
     expect((await screen.findAllByText(/prepared outside the current verified workflow/)).length).toBeGreaterThan(0);
     expect(screen.queryByRole("button", { name: "Restart and install" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Update everything" })).toBeNull();
