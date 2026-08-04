@@ -797,7 +797,14 @@ export class SystemUpdateService {
     request: Extract<SystemUpdateOperationRequest, { action: "retry-application" }>,
     workflow: WorkflowStatusFile,
   ): SystemUpdateStatus {
-    this.#requireUnifiedCapability(true);
+    const heartbeat = this.#requireUnifiedCapability(false);
+    if (!heartbeat.ready && heartbeat.systemUpdateReason !== "system-update-workflow-active") {
+      throw new SystemUpdateError(
+        409,
+        "UPDATE_AGENT_BUSY",
+        heartbeat.detail ?? heartbeat.systemUpdateReason ?? "The update agent is busy",
+      );
+    }
     if (!this.#directory) {
       throw new SystemUpdateError(503, "SYSTEM_UPDATE_NOT_CONFIGURED", "System updates are not configured");
     }

@@ -77,6 +77,16 @@ function hostReasonKey(reason: string | null | undefined): TranslationKey {
   return reasonKey(reason);
 }
 
+function applicationReasonKey(reason: SystemUpdateStatus["capability"]["reason"]): TranslationKey {
+  if (reason === "appliance-upgrade-required") return "updates.block.factoryTransition";
+  if (reason === "agent-upgrade-required") return "updates.block.agentUpgrade";
+  if (reason === "agent-not-ready") return "updates.block.agentNotReady";
+  if (reason === "system-update-recovery-needed") return "updates.block.recoveryRequired";
+  if (reason === "system-update-workflow-active" || reason === "host-update-active") return "updates.block.mutationBusy";
+  if (reason === "not-configured") return "updates.block.notConfigured";
+  return "updates.block.agentOffline";
+}
+
 function applicationStatus(status: SystemUpdateStatus): ApplicationSystemUpdateStatus {
   return status.application ?? {
     currentVersion: status.currentVersion,
@@ -308,10 +318,27 @@ export function SystemUpdateOverview({
     || host.targetGeneration === undefined
     || !host.targetDigest);
   const projectionBlocked = appMetadataMissing || hostMetadataMissing;
-  const appBlockedReason = app.capability.reason === "ready" ? null : app.capability.reason;
+  const expectedWorkflowInterlock = Boolean(workflow
+    && !terminalWorkflowPhases.has(workflow.phase)
+    && status.revision !== undefined
+    && workflow.revision === status.revision
+    && ["system-update-workflow-active", "host-update-active"].includes(app.capability.reason));
+  const expectedApplicationRetryInterlock = Boolean(workflow
+    && workflow.phase === "application-failed"
+    && status.revision !== undefined
+    && workflow.revision === status.revision
+    && Boolean(workflow.targets.applicationVersion)
+    && host.phase === "complete"
+    && app.capability.reason === "system-update-workflow-active");
+  const applicationCapabilityBlocks = !expectedWorkflowInterlock
+    && !expectedApplicationRetryInterlock
+    && (!app.capability.available || app.capability.reason !== "ready");
+  const appBlockedReason = !applicationCapabilityBlocks
+    ? null
+    : app.capability.reason === "ready" ? "agent-not-ready" : app.capability.reason;
   const hostManagedExternally = ["platform-managed-externally", "not-raspberry-pi"].includes(host.reason ?? "");
-  const hostReasonBlocks = Boolean(host.reason && !hostManagedExternally);
-  const applicationCapabilityBlocks = !app.capability.available && appBlockedReason !== null;
+  const hostReasonBlocks = !hostManagedExternally
+    && Boolean(host.reason || !host.supported || host.phase === "unavailable");
   const overallBlocked = projectionBlocked || applicationCapabilityBlocks || hostReasonBlocks || unboundPreparedHost;
   const workflowAllowsNewUpdate = !workflow || [
     "complete", "cancelled", "failed", "returned", "host-returned",
@@ -321,19 +348,23 @@ export function SystemUpdateOverview({
     && !recovery
     && !awaitingRestart
     && !unboundPreparedHost
-    && !projectionBlocked
+    && !overallBlocked
     && workflowAllowsNewUpdate
     && (!app.updateAvailable || app.capability.available)
     && (!host.updateAvailable || (host.supported && !hostReasonBlocks));
   const canRetry = workflow?.phase === "application-failed"
     && Boolean(workflow.targets.applicationVersion)
-    && app.capability.available;
+    && host.phase === "complete"
+    && (app.capability.available || expectedApplicationRetryInterlock)
+    && !overallBlocked
+    && !recovery;
+  const canRestart = awaitingRestart && Boolean(binding) && !overallBlocked && !recovery;
   const [restartBinding, setRestartBinding] = useState<HostReadyToRestartBinding | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const detailsRef = useRef<HTMLDetailsElement>(null);
   const restartBindingIsCurrent = Boolean(restartBinding
     && binding
-    && awaitingRestart
+    && canRestart
     && restartBinding.operationId === binding.operationId
     && restartBinding.targetVersion === binding.targetVersion
     && restartBinding.targetGeneration === binding.targetGeneration
@@ -361,36 +392,42 @@ export function SystemUpdateOverview({
       : "ready";
   const headline = recovery
     ? t("updates.overall.recoveryNeeded")
-    : awaitingRestart
-      ? t("updates.overall.awaitingRestart")
-      : applicationFailed
-        ? t("updates.overall.applicationFailed")
-        : workflowFailed
-          ? t("updates.overall.failed")
-          : hostReturned
-            ? t("updates.overall.hostReturned")
-            : overallBlocked
-              ? t("updates.overall.blocked")
+    : workflowFailed
+      ? t("updates.overall.failed")
+      : hostReturned
+        ? t("updates.overall.hostReturned")
+        : overallBlocked
+          ? t("updates.overall.blocked")
+          : applicationFailed
+            ? t("updates.overall.applicationFailed")
+            : awaitingRestart
+              ? t("updates.overall.awaitingRestart")
               : active
                 ? t("updates.overall.inProgress")
                 : available
-                  ? t("updates.overall.available")
+                  ? t(hostManagedExternally && app.updateAvailable && !host.updateAvailable
+                    ? "updates.overall.applicationAvailable"
+                    : "updates.overall.available")
                   : t("updates.overall.current");
   const summary = recovery
     ? t("updates.overall.recoveryNeededHelp")
-    : awaitingRestart
-      ? t("updates.overall.awaitingRestartHelp")
-      : applicationFailed
-        ? t("updates.overall.applicationFailedHelp")
-        : workflowFailed
-          ? t("updates.overall.failedHelp")
-          : hostReturned
-            ? t("updates.overall.failedHelp")
-            : overallBlocked
-              ? t("updates.overall.blockedHelp")
-              : available
-                ? t("updates.overall.availableHelp")
-                : t("updates.overall.currentHelp");
+    : workflowFailed
+      ? t("updates.overall.failedHelp")
+      : hostReturned
+        ? t("updates.overall.failedHelp")
+        : overallBlocked
+          ? t(projectionBlocked ? "updates.overall.blockedHelp" : "updates.overall.blockedSafetyHelp")
+          : applicationFailed
+            ? t("updates.overall.applicationFailedHelp")
+            : awaitingRestart
+              ? t("updates.overall.awaitingRestartHelp")
+              : active
+                ? t("updates.overall.inProgressHelp")
+                : available
+                  ? t(hostManagedExternally && app.updateAvailable && !host.updateAvailable
+                    ? "updates.overall.applicationAvailableHelp"
+                    : "updates.overall.availableHelp")
+                  : t("updates.overall.currentHelp");
   const appState = applicationFailed || appMetadataMissing || applicationCapabilityBlocks
     ? t("updates.component.blocked")
     : applicationWorkflowActive || app.operation && ["queued", "preparing", "backup", "pulling", "applying", "verifying", "rolling-back"].includes(app.operation.phase)
@@ -398,13 +435,11 @@ export function SystemUpdateOverview({
       : app.updateAvailable
         ? t("updates.component.ready")
         : t("updates.component.current");
-  const hostState = hostMetadataMissing
+  const hostState = hostMetadataMissing || unboundPreparedHost || hostReasonBlocks
     ? t("updates.component.blocked")
     : awaitingRestart
       ? t("updates.component.readyToRestart")
-      : unboundPreparedHost
-        ? t("updates.component.blocked")
-        : hostWorkflowActive || host.phase === "restarting" || host.phase === "verifying"
+      : hostWorkflowActive || host.phase === "restarting" || host.phase === "verifying"
           ? t("updates.component.inProgress")
           : host.updateAvailable
             ? t("updates.component.ready")
@@ -425,6 +460,9 @@ export function SystemUpdateOverview({
   };
 
   return <section className={`panel unified-update-card ${overallTone}`} aria-labelledby="unified-update-title">
+    <p className="sr-only" role="status" aria-live="polite" aria-atomic="true" aria-label={t("updates.a11y.status")}>
+      {headline}. {summary} {t("updates.component.application")}: {appState}. {t("updates.component.host")}: {hostState}.
+    </p>
     <div className="unified-update-card__header">
       <span className="unified-update-card__icon" aria-hidden="true">
         {overallTone === "attention" ? <ShieldAlert size={22} /> : available || active ? <CloudDownload size={22} /> : <ShieldCheck size={22} />}
@@ -453,14 +491,14 @@ export function SystemUpdateOverview({
           </dl>
           {appMetadataMissing
             ? <p className="unified-update-reason"><CircleAlert size={14} aria-hidden="true" />{t("updates.block.metadataUnavailable")}</p>
-            : appBlockedReason && <p className="unified-update-reason"><CircleAlert size={14} aria-hidden="true" />{appBlockedReason === "appliance-upgrade-required" ? t("updates.block.factoryTransition") : appBlockedReason === "agent-upgrade-required" ? t("updates.block.agentUpgrade") : t("updates.block.agentOffline")}</p>}
+            : appBlockedReason && <p className="unified-update-reason"><CircleAlert size={14} aria-hidden="true" />{t(applicationReasonKey(appBlockedReason))}</p>}
         </div>
       </article>
 
       <article className="unified-update-component" role="listitem">
         <span className="unified-update-component__icon" aria-hidden="true"><Server size={20} /></span>
         <div className="unified-update-component__body">
-          <div className="unified-update-component__heading"><h3>{t("updates.component.host")}</h3><StateBadge label={hostState} tone={hostMetadataMissing || unboundPreparedHost || host.reason && !hostManagedExternally ? "attention" : host.updateAvailable || awaitingRestart ? "available" : host.supported ? "ready" : "muted"} /></div>
+          <div className="unified-update-component__heading"><h3>{t("updates.component.host")}</h3><StateBadge label={hostState} tone={hostMetadataMissing || unboundPreparedHost || hostReasonBlocks ? "attention" : host.updateAvailable || awaitingRestart ? "available" : host.supported ? "ready" : "muted"} /></div>
           <dl>
             <div><dt>{t("updates.component.installed")}</dt><dd>{host.currentVersion ? version(host.currentVersion) : host.currentGeneration !== null && host.currentGeneration !== undefined ? t("updates.component.generation", { generation: host.currentGeneration }) : "\u2014"}</dd></div>
             <div><dt>{t("updates.component.available")}</dt><dd>{host.targetVersion ? `${version(host.targetVersion)} \u00b7 ${t("updates.component.generation", { generation: host.targetGeneration ?? "\u2014" })}` : "\u2014"}</dd></div>
@@ -469,7 +507,7 @@ export function SystemUpdateOverview({
             ? <p className="unified-update-reason"><CircleAlert size={14} aria-hidden="true" />{t("updates.block.metadataUnavailable")}</p>
             : unboundPreparedHost
             ? <p className="unified-update-reason"><CircleAlert size={14} aria-hidden="true" />{t("updates.block.unboundPrepared")}</p>
-            : host.reason && <p className={`unified-update-reason ${hostManagedExternally ? "muted" : ""}`}><CircleAlert size={14} aria-hidden="true" />{t(hostReasonKey(host.reason))}</p>}
+            : (host.reason || hostReasonBlocks) && <p className={`unified-update-reason ${hostManagedExternally ? "muted" : ""}`}><CircleAlert size={14} aria-hidden="true" />{t(host.reason ? hostReasonKey(host.reason) : "updates.block.unknown")}</p>}
         </div>
       </article>
     </div>
@@ -478,11 +516,11 @@ export function SystemUpdateOverview({
 
     <div className="unified-update-actions">
       {recovery ? <button type="button" className="primary-button" onClick={openRecovery}><ShieldAlert size={16} aria-hidden="true" />{t("updates.action.viewRecovery")}</button>
-        : awaitingRestart && binding ? <button type="button" className="primary-button" disabled={busy !== null} onClick={() => setRestartBinding(binding)}><RotateCw size={16} aria-hidden="true" />{t("updates.action.restartAndInstall")}</button>
+        : canRestart && binding ? <button type="button" className="primary-button" disabled={busy !== null} onClick={() => setRestartBinding(binding)}><RotateCw size={16} aria-hidden="true" />{t("updates.action.restartAndInstall")}</button>
           : canUpdate ? <button type="button" className="primary-button" disabled={busy !== null} onClick={onUpdateEverything}><CloudDownload size={16} aria-hidden="true" />{busy === "update-everything" || busy === "install" ? t("updates.requesting") : updateActionLabel}</button>
             : canRetry ? <button type="button" className="primary-button" disabled={busy !== null} onClick={onRetryApplication}><RefreshCw size={16} aria-hidden="true" />{t("updates.action.retryApplication")}</button>
               : null}
-      {awaitingRestart && binding && (workflow?.canCancel ?? true) && <button type="button" className="secondary-button" disabled={busy !== null} onClick={() => onCancelHost(binding)}>{t("updates.action.cancelPrepared")}</button>}
+      {canRestart && binding && (workflow?.canCancel ?? true) && <button type="button" className="secondary-button" disabled={busy !== null} onClick={() => onCancelHost(binding)}>{t("updates.action.cancelPrepared")}</button>}
       {lastChecked && <small>{t("updates.lastChecked", { date: lastChecked })}</small>}
     </div>
 
@@ -503,7 +541,7 @@ export function SystemUpdateOverview({
       busy={busy === "activate-host"}
       onCancel={() => setRestartBinding(null)}
       onConfirm={() => {
-        if (!restartBinding) return;
+        if (!restartBinding || !canRestart) return;
         setRestartBinding(null);
         onActivateHost(restartBinding);
       }}

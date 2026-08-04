@@ -9,8 +9,12 @@ All notable Stugu releases are recorded here.
 - Make the unified update summary fail closed when the application update
   agent or native host updater is unavailable, a trusted target is incomplete,
   or a prepared host target is not bound to the active workflow.
-- Keep recovery, restart, rollback, and component-specific failures ahead of
-  generic availability while leaving externally managed hosts neutral.
+- Keep verified in-progress workflows visible during their expected mutation
+  interlock, but suppress update, retry, restart, and cancellation controls
+  whenever a required updater safety state is unavailable or stale.
+- Keep recovery, rollback, and component-specific failures ahead of generic
+  availability while leaving externally managed hosts neutral and accessible
+  application-only updates intact.
 
 Upgrade impact: no persistent-data migration change. This preview uses host
 generation 8 and retains explicit host activation, exact-device qualification,

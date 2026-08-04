@@ -155,6 +155,28 @@ function workflowStatus(overrides: Record<string, unknown> = {}): Record<string,
   };
 }
 
+function failedApplicationWorkflow(): Record<string, unknown> {
+  return workflowStatus({
+    revision: 12,
+    phase: "application-failed",
+    detail: "Application verification failed",
+    host: {
+      targetVersion: "0.6.0",
+      targetGeneration: 6,
+      manifestSha256: "9".repeat(64),
+      operationId: "22222222-2222-4222-8222-222222222222",
+      phase: "complete",
+    },
+    app: {
+      targetVersion: "0.6.0",
+      operationId: "33333333-3333-4333-8333-333333333333",
+      phase: "failed",
+    },
+    cancellationEligible: false,
+    error: { code: "APPLICATION_UPDATE_FAILED", message: "Application verification failed" },
+  });
+}
+
 describe("system update service", () => {
   const directories: string[] = [];
 
@@ -816,29 +838,21 @@ describe("system update service", () => {
     expect(() => service.requestOperation({ ...request, unexpected: true })).toThrow(/exact host identity bindings/);
   });
 
-  it("queues only the minimal retry intent after a bound application failure", async () => {
+  it.each([
+    { name: "the compatible agent is ready", heartbeat: {} },
+    {
+      name: "the bound workflow owns the mutation lock",
+      heartbeat: {
+        ready: false,
+        detail: "The unified system update owns the shared mutation lock",
+        systemUpdateReason: "system-update-workflow-active",
+      },
+    },
+  ])("queues only the minimal retry intent after a bound application failure when $name", async ({ heartbeat }) => {
     const operationsDirectory = directory();
     const now = new Date("2026-07-23T20:30:00Z");
-    writeAgentHeartbeat(operationsDirectory, now);
-    const failed = workflowStatus({
-      revision: 12,
-      phase: "application-failed",
-      detail: "Application verification failed",
-      host: {
-        targetVersion: "0.6.0",
-        targetGeneration: 6,
-        manifestSha256: "9".repeat(64),
-        operationId: "22222222-2222-4222-8222-222222222222",
-        phase: "complete",
-      },
-      app: {
-        targetVersion: "0.6.0",
-        operationId: "33333333-3333-4333-8333-333333333333",
-        phase: "failed",
-      },
-      cancellationEligible: false,
-      error: { code: "APPLICATION_UPDATE_FAILED", message: "Application verification failed" },
-    });
+    writeAgentHeartbeat(operationsDirectory, now, heartbeat);
+    const failed = failedApplicationWorkflow();
     writeFileSync(join(operationsDirectory, "workflow-status.json"), JSON.stringify(failed));
     const service = new SystemUpdateService({
       currentVersion: "0.5.0",
@@ -862,6 +876,104 @@ describe("system update service", () => {
       action: "retry-application",
       workflowId: "11111111-1111-4111-8111-111111111111",
     });
+  });
+
+  it.each([
+    {
+      name: "a host update owns the mutation lock",
+      heartbeat: { ready: false, systemUpdateReason: "host-update-active", detail: "A host update is active" },
+      expectedCode: "UPDATE_AGENT_BUSY",
+    },
+    {
+      name: "workflow recovery is required",
+      heartbeat: {
+        ready: false,
+        systemUpdateReason: "system-update-recovery-needed",
+        detail: "Recover the interrupted workflow first",
+      },
+      expectedCode: "UPDATE_AGENT_BUSY",
+    },
+    {
+      name: "the agent is generically busy",
+      heartbeat: { ready: false, systemUpdateReason: null, detail: "Another mutation is active" },
+      expectedCode: "UPDATE_AGENT_BUSY",
+    },
+    {
+      name: "the agent is disconnected",
+      heartbeat: null,
+      expectedCode: "UPDATE_AGENT_UNAVAILABLE",
+    },
+    {
+      name: "the heartbeat is stale",
+      heartbeat: { updatedAt: "2026-07-23T20:27:59.000Z" },
+      expectedCode: "UPDATE_AGENT_UNAVAILABLE",
+    },
+    {
+      name: "the request names a different workflow",
+      heartbeat: { ready: false, systemUpdateReason: "system-update-workflow-active" },
+      workflowId: "44444444-4444-4444-8444-444444444444",
+      expectedCode: "SYSTEM_UPDATE_WORKFLOW_MISMATCH",
+    },
+    {
+      name: "the request revision is stale",
+      heartbeat: { ready: false, systemUpdateReason: "system-update-workflow-active" },
+      expectedRevision: 11,
+      expectedCode: "SYSTEM_UPDATE_REVISION_CONFLICT",
+    },
+    {
+      name: "the agent is not running on the Raspberry Pi host",
+      heartbeat: {
+        runtime: "docker",
+        ready: false,
+        systemUpdateReason: "system-update-workflow-active",
+      },
+      expectedCode: "HOST_UPDATE_UNSUPPORTED",
+    },
+    {
+      name: "the agent lacks the unified update capability",
+      heartbeat: {
+        capabilities: ["system-update"],
+        ready: false,
+        systemUpdateReason: "system-update-workflow-active",
+      },
+      expectedCode: "UPDATE_AGENT_UPGRADE_REQUIRED",
+    },
+    {
+      name: "the agent contract is incompatible",
+      heartbeat: {
+        updateAgentContract: 2,
+        ready: false,
+        systemUpdateReason: "system-update-workflow-active",
+      },
+      expectedCode: "UPDATE_AGENT_UPGRADE_REQUIRED",
+    },
+  ])("rejects application retry when $name", async ({
+    heartbeat,
+    workflowId = "11111111-1111-4111-8111-111111111111",
+    expectedRevision = 12,
+    expectedCode,
+  }) => {
+    const operationsDirectory = directory();
+    const now = new Date("2026-07-23T20:30:00Z");
+    if (heartbeat) writeAgentHeartbeat(operationsDirectory, now, heartbeat);
+    writeFileSync(
+      join(operationsDirectory, "workflow-status.json"),
+      JSON.stringify(failedApplicationWorkflow()),
+    );
+    const service = new SystemUpdateService({
+      currentVersion: "0.5.0",
+      repository: "liljestk/open-stuga",
+      imagePrefix: "ghcr.io/liljestk/open-stuga",
+      operationsDirectory,
+      now: () => now,
+    });
+
+    await expect(service.requestOperation({
+      action: "retry-application",
+      expectedRevision,
+      workflowId,
+    })).rejects.toMatchObject<SystemUpdateError>({ code: expectedCode });
+    expect(existsSync(join(operationsDirectory, "system-workflow-requests"))).toBe(false);
   });
 
   it("keeps targetless failed workflow recovery visible but rejects malformed target objects", () => {
