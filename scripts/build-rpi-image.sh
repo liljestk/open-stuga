@@ -552,6 +552,21 @@ for required_host_runtime in /usr/bin/rauc /usr/bin/unsquashfs; do
     exit 1
   fi
 done
+while IFS=: read -r required_host_service required_host_service_mode; do
+  required_host_service_metadata="$(
+    dump.erofs --path="$required_host_service" "$system_source" 2>&1
+  )"
+  if ! grep -Fq "Path : $required_host_service" <<<"$required_host_service_metadata" \
+    || ! grep -Fq "Access: $required_host_service_mode/" <<<"$required_host_service_metadata"; then
+    echo "Generated host image lacks RAUC service dependency $required_host_service" >&2
+    exit 1
+  fi
+done <<'EOF'
+/usr/lib/systemd/system/rauc.service:0644
+/usr/share/dbus-1/system-services/de.pengutronix.rauc.service:0644
+/usr/share/dbus-1/system.d/de.pengutronix.rauc.conf:0644
+/usr/share/rauc/rauc-service.sh:0755
+EOF
 mkdir -p "$host_inputs"
 install -m 0644 "$boot_source" "$host_inputs/boot.vfat"
 install -m 0644 "$system_source" "$host_inputs/system.erofs"

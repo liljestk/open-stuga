@@ -4,6 +4,19 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.34.1 - 2026-08-04
+
+- Install Debian's `rauc-service` package so signed host updates have the
+  systemd unit, D-Bus activation policy, and service launcher required by the
+  RAUC client.
+- Reject incomplete updater hosts before download, and reject factory builds
+  that omit any RAUC service runtime file.
+
+Upgrade impact: this release supersedes the unpublished 0.34.0 preview as host
+generation 5. It retains the combined H500, H200, Gree, telemetry-retention,
+mobile overview, and signed A/B updater changes without a persistent-data
+migration.
+
 ## 0.34.0 - 2026-08-04
 
 - Allow a factory host-generation seed with no accepted manifest digest to bind
