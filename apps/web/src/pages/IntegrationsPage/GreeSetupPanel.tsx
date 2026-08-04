@@ -172,6 +172,9 @@ export function GreeSetupPanel({
   const temperature = (value: number | null | undefined) => (
     value == null ? t("common.noData") : `${new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(value)} °C`
   );
+  const humidity = (value: number | null | undefined) => (
+    value == null ? t("common.noData") : `${new Intl.NumberFormat(locale, { maximumFractionDigits: 0 }).format(value)}%`
+  );
 
   return (
     <section className="panel connection-card connection-provider" aria-labelledby="gree-connection-heading">
@@ -203,6 +206,8 @@ export function GreeSetupPanel({
                 <div><dt>{t("setup.greeSelectedMode")}</dt><dd>{liveState?.selectedMode ? t(modeKeys[liveState.selectedMode]) : t("common.noData")}</dd></div>
                 <div><dt>{t("setup.greeTarget")}</dt><dd>{temperature(liveState?.targetTemperatureC)}</dd></div>
                 <div><dt>{t("setup.greeIndoor")}</dt><dd>{temperature(liveState?.currentTemperatureC)}</dd></div>
+                <div><dt>{t("setup.greeHumidity")}</dt><dd>{humidity(liveState?.currentHumidityPercent)}</dd></div>
+                <div><dt>{t("setup.greeHumidityTarget")}</dt><dd>{humidity(liveState?.targetHumidityPercent)}</dd></div>
                 <div><dt>{t("setup.greeCompressorFrequency")}</dt><dd>{liveState?.compressorFrequencyHz == null
                   ? t("common.noData")
                   : `${new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(liveState.compressorFrequencyHz)} Hz`}</dd></div>

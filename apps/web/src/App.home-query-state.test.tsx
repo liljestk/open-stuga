@@ -34,7 +34,8 @@ describe("App Home query restoration", () => {
     await waitFor(() => expect(view.container.querySelector(".sensor-inspector #selected-sensor-title")).toHaveTextContent("Bathroom"));
     expect(selectHouse).not.toHaveBeenCalled();
 
+    fireEvent.click(screen.getByText("Explore this home", { selector: "strong" }));
     fireEvent.click(screen.getByText("Open analysis tools"));
-    expect(await screen.findByRole("button", { name: "7 days" })).toHaveAttribute("aria-pressed", "true");
+    expect(await screen.findByRole("button", { name: "7 days" }, { timeout: 5_000 })).toHaveAttribute("aria-pressed", "true");
   });
 });

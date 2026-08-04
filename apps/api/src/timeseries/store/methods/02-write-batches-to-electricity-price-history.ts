@@ -666,15 +666,19 @@ registerTimeseriesStoreMethods({
       const result = await this.__query<HeatPumpStateRow>(`SELECT connection_id, house_id, equipment_id,
           device_id, name, brand, model, transport, floor_id, room_id, x, y, z,
           observed_at, received_at, available, power, selected_mode,
-          target_temperature_c, current_temperature_c, current_temperature_source, fan_speed,
-          horizontal_swing, vertical_swing, quiet, turbo, xfan, compressor_frequency_hz,
+          target_temperature_c, current_temperature_c, current_temperature_source,
+          current_humidity_percent, target_humidity_percent, fan_speed,
+          horizontal_swing, vertical_swing, fresh_air, anion, sleep, light, quiet, turbo, xfan,
+          steady_heat, power_save, clean_filter, water_full, dehumidifier_mode, compressor_frequency_hz,
           diagnostics, activity, activity_evidence
         FROM (
           SELECT connection_id, house_id, equipment_id, device_id, name, brand, model, transport,
             floor_id, room_id, x, y, z, observed_at,
             received_at, available, power, selected_mode, target_temperature_c, current_temperature_c,
-            current_temperature_source, fan_speed, horizontal_swing, vertical_swing, quiet, turbo,
-            xfan, compressor_frequency_hz, diagnostics, activity, activity_evidence, ingested_at
+            current_temperature_source, current_humidity_percent, target_humidity_percent,
+            fan_speed, horizontal_swing, vertical_swing, fresh_air, anion, sleep, light, quiet, turbo,
+            xfan, steady_heat, power_save, clean_filter, water_full, dehumidifier_mode,
+            compressor_frequency_hz, diagnostics, activity, activity_evidence, ingested_at
           FROM ${qualifiedName(this.schema, "heat_pump_state_samples")}
           WHERE connection_id = $1
             AND observed_at >= $2::TIMESTAMPTZ AND observed_at <= $3::TIMESTAMPTZ

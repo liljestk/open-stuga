@@ -324,6 +324,9 @@ export function configureApiPart17(context: ReturnType<typeof configureApiPart16
       const body = bodyObject(request.body);
       const tags = body.tags === undefined ? [] : body.tags;
       if (!Array.isArray(tags) || tags.some((tag) => typeof tag !== "string")) throw new HttpError(400, "INVALID_FIELD", "tags must be a string array");
+      if (tags.includes("integration:gree")) {
+        throw new HttpError(400, "RESERVED_SENSOR_TAG", "The Gree sensor tag is managed by the heat-pump connection");
+      }
       const input: Omit<Sensor, "id"> & { id?: string } = {
         ...(typeof body.id === "string" ? { id: body.id } : {}),
         houseId: requiredString(body, "houseId"), floorId: requiredString(body, "floorId"), name: requiredString(body, "name"),
@@ -368,7 +371,13 @@ export function configureApiPart17(context: ReturnType<typeof configureApiPart16
   context.app.patch(`${context.prefix}/sensors/:id`, (request, response) => {
       const current = context.database.getSensor(request.params.id as string);
       if (current) context.stuguby.assertHouseWriteAllowed(current.houseId);
+      if (current?.tags.includes("integration:gree")) {
+        throw new HttpError(409, "SENSOR_MANAGED_BY_INTEGRATION", "Manage this heat-pump sensor from Set up");
+      }
       const patch = parseSensorPatch(request.body);
+      if (patch.tags?.includes("integration:gree")) {
+        throw new HttpError(400, "RESERVED_SENSOR_TAG", "The Gree sensor tag is managed by the heat-pump connection");
+      }
       if (current && patch.houseId && patch.houseId !== current.houseId) {
         context.stuguby.assertHouseWriteAllowed(patch.houseId);
         context.assertSensorHouseMoveAllowed(current.houseId, patch.houseId);
@@ -398,7 +407,13 @@ export function configureApiPart17(context: ReturnType<typeof configureApiPart16
   context.app.put(`${context.prefix}/sensors/:id`, (request, response) => {
       const current = context.database.getSensor(request.params.id as string);
       if (current) context.stuguby.assertHouseWriteAllowed(current.houseId);
+      if (current?.tags.includes("integration:gree")) {
+        throw new HttpError(409, "SENSOR_MANAGED_BY_INTEGRATION", "Manage this heat-pump sensor from Set up");
+      }
       const patch = parseSensorPatch(request.body);
+      if (patch.tags?.includes("integration:gree")) {
+        throw new HttpError(400, "RESERVED_SENSOR_TAG", "The Gree sensor tag is managed by the heat-pump connection");
+      }
       if (current && patch.houseId && patch.houseId !== current.houseId) {
         context.stuguby.assertHouseWriteAllowed(patch.houseId);
         context.assertSensorHouseMoveAllowed(current.houseId, patch.houseId);
@@ -428,6 +443,9 @@ export function configureApiPart17(context: ReturnType<typeof configureApiPart16
   context.app.delete(`${context.prefix}/sensors/:id`, async (request, response) => {
       const current = context.database.getSensor(request.params.id as string);
       if (current) context.stuguby.assertHouseWriteAllowed(current.houseId);
+      if (current?.tags.includes("integration:gree")) {
+        throw new HttpError(409, "SENSOR_MANAGED_BY_INTEGRATION", "Disconnect this heat pump from Set up; its history will be retained");
+      }
       context.requireImmutableTelemetryLineage("sensor", request.params.id as string);
       context.database.transaction(() => {
         if (!context.database.deleteSensor(request.params.id as string)) throw new HttpError(404, "NOT_FOUND", "Sensor not found");

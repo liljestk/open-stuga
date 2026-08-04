@@ -153,9 +153,12 @@ export function createTelemetryFixture(path, {
           "deviceId":"AABBCCDDEEFF","name":"Nordkapp","brand":"Wilfa","model":"Nordkapp 30",
           "observedAt":"2026-07-18T10:00:00.000Z","receivedAt":"2026-07-18T10:00:01.000Z",
           "available":true,"power":true,"selectedMode":"cool","targetTemperatureC":22,
-          "currentTemperatureC":25.5,"currentTemperatureSource":"reported","fanSpeed":"Auto",
-          "horizontalSwing":null,"verticalSwing":"FullSwing","quiet":false,"turbo":false,
-          "xfan":true,"activity":"unknown","activityEvidence":"unavailable"}'
+          "currentTemperatureC":25.5,"currentTemperatureSource":"reported",
+          "currentHumidityPercent":48,"targetHumidityPercent":50,"fanSpeed":"Auto",
+          "horizontalSwing":null,"verticalSwing":"FullSwing","freshAir":true,"anion":true,
+          "sleep":false,"light":true,"quiet":false,"turbo":false,"xfan":true,
+          "steadyHeat":false,"powerSave":true,"cleanFilter":false,"waterFull":false,
+          "dehumidifierMode":"AnionOnly","activity":"unknown","activityEvidence":"unavailable"}'
       );
   `);
   if (duplicateReading) {

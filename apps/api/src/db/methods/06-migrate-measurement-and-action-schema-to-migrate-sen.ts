@@ -94,6 +94,7 @@ import {
   policyJson,
 } from "../../notification-policy.js";
 import type { EnergyCostAggregateQuery, EnergyCostAggregateRecord, MeasurementCoverageRecord } from "../../timeseries/types.js";
+import { HEAT_PUMP_MEASUREMENT_DEFINITIONS } from "../../heat-pump-measurements.js";
 import { CORE_SCHEMA_SQL } from "../migrations/core-schema.js";
 import { MIN_SEED_OUTDOOR_READINGS } from "../support/01-json-value-to-area-equipment-row.js";
 import { parseJson } from "../support/03-sensor-data-gap-row-to-canonical-json-value.js";
@@ -134,6 +135,26 @@ registerDatabaseMethods({
       insertDefinition.run("power", JSON.stringify({ en: "Power", fi: "Teho" }), "W", "power", JSON.stringify(["W", "kW"]), "rate", "time_weighted_mean", 1, null, null, 0, 10_000, 500, "sequential", 0, 0);
       insertDefinition.run("energy", JSON.stringify({ en: "Energy (cumulative)", fi: "Energia (kumulatiivinen)" }), "kWh", "energy", JSON.stringify(["Wh", "kWh"]), "cumulative_counter", "delta", 3, 0, null, 0, null, 1, "sequential", 0, 0);
       insertDefinition.run("electricity_price", JSON.stringify({ en: "Electricity price", fi: "Sähkön hinta" }), "€/kWh", "finite_scalar", JSON.stringify(["€/kWh"]), "gauge", "mean", 4, null, null, -0.5, 1, 0.05, "sequential", 0, 0);
+      for (const definition of HEAT_PUMP_MEASUREMENT_DEFINITIONS) {
+        insertDefinition.run(
+          definition.id,
+          JSON.stringify(definition.labels) ?? "{}",
+          definition.unit,
+          definition.dimension ?? "finite_scalar",
+          JSON.stringify(definition.allowedUnits ?? [definition.unit]),
+          definition.kind ?? "gauge",
+          definition.defaultAggregation ?? "mean",
+          definition.precision,
+          definition.validMin,
+          definition.validMax,
+          definition.displayMin,
+          definition.displayMax,
+          definition.interpolationDelta,
+          definition.colorScale,
+          definition.spatialInterpolation ? 1 : 0,
+          definition.forecastSupported ? 1 : 0,
+        );
+      }
       const updateBuiltinAnalytics = this.db.prepare(`UPDATE measurement_definitions SET
             dimension = ?, allowed_units_json = ?, kind = ?, default_aggregation = ?,
             generic_history_enabled = 1, generic_stats_enabled = 1 WHERE id = ?`);

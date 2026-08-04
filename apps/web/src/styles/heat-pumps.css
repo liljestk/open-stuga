@@ -11,6 +11,7 @@
 
 .heat-pump-marker.movable { cursor: grab; }
 .heat-pump-marker.movable:active { cursor: grabbing; }
+.heat-pump-marker.selectable:not(.movable) { cursor: pointer; }
 .heat-pump-marker:focus-visible { outline: 3px solid var(--action); outline-offset: 3px; }
 
 .heat-pump-hit { fill: transparent; pointer-events: all; }
@@ -18,12 +19,14 @@
   fill: color-mix(in srgb, var(--heat-pump-color) 15%, var(--panel));
   stroke: color-mix(in srgb, var(--heat-pump-color) 76%, var(--ink));
   stroke-width: 2.2;
+  transition: fill .15s ease, stroke .15s ease, stroke-width .15s ease;
   vector-effect: non-scaling-stroke;
 }
 .heat-pump-core {
-  fill: var(--panel);
-  stroke: var(--line-strong);
-  stroke-width: 1.5;
+  fill: color-mix(in srgb, var(--heat-pump-color) 78%, var(--ink));
+  stroke: var(--panel);
+  stroke-width: 2;
+  transition: fill .15s ease, stroke-width .15s ease;
   vector-effect: non-scaling-stroke;
 }
 .heat-pump-glyph {
@@ -36,7 +39,8 @@
   vector-effect: non-scaling-stroke;
 }
 .heat-pump-state,
-.heat-pump-name {
+.heat-pump-name,
+.heat-pump-value {
   fill: var(--ink);
   font-family: "Manrope", sans-serif;
   font-size: 11px;
@@ -47,12 +51,28 @@
   stroke-linejoin: round;
   stroke-width: 3px;
 }
+.heat-pump-value {
+  fill: var(--on-ink);
+  font-size: 10px;
+  stroke: none;
+}
+.heat-pump-value.compact { font-size: 10px; }
 .heat-pump-state { fill: var(--muted); font-size: 10px; }
 .building-heat-pump .heat-pump-name,
 .building-heat-pump .heat-pump-state { text-anchor: start; }
+.heat-pump-marker.selectable:hover .heat-pump-ring,
+.heat-pump-marker.selectable:focus-visible .heat-pump-ring,
+.heat-pump-marker.selected .heat-pump-ring {
+  fill: var(--action-soft);
+  stroke: var(--action);
+  stroke-width: 4;
+}
+.heat-pump-marker.selected .heat-pump-core { stroke-width: 3; }
 .heat-pump-marker.unavailable { opacity: .66; }
+.heat-pump-marker.stale { opacity: .72; }
 .heat-pump-marker.unavailable .heat-pump-ring,
-.heat-pump-marker.pending .heat-pump-ring { stroke-dasharray: 4 3; }
+.heat-pump-marker.pending .heat-pump-ring,
+.heat-pump-marker.stale .heat-pump-ring { stroke-dasharray: 4 3; }
 .building-heat-pump:not(.active-floor) { opacity: .78; }
 .heat-pump-tether {
   stroke: color-mix(in srgb, var(--muted) 70%, transparent);
@@ -117,3 +137,131 @@
 }
 .heat-pump-impact-legend .reported i { border-style: solid; }
 .heat-pump-impact-legend .inferred i { border-style: dashed; }
+
+.heat-pump-heading { align-items: flex-start; }
+.heat-pump-heading > div { min-width: 0; flex: 1; }
+.heat-pump-heading .eyebrow { overflow-wrap: anywhere; }
+.heat-pump-device-glyph {
+  position: relative;
+  width: 50px;
+  height: 34px;
+  display: block;
+  flex: 0 0 auto;
+  margin-top: 3px;
+  border: 2px solid var(--line-strong);
+  border-radius: 9px;
+  background: var(--panel-soft);
+  box-shadow: inset 0 -8px 14px color-mix(in srgb, var(--ink) 5%, transparent);
+}
+.heat-pump-device-glyph span:first-child {
+  position: absolute;
+  right: 7px;
+  top: 7px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--positive);
+}
+.heat-pump-device-glyph span:last-child {
+  position: absolute;
+  right: 8px;
+  bottom: 7px;
+  left: 8px;
+  height: 5px;
+  border-top: 2px solid var(--line-strong);
+  border-bottom: 2px solid var(--line-strong);
+}
+.heat-pump-status-pill {
+  min-height: 26px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  background: var(--panel-soft);
+  font-size: 10px;
+  font-weight: 700;
+}
+.heat-pump-status-pill i {
+  width: 8px;
+  height: 8px;
+  border-radius: 1px;
+  background: var(--muted-2);
+  transform: rotate(45deg);
+}
+.heat-pump-status-pill.on i { border-radius: 50%; background: var(--positive); transform: none; }
+.heat-pump-status-pill.stale i { background: var(--yellow); }
+.heat-pump-status-pill.unavailable i { background: var(--red); }
+.heat-pump-current strong { overflow-wrap: anywhere; }
+.heat-pump-evidence {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin: 12px 0 4px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--muted);
+  background: var(--panel-soft);
+}
+.heat-pump-evidence > span:last-child { min-width: 0; display: grid; gap: 2px; }
+.heat-pump-evidence strong { color: var(--ink); font-size: 10.5px; }
+.heat-pump-evidence small { font-size: 10px; line-height: 1.4; }
+.heat-pump-evidence-mark {
+  width: 22px;
+  height: 12px;
+  flex: 0 0 auto;
+  margin-top: 2px;
+  border: 2px dashed var(--heat-pump-color, var(--muted));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--heat-pump-color, var(--muted)) 12%, transparent);
+}
+.heat-pump-evidence.cooling,
+.heat-pump-evidence.drying { --heat-pump-color: var(--blue); }
+.heat-pump-evidence.heating { --heat-pump-color: var(--red); }
+.heat-pump-evidence.circulating { --heat-pump-color: var(--positive); }
+.heat-pump-evidence.reported .heat-pump-evidence-mark { border-style: solid; }
+.heat-pump-details { margin-top: 4px; border-top: 1px solid var(--line); }
+.heat-pump-details > summary {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 2px;
+  color: var(--action);
+  cursor: pointer;
+  list-style: none;
+  font-size: 10.5px;
+  font-weight: 700;
+}
+.heat-pump-details > summary::-webkit-details-marker { display: none; }
+.heat-pump-details > summary > span { display: inline-flex; align-items: center; gap: 6px; }
+.heat-pump-details > summary > svg { transition: transform .15s ease; }
+.heat-pump-details[open] > summary > svg { transform: rotate(180deg); }
+.heat-pump-details-content { padding: 2px 0 8px; }
+.heat-pump-details-content > p,
+.heat-pump-diagnostics-heading p,
+.heat-pump-no-diagnostics { margin: 0; color: var(--muted); font-size: 10px; line-height: 1.45; }
+.heat-pump-detail-list { padding: 6px 0; }
+.heat-pump-detail-list > div { align-items: flex-start; padding: 5px 0; }
+.heat-pump-detail-list dd { max-width: 150px; overflow-wrap: anywhere; }
+.heat-pump-technical-value { font-family: SFMono-Regular, Consolas, "Liberation Mono", monospace; }
+.heat-pump-diagnostics-heading { display: grid; gap: 3px; margin-top: 7px; padding-top: 10px; border-top: 1px solid var(--line); }
+.heat-pump-diagnostics-heading strong { font-size: 10.5px; }
+.heat-pump-diagnostics-list { padding-top: 4px; }
+.heat-pump-no-diagnostics { padding: 8px 0; }
+
+@media (max-width: 680px) {
+  .heat-pump-heading { flex-wrap: wrap; }
+  .heat-pump-status-pill { margin-left: 61px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .heat-pump-ring,
+  .heat-pump-core,
+  .heat-pump-details > summary > svg { transition-duration: .01ms; }
+}

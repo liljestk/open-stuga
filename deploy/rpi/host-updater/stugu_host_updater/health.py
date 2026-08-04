@@ -20,6 +20,33 @@ class HealthResult:
     checks: dict[str, str]
 
 
+HEALTH_EVIDENCE_VALUES = {
+    "slot": frozenset({"passed"}),
+    "generation": frozenset({"passed"}),
+    "root": frozenset({"passed"}),
+    "persistent": frozenset({"passed"}),
+    "bootconfig": frozenset({"passed"}),
+    "clock": frozenset({"passed"}),
+    "watchdog": frozenset({"passed", "disabled-by-policy"}),
+    "containerRuntime": frozenset({"passed"}),
+    "containers": frozenset({"passed"}),
+    "sqlite": frozenset({"passed"}),
+    "tailscale": frozenset({"passed"}),
+    "application": frozenset({"passed"}),
+}
+
+
+def valid_health_evidence(value: object) -> bool:
+    return (
+        isinstance(value, dict)
+        and set(value) == set(HEALTH_EVIDENCE_VALUES)
+        and all(
+            isinstance(result, str) and result in HEALTH_EVIDENCE_VALUES[check]
+            for check, result in value.items()
+        )
+    )
+
+
 def qualification_watchdog_seconds(path: Path) -> int:
     try:
         data = read_bounded_regular(path, maximum=64 * 1024)

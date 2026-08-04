@@ -92,6 +92,7 @@ import type {
   TrackedEquipmentState,
   TpLinkDiscoveredDevice,
 } from "@climate-twin/contracts";
+import type { SystemUpdateOperationRequest } from "@climate-twin/contracts";
 import type {
   StugubyDatasetGrant,
   StugubyDeletionReceipt,
@@ -249,7 +250,155 @@ export interface SystemUpdateOperation {
   }>;
 }
 
+export type SystemUpdateBlockReason =
+  | "agent-offline"
+  | "agent-not-connected"
+  | "agent-upgrade-required"
+  | "host-updater-offline"
+  | "host-updater-upgrade-required"
+  | "platform-managed-externally"
+  | "factory-transition-required"
+  | "appliance-upgrade-required"
+  | "cli-transition-required"
+  | "hardware-unqualified"
+  | "mutation-busy"
+  | "recovery-required"
+  | "backup-unavailable"
+  | "off-device-backup-required"
+  | "metadata-unavailable"
+  | "trust-verification-failed"
+  | "status-stale"
+  | "not-configured";
+
+export type HostSystemUpdatePhase =
+  | "unavailable"
+  | "idle"
+  | "checking"
+  | "available"
+  | "current"
+  | "downloading"
+  | "installing"
+  | "ready-to-restart"
+  | "restarting"
+  | "verifying"
+  | "complete"
+  | "returned"
+  | "cancelled"
+  | "failed"
+  | "recovery-needed";
+
+export interface HostReadyToRestartBinding {
+  operationId: string;
+  targetVersion: string;
+  targetGeneration: number;
+  targetDigest: string;
+  targetSlot?: string | null;
+}
+
+export interface HostSystemUpdateStatus {
+  supported: boolean;
+  phase: HostSystemUpdatePhase;
+  reason: SystemUpdateBlockReason | string | null;
+  detail?: string | null;
+  currentVersion?: string | null;
+  currentGeneration?: number | null;
+  activeSlot?: string | null;
+  updateAvailable: boolean;
+  targetVersion?: string | null;
+  targetGeneration?: number | null;
+  targetDigest?: string | null;
+  targetSha256?: string | null;
+  updatedAt?: string | null;
+  operationId?: string | null;
+  readyToRestart?: HostReadyToRestartBinding | null;
+}
+
+export type SystemUpdateWorkflowPhase =
+  | "preparing"
+  | "backup-active"
+  | "backup-complete"
+  | "host-stage-queueing"
+  | "host-stage-requested"
+  | "host-staging"
+  | "awaiting-restart"
+  | "restarting"
+  | "host-verifying"
+  | "host-complete"
+  | "application-queueing"
+  | "application-queued"
+  | "application-updating"
+  | "application-failed"
+  | "complete"
+  | "cancelled"
+  | "failed"
+  | "returned"
+  | "recovery-needed"
+  /** Accepted aliases from pre-v2 development responses. */
+  | "queued"
+  | "backing-up"
+  | "staging-host"
+  | "activating-host"
+  | "verifying-host"
+  | "updating-application"
+  | "verifying-application"
+  | "rolling-back-application"
+  | "host-returned";
+
+export type SystemUpdateWorkflowStepId =
+  | "backup"
+  | "stage-host"
+  | "restart-host"
+  | "verify-host"
+  | "update-application"
+  | "verify-application";
+
+export type SystemUpdateWorkflowStepState =
+  | "pending"
+  | "active"
+  | "waiting"
+  | "complete"
+  | "skipped"
+  | "failed"
+  | "rolled-back";
+
+export interface SystemUpdateWorkflowStep {
+  id: SystemUpdateWorkflowStepId;
+  state: SystemUpdateWorkflowStepState;
+  detail?: string | null;
+}
+
+export interface SystemUpdateWorkflow {
+  id: string;
+  revision: number;
+  action?: "update-everything";
+  phase: SystemUpdateWorkflowPhase;
+  requestedAt: string;
+  updatedAt: string;
+  completedAt?: string | null;
+  detail?: string | null;
+  hostOperationId?: string | null;
+  targets: {
+    applicationVersion: string | null;
+    hostVersion: string | null;
+    hostGeneration: number | null;
+    hostDigest: string | null;
+  };
+  steps?: SystemUpdateWorkflowStep[];
+  canCancel?: boolean;
+  recoveryRequired?: boolean;
+  reason?: SystemUpdateBlockReason | string | null;
+}
+
+export interface ApplicationSystemUpdateStatus {
+  currentVersion: string;
+  latestVersion: string | null;
+  updateAvailable: boolean;
+  capability: SystemUpdateStatus["capability"];
+  operation: SystemUpdateOperation | null;
+}
+
 export interface SystemUpdateStatus {
+  schema?: "stugu-system-updates/v2";
   currentVersion: string;
   latestVersion: string | null;
   updateAvailable: boolean;
@@ -271,12 +420,19 @@ export interface SystemUpdateStatus {
       | "not-configured";
   };
   operation: SystemUpdateOperation | null;
+  /** Additive v2 fields. Legacy servers continue to populate the app fields above. */
+  revision?: number;
+  application?: ApplicationSystemUpdateStatus;
+  host?: HostSystemUpdateStatus | null;
+  workflow?: SystemUpdateWorkflow | null;
 }
 
 export type SystemUpdateLiveStatus = Pick<
   SystemUpdateStatus,
   "currentVersion" | "latestVersion" | "updateAvailable" | "capability" | "operation"
->;
+> & Partial<Pick<SystemUpdateStatus, "schema" | "revision" | "application" | "host" | "workflow">>;
+
+export type SystemUpdateOperationInput = SystemUpdateOperationRequest;
 
 export type SystemStorageLocationKind = "managed" | "local-path" | "nas-path";
 

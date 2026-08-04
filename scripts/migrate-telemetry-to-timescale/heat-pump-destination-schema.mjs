@@ -2,8 +2,10 @@ export const HEAT_PUMP_DESTINATION_COLUMNS = Object.freeze([
   "connection_id", "house_id", "equipment_id", "device_id", "name", "brand", "model", "transport",
   "floor_id", "room_id", "x", "y", "z",
   "observed_at", "received_at", "available", "power", "selected_mode", "target_temperature_c",
-  "current_temperature_c", "current_temperature_source", "fan_speed", "horizontal_swing",
-  "vertical_swing", "quiet", "turbo", "xfan", "compressor_frequency_hz", "diagnostics",
+  "current_temperature_c", "current_temperature_source", "current_humidity_percent", "target_humidity_percent",
+  "fan_speed", "horizontal_swing", "vertical_swing", "fresh_air", "anion", "sleep", "light",
+  "quiet", "turbo", "xfan", "steady_heat", "power_save", "clean_filter", "water_full",
+  "dehumidifier_mode", "compressor_frequency_hz", "diagnostics",
   "activity", "activity_evidence", "ingested_at",
 ]);
 
@@ -45,12 +47,27 @@ export function heatPumpDestinationSql(schema, quote) {
         current_temperature_source text NOT NULL CHECK (
           current_temperature_source IN ('reported', 'unavailable')
         ),
+        current_humidity_percent double precision CHECK (
+          current_humidity_percent IS NULL OR (current_humidity_percent >= 0 AND current_humidity_percent <= 100)
+        ),
+        target_humidity_percent double precision CHECK (
+          target_humidity_percent IS NULL OR (target_humidity_percent >= 0 AND target_humidity_percent <= 100)
+        ),
         fan_speed text,
         horizontal_swing text,
         vertical_swing text,
+        fresh_air boolean,
+        anion boolean,
+        sleep boolean,
+        light boolean,
         quiet boolean,
         turbo boolean,
         xfan boolean,
+        steady_heat boolean,
+        power_save boolean,
+        clean_filter boolean,
+        water_full boolean,
+        dehumidifier_mode text,
         compressor_frequency_hz double precision CHECK (
           compressor_frequency_hz IS NULL OR (compressor_frequency_hz >= 0 AND compressor_frequency_hz <= 300)
         ),
@@ -78,5 +95,20 @@ export function heatPumpDestinationSql(schema, quote) {
         CHECK (compressor_frequency_hz IS NULL OR (compressor_frequency_hz >= 0 AND compressor_frequency_hz <= 300));
       ALTER TABLE ${schema}.heat_pump_state_samples
         ADD COLUMN IF NOT EXISTS diagnostics jsonb NOT NULL DEFAULT '{}'::jsonb;
+      ALTER TABLE ${schema}.heat_pump_state_samples
+        ADD COLUMN IF NOT EXISTS current_humidity_percent double precision
+        CHECK (current_humidity_percent IS NULL OR (current_humidity_percent >= 0 AND current_humidity_percent <= 100));
+      ALTER TABLE ${schema}.heat_pump_state_samples
+        ADD COLUMN IF NOT EXISTS target_humidity_percent double precision
+        CHECK (target_humidity_percent IS NULL OR (target_humidity_percent >= 0 AND target_humidity_percent <= 100));
+      ALTER TABLE ${schema}.heat_pump_state_samples ADD COLUMN IF NOT EXISTS fresh_air boolean;
+      ALTER TABLE ${schema}.heat_pump_state_samples ADD COLUMN IF NOT EXISTS anion boolean;
+      ALTER TABLE ${schema}.heat_pump_state_samples ADD COLUMN IF NOT EXISTS sleep boolean;
+      ALTER TABLE ${schema}.heat_pump_state_samples ADD COLUMN IF NOT EXISTS light boolean;
+      ALTER TABLE ${schema}.heat_pump_state_samples ADD COLUMN IF NOT EXISTS steady_heat boolean;
+      ALTER TABLE ${schema}.heat_pump_state_samples ADD COLUMN IF NOT EXISTS power_save boolean;
+      ALTER TABLE ${schema}.heat_pump_state_samples ADD COLUMN IF NOT EXISTS clean_filter boolean;
+      ALTER TABLE ${schema}.heat_pump_state_samples ADD COLUMN IF NOT EXISTS water_full boolean;
+      ALTER TABLE ${schema}.heat_pump_state_samples ADD COLUMN IF NOT EXISTS dehumidifier_mode text;
   `;
 }

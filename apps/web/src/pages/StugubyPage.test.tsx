@@ -199,6 +199,7 @@ describe("StugubyPage", () => {
     render(<I18nProvider><StugubyPage houses={[]} /></I18nProvider>);
 
     expect(await screen.findByText("You")).toBeTruthy();
+    await user.click(screen.getByText("Host and Clients", { selector: "strong" }));
     const label = screen.getByLabelText("Private name or email");
     expect((label as HTMLInputElement).value).toBe("anna@example.test");
     await user.clear(label);

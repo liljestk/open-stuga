@@ -44,6 +44,15 @@ import {
   STORAGE_JOURNAL_NAME,
   storageJournalNeedsManualIntervention,
 } from "./services-storage.mjs";
+import {
+  advanceSystemWorkflow,
+  pendingSystemWorkflowRequest,
+  prepareSystemWorkflow,
+  systemWorkflowApplicationWork,
+  systemWorkflowBlocksMutations,
+  systemWorkflowNeedsStageEnqueue,
+  systemWorkflowPaths,
+} from "./system-update-workflow.mjs";
 
 export const APPLIANCE_UPGRADE_REQUIRED = "appliance-upgrade-required";
 
@@ -509,6 +518,9 @@ export async function applyRequest(config, requestPath, dependencies = {}) {
 }
 
 export function pendingWork(config) {
+  if (systemWorkflowBlocksMutations(config)) {
+    return systemWorkflowApplicationWork(config);
+  }
   if (hostUpdateInterlock(config)) return null;
   if (existsSync(updateJournalPath(config))) {
     return { kind: "update", path: null };
@@ -617,13 +629,15 @@ export function releaseLock(lock) {
 }
 
 export function heartbeat(config, ready, detail = null, systemUpdateReason = null) {
+  const capabilities = ["system-update", "cloudflare-setup", "source-profile", "storage-settings"];
+  if (config.runtime === "raspberry-pi") capabilities.push("unified-host-update-v1");
   writeJson(join(config.operationsDirectory, "agent-status.json"), {
     schema: "stugu-update-agent/v1",
     runtime: config.runtime,
     agentVersion: AGENT_VERSION,
     updateAgentContract: UPDATE_AGENT_CONTRACT,
     composeContract: COMPOSE_CONTRACT,
-    capabilities: ["system-update", "cloudflare-setup", "source-profile", "storage-settings"],
+    capabilities,
     ready,
     detail,
     systemUpdateReason,
@@ -631,9 +645,10 @@ export function heartbeat(config, ready, detail = null, systemUpdateReason = nul
   });
 }
 
-export async function publishDockerHeartbeat(config) {
+export async function publishDockerHeartbeat(config, dependencies = {}) {
+  const command = dependencies.runCommand ?? runCommand;
   try {
-    await runCommand("docker", ["version", "--format", "{{.Server.Version}}"], { timeoutMs: 30_000 });
+    await command("docker", ["version", "--format", "{{.Server.Version}}"], { timeoutMs: 30_000 });
     const transition = applianceUpdateTransition(config);
     if (transition) {
       heartbeat(config, true, transition.detail, transition.reason);
@@ -642,16 +657,45 @@ export async function publishDockerHeartbeat(config) {
     const hostUpdate = hostUpdateInterlock(config);
     if (hostUpdate) {
       heartbeat(config, false, hostUpdate.detail, hostUpdate.reason);
-      return { ready: false, detail: hostUpdate.detail };
+      return {
+        ready: false,
+        detail: hostUpdate.detail,
+        dockerReady: true,
+        workflowActive: systemWorkflowBlocksMutations(config),
+      };
+    }
+    if (systemWorkflowBlocksMutations(config)) {
+      const workflow = readJson(systemWorkflowPaths(config).status);
+      const recovery = workflow?.phase === "recovery-needed";
+      const detail = recovery
+        ? "A system update requires recovery before another mutation can start."
+        : "The unified system update is active; other mutations are paused.";
+      heartbeat(
+        config,
+        false,
+        detail,
+        recovery ? "system-update-recovery-needed" : "system-update-workflow-active",
+      );
+      return { ready: false, detail, dockerReady: true, workflowActive: true };
     }
     const storageBlock = storageJournalNeedsManualIntervention(config);
     heartbeat(config, !storageBlock, storageBlock);
     publishStorageStatus(config);
-    return { ready: !storageBlock, detail: storageBlock };
+    return {
+      ready: !storageBlock,
+      detail: storageBlock,
+      dockerReady: true,
+      workflowActive: false,
+    };
   } catch (error) {
     const detail = error instanceof Error ? bounded(error.message) : "Docker is unavailable";
     heartbeat(config, false, detail);
-    return { ready: false, detail };
+    return {
+      ready: false,
+      detail,
+      dockerReady: false,
+      workflowActive: systemWorkflowBlocksMutations(config),
+    };
   }
 }
 
@@ -659,11 +703,6 @@ export async function main() {
   const config = readAgentConfig();
   mkdirSync(config.operationsDirectory, { recursive: true });
   let availability = await publishDockerHeartbeat(config);
-  while (!availability.ready) {
-    if (config.once) throw new Error(availability.detail);
-    await new Promise((resolveDelay) => setTimeout(resolveDelay, HEARTBEAT_MS));
-    availability = await publishDockerHeartbeat(config);
-  }
 
   const heartbeatTimer = setInterval(
     () => void publishDockerHeartbeat(config).catch(() => undefined),
@@ -671,6 +710,41 @@ export async function main() {
   );
   heartbeatTimer.unref?.();
   const processOne = async () => {
+    const workflowRequest = pendingSystemWorkflowRequest(config);
+    if (workflowRequest && availability.ready) {
+      const lock = acquireLock(config);
+      if (!lock) return false;
+      try {
+        await prepareSystemWorkflow(config, workflowRequest);
+      } finally {
+        // Native staging is enqueued only by the unlocked advancement below.
+        releaseLock(lock);
+        availability = await publishDockerHeartbeat(config);
+      }
+    }
+
+    if (systemWorkflowBlocksMutations(config)) {
+      if (systemWorkflowNeedsStageEnqueue(config)) {
+        const stagingProbe = acquireLock(config);
+        if (!stagingProbe) return false;
+        releaseLock(stagingProbe);
+      }
+      await advanceSystemWorkflow(config);
+      const applicationWork = systemWorkflowApplicationWork(config);
+      if (!applicationWork || availability.dockerReady !== true) return true;
+      const lock = acquireLock(config);
+      if (!lock) return false;
+      try {
+        await applyRequest(config, applicationWork.path);
+      } finally {
+        releaseLock(lock);
+        availability = await publishDockerHeartbeat(config);
+      }
+      await advanceSystemWorkflow(config);
+      return true;
+    }
+
+    if (!availability.ready) return false;
     const work = pendingWork(config);
     if (!work) return false;
     const lock = acquireLock(config);
@@ -688,12 +762,14 @@ export async function main() {
   };
 
   if (config.once) {
-    await processOne();
+    const processed = await processOne();
     clearInterval(heartbeatTimer);
+    if (!processed && !availability.ready) throw new Error(availability.detail);
     return;
   }
   for (;;) {
     await processOne();
     await new Promise((resolveDelay) => setTimeout(resolveDelay, POLL_MS));
+    availability = await publishDockerHeartbeat(config);
   }
 }

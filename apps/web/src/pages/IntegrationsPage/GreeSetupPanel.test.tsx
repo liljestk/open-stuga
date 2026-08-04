@@ -47,12 +47,23 @@ const state: HeatPumpState = {
   targetTemperatureC: 22,
   currentTemperatureC: 25,
   currentTemperatureSource: "reported",
+  currentHumidityPercent: 48,
+  targetHumidityPercent: 50,
   fanSpeed: "Auto",
   horizontalSwing: "Default",
   verticalSwing: "FullSwing",
+  freshAir: null,
+  anion: null,
+  sleep: null,
+  light: null,
   quiet: false,
   turbo: false,
   xfan: true,
+  steadyHeat: null,
+  powerSave: null,
+  cleanFilter: null,
+  waterFull: null,
+  dehumidifierMode: null,
   compressorFrequencyHz: null,
   diagnostics: {},
   activity: "unknown",
@@ -222,6 +233,8 @@ describe("Gree heat-pump setup", () => {
 
     expect(await screen.findByText("Cooling selected")).not.toBeNull();
     expect(screen.getByText("12 Hz")).not.toBeNull();
+    expect(screen.getByText("48%")).not.toBeNull();
+    expect(screen.getByText("50%")).not.toBeNull();
     expect(screen.getByText("Not reported by unit")).not.toBeNull();
     expect(screen.queryByText("Actively cooling")).toBeNull();
   });

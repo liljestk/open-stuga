@@ -152,6 +152,26 @@ role and local physical confirmation; do not lower normal anti-rollback state.
 
 ## 5. Appliance operation
 
+Bridge-capable, qualified layout-v2 appliances expose separate Application and
+Host rows in **Advanced -> System**. **Update everything** verifies a backup,
+stages the signed host target, and stops for an explicit **Restart and install**
+confirmation bound to the exact native operation, version, generation, and
+manifest digest. The page reconnects during trial boots and probation. The
+application update begins only after the native journal reports `complete`;
+`returned` or `recovery-needed` never advances it. Cancelling before activation
+marks the staged journal reusable and releases the shared mutation interlock.
+
+The browser and API never call RAUC, write a block device, select a TUF path,
+or access the native socket. Their only host boundary is the fixed file bridge
+described in [System updates](system-updates.md). Host activation is never
+automatic.
+
+Generation-6 hosts do not contain that bridge in their immutable root. Perform
+the first bridge-capable transition with the CLI below (or a validated factory
+transition), then wait for the new host and update-agent capability before
+using the unified UI. Do not copy a bridge binary or systemd unit into an older
+slot by hand.
+
 Read-only checks and staging are available through the native daemon:
 
 ```sh

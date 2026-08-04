@@ -23,9 +23,10 @@ const FALLBACK_BROKERS: BrokerAddress[] = [
 ];
 
 const FALLBACK_COLS = [
-  "Pow", "Mod", "SetTem", "WdSpd", "Air", "Blo", "Health", "SwhSlp",
+  "Pow", "Mod", "SetTem", "WdSpd", "Air", "Blo", "Health", "SwhSlp", "SlpMod",
   "Lig", "SwingLfRig", "SwUpDn", "Quiet", "Tur", "StHt", "TemUn",
   "HeatCoolType", "TemRec", "SvSt", "TemSen", "InTem", "OutTem",
+  "Dwet", "DwatSen", "Dfltr", "DwatFul", "Dmod",
   "CompressorFqy", "EnvTem", "CompTem", "WatSen", "AllEle", "Elec",
   "ErrCode", "AllErr", "ShutDownErr", "SubErr", "wifiStatus",
 ];
@@ -492,6 +493,13 @@ function currentTemperature(values: Record<string, unknown>, version: string | n
   return value >= -60 && value <= 60 ? Number(value.toFixed(1)) : null;
 }
 
+function targetHumidity(value: unknown): number | null {
+  const encoded = numberValue(value, 0, 100);
+  if (encoded === null) return null;
+  const percent = encoded <= 13 ? 15 + encoded * 5 : encoded;
+  return percent <= 100 ? percent : null;
+}
+
 function diagnostics(values: Record<string, unknown>): HeatPumpDiagnostics {
   const fields: Array<[keyof HeatPumpDiagnostics, string[]]> = [
     ["environmentTemperatureRaw", ["EnvTem"]],
@@ -501,6 +509,10 @@ function diagnostics(values: Record<string, unknown>): HeatPumpDiagnostics {
     ["waterSensorRaw", ["WatSen"]],
     ["totalEnergyRaw", ["AllEle", "TotalEle"]],
     ["energyConsumptionRaw", ["Elec", "Energy"]],
+    ["sleepModeRaw", ["SlpMod"]],
+    ["temperatureUnitRaw", ["TemUn"]],
+    ["temperatureRecordRaw", ["TemRec"]],
+    ["heatCoolTypeRaw", ["HeatCoolType"]],
     ["faultCode", ["ErrCode", "Err"]],
     ["allErrors", ["AllErr"]],
     ["shutdownFaults", ["ShutDownErr", "StopErr"]],
@@ -531,12 +543,23 @@ export function normalizeEwpeState(
     targetTemperatureC: numberValue(values.SetTem, -60, 100),
     currentTemperatureC: current,
     currentTemperatureSource: current === null ? "unavailable" : "reported",
+    currentHumidityPercent: numberValue(values.DwatSen, 0, 100),
+    targetHumidityPercent: targetHumidity(values.Dwet),
     fanSpeed: label(values.WdSpd, { 0: "auto", 1: "low", 2: "medium-low", 3: "medium", 4: "medium-high", 5: "high" }),
     horizontalSwing: label(values.SwingLfRig, { 0: "fixed", 1: "full", 2: "left", 3: "middle-left", 4: "middle", 5: "middle-right", 6: "right" }),
     verticalSwing: label(values.SwUpDn, { 0: "fixed", 1: "full", 2: "top", 3: "middle-top", 4: "middle", 5: "middle-bottom", 6: "bottom" }),
+    freshAir: boolField(values, "Air"),
+    anion: boolField(values, "Health"),
+    sleep: boolField(values, "SwhSlp"),
+    light: boolField(values, "Lig"),
     quiet: boolField(values, "Quiet"),
     turbo: boolField(values, "Tur"),
     xfan: boolField(values, "Blo"),
+    steadyHeat: boolField(values, "StHt"),
+    powerSave: boolField(values, "SvSt"),
+    cleanFilter: boolField(values, "Dfltr"),
+    waterFull: boolField(values, "DwatFul"),
+    dehumidifierMode: label(values.Dmod, { 0: "default", 9: "anion-only" }),
     compressorFrequencyHz: compressorFrequency !== null && compressorFrequency >= 0 && compressorFrequency <= 300
       ? compressorFrequency
       : null,

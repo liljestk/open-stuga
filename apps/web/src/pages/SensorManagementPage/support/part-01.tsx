@@ -213,6 +213,7 @@ export function sensorHasMetric(state: ClimateState, sensor: Sensor, metric: Met
     state.latestMeasurements[sensor.id]?.[metric]
     || state.measurementHistory[sensor.id]?.[metric]?.length
     || state.measurementForecasts[sensor.id]?.[metric]?.length
+    || sensor.recordedMeasurementIds?.includes(metric)
     || sensor.measurementEntityIds?.[metric]
     || (metric === "temperature" && sensor.temperatureEntityId)
     || (metric === "humidity" && sensor.humidityEntityId),
@@ -246,9 +247,13 @@ export function isDemoSensor(sensor: Sensor): boolean {
   return sensor.tags.some((tag) => ["seeded", "demo", "mock"].includes(tag.trim().toLocaleLowerCase()));
 }
 
-export function hasRealBinding(sensor: Pick<Sensor, "tpLinkDeviceId" | "temperatureEntityId" | "humidityEntityId" | "measurementEntityIds">): boolean {
+export function isGreeSensor(sensor: Pick<Sensor, "tags">): boolean {
+  return sensor.tags.includes("integration:gree");
+}
+
+export function hasRealBinding(sensor: Pick<Sensor, "tpLinkDeviceId" | "temperatureEntityId" | "humidityEntityId" | "measurementEntityIds" | "tags">): boolean {
   return Boolean(sensor.tpLinkDeviceId || sensor.temperatureEntityId || sensor.humidityEntityId
-    || Object.keys(sensor.measurementEntityIds ?? {}).length > 0);
+    || Object.keys(sensor.measurementEntityIds ?? {}).length > 0 || isGreeSensor(sensor));
 }
 
 export function hasHomeAssistantBinding(

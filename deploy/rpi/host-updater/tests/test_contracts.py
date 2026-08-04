@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import json
 import unittest
+import uuid
 
 from stugu_host_updater.contracts import (
     ReleaseManifest,
@@ -143,6 +144,46 @@ class ReleaseContractTests(unittest.TestCase):
                         field: True,
                     }
                 )
+
+    def test_ui_requests_require_complete_exact_target_bindings(self) -> None:
+        intent_id = str(uuid.uuid4())
+        operation_id = str(uuid.uuid4())
+        expected = {
+            "schema": "stugu-host-update-request/v1",
+            "operation": "activate",
+            "confirm": True,
+            "intentId": intent_id,
+            "expectedOperationId": operation_id,
+            "expectedVersion": "1.2.3",
+            "expectedGeneration": 42,
+            "expectedManifestSha256": "a" * 64,
+        }
+        self.assertEqual(validate_request(expected), expected)
+        for missing in (
+            "expectedOperationId",
+            "expectedVersion",
+            "expectedGeneration",
+            "expectedManifestSha256",
+        ):
+            with (
+                self.subTest(missing=missing),
+                self.assertRaisesRegex(ContractError, "complete staged identity"),
+            ):
+                validate_request(
+                    {key: value for key, value in expected.items() if key != missing}
+                )
+
+    def test_expected_bindings_never_accept_paths_or_urls(self) -> None:
+        request = {
+            "schema": "stugu-host-update-request/v1",
+            "operation": "stage",
+            "intentId": str(uuid.uuid4()),
+            "expectedVersion": "https://attacker.invalid/release",
+            "expectedGeneration": 42,
+            "expectedManifestSha256": "a" * 64,
+        }
+        with self.assertRaisesRegex(ContractError, "expectedVersion is invalid"):
+            validate_request(request)
 
 
 if __name__ == "__main__":

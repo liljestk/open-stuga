@@ -51,6 +51,18 @@ export { applyCloudflareSetupRequest } from "./stugu-update-agent/services-cloud
 export { applyRequest } from "./stugu-update-agent/update-loop.mjs";
 
 export {
+  advanceSystemWorkflow,
+  pendingSystemWorkflowRequest,
+  prepareSystemWorkflow,
+  readSystemWorkflowJournal,
+  systemWorkflowApplicationWork,
+  systemWorkflowBlocksMutations,
+  systemWorkflowNeedsStageEnqueue,
+  systemWorkflowPaths,
+  validatedSystemWorkflowRequest,
+} from "./stugu-update-agent/system-update-workflow.mjs";
+
+export {
   applyStorageRequest,
   publishStorageStatus,
   readStorageConfiguration,

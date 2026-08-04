@@ -194,6 +194,7 @@ export const enPart4 = {
   "measurement.source.tp-link": "Direct TP-Link",
   "measurement.source.tuya": "Tuya",
   "measurement.source.nexus433": "Nexus433",
+  "measurement.source.gree": "Gree / Wilfa",
   "measurement.source.api": "API",
   "measurement.source.import": "Imported history",
   "measurement.source.replay": "Replay",

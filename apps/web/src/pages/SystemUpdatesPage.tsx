@@ -3,19 +3,18 @@ import {
   CheckCircle2,
   ChevronDown,
   CircleAlert,
-  CloudDownload,
   ExternalLink,
   LoaderCircle,
-  RefreshCw,
   RotateCcw,
   Save,
   ServerCog,
   ShieldCheck,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   api,
   subscribeToSystemUpdateEvents,
+  type HostReadyToRestartBinding,
   type SystemUpdateDay,
   type SystemUpdateLiveStatus,
   type SystemUpdateOperation,
@@ -27,6 +26,7 @@ import { confirmAction } from "../components/ConfirmationProvider";
 import { useI18n } from "../i18n";
 import { HostSystemPanel } from "./HostSystemPanel";
 import { SystemStoragePanel } from "./SystemStoragePanel";
+import { SystemUpdateOverview, systemUpdateIsActive, type SystemUpdateStreamState } from "./SystemUpdateOverview";
 import "./SystemUpdatesPage.css";
 
 const days: SystemUpdateDay[] = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
@@ -40,7 +40,11 @@ const progressSteps = [
   { phase: "verifying", label: "updates.step.verifying", help: "updates.step.verifyingHelp" },
 ] as const;
 type ProgressPhase = typeof progressSteps[number]["phase"];
-type StreamState = "connecting" | "live" | "reconnecting" | "polling";
+type StreamState = SystemUpdateStreamState;
+
+const replaceableWorkflowPhases = new Set([
+  "complete", "cancelled", "failed", "returned", "host-returned",
+]);
 
 function message(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
@@ -105,7 +109,29 @@ function mergeSystemUpdateStatus(
   current: SystemUpdateStatus | null,
   next: SystemUpdateStatus,
 ): SystemUpdateStatus {
-  if (!current?.operation || !next.operation || current.operation.id !== next.operation.id) return next;
+  if (!current) return next;
+  const currentWorkflow = current.workflow ?? null;
+  const nextWorkflow = next.workflow ?? null;
+  if (currentWorkflow) {
+    if (nextWorkflow?.id === currentWorkflow.id) {
+      if (currentWorkflow.revision > nextWorkflow.revision
+        || (current.revision !== undefined && next.revision !== undefined && current.revision > next.revision)) {
+        return current;
+      }
+    } else {
+      const currentCanBeReplaced = replaceableWorkflowPhases.has(currentWorkflow.phase)
+        && currentWorkflow.recoveryRequired !== true
+        && currentWorkflow.reason !== "recovery-required";
+      const currentRequestedAt = Date.parse(currentWorkflow.requestedAt);
+      const nextRequestedAt = Date.parse(nextWorkflow?.requestedAt ?? "");
+      const nextIsKnownOlder = Number.isFinite(currentRequestedAt)
+        && Number.isFinite(nextRequestedAt)
+        && nextRequestedAt < currentRequestedAt;
+      if (!currentCanBeReplaced || nextIsKnownOlder) return current;
+    }
+  }
+  const base: SystemUpdateStatus = next;
+  if (!current.operation || !next.operation || current.operation.id !== next.operation.id) return base;
   const activity = [];
   const seen = new Set<string>();
   for (const entry of [...(current.operation.activity ?? []), ...(next.operation.activity ?? [])]) {
@@ -115,7 +141,7 @@ function mergeSystemUpdateStatus(
     activity.push(entry);
   }
   return {
-    ...next,
+    ...base,
     operation: { ...next.operation, activity: activity.slice(-50) },
   };
 }
@@ -124,31 +150,39 @@ function applyPendingLiveStatus(
   status: SystemUpdateStatus,
   live: SystemUpdateLiveStatus | null,
 ): SystemUpdateStatus {
-  if (!live?.operation) return status;
+  if (!live) return status;
+  const next = { ...status, ...live };
+  if (live.workflow !== undefined) return mergeSystemUpdateStatus(status, next);
+  if (!live.operation) return next;
   const statusUpdatedAt = Date.parse(status.operation?.updatedAt ?? "");
   const liveUpdatedAt = Date.parse(live.operation.updatedAt);
   if (Number.isFinite(statusUpdatedAt) && (!Number.isFinite(liveUpdatedAt) || statusUpdatedAt > liveUpdatedAt)) {
     return status;
   }
-  return { ...status, ...live };
+  return mergeSystemUpdateStatus(status, next);
 }
 
 export function SystemUpdatesPage() {
   const { t, locale } = useI18n();
   const [status, setStatus] = useState<SystemUpdateStatus | null>(null);
   const [draft, setDraft] = useState<SystemUpdateSettings | null>(null);
-  const [busy, setBusy] = useState<"load" | "check" | "save" | "install" | null>("load");
+  const [busy, setBusy] = useState<"load" | "check" | "save" | "install" | "update-everything" | "activate-host" | "cancel-host" | "retry-application" | null>("load");
   const [error, setError] = useState<string | null>(null);
   const [streamState, setStreamState] = useState<StreamState>("connecting");
   const [now, setNow] = useState(() => Date.now());
   const pendingLiveStatus = useRef<SystemUpdateLiveStatus | null>(null);
+  const statusRef = useRef<SystemUpdateStatus | null>(null);
+  statusRef.current = status;
   const timezone = useMemo(() => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC", []);
+  const updateActive = systemUpdateIsActive(status);
+  const reconnectPollingNeeded = status === null || updateActive;
 
-  const load = async (quiet = false) => {
+  const load = useCallback(async (quiet = false) => {
     if (!quiet) setBusy("load");
     try {
       const next = await api.systemUpdateStatus();
       const live = pendingLiveStatus.current;
+      pendingLiveStatus.current = null;
       setStatus((current) => mergeSystemUpdateStatus(current, applyPendingLiveStatus(next, live)));
       setDraft((current) => current ?? { ...next.settings, updateDays: [...next.settings.updateDays] });
       setError(null);
@@ -157,11 +191,11 @@ export function SystemUpdatesPage() {
     } finally {
       if (!quiet) setBusy(null);
     }
-  };
+  }, [t]);
 
   useEffect(() => {
     void load();
-  }, []);
+  }, [load]);
 
   useEffect(() => {
     if (typeof EventSource === "undefined") {
@@ -170,29 +204,44 @@ export function SystemUpdatesPage() {
     }
     return subscribeToSystemUpdateEvents((next) => {
       pendingLiveStatus.current = next;
+      if (!statusRef.current) {
+        void load(true);
+        return;
+      }
       setStatus((current) => current
         ? mergeSystemUpdateStatus(current, { ...current, ...next })
         : current);
       setError(null);
     }, setStreamState);
-  }, []);
+  }, [load]);
 
   useEffect(() => {
     if (streamState !== "polling") return;
-    const active = Boolean(status?.operation && activePhases.has(status.operation.phase));
-    const timer = window.setInterval(() => void load(true), active ? 2_000 : 10_000);
+    const timer = window.setInterval(() => void load(true), updateActive ? 2_000 : 10_000);
     return () => window.clearInterval(timer);
-  }, [status?.operation?.id, status?.operation?.phase, streamState]);
+  }, [updateActive, streamState, load]);
 
   useEffect(() => {
     if (
       streamState !== "reconnecting"
-      || !status?.operation
-      || !activePhases.has(status.operation.phase)
+      || !reconnectPollingNeeded
     ) return;
-    const timer = window.setInterval(() => void load(true), 2_000);
-    return () => window.clearInterval(timer);
-  }, [status?.operation?.id, status?.operation?.phase, streamState]);
+    let cancelled = false;
+    let attempt = 0;
+    let timer: number | null = null;
+    const poll = async () => {
+      if (cancelled) return;
+      if (document.visibilityState !== "hidden") await load(true);
+      const delay = Math.min(15_000, 1_000 * 2 ** Math.min(attempt, 4));
+      attempt += 1;
+      timer = window.setTimeout(() => void poll(), delay);
+    };
+    void poll();
+    return () => {
+      cancelled = true;
+      if (timer !== null) window.clearTimeout(timer);
+    };
+  }, [reconnectPollingNeeded, streamState, load]);
 
   useEffect(() => {
     if (!status?.operation || !activePhases.has(status.operation.phase)) return;
@@ -243,6 +292,134 @@ export function SystemUpdatesPage() {
     }
   };
 
+  const updateEverything = async () => {
+    if (!status) return;
+    const applicationUpdateAvailable = status.application?.updateAvailable ?? status.updateAvailable;
+    const hostUpdateAvailable = status.host?.updateAvailable === true;
+    if (applicationUpdateAvailable && !hostUpdateAvailable) {
+      await install();
+      return;
+    }
+    const supportsWorkflow = status.revision !== undefined
+      || status.application !== undefined
+      || status.host !== undefined
+      || status.workflow !== undefined;
+    if (!supportsWorkflow) {
+      await install();
+      return;
+    }
+    if (status.revision === undefined) {
+      setError(t("updates.block.statusStale"));
+      return;
+    }
+    setBusy("update-everything");
+    setError(null);
+    try {
+      const next = await api.operateSystemUpdate({
+        action: "update-everything",
+        expectedRevision: status.revision,
+      });
+      setStatus((current) => mergeSystemUpdateStatus(current, next));
+    } catch (operationError) {
+      setError(message(operationError, t("updates.error")));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const activateHost = async (binding: HostReadyToRestartBinding) => {
+    const workflow = status?.workflow;
+    if (!workflow
+      || status.revision === undefined
+      || status.revision !== workflow.revision
+      || workflow.phase !== "awaiting-restart"
+      || workflow.hostOperationId !== binding.operationId
+      || workflow.targets.hostVersion !== binding.targetVersion
+      || workflow.targets.hostGeneration !== binding.targetGeneration
+      || workflow.targets.hostDigest !== binding.targetDigest) {
+      setError(t("updates.block.statusStale"));
+      return;
+    }
+    setBusy("activate-host");
+    setError(null);
+    try {
+      const next = await api.operateSystemUpdate({
+        action: "activate-host",
+        workflowId: workflow.id,
+        expectedRevision: status.revision,
+        hostOperationId: binding.operationId,
+        targetVersion: binding.targetVersion,
+        targetGeneration: binding.targetGeneration,
+        targetDigest: binding.targetDigest,
+        confirmation: "RESTART_AND_INSTALL",
+      });
+      setStatus((current) => mergeSystemUpdateStatus(current, next));
+    } catch (operationError) {
+      setError(message(operationError, t("updates.error")));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const cancelHost = async (binding: HostReadyToRestartBinding) => {
+    const workflow = status?.workflow;
+    if (!workflow
+      || status.revision === undefined
+      || status.revision !== workflow.revision
+      || workflow.phase !== "awaiting-restart"
+      || workflow.hostOperationId !== binding.operationId
+      || workflow.targets.hostVersion !== binding.targetVersion
+      || workflow.targets.hostGeneration !== binding.targetGeneration
+      || workflow.targets.hostDigest !== binding.targetDigest) {
+      setError(t("updates.block.statusStale"));
+      return;
+    }
+    setBusy("cancel-host");
+    setError(null);
+    try {
+      const next = await api.operateSystemUpdate({
+        action: "cancel-host",
+        workflowId: workflow.id,
+        expectedRevision: status.revision,
+        hostOperationId: binding.operationId,
+        targetVersion: binding.targetVersion,
+        targetGeneration: binding.targetGeneration,
+        targetDigest: binding.targetDigest,
+      });
+      setStatus((current) => mergeSystemUpdateStatus(current, next));
+    } catch (operationError) {
+      setError(message(operationError, t("updates.error")));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const retryApplication = async () => {
+    const workflow = status?.workflow;
+    if (!workflow
+      || workflow.phase !== "application-failed"
+      || !workflow.targets.applicationVersion
+      || status?.revision === undefined
+      || status.revision !== workflow.revision) {
+      setError(t("updates.block.statusStale"));
+      return;
+    }
+    setBusy("retry-application");
+    setError(null);
+    try {
+      const next = await api.operateSystemUpdate({
+        action: "retry-application",
+        workflowId: workflow.id,
+        expectedRevision: status.revision,
+      });
+      setStatus((current) => mergeSystemUpdateStatus(current, next));
+    } catch (operationError) {
+      setError(message(operationError, t("updates.error")));
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const toggleDay = (day: SystemUpdateDay) => {
     if (!draft) return;
     const selected = draft.updateDays.includes(day);
@@ -264,20 +441,8 @@ export function SystemUpdatesPage() {
     <HostSystemPanel />
     <SystemStoragePanel />
   </>;
-  const updatesHeading = <header className="updates-section-heading">
-    <div>
-      <span className="eyebrow"><CloudDownload size={14} aria-hidden="true" />{t("updates.eyebrow")}</span>
-      <h2>{t("updates.title")}</h2>
-      <p>{t("updates.description")}</p>
-    </div>
-    <button type="button" className="secondary-button" disabled={busy !== null} onClick={() => void check()}>
-      <RefreshCw className={busy === "check" ? "spin" : ""} size={15} aria-hidden="true" />
-      {t("updates.checkNow")}
-    </button>
-  </header>;
-
   if (!status || !draft) {
-    return <>{systemHeading}{updatesHeading}<section className="route-recovery" aria-live="polite">
+    return <>{systemHeading}<section className="route-recovery" aria-live="polite">
       {busy === "load"
         ? <><LoaderCircle className="spin" size={22} aria-hidden="true" /><div><h2>{t("updates.loading")}</h2></div></>
         : <><CircleAlert size={22} aria-hidden="true" /><div><h2>{t("updates.loadFailed")}</h2><p>{error}</p></div><button type="button" className="secondary-button" onClick={() => void load()}><RotateCcw size={15} />{t("route.reload")}</button></>}
@@ -287,6 +452,7 @@ export function SystemUpdatesPage() {
   const operationActive = Boolean(status.operation && activePhases.has(status.operation.phase));
   const settingsChanged = JSON.stringify(draft) !== JSON.stringify(status.settings);
   const operation = status.operation;
+  const showOperation = Boolean(operation && !status.workflow && operation.phase !== "complete");
   const progressIndex = operation ? lastProgressIndex(operation) : -1;
   const progressValue = operation?.phase === "complete"
     ? progressSteps.length
@@ -311,55 +477,23 @@ export function SystemUpdatesPage() {
         detail: operation.detail ?? t(`updates.phase.${operation.phase}`, { version: operation.version }),
       }]
     : [];
-  const capabilityLabel = status.capability.reason === "agent-upgrade-required"
-    ? t("updates.agentUpgradeRequired")
-    : status.capability.reason === "appliance-upgrade-required"
-      ? t("updates.applianceUpgradeRequired")
-      : status.capability.available
-        ? t("updates.connected")
-        : t("updates.notConnected");
-  const capabilityHelp = status.capability.reason === "agent-upgrade-required"
-    ? t("updates.agentUpgradeHelp")
-    : status.capability.reason === "appliance-upgrade-required"
-      ? t("updates.applianceUpgradeHelp")
-      : t("updates.agentHelp");
-
   return <>
     {systemHeading}
-    {updatesHeading}
 
     {error && <div className="exception-banner" role="alert"><CircleAlert size={17} aria-hidden="true" /><span>{error}</span></div>}
 
-    <section className={`panel updates-summary ${status.updateAvailable ? "available" : "current"}`} aria-label={t("updates.versionSummary")}>
-      <span className="updates-summary-icon" aria-hidden="true">
-        {status.updateAvailable ? <CloudDownload size={22} /> : <CheckCircle2 size={22} />}
-      </span>
-      <div className="updates-summary-copy">
-        <span className="eyebrow">{status.updateAvailable ? t("updates.available") : t("updates.upToDate")}</span>
-        <dl className="updates-version-summary">
-          <div><dt>{t("updates.installed")}</dt><dd>v{status.currentVersion}</dd></div>
-          <div><dt>{t("updates.latest")}</dt><dd>{status.latestVersion ? `v${status.latestVersion}` : "—"}</dd></div>
-          <div><dt>{t("updates.agent")}</dt><dd>{capabilityLabel}</dd></div>
-        </dl>
-        <p className="updates-agent-summary">{status.capability.runtime ? t(`updates.runtime.${status.capability.runtime}`) : t("updates.agentNeeded")}</p>
-        {!status.capability.available && <small className="updates-capability-warning">{capabilityHelp}</small>}
-        {status.checkError && <small className="field-error">{status.checkError}</small>}
-      </div>
-      <div className="updates-summary-actions">
-        {status.updateAvailable && <button
-          type="button"
-          className="primary-button"
-          disabled={!status.capability.available || operationActive || busy !== null}
-          onClick={() => void install()}
-        >
-          <CloudDownload size={16} aria-hidden="true" />
-          {busy === "install" ? t("updates.requesting") : t("updates.installNow")}
-        </button>}
-        {status.lastCheckedAt && <small>{t("updates.lastChecked", { date: dateTime(status.lastCheckedAt, locale) })}</small>}
-      </div>
-    </section>
+    <SystemUpdateOverview
+      status={status}
+      busy={busy}
+      streamState={streamState}
+      onCheck={() => void check()}
+      onUpdateEverything={() => void updateEverything()}
+      onActivateHost={(binding) => void activateHost(binding)}
+      onCancelHost={(binding) => void cancelHost(binding)}
+      onRetryApplication={() => void retryApplication()}
+    />
 
-    {operation && <section
+    {showOperation && operation && <section
       className={`panel updates-operation ${operationTone(operation.phase)}`}
       aria-labelledby="update-operation-title"
     >

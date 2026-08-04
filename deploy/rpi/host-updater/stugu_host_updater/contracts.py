@@ -10,6 +10,7 @@ from dataclasses import dataclass
 import hashlib
 import json
 import re
+import uuid
 from typing import Any, Mapping
 
 from .errors import ContractError
@@ -95,6 +96,17 @@ def _sha(value: object, path: str) -> str:
     result = _string(value, path, maximum=64)
     if not HEX_SHA256.fullmatch(result):
         raise ContractError(f"{path} must be a lowercase SHA-256 digest")
+    return result
+
+
+def _uuid(value: object, path: str) -> str:
+    result = _string(value, path, maximum=36)
+    try:
+        canonical = str(uuid.UUID(result))
+    except ValueError as error:
+        raise ContractError(f"{path} must be a canonical UUID") from error
+    if canonical != result:
+        raise ContractError(f"{path} must be a canonical UUID")
     return result
 
 
@@ -542,7 +554,16 @@ def validate_request(value: object) -> dict[str, object]:
         value,
         "request",
         required={"schema", "operation"},
-        optional={"channel", "confirm", "repair"},
+        optional={
+            "channel",
+            "confirm",
+            "repair",
+            "intentId",
+            "expectedVersion",
+            "expectedOperationId",
+            "expectedGeneration",
+            "expectedManifestSha256",
+        },
     )
     if data["schema"] != "stugu-host-update-request/v1":
         raise ContractError("request schema is unsupported")
@@ -576,4 +597,62 @@ def validate_request(value: object) -> dict[str, object]:
             if not isinstance(data[flag], bool):
                 raise ContractError(f"request.{flag} must be boolean")
             result[flag] = data[flag]
+    if "intentId" in data:
+        if operation not in {"check", "stage", "activate", "cancel"}:
+            raise ContractError(
+                "intentId is valid only for check, stage, activate, or cancel"
+            )
+        result["intentId"] = _uuid(data["intentId"], "request.intentId")
+    target_identity_fields = {
+        "expectedVersion",
+        "expectedGeneration",
+        "expectedManifestSha256",
+    }
+    staged_identity_fields = target_identity_fields | {"expectedOperationId"}
+    present_identity = staged_identity_fields & set(data)
+    if present_identity and operation not in {"stage", "activate", "cancel"}:
+        raise ContractError(
+            "expected target identity is valid only for stage, activate, or cancel"
+        )
+    if present_identity and "intentId" not in data:
+        raise ContractError("expected target identity requires intentId")
+    if operation == "stage" and "intentId" in data:
+        if present_identity != target_identity_fields:
+            raise ContractError("UI staging requires the complete target identity")
+        version = _string(
+            data["expectedVersion"], "request.expectedVersion", maximum=80
+        )
+        if not VERSION.fullmatch(version):
+            raise ContractError("request.expectedVersion is invalid")
+        result["expectedVersion"] = version
+        result["expectedGeneration"] = _integer(
+            data["expectedGeneration"],
+            "request.expectedGeneration",
+            maximum=MAX_JSON_INTEGER,
+        )
+        result["expectedManifestSha256"] = _sha(
+            data["expectedManifestSha256"], "request.expectedManifestSha256"
+        )
+    if operation in {"activate", "cancel"} and "intentId" in data:
+        if present_identity != staged_identity_fields:
+            raise ContractError(
+                "UI activation and cancellation require the complete staged identity"
+            )
+        result["expectedOperationId"] = _uuid(
+            data["expectedOperationId"], "request.expectedOperationId"
+        )
+        version = _string(
+            data["expectedVersion"], "request.expectedVersion", maximum=80
+        )
+        if not VERSION.fullmatch(version):
+            raise ContractError("request.expectedVersion is invalid")
+        result["expectedVersion"] = version
+        result["expectedGeneration"] = _integer(
+            data["expectedGeneration"],
+            "request.expectedGeneration",
+            maximum=MAX_JSON_INTEGER,
+        )
+        result["expectedManifestSha256"] = _sha(
+            data["expectedManifestSha256"], "request.expectedManifestSha256"
+        )
     return result

@@ -96,7 +96,7 @@ export interface Reading {
   temperature: number;
   humidity: number;
   battery: number | null;
-  source: "mock" | "home-assistant" | "tp-link" | "tuya" | "nexus433" | "api" | "import" | "replay";
+  source: "mock" | "home-assistant" | "tp-link" | "tuya" | "nexus433" | "gree" | "api" | "import" | "replay";
   quality: "good" | "estimated" | "stale";
   /** Optional generic projection. Legacy fields remain required for v1 compatibility. */
   measurements?: Record<Metric, number>;

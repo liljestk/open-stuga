@@ -151,6 +151,8 @@ export const enPart5 = {
   "sensors.unknownFloor": "Unknown floor",
   "sensors.boundTo": "TP-Link connected",
   "sensors.manual": "Manual sensor",
+  "sensors.greeSource": "Gree / Wilfa connection",
+  "sensors.greeManaged": "Readings, history, and placement are managed by the Gree / Wilfa connection. Use Set up to position or disconnect this heat pump.",
   "sensors.lastSeen": "Last seen {time}",
   "sensors.editAction": "Edit {name}",
   "sensors.detailsAction": "View data for {name}",

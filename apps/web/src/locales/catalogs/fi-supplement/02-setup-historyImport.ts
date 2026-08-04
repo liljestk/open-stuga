@@ -505,6 +505,8 @@ export const fiSupplementPart2 = {
   "sensors.unknownFloor": "Tuntematon kerros",
   "sensors.boundTo": "TP-Link yhdistetty",
   "sensors.manual": "Manuaalinen anturi",
+  "sensors.greeSource": "Gree / Wilfa -yhteys",
+  "sensors.greeManaged": "Mittaukset, historia ja sijoittelu tulevat Gree / Wilfa -yhteydestä. Sijoita lämpöpumppu tai katkaise yhteys Määritykset-sivulla.",
   "sensors.lastSeen": "Viimeksi nähty {time}",
   "sensors.noMatches": "Mikään anturi ei täsmää",
   "sensors.noMatchesHelp": "Tyhjennä haku tai valitse eri suodattimet.",
