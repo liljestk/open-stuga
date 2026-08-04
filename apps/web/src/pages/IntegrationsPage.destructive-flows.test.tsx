@@ -177,6 +177,7 @@ describe("destructive integration flows", () => {
       connected: true,
       lastPollAt: "2026-07-31T10:00:00.000Z",
       error: null,
+      transport: "local" as const,
       host: "192.168.1.55",
       mac: "AABBCCDDEEFF",
       name: "Nordkapp",

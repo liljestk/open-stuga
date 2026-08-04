@@ -664,14 +664,17 @@ registerTimeseriesStoreMethods({
     ): Promise<HeatPumpStateRecord[]> {
       const limit = positiveInteger(query.limit, 20_000, MAX_HISTORY_LIMIT);
       const result = await this.__query<HeatPumpStateRow>(`SELECT connection_id, house_id, equipment_id,
-          device_id, name, brand, model, observed_at, received_at, available, power, selected_mode,
+          device_id, name, brand, model, transport, floor_id, room_id, x, y, z,
+          observed_at, received_at, available, power, selected_mode,
           target_temperature_c, current_temperature_c, current_temperature_source, fan_speed,
-          horizontal_swing, vertical_swing, quiet, turbo, xfan, activity, activity_evidence
+          horizontal_swing, vertical_swing, quiet, turbo, xfan, compressor_frequency_hz,
+          diagnostics, activity, activity_evidence
         FROM (
-          SELECT connection_id, house_id, equipment_id, device_id, name, brand, model, observed_at,
+          SELECT connection_id, house_id, equipment_id, device_id, name, brand, model, transport,
+            floor_id, room_id, x, y, z, observed_at,
             received_at, available, power, selected_mode, target_temperature_c, current_temperature_c,
             current_temperature_source, fan_speed, horizontal_swing, vertical_swing, quiet, turbo,
-            xfan, activity, activity_evidence, ingested_at
+            xfan, compressor_frequency_hz, diagnostics, activity, activity_evidence, ingested_at
           FROM ${qualifiedName(this.schema, "heat_pump_state_samples")}
           WHERE connection_id = $1
             AND observed_at >= $2::TIMESTAMPTZ AND observed_at <= $3::TIMESTAMPTZ

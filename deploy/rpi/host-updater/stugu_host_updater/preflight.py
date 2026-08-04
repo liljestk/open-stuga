@@ -54,6 +54,10 @@ REQUIRED_EEPROM_SETTINGS = {
     "ENABLE_SELF_UPDATE": "1",
     "USB_MSD_PWR_OFF_TIME": "0",
 }
+REQUIRED_HOST_EXECUTABLES = (
+    Path("/usr/bin/rauc"),
+    Path("/usr/bin/unsquashfs"),
+)
 
 
 @dataclass(frozen=True)
@@ -158,6 +162,15 @@ class Preflight:
             raise PreflightError(
                 "HARDWARE_INCOMPATIBLE", "This host is not a qualified Raspberry Pi 4"
             )
+
+    @staticmethod
+    def _runtime_dependencies() -> None:
+        for path in REQUIRED_HOST_EXECUTABLES:
+            if not path.is_file() or not os.access(path, os.X_OK):
+                raise PreflightError(
+                    "HOST_RUNTIME_INCOMPLETE",
+                    f"Host updater runtime dependency is unavailable: {path.name}",
+                )
 
     def _hardware(self, manifest: ReleaseManifest) -> None:
         self._hardware_identity()
@@ -316,6 +329,7 @@ class Preflight:
             )
 
     def _environment(self, trust: TrustState, *, bundle_length: int) -> PreflightResult:
+        self._runtime_dependencies()
         trusted_time = self.trusted_time(trust)
         self._interlocks()
         disk = self.resolver.resolve()

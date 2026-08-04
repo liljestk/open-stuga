@@ -45,7 +45,7 @@ export interface TelemetryArchiveWorkerOptions {
   liveFlushIntervalMs?: number;
   /** Fail initialization unless Timescale and every expected hypertable are available. */
   requireTimescale?: boolean;
-  /** Days retained as a SQLite current/history cache after Timescale acknowledgement. Zero keeps only current projections. */
+  /** Days retained as a SQLite current/history cache after Timescale acknowledgement. Zero keeps the complete duplicate. */
   localHistoryRetentionDays?: number;
   /** Crash-safe local heat-pump journal. Supplied by the direct integration state store. */
   heatPumpStatePage?: (afterRowId: number, limit: number) => TelemetryArchiveRow<HeatPumpState>[];
@@ -261,6 +261,7 @@ export class TelemetryArchiveWorker {
       }
       if (this.#stopping) return;
       if (this.#localHistoryRetentionDays !== null
+        && this.#localHistoryRetentionDays > 0
         && this.#status.timescaleAvailable
         && TELEMETRY_TABLES.every((table) => this.#status.hypertables.includes(table))) {
         const cutoff = new Date(Date.now() - this.#localHistoryRetentionDays * 86_400_000).toISOString();

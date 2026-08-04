@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   Check,
+  Cloud,
   LoaderCircle,
   Snowflake,
   Thermometer,
@@ -52,9 +53,13 @@ export function GreeSetupPanel({
     [connections],
   );
   const [autoDevices, setAutoDevices] = useState<GreeDiscoveredDevice[]>([]);
+  const [cloudDevices, setCloudDevices] = useState<GreeDiscoveredDevice[]>([]);
+  const [cloudUsername, setCloudUsername] = useState("");
+  const [cloudPassword, setCloudPassword] = useState("");
+  const [cloudPending, setCloudPending] = useState(false);
   const discoveredDevices = useMemo(
-    () => [...new Map([...autoDevices, ...devices].map((device) => [device.mac, device])).values()],
-    [autoDevices, devices],
+    () => [...new Map([...cloudDevices, ...autoDevices, ...devices].map((device) => [device.mac, device])).values()],
+    [autoDevices, cloudDevices, devices],
   );
   const [handledMacs, setHandledMacs] = useState<Set<string>>(() => new Set());
   const addable = discoveredDevices.filter((device) => (
@@ -97,24 +102,53 @@ export function GreeSetupPanel({
     };
   }, [house.id, connections.length]);
 
-  if (connections.length === 0 && addable.length === 0 && feedback === null) return null;
-
   const add = async (device: GreeDiscoveredDevice) => {
     setBusyId(device.mac);
     setFeedback(null);
     try {
-      const result = await api.configureGree({ houseId: house.id, mac: device.mac });
+      const result = device.transport === "ewpe-cloud"
+        ? await api.configureGreeCloud({
+            houseId: house.id,
+            mac: device.mac,
+            username: cloudUsername,
+            password: cloudPassword,
+          })
+        : await api.configureGree({ houseId: house.id, mac: device.mac });
       setStates((current) => [
         result.state,
         ...current.filter((state) => state.connectionId !== result.state.connectionId),
       ]);
       setHandledMacs((current) => new Set([...current, device.mac]));
+      if (device.transport === "ewpe-cloud") {
+        setCloudPassword("");
+        setCloudDevices([]);
+      }
       onIntegrationChange(result.integration);
       setFeedback({ kind: "success", text: t("setup.greeAdded", { device: deviceName(device) }) });
     } catch {
       setFeedback({ kind: "error", text: t("setup.greeAddFailed") });
     } finally {
       setBusyId(null);
+    }
+  };
+
+  const discoverCloud = async (event: FormEvent) => {
+    event.preventDefault();
+    setCloudPending(true);
+    setFeedback(null);
+    try {
+      const next = await api.discoverGreeCloud({
+        houseId: house.id,
+        username: cloudUsername,
+        password: cloudPassword,
+      });
+      setCloudDevices(next);
+      if (next.length === 0) setFeedback({ kind: "error", text: t("setup.greeCloudNone") });
+    } catch {
+      setCloudDevices([]);
+      setFeedback({ kind: "error", text: t("setup.greeCloudFailed") });
+    } finally {
+      setCloudPending(false);
     }
   };
 
@@ -164,10 +198,14 @@ export function GreeSetupPanel({
             <div className="connection-source-card-content">
               <p className="connection-source-route"><Snowflake size={15} aria-hidden="true" /><span>{t("setup.greeReadOnly")}</span></p>
               <dl className="connection-source-facts">
+                <div><dt>{t("setup.greeConnection")}</dt><dd>{t(connection.transport === "ewpe-cloud" ? "setup.greeCloud" : "setup.greeLocal")}</dd></div>
                 <div><dt>{t("setup.greePower")}</dt><dd>{liveState?.power == null ? t("common.noData") : t(liveState.power ? "setup.greeOn" : "setup.greeOff")}</dd></div>
                 <div><dt>{t("setup.greeSelectedMode")}</dt><dd>{liveState?.selectedMode ? t(modeKeys[liveState.selectedMode]) : t("common.noData")}</dd></div>
                 <div><dt>{t("setup.greeTarget")}</dt><dd>{temperature(liveState?.targetTemperatureC)}</dd></div>
                 <div><dt>{t("setup.greeIndoor")}</dt><dd>{temperature(liveState?.currentTemperatureC)}</dd></div>
+                <div><dt>{t("setup.greeCompressorFrequency")}</dt><dd>{liveState?.compressorFrequencyHz == null
+                  ? t("common.noData")
+                  : `${new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(liveState.compressorFrequencyHz)} Hz`}</dd></div>
                 <div><dt>{t("setup.greeActivity")}</dt><dd>{liveState?.activity === "off" ? t("setup.greeOff") : liveState ? t("setup.greeActivityUnknown") : t("common.noData")}</dd></div>
                 <div><dt>{t("setup.sourceLastUpdate")}</dt><dd>{connection.lastPollAt
                   ? <time dateTime={connection.lastPollAt}>{formatInTimeZone(
@@ -194,12 +232,28 @@ export function GreeSetupPanel({
       </div>}
 
       {addable.map((device) => <div className="guided-setup" key={device.mac}>
-        <p className="configured-note"><Snowflake size={17} aria-hidden="true" /><span><strong>{t("setup.greeFound", { device: deviceName(device) })}</strong><br />{t("setup.greeFoundHelp")}</span></p>
+        <p className="configured-note">{device.transport === "ewpe-cloud" ? <Cloud size={17} aria-hidden="true" /> : <Snowflake size={17} aria-hidden="true" />}<span><strong>{t("setup.greeFound", { device: deviceName(device) })}</strong><br />{t(device.transport === "ewpe-cloud" ? "setup.greeCloudFoundHelp" : "setup.greeFoundHelp")}{device.cloudHomeName ? ` · ${device.cloudHomeName}${device.cloudRoomName ? ` / ${device.cloudRoomName}` : ""}` : ""}</span></p>
         <button type="button" className="primary-button full-width" disabled={busyId !== null} onClick={() => void add(device)}>
           {busyId === device.mac ? <LoaderCircle className="spin" size={16} aria-hidden="true" /> : <Check size={16} aria-hidden="true" />}
           {t(busyId === device.mac ? "setup.greeAdding" : "setup.greeAdd", { home: house.name })}
         </button>
       </div>)}
+
+      <details className="connection-source-card gree-cloud-setup">
+        <summary className="connection-source-card-heading">
+          <span className="connection-source-icon" aria-hidden="true"><Cloud size={20} /></span>
+          <span className="connection-source-title"><small>{t("setup.greeCloudFallback")}</small><strong>{t("setup.greeCloudConnect")}</strong></span>
+        </summary>
+        <form className="connection-source-card-content integration-credential-form" onSubmit={(event) => void discoverCloud(event)}>
+          <p className="field-help">{t("setup.greeCloudHelp")}</p>
+          <label className="field"><span>{t("setup.greeCloudUsername")}</span><input autoComplete="username" required maxLength={320} value={cloudUsername} onChange={(event) => setCloudUsername(event.target.value)} /></label>
+          <label className="field"><span>{t("setup.greeCloudPassword")}</span><input type="password" autoComplete="current-password" required maxLength={8192} value={cloudPassword} onChange={(event) => setCloudPassword(event.target.value)} /></label>
+          <button type="submit" className="secondary-button full-width" disabled={cloudPending || busyId !== null}>
+            {cloudPending ? <LoaderCircle className="spin" size={16} aria-hidden="true" /> : <Cloud size={16} aria-hidden="true" />}
+            {t(cloudPending ? "setup.greeCloudChecking" : "setup.greeCloudDiscover")}
+          </button>
+        </form>
+      </details>
 
       {feedback && <p className={`test-result ${feedback.kind}`} role={feedback.kind === "error" ? "alert" : "status"} aria-live="polite">
         {feedback.kind === "success" ? <Check size={17} aria-hidden="true" /> : <TriangleAlert size={17} aria-hidden="true" />}{feedback.text}

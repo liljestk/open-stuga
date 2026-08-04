@@ -12,6 +12,11 @@ import type { GreeConnectionSecret } from "./integration-secrets.js";
 import type { HeatPumpStateStore } from "./heat-pump-state.js";
 import type { RuntimeStatus } from "./services.js";
 import { tpLinkDiscoveryTargets } from "./tp-link.js";
+import {
+  EwpeCloudClient,
+  type EwpeCloudSnapshot,
+  type EwpeCloudTransport,
+} from "./ewpe-cloud.js";
 
 export interface GreeStatePayload {
   observedAt: string;
@@ -27,6 +32,8 @@ export interface GreeStatePayload {
   quiet: boolean | null;
   turbo: boolean | null;
   xfan: boolean | null;
+  compressorFrequencyHz: number | null;
+  diagnostics: HeatPumpState["diagnostics"];
   activity: "off" | "unknown";
   activityEvidence: "protocol" | "unavailable";
 }
@@ -41,6 +48,7 @@ export interface GreeBindingResult {
 interface GreeBridgeOptions {
   discover?: () => Promise<GreeDiscoveredDevice[]>;
   bind?: (mac: string) => Promise<GreeBindingResult>;
+  cloud?: EwpeCloudTransport;
   onConnectionUpdate?: (connection: GreeConnectionSecret) => void;
   onStateRecorded?: () => void;
 }
@@ -53,6 +61,16 @@ interface Worker {
   lastPollAt: string | null;
   error: string | null;
   failures: number;
+  restartDelayMs: number;
+}
+
+interface CloudWorker {
+  controller: AbortController;
+  connection: GreeConnectionSecret;
+  closed: boolean;
+  connected: boolean;
+  lastPollAt: string | null;
+  error: string | null;
   restartDelayMs: number;
 }
 
@@ -85,6 +103,7 @@ function parseDevice(value: unknown): GreeDiscoveredDevice | null {
     return null;
   }
   return {
+    transport: item.transport === "ewpe-cloud" ? "ewpe-cloud" : "local",
     host: item.host.trim(),
     port: item.port,
     mac,
@@ -92,7 +111,26 @@ function parseDevice(value: unknown): GreeDiscoveredDevice | null {
     brand: optionalText(item.brand),
     model: optionalText(item.model),
     version: optionalText(item.version),
+    ...(item.transport === "ewpe-cloud" ? {
+      cloudHomeName: optionalText(item.cloudHomeName),
+      cloudRoomName: optionalText(item.cloudRoomName),
+    } : {}),
   };
+}
+
+function parsedDiagnostics(value: unknown): HeatPumpState["diagnostics"] | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const allowed = new Set([
+    "environmentTemperatureRaw", "indoorCoilTemperatureRaw", "outdoorTemperatureRaw",
+    "compressorTemperatureRaw", "waterSensorRaw", "totalEnergyRaw", "energyConsumptionRaw",
+    "faultCode", "allErrors", "shutdownFaults", "subhealthFaults", "wifiStatus",
+  ]);
+  const diagnostics: HeatPumpState["diagnostics"] = {};
+  for (const [name, candidate] of Object.entries(value as Record<string, unknown>)) {
+    if (!allowed.has(name) || typeof candidate !== "number" || !Number.isFinite(candidate)) return null;
+    Object.assign(diagnostics, { [name]: candidate });
+  }
+  return diagnostics;
 }
 
 function parseState(value: unknown): GreeStatePayload | null {
@@ -103,10 +141,15 @@ function parseState(value: unknown): GreeStatePayload | null {
   const quiet = boolNullable(item?.quiet);
   const turbo = boolNullable(item?.turbo);
   const xfan = boolNullable(item?.xfan);
+  const compressorFrequency = item?.compressorFrequencyHz === undefined
+    ? null
+    : finiteNullable(item.compressorFrequencyHz, 0, 300);
+  const diagnostics = item?.diagnostics === undefined ? {} : parsedDiagnostics(item.diagnostics);
   const modes: Array<HeatPumpMode | null> = [null, "auto", "cool", "dry", "fan", "heat"];
   if (!item || typeof item.observedAt !== "string" || !Number.isFinite(Date.parse(item.observedAt))
     || typeof item.available !== "boolean" || power === undefined || target === undefined || current === undefined
     || quiet === undefined || turbo === undefined || xfan === undefined
+    || compressorFrequency === undefined || diagnostics === null
     || !modes.includes(item.selectedMode as HeatPumpMode | null)
     || !["reported", "unavailable"].includes(String(item.currentTemperatureSource))
     || !["off", "unknown"].includes(String(item.activity))
@@ -134,6 +177,8 @@ function parseState(value: unknown): GreeStatePayload | null {
     quiet,
     turbo,
     xfan,
+    compressorFrequencyHz: compressorFrequency,
+    diagnostics,
     activity: item.activity as GreeStatePayload["activity"],
     activityEvidence: item.activityEvidence as GreeStatePayload["activityEvidence"],
   };
@@ -155,7 +200,9 @@ function urlHost(value: string | null | undefined): string | null {
 /** Owns direct, read-only Gree/Wilfa workers. No HVAC command path is exposed. */
 export class GreeBridge {
   readonly #workers = new Map<string, Worker>();
+  readonly #cloudWorkers = new Map<string, CloudWorker>();
   readonly #restartTimers = new Map<string, NodeJS.Timeout>();
+  readonly #cloud: EwpeCloudTransport;
   #running = false;
 
   constructor(
@@ -165,6 +212,7 @@ export class GreeBridge {
     private readonly bus: TelemetryBus,
     private readonly options: GreeBridgeOptions = {},
   ) {
+    this.#cloud = options.cloud ?? new EwpeCloudClient();
     this.aggregateStatus();
   }
 
@@ -187,6 +235,8 @@ export class GreeBridge {
     this.#restartTimers.clear();
     for (const worker of this.#workers.values()) worker.child.kill();
     this.#workers.clear();
+    for (const worker of this.#cloudWorkers.values()) worker.controller.abort();
+    this.#cloudWorkers.clear();
     this.aggregateStatus();
   }
 
@@ -204,6 +254,29 @@ export class GreeBridge {
           const parsed = message.devices.map(parseDevice).filter((device): device is GreeDiscoveredDevice => Boolean(device));
           return parsed;
         });
+    const configured = new Map((this.config.greeConnections ?? [])
+      .map((connection) => [connection.mac, connection]));
+    return devices.flatMap((device) => {
+      const connection = configured.get(device.mac);
+      if (!connection) return [device];
+      if (houseId && connection.houseId !== houseId) return [];
+      return [{ ...device, configuredConnectionId: connection.id }];
+    });
+  }
+
+  async discoverCloud(
+    username: string,
+    password: string,
+    houseId?: string,
+  ): Promise<GreeDiscoveredDevice[]> {
+    const devices = await this.#cloud.discover(username, password);
+    return this.withConfiguredConnections(devices, houseId);
+  }
+
+  private withConfiguredConnections(
+    devices: GreeDiscoveredDevice[],
+    houseId?: string,
+  ): GreeDiscoveredDevice[] {
     const configured = new Map((this.config.greeConnections ?? [])
       .map((connection) => [connection.mac, connection]));
     return devices.flatMap((device) => {
@@ -232,6 +305,12 @@ export class GreeBridge {
         state,
       };
     });
+  }
+
+  bindCloud(username: string, password: string, mac: string): Promise<GreeBindingResult> {
+    const target = normalizedMac(mac);
+    if (!target) return Promise.reject(new Error("Invalid Gree device identity"));
+    return this.#cloud.bind(username, password, target);
   }
 
   recordInitial(connection: GreeConnectionSecret, payload: GreeStatePayload): HeatPumpState {
@@ -320,6 +399,10 @@ export class GreeBridge {
   }
 
   private startWorker(connection: GreeConnectionSecret, restartDelayMs = 1_000): void {
+    if (connection.transport === "ewpe-cloud") {
+      this.startCloudWorker(connection, restartDelayMs);
+      return;
+    }
     if (this.#workers.has(connection.id)) return;
     const child = spawn(
       this.config.greePython ?? this.config.tpLinkPython,
@@ -347,6 +430,51 @@ export class GreeBridge {
     createInterface({ input: child.stdout! }).on("line", (line) => this.handleWorkerLine(worker, line));
     child.once("error", () => this.workerClosed(worker, "Heat-pump helper could not be started"));
     child.once("close", () => this.workerClosed(worker, "Heat-pump connection stopped"));
+  }
+
+  private startCloudWorker(connection: GreeConnectionSecret, restartDelayMs = 1_000): void {
+    if (this.#cloudWorkers.has(connection.id)) return;
+    const worker: CloudWorker = {
+      controller: new AbortController(),
+      connection,
+      closed: false,
+      connected: false,
+      lastPollAt: null,
+      error: null,
+      restartDelayMs,
+    };
+    this.#cloudWorkers.set(connection.id, worker);
+    void this.#cloud.monitor(
+      connection,
+      this.config.greePollIntervalMs ?? 60_000,
+      worker.controller.signal,
+      (snapshot) => this.handleCloudSnapshot(worker, snapshot),
+    ).then(() => {
+      if (!worker.controller.signal.aborted) this.cloudWorkerClosed(worker, "EWPE cloud connection stopped");
+    }).catch(() => {
+      if (!worker.controller.signal.aborted) this.cloudWorkerClosed(worker, "EWPE cloud polling is unavailable");
+    });
+  }
+
+  private handleCloudSnapshot(worker: CloudWorker, snapshot: EwpeCloudSnapshot): void {
+    if (worker.closed || this.#cloudWorkers.get(worker.connection.id) !== worker
+      || snapshot.device.mac !== worker.connection.mac) return;
+    worker.connection = {
+      ...worker.connection,
+      host: snapshot.device.host,
+      port: snapshot.device.port,
+      ...(snapshot.device.name ? { name: snapshot.device.name } : {}),
+      ...(snapshot.device.brand ? { brand: snapshot.device.brand } : {}),
+      ...(snapshot.device.model ? { model: snapshot.device.model } : {}),
+      ...(snapshot.device.version ? { version: snapshot.device.version } : {}),
+    };
+    worker.connected = true;
+    worker.lastPollAt = snapshot.state.observedAt;
+    worker.error = null;
+    worker.restartDelayMs = 1_000;
+    this.recordInitial(worker.connection, snapshot.state);
+    try { this.options.onConnectionUpdate?.({ ...worker.connection }); } catch { /* retry after restart */ }
+    this.aggregateStatus();
   }
 
   private handleWorkerLine(worker: Worker, line: string): void {
@@ -415,9 +543,42 @@ export class GreeBridge {
       name: connection.name ?? null,
       brand: connection.brand ?? null,
       model: connection.model ?? null,
+      transport: connection.transport === "ewpe-cloud" ? "ewpe-cloud" : "local",
+      floorId: null,
+      roomId: null,
+      x: null,
+      y: null,
+      z: null,
       ...payload,
       receivedAt: new Date().toISOString(),
     };
+  }
+
+  private cloudWorkerClosed(worker: CloudWorker, error: string): void {
+    if (worker.closed || this.#cloudWorkers.get(worker.connection.id) !== worker) return;
+    worker.closed = true;
+    worker.connected = false;
+    worker.error = error;
+    const unavailable = this.states.markUnavailable(worker.connection.id);
+    if (unavailable) {
+      this.notifyStateRecorded();
+      this.bus.publish({ type: "heat-pump", data: structuredClone(unavailable) });
+    }
+    this.aggregateStatus();
+    if (!this.#running || !(this.config.greeConnections ?? []).some((item) => item.id === worker.connection.id)) {
+      this.#cloudWorkers.delete(worker.connection.id);
+      return;
+    }
+    const delay = worker.restartDelayMs;
+    const nextDelay = Math.min(60_000, delay * 2);
+    const timer = setTimeout(() => {
+      this.#restartTimers.delete(worker.connection.id);
+      const latest = (this.config.greeConnections ?? []).find((item) => item.id === worker.connection.id);
+      if (this.#cloudWorkers.get(worker.connection.id) === worker) this.#cloudWorkers.delete(worker.connection.id);
+      if (this.#running && latest) this.startWorker(latest, nextDelay);
+    }, delay);
+    timer.unref();
+    this.#restartTimers.set(worker.connection.id, timer);
   }
 
   private workerClosed(worker: Worker, error: string): void {
@@ -459,7 +620,9 @@ export class GreeBridge {
       return;
     }
     const connections = configured.map((connection) => {
-      const worker = this.#workers.get(connection.id);
+      const worker = connection.transport === "ewpe-cloud"
+        ? this.#cloudWorkers.get(connection.id)
+        : this.#workers.get(connection.id);
       return {
         id: connection.id,
         houseId: connection.houseId,
@@ -468,6 +631,7 @@ export class GreeBridge {
         connected: worker?.connected ?? false,
         lastPollAt: worker?.lastPollAt ?? null,
         error: worker?.error ?? null,
+        transport: connection.transport === "ewpe-cloud" ? "ewpe-cloud" as const : "local" as const,
         host: worker?.connection.host ?? connection.host,
         mac: connection.mac,
         name: connection.name ?? null,

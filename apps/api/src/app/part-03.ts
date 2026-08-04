@@ -169,6 +169,7 @@ import {
   bucketLegacyReadings,
   bucketMeasurementSamples,
   IncompleteTelemetryHistoryError,
+  isLocalTelemetryHistoryComplete,
 } from "../timeseries/read-facade.js";
 import { TelemetryRetentionWorker } from "../timeseries/retention-worker.js";
 import { TelemetryOrderedRollupWorker } from "../timeseries/ordered-rollup-worker.js";
@@ -286,10 +287,13 @@ export function configureApiPart03(context: ReturnType<typeof configureApiPart02
         return archive?.caughtUp ? "ready" : archive?.phase;
       },
       reconcile: () => telemetryArchive?.reconcileNow(),
-      localHistoryComplete: !telemetryArchive
+      localHistoryComplete: telemetryArchive === null || config.retentionDays === 0
         ? true
-        : (query) => config.retentionDays > 0
-          && Date.parse(query.from) >= Date.now() - config.retentionDays * 86_400_000,
+        : (query) => isLocalTelemetryHistoryComplete({
+            timeseriesEnabled: true,
+            retentionDays: config.retentionDays,
+            from: query.from,
+          }),
     });
   const analyticsWorkLimiter = new AnalyticsWorkLimiter({
       maxConcurrent: Math.max(1, Math.min(2, config.timeseriesPoolMax)),
@@ -476,6 +480,7 @@ export function configureApiPart03(context: ReturnType<typeof configureApiPart02
         const nextConnection: GreeConnectionSecret = {
           ...current,
           host: update.host,
+          port: update.port,
           ...(update.name ? { name: update.name } : {}),
           ...(update.brand ? { brand: update.brand } : {}),
           ...(update.model ? { model: update.model } : {}),

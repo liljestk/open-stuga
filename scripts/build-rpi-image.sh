@@ -538,6 +538,20 @@ for host_input in "$boot_source" "$system_source" "$sbom_source"; do
     exit 1
   fi
 done
+if ! command -v dump.erofs >/dev/null 2>&1; then
+  echo "Required EROFS release-validation command is unavailable: dump.erofs" >&2
+  exit 1
+fi
+for required_host_runtime in /usr/bin/rauc /usr/bin/unsquashfs; do
+  required_host_runtime_metadata="$(
+    dump.erofs --path="$required_host_runtime" "$system_source" 2>&1
+  )"
+  if ! grep -Fq "Path : $required_host_runtime" <<<"$required_host_runtime_metadata" \
+    || ! grep -Fq "Access: 0755/" <<<"$required_host_runtime_metadata"; then
+    echo "Generated host image lacks executable runtime dependency $required_host_runtime" >&2
+    exit 1
+  fi
+done
 mkdir -p "$host_inputs"
 install -m 0644 "$boot_source" "$host_inputs/boot.vfat"
 install -m 0644 "$system_source" "$host_inputs/system.erofs"

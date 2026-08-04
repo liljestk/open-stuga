@@ -10,8 +10,38 @@ interface HistoryRow extends StateRow {
   id: number;
 }
 
+interface PlacementRow {
+  floor_id: string | null;
+  room_id: string | null;
+  x: number | null;
+  y: number | null;
+  z: number | null;
+}
+
+const UNPLACED = {
+  floorId: null,
+  roomId: null,
+  x: null,
+  y: null,
+  z: null,
+} as const;
+
+function normalizedState(
+  state: Partial<HeatPumpState> & Pick<HeatPumpState, "connectionId">,
+): HeatPumpState {
+  return {
+    ...UNPLACED,
+    transport: "local",
+    compressorFrequencyHz: null,
+    diagnostics: {},
+    ...state,
+  } as HeatPumpState;
+}
+
 function stateFromRow(row: StateRow): HeatPumpState {
-  return JSON.parse(row.state_json) as HeatPumpState;
+  return normalizedState(
+    JSON.parse(row.state_json) as Partial<HeatPumpState> & Pick<HeatPumpState, "connectionId">,
+  );
 }
 
 function semanticState(state: HeatPumpState): string {
@@ -34,8 +64,9 @@ export class HeatPumpStateStore {
         "SELECT state_json, house_id FROM heat_pump_state_current WHERE connection_id = ?",
       ).get(state.connectionId) as unknown as StateRow | undefined;
       if (row?.house_id && row.house_id !== state.houseId) return false;
-      const changed = !row || semanticState(stateFromRow(row)) !== semanticState(state);
-      const encoded = JSON.stringify(state);
+      const storedState = { ...normalizedState(state), ...this.placement(state.connectionId) };
+      const changed = !row || semanticState(stateFromRow(row)) !== semanticState(storedState);
+      const encoded = JSON.stringify(storedState);
       this.database.db.prepare(`
         INSERT INTO heat_pump_state_current
           (connection_id, house_id, observed_at, received_at, state_json)
@@ -84,6 +115,66 @@ export class HeatPumpStateStore {
           WHERE house.deleted_at IS NULL ORDER BY state.observed_at DESC, state.connection_id
         `).all()) as unknown as StateRow[];
     return rows.map(stateFromRow);
+  }
+
+  placement(connectionId: string): Pick<HeatPumpState, "floorId" | "roomId" | "x" | "y" | "z"> {
+    const row = this.database.db.prepare(`
+      SELECT placement.floor_id, placement.room_id, placement.x, placement.y, placement.z
+      FROM connected_device_placements AS placement
+      JOIN houses AS house ON house.id = placement.house_id
+      WHERE placement.connection_id = ? AND house.deleted_at IS NULL
+    `).get(connectionId) as unknown as PlacementRow | undefined;
+    return row ? {
+      floorId: row.floor_id,
+      roomId: row.room_id,
+      x: row.x,
+      y: row.y,
+      z: row.z,
+    } : { ...UNPLACED };
+  }
+
+  setPlacement(
+    connectionId: string,
+    houseId: string,
+    placement: Pick<HeatPumpState, "floorId" | "roomId" | "x" | "y" | "z">,
+  ): HeatPumpState | null {
+    if (!this.database.getHouse(houseId)) return null;
+    return this.database.transaction(() => {
+      const timestamp = new Date().toISOString();
+      this.database.db.prepare(`
+        INSERT INTO connected_device_placements
+          (connection_id, house_id, floor_id, room_id, x, y, z, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(connection_id) DO UPDATE SET
+          house_id = excluded.house_id,
+          floor_id = excluded.floor_id,
+          room_id = excluded.room_id,
+          x = excluded.x,
+          y = excluded.y,
+          z = excluded.z,
+          updated_at = excluded.updated_at
+      `).run(
+        connectionId,
+        houseId,
+        placement.floorId,
+        placement.roomId,
+        placement.x,
+        placement.y,
+        placement.z,
+        timestamp,
+      );
+      const row = this.database.db.prepare(`
+        SELECT state_json FROM heat_pump_state_current
+        WHERE connection_id = ? AND house_id = ?
+      `).get(connectionId, houseId) as unknown as StateRow | undefined;
+      if (!row) return null;
+      const next = { ...stateFromRow(row), ...placement, receivedAt: timestamp };
+      this.database.db.prepare(`
+        UPDATE heat_pump_state_current SET received_at = ?, state_json = ?
+        WHERE connection_id = ? AND house_id = ?
+      `).run(timestamp, JSON.stringify(next), connectionId, houseId);
+      return next;
+    });
   }
 
   history(

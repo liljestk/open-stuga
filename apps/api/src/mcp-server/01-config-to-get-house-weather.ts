@@ -2,6 +2,7 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { isIP } from "node:net";
+import { isLocalTelemetryHistoryComplete } from "../timeseries/read-support.js";
 import { MAX_OBSERVATION_RESOLUTION_NOTE_LENGTH, hasLocalHouseAuthority, resolvePlanElementOpeningState } from "@climate-twin/contracts";
 import type { StugubyRole, StugubySummary } from "@climate-twin/stuguby-protocol";
 import type {
@@ -152,10 +153,13 @@ export const timeseries = config.timeseriesEnabled ? new TimeseriesStore({
 export const telemetryReader = new HybridTelemetryReader({
   local: database,
   archive: timeseries,
-  localHistoryComplete: !timeseries
+  localHistoryComplete: timeseries === null || (config.retentionDays ?? 0) === 0
     ? true
-    : (query) => (config.retentionDays ?? 0) > 0
-      && Date.parse(query.from) >= Date.now() - (config.retentionDays ?? 0) * 86_400_000,
+    : (query) => isLocalTelemetryHistoryComplete({
+        timeseriesEnabled: true,
+        retentionDays: config.retentionDays ?? 0,
+        from: query.from,
+      }),
 });
 
 export const energyCost = new EnergyCostService(

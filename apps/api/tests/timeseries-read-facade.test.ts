@@ -9,12 +9,42 @@ import { describe, expect, it, vi } from "vitest";
 import {
   HybridTelemetryReader,
   IncompleteTelemetryHistoryError,
+  isLocalTelemetryHistoryComplete,
   type ArchiveTelemetryReader,
   type LocalTelemetryReader,
 } from "../src/timeseries/read-facade.js";
 
 const FROM = "2026-07-18T00:00:00.000Z";
 const TO = "2026-07-18T01:00:00.000Z";
+
+describe("local telemetry history completeness", () => {
+  it("treats zero retention as a complete duplicate and bounds positive retention", () => {
+    const now = Date.parse("2026-08-04T12:00:00.000Z");
+
+    expect(isLocalTelemetryHistoryComplete({
+      timeseriesEnabled: true,
+      retentionDays: 0,
+      now,
+    })).toBe(true);
+    expect(isLocalTelemetryHistoryComplete({
+      timeseriesEnabled: true,
+      retentionDays: 30,
+      from: "2026-08-03T12:00:00.000Z",
+      now,
+    })).toBe(true);
+    expect(isLocalTelemetryHistoryComplete({
+      timeseriesEnabled: true,
+      retentionDays: 30,
+      from: "2026-07-01T12:00:00.000Z",
+      now,
+    })).toBe(false);
+    expect(isLocalTelemetryHistoryComplete({
+      timeseriesEnabled: false,
+      retentionDays: 30,
+      now,
+    })).toBe(true);
+  });
+});
 
 function measurement(
   timestamp: string,

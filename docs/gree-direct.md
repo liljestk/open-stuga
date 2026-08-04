@@ -1,120 +1,151 @@
-# Direct Gree/Wilfa heat pumps
+# Gree/Wilfa heat pumps
 
 Stugu can discover and monitor compatible Gree-protocol air-source heat pumps,
-including Wilfa models that use the same local protocol. Home Assistant is not
-required, and the Raspberry Pi can run the helper inside the existing Stugu API
-container.
+including Wilfa models, through either the trusted local network or the EWPE
+Smart cloud. Both paths are read-only: Stugu sends state queries but exposes no
+temperature, mode, schedule, or power commands.
 
-This first phase is deliberately read-only. Stugu records:
+## Verified Wilfa/EWPE findings
 
-- power and selected operating mode;
-- selected temperature;
-- the indoor temperature only when the unit actually reports it;
-- fan, swing, quiet, turbo, and X-Fan state when available; and
-- connection health and timestamped state history.
+The cloud reader was verified against a Wilfa Nordkapp 30W named `AC3a95`,
+firmware 2.12, model ID 10001, model version 19.4. The test account continued to
+return state while the phone used cellular data, confirming that this is an
+internet path and does not depend on local-LAN reachability.
 
-The protocol does not provide dependable compressor activity. Stugu therefore
-keeps **Selected mode** separate from **Actual activity**. A unit set to cooling
-is shown as “Cooling selected,” not “Actively cooling.”
+EWPE Smart uses encrypted REST calls at `https://eugrih.gree.com` for login,
+Home/Room/device inventory, per-device keys, and broker selection. Live state
+then uses TLS MQTT, normally at `mqtt-eu.gree.com:1984` or `:1994`. Stugu checks
+that broker discovery remains on a `gree.com` host, bounds response sizes, uses
+timeouts, and never logs cloud tokens or decrypted envelopes.
 
-## Set up
+The verified unit reported:
 
-1. Commission the heat pump with the manufacturer's compatible app first and
-   leave its Wi-Fi enabled.
-2. Put the heat pump and Stugu appliance on the same trusted LAN. Guest-network
-   isolation and many VLANs block local discovery.
-3. In Stugu, select the owning Home and open **Set up**. Discovery starts in the
-   background when the connections area opens.
-4. If the unit is found, choose **Add to _Home_**. Adding is always explicit;
-   discovery alone never binds the unit or changes real-data mode.
+- power, selected mode, target temperature, fan and swing settings;
+- indoor temperature (`TemSen`; this firmware encodes 20 °C as 60);
+- compressor frequency (`CompressorFqy`), Wi-Fi status, and fault fields; and
+- additional vendor diagnostics whose engineering units are not independently
+  calibrated and are therefore stored with explicit `Raw` names.
 
-The Gree/Wilfa section is not rendered when no compatible unit is discovered
-or configured. A failed background scan is also kept quiet unless an existing
-Gree connection needs attention.
+One live observation was power on, cooling selected, target 20 °C, reported
+indoor temperature 20 °C, compressor frequency 12 Hz, Wi-Fi online, and no
+reported fault. This is compatibility evidence for that unit/firmware, not a
+promise that every Gree-derived model exposes the same fields.
 
-Binding creates a Property inventory record for the heat pump and associates
-it with the selected Home. Disconnecting removes the private protocol key and
-stops polling, while retaining the inventory record and recorded history.
+## Set up and discovery
 
-## Network and Raspberry Pi
+1. Commission the heat pump in EWPE Smart and leave its Wi-Fi enabled.
+2. Select the owning Home and open **Set up**.
+3. For local-first operation, keep Stugu and the heat pump on the same trusted
+   LAN. Stugu scans without binding and offers compatible units it finds.
+4. If LAN discovery is unavailable, open **EWPE Smart**, enter the account
+   credentials, and discover the account inventory. Discovery is transient and
+   does not save credentials.
+5. Explicitly add one discovered unit. Only then does Stugu verify a live state
+   read, create the Property equipment record, protect the required credential,
+   and start monitoring.
+6. Open **Home**, choose **Place on this floor**, then use edit mode to move the
+   high-wall marker. The placement is shared by the 2D and 3D views.
 
-Discovery and polling use the local Gree UDP protocol, normally on port 7000.
-Do not forward this port from the internet. The heat pump and Stugu should use a
-trusted local network; a DHCP reservation is helpful but not mandatory because
-Stugu can recover an address change using the unit's stable MAC identity.
+If local and cloud discovery expose the same MAC, Stugu presents the local path
+first. A configured physical unit cannot be added twice. Disconnecting deletes
+its saved local key or EWPE credentials and stops monitoring while retaining
+inventory, placement, and recorded history.
 
-Stugu also tries common `/24` broadcasts inferred from configured local
-TP-Link or Home Assistant IPv4 addresses. Docker or VM NAT may still hide the
-physical LAN, especially with another subnet size or no existing integration.
-Set the directed broadcast address when discovery does not find the unit:
+### Local network configuration
+
+Local discovery and polling normally use UDP port 7000. Never forward it from
+the internet. Docker/VM NAT or wireless client isolation can hide broadcasts;
+in that case provide the physical LAN's directed broadcast:
 
 ```dotenv
 GREE_DISCOVERY_TARGETS=192.168.1.255
+GREE_POLL_INTERVAL_MS=60000
 ```
 
-Multiple targets can be comma-separated. `GREE_POLL_INTERVAL_MS` defaults to
-60 seconds, which is intentionally light enough for the same Raspberry Pi 4
-that runs Stugu. Each configured unit uses one small Python helper process.
+Multiple targets can be comma-separated. The production image includes the
+pinned Python helper dependency. `GREE_PYTHON` overrides the Python executable
+only when required.
 
-The production image already includes the pinned Python dependency. For a
-local development run:
+## Stored data and security
 
-```powershell
-python -m pip install -r apps/api/python/requirements.txt
-```
+The current typed state and every successful poll contain:
 
-Set `GREE_PYTHON=python3` only when Python is not available under the default
-executable name.
+- transport, availability, timestamps, equipment identity, and Home placement;
+- power, selected mode, target and reported indoor temperatures;
+- fan, swing, quiet, turbo, and X-Fan settings;
+- compressor frequency when reported;
+- activity plus its evidence level; and
+- a bounded whitelist of raw diagnostic and fault values.
 
-## Data and security
+Missing indoor temperature remains missing; it is never replaced by the target.
+Selected heating/cooling mode is not proof that the compressor is active.
+Compressor frequency greater than zero is stronger protocol evidence, while a
+powered-off unit is explicitly off.
 
-The one-time local binding key is write-only: it is accepted from the isolated
-helper, saved in Stugu's protected integration-secrets file, and never returned
-by the API or written to SQLite. Helper library logging is restricted because
-some versions log binding details at informational level.
+Local binding keys and EWPE credentials are write-only and live in Stugu's
+protected integration-secret file, not SQLite or TimescaleDB. Cloud session
+tokens and MQTT sessions are memory-only. Account discovery does not persist
+the supplied password. The integration intentionally exposes no control route.
 
-Every successful poll is a timestamped observation, including polls whose
-values are unchanged. Stugu first commits the complete typed observation to its
-crash-safe SQLite archive journal and updates the current projection. The
-checkpointed archive worker then stores it automatically in the dedicated
-TimescaleDB heat-pump hypertable. UI events remain change-only, so this
-time-series capture does not create repeated visual updates.
+Each successful poll first enters the crash-safe SQLite telemetry journal and
+current projection, then the checkpointed archive worker stores it in the
+TimescaleDB heat-pump hypertable. Archived rows include placement, transport,
+compressor frequency, and diagnostic JSON. During a TimeDB outage the local
+journal continues accumulating; reconciliation is idempotent and local rows are
+not pruned before durable acknowledgement. History reads merge the permanent
+archive and local tail and fail closed if a requested retained range cannot be
+answered completely.
 
-If TimeDB is unavailable, polling continues into the local journal.
-Reconciliation replays those observations after recovery, and SQLite rows are
-pruned only after the corresponding TimeDB checkpoint is durable. The history
-API merges permanent TimeDB history with the current local tail and fails
-closed rather than returning an incomplete retained range. If the unit omits
-indoor temperature, Stugu stores no value; it never substitutes the selected
-target temperature.
-
-Useful compatibility API routes are:
+Relevant API routes are:
 
 ```text
 POST   /api/v1/integrations/gree/discover
 PUT    /api/v1/integrations/gree/config
+POST   /api/v1/integrations/gree/cloud/discover
+PUT    /api/v1/integrations/gree/cloud/config
 DELETE /api/v1/integrations/gree/config/{connectionId}
 GET    /api/v1/heat-pumps?houseId={homeId}
+PATCH  /api/v1/heat-pumps/{connectionId}/placement
 GET    /api/v1/heat-pumps/{connectionId}/history
 ```
 
-There are no control routes in this phase. Continue to change mode, target
-temperature, schedules, and safety settings with the physical remote or the
-manufacturer's app.
+## Home impact and visualization
+
+The Home views show the unit's state beside its marker in both 2D and 3D. An
+estimated influence contour is solid only when compressor-frequency evidence
+supports active heating/cooling; a dashed contour means the mode is merely
+selected. Labels repeat the meaning so colour is never the only signal. The
+contour is a qualitative local influence estimate, not measured airflow,
+temperature propagation, delivered heat, efficiency, or room coverage.
+
+The retained data can support evidence-based analysis by comparing heat-pump
+state transitions with:
+
+- nearby room-temperature response and recovery time;
+- outdoor temperature and weather;
+- Home electricity use or a dedicated power meter;
+- door/window state and room-to-room temperature differences; and
+- target-versus-reported temperature error and fault recurrence.
+
+Recommended next evidence is a dedicated power meter and one calibrated room
+sensor near, but not directly in, the outlet stream. Those enable defensible
+energy attribution and response estimates. Do not calculate COP or delivered
+heat from compressor frequency alone. Any future control should be a separate,
+explicitly enabled project with command confirmation, bounds, idempotency,
+audit logging, and a safe fallback to the physical remote/EWPE app.
 
 ## Troubleshooting
 
-- Confirm the heat pump is online in its app before opening Stugu setup.
-- Keep the Pi and heat pump on the same IPv4 LAN without wireless client
-  isolation.
-- Add the LAN's directed broadcast to `GREE_DISCOVERY_TARGETS` when Stugu runs
-  through Docker/VM NAT.
-- Allow outbound and return UDP traffic between Stugu and the unit on port
-  7000; do not expose it publicly.
-- If a configured unit becomes unavailable, leave it configured while checking
-  Wi-Fi. Stugu retries and searches for the same MAC at a new address.
+- Verify that the unit remains online in EWPE Smart.
+- For local mode, remove wireless client isolation and allow UDP 7000 within
+  the trusted LAN; use `GREE_DISCOVERY_TARGETS` through Docker/VM NAT.
+- For cloud mode, allow outbound HTTPS and TLS MQTT to Gree's European service.
+- Leave an unavailable configured unit in place while checking connectivity;
+  monitoring retries with bounded backoff.
+- Revalidate after firmware updates because Gree's protocol is not a stable
+  public compatibility contract.
 
-Compatibility is provided by the pinned
-[`greeclimate`](https://github.com/cmroche/greeclimate) library, licensed under
-GPL-3.0. Gree's protocol and firmware are not a stable public compatibility
-contract, so validate polling again after heat-pump firmware upgrades.
+Local compatibility uses the pinned
+[`greeclimate`](https://github.com/cmroche/greeclimate) GPL-3.0 library. Cloud
+compatibility is based on observed EWPE Smart protocol behaviour and may need
+maintenance if the vendor changes authentication, envelopes, or broker policy.

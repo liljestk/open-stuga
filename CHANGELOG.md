@@ -4,6 +4,26 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.33.0 - 2026-08-04
+
+- Honor `RETENTION_DAYS=0` as an unbounded SQLite telemetry duplicate: do not
+  compact it, and keep analytics/history available during TimeDB interruptions;
+  genuinely bounded or gapped history still reports its limits.
+- Add read-only Gree and Wilfa heat-pump discovery through local LAN and EWPE
+  Cloud, with encrypted credentials, Timescale history, and clearly qualitative
+  2D/3D influence markers. Stugu does not send heat-pump control commands.
+- Include `squashfs-tools` in Raspberry Pi host images, reject an update before
+  download when RAUC or `unsquashfs` is absent, and fail image builds that omit
+  either executable.
+- Retain the H500 compatibility, exact-device qualification, signed RAUC/TUF
+  updater, redundant boot records, and automatic A/B rollback controls from the
+  unpublished 0.32.x hardware-test candidates.
+
+Upgrade impact: this combined hardware-validation candidate supersedes the
+unpublished v0.32.3 factory image, which could not unpack a RAUC bundle. Host
+activation remains gated by an exact hardware receipt and a backed-up
+layout-v2 factory transition.
+
 ## 0.32.3 - 2026-08-03
 
 - Preserve the `stugu` group on the signed host updater's systemd runtime

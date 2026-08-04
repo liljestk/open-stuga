@@ -153,9 +153,8 @@ test("migration maps electricity margin, opening events, and typed heat-pump obs
       recorded_at: "2026-07-18T10:00:01.000Z",
       metadata: {},
     });
-    const heatPump = mapRows("heat_pump_state_history", [
-      database.prepare("SELECT * FROM heat_pump_state_history").get(),
-    ])[0];
+    const heatPumpSource = database.prepare("SELECT * FROM heat_pump_state_history").get();
+    const heatPump = mapRows("heat_pump_state_history", [heatPumpSource])[0];
     assert.deepEqual(heatPump, {
       connection_id: "gree-aabbccddeeff",
       house_id: "house-1",
@@ -164,6 +163,12 @@ test("migration maps electricity margin, opening events, and typed heat-pump obs
       name: "Nordkapp",
       brand: "Wilfa",
       model: "Nordkapp 30",
+      transport: "local",
+      floor_id: null,
+      room_id: null,
+      x: null,
+      y: null,
+      z: null,
       observed_at: "2026-07-18T10:00:00.000Z",
       received_at: "2026-07-18T10:00:01.000Z",
       available: true,
@@ -178,8 +183,44 @@ test("migration maps electricity margin, opening events, and typed heat-pump obs
       quiet: false,
       turbo: false,
       xfan: true,
+      compressor_frequency_hz: null,
+      diagnostics: {},
       activity: "unknown",
       activity_evidence: "unavailable",
+    });
+    const cloudState = {
+      ...JSON.parse(heatPumpSource.state_json),
+      transport: "ewpe-cloud",
+      floorId: "floor-1",
+      roomId: "living",
+      x: 2.5,
+      y: 1.2,
+      z: 2.3,
+      compressorFrequencyHz: 12,
+      diagnostics: { wifiStatus: 1, faultCode: 0 },
+    };
+    const cloudHeatPump = mapRows("heat_pump_state_history", [{
+      ...heatPumpSource,
+      state_json: JSON.stringify(cloudState),
+    }])[0];
+    assert.deepEqual({
+      transport: cloudHeatPump.transport,
+      floor_id: cloudHeatPump.floor_id,
+      room_id: cloudHeatPump.room_id,
+      x: cloudHeatPump.x,
+      y: cloudHeatPump.y,
+      z: cloudHeatPump.z,
+      compressor_frequency_hz: cloudHeatPump.compressor_frequency_hz,
+      diagnostics: cloudHeatPump.diagnostics,
+    }, {
+      transport: "ewpe-cloud",
+      floor_id: "floor-1",
+      room_id: "living",
+      x: 2.5,
+      y: 1.2,
+      z: 2.3,
+      compressor_frequency_hz: 12,
+      diagnostics: { wifiStatus: 1, faultCode: 0 },
     });
   } finally {
     database.close();

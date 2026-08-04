@@ -1,6 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { BoxSelect, Grid3X3, ImagePlus, MapPinPlus, MousePointer2, PenLine, Plus, RotateCcw, RotateCw, Trash2 } from "lucide-react";
-import { floorMetersPerPlanUnit, isAirflowPlanElement, wallLengthPlanUnits, type ConfiguredOpeningState, type ConnectedDeviceState, type Floor, type House, type ManualObservation, type MeasurementDefinition, type MeasurementSample, type OpeningStateObservation, type PlanElement, type PlanElementKind, type Point, type Room, type Sensor, type UnitSystem, type Wall } from "@climate-twin/contracts";
+import { floorMetersPerPlanUnit, isAirflowPlanElement, wallLengthPlanUnits, type ConfiguredOpeningState, type ConnectedDeviceState, type Floor, type HeatPumpState, type House, type ManualObservation, type MeasurementDefinition, type MeasurementSample, type OpeningStateObservation, type PlanElement, type PlanElementKind, type Point, type Room, type Sensor, type UnitSystem, type Wall } from "@climate-twin/contracts";
 import { clamp, round, type ViewMode } from "../../../domain";
 import { useI18n, type TranslationKey } from "../../../i18n";
 import { formatMeasurement, formatMeasurementDelta, measurementGradient, measurementLabel, measurementValue, toDisplayValue, type LatestMeasurements } from "../../../measurements";
@@ -59,6 +59,9 @@ export interface FloorPlanProps {
   connectedDevices?: readonly ConnectedDeviceState[];
   connectedDevicesVisible?: boolean;
   pendingConnectedDeviceIds?: ReadonlySet<string>;
+  heatPumps?: readonly HeatPumpState[];
+  heatPumpInfluenceVisible?: boolean;
+  pendingHeatPumpIds?: ReadonlySet<string>;
   climateSamples?: ClimateSampleMatrix;
   observations: ManualObservation[];
   definition: MeasurementDefinition;
@@ -88,6 +91,7 @@ export interface FloorPlanProps {
   onOpeningStateChange?: (floorId: string, elementId: string, state: ConfiguredOpeningState) => void;
   onConnectedDevicePowerChange?: (connectionId: string, power: boolean) => void;
   onConnectedDeviceMove?: (connectionId: string, point: Point) => void;
+  onHeatPumpMove?: (connectionId: string, point: Point) => void;
   onSensorSelect: (sensorId: string) => void;
   onSensorMove: (sensorId: string, point: Point) => void;
   onFloorChange: (floor: Floor) => void;

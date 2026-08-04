@@ -395,6 +395,12 @@ export function buildBaseSchemaSql(schemaName: string): string[] {
       name TEXT,
       brand TEXT,
       model TEXT,
+      transport TEXT NOT NULL DEFAULT 'local' CHECK (transport IN ('local', 'ewpe-cloud')),
+      floor_id TEXT,
+      room_id TEXT,
+      x DOUBLE PRECISION,
+      y DOUBLE PRECISION,
+      z DOUBLE PRECISION,
       observed_at TIMESTAMPTZ NOT NULL CHECK (isfinite(observed_at)),
       received_at TIMESTAMPTZ NOT NULL CHECK (isfinite(received_at)),
       available BOOLEAN NOT NULL,
@@ -423,6 +429,10 @@ export function buildBaseSchemaSql(schemaName: string): string[] {
       quiet BOOLEAN,
       turbo BOOLEAN,
       xfan BOOLEAN,
+      compressor_frequency_hz DOUBLE PRECISION CHECK (
+        compressor_frequency_hz IS NULL OR (compressor_frequency_hz >= 0 AND compressor_frequency_hz <= 300)
+      ),
+      diagnostics JSONB NOT NULL DEFAULT '{}'::JSONB,
       activity TEXT NOT NULL CHECK (activity IN ('off', 'unknown')),
       activity_evidence TEXT NOT NULL CHECK (activity_evidence IN ('protocol', 'unavailable')),
       ingested_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
@@ -452,6 +462,22 @@ export function buildBaseSchemaSql(schemaName: string): string[] {
       ON CONFLICT (version) DO NOTHING`,
     `INSERT INTO ${relation("schema_migrations")} (version, description)
       VALUES (6, 'Race-safe demand-created ordered telemetry states')
+      ON CONFLICT (version) DO NOTHING`,
+    `ALTER TABLE ${relation("heat_pump_state_samples")}
+      ADD COLUMN IF NOT EXISTS transport TEXT NOT NULL DEFAULT 'local'
+      CHECK (transport IN ('local', 'ewpe-cloud'))`,
+    `ALTER TABLE ${relation("heat_pump_state_samples")} ADD COLUMN IF NOT EXISTS floor_id TEXT`,
+    `ALTER TABLE ${relation("heat_pump_state_samples")} ADD COLUMN IF NOT EXISTS room_id TEXT`,
+    `ALTER TABLE ${relation("heat_pump_state_samples")} ADD COLUMN IF NOT EXISTS x DOUBLE PRECISION`,
+    `ALTER TABLE ${relation("heat_pump_state_samples")} ADD COLUMN IF NOT EXISTS y DOUBLE PRECISION`,
+    `ALTER TABLE ${relation("heat_pump_state_samples")} ADD COLUMN IF NOT EXISTS z DOUBLE PRECISION`,
+    `ALTER TABLE ${relation("heat_pump_state_samples")}
+      ADD COLUMN IF NOT EXISTS compressor_frequency_hz DOUBLE PRECISION
+      CHECK (compressor_frequency_hz IS NULL OR (compressor_frequency_hz >= 0 AND compressor_frequency_hz <= 300))`,
+    `ALTER TABLE ${relation("heat_pump_state_samples")}
+      ADD COLUMN IF NOT EXISTS diagnostics JSONB NOT NULL DEFAULT '{}'::JSONB`,
+    `INSERT INTO ${relation("schema_migrations")} (version, description)
+      VALUES (7, 'EWPE heat-pump transport, placement, and diagnostics')
       ON CONFLICT (version) DO NOTHING`,
   ];
 }

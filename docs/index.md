@@ -9,8 +9,8 @@ Start here:
    Raspberry Pi paths, mock data, configuration, backup, and uninstall.
 2. [Direct TP-Link H100/H200/H500](tp-link-direct.md) — poll locally exposed T310/T315 child sensors
    over the local LAN without requiring Home Assistant.
-3. [Direct Gree/Wilfa heat pumps](gree-direct.md) — discover and monitor
-   compatible air-source heat pumps locally without requiring Home Assistant.
+3. [Gree/Wilfa heat pumps](gree-direct.md) — read compatible air-source heat
+   pumps locally or through EWPE Smart, then place them in the 2D/3D Home.
 4. [Electricity prices and contracts](electricity-prices.md) — Property-owned
    price sources and contracts with Home-scoped Tapo meters.
 5. [TP-Link H100/H200 and Home Assistant](home-assistant.md) — use the official

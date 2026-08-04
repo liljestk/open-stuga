@@ -44,6 +44,31 @@ export interface LocalCompletenessQuery {
   to: string;
 }
 
+export interface LocalTelemetryHistoryCompletenessOptions {
+  timeseriesEnabled: boolean;
+  retentionDays: number;
+  from?: string;
+  now?: number;
+}
+
+/**
+ * SQLite is authoritative when TimeDB is disabled and remains a complete
+ * redundant copy when retention is explicitly unbounded. A bounded hot copy
+ * can only satisfy requests that begin inside its current retention window.
+ */
+export function isLocalTelemetryHistoryComplete({
+  timeseriesEnabled,
+  retentionDays,
+  from,
+  now = Date.now(),
+}: LocalTelemetryHistoryCompletenessOptions): boolean {
+  if (!timeseriesEnabled || retentionDays === 0) return true;
+  if (!Number.isSafeInteger(retentionDays) || retentionDays < 0 || from === undefined) return false;
+  const fromTimestamp = Date.parse(from);
+  return Number.isFinite(fromTimestamp)
+    && fromTimestamp >= now - retentionDays * 86_400_000;
+}
+
 export class IncompleteTelemetryHistoryError extends Error {
   readonly code = "TELEMETRY_ARCHIVE_REQUIRED";
 

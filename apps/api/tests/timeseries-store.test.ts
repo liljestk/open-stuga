@@ -575,6 +575,12 @@ describe("TimeseriesStore", () => {
       name: "Nordkapp",
       brand: "Wilfa",
       model: "Nordkapp 30",
+      transport: "ewpe-cloud" as const,
+      floorId: "floor-ground",
+      roomId: "living-room",
+      x: 4.2,
+      y: 1.1,
+      z: 2.05,
       observedAt: "2026-07-18T00:30:00.000Z",
       receivedAt: "2026-07-18T00:30:01.000Z",
       available: true,
@@ -589,6 +595,8 @@ describe("TimeseriesStore", () => {
       quiet: false,
       turbo: false,
       xfan: true,
+      compressorFrequencyHz: 12,
+      diagnostics: { wifiStatus: 1, faultCode: 0 },
       activity: "unknown" as const,
       activityEvidence: "unavailable" as const,
     };
@@ -600,6 +608,12 @@ describe("TimeseriesStore", () => {
       name: record.name,
       brand: record.brand,
       model: record.model,
+      transport: record.transport,
+      floor_id: record.floorId,
+      room_id: record.roomId,
+      x: record.x,
+      y: record.y,
+      z: record.z,
       observed_at: new Date(record.observedAt),
       received_at: new Date(record.receivedAt),
       available: record.available,
@@ -614,6 +628,8 @@ describe("TimeseriesStore", () => {
       quiet: record.quiet,
       turbo: record.turbo,
       xfan: record.xfan,
+      compressor_frequency_hz: record.compressorFrequencyHz,
+      diagnostics: record.diagnostics,
       activity: record.activity,
       activity_evidence: record.activityEvidence,
     };
@@ -641,9 +657,10 @@ describe("TimeseriesStore", () => {
     expect(insert.text).toContain('ON CONFLICT ("connection_id", "observed_at") DO UPDATE');
     expect(insert.values).toEqual([
       record.connectionId, record.houseId, record.equipmentId, record.deviceId,
-      record.name, record.brand, record.model, record.observedAt, record.receivedAt,
+      record.name, record.brand, record.model, "ewpe-cloud", "floor-ground", "living-room",
+      4.2, 1.1, 2.05, record.observedAt, record.receivedAt,
       true, true, "cool", 22, 25.5, "reported", "Auto", "Default", "FullSwing",
-      false, false, true, "unknown", "unavailable",
+      false, false, true, 12, { wifiStatus: 1, faultCode: 0 }, "unknown", "unavailable",
     ]);
   });
 

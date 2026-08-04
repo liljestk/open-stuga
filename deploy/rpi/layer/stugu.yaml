@@ -85,6 +85,7 @@ mmdebstrap:
     - python3-cryptography
     - python3-tuf
     - rauc
+    - squashfs-tools
     - systemd-timesyncd
     - tailscale
     - u-boot-rpi

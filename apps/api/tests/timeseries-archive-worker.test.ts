@@ -507,7 +507,7 @@ describe("TelemetryArchiveWorker", () => {
     });
     const worker = new TelemetryArchiveWorker(database, new TelemetryBus(), archiveStore, {
       batchSize: 10,
-      localHistoryRetentionDays: 0,
+      localHistoryRetentionDays: 30,
     });
 
     await worker.start();
@@ -533,6 +533,33 @@ describe("TelemetryArchiveWorker", () => {
     expect(calls.indexOf("write")).toBeLessThan(calls.indexOf("checkpoint"));
     expect(calls.indexOf("checkpoint")).toBeLessThan(calls.indexOf("prune"));
     expect(worker.status()).toMatchObject({ caughtUp: true, localRowsPruned: 3 });
+    await worker.stop();
+  });
+
+  it("keeps the complete SQLite duplicate when retention is unbounded", async () => {
+    const purgeReadingsBefore = vi.fn(() => 3);
+    const database = fixtures({ purgeReadingsBefore });
+    const archiveStore = store({
+      initialize: vi.fn(async () => ({
+        schema: "telemetry",
+        timescaleAvailable: true,
+        timescaleVersion: "2.test",
+        hypertables: [...TELEMETRY_TABLES],
+        aggregateMode: "continuous",
+        coldStorageMode: "columnstore",
+        warnings: [],
+      })),
+    });
+    const worker = new TelemetryArchiveWorker(database, new TelemetryBus(), archiveStore, {
+      batchSize: 10,
+      localHistoryRetentionDays: 0,
+    });
+
+    await worker.start();
+    await worker.reconcileNow();
+
+    expect(purgeReadingsBefore).not.toHaveBeenCalled();
+    expect(worker.status()).toMatchObject({ caughtUp: true, localRowsPruned: 0 });
     await worker.stop();
   });
 

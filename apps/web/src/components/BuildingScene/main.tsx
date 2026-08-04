@@ -61,10 +61,11 @@ export function BuildingScene({
   openingStateObservations = [], openingStateLabelsVisible = true, pendingOpeningStateKeys = new Set<string>(), onOpeningStateChange,
   sensorMeasurements = {}, climateSensorMarkersVisible = true, energyDevicesVisible = true,
   connectedDevices = [], connectedDevicesVisible = true, pendingConnectedDeviceIds = new Set<string>(),
+  heatPumps = [], heatPumpInfluenceVisible = true,
   onConnectedDevicePowerChange,
   onFloorSelect, onSensorSelect, onFloorChange,
 }: BuildingSceneProps) {
-  const context0 = { house, sensors, samples, climateSamples, observations, definition, colorDomain, units, activeFloorId, selectedSensorId, referenceTimeMs, maxSampleAgeMs, outdoor, mapAnimationsEnabled, outdoorExtrasVisible, editing, spatialLayerSnapshots, spatialLayerTopology, experimentalAirflowEnabled, experimentalAirflow, experimentalSensorCoverage, experimentalOutdoorInfluence, openingStateObservations, openingStateLabelsVisible, pendingOpeningStateKeys, onOpeningStateChange, sensorMeasurements, climateSensorMarkersVisible, energyDevicesVisible, connectedDevices, connectedDevicesVisible, pendingConnectedDeviceIds, onConnectedDevicePowerChange, onFloorSelect, onSensorSelect, onFloorChange };
+  const context0 = { house, sensors, samples, climateSamples, observations, definition, colorDomain, units, activeFloorId, selectedSensorId, referenceTimeMs, maxSampleAgeMs, outdoor, mapAnimationsEnabled, outdoorExtrasVisible, editing, spatialLayerSnapshots, spatialLayerTopology, experimentalAirflowEnabled, experimentalAirflow, experimentalSensorCoverage, experimentalOutdoorInfluence, openingStateObservations, openingStateLabelsVisible, pendingOpeningStateKeys, onOpeningStateChange, sensorMeasurements, climateSensorMarkersVisible, energyDevicesVisible, connectedDevices, connectedDevicesVisible, pendingConnectedDeviceIds, heatPumps, heatPumpInfluenceVisible, onConnectedDevicePowerChange, onFloorSelect, onSensorSelect, onFloorChange };
   const context1 = useBuildingScenePart01(context0);
   const context2 = useBuildingScenePart02(context1);
   const context3 = useBuildingScenePart03(context2);

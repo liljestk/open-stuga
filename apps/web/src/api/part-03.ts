@@ -74,6 +74,7 @@ import type {
   StaticParameter,
   GuestAccessGrant,
   HeatPumpState,
+  HeatPumpPlacementPatch,
   ConnectedDeviceCommand,
   ConnectedDevicePlacementPatch,
   ConnectedDeviceState,
@@ -292,6 +293,13 @@ export const apiPart03 = {
       }),
       ["devices", "data"],
     ),
+  discoverGreeCloud: async (configuration: { houseId: string; username: string; password: string }) => list<GreeDiscoveredDevice>(
+      await request<unknown>("/integrations/gree/cloud/discover", {
+        method: "POST",
+        body: JSON.stringify(configuration),
+      }),
+      ["devices", "data"],
+    ),
   configureGree: (configuration: { houseId: string; mac: string }) => request<{
     ok: boolean;
     configured: boolean;
@@ -300,6 +308,17 @@ export const apiPart03 = {
     state: HeatPumpState;
     integration: IntegrationStatus;
   }>("/integrations/gree/config", {
+    method: "PUT",
+    body: JSON.stringify(configuration),
+  }),
+  configureGreeCloud: (configuration: { houseId: string; mac: string; username: string; password: string }) => request<{
+    ok: boolean;
+    configured: boolean;
+    connectionId: string;
+    houseId: string;
+    state: HeatPumpState;
+    integration: IntegrationStatus;
+  }>("/integrations/gree/cloud/config", {
     method: "PUT",
     body: JSON.stringify(configuration),
   }),
@@ -355,10 +374,19 @@ export const apiPart03 = {
     method: "PATCH",
     body: JSON.stringify(placement),
   }),
-  heatPumpStates: async (houseId?: string) => list<HeatPumpState>(
-      await request<unknown>(`/heat-pumps${houseId ? `?houseId=${encodeURIComponent(houseId)}` : ""}`),
+  heatPumpStates: async (houseId?: string, signal?: AbortSignal) => list<HeatPumpState>(
+      await request<unknown>(
+        `/heat-pumps${houseId ? `?houseId=${encodeURIComponent(houseId)}` : ""}`,
+        signal ? { signal } : undefined,
+      ),
       ["states", "data"],
     ),
+  placeHeatPump: (connectionId: string, placement: HeatPumpPlacementPatch) => request<{
+    state: HeatPumpState | null;
+  }>(`/heat-pumps/${encodeURIComponent(connectionId)}/placement`, {
+    method: "PATCH",
+    body: JSON.stringify(placement),
+  }),
   heatPumpHistory: async (
     connectionId: string,
     options: { from?: string; to?: string; limit?: number } = {},

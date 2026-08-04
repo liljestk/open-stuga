@@ -16,6 +16,7 @@ const connection = {
   connected: true,
   lastPollAt: "2026-07-29T08:00:00.000Z",
   error: null,
+  transport: "local" as const,
   host: "192.168.1.55",
   mac: "AABBCCDDEEFF",
   name: "Nordkapp",
@@ -32,6 +33,12 @@ const state: HeatPumpState = {
   name: connection.name,
   brand: connection.brand,
   model: connection.model,
+  transport: "local",
+  floorId: null,
+  roomId: null,
+  x: null,
+  y: null,
+  z: null,
   observedAt: connection.lastPollAt,
   receivedAt: connection.lastPollAt,
   available: true,
@@ -46,6 +53,8 @@ const state: HeatPumpState = {
   quiet: false,
   turbo: false,
   xfan: true,
+  compressorFrequencyHz: null,
+  diagnostics: {},
   activity: "unknown",
   activityEvidence: "unavailable",
 };
@@ -75,18 +84,19 @@ afterEach(() => {
 });
 
 describe("Gree heat-pump setup", () => {
-  it("renders nothing until a heat pump is discovered or configured", () => {
-    const { container } = render(<I18nProvider><GreeSetupPanel
+  it("offers the explicit EWPE fallback before a unit is discovered", () => {
+    render(<I18nProvider><GreeSetupPanel
       house={house}
       integration={integration}
       devices={[]}
       onIntegrationChange={vi.fn()}
     /></I18nProvider>);
-    expect(container.childElementCount).toBe(0);
+    expect(screen.getByText("Connect EWPE Smart")).not.toBeNull();
   });
 
   it("discovers silently when the Connections section opens", async () => {
     vi.mocked(api.discoverGree).mockResolvedValue([{
+      transport: "local",
       host: connection.host,
       port: 7000,
       mac: connection.mac,
@@ -99,6 +109,61 @@ describe("Gree heat-pump setup", () => {
 
     expect(await screen.findByRole("button", { name: `Add to ${house.name}` })).not.toBeNull();
     expect(api.discoverGree).toHaveBeenCalledWith(house.id);
+  });
+
+  it("discovers through EWPE and saves credentials only with the explicit add", async () => {
+    const cloudDevice = {
+      transport: "ewpe-cloud" as const,
+      host: "mqtt-eu.gree.com",
+      port: 1984,
+      mac: connection.mac,
+      name: "AC3a95",
+      brand: "Wilfa",
+      model: "10001",
+      version: "19.4",
+      cloudHomeName: "Home",
+      cloudRoomName: "Living room",
+    };
+    const discoverCloud = vi.spyOn(api, "discoverGreeCloud").mockResolvedValue([cloudDevice]);
+    const configureCloud = vi.spyOn(api, "configureGreeCloud").mockResolvedValue({
+      ok: true,
+      configured: true,
+      connectionId: connection.id,
+      houseId: house.id,
+      state: { ...state, transport: "ewpe-cloud", name: cloudDevice.name },
+      integration: {
+        ...integration,
+        gree: {
+          configured: true,
+          connected: true,
+          lastPollAt: connection.lastPollAt,
+          error: null,
+          connections: [{ ...connection, transport: "ewpe-cloud", name: cloudDevice.name }],
+        },
+      },
+    });
+    renderPanel(integration);
+    const user = userEvent.setup();
+
+    await user.click(screen.getByText("Connect EWPE Smart"));
+    await user.type(screen.getByLabelText("EWPE email or username"), "reader@example.com");
+    await user.type(screen.getByLabelText("EWPE password"), "secret");
+    await user.click(screen.getByRole("button", { name: "Find heat pumps in EWPE" }));
+    await waitFor(() => expect(discoverCloud).toHaveBeenCalledWith({
+      houseId: house.id,
+      username: "reader@example.com",
+      password: "secret",
+    }));
+    expect(configureCloud).not.toHaveBeenCalled();
+
+    await user.click(await screen.findByRole("button", { name: `Add to ${house.name}` }));
+    await waitFor(() => expect(configureCloud).toHaveBeenCalledWith({
+      houseId: house.id,
+      mac: connection.mac,
+      username: "reader@example.com",
+      password: "secret",
+    }));
+    expect(screen.getByLabelText("EWPE password")).toHaveValue("");
   });
 
   it("offers one explicit add action for a discovered Wilfa unit", async () => {
@@ -121,6 +186,7 @@ describe("Gree heat-pump setup", () => {
       integration: configuredIntegration,
     });
     const onIntegrationChange = renderPanel(integration, [{
+      transport: "local",
       host: connection.host,
       port: 7000,
       mac: connection.mac,
@@ -142,7 +208,7 @@ describe("Gree heat-pump setup", () => {
   });
 
   it("does not present a selected cooling mode as actual compressor activity", async () => {
-    vi.mocked(api.heatPumpStates).mockResolvedValue([state]);
+    vi.mocked(api.heatPumpStates).mockResolvedValue([{ ...state, compressorFrequencyHz: 12 }]);
     renderPanel({
       ...integration,
       gree: {
@@ -155,6 +221,7 @@ describe("Gree heat-pump setup", () => {
     });
 
     expect(await screen.findByText("Cooling selected")).not.toBeNull();
+    expect(screen.getByText("12 Hz")).not.toBeNull();
     expect(screen.getByText("Not reported by unit")).not.toBeNull();
     expect(screen.queryByText("Actively cooling")).toBeNull();
   });

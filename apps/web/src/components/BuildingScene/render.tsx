@@ -31,6 +31,7 @@ import type { SensorCoverageAssessment } from "../../experimentalSpatialLayers";
 import { ExperimentalSensorCoverage3D } from "../ExperimentalSensorCoverage";
 import { OutdoorInfluenceOverlay3D } from "../OutdoorInfluenceOverlay";
 import { ConnectedDeviceMarker3D } from "../ConnectedDeviceMarkers";
+import { HeatPumpMarker3D } from "../HeatPumpMarkers";
 import {
   clampPlanElementHeight,
   clampPlanElementWidth,
@@ -53,7 +54,11 @@ import { DEFAULT_CAMERA, VIEW_HEIGHT, VIEW_WIDTH, buildingBounds, elementAxis, e
 import type { AddableOpeningKind, BuildingSceneProps, DragState, ElementWorldGeometry, ProjectedCloud, SelectedElementPatch } from "./support";
 import { useBuildingScenePart03 } from "./part-03";
 export function renderBuildingScene(context: ReturnType<typeof useBuildingScenePart03>) {
-  const { house, sensors, samples, climateSamples, observations, definition, colorDomain, units, activeFloorId, selectedSensorId, referenceTimeMs, maxSampleAgeMs, outdoor, mapAnimationsEnabled, outdoorExtrasVisible, editing, spatialLayerSnapshots, spatialLayerTopology, experimentalAirflowEnabled, experimentalAirflow, experimentalSensorCoverage, experimentalOutdoorInfluence, openingStateObservations, pendingOpeningStateKeys, onOpeningStateChange, sensorMeasurements, climateSensorMarkersVisible, energyDevicesVisible, connectedDevices, connectedDevicesVisible, pendingConnectedDeviceIds, onConnectedDevicePowerChange, onFloorSelect, onSensorSelect, onFloorChange, locale, t, houseOpeningStateObservations, metricLabel, markerId, camera, setCamera, reducedMotion, setReducedMotion, mapInformationExpanded, setMapInformationExpanded, mapInformationId, selectedElementKey, setSelectedElementKey, addableOpeningKind, setAddableOpeningKind, openingEditorMessage, setOpeningEditorMessage, dragRef, suppressClickRef, effectiveReferenceTimeMs, effectiveMaxAgeMs, freshness, boundsSignature, bounds, floorModels, volume, heatMin, heatMax, clouds, gradientFlows, allValues, project, outdoorContext, airflow, airflowPaths, activeGradientFlows, airflowSupport, airflowDriver, airflowDescription, airflowAria, outdoorTemperature, outdoorHumidity, outdoorTemperatureColor, outdoorHumidityColor, activeOutdoorColor, activeOutdoorStyle, outdoorTemperatureStyle, outdoorHumidityStyle, outdoorWindSpeed, outdoorWindDirection, outdoorWindwardSide, outdoorShellLabel, outdoorShellWorld, outdoorShellProjected, outdoorWindwardProjected, outdoorShellRail, projectedClouds, renderedSensors, orderedFloors, selectedElementFloor, selectedElement, changeCamera, rotateCamera, onPointerDown, onPointerMove, endPointer, onWheel, activateFloor, floorKeyDown, selectSensor, selectArchitecturalElement, updateSelectedElement, selectedWidthBounds, selectedHeightBounds, updateSelectedWidth, updateSelectedHeight, deleteSelectedElement, addOpeningIn3d, renderArchitecturalElement, observationName } = context;
+  const extended = context as typeof context & {
+    heatPumps: NonNullable<BuildingSceneProps["heatPumps"]>;
+    heatPumpInfluenceVisible: NonNullable<BuildingSceneProps["heatPumpInfluenceVisible"]>;
+  };
+  const { house, sensors, samples, climateSamples, observations, definition, colorDomain, units, activeFloorId, selectedSensorId, referenceTimeMs, maxSampleAgeMs, outdoor, mapAnimationsEnabled, outdoorExtrasVisible, editing, spatialLayerSnapshots, spatialLayerTopology, experimentalAirflowEnabled, experimentalAirflow, experimentalSensorCoverage, experimentalOutdoorInfluence, openingStateObservations, pendingOpeningStateKeys, onOpeningStateChange, sensorMeasurements, climateSensorMarkersVisible, energyDevicesVisible, connectedDevices, connectedDevicesVisible, pendingConnectedDeviceIds, heatPumps, heatPumpInfluenceVisible, onConnectedDevicePowerChange, onFloorSelect, onSensorSelect, onFloorChange, locale, t, houseOpeningStateObservations, metricLabel, markerId, camera, setCamera, reducedMotion, setReducedMotion, mapInformationExpanded, setMapInformationExpanded, mapInformationId, selectedElementKey, setSelectedElementKey, addableOpeningKind, setAddableOpeningKind, openingEditorMessage, setOpeningEditorMessage, dragRef, suppressClickRef, effectiveReferenceTimeMs, effectiveMaxAgeMs, freshness, boundsSignature, bounds, floorModels, volume, heatMin, heatMax, clouds, gradientFlows, allValues, project, outdoorContext, airflow, airflowPaths, activeGradientFlows, airflowSupport, airflowDriver, airflowDescription, airflowAria, outdoorTemperature, outdoorHumidity, outdoorTemperatureColor, outdoorHumidityColor, activeOutdoorColor, activeOutdoorStyle, outdoorTemperatureStyle, outdoorHumidityStyle, outdoorWindSpeed, outdoorWindDirection, outdoorWindwardSide, outdoorShellLabel, outdoorShellWorld, outdoorShellProjected, outdoorWindwardProjected, outdoorShellRail, projectedClouds, renderedSensors, orderedFloors, selectedElementFloor, selectedElement, changeCamera, rotateCamera, onPointerDown, onPointerMove, endPointer, onWheel, activateFloor, floorKeyDown, selectSensor, selectArchitecturalElement, updateSelectedElement, selectedWidthBounds, selectedHeightBounds, updateSelectedWidth, updateSelectedHeight, deleteSelectedElement, addOpeningIn3d, renderArchitecturalElement, observationName } = extended;
   return (
       <div className="building-scene">
         <div className="building-scene-controls">
@@ -408,6 +413,24 @@ export function renderBuildingScene(context: ReturnType<typeof useBuildingSceneP
                 />;
               })}
             </g>}
+
+            <g className="building-heat-pumps">
+              {heatPumps.flatMap((state) => {
+                if (state.floorId === null || state.x === null || state.y === null) return [];
+                const stateFloor = house.floors.find((candidate) => candidate.id === state.floorId);
+                if (!stateFloor) return [];
+                const z = state.z ?? stateFloor.elevation + Math.max(1.8, (stateFloor.ceilingHeight ?? 2.4) - .35);
+                return <HeatPumpMarker3D
+                  key={state.connectionId}
+                  state={state}
+                  floor={stateFloor}
+                  position={project({ x: state.x, y: state.y, z })}
+                  anchor={project({ x: state.x, y: state.y, z: stateFloor.elevation + .08 })}
+                  activeFloor={state.floorId === activeFloorId}
+                  influenceVisible={heatPumpInfluenceVisible}
+                />;
+              })}
+            </g>
 
             {editing && <g className="building-plan-elements building-plan-elements-editing">
               {orderedFloors.flatMap(({ floor }) => (floor.planElements ?? []).map((element, index) => renderArchitecturalElement(floor, element, index)))}

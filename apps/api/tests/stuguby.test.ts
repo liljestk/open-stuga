@@ -139,13 +139,13 @@ describe("Stuguby federation", () => {
     expect(unavailableAdmission.body.error.code).toBe("STUGBY_PUBLIC_ORIGIN_REQUIRED");
   });
 
-  it("fails closed instead of publishing compacted TimeDB history as complete", async () => {
+  it("fails closed instead of publishing bounded SQLite history as complete", async () => {
     const runtime = createApi({
       config: loadConfig({
         NODE_ENV: "test",
         DATABASE_PATH: ":memory:",
         TIMESERIES_ENABLED: "true",
-        RETENTION_DAYS: "0",
+        RETENTION_DAYS: "30",
       }),
       startBackground: false,
     });
