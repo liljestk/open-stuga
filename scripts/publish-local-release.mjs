@@ -474,7 +474,7 @@ function buildRaspberryPi({
     [
       "set -Eeuo pipefail",
       "apt-get update",
-      "apt-get install --yes --no-install-recommends binfmt-support ca-certificates debian-archive-keyring gcc-aarch64-linux-gnu git libc6-dev-arm64-cross openssl python3-cryptography python3-tuf qemu-user-static zstd",
+      "apt-get install --yes --no-install-recommends binfmt-support ca-certificates debian-archive-keyring erofs-utils gcc-aarch64-linux-gnu git libc6-dev-arm64-cross openssl python3-cryptography python3-tuf qemu-user-static zstd",
       "mountpoint --quiet /proc/sys/fs/binfmt_misc || mount -t binfmt_misc binfmt_misc /proc/sys/fs/binfmt_misc",
       "test -r /proc/sys/fs/binfmt_misc/aarch64 || test -r /proc/sys/fs/binfmt_misc/qemu-aarch64",
       "bash scripts/build-rpi-image.sh",
