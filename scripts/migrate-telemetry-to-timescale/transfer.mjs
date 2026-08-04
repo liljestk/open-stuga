@@ -152,6 +152,12 @@ export function mapRows(table, rows) {
       name: textValue(state.name, "name", true),
       brand: textValue(state.brand, "brand", true),
       model: textValue(state.model, "model", true),
+      transport: choiceValue(state.transport ?? "local", "transport", ["local", "ewpe-cloud"]),
+      floor_id: textValue(state.floorId ?? null, "floorId", true),
+      room_id: textValue(state.roomId ?? null, "roomId", true),
+      x: finiteNumber(state.x ?? null, "x", true),
+      y: finiteNumber(state.y ?? null, "y", true),
+      z: finiteNumber(state.z ?? null, "z", true),
       observed_at: timestampValue(state.observedAt, "observedAt"),
       received_at: timestampValue(state.receivedAt, "receivedAt"),
       available: booleanValue(state.available, "available"),
@@ -170,6 +176,10 @@ export function mapRows(table, rows) {
       quiet: booleanValue(state.quiet, "quiet", true),
       turbo: booleanValue(state.turbo, "turbo", true),
       xfan: booleanValue(state.xfan, "xfan", true),
+      compressor_frequency_hz: finiteNumber(state.compressorFrequencyHz ?? null, "compressorFrequencyHz", true),
+      diagnostics: state.diagnostics && typeof state.diagnostics === "object" && !Array.isArray(state.diagnostics)
+        ? state.diagnostics
+        : {},
       activity: choiceValue(state.activity, "activity", ["off", "unknown"]),
       activity_evidence: choiceValue(
         state.activityEvidence, "activityEvidence", ["protocol", "unavailable"],

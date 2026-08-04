@@ -72,7 +72,7 @@ import { readMeasurementAnalyticsRollup, type HybridMeasurementAnalyticsRollupRe
 import { readCostAggregate } from "./read-energy-cost.js";
 
 export { bucketLegacyReadings, bucketMeasurementSamples };
-export { IncompleteTelemetryHistoryError } from "./read-support.js";
+export { IncompleteTelemetryHistoryError, isLocalTelemetryHistoryComplete } from "./read-support.js";
 export type {
   HybridArchiveReadState,
   HybridMeasurementCoverageResult,

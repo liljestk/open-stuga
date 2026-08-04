@@ -7,6 +7,7 @@ import {
   HybridTelemetryReader,
   type ArchiveTelemetryReader,
 } from "../src/timeseries/read-facade.js";
+import type { TimeseriesStore } from "../src/timeseries/store.js";
 
 const config: AppConfig = {
   port: 0, apiHost: "127.0.0.1", databasePath: ":memory:", integrationSecretsFile: "integration-secrets.test.json", assetDirectory: ".",
@@ -312,6 +313,50 @@ describe("analytics query API", () => {
     expect(response.body).toMatchObject({
       quality: { sampleCount: 3 },
       series: [{ provenance: { archiveState: "merged" }, summary: { mean: 21 } }],
+    });
+  });
+
+  it("uses the complete unbounded SQLite duplicate while TimeDB is unavailable", async () => {
+    await runtime.close();
+    const database = new ClimateDatabase(":memory:", true);
+    database.activateRealDataMode();
+    database.insertMeasurementSamples([
+      { sensorId: "sensor-01", metric: "temperature", value: 20, canonicalUnit: "C", timestamp: "2026-07-19T10:00:00.000Z", source: "api", quality: "good" },
+      { sensorId: "sensor-01", metric: "temperature", value: 21, canonicalUnit: "C", timestamp: "2026-07-19T10:05:00.000Z", source: "api", quality: "good" },
+      { sensorId: "sensor-01", metric: "temperature", value: 22, canonicalUnit: "C", timestamp: "2026-07-19T10:10:00.000Z", source: "api", quality: "good" },
+    ]);
+    const timeseriesStore = {
+      close: vi.fn(async () => undefined),
+    } as unknown as TimeseriesStore;
+    runtime = createApi({
+      config: { ...config, timeseriesEnabled: true, retentionDays: 0 },
+      database,
+      timeseriesStore,
+      startBackground: false,
+    });
+
+    const response = await request(runtime.app).post("/api/v2/analytics/query").send(query()).expect(200);
+
+    expect(response.body).toMatchObject({
+      quality: { sampleCount: 3 },
+      series: [{
+        provenance: { archiveState: "not-ready" },
+        summary: { mean: 21 },
+      }],
+    });
+
+    const coverageResponse = await request(runtime.app).post("/api/v2/analytics/coverage").send({
+      apiVersion: "1.0",
+      dataMode: "live",
+      scope: { kind: "house", id: "house-main", entityIds: ["sensor-01"] },
+      measurementIds: ["temperature"],
+      requestId: "analytics-unbounded-local-coverage-test",
+    }).expect(200);
+
+    expect(coverageResponse.body).toMatchObject({
+      archiveState: "not-ready",
+      complete: true,
+      range: { start: "2026-07-19T10:00:00.000Z", end: "2026-07-19T10:10:00.000Z" },
     });
   });
 });

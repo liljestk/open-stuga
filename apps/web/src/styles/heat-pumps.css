@@ -1,0 +1,119 @@
+.heat-pump-marker {
+  --heat-pump-color: var(--muted);
+  --heat-pump-influence: 0;
+  isolation: isolate;
+}
+
+.heat-pump-marker.cooling,
+.heat-pump-marker.drying { --heat-pump-color: var(--blue); }
+.heat-pump-marker.heating { --heat-pump-color: var(--red); }
+.heat-pump-marker.circulating { --heat-pump-color: var(--positive); }
+
+.heat-pump-marker.movable { cursor: grab; }
+.heat-pump-marker.movable:active { cursor: grabbing; }
+.heat-pump-marker:focus-visible { outline: 3px solid var(--action); outline-offset: 3px; }
+
+.heat-pump-hit { fill: transparent; pointer-events: all; }
+.heat-pump-ring {
+  fill: color-mix(in srgb, var(--heat-pump-color) 15%, var(--panel));
+  stroke: color-mix(in srgb, var(--heat-pump-color) 76%, var(--ink));
+  stroke-width: 2.2;
+  vector-effect: non-scaling-stroke;
+}
+.heat-pump-core {
+  fill: var(--panel);
+  stroke: var(--line-strong);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+.heat-pump-glyph {
+  fill: color-mix(in srgb, var(--heat-pump-color) 10%, var(--panel));
+  stroke: var(--ink);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+  pointer-events: none;
+  vector-effect: non-scaling-stroke;
+}
+.heat-pump-state,
+.heat-pump-name {
+  fill: var(--ink);
+  font-family: "Manrope", sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  paint-order: stroke;
+  pointer-events: none;
+  stroke: var(--panel);
+  stroke-linejoin: round;
+  stroke-width: 3px;
+}
+.heat-pump-state { fill: var(--muted); font-size: 10px; }
+.building-heat-pump .heat-pump-name,
+.building-heat-pump .heat-pump-state { text-anchor: start; }
+.heat-pump-marker.unavailable { opacity: .66; }
+.heat-pump-marker.unavailable .heat-pump-ring,
+.heat-pump-marker.pending .heat-pump-ring { stroke-dasharray: 4 3; }
+.building-heat-pump:not(.active-floor) { opacity: .78; }
+.heat-pump-tether {
+  stroke: color-mix(in srgb, var(--muted) 70%, transparent);
+  stroke-dasharray: 3 3;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.heat-pump-influence {
+  color: var(--heat-pump-color);
+  opacity: calc(.12 + var(--heat-pump-influence) * .24);
+  pointer-events: none;
+}
+.heat-pump-influence ellipse {
+  fill: color-mix(in srgb, currentColor 17%, transparent);
+  stroke: currentColor;
+  stroke-width: 1.4;
+  vector-effect: non-scaling-stroke;
+}
+.heat-pump-influence ellipse + ellipse { opacity: .7; }
+.heat-pump-influence.inferred ellipse,
+.heat-pump-influence.inferred path { stroke-dasharray: 7 5; }
+.heat-pump-influence-3d path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  vector-effect: non-scaling-stroke;
+}
+
+.gree-cloud-setup { margin-top: 12px; }
+.integration-credential-form { display: grid; gap: 10px; }
+
+.heat-pump-placement-tray {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 9px;
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--panel-soft);
+  font-size: 11px;
+}
+.heat-pump-placement-tray > span { flex: 1 1 220px; }
+.heat-pump-impact-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 10.5px;
+}
+.heat-pump-impact-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.heat-pump-impact-legend i {
+  width: 18px;
+  height: 8px;
+  display: inline-block;
+  border: 1.5px solid var(--blue);
+  border-radius: 999px;
+  background: var(--blue-soft);
+}
+.heat-pump-impact-legend .reported i { border-style: solid; }
+.heat-pump-impact-legend .inferred i { border-style: dashed; }

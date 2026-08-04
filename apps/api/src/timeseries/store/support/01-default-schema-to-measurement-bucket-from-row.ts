@@ -153,6 +153,12 @@ export interface HeatPumpStateRow extends QueryResultRow {
   name: string | null;
   brand: string | null;
   model: string | null;
+  transport: HeatPumpStateRecord["transport"];
+  floor_id: string | null;
+  room_id: string | null;
+  x: number | null;
+  y: number | null;
+  z: number | null;
   observed_at: string | Date;
   received_at: string | Date;
   available: boolean;
@@ -167,6 +173,8 @@ export interface HeatPumpStateRow extends QueryResultRow {
   quiet: boolean | null;
   turbo: boolean | null;
   xfan: boolean | null;
+  compressor_frequency_hz: number | null;
+  diagnostics: HeatPumpStateRecord["diagnostics"];
   activity: HeatPumpStateRecord["activity"];
   activity_evidence: HeatPumpStateRecord["activityEvidence"];
 }
@@ -345,6 +353,12 @@ export function heatPumpStateFromRow(row: HeatPumpStateRow): HeatPumpStateRecord
     name: row.name,
     brand: row.brand,
     model: row.model,
+    transport: row.transport ?? "local",
+    floorId: row.floor_id ?? null,
+    roomId: row.room_id ?? null,
+    x: row.x == null ? null : Number(row.x),
+    y: row.y == null ? null : Number(row.y),
+    z: row.z == null ? null : Number(row.z),
     observedAt: timestamp(row.observed_at),
     receivedAt: timestamp(row.received_at),
     available: row.available,
@@ -359,6 +373,8 @@ export function heatPumpStateFromRow(row: HeatPumpStateRow): HeatPumpStateRecord
     quiet: row.quiet,
     turbo: row.turbo,
     xfan: row.xfan,
+    compressorFrequencyHz: row.compressor_frequency_hz == null ? null : Number(row.compressor_frequency_hz),
+    diagnostics: row.diagnostics ?? {},
     activity: row.activity,
     activityEvidence: row.activity_evidence,
   };

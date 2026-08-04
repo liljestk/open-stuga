@@ -1,8 +1,10 @@
 export const HEAT_PUMP_DESTINATION_COLUMNS = Object.freeze([
-  "connection_id", "house_id", "equipment_id", "device_id", "name", "brand", "model",
+  "connection_id", "house_id", "equipment_id", "device_id", "name", "brand", "model", "transport",
+  "floor_id", "room_id", "x", "y", "z",
   "observed_at", "received_at", "available", "power", "selected_mode", "target_temperature_c",
   "current_temperature_c", "current_temperature_source", "fan_speed", "horizontal_swing",
-  "vertical_swing", "quiet", "turbo", "xfan", "activity", "activity_evidence", "ingested_at",
+  "vertical_swing", "quiet", "turbo", "xfan", "compressor_frequency_hz", "diagnostics",
+  "activity", "activity_evidence", "ingested_at",
 ]);
 
 export function heatPumpDestinationSql(schema, quote) {
@@ -15,6 +17,12 @@ export function heatPumpDestinationSql(schema, quote) {
         name text,
         brand text,
         model text,
+        transport text NOT NULL DEFAULT 'local' CHECK (transport IN ('local', 'ewpe-cloud')),
+        floor_id text,
+        room_id text,
+        x double precision,
+        y double precision,
+        z double precision,
         observed_at timestamptz NOT NULL CHECK (isfinite(observed_at)),
         received_at timestamptz NOT NULL CHECK (isfinite(received_at)),
         available boolean NOT NULL,
@@ -43,6 +51,10 @@ export function heatPumpDestinationSql(schema, quote) {
         quiet boolean,
         turbo boolean,
         xfan boolean,
+        compressor_frequency_hz double precision CHECK (
+          compressor_frequency_hz IS NULL OR (compressor_frequency_hz >= 0 AND compressor_frequency_hz <= 300)
+        ),
+        diagnostics jsonb NOT NULL DEFAULT '{}'::jsonb,
         activity text NOT NULL CHECK (activity IN ('off', 'unknown')),
         activity_evidence text NOT NULL CHECK (activity_evidence IN ('protocol', 'unavailable')),
         ingested_at timestamptz NOT NULL DEFAULT clock_timestamp(),
@@ -53,5 +65,18 @@ export function heatPumpDestinationSql(schema, quote) {
       CREATE INDEX IF NOT EXISTS ${quote("heat_pump_state_history_idx")}
         ON ${schema}.heat_pump_state_samples (house_id, connection_id, observed_at DESC)
         INCLUDE (available, power, selected_mode, target_temperature_c, current_temperature_c);
+      ALTER TABLE ${schema}.heat_pump_state_samples
+        ADD COLUMN IF NOT EXISTS transport text NOT NULL DEFAULT 'local'
+        CHECK (transport IN ('local', 'ewpe-cloud'));
+      ALTER TABLE ${schema}.heat_pump_state_samples ADD COLUMN IF NOT EXISTS floor_id text;
+      ALTER TABLE ${schema}.heat_pump_state_samples ADD COLUMN IF NOT EXISTS room_id text;
+      ALTER TABLE ${schema}.heat_pump_state_samples ADD COLUMN IF NOT EXISTS x double precision;
+      ALTER TABLE ${schema}.heat_pump_state_samples ADD COLUMN IF NOT EXISTS y double precision;
+      ALTER TABLE ${schema}.heat_pump_state_samples ADD COLUMN IF NOT EXISTS z double precision;
+      ALTER TABLE ${schema}.heat_pump_state_samples
+        ADD COLUMN IF NOT EXISTS compressor_frequency_hz double precision
+        CHECK (compressor_frequency_hz IS NULL OR (compressor_frequency_hz >= 0 AND compressor_frequency_hz <= 300));
+      ALTER TABLE ${schema}.heat_pump_state_samples
+        ADD COLUMN IF NOT EXISTS diagnostics jsonb NOT NULL DEFAULT '{}'::jsonb;
   `;
 }

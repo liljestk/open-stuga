@@ -123,6 +123,8 @@ export const energyDeviceLayerPreferenceKey = "stugu-home-map-energy-devices-vis
 
 export const connectedDeviceLayerPreferenceKey = "stugu-home-map-connected-devices-visible";
 
+export const heatPumpInfluencePreferenceKey = "stugu-home-map-heat-pump-influence-visible";
+
 export const climateSensorLayerPreferenceKey = "stugu-home-map-climate-sensors-visible";
 
 export const openingStateLabelsPreferenceKey = "stugu-home-map-opening-state-labels-visible";
@@ -158,6 +160,10 @@ export function initialEnergyDeviceLayerVisibility(): boolean {
 
 export function initialConnectedDeviceLayerVisibility(): boolean {
   return readLocalStorage(connectedDeviceLayerPreferenceKey) !== "false";
+}
+
+export function initialHeatPumpInfluenceVisibility(): boolean {
+  return readLocalStorage(heatPumpInfluencePreferenceKey) !== "false";
 }
 
 export function initialClimateSensorLayerVisibility(): boolean {

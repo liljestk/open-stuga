@@ -166,6 +166,7 @@ import {
   bucketLegacyReadings,
   bucketMeasurementSamples,
   IncompleteTelemetryHistoryError,
+  isLocalTelemetryHistoryComplete,
 } from "../timeseries/read-facade.js";
 import { TelemetryRetentionWorker } from "../timeseries/retention-worker.js";
 import {
@@ -335,9 +336,11 @@ export function configureApiPart02(context: ReturnType<typeof configureApiPart01
         publicOrigin: config.stugubyPublicOrigin,
         suggestedPublicOrigin: config.stugubySuggestedPublicOrigin ?? null,
         allowUiPublicOrigin: !config.stugubyCoordinatorProvisioningRequired,
-        localTelemetryHistoryComplete: (from) => !config.timeseriesEnabled
-          || (from !== undefined && config.retentionDays > 0
-            && Date.parse(from) >= Date.now() - config.retentionDays * 86_400_000),
+        localTelemetryHistoryComplete: (from) => isLocalTelemetryHistoryComplete({
+          timeseriesEnabled: config.timeseriesEnabled,
+          retentionDays: config.retentionDays,
+          ...(from === undefined ? {} : { from }),
+        }),
         ...(context.options.stugubyFetcher ? { fetcher: context.options.stugubyFetcher } : {}),
       });
     })();

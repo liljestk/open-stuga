@@ -219,11 +219,10 @@ fails over to Home Assistant without duplicating live history or alert
 evaluation. The Sensors flow can attach a newly discovered direct device to an
 existing Home Assistant sensor; aliases are never guessed as identity.
 
-Compatible Gree-protocol Wilfa heat pumps can also be found from the selected
-Home's **Set up** page and monitored directly on the LAN. The section stays
-hidden until a unit is discovered or configured, adding always requires an
-explicit action, and this first phase is read-only. See
-[Direct Gree/Wilfa heat pumps](docs/gree-direct.md).
+Compatible Gree-protocol Wilfa heat pumps can be found from the selected Home's
+**Set up** page and monitored read-only, locally first or through EWPE Smart.
+After explicit addition, place the unit once for shared 2D/3D state and
+estimated-influence views. See [Gree/Wilfa heat pumps](docs/gree-direct.md).
 
 Supported Tuya-compatible Wi-Fi lamps, outlets, and switches use a separate
 local-first path. Pair the device to Wi-Fi in Tuya Smart or Smart Life, then

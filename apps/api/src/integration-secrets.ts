@@ -78,6 +78,8 @@ export interface GreeConnectionSecret {
   id: string;
   houseId: string;
   equipmentId?: string;
+  /** Omitted on legacy bindings and normalized as local. */
+  transport?: "local" | "ewpe-cloud";
   host: string;
   port: number;
   /** Normalized uppercase hexadecimal MAC without separators. */
@@ -89,6 +91,9 @@ export interface GreeConnectionSecret {
   brand?: string;
   model?: string;
   version?: string;
+  /** EWPE credentials are protected at rest with the other integration secrets. */
+  cloudUsername?: string;
+  cloudPassword?: string;
 }
 
 export interface TuyaConnectionSecret {
@@ -232,13 +237,23 @@ function normalizedGreeConnections(value: unknown): GreeConnectionSecret[] {
     const brand = normalizedOptionalGreeString(item?.brand, 200);
     const model = normalizedOptionalGreeString(item?.model, 200);
     const version = normalizedOptionalGreeString(item?.version, 200);
+    const transport = item?.transport === undefined ? "local" : item.transport;
+    const cloudUsername = normalizedOptionalGreeString(item?.cloudUsername, 320);
+    const cloudPassword = item?.cloudPassword === undefined
+      ? undefined
+      : typeof item.cloudPassword === "string" && item.cloudPassword.length > 0 && item.cloudPassword.length <= 8_192
+        ? item.cloudPassword
+        : null;
     if (!item || !isNonEmptyString(item.id) || item.id.length > 200
       || !isNonEmptyString(item.houseId) || item.houseId.length > 200
       || !isNonEmptyString(item.host) || item.host.length > 253
       || typeof item.port !== "number" || !Number.isInteger(item.port) || item.port < 1 || item.port > 65_535
       || !mac || !isNonEmptyString(item.key) || item.key.length > 256
       || (item.cipherVersion !== 1 && item.cipherVersion !== 2)
-      || equipmentId === null || name === null || brand === null || model === null || version === null) {
+      || (transport !== "local" && transport !== "ewpe-cloud")
+      || equipmentId === null || name === null || brand === null || model === null || version === null
+      || cloudUsername === null || cloudPassword === null
+      || (transport === "ewpe-cloud" && (!cloudUsername || !cloudPassword))) {
       throw new Error("The Gree connections in the integration secrets file are invalid");
     }
     const id = item.id.trim();
@@ -251,6 +266,7 @@ function normalizedGreeConnections(value: unknown): GreeConnectionSecret[] {
       id,
       houseId: item.houseId.trim(),
       ...(equipmentId ? { equipmentId } : {}),
+      ...(transport === "ewpe-cloud" ? { transport } : {}),
       host: item.host.trim(),
       port: Number(item.port),
       mac,
@@ -260,6 +276,8 @@ function normalizedGreeConnections(value: unknown): GreeConnectionSecret[] {
       ...(brand ? { brand } : {}),
       ...(model ? { model } : {}),
       ...(version ? { version } : {}),
+      ...(cloudUsername ? { cloudUsername } : {}),
+      ...(cloudPassword ? { cloudPassword } : {}),
     };
   });
 }

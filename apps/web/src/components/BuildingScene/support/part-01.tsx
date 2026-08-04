@@ -2,7 +2,7 @@ import {
   useEffect, useId, useMemo, useRef, useState,
   type CSSProperties, type KeyboardEvent, type MouseEvent, type PointerEvent as ReactPointerEvent, type WheelEvent,
 } from "react";
-import { isAirflowPlanElement, type ConfiguredOpeningState, type ConnectedDeviceState, type Floor, type House, type ManualObservation, type MeasurementDefinition, type MeasurementSample, type OpeningStateObservation, type PlanElement, type Sensor, type UnitSystem } from "@climate-twin/contracts";
+import { isAirflowPlanElement, type ConfiguredOpeningState, type ConnectedDeviceState, type Floor, type HeatPumpState, type House, type ManualObservation, type MeasurementDefinition, type MeasurementSample, type OpeningStateObservation, type PlanElement, type Sensor, type UnitSystem } from "@climate-twin/contracts";
 import { useI18n, type TranslationKey } from "../../../i18n";
 import { formatMeasurement, formatMeasurementDelta, measurementGradient, measurementLabel, measurementValue, toDisplayValue, type LatestMeasurements } from "../../../measurements";
 import { energyDeviceMapStats, isEnergyDeviceSensor } from "../../../energyDeviceMap";
@@ -60,6 +60,8 @@ export interface BuildingSceneProps {
   connectedDevices?: readonly ConnectedDeviceState[];
   connectedDevicesVisible?: boolean;
   pendingConnectedDeviceIds?: ReadonlySet<string>;
+  heatPumps?: readonly HeatPumpState[];
+  heatPumpInfluenceVisible?: boolean;
   climateSamples?: ClimateSampleMatrix;
   observations: ManualObservation[];
   definition: MeasurementDefinition;

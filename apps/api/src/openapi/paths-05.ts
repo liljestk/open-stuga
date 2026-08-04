@@ -3,7 +3,8 @@ export const pathsPart05 = {
     post: {
       tags: ["Integrations"],
       operationId: "discoverGree",
-      description: "Runs a non-binding local scan for compatible Gree-protocol heat pumps. No integration is created and no device setting is changed.",
+      security: [{ localSession: [], csrfToken: [] }],
+      description: "Owner/Admin-only, non-binding local scan for compatible Gree-protocol heat pumps. No integration is created and no device setting is changed.",
       requestBody: {
         required: true,
         content: {
@@ -36,6 +37,7 @@ export const pathsPart05 = {
             },
           },
         },
+        "403": { description: "Owner or Admin role required" },
         "404": { $ref: "#/components/responses/NotFound" },
       },
     },
@@ -44,7 +46,8 @@ export const pathsPart05 = {
     put: {
       tags: ["Integrations"],
       operationId: "configureGree",
-      description: "Explicitly binds a discovered Gree-compatible heat pump for read-only local state. The protocol binding key is stored server-side and is never returned.",
+      security: [{ localSession: [], csrfToken: [] }],
+      description: "Owner/Admin-only explicit binding of a discovered Gree-compatible heat pump for read-only local state. The protocol binding key is stored server-side and is never returned.",
       requestBody: {
         required: true,
         content: {
@@ -74,9 +77,91 @@ export const pathsPart05 = {
             },
           },
         },
+        "403": { description: "Owner or Admin role required" },
         "404": { $ref: "#/components/responses/NotFound" },
         "409": { description: "The physical heat pump is already configured or its inventory identity conflicts" },
         "422": { description: "The heat pump could not be bound on the local network" },
+      },
+    },
+  },
+  "/integrations/gree/cloud/discover": {
+    post: {
+      tags: ["Integrations"],
+      operationId: "discoverGreeCloud",
+      security: [{ localSession: [], csrfToken: [] }],
+      description: "Owner/Admin-only transient sign-in to EWPE Smart that lists compatible heat pumps. Credentials are not saved by discovery and no device setting is changed.",
+      requestBody: {
+        required: true,
+        content: {
+          "application/json": {
+            schema: { $ref: "#/components/schemas/GreeCloudDiscoveryInput" },
+          },
+        },
+      },
+      responses: {
+        "200": {
+          description: "Sanitized heat pumps visible to the EWPE Smart account",
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                additionalProperties: false,
+                required: ["devices"],
+                properties: {
+                  devices: {
+                    type: "array",
+                    items: { $ref: "#/components/schemas/GreeDiscoveredDevice" },
+                  },
+                },
+              },
+            },
+          },
+        },
+        "403": { description: "Owner or Admin role required" },
+        "404": { $ref: "#/components/responses/NotFound" },
+        "422": { description: "EWPE credentials, account inventory, or cloud connectivity could not be verified" },
+      },
+    },
+  },
+  "/integrations/gree/cloud/config": {
+    put: {
+      tags: ["Integrations"],
+      operationId: "configureGreeCloud",
+      security: [{ localSession: [], csrfToken: [] }],
+      description: "Owner/Admin-only live read-only verification through EWPE Smart, followed by protected credential storage. No device command is sent.",
+      requestBody: {
+        required: true,
+        content: {
+          "application/json": {
+            schema: { $ref: "#/components/schemas/GreeCloudConfigInput" },
+          },
+        },
+      },
+      responses: {
+        "200": {
+          description: "Cloud reader added and monitoring started",
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                additionalProperties: false,
+                required: ["ok", "configured", "connectionId", "houseId", "state", "integration"],
+                properties: {
+                  ok: { const: true },
+                  configured: { const: true },
+                  connectionId: { type: "string" },
+                  houseId: { type: "string" },
+                  state: { $ref: "#/components/schemas/HeatPumpState" },
+                  integration: { $ref: "#/components/schemas/IntegrationStatus" },
+                },
+              },
+            },
+          },
+        },
+        "403": { description: "Owner or Admin role required" },
+        "404": { $ref: "#/components/responses/NotFound" },
+        "409": { description: "The physical heat pump is already configured" },
+        "422": { description: "Live read-only EWPE state could not be verified" },
       },
     },
   },
@@ -84,7 +169,8 @@ export const pathsPart05 = {
     delete: {
       tags: ["Integrations"],
       operationId: "disconnectGree",
-      description: "Deletes the saved local binding key and stops polling. Equipment inventory and previously recorded state history are retained.",
+      security: [{ localSession: [], csrfToken: [] }],
+      description: "Owner/Admin-only deletion of saved LAN/cloud credentials. Polling stops; equipment inventory, placement, and recorded history are retained.",
       parameters: [{
         name: "connectionId",
         in: "path",
@@ -108,6 +194,7 @@ export const pathsPart05 = {
             },
           },
         },
+        "403": { description: "Owner or Admin role required" },
         "404": { $ref: "#/components/responses/NotFound" },
       },
     },
@@ -116,7 +203,7 @@ export const pathsPart05 = {
     get: {
       tags: ["Integrations"],
       operationId: "listHeatPumpStates",
-      description: "Returns the latest typed state for active direct Gree-compatible heat-pump connections.",
+      description: "Returns the latest typed state for active local or EWPE-cloud Gree-compatible heat-pump connections.",
       parameters: [{ $ref: "#/components/parameters/HouseIdQuery" }],
       responses: {
         "200": {
@@ -138,6 +225,53 @@ export const pathsPart05 = {
           },
         },
         "404": { $ref: "#/components/responses/NotFound" },
+      },
+    },
+  },
+  "/heat-pumps/{connectionId}/placement": {
+    patch: {
+      tags: ["Digital twin"],
+      operationId: "placeHeatPump",
+      security: [{ localSession: [], csrfToken: [] }],
+      description: "Owner/Admin-only update of the shared 2D/3D Home placement. This changes only Stugu's map; it sends no device command.",
+      parameters: [{
+        name: "connectionId",
+        in: "path",
+        required: true,
+        schema: { type: "string", minLength: 1, maxLength: 200 },
+      }],
+      requestBody: {
+        required: true,
+        content: {
+          "application/json": {
+            schema: { $ref: "#/components/schemas/HeatPumpPlacementPatch" },
+          },
+        },
+      },
+      responses: {
+        "200": {
+          description: "Placement saved",
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                additionalProperties: false,
+                required: ["state"],
+                properties: {
+                  state: {
+                    oneOf: [
+                      { $ref: "#/components/schemas/HeatPumpState" },
+                      { type: "null" },
+                    ],
+                  },
+                },
+              },
+            },
+          },
+        },
+        "403": { description: "Owner or Admin role required" },
+        "404": { $ref: "#/components/responses/NotFound" },
+        "422": { description: "Placement is incomplete or outside the selected Home floor" },
       },
     },
   },

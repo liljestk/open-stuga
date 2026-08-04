@@ -562,6 +562,18 @@ test("host boot-control records live outside FAT and activation is qualification
   assert.match(builder, /boot selector must be static for early initramfs/u);
 });
 
+test("host releases include and inspect RAUC's extraction runtime", async () => {
+  const [layer, builder] = await Promise.all([
+    readFile(new URL("../../deploy/rpi/layer/stugu.yaml", import.meta.url), "utf8"),
+    readFile(new URL("../build-rpi-image.sh", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(layer, /packages:[\s\S]*- rauc[\s\S]*- squashfs-tools/u);
+  assert.match(builder, /dump\.erofs --path="\$required_host_runtime"/u);
+  assert.match(builder, /\/usr\/bin\/rauc \/usr\/bin\/unsquashfs/u);
+  assert.match(builder, /Access: 0755\//u);
+});
+
 test("clean appliances default to guarded automatic GitHub container updates", async () => {
   const composeStart = await readFile(
     new URL("../../deploy/rpi/assets/stugu-compose-start", import.meta.url),

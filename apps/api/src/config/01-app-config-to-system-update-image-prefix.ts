@@ -106,7 +106,7 @@ export interface AppConfig {
   tpLinkPollIntervalMs: number;
   tpLinkPython: string;
   tpLinkBridgeScript: string;
-  /** House-scoped local Gree/Wilfa bindings saved after LAN discovery. */
+  /** Home-scoped local or EWPE-cloud Gree/Wilfa bindings. */
   greeConnections?: GreeConnectionSecret[];
   greePollIntervalMs?: number;
   greePython?: string;

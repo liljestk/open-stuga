@@ -54,6 +54,23 @@ class PreflightPolicyTests(unittest.TestCase):
     def setUp(self) -> None:
         self.preflight = Preflight(config(), interlocks=())
 
+    def test_host_runtime_requires_rauc_and_unsquashfs(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            rauc = root / "rauc"
+            unsquashfs = root / "unsquashfs"
+            for executable in (rauc, unsquashfs):
+                executable.write_text("#!/bin/sh\n", encoding="ascii")
+                executable.chmod(0o755)
+            with patch(
+                "stugu_host_updater.preflight.REQUIRED_HOST_EXECUTABLES",
+                (rauc, unsquashfs),
+            ):
+                self.preflight._runtime_dependencies()
+                unsquashfs.unlink()
+                with self.assertRaisesRegex(PreflightError, "unsquashfs"):
+                    self.preflight._runtime_dependencies()
+
     def test_generation_rollback_and_unapproved_reinstall_are_rejected(self) -> None:
         with self.assertRaisesRegex(PreflightError, "below the"):
             self.preflight._manifest(

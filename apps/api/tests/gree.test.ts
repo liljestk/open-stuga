@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -12,7 +12,7 @@ import type { TimeseriesStore } from "../src/timeseries/store.js";
 const MAC = "AABBCCDDEEFF";
 const BINDING_KEY = "bound-key-123456";
 
-describe("direct Gree/Wilfa integration", () => {
+describe("Gree/Wilfa integration", () => {
   let directory: string | null = null;
   let runtime: ApiRuntime | null = null;
 
@@ -172,6 +172,109 @@ describe("direct Gree/Wilfa integration", () => {
         },
       ],
     })).toThrow(/conflicting identities/u);
+  });
+
+  it("discovers and binds EWPE read-only state, protects credentials, and saves Home placement", async () => {
+    directory = mkdtempSync(join(tmpdir(), "stugu-ewpe-"));
+    const secretsPath = join(directory, "private", "integrations.json");
+    const config = loadConfig({
+      NODE_ENV: "test",
+      DATABASE_PATH: ":memory:",
+      INTEGRATION_SECRETS_FILE: secretsPath,
+    });
+    runtime = createApi({ config, startBackground: false });
+    const device = {
+      transport: "ewpe-cloud" as const,
+      host: "mqtt-eu.gree.com",
+      port: 1984,
+      mac: MAC,
+      name: "AC3a95",
+      brand: "Wilfa",
+      model: "10001",
+      version: "19.4",
+      cloudHomeName: "Home",
+      cloudRoomName: "Living room",
+    };
+    vi.spyOn(runtime.gree, "discoverCloud").mockResolvedValue([device]);
+    vi.spyOn(runtime.gree, "bindCloud").mockResolvedValue({
+      device,
+      key: "device-envelope-key",
+      cipherVersion: 1,
+      state: {
+        observedAt: "2026-08-03T17:20:00.000Z",
+        available: true,
+        power: true,
+        selectedMode: "cool",
+        targetTemperatureC: 20,
+        currentTemperatureC: 20,
+        currentTemperatureSource: "reported",
+        fanSpeed: "auto",
+        horizontalSwing: "middle",
+        verticalSwing: "full",
+        quiet: false,
+        turbo: false,
+        xfan: true,
+        compressorFrequencyHz: 12,
+        diagnostics: { wifiStatus: 1, faultCode: 0 },
+        activity: "unknown",
+        activityEvidence: "unavailable",
+      },
+    });
+
+    await request(runtime.app)
+      .post("/api/v1/integrations/gree/cloud/discover")
+      .send({ houseId: "house-main", username: "reader@example.com", password: "secret" })
+      .expect(200)
+      .expect("cache-control", "no-store")
+      .expect(({ body }) => expect(body.devices).toEqual([device]));
+    expect(existsSync(secretsPath)).toBe(false);
+
+    const configured = await request(runtime.app)
+      .put("/api/v1/integrations/gree/cloud/config")
+      .send({ houseId: "house-main", mac: MAC, username: "reader@example.com", password: "secret" })
+      .expect(200);
+    expect(configured.headers["cache-control"]).toBe("no-store");
+    expect(configured.body).toMatchObject({
+      connectionId: "gree-aabbccddeeff",
+      state: {
+        transport: "ewpe-cloud",
+        compressorFrequencyHz: 12,
+        diagnostics: { wifiStatus: 1, faultCode: 0 },
+        floorId: null,
+      },
+    });
+    expect(JSON.stringify(configured.body)).not.toContain("secret");
+    expect(JSON.stringify(configured.body)).not.toContain("device-envelope-key");
+    expect(readIntegrationSecrets(secretsPath).greeConnections).toEqual([
+      expect.objectContaining({
+        transport: "ewpe-cloud",
+        cloudUsername: "reader@example.com",
+        cloudPassword: "secret",
+        key: "device-envelope-key",
+      }),
+    ]);
+
+    await request(runtime.app)
+      .patch("/api/v1/heat-pumps/gree-aabbccddeeff/placement")
+      .send({ floorId: "floor-ground", roomId: "living", x: 2.5, y: 1.2, z: 2.3 })
+      .expect(200)
+      .expect(({ body }) => expect(body.state).toMatchObject({
+        floorId: "floor-ground", roomId: "living", x: 2.5, y: 1.2, z: 2.3,
+      }));
+    await request(runtime.app)
+      .patch("/api/v1/heat-pumps/gree-aabbccddeeff/placement")
+      .send({ floorId: "floor-ground", x: 99, y: 1 })
+      .expect(422);
+    await request(runtime.app)
+      .get("/api/v1/heat-pumps?houseId=house-main")
+      .expect(200)
+      .expect(({ body }) => expect(body.states[0]).toMatchObject({
+        floorId: "floor-ground", roomId: "living", x: 2.5, y: 1.2, z: 2.3,
+      }));
+    await request(runtime.app)
+      .post("/api/v1/heat-pumps/gree-aabbccddeeff/commands")
+      .send({ power: false })
+      .expect(404);
   });
 
   it("journals every timestamped poll while reporting only semantic changes", () => {
