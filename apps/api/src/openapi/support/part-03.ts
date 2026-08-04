@@ -241,6 +241,72 @@ export const localAuthPaths = {
       },
     },
   },
+  "/system/updates/operations": {
+    post: {
+      tags: ["Context"], operationId: "requestSystemUpdateOperation",
+      description: "Queues a revision-bound unified update, exact host restart/cancel action, or application retry. Owner/Admin only.",
+      security: [{ localSession: [], csrfToken: [] }],
+      requestBody: spatialRequestBody({
+        oneOf: [
+          {
+            type: "object",
+            additionalProperties: false,
+            required: ["action", "expectedRevision"],
+            properties: {
+              action: { const: "update-everything" },
+              expectedRevision: { type: "integer", minimum: 0, maximum: 9_007_199_254_740_991 },
+            },
+          },
+          {
+            type: "object",
+            additionalProperties: false,
+            required: ["action", "expectedRevision", "workflowId", "hostOperationId", "targetVersion", "targetGeneration", "targetDigest", "confirmation"],
+            properties: {
+              action: { const: "activate-host" },
+              expectedRevision: { type: "integer", minimum: 0, maximum: 9_007_199_254_740_991 },
+              workflowId: { type: "string", format: "uuid" },
+              hostOperationId: { type: "string", format: "uuid" },
+              targetVersion: { type: "string", pattern: "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$" },
+              targetGeneration: { type: "integer", minimum: 1, maximum: 9_007_199_254_740_991 },
+              targetDigest: { type: "string", pattern: "^[0-9a-f]{64}$" },
+              confirmation: { const: "RESTART_AND_INSTALL" },
+            },
+          },
+          {
+            type: "object",
+            additionalProperties: false,
+            required: ["action", "expectedRevision", "workflowId", "hostOperationId", "targetVersion", "targetGeneration", "targetDigest"],
+            properties: {
+              action: { const: "cancel-host" },
+              expectedRevision: { type: "integer", minimum: 0, maximum: 9_007_199_254_740_991 },
+              workflowId: { type: "string", format: "uuid" },
+              hostOperationId: { type: "string", format: "uuid" },
+              targetVersion: { type: "string", pattern: "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$" },
+              targetGeneration: { type: "integer", minimum: 1, maximum: 9_007_199_254_740_991 },
+              targetDigest: { type: "string", pattern: "^[0-9a-f]{64}$" },
+            },
+          },
+          {
+            type: "object",
+            additionalProperties: false,
+            required: ["action", "expectedRevision", "workflowId"],
+            properties: {
+              action: { const: "retry-application" },
+              expectedRevision: { type: "integer", minimum: 0, maximum: 9_007_199_254_740_991 },
+              workflowId: { type: "string", format: "uuid" },
+            },
+          },
+        ],
+      }),
+      responses: {
+        "202": spatialJsonResponse("System update operation accepted.", { type: "object", additionalProperties: true }),
+        "400": { description: "Malformed or unsupported operation request" },
+        "403": { description: "Owner or Admin role required" },
+        "409": { description: "Stale revision, identity mismatch, or unsafe current state" },
+        "503": { description: "Compatible update agent or host bridge unavailable" },
+      },
+    },
+  },
   "/cloudflare/setup": {
     get: {
       tags: ["Context"],

@@ -3,21 +3,28 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 import uuid
 
-from .bootcontrol import BootControlStore, BootRecord, SlotState
+from .bootcontrol import BootControlStore, BootRecord
+from .boottransitions import (
+    BootTransition,
+    fallback_record,
+    is_clean_source_record,
+    is_pending_record,
+    is_probation_record,
+    is_successful_record,
+    pending_record,
+    probation_record,
+    require_trial_record,
+    selector_consumed_transition_matches,
+    source_is_usable,
+    successful_record,
+)
 from .command import CommandRunner
 from .config import UpdaterConfig
-from .contracts import (
-    CHANNELS,
-    HEX_SHA256,
-    MAX_JSON_INTEGER,
-    ReleaseManifest,
-    validate_target_path,
-)
+from .contracts import ReleaseManifest
 from .durable import (
     AuditLog,
     RedundantTrustStore,
@@ -29,7 +36,14 @@ from .durable import (
     read_json,
 )
 from .errors import ContractError, TrustError, UpdaterError
-from .health import HealthChecker
+from .health import HealthChecker, valid_health_evidence
+from .hostjournal import (
+    INTENT_PHASES,
+    JOURNAL_SCHEMA,
+    REUSABLE_PHASES,
+    require_expected_staged_identity,
+    validate_host_journal,
+)
 from .metrics import MetricsExporter
 from .platform import ApplianceDisk, DeviceResolver, hardware_fingerprint
 from .preflight import Preflight
@@ -37,23 +51,23 @@ from .rauc import RaucClient
 from .repository import TufRepository, VerifiedTarget
 
 
-JOURNAL_SCHEMA = "stugu-host-update-journal/v1"
 STATUS_SCHEMA = "stugu-host-update-status/v1"
-REUSABLE_PHASES = frozenset({"complete", "cancelled", "returned"})
-JOURNAL_PHASES = REUSABLE_PHASES | frozenset(
-    {
-        "prepared",
-        "installed",
-        "pending",
-        "probation",
-        "failed",
-        "recovery-needed",
-    }
-)
 
 
 def now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _utc_timestamp(value: object) -> datetime | None:
+    if not isinstance(value, str) or not value.endswith("Z"):
+        return None
+    try:
+        parsed = datetime.fromisoformat(f"{value[:-1]}+00:00")
+    except ValueError:
+        return None
+    if parsed.utcoffset() != timezone.utc.utcoffset(None):
+        return None
+    return parsed
 
 
 def require_metadata_progress(target: VerifiedTarget, trust: TrustState) -> None:
@@ -102,61 +116,6 @@ def accepted_metadata_state(
     )
 
 
-def require_trial_record(
-    record: BootRecord,
-    *,
-    source: str,
-    target: str,
-    generation: int,
-    manifest_sha256: str,
-    phase: str,
-    trial_count: int,
-) -> None:
-    target_state = record.slots[target]
-    if phase == "pending":
-        expected_tries = {0: 1, 1: 0}.get(trial_count)
-        valid = (
-            expected_tries is not None
-            and record.committed == source
-            and record.pending == target
-            and record.fallback == source
-            and record.state == "pending"
-            and target_state.tries_remaining == expected_tries
-        )
-    elif phase == "probation" and trial_count == 2:
-        valid = (
-            record.committed == target
-            and record.pending is None
-            and record.fallback == source
-            and record.state == "probation"
-            and target_state.tries_remaining == 2
-        )
-    else:
-        valid = False
-    if (
-        not valid
-        or target_state.generation != generation
-        or target_state.manifest_sha256 != manifest_sha256
-        or target_state.successful
-    ):
-        raise TrustError("Boot shim did not durably account for the expected trial")
-
-
-def fallback_record(record: BootRecord, source: str, target: str) -> BootRecord:
-    slots = dict(record.slots)
-    slots[source] = replace(slots[source], successful=True, tries_remaining=3)
-    slots[target] = replace(slots[target], successful=False, tries_remaining=0)
-    return replace(
-        record,
-        sequence=record.sequence + 1,
-        committed=source,
-        pending=None,
-        fallback=target,
-        state="fallback",
-        slots=slots,
-    )
-
-
 class Coordinator:
     def __init__(
         self,
@@ -200,6 +159,10 @@ class Coordinator:
         self.metrics = MetricsExporter(config.paths.state)
         self.journal_path = config.paths.state / "journal.json"
         self.status_path = config.paths.state / "status.json"
+        # A prepared journal exists before RAUC mutates the inactive slot.  Keep
+        # the in-memory owner explicit so status can distinguish a live install
+        # from an interrupted/partial install after this daemon restarts.
+        self._active_stage_operation_id: str | None = None
 
     def _ensure_trust_seed(self) -> None:
         trust = self.trust.load()
@@ -217,9 +180,11 @@ class Coordinator:
         operation_id = values.pop("operationId", None) or (
             previous.get("operationId") if isinstance(previous, dict) else None
         )
+        intent_id = values.pop("intentId", None)
         value: dict[str, object] = {
             "schema": STATUS_SCHEMA,
             "operationId": operation_id,
+            "intentId": intent_id,
             "phase": phase,
             "detail": detail[:500],
             "updatedAt": now(),
@@ -240,15 +205,79 @@ class Coordinator:
 
     def status(self) -> dict[str, object]:
         value = read_json(self.status_path)
-        if isinstance(value, dict) and value.get("schema") == STATUS_SCHEMA:
+        if not isinstance(value, dict) or value.get("schema") != STATUS_SCHEMA:
+            value = {
+                "schema": STATUS_SCHEMA,
+                "operationId": None,
+                "intentId": None,
+                "phase": "idle",
+                "detail": "No host update is active",
+                "updatedAt": None,
+            }
+        journal = self._journal()
+        if not journal:
             return value
-        return {
-            "schema": STATUS_SCHEMA,
-            "operationId": None,
-            "phase": "idle",
-            "detail": "No host update is active",
-            "updatedAt": None,
+        journal_phase = str(journal["phase"])
+        if journal_phase in REUSABLE_PHASES:
+            journal_updated_at = _utc_timestamp(journal.get("updatedAt"))
+            status_updated_at = _utc_timestamp(value.get("updatedAt"))
+            if journal_updated_at is None or (
+                status_updated_at is not None
+                and status_updated_at >= journal_updated_at
+            ):
+                return value
+        manifest = self._manifest_from_journal(journal)
+        interrupted_preparation = journal_phase == "prepared" and getattr(
+            self, "_active_stage_operation_id", None
+        ) != journal.get("operationId")
+        phase = {
+            "prepared": (
+                "recovery-needed" if interrupted_preparation else "installing"
+            ),
+            "installed": "ready-to-restart",
+            "pending": "verifying",
+            "probation": "verifying",
+            "activation-intent": "restarting",
+            "probation-intent": "verifying",
+            "success-intent": "verifying",
+            "return-intent": "verifying",
+        }.get(journal_phase, journal_phase)
+        detail = {
+            "prepared": (
+                "Host staging was interrupted after the inactive slot became mutable; recovery is required"
+                if interrupted_preparation
+                else "Preparing the verified inactive host slot"
+            ),
+            "installed": "Update is staged in the inactive slot",
+            "pending": "Verifying the staged host through repeated trial boots",
+            "probation": "Verifying the committed host during probation",
+            "activation-intent": "Reconciling the durable activation intent",
+            "probation-intent": "Reconciling the probation transition",
+            "success-intent": "Reconciling the final success transition",
+            "return-intent": "Returning to the previous host version",
+            "complete": "Host update completed successfully",
+            "cancelled": "Staged update will not be activated",
+            "returned": "Returned to the previous host version",
+            "recovery-needed": "Host update recovery is required",
+        }.get(
+            journal_phase, str(value.get("detail") or "Host update requires attention")
+        )
+        result = {
+            **value,
+            "operationId": journal["operationId"],
+            "intentId": journal.get("intentId"),
+            "phase": phase,
+            "detail": detail,
+            "targetVersion": manifest.version,
+            "targetGeneration": journal["targetGeneration"],
+            "manifestSha256": journal["manifestSha256"],
+            "targetSlot": journal["targetSlot"],
+            "journalPhase": journal_phase,
         }
+        for field in ("health", "rollbackReason", "rollbackError"):
+            if field in journal:
+                result[field] = journal[field]
+        return result
 
     def hardware_id(self) -> dict[str, object]:
         """Report the exact local qualification identity without mutating state."""
@@ -262,134 +291,11 @@ class Coordinator:
         }
 
     def _journal(self) -> dict[str, object] | None:
-        value = read_json(self.journal_path)
-        if value is None:
-            return None
-        required = {
-            "schema",
-            "operationId",
-            "phase",
-            "createdAt",
-            "updatedAt",
-            "channel",
-            "targetPath",
-            "targetLength",
-            "targetSha256",
-            "bundlePath",
-            "raucManifestHash",
-            "manifest",
-            "manifestSha256",
-            "sourceSlot",
-            "targetSlot",
-            "sourceGeneration",
-            "targetGeneration",
-            "persistentPartuuid",
-            "slotPartuuids",
-            "trialCount",
-            "repair",
-        }
-        optional = {"health", "rollbackReason", "rollbackError"}
-        if (
-            not isinstance(value, dict)
-            or set(value) - required - optional
-            or required - set(value)
-            or value.get("schema") != JOURNAL_SCHEMA
-            or value.get("phase") not in JOURNAL_PHASES
-        ):
-            raise TrustError("Persistent host-update journal is invalid")
-        try:
-            operation_id = str(uuid.UUID(str(value["operationId"])))
-            persistent = str(uuid.UUID(str(value["persistentPartuuid"])))
-        except ValueError as error:
-            raise TrustError(
-                "Persistent host-update journal identity is invalid"
-            ) from error
-        if (
-            operation_id != value["operationId"]
-            or persistent != value["persistentPartuuid"]
-        ):
-            raise TrustError("Persistent host-update journal identity is not canonical")
-        channel = value["channel"]
-        try:
-            target_path = validate_target_path(value["targetPath"])
-        except ContractError as error:
-            raise TrustError(
-                "Persistent host-update journal target is invalid"
-            ) from error
-        if channel not in CHANNELS - {"recovery"} or target_path != value["targetPath"]:
-            raise TrustError("Persistent host-update journal target is invalid")
-        integers = (
-            value["targetLength"],
-            value["sourceGeneration"],
-            value["targetGeneration"],
-            value["trialCount"],
+        return validate_host_journal(
+            read_json(self.journal_path),
+            product=self.config.product,
+            layout=self.config.layout,
         )
-        if (
-            any(
-                isinstance(item, bool)
-                or not isinstance(item, int)
-                or not 0 <= item <= MAX_JSON_INTEGER
-                for item in integers
-            )
-            or not 0 < int(value["targetLength"]) <= 8 * 1024**3
-        ):
-            raise TrustError("Persistent host-update journal counters are invalid")
-        if not isinstance(value["repair"], bool):
-            raise TrustError("Persistent host-update journal repair mode is invalid")
-        phase = str(value["phase"])
-        trial_count = int(value["trialCount"])
-        phase_trials = {
-            "prepared": {0},
-            "installed": {0},
-            "pending": {0, 1},
-            "probation": {2},
-            "complete": {2},
-            "cancelled": {0},
-        }
-        if phase in phase_trials and trial_count not in phase_trials[phase]:
-            raise TrustError("Persistent host-update journal trial state is invalid")
-        if value["sourceSlot"] not in {"a", "b"} or value["targetSlot"] not in {
-            "a",
-            "b",
-        }:
-            raise TrustError("Persistent host-update journal slot is invalid")
-        if value["sourceSlot"] == value["targetSlot"]:
-            raise TrustError("Persistent host-update journal slots overlap")
-        for field in ("targetSha256", "raucManifestHash", "manifestSha256"):
-            if not isinstance(value[field], str) or not HEX_SHA256.fullmatch(
-                str(value[field])
-            ):
-                raise TrustError("Persistent host-update journal digest is invalid")
-        slots = value["slotPartuuids"]
-        expected_slots = {"sourceBoot", "sourceSystem", "targetBoot", "targetSystem"}
-        if not isinstance(slots, dict) or set(slots) != expected_slots:
-            raise TrustError(
-                "Persistent host-update journal partition identities are invalid"
-            )
-        try:
-            canonical_slots = [
-                str(uuid.UUID(str(slots[name]))) for name in sorted(expected_slots)
-            ]
-        except ValueError as error:
-            raise TrustError(
-                "Persistent host-update journal partition UUID is invalid"
-            ) from error
-        if (
-            canonical_slots != [slots[name] for name in sorted(expected_slots)]
-            or len(set(canonical_slots)) != 4
-        ):
-            raise TrustError(
-                "Persistent host-update journal partition UUIDs are ambiguous"
-            )
-        manifest = self._manifest_from_journal(value)
-        if (
-            manifest.digest != value["manifestSha256"]
-            or manifest.host_generation != value["targetGeneration"]
-            or manifest.product != self.config.product
-            or manifest.layout != self.config.layout
-        ):
-            raise TrustError("Persistent host-update journal manifest is inconsistent")
-        return value
 
     @contextmanager
     def _mutation_lease(self):
@@ -431,6 +337,7 @@ class Coordinator:
         disk: ApplianceDisk,
         *,
         require_qualification: bool = True,
+        expected_manifest_sha256: str | None = None,
     ) -> BootRecord:
         boot_record, _ = self.boot_control.validate_disk(
             disk,
@@ -443,6 +350,10 @@ class Coordinator:
             or boot_record.pending is not None
             or boot_record.state not in {"successful", "fallback"}
             or active_state.generation != self.config.host_generation
+            or (
+                expected_manifest_sha256 is not None
+                and active_state.manifest_sha256 != expected_manifest_sha256
+            )
             or not active_state.successful
         ):
             raise TrustError("Boot-control state is not a clean committed source slot")
@@ -480,57 +391,107 @@ class Coordinator:
     ) -> dict[str, object]:
         source = str(journal["sourceSlot"])
         target = str(journal["targetSlot"])
-        source_state = record.slots[source]
-        if source_state.generation != int(journal["sourceGeneration"]):
-            raise TrustError(
-                "Recorded fallback generation does not match the staged source host"
-            )
-        already_returned = (
-            record.committed == source
-            and record.pending is None
-            and source_state.successful
-            and source_state.generation == int(journal["sourceGeneration"])
-        )
-        try:
-            if not already_returned:
-                self.boot_control.write(fallback_record(record, source, target), disk)
-        except Exception as error:
-            error_code = (
-                error.code
-                if isinstance(error, UpdaterError)
-                else "BOOT_CONTROL_WRITE_FAILED"
-                if isinstance(error, OSError)
-                else "BOOT_CONTROL_INTERNAL_ERROR"
-            )
-            self._write_journal(
+        source_generation = int(journal["sourceGeneration"])
+        source_manifest = str(journal["sourceManifestSha256"])
+        if not source_is_usable(
+            record,
+            source=source,
+            generation=source_generation,
+            manifest_sha256=source_manifest,
+        ):
+            return self._recovery_needed(
                 journal,
-                "recovery-needed",
-                rollbackReason=reason,
-                rollbackError=error_code,
+                reason,
+                "SOURCE_RECORD_MISMATCH",
+                "The recorded fallback source cannot be verified",
             )
-            status = self._status(
-                "recovery-needed",
-                "Candidate failed and the fallback record could not be verified",
-                operationId=journal["operationId"],
-                rollbackReason=reason,
-                errorCode=error_code,
+        existing = (
+            BootTransition.parse(journal.get("bootTransition"))
+            if journal.get("phase") == "return-intent"
+            else None
+        )
+        already_returned = is_clean_source_record(
+            record,
+            source=source,
+            generation=source_generation,
+            manifest_sha256=source_manifest,
+        )
+        if (
+            already_returned
+            and existing is not None
+            and not existing.matches_to(record)
+        ):
+            return self._recovery_needed(
+                journal,
+                reason,
+                "BOOT_TRANSITION_MISMATCH",
+                "Boot state changed while returning to the previous host",
             )
-            self.runner.run(["systemctl", "reboot"], timeout=10)
-            return status
-        self._write_journal(journal, "returned", rollbackReason=reason)
+        if not already_returned:
+            returned = fallback_record(record, source, target)
+            transition = existing or BootTransition.create("return", record, returned)
+            if (
+                transition.kind != "return"
+                or not transition.matches_from(record)
+                or transition.to_sha256
+                != BootTransition.create("return", record, returned).to_sha256
+            ):
+                return self._recovery_needed(
+                    journal,
+                    reason,
+                    "BOOT_TRANSITION_MISMATCH",
+                    "Boot state changed while returning to the previous host",
+                )
+            journal = self._write_journal(
+                journal,
+                "return-intent",
+                bootTransition=transition.json(),
+                rollbackReason=reason,
+            )
+            self.boot_control.write(returned, disk)
+        self._write_journal(
+            journal, "returned", bootTransition=None, rollbackReason=reason
+        )
         status = self._status(
             "returned",
             "Returned to the previous host version",
             operationId=journal["operationId"],
+            intentId=journal.get("intentId"),
             rollbackReason=reason,
         )
         if reboot:
             self.runner.run(["systemctl", "reboot"], timeout=10)
         return status
 
-    def check(self, channel: str = "stable") -> dict[str, object]:
+    def _recovery_needed(
+        self, journal: dict[str, object], reason: str, code: str, detail: str
+    ) -> dict[str, object]:
+        journal = self._write_journal(
+            journal,
+            "recovery-needed",
+            bootTransition=None,
+            rollbackReason=reason,
+            rollbackError=code,
+        )
+        return self._status(
+            "recovery-needed",
+            detail,
+            operationId=journal["operationId"],
+            intentId=journal.get("intentId"),
+            rollbackReason=reason,
+            errorCode=code,
+        )
+
+    def check(
+        self, channel: str = "stable", intent_id: str | None = None
+    ) -> dict[str, object]:
         with exclusive_lock(self.config.paths.lock):
-            self._status("checking", "Checking signed update metadata")
+            journal = self._journal()
+            if journal and journal.get("phase") not in REUSABLE_PHASES:
+                return self.status()
+            self._status(
+                "checking", "Checking signed update metadata", intentId=intent_id
+            )
             target = self._target(channel)
             return self._status(
                 "available"
@@ -539,14 +500,24 @@ class Coordinator:
                 "A signed host update is available"
                 if target.custom.host_generation > self.config.host_generation
                 else "Host is current",
+                intentId=intent_id,
                 channel=channel,
                 targetVersion=target.custom.version,
                 targetGeneration=target.custom.host_generation,
+                manifestSha256=target.custom.manifest_sha256,
                 bytes=target.length,
                 metadataVersions=target.metadata_versions,
             )
 
-    def stage(self, channel: str = "stable", repair: bool = False) -> dict[str, object]:
+    def stage(
+        self,
+        channel: str = "stable",
+        repair: bool = False,
+        intent_id: str | None = None,
+        expected_version: str | None = None,
+        expected_generation: int | None = None,
+        expected_manifest_sha256: str | None = None,
+    ) -> dict[str, object]:
         operation_id = str(uuid.uuid4())
         with exclusive_lock(self.config.paths.lock), self._mutation_lease():
             existing = self._journal()
@@ -558,9 +529,28 @@ class Coordinator:
                 "checking",
                 "Verifying signed update metadata",
                 operationId=operation_id,
+                intentId=intent_id,
                 channel=channel,
             )
             target = self._target(channel)
+            expected_target = (
+                expected_version,
+                expected_generation,
+                expected_manifest_sha256,
+            )
+            actual_target = (
+                target.custom.version,
+                target.custom.host_generation,
+                target.custom.manifest_sha256,
+            )
+            if any(value is not None for value in expected_target) and (
+                any(value is None for value in expected_target)
+                or expected_target != actual_target
+            ):
+                raise UpdaterError(
+                    "TARGET_CHANGED",
+                    "The signed host target changed; check again before staging",
+                )
             prepared = self.preflight.prepare(
                 self.trust.load(), bundle_length=target.length
             )
@@ -569,6 +559,7 @@ class Coordinator:
                 "downloading",
                 "Downloading and verifying the complete signed bundle",
                 operationId=operation_id,
+                intentId=intent_id,
                 channel=channel,
                 bytesTotal=target.length,
                 bytesComplete=0,
@@ -592,7 +583,9 @@ class Coordinator:
                 )
             disk = preflight.disk
             manifest = inspected.manifest
-            self._require_clean_boot_control(disk, require_qualification=False)
+            source_record = self._require_clean_boot_control(
+                disk, require_qualification=False
+            )
             # Only a TUF-authorized, independently RAUC-signed, locally
             # compatible release may advance the host anti-rollback generation.
             current_trust = self.trust.load()
@@ -616,6 +609,9 @@ class Coordinator:
                 "sourceSlot": disk.active_slot,
                 "targetSlot": disk.inactive_slot,
                 "sourceGeneration": self.config.host_generation,
+                "sourceManifestSha256": source_record.slots[
+                    disk.active_slot
+                ].manifest_sha256,
                 "targetGeneration": manifest.host_generation,
                 "persistentPartuuid": disk.partitions["persistent"].partuuid,
                 "slotPartuuids": {
@@ -627,50 +623,75 @@ class Coordinator:
                 "trialCount": 0,
                 "repair": repair,
             }
-            atomic_json(self.journal_path, journal)
-            self._status(
-                "installing",
-                "Writing the inactive host slot",
-                operationId=operation_id,
-                sourceSlot=disk.active_slot,
-                targetSlot=disk.inactive_slot,
-                sourceGeneration=self.config.host_generation,
-                targetGeneration=manifest.host_generation,
-            )
-            self.rauc.install(
-                bundle, operation_id, target.hashes["sha256"], target.length
-            )
-            installed_disk = self.resolver.resolve()
-            self._require_journal_disk(installed_disk, journal)
-            if (installed_disk.active_slot, installed_disk.inactive_slot) != (
-                journal["sourceSlot"],
-                journal["targetSlot"],
-            ):
-                raise TrustError(
-                    "Active/inactive slots changed while installing the update"
+            if intent_id is not None:
+                journal["intentId"] = intent_id
+            self._active_stage_operation_id = operation_id
+            try:
+                atomic_json(self.journal_path, journal)
+                self._status(
+                    "installing",
+                    "Writing the inactive host slot",
+                    operationId=operation_id,
+                    intentId=intent_id,
+                    sourceSlot=disk.active_slot,
+                    targetSlot=disk.inactive_slot,
+                    sourceGeneration=self.config.host_generation,
+                    targetGeneration=manifest.host_generation,
                 )
-            self.rauc.verify_inactive(installed_disk, manifest)
-            disk = installed_disk
-            journal = self._write_journal(journal, "installed")
-            current_trust = self.trust.load()
-            self.trust.write(
-                current_trust.next(
-                    fallback_host_generation=self.config.host_generation,
+                self.rauc.install(
+                    bundle, operation_id, target.hashes["sha256"], target.length
                 )
-            )
+                installed_disk = self.resolver.resolve()
+                self._require_journal_disk(installed_disk, journal)
+                if (installed_disk.active_slot, installed_disk.inactive_slot) != (
+                    journal["sourceSlot"],
+                    journal["targetSlot"],
+                ):
+                    raise TrustError(
+                        "Active/inactive slots changed while installing the update"
+                    )
+                self.rauc.verify_inactive(installed_disk, manifest)
+                disk = installed_disk
+                journal = self._write_journal(journal, "installed")
+                current_trust = self.trust.load()
+                self.trust.write(
+                    current_trust.next(
+                        fallback_host_generation=self.config.host_generation,
+                    )
+                )
+            except Exception:
+                # Once this journal exists, the inactive slot may be partially
+                # written.  Never present that ambiguity as a retryable failure
+                # or an indefinitely live install.
+                if self.journal_path.exists():
+                    self._write_journal(journal, "recovery-needed")
+                raise
+            finally:
+                self._active_stage_operation_id = None
             return self._status(
                 "ready-to-restart",
                 "Update is staged in the inactive slot",
                 operationId=operation_id,
+                intentId=intent_id,
                 targetVersion=manifest.version,
                 targetGeneration=manifest.host_generation,
+                manifestSha256=manifest.digest,
                 targetSlot=disk.inactive_slot,
             )
 
     def _manifest_from_journal(self, journal: dict[str, object]) -> ReleaseManifest:
         return ReleaseManifest.parse(journal.get("manifest"))
 
-    def activate(self, confirm: bool) -> dict[str, object]:
+    def activate(
+        self,
+        confirm: bool,
+        *,
+        intent_id: str | None = None,
+        expected_operation_id: str | None = None,
+        expected_version: str | None = None,
+        expected_generation: int | None = None,
+        expected_manifest_sha256: str | None = None,
+    ) -> dict[str, object]:
         if not confirm:
             raise UpdaterError(
                 "CONFIRMATION_REQUIRED", "Activation requires an explicit confirmation"
@@ -681,6 +702,14 @@ class Coordinator:
                 raise UpdaterError(
                     "NOT_READY", "No completely verified inactive slot is ready"
                 )
+            require_expected_staged_identity(
+                journal,
+                intent_id=intent_id,
+                expected_operation_id=expected_operation_id,
+                expected_version=expected_version,
+                expected_generation=expected_generation,
+                expected_manifest_sha256=expected_manifest_sha256,
+            )
             manifest = self._manifest_from_journal(journal)
             preflight = self.preflight.run(
                 manifest,
@@ -695,57 +724,124 @@ class Coordinator:
                 journal.get("targetSlot"),
             ):
                 raise TrustError("Active/inactive slots changed after staging")
-            record = self._require_clean_boot_control(disk)
-            target = str(journal["targetSlot"])
-            slots = dict(record.slots)
-            slots[target] = SlotState(
-                manifest.host_generation, manifest.digest, False, 2
+            record = self._require_clean_boot_control(
+                disk,
+                expected_manifest_sha256=str(journal["sourceManifestSha256"]),
             )
-            pending = replace(
+            source = str(journal["sourceSlot"])
+            target = str(journal["targetSlot"])
+            pending = pending_record(
                 record,
-                sequence=record.sequence + 1,
-                committed=str(journal["sourceSlot"]),
-                pending=target,
-                fallback=str(journal["sourceSlot"]),
-                state="pending",
-                slots=slots,
+                source=source,
+                target=target,
+                generation=manifest.host_generation,
+                manifest_sha256=manifest.digest,
+            )
+            transition = BootTransition.create("activate", record, pending)
+            journal = self._write_journal(
+                journal,
+                "activation-intent",
+                bootTransition=transition.json(),
             )
             self.boot_control.write(pending, disk)
-            self._write_journal(journal, "pending", trialCount=0)
+            self._write_journal(journal, "pending", trialCount=0, bootTransition=None)
             status = self._status(
                 "restarting",
                 "Restarting into the staged update for verification",
                 operationId=journal["operationId"],
+                intentId=journal.get("intentId"),
                 targetSlot=target,
+                targetVersion=manifest.version,
+                targetGeneration=manifest.host_generation,
+                manifestSha256=manifest.digest,
                 trial=1,
             )
             self.runner.run(["systemctl", "reboot"], timeout=10)
             return status
 
-    def cancel(self) -> dict[str, object]:
+    def cancel(
+        self,
+        *,
+        intent_id: str | None = None,
+        expected_operation_id: str | None = None,
+        expected_version: str | None = None,
+        expected_generation: int | None = None,
+        expected_manifest_sha256: str | None = None,
+    ) -> dict[str, object]:
         with exclusive_lock(self.config.paths.lock), self._mutation_lease():
             journal = self._journal()
-            if not journal or journal.get("phase") not in {"prepared", "installed"}:
+            if not journal or journal.get("phase") != "installed":
                 raise UpdaterError(
                     "CANCEL_TOO_LATE", "Update can be cancelled only before activation"
                 )
+            require_expected_staged_identity(
+                journal,
+                intent_id=intent_id,
+                expected_operation_id=expected_operation_id,
+                expected_version=expected_version,
+                expected_generation=expected_generation,
+                expected_manifest_sha256=expected_manifest_sha256,
+            )
+            disk = self.resolver.resolve()
+            self._require_journal_disk(disk, journal)
+            record, _ = self.boot_control.validate_disk(
+                disk, require_qualification=False
+            )
+            source = str(journal["sourceSlot"])
+            if not (
+                disk.active_slot == source
+                and is_clean_source_record(
+                    record,
+                    source=source,
+                    generation=int(journal["sourceGeneration"]),
+                    manifest_sha256=str(journal["sourceManifestSha256"]),
+                )
+            ):
+                return self._return_to_source(
+                    disk,
+                    journal,
+                    record,
+                    "cancelled-interrupted-activation",
+                    reboot=disk.active_slot != source,
+                )
+            manifest = self._manifest_from_journal(journal)
             journal = self._write_journal(journal, "cancelled")
             return self._status(
                 "cancelled",
                 "Staged update will not be activated",
                 operationId=journal["operationId"],
+                intentId=journal.get("intentId"),
+                targetVersion=manifest.version,
+                targetGeneration=manifest.host_generation,
+                manifestSha256=manifest.digest,
             )
 
     def reconcile(self) -> dict[str, object]:
         with exclusive_lock(self.config.paths.lock), self._mutation_lease():
             journal = self._journal()
-            if not journal or journal.get("phase") not in {"pending", "probation"}:
+            active_phases = {"installed", "pending", "probation"} | INTENT_PHASES
+            if not journal or journal.get("phase") not in active_phases:
                 return self.status()
             disk = self.resolver.resolve()
             self._require_journal_disk(disk, journal)
             source = str(journal["sourceSlot"])
             target = str(journal["targetSlot"])
+            source_generation = int(journal["sourceGeneration"])
+            source_manifest = str(journal["sourceManifestSha256"])
+            target_generation = int(journal["targetGeneration"])
             record, _ = self.boot_control.validate_disk(disk)
+            phase = str(journal["phase"])
+            if (
+                phase == "installed"
+                and disk.active_slot == source
+                and is_clean_source_record(
+                    record,
+                    source=source,
+                    generation=source_generation,
+                    manifest_sha256=source_manifest,
+                )
+            ):
+                return self.status()
             if disk.active_slot == source:
                 return self._return_to_source(
                     disk, journal, record, "bootloader-fallback", reboot=False
@@ -754,85 +850,228 @@ class Coordinator:
                 raise TrustError(
                     "Booted slot is neither staged candidate nor recorded fallback"
                 )
+            if phase == "installed":
+                return self._return_to_source(
+                    disk, journal, record, "activation-journal-mismatch", reboot=True
+                )
+            if phase == "return-intent":
+                return self._return_to_source(
+                    disk,
+                    journal,
+                    record,
+                    str(journal.get("rollbackReason") or "interrupted-return"),
+                    reboot=True,
+                )
             trial_count = int(journal.get("trialCount", 0))
             manifest = self._manifest_from_journal(journal)
+            identity = {
+                "source": source,
+                "target": target,
+                "source_generation": source_generation,
+                "source_manifest_sha256": source_manifest,
+                "target_generation": target_generation,
+                "manifest_sha256": manifest.digest,
+            }
+            if phase == "activation-intent":
+                transition = BootTransition.parse(journal.get("bootTransition"))
+                if (
+                    transition.kind == "activate"
+                    and selector_consumed_transition_matches(
+                        transition, record, slot=target
+                    )
+                    and is_pending_record(record, tries_remaining=1, **identity)
+                ):
+                    journal = self._write_journal(
+                        journal, "pending", trialCount=0, bootTransition=None
+                    )
+                    phase = "pending"
+                elif transition.kind == "activate" and transition.matches_to(record):
+                    journal = self._write_journal(
+                        journal, "pending", trialCount=0, bootTransition=None
+                    )
+                    status = self._status(
+                        "restarting",
+                        "Restarting into the staged update for verification",
+                        operationId=journal["operationId"],
+                        intentId=journal.get("intentId"),
+                        trial=1,
+                    )
+                    self.runner.run(["systemctl", "reboot"], timeout=10)
+                    return status
+                else:
+                    return self._return_to_source(
+                        disk,
+                        journal,
+                        record,
+                        "activation-transition-incomplete",
+                        reboot=True,
+                    )
+            if phase == "probation-intent":
+                transition = BootTransition.parse(journal.get("bootTransition"))
+                if (
+                    transition.kind == "probation"
+                    and selector_consumed_transition_matches(
+                        transition, record, slot=target
+                    )
+                    and is_probation_record(record, tries_remaining=2, **identity)
+                ):
+                    journal = self._write_journal(
+                        journal, "probation", bootTransition=None
+                    )
+                    phase = "probation"
+                elif transition.kind == "probation" and transition.matches_to(record):
+                    journal = self._write_journal(
+                        journal, "probation", bootTransition=None
+                    )
+                    status = self._status(
+                        "verifying",
+                        "Two trials passed; starting committed probation",
+                        operationId=journal["operationId"],
+                        intentId=journal.get("intentId"),
+                        trial=3,
+                        health=journal.get("health"),
+                    )
+                    self.runner.run(["systemctl", "reboot"], timeout=10)
+                    return status
+                else:
+                    return self._return_to_source(
+                        disk,
+                        journal,
+                        record,
+                        "probation-transition-incomplete",
+                        reboot=True,
+                    )
+            if phase == "success-intent":
+                transition = BootTransition.parse(journal.get("bootTransition"))
+                health = journal.get("health")
+                if (
+                    transition.kind == "success"
+                    and transition.matches_to(record)
+                    and is_successful_record(record, **identity)
+                    and valid_health_evidence(health)
+                ):
+                    journal = self._write_journal(
+                        journal, "complete", bootTransition=None
+                    )
+                    return self._status(
+                        "complete",
+                        "Host update completed successfully",
+                        operationId=journal["operationId"],
+                        intentId=journal.get("intentId"),
+                        targetGeneration=target_generation,
+                        manifestSha256=manifest.digest,
+                        health=health,
+                    )
+                return self._return_to_source(
+                    disk,
+                    journal,
+                    record,
+                    "success-transition-incomplete",
+                    reboot=True,
+                )
+            if (
+                phase == "pending"
+                and trial_count == 1
+                and is_pending_record(record, tries_remaining=1, **identity)
+            ) or (
+                phase == "probation"
+                and is_probation_record(record, tries_remaining=3, **identity)
+            ):
+                status = self._status(
+                    "verifying",
+                    "Waiting for the next boot before continuing verification",
+                    operationId=journal["operationId"],
+                    intentId=journal.get("intentId"),
+                    health=journal.get("health"),
+                )
+                self.runner.run(["systemctl", "reboot"], timeout=10)
+                return status
             try:
                 require_trial_record(
                     record,
                     source=source,
                     target=target,
-                    generation=int(journal["targetGeneration"]),
+                    source_generation=source_generation,
+                    source_manifest_sha256=source_manifest,
+                    generation=target_generation,
                     manifest_sha256=manifest.digest,
-                    phase=str(journal["phase"]),
+                    phase=phase,
                     trial_count=trial_count,
                 )
                 result = self.health.run(
                     disk,
                     target,
-                    int(journal["targetGeneration"]),
+                    target_generation,
                     self.trust.load().maximum_trusted_time,
                 )
             except Exception as error:
                 reason = (
                     error.code
                     if isinstance(error, UpdaterError)
+                    else "BOOT_STATE_MISMATCH"
+                    if isinstance(error, TrustError)
                     else "HEALTH_INTERNAL_ERROR"
                 )
                 return self._return_to_source(
                     disk, journal, record, reason, reboot=True
                 )
-            if journal["phase"] == "pending" and trial_count == 0:
-                self._write_journal(
+            if phase == "pending" and trial_count == 0:
+                journal = self._write_journal(
                     journal, "pending", trialCount=1, health=result.checks
                 )
                 status = self._status(
                     "verifying",
                     "First trial passed; repeating the candidate boot",
                     operationId=journal["operationId"],
+                    intentId=journal.get("intentId"),
+                    targetGeneration=journal["targetGeneration"],
+                    manifestSha256=journal["manifestSha256"],
                     trial=2,
                     health=result.checks,
                 )
                 self.runner.run(["systemctl", "reboot"], timeout=10)
                 return status
-            if journal["phase"] == "pending" and trial_count == 1:
-                slots = dict(record.slots)
-                slots[target] = replace(
-                    slots[target], successful=False, tries_remaining=3
-                )
-                committed = replace(
-                    record,
-                    sequence=record.sequence + 1,
-                    committed=target,
-                    pending=None,
-                    fallback=source,
-                    state="probation",
-                    slots=slots,
+            if phase == "pending" and trial_count == 1:
+                committed = probation_record(record, source=source, target=target)
+                transition = BootTransition.create("probation", record, committed)
+                journal = self._write_journal(
+                    journal,
+                    "probation-intent",
+                    trialCount=2,
+                    health=result.checks,
+                    bootTransition=transition.json(),
                 )
                 self.boot_control.write(committed, disk)
-                self._write_journal(
-                    journal, "probation", trialCount=2, health=result.checks
-                )
+                journal = self._write_journal(journal, "probation", bootTransition=None)
                 status = self._status(
                     "verifying",
                     "Two trials passed; starting committed probation",
                     operationId=journal["operationId"],
+                    intentId=journal.get("intentId"),
+                    targetGeneration=journal["targetGeneration"],
+                    manifestSha256=journal["manifestSha256"],
                     trial=3,
                     health=result.checks,
                 )
                 self.runner.run(["systemctl", "reboot"], timeout=10)
                 return status
-            slots = dict(record.slots)
-            slots[target] = replace(slots[target], successful=True, tries_remaining=3)
-            successful = replace(
-                record, sequence=record.sequence + 1, state="successful", slots=slots
+            successful = successful_record(record, target=target)
+            transition = BootTransition.create("success", record, successful)
+            journal = self._write_journal(
+                journal,
+                "success-intent",
+                health=result.checks,
+                bootTransition=transition.json(),
             )
             self.boot_control.write(successful, disk)
-            self._write_journal(journal, "complete", health=result.checks)
+            journal = self._write_journal(journal, "complete", bootTransition=None)
             return self._status(
                 "complete",
                 "Host update completed successfully",
                 operationId=journal["operationId"],
+                intentId=journal.get("intentId"),
                 targetGeneration=journal["targetGeneration"],
+                manifestSha256=journal["manifestSha256"],
                 health=result.checks,
             )
 
@@ -859,28 +1098,97 @@ class Coordinator:
             if operation == "hardware-id":
                 return self.hardware_id()
             if operation == "check":
-                return self.check(str(request.get("channel", "stable")))
+                return self.check(
+                    str(request.get("channel", "stable")),
+                    str(request["intentId"]) if "intentId" in request else None,
+                )
             if operation == "stage":
                 return self.stage(
                     str(request.get("channel", "stable")),
                     bool(request.get("repair", False)),
+                    str(request["intentId"]) if "intentId" in request else None,
+                    str(request["expectedVersion"])
+                    if "expectedVersion" in request
+                    else None,
+                    int(request["expectedGeneration"])
+                    if "expectedGeneration" in request
+                    else None,
+                    str(request["expectedManifestSha256"])
+                    if "expectedManifestSha256" in request
+                    else None,
                 )
             if operation == "activate":
-                return self.activate(bool(request.get("confirm", False)))
+                return self.activate(
+                    bool(request.get("confirm", False)),
+                    intent_id=(
+                        str(request["intentId"]) if "intentId" in request else None
+                    ),
+                    expected_operation_id=(
+                        str(request["expectedOperationId"])
+                        if "expectedOperationId" in request
+                        else None
+                    ),
+                    expected_version=(
+                        str(request["expectedVersion"])
+                        if "expectedVersion" in request
+                        else None
+                    ),
+                    expected_generation=(
+                        int(request["expectedGeneration"])
+                        if "expectedGeneration" in request
+                        else None
+                    ),
+                    expected_manifest_sha256=(
+                        str(request["expectedManifestSha256"])
+                        if "expectedManifestSha256" in request
+                        else None
+                    ),
+                )
             if operation == "cancel":
-                return self.cancel()
+                return self.cancel(
+                    intent_id=(
+                        str(request["intentId"]) if "intentId" in request else None
+                    ),
+                    expected_operation_id=(
+                        str(request["expectedOperationId"])
+                        if "expectedOperationId" in request
+                        else None
+                    ),
+                    expected_version=(
+                        str(request["expectedVersion"])
+                        if "expectedVersion" in request
+                        else None
+                    ),
+                    expected_generation=(
+                        int(request["expectedGeneration"])
+                        if "expectedGeneration" in request
+                        else None
+                    ),
+                    expected_manifest_sha256=(
+                        str(request["expectedManifestSha256"])
+                        if "expectedManifestSha256" in request
+                        else None
+                    ),
+                )
             if operation == "reconcile":
                 return self.reconcile()
             if operation == "export-diagnostics":
                 return self.export_diagnostics()
             raise ContractError("Unsupported operation")
         except UpdaterError as error:
-            self._status("failed", str(error), errorCode=error.code)
+            if operation not in {"activate", "cancel"}:
+                self._status(
+                    "failed",
+                    str(error),
+                    intentId=request.get("intentId"),
+                    errorCode=error.code,
+                )
             raise
         except Exception:
             self._status(
                 "failed",
                 "Host updater failed internally",
+                intentId=request.get("intentId"),
                 errorCode="INTERNAL_ERROR",
             )
             raise

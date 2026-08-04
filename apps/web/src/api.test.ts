@@ -402,6 +402,30 @@ describe("daily analytics findings API client", () => {
   });
 });
 
+describe("unified system update API client", () => {
+  it("posts an exact revision-bound host activation to the canonical endpoint", async () => {
+    const result = { revision: 13 };
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => result } as Response);
+    const input = {
+      action: "activate-host" as const,
+      expectedRevision: 12,
+      workflowId: "65ee172f-8ec3-4ff1-a52b-3468b33c5791",
+      hostOperationId: "80d65f28-33cc-4424-b72f-47be89c275ab",
+      targetVersion: "0.35.0",
+      targetGeneration: 3,
+      targetDigest: `sha256:${"d".repeat(64)}`,
+      confirmation: "RESTART_AND_INSTALL" as const,
+    };
+
+    await expect(api.operateSystemUpdate(input)).resolves.toEqual(result);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/v1/system/updates/operations",
+      expect.objectContaining({ method: "POST", body: JSON.stringify(input) }),
+    );
+  });
+});
+
 describe("opening activity API client", () => {
   it("posts a versioned server-side derivation request to v2", async () => {
     const input = {
@@ -633,6 +657,42 @@ describe("live event client", () => {
     });
     expect(updateState).toHaveBeenCalledWith("live");
     expect(updateStatus).toHaveBeenCalledWith(expect.objectContaining({ currentVersion: "0.5.0" }));
+    updateSource?.emit("system-update", {
+      schema: "stugu-system-updates/v2",
+      revision: 7,
+      currentVersion: "0.5.0",
+      latestVersion: "0.6.0",
+      updateAvailable: true,
+      capability: { available: true },
+      operation: null,
+      application: { currentVersion: "0.5.0" },
+      host: { readyToRestart: null },
+      workflow: {
+        id: "65ee172f-8ec3-4ff1-a52b-3468b33c5791",
+        revision: 7,
+        phase: "host-stage-requested",
+        targets: {
+          applicationVersion: "0.6.0",
+          hostVersion: "0.35.0",
+          hostGeneration: 3,
+          hostDigest: `sha256:${"d".repeat(64)}`,
+        },
+      },
+    });
+    expect(updateStatus).toHaveBeenLastCalledWith(expect.objectContaining({
+      revision: 7,
+      workflow: expect.objectContaining({ phase: "host-stage-requested" }),
+    }));
+    const validatedUpdateCount = updateStatus.mock.calls.length;
+    updateSource?.emit("system-update", {
+      currentVersion: "0.5.0",
+      latestVersion: "0.6.0",
+      updateAvailable: true,
+      capability: { available: true },
+      operation: null,
+      workflow: { id: "bad", revision: 8, phase: "invented-phase", targets: {} },
+    });
+    expect(updateStatus).toHaveBeenCalledTimes(validatedUpdateCount);
     updateSource?.onerror?.(new Event("error"));
     expect(updateState).toHaveBeenLastCalledWith("reconnecting");
     disposeUpdates();

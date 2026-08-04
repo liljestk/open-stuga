@@ -562,6 +562,49 @@ test("host boot-control records live outside FAT and activation is qualification
   assert.match(builder, /boot selector must be static for early initramfs/u);
 });
 
+test("the web host-update bridge is narrow, unprivileged, and separately permissioned", async () => {
+  const [layer, unit, wrapper, sysusers, compose] = await Promise.all([
+    readFile(new URL("../../deploy/rpi/layer/stugu.yaml", import.meta.url), "utf8"),
+    readFile(
+      new URL("../../deploy/rpi/assets/stugu-host-update-bridge.service", import.meta.url),
+      "utf8",
+    ),
+    readFile(
+      new URL("../../deploy/rpi/assets/stugu-host-update-bridge", import.meta.url),
+      "utf8",
+    ),
+    readFile(
+      new URL("../../deploy/rpi/assets/stugu-host-update-bridge.sysusers.conf", import.meta.url),
+      "utf8",
+    ),
+    readFile(new URL("../../docker-compose.yml", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(layer, /stugu-host-update-bridge[\s\S]*usr\/bin\/stugu-host-update-bridge/u);
+  assert.match(layer, /stugu-host-update-bridge\.service/u);
+  assert.match(layer, /stugu-host-update-bridge\.sysusers\.conf/u);
+  assert.match(layer, /enable-units[^\n]*stugu-host-update-bridge/u);
+  assert.match(wrapper, /python3 -m stugu_host_updater\.bridge/u);
+  assert.match(sysusers, /^u stugu-update-bridge /mu);
+  assert.match(sysusers, /^m stugu-update-bridge stugu$/mu);
+  assert.match(unit, /^User=stugu-update-bridge$/mu);
+  assert.match(unit, /^SupplementaryGroups=stugu$/mu);
+  assert.match(unit, /^PrivateDevices=yes$/mu);
+  assert.match(unit, /^PrivateNetwork=yes$/mu);
+  assert.match(unit, /^CapabilityBoundingSet=$/mu);
+  assert.match(unit, /^RestrictAddressFamilies=AF_UNIX$/mu);
+  assert.match(
+    unit,
+    /install -d -m 2770 -o stugu -g stugu .*host-bridge\/requests/u,
+  );
+  assert.match(
+    unit,
+    /install -d -m 2750 -o stugu-update-bridge -g stugu .*host-bridge\/status/u,
+  );
+  assert.doesNotMatch(unit, /\/dev\/|rauc|sudo|docker\.sock/u);
+  assert.match(compose, /! -name host-bridge -exec chown -R/u);
+});
+
 test("host releases include and inspect RAUC's extraction and service runtime", async () => {
   const [layer, builder, publisher] = await Promise.all([
     readFile(new URL("../../deploy/rpi/layer/stugu.yaml", import.meta.url), "utf8"),

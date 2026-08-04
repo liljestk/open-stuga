@@ -1,10 +1,35 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HostSystemHealth } from "@climate-twin/contracts";
 import { api, type SystemStorageStatus, type SystemUpdateStatus } from "../api";
 import { confirmAction } from "../components/ConfirmationProvider";
 import { I18nProvider } from "../i18n";
 import { SystemUpdatesPage } from "./SystemUpdatesPage";
+
+class FakeSystemUpdateEventSource {
+  static latest: FakeSystemUpdateEventSource | null = null;
+  readonly listeners = new Map<string, EventListener>();
+  onopen: ((event: Event) => void) | null = null;
+  onerror: ((event: Event) => void) | null = null;
+  onmessage: ((event: MessageEvent<string>) => void) | null = null;
+  closed = false;
+
+  constructor(readonly url: string, readonly options?: EventSourceInit) {
+    FakeSystemUpdateEventSource.latest = this;
+  }
+
+  addEventListener(type: string, listener: EventListenerOrEventListenerObject): void {
+    if (typeof listener === "function") this.listeners.set(type, listener);
+  }
+
+  close(): void {
+    this.closed = true;
+  }
+
+  emit(type: string, data: unknown): void {
+    this.listeners.get(type)?.(new MessageEvent(type, { data: JSON.stringify(data) }));
+  }
+}
 
 vi.mock("../components/ConfirmationProvider", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../components/ConfirmationProvider")>();
@@ -43,6 +68,78 @@ const status: SystemUpdateStatus = {
     reason: "ready",
   },
   operation: null,
+};
+
+const binding = {
+  operationId: "80d65f28-33cc-4424-b72f-47be89c275ab",
+  targetVersion: "0.35.0",
+  targetGeneration: 3,
+  targetDigest: `sha256:${"d".repeat(64)}`,
+  targetSlot: "b",
+} as const;
+
+const v2Status: SystemUpdateStatus = {
+  ...status,
+  schema: "stugu-system-updates/v2",
+  revision: 7,
+  application: {
+    currentVersion: status.currentVersion,
+    latestVersion: status.latestVersion,
+    updateAvailable: true,
+    capability: status.capability,
+    operation: null,
+  },
+  host: {
+    supported: true,
+    phase: "available",
+    reason: null,
+    detail: null,
+    currentVersion: "0.34.2",
+    currentGeneration: 2,
+    activeSlot: "a",
+    updateAvailable: true,
+    targetVersion: binding.targetVersion,
+    targetGeneration: binding.targetGeneration,
+    targetDigest: binding.targetDigest,
+    updatedAt: "2026-08-04T16:00:00.000Z",
+    readyToRestart: null,
+  },
+  workflow: null,
+};
+
+const stagedStatus: SystemUpdateStatus = {
+  ...v2Status,
+  revision: 12,
+  host: {
+    ...v2Status.host!,
+    phase: "ready-to-restart",
+    readyToRestart: binding,
+  },
+  workflow: {
+    id: "65ee172f-8ec3-4ff1-a52b-3468b33c5791",
+    revision: 12,
+    action: "update-everything",
+    phase: "awaiting-restart",
+    requestedAt: "2026-08-04T16:00:00.000Z",
+    updatedAt: "2026-08-04T16:04:00.000Z",
+    completedAt: null,
+    detail: "The verified host update is prepared",
+    hostOperationId: binding.operationId,
+    targets: {
+      applicationVersion: "0.6.0",
+      hostVersion: binding.targetVersion,
+      hostGeneration: binding.targetGeneration,
+      hostDigest: binding.targetDigest,
+    },
+    steps: [
+      { id: "backup", state: "complete" },
+      { id: "stage-host", state: "complete" },
+      { id: "restart-host", state: "waiting" },
+    ],
+    canCancel: true,
+    recoveryRequired: false,
+    reason: null,
+  },
 };
 
 const storageStatus: SystemStorageStatus = {
@@ -144,9 +241,60 @@ beforeEach(() => {
   vi.spyOn(api, "hostSystemHealth").mockResolvedValue(hostHealth);
   vi.spyOn(api, "systemStorageStatus").mockResolvedValue(storageStatus);
 });
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  FakeSystemUpdateEventSource.latest = null;
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
 
 describe("system updates page", () => {
+  it("treats a non-Pi host as managed separately instead of an action item", async () => {
+    vi.spyOn(api, "systemUpdateStatus").mockResolvedValue({
+      ...v2Status,
+      host: {
+        ...v2Status.host!,
+        supported: false,
+        phase: "unavailable",
+        reason: "not-raspberry-pi",
+        detail: "Host updates are available only on Stugu Raspberry Pi appliances",
+        updateAvailable: false,
+        targetVersion: null,
+        targetGeneration: null,
+        targetDigest: null,
+      },
+    });
+    render(<I18nProvider><SystemUpdatesPage /></I18nProvider>);
+
+    const hostCard = (await screen.findByRole("heading", { name: "Host system", level: 3 })).closest("article")!;
+    expect(within(hostCard).getByText("Managed separately")).toBeTruthy();
+    expect(within(hostCard).getByText(/managed outside Stugu/)).toBeTruthy();
+    expect(within(hostCard).queryByText("Action needed")).toBeNull();
+  });
+
+  it("keeps completed update history out of the default view", async () => {
+    vi.spyOn(api, "systemUpdateStatus").mockResolvedValue({
+      ...v2Status,
+      operation: {
+        id: "27974c49-f62e-4365-9ee7-802c7488557e",
+        version: "0.4.0",
+        tagName: "v0.4.0",
+        phase: "complete",
+        requestedAt: "2026-07-01T10:00:00.000Z",
+        startedAt: "2026-07-01T10:00:01.000Z",
+        completedAt: "2026-07-01T10:01:00.000Z",
+        updatedAt: "2026-07-01T10:01:00.000Z",
+        phaseStartedAt: "2026-07-01T10:00:50.000Z",
+        detail: "Legacy update completed",
+        previousVersion: "0.3.0",
+        activity: [{ phase: "complete", at: "2026-07-01T10:01:00.000Z", detail: "Legacy update completed" }],
+      },
+    });
+    render(<I18nProvider><SystemUpdatesPage /></I18nProvider>);
+
+    await screen.findByRole("heading", { name: "System", level: 1 });
+    expect(screen.queryByText("Legacy update completed")).toBeNull();
+  });
+
   it("shows installed/latest versions and readable release notes", async () => {
     vi.spyOn(api, "systemUpdateStatus").mockResolvedValue(status);
     render(<I18nProvider><SystemUpdatesPage /></I18nProvider>);
@@ -155,7 +303,7 @@ describe("system updates page", () => {
     expect(screen.getByText("v0.5.0")).toBeTruthy();
     expect(screen.getByText("v0.6.0")).toBeTruthy();
     expect(
-      (screen.getByRole("button", { name: "Update now" }) as HTMLButtonElement).disabled
+      (screen.getByRole("button", { name: "Update application" }) as HTMLButtonElement).disabled
     ).toBe(false);
     expect(screen.getByRole("heading", { name: "System", level: 1 })).toBeTruthy();
     const hostMetricsSummary = screen.getByText("Metrics and alert thresholds").closest("summary")!;
@@ -174,6 +322,24 @@ describe("system updates page", () => {
     expect(scheduleSummary.closest("details")?.open).toBe(false);
     fireEvent.click(releaseSummary);
     expect(screen.getByRole("region", { name: "Safer system updates" })).toHaveTextContent("Rollback on failed health checks");
+  });
+
+  it("hydrates after an initial API failure when live updates return after reboot", async () => {
+    vi.stubGlobal("EventSource", FakeSystemUpdateEventSource);
+    const loadStatus = vi.spyOn(api, "systemUpdateStatus")
+      .mockRejectedValueOnce(new Error("The host is restarting"))
+      .mockResolvedValue(v2Status);
+    render(<I18nProvider><SystemUpdatesPage /></I18nProvider>);
+
+    expect(await screen.findByRole("heading", { name: "System updates could not be loaded" })).toBeTruthy();
+    expect(FakeSystemUpdateEventSource.latest?.url).toBe("/api/v1/system/updates/events");
+
+    await act(async () => {
+      FakeSystemUpdateEventSource.latest?.emit("system-update", v2Status);
+    });
+
+    await waitFor(() => expect(loadStatus).toHaveBeenCalledTimes(2));
+    expect(await screen.findByRole("button", { name: "Update everything" })).toBeTruthy();
   });
 
   it("presents sustained API scheduling delay as host strain", async () => {
@@ -345,10 +511,8 @@ describe("system updates page", () => {
     });
     render(<I18nProvider><SystemUpdatesPage /></I18nProvider>);
 
-    expect(
-      (await screen.findByRole("button", { name: "Update now" }) as HTMLButtonElement).disabled
-    ).toBe(true);
-    expect(screen.getByText(/update-agent:service:install/)).toBeTruthy();
+    expect(await screen.findByText(/trusted update service is not connected/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Update application" })).toBeNull();
   });
 
   it("shows the current step, completed steps, elapsed progress, and activity", async () => {
@@ -407,11 +571,315 @@ describe("system updates page", () => {
     });
     render(<I18nProvider><SystemUpdatesPage /></I18nProvider>);
 
-    fireEvent.click(await screen.findByRole("button", { name: "Update now" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Update application" }));
     await waitFor(() => expect(install).toHaveBeenCalledOnce());
     expect(confirmAction).toHaveBeenCalledWith(expect.stringContaining("0.6.0"), "Install update", false);
     expect(await screen.findByText("Waiting for the update agent")).toBeTruthy();
     expect(screen.getByText("Prepare")).toBeTruthy();
     expect(screen.getByText("Live activity")).toBeTruthy();
+  });
+
+  it.each([
+    {
+      name: "an application-only Pi update",
+      label: "Update application",
+      route: "application",
+      projectedStatus: {
+        ...v2Status,
+        capability: { ...v2Status.capability, runtime: "raspberry-pi" as const },
+        application: {
+          ...v2Status.application!,
+          capability: { ...v2Status.capability, runtime: "raspberry-pi" as const },
+          updateAvailable: true,
+        },
+        host: {
+          ...v2Status.host!,
+          updateAvailable: false,
+          targetVersion: null,
+          targetGeneration: null,
+          targetDigest: null,
+        },
+      },
+    },
+    {
+      name: "a host-only update",
+      label: "Update host system",
+      route: "workflow",
+      projectedStatus: {
+        ...v2Status,
+        updateAvailable: false,
+        application: { ...v2Status.application!, updateAvailable: false },
+      },
+    },
+    {
+      name: "a combined application and host update",
+      label: "Update everything",
+      route: "workflow",
+      projectedStatus: v2Status,
+    },
+  ])("routes $name through the correct updater", async ({ label, route, projectedStatus }) => {
+    vi.spyOn(api, "systemUpdateStatus").mockResolvedValue(projectedStatus);
+    const install = vi.spyOn(api, "installLatestSystemUpdate").mockResolvedValue(projectedStatus);
+    const operate = vi.spyOn(api, "operateSystemUpdate").mockResolvedValue(projectedStatus);
+    render(<I18nProvider><SystemUpdatesPage /></I18nProvider>);
+
+    fireEvent.click(await screen.findByRole("button", { name: label }));
+
+    if (route === "application") {
+      await waitFor(() => expect(install).toHaveBeenCalledOnce());
+      expect(operate).not.toHaveBeenCalled();
+    } else {
+      await waitFor(() => expect(operate).toHaveBeenCalledWith({
+        action: "update-everything",
+        expectedRevision: projectedStatus.revision,
+      }));
+      expect(install).not.toHaveBeenCalled();
+    }
+  });
+
+  it("starts one revision-bound application and host update sequence", async () => {
+    vi.spyOn(api, "systemUpdateStatus").mockResolvedValue(v2Status);
+    const operate = vi.spyOn(api, "operateSystemUpdate").mockResolvedValue({
+      ...v2Status,
+      revision: 8,
+      workflow: {
+        ...stagedStatus.workflow!,
+        revision: 8,
+        phase: "preparing",
+        hostOperationId: null,
+        steps: [{ id: "backup", state: "active" }],
+        canCancel: false,
+      },
+    });
+    render(<I18nProvider><SystemUpdatesPage /></I18nProvider>);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Update everything" }));
+
+    await waitFor(() => expect(operate).toHaveBeenCalledWith({
+      action: "update-everything",
+      expectedRevision: 7,
+    }));
+    expect(confirmAction).not.toHaveBeenCalled();
+    expect(await screen.findByRole("heading", { name: "Preparing a safe update" })).toBeTruthy();
+  });
+
+  it("confirms the exact staged host identity before restart and restores focus", async () => {
+    vi.spyOn(api, "systemUpdateStatus").mockResolvedValue(stagedStatus);
+    const operate = vi.spyOn(api, "operateSystemUpdate").mockResolvedValue(stagedStatus);
+    render(<I18nProvider><SystemUpdatesPage /></I18nProvider>);
+
+    const restart = await screen.findByRole("button", { name: "Restart and install" });
+    restart.focus();
+    fireEvent.click(restart);
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText(/host v0.35.0 \(generation 3\)/)).toBeTruthy();
+    fireEvent.click(within(dialog).getByText("Prepared update identity"));
+    expect(within(dialog).getByText(binding.operationId)).toBeTruthy();
+    expect(within(dialog).getByText(binding.targetDigest)).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Restart and install" }));
+
+    await waitFor(() => expect(operate).toHaveBeenCalledWith({
+      action: "activate-host",
+      expectedRevision: 12,
+      workflowId: stagedStatus.workflow!.id,
+      hostOperationId: binding.operationId,
+      targetVersion: binding.targetVersion,
+      targetGeneration: binding.targetGeneration,
+      targetDigest: binding.targetDigest,
+      confirmation: "RESTART_AND_INSTALL",
+    }));
+    await waitFor(() => expect(restart).toHaveFocus());
+  });
+
+  it("cancels only the exact prepared host operation", async () => {
+    vi.spyOn(api, "systemUpdateStatus").mockResolvedValue(stagedStatus);
+    const operate = vi.spyOn(api, "operateSystemUpdate").mockResolvedValue({
+      ...v2Status,
+      revision: 13,
+    });
+    render(<I18nProvider><SystemUpdatesPage /></I18nProvider>);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Cancel prepared update" }));
+
+    await waitFor(() => expect(operate).toHaveBeenCalledWith({
+      action: "cancel-host",
+      expectedRevision: 12,
+      workflowId: stagedStatus.workflow!.id,
+      hostOperationId: binding.operationId,
+      targetVersion: binding.targetVersion,
+      targetGeneration: binding.targetGeneration,
+      targetDigest: binding.targetDigest,
+    }));
+  });
+
+  it("never restarts a standalone staged host without its verified workflow", async () => {
+    vi.spyOn(api, "systemUpdateStatus").mockResolvedValue({
+      ...stagedStatus,
+      workflow: null,
+    });
+    render(<I18nProvider><SystemUpdatesPage /></I18nProvider>);
+
+    expect((await screen.findAllByText(/prepared outside the current verified workflow/)).length).toBeGreaterThan(0);
+    expect(screen.queryByRole("button", { name: "Restart and install" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Update everything" })).toBeNull();
+  });
+
+  it("puts recovery ahead of restart and update actions", async () => {
+    vi.spyOn(api, "systemUpdateStatus").mockResolvedValue({
+      ...stagedStatus,
+      workflow: {
+        ...stagedStatus.workflow!,
+        phase: "recovery-needed",
+        recoveryRequired: true,
+        reason: "recovery-required",
+      },
+    });
+    render(<I18nProvider><SystemUpdatesPage /></I18nProvider>);
+
+    const recovery = await screen.findByRole("button", { name: "View recovery" });
+    expect(screen.queryByRole("button", { name: "Restart and install" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Update everything" })).toBeNull();
+    fireEvent.click(recovery);
+    expect(screen.getByText("The host reported a recovery state. Do not start another update yet.")).toBeTruthy();
+  });
+
+  it.each(["failed", "returned"] as const)("allows a fresh revision-bound workflow after a safe terminal %s state", async (phase) => {
+    const nextWorkflowId = "9c2d4f18-6ef4-4ac5-a127-f28ee7f74443";
+    const terminalStatus: SystemUpdateStatus = {
+      ...v2Status,
+      revision: 18,
+      workflow: {
+        ...stagedStatus.workflow!,
+        revision: 18,
+        phase,
+        hostOperationId: null,
+        canCancel: false,
+        recoveryRequired: false,
+        reason: null,
+      },
+    };
+    vi.spyOn(api, "systemUpdateStatus").mockResolvedValue(terminalStatus);
+    const operate = vi.spyOn(api, "operateSystemUpdate").mockResolvedValue({
+      ...terminalStatus,
+      revision: 0,
+      workflow: {
+        ...terminalStatus.workflow!,
+        id: nextWorkflowId,
+        revision: 0,
+        phase: "preparing",
+        requestedAt: "2026-08-04T17:00:00.000Z",
+        updatedAt: "2026-08-04T17:00:00.000Z",
+      },
+    });
+    render(<I18nProvider><SystemUpdatesPage /></I18nProvider>);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Update everything" }));
+
+    await waitFor(() => expect(operate).toHaveBeenCalledWith({
+      action: "update-everything",
+      expectedRevision: 18,
+    }));
+    expect(await screen.findByRole("heading", { name: "Preparing a safe update" })).toBeTruthy();
+  });
+
+  it("accepts a new low-revision workflow after a terminal workflow and advances it while reconnecting", async () => {
+    vi.stubGlobal("EventSource", FakeSystemUpdateEventSource);
+    const nextWorkflowId = "9c2d4f18-6ef4-4ac5-a127-f28ee7f74443";
+    const terminalStatus: SystemUpdateStatus = {
+      ...v2Status,
+      revision: 18,
+      workflow: {
+        ...stagedStatus.workflow!,
+        revision: 18,
+        phase: "complete",
+        completedAt: "2026-08-04T16:30:00.000Z",
+        hostOperationId: null,
+        canCancel: false,
+        recoveryRequired: false,
+        reason: null,
+      },
+    };
+    const preparingStatus: SystemUpdateStatus = {
+      ...v2Status,
+      revision: 0,
+      workflow: {
+        ...stagedStatus.workflow!,
+        id: nextWorkflowId,
+        revision: 0,
+        phase: "preparing",
+        requestedAt: "2026-08-04T17:00:00.000Z",
+        updatedAt: "2026-08-04T17:00:00.000Z",
+        completedAt: null,
+        hostOperationId: null,
+        steps: [{ id: "backup", state: "active" }],
+        canCancel: false,
+      },
+    };
+    const readyStatus: SystemUpdateStatus = {
+      ...stagedStatus,
+      revision: 1,
+      workflow: {
+        ...preparingStatus.workflow!,
+        revision: 1,
+        phase: "awaiting-restart",
+        updatedAt: "2026-08-04T17:04:00.000Z",
+        hostOperationId: binding.operationId,
+        steps: [
+          { id: "backup", state: "complete" },
+          { id: "stage-host", state: "complete" },
+          { id: "restart-host", state: "waiting" },
+        ],
+        canCancel: true,
+      },
+    };
+    const loadStatus = vi.spyOn(api, "systemUpdateStatus")
+      .mockResolvedValueOnce(terminalStatus)
+      .mockResolvedValue(readyStatus);
+    render(<I18nProvider><SystemUpdatesPage /></I18nProvider>);
+
+    expect(await screen.findByRole("button", { name: "Update everything" })).toBeTruthy();
+    await act(async () => {
+      FakeSystemUpdateEventSource.latest?.onerror?.(new Event("error"));
+      FakeSystemUpdateEventSource.latest?.emit("system-update", preparingStatus);
+    });
+
+    await waitFor(() => expect(loadStatus).toHaveBeenCalledTimes(2));
+    expect(await screen.findByRole("button", { name: "Restart and install" })).toBeTruthy();
+  });
+
+  it("retries only the application after its post-host update fails", async () => {
+    const failedStatus: SystemUpdateStatus = {
+      ...v2Status,
+      revision: 16,
+      host: {
+        ...v2Status.host!,
+        phase: "complete",
+        updateAvailable: false,
+        readyToRestart: null,
+      },
+      workflow: {
+        ...stagedStatus.workflow!,
+        revision: 16,
+        phase: "application-failed",
+        canCancel: false,
+        detail: "The host is healthy; the application update can be retried",
+      },
+    };
+    vi.spyOn(api, "systemUpdateStatus").mockResolvedValue(failedStatus);
+    const operate = vi.spyOn(api, "operateSystemUpdate").mockResolvedValue({
+      ...failedStatus,
+      revision: 17,
+      workflow: { ...failedStatus.workflow!, revision: 17, phase: "application-queueing" },
+    });
+    render(<I18nProvider><SystemUpdatesPage /></I18nProvider>);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Retry application update" }));
+
+    await waitFor(() => expect(operate).toHaveBeenCalledWith({
+      action: "retry-application",
+      expectedRevision: 16,
+      workflowId: failedStatus.workflow!.id,
+    }));
+    expect(screen.queryByRole("button", { name: "Update application" })).toBeNull();
   });
 });

@@ -35,6 +35,11 @@ class Swing(IntEnum):
     FullSwing = 1
 
 
+class DehumidifierMode(IntEnum):
+    Default = 0
+    AnionOnly = 9
+
+
 class FakeDevice:
     def __init__(self, raw_temperature: int | None) -> None:
         self.raw_temperature = raw_temperature
@@ -47,9 +52,20 @@ class FakeDevice:
         self.fan_speed = FanSpeed.Auto
         self.horizontal_swing = Swing.Default
         self.vertical_swing = Swing.FullSwing
+        self.current_humidity = 48
+        self.target_humidity = 50
+        self.fresh_air = True
+        self.anion = True
+        self.sleep = False
+        self.light = True
         self.quiet = 0
         self.turbo = False
         self.xfan = True
+        self.steady_heat = False
+        self.power_save = True
+        self.clean_filter = False
+        self.water_full = False
+        self.dehumidifier_mode = DehumidifierMode.AnionOnly
 
     def get_property(self, property_name: object) -> int | None:
         if property_name is bridge.Props.TEMP_SENSOR:
@@ -63,7 +79,15 @@ class FakeDevice:
 @pytest.fixture(autouse=True)
 def enums(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        bridge, "Props", SimpleNamespace(TEMP_SENSOR=object(), TEMP_BIT=object())
+        bridge,
+        "Props",
+        SimpleNamespace(
+            TEMP_SENSOR=object(),
+            TEMP_BIT=object(),
+            TEMP_UNIT=object(),
+            SLEEP_MODE=object(),
+            UNKNOWN_HEATCOOLTYPE=object(),
+        ),
     )
     monkeypatch.setattr(
         bridge, "TemperatureUnits", SimpleNamespace(F=SimpleNamespace(value=1))
@@ -72,6 +96,7 @@ def enums(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(bridge, "FanSpeed", FanSpeed)
     monkeypatch.setattr(bridge, "HorizontalSwing", Swing)
     monkeypatch.setattr(bridge, "VerticalSwing", Swing)
+    monkeypatch.setattr(bridge, "DehumidifierMode", DehumidifierMode)
 
 
 def test_normalizes_mac_without_exposing_address_format_variants() -> None:
@@ -90,6 +115,18 @@ def test_snapshot_keeps_selected_mode_separate_from_actual_activity() -> None:
     assert state["targetTemperatureC"] == 20
     assert state["currentTemperatureC"] == 22.2
     assert state["currentTemperatureSource"] == "reported"
+    assert state["currentHumidityPercent"] == 48
+    assert state["targetHumidityPercent"] == 50
+    assert state["freshAir"] is True
+    assert state["anion"] is True
+    assert state["powerSave"] is True
+    assert state["dehumidifierMode"] == "AnionOnly"
+    assert state["diagnostics"] == {
+        "sleepModeRaw": 0,
+        "temperatureUnitRaw": 0,
+        "temperatureRecordRaw": 0,
+        "heatCoolTypeRaw": 0,
+    }
 
 
 @pytest.mark.parametrize("raw_temperature", [None, 0])

@@ -423,12 +423,27 @@ export function buildBaseSchemaSql(schemaName: string): string[] {
       current_temperature_source TEXT NOT NULL CHECK (
         current_temperature_source IN ('reported', 'unavailable')
       ),
+      current_humidity_percent DOUBLE PRECISION CHECK (
+        current_humidity_percent IS NULL OR (current_humidity_percent >= 0 AND current_humidity_percent <= 100)
+      ),
+      target_humidity_percent DOUBLE PRECISION CHECK (
+        target_humidity_percent IS NULL OR (target_humidity_percent >= 0 AND target_humidity_percent <= 100)
+      ),
       fan_speed TEXT,
       horizontal_swing TEXT,
       vertical_swing TEXT,
+      fresh_air BOOLEAN,
+      anion BOOLEAN,
+      sleep BOOLEAN,
+      light BOOLEAN,
       quiet BOOLEAN,
       turbo BOOLEAN,
       xfan BOOLEAN,
+      steady_heat BOOLEAN,
+      power_save BOOLEAN,
+      clean_filter BOOLEAN,
+      water_full BOOLEAN,
+      dehumidifier_mode TEXT,
       compressor_frequency_hz DOUBLE PRECISION CHECK (
         compressor_frequency_hz IS NULL OR (compressor_frequency_hz >= 0 AND compressor_frequency_hz <= 300)
       ),
@@ -478,6 +493,24 @@ export function buildBaseSchemaSql(schemaName: string): string[] {
       ADD COLUMN IF NOT EXISTS diagnostics JSONB NOT NULL DEFAULT '{}'::JSONB`,
     `INSERT INTO ${relation("schema_migrations")} (version, description)
       VALUES (7, 'EWPE heat-pump transport, placement, and diagnostics')
+      ON CONFLICT (version) DO NOTHING`,
+    `ALTER TABLE ${relation("heat_pump_state_samples")}
+      ADD COLUMN IF NOT EXISTS current_humidity_percent DOUBLE PRECISION
+      CHECK (current_humidity_percent IS NULL OR (current_humidity_percent >= 0 AND current_humidity_percent <= 100))`,
+    `ALTER TABLE ${relation("heat_pump_state_samples")}
+      ADD COLUMN IF NOT EXISTS target_humidity_percent DOUBLE PRECISION
+      CHECK (target_humidity_percent IS NULL OR (target_humidity_percent >= 0 AND target_humidity_percent <= 100))`,
+    `ALTER TABLE ${relation("heat_pump_state_samples")} ADD COLUMN IF NOT EXISTS fresh_air BOOLEAN`,
+    `ALTER TABLE ${relation("heat_pump_state_samples")} ADD COLUMN IF NOT EXISTS anion BOOLEAN`,
+    `ALTER TABLE ${relation("heat_pump_state_samples")} ADD COLUMN IF NOT EXISTS sleep BOOLEAN`,
+    `ALTER TABLE ${relation("heat_pump_state_samples")} ADD COLUMN IF NOT EXISTS light BOOLEAN`,
+    `ALTER TABLE ${relation("heat_pump_state_samples")} ADD COLUMN IF NOT EXISTS steady_heat BOOLEAN`,
+    `ALTER TABLE ${relation("heat_pump_state_samples")} ADD COLUMN IF NOT EXISTS power_save BOOLEAN`,
+    `ALTER TABLE ${relation("heat_pump_state_samples")} ADD COLUMN IF NOT EXISTS clean_filter BOOLEAN`,
+    `ALTER TABLE ${relation("heat_pump_state_samples")} ADD COLUMN IF NOT EXISTS water_full BOOLEAN`,
+    `ALTER TABLE ${relation("heat_pump_state_samples")} ADD COLUMN IF NOT EXISTS dehumidifier_mode TEXT`,
+    `INSERT INTO ${relation("schema_migrations")} (version, description)
+      VALUES (8, 'Complete Gree and Wilfa humidity and operating-state archive')
       ON CONFLICT (version) DO NOTHING`,
   ];
 }

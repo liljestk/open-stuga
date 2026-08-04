@@ -66,6 +66,10 @@ export interface HeatPumpDiagnostics {
   waterSensorRaw?: number;
   totalEnergyRaw?: number;
   energyConsumptionRaw?: number;
+  sleepModeRaw?: number;
+  temperatureUnitRaw?: number;
+  temperatureRecordRaw?: number;
+  heatCoolTypeRaw?: number;
   faultCode?: number;
   allErrors?: number;
   shutdownFaults?: number;
@@ -99,12 +103,25 @@ export interface HeatPumpState extends HeatPumpPlacement {
   currentTemperatureC: number | null;
   /** Missing sensor data is never replaced with the target temperature. */
   currentTemperatureSource: "reported" | "unavailable";
+  /** Relative humidity reported by models which expose the Gree DwatSen property. */
+  currentHumidityPercent: number | null;
+  /** Selected humidity target, primarily exposed by dry/dehumidifier-capable models. */
+  targetHumidityPercent: number | null;
   fanSpeed: string | null;
   horizontalSwing: string | null;
   verticalSwing: string | null;
+  freshAir: boolean | null;
+  anion: boolean | null;
+  sleep: boolean | null;
+  light: boolean | null;
   quiet: boolean | null;
   turbo: boolean | null;
   xfan: boolean | null;
+  steadyHeat: boolean | null;
+  powerSave: boolean | null;
+  cleanFilter: boolean | null;
+  waterFull: boolean | null;
+  dehumidifierMode: string | null;
   /** Reported compressor frequency; null when this model does not expose it. */
   compressorFrequencyHz: number | null;
   diagnostics: HeatPumpDiagnostics;

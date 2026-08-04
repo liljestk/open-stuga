@@ -164,6 +164,7 @@ export const fiRawPart1 = {
   "measurement.source.tp-link": "Suora TP-Link",
   "measurement.source.tuya": "Tuya",
   "measurement.source.nexus433": "Nexus433",
+  "measurement.source.gree": "Gree / Wilfa",
   "setup.description": "Tuo TP-Link-anturit Climate Twiniin suoraan H100/H200/H500-keskittimestä tai Home Assistantin kautta.",
   "setup.step1body": "Lisää H100-, H200- tai H500-keskitin ja kaikki T310- tai T315-anturit Tapo-sovelluksessa. Päivitä laiteohjelmisto ja nimeä anturit huoneittain.",
   "setup.step2": "Valitse yhteystapa",

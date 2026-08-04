@@ -343,6 +343,16 @@ export function observationResponse(value: ManualObservation | { observation: Ma
   return "observation" in value ? value.observation : value;
 }
 
+const systemUpdateWorkflowPhases = new Set<string>([
+  "preparing", "backup-active", "backup-complete", "host-stage-requested", "host-stage-queueing",
+  "host-staging", "awaiting-restart", "restarting", "host-verifying", "host-complete",
+  "application-queueing", "application-queued", "application-updating", "application-failed",
+  "complete", "failed", "cancelled", "returned", "recovery-needed",
+  // Pre-v2 development aliases remain readable during a rolling local upgrade.
+  "queued", "backing-up", "staging-host", "activating-host", "verifying-host",
+  "updating-application", "verifying-application", "rolling-back-application", "host-returned",
+]);
+
 export function subscribeToSystemUpdateEvents(
   onStatus: (status: SystemUpdateLiveStatus) => void,
   onState: (state: "live" | "reconnecting") => void,
@@ -358,8 +368,30 @@ export function subscribeToSystemUpdateEvents(
         || (status.latestVersion !== null && typeof status.latestVersion !== "string")
         || typeof status.updateAvailable !== "boolean"
         || !status.capability
+        || typeof status.capability !== "object"
+        || (status.schema !== undefined && status.schema !== "stugu-system-updates/v2")
+        || (status.revision !== undefined && (!Number.isSafeInteger(status.revision) || status.revision < 0))
         || (status.operation !== null && typeof status.operation !== "object")
+        || (status.application !== undefined && (status.application === null || typeof status.application !== "object"))
+        || (status.host !== undefined && status.host !== null && typeof status.host !== "object")
+        || (status.workflow !== undefined && status.workflow !== null && typeof status.workflow !== "object")
       ) return;
+      if (status.workflow && (
+        typeof status.workflow.id !== "string"
+        || !Number.isSafeInteger(status.workflow.revision)
+        || typeof status.workflow.phase !== "string"
+        || !systemUpdateWorkflowPhases.has(status.workflow.phase)
+        || !status.workflow.targets
+        || typeof status.workflow.targets !== "object"
+      )) return;
+      const ready = status.host?.readyToRestart;
+      if (ready && (
+        typeof ready.operationId !== "string"
+        || typeof ready.targetVersion !== "string"
+        || !Number.isSafeInteger(ready.targetGeneration)
+        || ready.targetGeneration < 0
+        || typeof ready.targetDigest !== "string"
+      )) return;
       onStatus(status);
     } catch {
       // Keep the last validated update state while the server reconnects.

@@ -34,7 +34,7 @@ import {
 
 import { revokeAccessToken } from ".././cloudflare-oauth.mjs";
 
-export const AGENT_VERSION = "3.0.0";
+export const AGENT_VERSION = "3.1.0";
 
 export const RELEASE_ENV_SCHEMA = "3";
 

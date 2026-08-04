@@ -101,6 +101,7 @@ mmdebstrap:
       install -d -m 0755 "$1/usr/local/sbin"
       install -d -m 0755 "$1/usr/local/bin"
       install -d -m 0755 "$1/usr/lib/tmpfiles.d"
+      install -d -m 0755 "$1/usr/lib/sysusers.d"
       install -d -m 0755 "$1/usr/lib/stugu-host-updater"
       install -d -m 0755 "$1/usr/share/stugu-host-updater"
       install -d -m 0755 "$1/etc/rauc"
@@ -183,6 +184,8 @@ mmdebstrap:
         "$1/usr/sbin/stugu-host-bootstrap"
       install -m 0755 "${IGconf_stugu_assetdir}/stugu-host-update" \
         "$1/usr/bin/stugu-host-update"
+      install -m 0755 "${IGconf_stugu_assetdir}/stugu-host-update-bridge" \
+        "$1/usr/bin/stugu-host-update-bridge"
       install -m 0755 "${IGconf_stugu_assetdir}/stugu-rauc-boot" \
         "$1/usr/lib/stugu-host-updater/stugu-rauc-boot"
       install -m 0644 "${IGconf_stugu_assetdir}/stugu-host-updater-config.json" \
@@ -203,6 +206,10 @@ mmdebstrap:
         "$1/etc/systemd/system/stugu-host-bootstrap.service"
       install -m 0644 "${IGconf_stugu_assetdir}/stugu-host-update-reconcile.service" \
         "$1/etc/systemd/system/stugu-host-update-reconcile.service"
+      install -m 0644 "${IGconf_stugu_assetdir}/stugu-host-update-bridge.service" \
+        "$1/etc/systemd/system/stugu-host-update-bridge.service"
+      install -m 0644 "${IGconf_stugu_assetdir}/stugu-host-update-bridge.sysusers.conf" \
+        "$1/usr/lib/sysusers.d/stugu-host-update-bridge.conf"
       install -m 0644 "${IGconf_stugu_assetdir}/stugu-host-update-tmpfiles.conf" \
         "$1/usr/lib/tmpfiles.d/stugu-host-update.conf"
       install -m 0644 "${IGconf_stugu_assetdir}/stugu-system-watchdog.conf" \
@@ -345,4 +352,4 @@ mmdebstrap:
       ${IGconf_device_user1} ALL=(root) NOPASSWD: /usr/bin/tailscale up --operator=${IGconf_device_user1}
       EOF
       chmod 0440 "$1/etc/sudoers.d/020_stuguctl"
-    - $BDEBSTRAP_HOOKS/enable-units "$1" tailscaled stugu-data-grow stugu-eeprom-compat stugu stugu-host-bootstrap stugu-host-updated stugu-host-update-reconcile systemd-timesyncd
+    - $BDEBSTRAP_HOOKS/enable-units "$1" tailscaled stugu-data-grow stugu-eeprom-compat stugu stugu-host-bootstrap stugu-host-updated stugu-host-update-reconcile stugu-host-update-bridge systemd-timesyncd

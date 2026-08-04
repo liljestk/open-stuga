@@ -167,12 +167,23 @@ export interface HeatPumpStateRow extends QueryResultRow {
   target_temperature_c: number | null;
   current_temperature_c: number | null;
   current_temperature_source: HeatPumpStateRecord["currentTemperatureSource"];
+  current_humidity_percent: number | null;
+  target_humidity_percent: number | null;
   fan_speed: string | null;
   horizontal_swing: string | null;
   vertical_swing: string | null;
+  fresh_air: boolean | null;
+  anion: boolean | null;
+  sleep: boolean | null;
+  light: boolean | null;
   quiet: boolean | null;
   turbo: boolean | null;
   xfan: boolean | null;
+  steady_heat: boolean | null;
+  power_save: boolean | null;
+  clean_filter: boolean | null;
+  water_full: boolean | null;
+  dehumidifier_mode: string | null;
   compressor_frequency_hz: number | null;
   diagnostics: HeatPumpStateRecord["diagnostics"];
   activity: HeatPumpStateRecord["activity"];
@@ -367,12 +378,23 @@ export function heatPumpStateFromRow(row: HeatPumpStateRow): HeatPumpStateRecord
     targetTemperatureC: row.target_temperature_c === null ? null : Number(row.target_temperature_c),
     currentTemperatureC: row.current_temperature_c === null ? null : Number(row.current_temperature_c),
     currentTemperatureSource: row.current_temperature_source,
+    currentHumidityPercent: row.current_humidity_percent === null ? null : Number(row.current_humidity_percent),
+    targetHumidityPercent: row.target_humidity_percent === null ? null : Number(row.target_humidity_percent),
     fanSpeed: row.fan_speed,
     horizontalSwing: row.horizontal_swing,
     verticalSwing: row.vertical_swing,
+    freshAir: row.fresh_air,
+    anion: row.anion,
+    sleep: row.sleep,
+    light: row.light,
     quiet: row.quiet,
     turbo: row.turbo,
     xfan: row.xfan,
+    steadyHeat: row.steady_heat,
+    powerSave: row.power_save,
+    cleanFilter: row.clean_filter,
+    waterFull: row.water_full,
+    dehumidifierMode: row.dehumidifier_mode,
     compressorFrequencyHz: row.compressor_frequency_hz == null ? null : Number(row.compressor_frequency_hz),
     diagnostics: row.diagnostics ?? {},
     activity: row.activity,

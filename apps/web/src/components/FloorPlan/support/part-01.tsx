@@ -62,6 +62,7 @@ export interface FloorPlanProps {
   heatPumps?: readonly HeatPumpState[];
   heatPumpInfluenceVisible?: boolean;
   pendingHeatPumpIds?: ReadonlySet<string>;
+  selectedHeatPumpId?: string | null;
   climateSamples?: ClimateSampleMatrix;
   observations: ManualObservation[];
   definition: MeasurementDefinition;
@@ -91,6 +92,7 @@ export interface FloorPlanProps {
   onOpeningStateChange?: (floorId: string, elementId: string, state: ConfiguredOpeningState) => void;
   onConnectedDevicePowerChange?: (connectionId: string, power: boolean) => void;
   onConnectedDeviceMove?: (connectionId: string, point: Point) => void;
+  onHeatPumpSelect?: (connectionId: string, floorId: string) => void;
   onHeatPumpMove?: (connectionId: string, point: Point) => void;
   onSensorSelect: (sensorId: string) => void;
   onSensorMove: (sensorId: string, point: Point) => void;

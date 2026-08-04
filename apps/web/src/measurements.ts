@@ -299,15 +299,15 @@ export function samplesAt(
 }
 
 export function displayUnit(definition: MeasurementDefinition, units: UnitSystem): string {
-  return definition.id === "temperature" && units === "imperial" ? "°F" : definition.unit;
+  return definition.dimension === "temperature" && units === "imperial" ? "°F" : definition.unit;
 }
 
 export function toDisplayValue(value: number, definition: MeasurementDefinition, units: UnitSystem): number {
-  return definition.id === "temperature" && units === "imperial" ? value * 9 / 5 + 32 : value;
+  return definition.dimension === "temperature" && units === "imperial" ? value * 9 / 5 + 32 : value;
 }
 
 export function fromDisplayValue(value: number, definition: MeasurementDefinition, units: UnitSystem): number {
-  return definition.id === "temperature" && units === "imperial" ? (value - 32) * 5 / 9 : value;
+  return definition.dimension === "temperature" && units === "imperial" ? (value - 32) * 5 / 9 : value;
 }
 
 export function formatMeasurement(value: number, definition: MeasurementDefinition, units: UnitSystem): string {
@@ -318,7 +318,7 @@ export function formatMeasurement(value: number, definition: MeasurementDefiniti
 }
 
 export function formatMeasurementDelta(value: number, definition: MeasurementDefinition, units: UnitSystem): string {
-  const converted = definition.id === "temperature" && units === "imperial" ? value * 9 / 5 : value;
+  const converted = definition.dimension === "temperature" && units === "imperial" ? value * 9 / 5 : value;
   const unit = displayUnit(definition, units);
   const separator = unit && unit !== "%" && !unit.startsWith("°") ? " " : "";
   return `${Math.abs(converted).toFixed(definition.precision)}${separator}${unit}`;

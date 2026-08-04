@@ -170,12 +170,23 @@ export function mapRows(table, rows) {
       current_temperature_source: choiceValue(
         state.currentTemperatureSource, "currentTemperatureSource", ["reported", "unavailable"],
       ),
+      current_humidity_percent: finiteNumber(state.currentHumidityPercent ?? null, "currentHumidityPercent", true),
+      target_humidity_percent: finiteNumber(state.targetHumidityPercent ?? null, "targetHumidityPercent", true),
       fan_speed: textValue(state.fanSpeed, "fanSpeed", true),
       horizontal_swing: textValue(state.horizontalSwing, "horizontalSwing", true),
       vertical_swing: textValue(state.verticalSwing, "verticalSwing", true),
+      fresh_air: booleanValue(state.freshAir ?? null, "freshAir", true),
+      anion: booleanValue(state.anion ?? null, "anion", true),
+      sleep: booleanValue(state.sleep ?? null, "sleep", true),
+      light: booleanValue(state.light ?? null, "light", true),
       quiet: booleanValue(state.quiet, "quiet", true),
       turbo: booleanValue(state.turbo, "turbo", true),
       xfan: booleanValue(state.xfan, "xfan", true),
+      steady_heat: booleanValue(state.steadyHeat ?? null, "steadyHeat", true),
+      power_save: booleanValue(state.powerSave ?? null, "powerSave", true),
+      clean_filter: booleanValue(state.cleanFilter ?? null, "cleanFilter", true),
+      water_full: booleanValue(state.waterFull ?? null, "waterFull", true),
+      dehumidifier_mode: textValue(state.dehumidifierMode ?? null, "dehumidifierMode", true),
       compressor_frequency_hz: finiteNumber(state.compressorFrequencyHz ?? null, "compressorFrequencyHz", true),
       diagnostics: state.diagnostics && typeof state.diagnostics === "object" && !Array.isArray(state.diagnostics)
         ? state.diagnostics
@@ -260,11 +271,15 @@ export function recordDefinition(table) {
       observed_at timestamptz, source text, state text, open_fraction double precision,
       valid_until timestamptz, external_id text, connection_id text, recorded_at timestamptz, metadata jsonb`,
     heat_pump_state_history: `connection_id text, house_id text, equipment_id text, device_id text,
-      name text, brand text, model text, observed_at timestamptz, received_at timestamptz,
+      name text, brand text, model text, transport text, floor_id text, room_id text,
+      x double precision, y double precision, z double precision, observed_at timestamptz, received_at timestamptz,
       available boolean, power boolean, selected_mode text, target_temperature_c double precision,
-      current_temperature_c double precision, current_temperature_source text, fan_speed text,
-      horizontal_swing text, vertical_swing text, quiet boolean, turbo boolean, xfan boolean,
-      activity text, activity_evidence text`,
+      current_temperature_c double precision, current_temperature_source text,
+      current_humidity_percent double precision, target_humidity_percent double precision,
+      fan_speed text, horizontal_swing text, vertical_swing text, fresh_air boolean, anion boolean,
+      sleep boolean, light boolean, quiet boolean, turbo boolean, xfan boolean, steady_heat boolean,
+      power_save boolean, clean_filter boolean, water_full boolean, dehumidifier_mode text,
+      compressor_frequency_hz double precision, diagnostics jsonb, activity text, activity_evidence text`,
   }[table];
 }
 
@@ -287,9 +302,12 @@ export function targetColumns(table) {
     ],
     heat_pump_state_history: [
       "connection_id", "house_id", "equipment_id", "device_id", "name", "brand", "model",
-      "observed_at", "received_at", "available", "power", "selected_mode", "target_temperature_c",
-      "current_temperature_c", "current_temperature_source", "fan_speed", "horizontal_swing",
-      "vertical_swing", "quiet", "turbo", "xfan", "activity", "activity_evidence",
+      "transport", "floor_id", "room_id", "x", "y", "z", "observed_at", "received_at",
+      "available", "power", "selected_mode", "target_temperature_c", "current_temperature_c",
+      "current_temperature_source", "current_humidity_percent", "target_humidity_percent",
+      "fan_speed", "horizontal_swing", "vertical_swing", "fresh_air", "anion", "sleep", "light",
+      "quiet", "turbo", "xfan", "steady_heat", "power_save", "clean_filter", "water_full",
+      "dehumidifier_mode", "compressor_frequency_hz", "diagnostics", "activity", "activity_evidence",
     ],
   }[table];
 }

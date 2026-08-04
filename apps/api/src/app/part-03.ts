@@ -341,6 +341,9 @@ export function configureApiPart03(context: ReturnType<typeof configureApiPart02
   const telemetry = new TelemetryService(context.database, context.bus, alertEngine, context.dataMode);
   const nexus433 = new Nexus433Service(config, context.database, telemetry);
   const measurements = new MeasurementService(context.database, context.bus, alertEngine, context.dataMode);
+  heatPumpStates.setMeasurementSink((samples) => {
+    measurements.ingestBatch(samples, { allowDisabledSensors: true });
+  });
   const notificationOutbox = new NotificationOutboxWorker(
       context.database,
       config,

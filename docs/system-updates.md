@@ -12,6 +12,36 @@ application services, and waits for their health checks. If the new API does
 not report the requested product version, the agent restores the previous
 release environment and starts the prior images again.
 
+On a supported Raspberry Pi A/B host, the same page presents the native host
+release separately from the application release. **Update everything** is a
+deliberately ordered workflow:
+
+1. create and verify a Stugu backup;
+2. ask the native updater to independently select, verify, qualify, and stage
+   the signed TUF + RAUC host target;
+3. stop at **Restart and install** until an Owner or Admin confirms the exact
+   staged operation, version, generation, and manifest digest;
+4. reconnect through the trial boots and A/B probation, allowing the native
+   selector to return to the previous slot automatically if checks fail;
+5. only after the host is accepted, install and verify the separately bound
+   application release with its existing container fallback.
+
+A returned host, recovery-needed state, stale confirmation, failed backup,
+busy mutation lock, unsupported layout, unqualified device, malformed state,
+or unavailable trust metadata stops the workflow. It never falls through to an
+application update. Host activation remains manual even when automatic
+application updates are enabled.
+
+The API and container update agent exchange bounded intent/status files only.
+A dedicated `stugu-update-bridge` account can forward only `check`, `stage`,
+`activate`, and `cancel` to the existing native Unix socket. It has no Docker
+membership, network access, device access, Linux capability, RAUC command,
+arbitrary path/URL field, repair flag, or recovery channel. Only the native
+updater owns TUF target selection, exact-device qualification, RAUC,
+inactive-slot writes, boot control, probation, and rollback. The parent,
+application, and native journals remain separate and share the existing
+cross-system mutation interlock.
+
 Every installable GitHub release must attach
 `stugu-release-manifest-v1.json`. The manifest binds the repository, version,
 tag, updater contract `3`, Compose contract `2`, and all seven
@@ -161,19 +191,27 @@ cannot resolve local image defaults. The nested client is pinned to the
 appliance's `stugu` Compose project so unattended updates inspect the running
 services.
 
-The UI-managed path currently updates Stugu's release containers. New
-layout-v2 factory images also contain a native TUF + RAUC host updater and
-early-initramfs A/B root selector, exposed as `stuguctl host-update`. It can
+The unified UI path is capability-gated. New layout-v2 factory images contain
+the bounded bridge, native TUF + RAUC host updater, and early-initramfs A/B root
+selector. The native updater remains available through `stuguctl host-update`. It can
 activate only when a signed qualification receipt matches the exact runtime Pi,
 EEPROM, USB bridge, and storage fingerprint. Preview bundles must use a
 byte-identical shared boot artifact and therefore update only the inactive
 immutable root; kernel, firmware, EEPROM, and canonical p1 changes remain
 recovery-class. The updater never writes p6 as a raw device.
 
-Deployed layout-v1/updater-contract-3 appliances still require a validated
-factory transition: their 96 MiB FAT fills p1 and cannot safely use layout-v2's
-raw boot-record tail. A future authenticated fixed-extent bridge remains a hard
-release gate. Do not shrink/rebuild that FAT or bypass the qualification receipt.
+An existing generation-6 image predates the host bridge. Containers cannot
+install a systemd unit into its immutable root, so the first transition to the
+bridge-capable host must use the audited `stuguctl host-update` CLI flow (or a
+validated factory transition) and an exact-device qualification receipt. After
+the accepted host restarts, the new update-agent container must advertise
+`unified-host-update-v1` before **Update everything** is enabled. The UI reports
+this honestly as a one-time transition; it never bootstraps host privilege from
+a container.
+
+Deployed layout-v1 appliances still require a validated factory transition:
+their 96 MiB FAT fills p1 and cannot safely use layout-v2's raw boot-record
+tail. Do not shrink/rebuild that FAT or bypass the qualification receipt.
 Raspberry Pi Connect OS deployment remains disabled because partition handoff
 was not reliable on the supported USB bridge. See the
 [host release runbook](host-update-release.md) and
@@ -181,9 +219,11 @@ was not reliable on the supported USB bridge. See the
 
 ## Recovery
 
-The latest state is visible in the UI and in
-`data/update-operations/status.json`. Before changing images, the agent runs
-the normal verified Stugu backup. If both the new release and automatic
+The latest application, host, and parent-workflow state is visible in the UI.
+Its bounded projections live under `data/update-operations`; the privileged
+native journal remains private to the host updater. Before changing a host or
+application, the agent runs the normal verified Stugu backup. If both the new
+release and automatic
 rollback fail, restore the last `.stugu-release.env` values and run:
 
 ```sh

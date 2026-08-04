@@ -188,7 +188,7 @@ export function registerGreeRoutes(context: GreeRouteContext): void {
     }
     context.config.greeConnections = connections;
     context.dataMode.activate();
-    const state = context.gree.recordInitial(connection, binding.state);
+    const state = context.gree.recordInitial(connection, binding.state, true);
     context.gree.refreshConfiguration();
     context.recordSecurityAudit(requestPrincipal(response), {
       eventType: "integration.credentials.configured",
@@ -309,6 +309,7 @@ export function registerGreeRoutes(context: GreeRouteContext): void {
     const connections = (context.config.greeConnections ?? []).filter((candidate) => candidate.id !== id);
     updateIntegrationSecrets(context.config.integrationSecretsFile, { greeConnections: connections });
     const unavailable = context.heatPumpStates.markUnavailable(id);
+    context.heatPumpStates.detachSensor(id, connection.houseId);
     if (unavailable) void context.telemetryArchive?.reconcileNow().catch(() => undefined);
     context.config.greeConnections = connections;
     context.gree.refreshConfiguration();

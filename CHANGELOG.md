@@ -4,6 +4,29 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.35.1 - 2026-08-04
+
+- Repair the clean-container release build by keeping the heat-pump test
+  fixtures aligned with the full state contract.
+- Record connected Wilfa/Gree heat-pump telemetry as sensor history and expose
+  its complete available state in analytics plus calm 2D/3D room inspectors.
+- Add a unified, backup-first application and native Raspberry Pi host-update
+  workflow with separate component status, exact staged-target confirmation,
+  reboot/probation reconnection, cancellation before activation, and fail-closed
+  recovery handling.
+- Isolate UI host intents behind a dedicated no-network, no-device,
+  no-capability account while retaining native TUF selection, exact-device
+  qualification, RAUC writes, shared mutation locks, A/B probation, and
+  automatic host rollback.
+- Fail host staging early when RAUC/SquashFS tooling is absent and retain
+  exact-device qualification when a USB storage model is reported only by
+  `lsblk`.
+
+Upgrade impact: no persistent-data migration change from 0.35.0. Generation-6
+hosts need a one-time audited CLI or factory transition before the unified UI
+is available. Host activation remains explicit. This patch supersedes the
+unpublished 0.35.0 factory candidate.
+
 ## 0.35.0 - 2026-08-04
 
 - Let archived sensors with known recorded measurements be selected explicitly

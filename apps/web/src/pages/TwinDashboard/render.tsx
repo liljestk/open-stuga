@@ -38,14 +38,28 @@ import { readLocalStorage, writeLocalStorage } from "../../browserStorage";
 import { detectReplayClimateEvents, type ReplayClimateEvent } from "../../replayEvents";
 import { openingStateCanChange, openingStateKey, openingStateObservationsForHouse } from "../../openingState";
 import { integrationForHouse } from "../../integrationScope";
+import { HeatPumpInspector } from "../../components/HeatPumpInspector";
+import { heatPumpSensorId } from "../../heatPumpPresentation";
 import { BuildingScene, FloorPlan, HomeActivityTimeline, MeasurementGlyph, RoomComparisonChart, SensorInspector, SpatialLayerLab, StructureEditor, ThermalSimulationPanel, energyDeviceLayerPreferenceKey, experimentalVisualizationPreferenceKey, houseLocalDateTimeCandidates, initialEnergyDeviceLayerVisibility, initialExperimentalVisualizations, localDateTimeValue, localDateValue, mergeOpeningStateObservations, observationConfidences, observationKinds, observationSources, observationTimeFields, observationTimePrecisions, zonedDateTimeParts } from "./support";
 import type { TwinDashboardProps } from "./support";
 import { useTwinDashboardPart05 } from "./part-05";
 export function renderTwinDashboard(context: ReturnType<typeof useTwinDashboardPart05>) {
-  const { props, state, house, floor, houseId, floorId, metric, units, viewMode, selectedSensorId, scenario, connection, dataMode, locale, t, scopedIntegration, sensorSourceHealthy, editing, setEditing, fullPage, setFullPage, liveMapOpen, setLiveMapOpen, historyOpen, setHistoryOpen, analysisOpen, setAnalysisOpen, fullPagePanelRef, fullPageTriggerRef, liveMapTriggerRef, pageHeadingRef, readOnly, canManageConnectedDevices, localAuthority, range, setRange, replayActive, setReplayActive, replayPlaying, setReplayPlaying, replayStartPending, setReplayStartPending, replayPrepared, setReplayPrepared, replaySpeed, setReplaySpeed, replayWindowFrom, setReplayWindowFrom, replayWindowTo, setReplayWindowTo, replayResolutionSeconds, setReplayResolutionSeconds, replayRequestedBounds, setReplayRequestedBounds, replayLoadState, setReplayLoadState, replayLoadError, setReplayLoadError, replayLoadPartial, setReplayLoadPartial, replaySampleCount, setReplaySampleCount, liveSpatialClockMs, setLiveSpatialClockMs, experimentalVisualizations, setExperimentalVisualizations, outdoorInfluenceMetric, setOutdoorInfluenceMetric, climateSensorsVisible, setClimateSensorsVisible, energyDevicesVisible, setEnergyDevicesVisible, connectedDevicesVisible, setConnectedDevicesVisible, heatPumps, heatPumpInfluenceVisible, setHeatPumpInfluenceVisible, pendingHeatPumpIds, heatPumpError, heatPumpAnnouncement, placeHeatPumpOnFloor, moveHeatPump, openingStateLabelsVisible, setOpeningStateLabelsVisible, connectedDevices, pendingConnectedDeviceIds, connectedDeviceError, connectedDeviceAnnouncement, changeConnectedDevicePower, moveConnectedDevice, mapAnimationsEnabled, setMapAnimationsEnabled, outdoorExtrasVisible, setOutdoorExtrasVisible, observationPlacement, setObservationPlacement, observationKind, setObservationKind, observationSeverity, setObservationSeverity, observationNote, setObservationNote, observationTimePrecision, setObservationTimePrecision, observationDateTime, setObservationDateTime, observationDate, setObservationDate, observationValidFrom, setObservationValidFrom, observationValidTo, setObservationValidTo, observationSource, setObservationSource, observationSourceDetail, setObservationSourceDetail, observationConfidence, setObservationConfidence, observationDraft, setObservationDraft, observationValidationError, setObservationValidationError, observationStatus, setObservationStatus, observationError, setObservationError, parameterLabel, setParameterLabel, parameterValue, setParameterValue, parameterUnit, setParameterUnit, parameterPending, setParameterPending, parameterFeedback, setParameterFeedback, replayBatchRef, replayPreparationBatchRef, airflowReplayBatchRef, inspectorReplayBatchRef, replayWindowRequestRef, previousReplayActiveRef, effectSeriesLoadsRef, loadSeriesOnce, houseWeather, outdoorContext, outdoor, houseSensors, energyDeviceCount, floorSensors, selectedSensor, selectedFloor, summarySensors, definitions, houseDefinitions, availableDefinitions, airflowDefinitions, airflowMetricKey, definition, metricOptions, metricLabel, liveSamples, houseSensorIdList, houseSensorIds, replayMetricIds, loadedReplayBounds, fallbackReplayBounds, replayMin, replayMax, replayHistoryReady, replayEvents, replayTimestamp, setReplayTimestamp, spatialReferenceTimeMs, spatialLayerScope, spatialLayers, liveSpatialMaxSampleAgeMs, spatialMaxSampleAgeMs, spatialFreshness, changeReplayPlaying, selectReplayEvent, loadReplayWindow, displayedSamples, mapSensorMeasurements, airflowSamples, sensorCoverage, airMovementSelected, coverageSelected, openingStateAt, openingStateObservations, setOpeningStateObservations, pendingOpeningStateKeys, setPendingOpeningStateKeys, openingStateError, setOpeningStateError, openingStateAnnouncement, setOpeningStateAnnouncement, openingStateRequestsRef, openingStateContextRef, houseOpeningStateObservations, controllableOpenings, hasOpeningElements, changeOpeningState, experimentalFloorAirflow, experimentalBuildingAirflow, experimentalAirflowEvidence, experimentalSuggestions, outdoorInfluence, outdoorInfluenceSelected, toggleExperimentalVisualization, values, hasUsableReadings, houseValues, activeOutdoorValue, activeOutdoorComparison, houseColorDomain, outdoorConditionColors, visualOutdoor, average, spread, floorObservations, houseObservations, houseParameters, inspectorSamples, changeRange, submitObservation, placeObservation, cancelObservationPlacement, submitParameter, startEditing, saveEdits, finishEditing, openDecisionSensor, openDecisionRoom, liveMapVisible } = context;
+  const { props, state, house, floor, houseId, floorId, metric, units, viewMode, selectedSensorId, scenario, connection, dataMode, locale, t, scopedIntegration, sensorSourceHealthy, editing, setEditing, fullPage, setFullPage, liveMapOpen, setLiveMapOpen, historyOpen, setHistoryOpen, analysisOpen, setAnalysisOpen, fullPagePanelRef, fullPageTriggerRef, liveMapTriggerRef, pageHeadingRef, readOnly, canManageConnectedDevices, localAuthority, range, setRange, replayActive, setReplayActive, replayPlaying, setReplayPlaying, replayStartPending, setReplayStartPending, replayPrepared, setReplayPrepared, replaySpeed, setReplaySpeed, replayWindowFrom, setReplayWindowFrom, replayWindowTo, setReplayWindowTo, replayResolutionSeconds, setReplayResolutionSeconds, replayRequestedBounds, setReplayRequestedBounds, replayLoadState, setReplayLoadState, replayLoadError, setReplayLoadError, replayLoadPartial, setReplayLoadPartial, replaySampleCount, setReplaySampleCount, liveSpatialClockMs, setLiveSpatialClockMs, experimentalVisualizations, setExperimentalVisualizations, outdoorInfluenceMetric, setOutdoorInfluenceMetric, climateSensorsVisible, setClimateSensorsVisible, energyDevicesVisible, setEnergyDevicesVisible, connectedDevicesVisible, setConnectedDevicesVisible, heatPumps, selectedHeatPump, selectedHeatPumpId, setSelectedHeatPumpId, heatPumpInfluenceVisible, setHeatPumpInfluenceVisible, pendingHeatPumpIds, heatPumpError, heatPumpAnnouncement, placeHeatPumpOnFloor, moveHeatPump, openingStateLabelsVisible, setOpeningStateLabelsVisible, connectedDevices, pendingConnectedDeviceIds, connectedDeviceError, connectedDeviceAnnouncement, changeConnectedDevicePower, moveConnectedDevice, mapAnimationsEnabled, setMapAnimationsEnabled, outdoorExtrasVisible, setOutdoorExtrasVisible, observationPlacement, setObservationPlacement, observationKind, setObservationKind, observationSeverity, setObservationSeverity, observationNote, setObservationNote, observationTimePrecision, setObservationTimePrecision, observationDateTime, setObservationDateTime, observationDate, setObservationDate, observationValidFrom, setObservationValidFrom, observationValidTo, setObservationValidTo, observationSource, setObservationSource, observationSourceDetail, setObservationSourceDetail, observationConfidence, setObservationConfidence, observationDraft, setObservationDraft, observationValidationError, setObservationValidationError, observationStatus, setObservationStatus, observationError, setObservationError, parameterLabel, setParameterLabel, parameterValue, setParameterValue, parameterUnit, setParameterUnit, parameterPending, setParameterPending, parameterFeedback, setParameterFeedback, replayBatchRef, replayPreparationBatchRef, airflowReplayBatchRef, inspectorReplayBatchRef, replayWindowRequestRef, previousReplayActiveRef, effectSeriesLoadsRef, loadSeriesOnce, houseWeather, outdoorContext, outdoor, houseSensors, energyDeviceCount, floorSensors, selectedSensor, selectedFloor, summarySensors, definitions, houseDefinitions, availableDefinitions, airflowDefinitions, airflowMetricKey, definition, metricOptions, metricLabel, liveSamples, houseSensorIdList, houseSensorIds, replayMetricIds, loadedReplayBounds, fallbackReplayBounds, replayMin, replayMax, replayHistoryReady, replayEvents, replayTimestamp, setReplayTimestamp, spatialReferenceTimeMs, spatialLayerScope, spatialLayers, liveSpatialMaxSampleAgeMs, spatialMaxSampleAgeMs, spatialFreshness, changeReplayPlaying, selectReplayEvent, loadReplayWindow, displayedSamples, mapSensorMeasurements, airflowSamples, sensorCoverage, airMovementSelected, coverageSelected, openingStateAt, openingStateObservations, setOpeningStateObservations, pendingOpeningStateKeys, setPendingOpeningStateKeys, openingStateError, setOpeningStateError, openingStateAnnouncement, setOpeningStateAnnouncement, openingStateRequestsRef, openingStateContextRef, houseOpeningStateObservations, controllableOpenings, hasOpeningElements, changeOpeningState, experimentalFloorAirflow, experimentalBuildingAirflow, experimentalAirflowEvidence, experimentalSuggestions, outdoorInfluence, outdoorInfluenceSelected, toggleExperimentalVisualization, values, hasUsableReadings, houseValues, activeOutdoorValue, activeOutdoorComparison, houseColorDomain, outdoorConditionColors, visualOutdoor, average, spread, floorObservations, houseObservations, houseParameters, inspectorSamples, changeRange, submitObservation, placeObservation, cancelObservationPlacement, submitParameter, startEditing, saveEdits, finishEditing, openDecisionSensor, openDecisionRoom, liveMapVisible } = context;
   const hasMapOptions = houseSensors.length > 0 || connectedDevices.length > 0 || heatPumps.length > 0 || Boolean(outdoorContext)
     || (viewMode === "isometric" && hasOpeningElements);
   const unplacedHeatPumps = heatPumps.filter((state) => state.floorId === null);
+  const selectedLiveHeatPump = replayActive ? null : selectedHeatPump;
+  const selectedLiveHeatPumpId = replayActive ? null : (selectedHeatPump?.connectionId ?? selectedHeatPumpId);
+  const selectMapSensor = (sensorId: string) => {
+    setSelectedHeatPumpId(null);
+    props.onSensorSelect(sensorId);
+  };
+  const selectHeatPump = (connectionId: string, targetFloorId: string) => {
+    setSelectedHeatPumpId(connectionId);
+    const sensor = houseSensors.find((candidate) => candidate.id === heatPumpSensorId(connectionId));
+    if (sensor) props.onSensorSelect(sensor.id);
+    if (targetFloorId !== floorId) props.onFloor(targetFloorId);
+  };
   return (
       <>
         <header className="page-heading twin-heading">
@@ -178,7 +192,9 @@ export function renderTwinDashboard(context: ReturnType<typeof useTwinDashboardP
                 heatPumps={replayActive ? [] : heatPumps}
                 heatPumpInfluenceVisible={heatPumpInfluenceVisible}
                 pendingHeatPumpIds={pendingHeatPumpIds}
-                viewMode="plan" selectedSensorId={selectedSensor?.id ?? null} editing={editing} allowBackgroundImageEditing={localAuthority} observationPlacement={observationPlacement}
+                selectedHeatPumpId={selectedLiveHeatPumpId}
+                onHeatPumpSelect={selectHeatPump}
+                viewMode="plan" selectedSensorId={selectedLiveHeatPump ? null : selectedSensor?.id ?? null} editing={editing} allowBackgroundImageEditing={localAuthority} observationPlacement={observationPlacement}
                 referenceTimeMs={spatialReferenceTimeMs} maxSampleAgeMs={spatialMaxSampleAgeMs}
                 outdoor={visualOutdoor}
                 mapAnimationsEnabled={mapAnimationsEnabled}
@@ -195,7 +211,7 @@ export function renderTwinDashboard(context: ReturnType<typeof useTwinDashboardP
                 {...(!readOnly && canManageConnectedDevices && localAuthority && !replayActive && !editing ? { onConnectedDevicePowerChange: (connectionId: string, power: boolean) => { void changeConnectedDevicePower(connectionId, power); } } : {})}
                 {...(!readOnly && canManageConnectedDevices && localAuthority && !replayActive && editing ? { onConnectedDeviceMove: (connectionId: string, point: Point) => { void moveConnectedDevice(connectionId, point); } } : {})}
                 {...(!readOnly && canManageConnectedDevices && localAuthority && !replayActive && editing ? { onHeatPumpMove: (connectionId: string, point: Point) => { moveHeatPump(connectionId, point); } } : {})}
-                onSensorSelect={props.onSensorSelect} onSensorMove={props.onSensorMove} onFloorChange={props.onFloorChange} onObservationPoint={placeObservation}
+                onSensorSelect={selectMapSensor} onSensorMove={props.onSensorMove} onFloorChange={props.onFloorChange} onObservationPoint={placeObservation}
                 onCancelObservationPlacement={cancelObservationPlacement}
               />
             ) : (
@@ -207,7 +223,9 @@ export function renderTwinDashboard(context: ReturnType<typeof useTwinDashboardP
                 pendingConnectedDeviceIds={pendingConnectedDeviceIds}
                 heatPumps={replayActive ? [] : heatPumps}
                 heatPumpInfluenceVisible={heatPumpInfluenceVisible}
-                activeFloorId={floorId} selectedSensorId={selectedSensor?.id ?? null} onFloorSelect={props.onFloor}
+                selectedHeatPumpId={selectedLiveHeatPumpId}
+                onHeatPumpSelect={selectHeatPump}
+                activeFloorId={floorId} selectedSensorId={selectedLiveHeatPump ? null : selectedSensor?.id ?? null} onFloorSelect={props.onFloor}
                 referenceTimeMs={spatialReferenceTimeMs} maxSampleAgeMs={spatialMaxSampleAgeMs}
                 outdoor={visualOutdoor}
                 mapAnimationsEnabled={mapAnimationsEnabled}
@@ -225,14 +243,17 @@ export function renderTwinDashboard(context: ReturnType<typeof useTwinDashboardP
                 {...(!readOnly && localAuthority && !replayActive ? { onOpeningStateChange: (targetFloorId: string, elementId: string, nextState: ConfiguredOpeningState) => { void changeOpeningState(targetFloorId, elementId, nextState); } } : {})}
                 {...(!readOnly && canManageConnectedDevices && localAuthority && !replayActive && !editing ? { onConnectedDevicePowerChange: (connectionId: string, power: boolean) => { void changeConnectedDevicePower(connectionId, power); } } : {})}
                 onFloorChange={props.onFloorChange}
-                onSensorSelect={(sensorId) => props.onSensorSelect(sensorId)}
+                onSensorSelect={(sensorId) => selectMapSensor(sensorId)}
               />
             )}
-            <SensorInspector
+            {selectedLiveHeatPump ? <HeatPumpInspector
+              state={selectedLiveHeatPump} house={house} selectedDefinition={definition} units={units} editing={editing}
+              referenceTimeMs={spatialReferenceTimeMs} maxSampleAgeMs={spatialMaxSampleAgeMs}
+            /> : <SensorInspector
               sensor={selectedSensor} reading={!replayActive && selectedSensor ? state.readings[selectedSensor.id] : undefined} samples={inspectorSamples}
               definitions={definitions} selectedDefinition={definition} units={units}
               house={house} floor={selectedFloor} editing={editing} onSensorUpdate={props.onSensorUpdate} onFloorSelect={props.onFloor}
-            />
+            />}
           </div></Suspense>
           {!editing && <SpatialLayerPanel
             layers={spatialLayers}

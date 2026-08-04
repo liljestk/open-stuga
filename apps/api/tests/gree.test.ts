@@ -51,12 +51,29 @@ describe("Gree/Wilfa integration", () => {
           targetTemperatureC: 22,
           currentTemperatureC: 25.5,
           currentTemperatureSource: "reported",
+          currentHumidityPercent: 48,
+          targetHumidityPercent: 50,
           fanSpeed: "Auto",
           horizontalSwing: "Default",
           verticalSwing: "FullSwing",
+          freshAir: true,
+          anion: true,
+          sleep: false,
+          light: true,
           quiet: false,
           turbo: false,
           xfan: true,
+          steadyHeat: false,
+          powerSave: true,
+          cleanFilter: false,
+          waterFull: false,
+          dehumidifierMode: "AnionOnly",
+          diagnostics: {
+            sleepModeRaw: 0,
+            temperatureUnitRaw: 0,
+            temperatureRecordRaw: 0,
+            heatCoolTypeRaw: 0
+          },
           activity: "unknown",
           activityEvidence: "unavailable"
         }
@@ -69,6 +86,8 @@ describe("Gree/Wilfa integration", () => {
       INTEGRATION_SECRETS_FILE: secretsPath,
       GREE_PYTHON: process.execPath,
       GREE_BRIDGE_SCRIPT: helper,
+      SPATIAL_LAYERS_ENABLED: "true",
+      SPATIAL_LAYERS_DATABASE_PATH: ":memory:",
     });
     runtime = createApi({ config, startBackground: false });
 
@@ -96,6 +115,8 @@ describe("Gree/Wilfa integration", () => {
       state: {
         power: true,
         selectedMode: "cool",
+        currentHumidityPercent: 48,
+        targetHumidityPercent: 50,
         activity: "unknown",
         activityEvidence: "unavailable",
       },
@@ -122,6 +143,30 @@ describe("Gree/Wilfa integration", () => {
       model: "Nordkapp 30",
       serialNumber: MAC,
     });
+    const sensorId = "sensor-gree-aabbccddeeff";
+    expect(runtime.database.getSensor(sensorId)).toMatchObject({
+      id: sensorId,
+      houseId: "house-main",
+      name: "Nordkapp",
+      model: "Wilfa Nordkapp 30",
+      enabled: false,
+      tags: expect.arrayContaining(["integration:gree", "equipment:heat-pump", "unplaced"]),
+    });
+    await request(runtime.app).get("/api/v1/houses/house-main/layers/config").expect(200)
+      .expect(({ body }) => {
+        expect(body.topology.sensorBindings).not.toEqual(expect.arrayContaining([
+          expect.objectContaining({ sensorId }),
+        ]));
+      });
+    expect(runtime.database.latestMeasurementSamples("house-main")
+      .filter((sample) => sample.sensorId === sensorId)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ metric: "temperature", value: 25.5, source: "gree" }),
+      expect.objectContaining({ metric: "humidity", value: 48, source: "gree" }),
+      expect.objectContaining({ metric: "heat_pump_power", value: 1, source: "gree" }),
+      expect.objectContaining({ metric: "heat_pump_target_humidity", value: 50, source: "gree" }),
+      expect.objectContaining({ metric: "heat_pump_dehumidifier_mode", value: 9, source: "gree" }),
+      expect.objectContaining({ metric: "heat_pump_sleep_mode_raw", value: 0, source: "gree" }),
+    ]));
 
     const states = await request(runtime.app).get("/api/v1/heat-pumps?houseId=house-main").expect(200);
     expect(states.body.states).toEqual([expect.objectContaining({
@@ -140,20 +185,94 @@ describe("Gree/Wilfa integration", () => {
       }),
     ]);
 
+    runtime.heatPumpStates.record({
+      ...configured.body.state,
+      observedAt: "2026-07-29T08:05:00.000Z",
+      receivedAt: "2026-07-29T08:05:01.000Z",
+      power: false,
+      activity: "off",
+      activityEvidence: "protocol",
+    });
+    await request(runtime.app).get("/api/v2/measurements/history").query({
+      sensorId,
+      metric: "heat_pump_power",
+      from: "2026-07-29T07:59:00.000Z",
+      to: "2026-07-29T08:06:00.000Z",
+    }).expect(200).expect(({ body }) => {
+      expect(body.samples.map((sample: { value: number }) => sample.value)).toEqual([1, 0]);
+    });
+    await request(runtime.app).post("/api/v2/analytics/query").send({
+      apiVersion: "1.0",
+      dataMode: "live",
+      scope: { kind: "house", id: "house-main", entityIds: [sensorId] },
+      measurementIds: ["heat_pump_power"],
+      range: {
+        start: "2026-07-29T07:59:00.000Z",
+        end: "2026-07-29T08:06:00.000Z",
+        timezone: "Europe/Helsinki",
+      },
+      resolution: "5m",
+      aggregation: "default",
+      include: ["series", "summary", "quality", "provenance"],
+      maxPointsPerSeries: 500,
+      requestId: "gree-power-analytics",
+    }).expect(200).expect(({ body }) => {
+      expect(body.series).toEqual([expect.objectContaining({
+        entityId: sensorId,
+        measurementId: "heat_pump_power",
+        summary: expect.objectContaining({ count: 2, minimum: 0, maximum: 1 }),
+      })]);
+    });
+    await request(runtime.app).patch(`/api/v1/sensors/${sensorId}`)
+      .send({ name: "Changed outside Set up" })
+      .expect(409);
+    await request(runtime.app).delete(`/api/v1/sensors/${sensorId}`).expect(409);
+
     const disconnected = await request(runtime.app)
       .delete("/api/v1/integrations/gree/config/gree-aabbccddeeff")
       .expect(200);
     expect(disconnected.body.integration.gree).toBeUndefined();
     expect(readIntegrationSecrets(secretsPath).greeConnections).toEqual([]);
+    expect(runtime.database.getSensor(sensorId)).toMatchObject({
+      id: sensorId,
+      enabled: false,
+      tags: expect.arrayContaining(["integration:gree:detached", "equipment:heat-pump", "unplaced"]),
+    });
+    expect(runtime.database.getSensor(sensorId)?.tags).not.toContain("integration:gree");
+    await request(runtime.app).patch(`/api/v1/sensors/${sensorId}`)
+      .send({ name: "Retained heat-pump history" })
+      .expect(200)
+      .expect(({ body }) => expect(body.sensor).toMatchObject({
+        name: "Retained heat-pump history",
+        enabled: false,
+      }));
+    expect(runtime.database.measurementHistory(
+      sensorId,
+      "heat_pump_power",
+      "2026-07-29T07:59:00.000Z",
+      "2026-07-29T08:06:00.000Z",
+    ).map((sample) => sample.value)).toEqual([1, 0]);
     await request(runtime.app).get("/api/v1/heat-pumps?houseId=house-main").expect(200)
       .expect(({ body }) => expect(body.states).toEqual([]));
     await request(runtime.app).get("/api/v1/heat-pumps/gree-aabbccddeeff/history").expect(200)
       .expect(({ body }) => {
-        expect(body.states).toHaveLength(2);
+        expect(body.states).toHaveLength(3);
         expect(body.states).toEqual(expect.arrayContaining([
           expect.objectContaining({ available: false }),
         ]));
       });
+
+    await request(runtime.app)
+      .put("/api/v1/integrations/gree/config")
+      .send({ houseId: "house-main", mac: "aa:bb:cc:dd:ee:ff" })
+      .expect(200);
+    expect(runtime.database.getSensor(sensorId)).toMatchObject({
+      id: sensorId,
+      name: "Nordkapp",
+      enabled: false,
+      tags: expect.arrayContaining(["integration:gree", "equipment:heat-pump", "unplaced"]),
+    });
+    expect(runtime.database.getSensor(sensorId)?.tags).not.toContain("integration:gree:detached");
   });
 
   it("rejects conflicting Gree identities before writing the protected file", () => {
@@ -181,6 +300,8 @@ describe("Gree/Wilfa integration", () => {
       NODE_ENV: "test",
       DATABASE_PATH: ":memory:",
       INTEGRATION_SECRETS_FILE: secretsPath,
+      SPATIAL_LAYERS_ENABLED: "true",
+      SPATIAL_LAYERS_DATABASE_PATH: ":memory:",
     });
     runtime = createApi({ config, startBackground: false });
     const device = {
@@ -208,12 +329,23 @@ describe("Gree/Wilfa integration", () => {
         targetTemperatureC: 20,
         currentTemperatureC: 20,
         currentTemperatureSource: "reported",
+        currentHumidityPercent: 47,
+        targetHumidityPercent: 50,
         fanSpeed: "auto",
         horizontalSwing: "middle",
         verticalSwing: "full",
+        freshAir: true,
+        anion: true,
+        sleep: false,
+        light: true,
         quiet: false,
         turbo: false,
         xfan: true,
+        steadyHeat: false,
+        powerSave: true,
+        cleanFilter: false,
+        waterFull: false,
+        dehumidifierMode: "anion-only",
         compressorFrequencyHz: 12,
         diagnostics: { wifiStatus: 1, faultCode: 0 },
         activity: "unknown",
@@ -261,6 +393,22 @@ describe("Gree/Wilfa integration", () => {
       .expect(({ body }) => expect(body.state).toMatchObject({
         floorId: "floor-ground", roomId: "living", x: 2.5, y: 1.2, z: 2.3,
       }));
+    expect(runtime.database.getSensor("sensor-gree-aabbccddeeff")).toMatchObject({
+      floorId: "floor-ground",
+      roomId: "living",
+      room: "Living room",
+      x: 2.5,
+      y: 1.2,
+      z: 2.3,
+      enabled: true,
+      tags: ["integration:gree", "equipment:heat-pump"],
+    });
+    await request(runtime.app).get("/api/v1/houses/house-main/layers/config").expect(200)
+      .expect(({ body }) => {
+        expect(body.topology.sensorBindings).toEqual(expect.arrayContaining([
+          expect.objectContaining({ sensorId: "sensor-gree-aabbccddeeff" }),
+        ]));
+      });
     await request(runtime.app)
       .patch("/api/v1/heat-pumps/gree-aabbccddeeff/placement")
       .send({ floorId: "floor-ground", x: 99, y: 1 })
@@ -297,12 +445,23 @@ describe("Gree/Wilfa integration", () => {
       targetTemperatureC: 22,
       currentTemperatureC: null,
       currentTemperatureSource: "unavailable" as const,
+      currentHumidityPercent: null,
+      targetHumidityPercent: null,
       fanSpeed: "Auto",
       horizontalSwing: null,
       verticalSwing: null,
+      freshAir: null,
+      anion: null,
+      sleep: null,
+      light: null,
       quiet: false,
       turbo: false,
       xfan: false,
+      steadyHeat: null,
+      powerSave: null,
+      cleanFilter: null,
+      waterFull: null,
+      dehumidifierMode: null,
       activity: "unknown" as const,
       activityEvidence: "unavailable" as const,
     };
@@ -343,12 +502,23 @@ describe("Gree/Wilfa integration", () => {
       targetTemperatureC: 21,
       currentTemperatureC: 20,
       currentTemperatureSource: "reported" as const,
+      currentHumidityPercent: null,
+      targetHumidityPercent: null,
       fanSpeed: "Auto",
       horizontalSwing: null,
       verticalSwing: null,
+      freshAir: null,
+      anion: null,
+      sleep: null,
+      light: null,
       quiet: false,
       turbo: false,
       xfan: false,
+      steadyHeat: null,
+      powerSave: null,
+      cleanFilter: null,
+      waterFull: null,
+      dehumidifierMode: null,
       activity: "unknown" as const,
       activityEvidence: "unavailable" as const,
     };

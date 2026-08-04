@@ -14,6 +14,7 @@ import logging
 import os
 import signal
 from datetime import UTC, datetime
+from math import isfinite
 from typing import Any
 
 try:
@@ -21,6 +22,7 @@ try:
     from greeclimate.device import (
         Device,
         DeviceInfo,
+        DehumidifierMode,
         FanSpeed,
         HorizontalSwing,
         Mode,
@@ -32,7 +34,7 @@ try:
     from greeclimate.network import Response
 except ImportError:  # Importable without optional dependencies for unit tests.
     CipherV1 = CipherV2 = Device = DeviceInfo = None  # type: ignore[assignment]
-    FanSpeed = HorizontalSwing = Mode = Props = None  # type: ignore[assignment]
+    DehumidifierMode = FanSpeed = HorizontalSwing = Mode = Props = None  # type: ignore[assignment]
     TemperatureUnits = VerticalSwing = Discovery = Response = None  # type: ignore[assignment]
 
 
@@ -166,6 +168,21 @@ def state_json(device: Any) -> dict[str, Any]:
         else None
     )
     activity = "off" if power is False else "unknown"
+    diagnostics: dict[str, int | float] = {}
+    for key, property_name in (
+        ("sleepModeRaw", "SLEEP_MODE"),
+        ("temperatureUnitRaw", "TEMP_UNIT"),
+        ("temperatureRecordRaw", "TEMP_BIT"),
+        ("heatCoolTypeRaw", "UNKNOWN_HEATCOOLTYPE"),
+    ):
+        prop = getattr(Props, property_name, None)
+        value = device.get_property(prop) if prop is not None else None
+        if (
+            isinstance(value, (int, float))
+            and not isinstance(value, bool)
+            and isfinite(value)
+        ):
+            diagnostics[key] = value
     return {
         "observedAt": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         "available": True,
@@ -178,12 +195,26 @@ def state_json(device: Any) -> dict[str, Any]:
         "currentTemperatureSource": "reported"
         if current_temperature is not None
         else "unavailable",
+        "currentHumidityPercent": getattr(device, "current_humidity", None),
+        "targetHumidityPercent": getattr(device, "target_humidity", None),
         "fanSpeed": enum_label(FanSpeed, device.fan_speed),
         "horizontalSwing": enum_label(HorizontalSwing, device.horizontal_swing),
         "verticalSwing": enum_label(VerticalSwing, device.vertical_swing),
+        "freshAir": getattr(device, "fresh_air", None),
+        "anion": getattr(device, "anion", None),
+        "sleep": getattr(device, "sleep", None),
+        "light": getattr(device, "light", None),
         "quiet": bool(device.quiet) if device.quiet is not None else None,
         "turbo": device.turbo,
         "xfan": device.xfan,
+        "steadyHeat": getattr(device, "steady_heat", None),
+        "powerSave": getattr(device, "power_save", None),
+        "cleanFilter": getattr(device, "clean_filter", None),
+        "waterFull": getattr(device, "water_full", None),
+        "dehumidifierMode": enum_label(
+            DehumidifierMode, getattr(device, "dehumidifier_mode", None)
+        ),
+        "diagnostics": diagnostics,
         "activity": activity,
         "activityEvidence": "protocol" if power is False else "unavailable",
     }

@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -70,6 +70,87 @@ function releaseManifest(overrides: Record<string, unknown> = {}): Record<string
       mqtt: `ghcr.io/liljestk/open-stuga-mqtt:v0.6.0@sha256:${"f".repeat(64)}`,
       nexus433: `ghcr.io/liljestk/open-stuga-nexus433:v0.6.0@sha256:${"0".repeat(64)}`,
     },
+    ...overrides,
+  };
+}
+
+function writeAgentHeartbeat(
+  operationsDirectory: string,
+  now: Date,
+  overrides: Record<string, unknown> = {},
+): void {
+  writeFileSync(join(operationsDirectory, "agent-status.json"), JSON.stringify({
+    schema: "stugu-update-agent/v1",
+    runtime: "raspberry-pi",
+    agentVersion: "3.1.0",
+    updateAgentContract: 3,
+    composeContract: 2,
+    capabilities: ["system-update", "unified-host-update-v1"],
+    ready: true,
+    detail: null,
+    systemUpdateReason: null,
+    updatedAt: now.toISOString(),
+    ...overrides,
+  }));
+}
+
+function writeBridgeStatus(
+  operationsDirectory: string,
+  now: Date,
+  overrides: Record<string, unknown> = {},
+): void {
+  const statusDirectory = join(operationsDirectory, "host-bridge", "status");
+  mkdirSync(statusDirectory, { recursive: true });
+  writeFileSync(join(statusDirectory, "status.json"), JSON.stringify({
+    schema: "stugu-host-update-bridge-status/v1",
+    bridgeVersion: "1.0.0",
+    available: true,
+    currentGeneration: 5,
+    updatedAt: now.toISOString(),
+    requestId: null,
+    workflowId: null,
+    requestOperation: null,
+    phase: "available",
+    detail: "Stugu 0.6.0 is available",
+    operationId: null,
+    targetVersion: "0.6.0",
+    targetGeneration: 6,
+    targetSlot: null,
+    manifestSha256: "9".repeat(64),
+    error: null,
+    ...overrides,
+  }));
+}
+
+function workflowStatus(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    schema: "stugu-system-update-workflow-status/v1",
+    revision: 7,
+    id: "11111111-1111-4111-8111-111111111111",
+    action: "update-everything",
+    phase: "awaiting-restart",
+    requestedAt: "2026-07-23T20:00:00.000Z",
+    startedAt: "2026-07-23T20:00:01.000Z",
+    updatedAt: "2026-07-23T20:05:00.000Z",
+    completedAt: null,
+    detail: "Host update is ready to restart",
+    backup: {
+      phase: "verified",
+      verified: true,
+      completedAt: "2026-07-23T20:01:00.000Z",
+      receipt: { manifestSha256: "8".repeat(64), verifiedAt: "2026-07-23T20:01:00.000Z" },
+    },
+    host: {
+      targetVersion: "0.6.0",
+      targetGeneration: 6,
+      manifestSha256: "9".repeat(64),
+      operationId: "22222222-2222-4222-8222-222222222222",
+      phase: "ready-to-restart",
+    },
+    app: null,
+    cancellationEligible: true,
+    recoveryRequired: false,
+    error: null,
     ...overrides,
   };
 }
@@ -450,6 +531,396 @@ describe("system update service", () => {
     expect(service.status().nextUpdateWindowAt).toBe(changed.nextUpdateWindowAt);
     expect(formatCalls).toBeGreaterThan(callsAfterInvalidation);
     expect(formatterCreations).toBe(1);
+  });
+
+  it("preserves a fresh not-ready agent reason instead of reporting a disconnect", () => {
+    const operationsDirectory = directory();
+    const now = new Date("2026-07-23T20:30:00Z");
+    writeAgentHeartbeat(operationsDirectory, now, {
+      runtime: "docker",
+      ready: false,
+      detail: "A host update is active",
+      systemUpdateReason: "host-update-active",
+    });
+    const service = new SystemUpdateService({
+      currentVersion: "0.5.0",
+      repository: "liljestk/open-stuga",
+      imagePrefix: "ghcr.io/liljestk/open-stuga",
+      operationsDirectory,
+      now: () => now,
+    });
+
+    expect(service.status().capability).toEqual({
+      available: false,
+      runtime: "docker",
+      agentLastSeenAt: now.toISOString(),
+      reason: "host-update-active",
+      detail: "A host update is active",
+    });
+  });
+
+  it("serializes concurrent app-only install requests into one durable request", async () => {
+    const operationsDirectory = directory();
+    const now = new Date("2026-07-23T20:30:00Z");
+    const fetchImpl = vi.fn().mockImplementation(async (input: string | URL | Request) => (
+      String(input).endsWith("/stugu-release-manifest-v1.json")
+        ? githubResponse(releaseManifest())
+        : githubResponse()
+    ));
+    const service = new SystemUpdateService({
+      currentVersion: "0.5.0",
+      repository: "liljestk/open-stuga",
+      imagePrefix: "ghcr.io/liljestk/open-stuga",
+      operationsDirectory,
+      fetchImpl,
+      now: () => now,
+    });
+    await service.check();
+    writeAgentHeartbeat(operationsDirectory, now, { runtime: "docker" });
+
+    const statuses = await Promise.all([service.queueLatest(), service.queueLatest(), service.queueLatest()]);
+    expect(new Set(statuses.map((status) => status.operation?.id)).size).toBe(1);
+    expect(readdirSync(operationsDirectory).filter((name) => name.startsWith("request-"))).toHaveLength(1);
+    expect(fetchImpl.mock.calls.filter(([input]) => String(input).endsWith("/stugu-release-manifest-v1.json"))).toHaveLength(1);
+  });
+
+  it("serializes install against update-everything so exactly one request family wins", async () => {
+    for (const first of ["install", "update-everything"] as const) {
+      const operationsDirectory = directory();
+      const now = new Date("2026-07-23T20:30:00Z");
+      let markManifestStarted!: () => void;
+      let releaseManifestResponse!: (response: Response) => void;
+      const manifestStarted = new Promise<void>((resolve) => { markManifestStarted = resolve; });
+      const manifestResponse = new Promise<Response>((resolve) => { releaseManifestResponse = resolve; });
+      const fetchImpl = vi.fn().mockImplementation(async (input: string | URL | Request) => {
+        if (String(input).endsWith("/stugu-release-manifest-v1.json")) {
+          markManifestStarted();
+          return manifestResponse;
+        }
+        return githubResponse();
+      });
+      const service = new SystemUpdateService({
+        currentVersion: "0.5.0",
+        repository: "liljestk/open-stuga",
+        imagePrefix: "ghcr.io/liljestk/open-stuga",
+        operationsDirectory,
+        fetchImpl,
+        now: () => now,
+      });
+      writeAgentHeartbeat(operationsDirectory, now);
+      writeBridgeStatus(operationsDirectory, now);
+      await service.check();
+
+      const updateEverything = () => service.requestOperation({
+        action: "update-everything",
+        expectedRevision: 0,
+      });
+      const firstRequest = first === "install" ? service.queueLatest() : updateEverything();
+      await manifestStarted;
+      const secondRequest = first === "install" ? updateEverything() : service.queueLatest();
+      const outcomes = Promise.allSettled([firstRequest, secondRequest]);
+      releaseManifestResponse(githubResponse(releaseManifest()));
+      const [firstOutcome, secondOutcome] = await outcomes;
+
+      expect(firstOutcome.status).toBe("fulfilled");
+      expect(secondOutcome.status).toBe("rejected");
+      if (secondOutcome.status === "rejected") {
+        expect(secondOutcome.reason).toMatchObject<SystemUpdateError>({
+          code: first === "install" ? "UPDATE_IN_PROGRESS" : "SYSTEM_UPDATE_IN_PROGRESS",
+          status: 409,
+        });
+      }
+      const appRequests = readdirSync(operationsDirectory).filter((name) => /^request-.*\.json$/.test(name));
+      const workflowInbox = join(operationsDirectory, "system-workflow-requests");
+      const workflowRequests = existsSync(workflowInbox) ? readdirSync(workflowInbox) : [];
+      expect(appRequests).toHaveLength(first === "install" ? 1 : 0);
+      expect(workflowRequests).toHaveLength(first === "update-everything" ? 1 : 0);
+    }
+  });
+
+  it("queues one strictly bound update-everything workflow with the complete v3 app request", async () => {
+    const operationsDirectory = directory();
+    const now = new Date("2026-07-23T20:30:00Z");
+    const service = new SystemUpdateService({
+      currentVersion: "0.5.0",
+      repository: "liljestk/open-stuga",
+      imagePrefix: "ghcr.io/liljestk/open-stuga",
+      operationsDirectory,
+      fetchImpl: vi.fn().mockImplementation(async (input: string | URL | Request) => (
+        String(input).endsWith("/stugu-release-manifest-v1.json")
+          ? githubResponse(releaseManifest())
+          : githubResponse()
+      )),
+      now: () => now,
+    });
+    writeAgentHeartbeat(operationsDirectory, now);
+    writeBridgeStatus(operationsDirectory, now);
+    await service.check();
+
+    await service.requestOperation({ action: "update-everything", expectedRevision: 0 });
+    const inbox = join(operationsDirectory, "system-workflow-requests");
+    const names = readdirSync(inbox);
+    expect(names).toHaveLength(1);
+    const request = JSON.parse(readFileSync(join(inbox, names[0]!), "utf8")) as Record<string, unknown>;
+    expect(Object.keys(request).sort()).toEqual(["action", "app", "host", "id", "requestedAt", "schema"].sort());
+    expect(request).toMatchObject({
+      schema: "stugu-system-update-workflow-request/v1",
+      action: "update-everything",
+      host: { version: "0.6.0", generation: 6, manifestSha256: "9".repeat(64) },
+      app: {
+        schema: "stugu-system-update-request/v3",
+        version: "0.6.0",
+        previousVersion: "0.5.0",
+        releaseManifestSchema: "stugu-release-manifest/v1",
+        compatibility: { updateAgent: 3, compose: 2 },
+      },
+    });
+    expect(names[0]).toBe(`request-${request.id}.json`);
+    expect(readdirSync(operationsDirectory).some((name) => name.startsWith("request-") && name.endsWith(".json"))).toBe(false);
+  });
+
+  it("keeps the independently bound application target null when it already matches the host release", async () => {
+    const operationsDirectory = directory();
+    const now = new Date("2026-07-23T20:30:00Z");
+    const fetchImpl = vi.fn().mockResolvedValue(githubResponse());
+    const service = new SystemUpdateService({
+      currentVersion: "0.6.0",
+      repository: "liljestk/open-stuga",
+      imagePrefix: "ghcr.io/liljestk/open-stuga",
+      operationsDirectory,
+      fetchImpl,
+      now: () => now,
+    });
+    writeAgentHeartbeat(operationsDirectory, now);
+    writeBridgeStatus(operationsDirectory, now);
+    await service.check();
+
+    await service.requestOperation({ action: "update-everything", expectedRevision: 0 });
+    const inbox = join(operationsDirectory, "system-workflow-requests");
+    const request = JSON.parse(readFileSync(join(inbox, readdirSync(inbox)[0]!), "utf8")) as Record<string, unknown>;
+    expect(request.app).toBeNull();
+    expect(fetchImpl.mock.calls.some(([input]) => String(input).endsWith("/stugu-release-manifest-v1.json"))).toBe(false);
+  });
+
+  it("gates unified updates on the exact agent capability while preserving app-only installs", async () => {
+    const operationsDirectory = directory();
+    const now = new Date("2026-07-23T20:30:00Z");
+    const service = new SystemUpdateService({
+      currentVersion: "0.5.0",
+      repository: "liljestk/open-stuga",
+      imagePrefix: "ghcr.io/liljestk/open-stuga",
+      operationsDirectory,
+      fetchImpl: vi.fn().mockImplementation(async (input: string | URL | Request) => (
+        String(input).endsWith("/stugu-release-manifest-v1.json")
+          ? githubResponse(releaseManifest())
+          : githubResponse()
+      )),
+      now: () => now,
+    });
+    writeAgentHeartbeat(operationsDirectory, now, { capabilities: ["system-update"] });
+    writeBridgeStatus(operationsDirectory, now, { currentGeneration: 6, targetGeneration: 7 });
+    await service.check();
+
+    expect(service.status().host).toMatchObject({ supported: false, reason: "agent-upgrade-required" });
+    await expect(service.requestOperation({ action: "update-everything", expectedRevision: 0 }))
+      .rejects.toMatchObject<SystemUpdateError>({ code: "UPDATE_AGENT_UPGRADE_REQUIRED", status: 503 });
+    await expect(service.queueLatest()).resolves.toMatchObject({ operation: { version: "0.6.0", phase: "queued" } });
+  });
+
+  it("requires exact workflow and bridge identity before restart and writes the narrow bridge intent", async () => {
+    const operationsDirectory = directory();
+    const now = new Date("2026-07-23T20:30:00Z");
+    writeAgentHeartbeat(operationsDirectory, now);
+    writeFileSync(join(operationsDirectory, "workflow-status.json"), JSON.stringify(workflowStatus()));
+    writeBridgeStatus(operationsDirectory, now, {
+      phase: "ready-to-restart",
+      operationId: "22222222-2222-4222-8222-222222222222",
+      workflowId: "11111111-1111-4111-8111-111111111111",
+      requestOperation: "stage",
+    });
+    const service = new SystemUpdateService({
+      currentVersion: "0.5.0",
+      repository: "liljestk/open-stuga",
+      imagePrefix: "ghcr.io/liljestk/open-stuga",
+      operationsDirectory,
+      now: () => now,
+    });
+    const base = {
+      action: "activate-host" as const,
+      expectedRevision: 7,
+      workflowId: "11111111-1111-4111-8111-111111111111",
+      hostOperationId: "22222222-2222-4222-8222-222222222222",
+      targetVersion: "0.6.0",
+      targetGeneration: 6,
+      targetDigest: "9".repeat(64),
+      confirmation: "RESTART_AND_INSTALL" as const,
+    };
+
+    await expect(service.requestOperation({ ...base, targetDigest: "a".repeat(64) }))
+      .rejects.toMatchObject<SystemUpdateError>({ code: "HOST_UPDATE_BINDING_MISMATCH", status: 409 });
+    await service.requestOperation(base);
+    const requests = join(operationsDirectory, "host-bridge", "requests");
+    const requestName = readdirSync(requests)[0]!;
+    const request = JSON.parse(readFileSync(join(requests, requestName), "utf8")) as Record<string, unknown>;
+    expect(Object.keys(request).sort()).toEqual([
+      "schema", "id", "requestedAt", "operation", "workflowId", "confirmation", "expectedOperationId",
+      "expectedVersion", "expectedGeneration", "expectedManifestSha256",
+    ].sort());
+    expect(request).toMatchObject({
+      schema: "stugu-host-update-bridge-request/v1",
+      operation: "activate",
+      workflowId: base.workflowId,
+      confirmation: "RESTART_AND_INSTALL",
+      expectedOperationId: base.hostOperationId,
+      expectedVersion: base.targetVersion,
+      expectedGeneration: base.targetGeneration,
+      expectedManifestSha256: base.targetDigest,
+    });
+  });
+
+  it("cancels only the exact cancellable host operation and rejects stale revisions", async () => {
+    const operationsDirectory = directory();
+    const now = new Date("2026-07-23T20:30:00Z");
+    writeAgentHeartbeat(operationsDirectory, now);
+    writeFileSync(join(operationsDirectory, "workflow-status.json"), JSON.stringify(workflowStatus()));
+    writeBridgeStatus(operationsDirectory, now, {
+      phase: "ready-to-restart",
+      operationId: "22222222-2222-4222-8222-222222222222",
+      workflowId: "11111111-1111-4111-8111-111111111111",
+      requestOperation: "stage",
+    });
+    const service = new SystemUpdateService({
+      currentVersion: "0.5.0",
+      repository: "liljestk/open-stuga",
+      imagePrefix: "ghcr.io/liljestk/open-stuga",
+      operationsDirectory,
+      now: () => now,
+    });
+    const request = {
+      action: "cancel-host" as const,
+      expectedRevision: 7,
+      workflowId: "11111111-1111-4111-8111-111111111111",
+      hostOperationId: "22222222-2222-4222-8222-222222222222",
+      targetVersion: "0.6.0",
+      targetGeneration: 6,
+      targetDigest: "9".repeat(64),
+    };
+
+    await expect(service.requestOperation({ ...request, expectedRevision: 6 }))
+      .rejects.toMatchObject<SystemUpdateError>({ code: "SYSTEM_UPDATE_REVISION_CONFLICT", status: 409 });
+    await service.requestOperation(request);
+    const requests = join(operationsDirectory, "host-bridge", "requests");
+    const intent = JSON.parse(readFileSync(join(requests, readdirSync(requests)[0]!), "utf8")) as Record<string, unknown>;
+    expect(intent.operation).toBe("cancel");
+    expect(intent).not.toHaveProperty("confirmation");
+    expect(() => service.requestOperation({ ...request, unexpected: true })).toThrow(/exact host identity bindings/);
+  });
+
+  it("queues only the minimal retry intent after a bound application failure", async () => {
+    const operationsDirectory = directory();
+    const now = new Date("2026-07-23T20:30:00Z");
+    writeAgentHeartbeat(operationsDirectory, now);
+    const failed = workflowStatus({
+      revision: 12,
+      phase: "application-failed",
+      detail: "Application verification failed",
+      host: {
+        targetVersion: "0.6.0",
+        targetGeneration: 6,
+        manifestSha256: "9".repeat(64),
+        operationId: "22222222-2222-4222-8222-222222222222",
+        phase: "complete",
+      },
+      app: {
+        targetVersion: "0.6.0",
+        operationId: "33333333-3333-4333-8333-333333333333",
+        phase: "failed",
+      },
+      cancellationEligible: false,
+      error: { code: "APPLICATION_UPDATE_FAILED", message: "Application verification failed" },
+    });
+    writeFileSync(join(operationsDirectory, "workflow-status.json"), JSON.stringify(failed));
+    const service = new SystemUpdateService({
+      currentVersion: "0.5.0",
+      repository: "liljestk/open-stuga",
+      imagePrefix: "ghcr.io/liljestk/open-stuga",
+      operationsDirectory,
+      now: () => now,
+    });
+
+    await service.requestOperation({
+      action: "retry-application",
+      expectedRevision: 12,
+      workflowId: "11111111-1111-4111-8111-111111111111",
+    });
+    const inbox = join(operationsDirectory, "system-workflow-requests");
+    const name = readdirSync(inbox)[0]!;
+    const request = JSON.parse(readFileSync(join(inbox, name), "utf8")) as Record<string, unknown>;
+    expect(Object.keys(request).sort()).toEqual(["schema", "id", "action", "requestedAt", "workflowId"].sort());
+    expect(request).toMatchObject({
+      schema: "stugu-system-update-workflow-request/v1",
+      action: "retry-application",
+      workflowId: "11111111-1111-4111-8111-111111111111",
+    });
+  });
+
+  it("keeps targetless failed workflow recovery visible but rejects malformed target objects", () => {
+    const operationsDirectory = directory();
+    const failed = workflowStatus({
+      revision: 0,
+      phase: "failed",
+      completedAt: "2026-07-23T20:05:00.000Z",
+      detail: "Workflow request was invalid",
+      backup: { phase: "failed", verified: false, completedAt: null, receipt: null },
+      host: null,
+      cancellationEligible: false,
+      error: { code: "WORKFLOW_REQUEST_INVALID", message: "Workflow request was invalid" },
+    });
+    writeFileSync(join(operationsDirectory, "workflow-status.json"), JSON.stringify(failed));
+    const service = new SystemUpdateService({
+      currentVersion: "0.5.0",
+      repository: "liljestk/open-stuga",
+      imagePrefix: "ghcr.io/liljestk/open-stuga",
+      operationsDirectory,
+    });
+
+    expect(service.status().workflow).toMatchObject({
+      phase: "failed",
+      targets: { hostVersion: null, hostGeneration: null, hostDigest: null },
+      reason: "WORKFLOW_REQUEST_INVALID",
+    });
+    writeFileSync(join(operationsDirectory, "workflow-status.json"), JSON.stringify({
+      ...failed,
+      host: { targetVersion: "unknown", targetGeneration: null, manifestSha256: null, operationId: null, phase: "failed" },
+    }));
+    expect(service.status().workflow).toBeNull();
+  });
+
+  it("fails closed on a stale host bridge projection", () => {
+    const operationsDirectory = directory();
+    const now = new Date("2026-07-23T20:30:00Z");
+    writeAgentHeartbeat(operationsDirectory, now);
+    writeBridgeStatus(operationsDirectory, now, { updatedAt: "2026-07-23T20:00:00.000Z" });
+    const service = new SystemUpdateService({
+      currentVersion: "0.5.0",
+      repository: "liljestk/open-stuga",
+      imagePrefix: "ghcr.io/liljestk/open-stuga",
+      operationsDirectory,
+      now: () => now,
+    });
+
+    expect(service.status().host).toMatchObject({
+      supported: false,
+      phase: "unavailable",
+      reason: "bridge-not-connected",
+      updateAvailable: false,
+    });
+    writeBridgeStatus(operationsDirectory, now, { manifestSha256: null });
+    expect(service.status().host).toMatchObject({
+      supported: false,
+      reason: "bridge-not-connected",
+      updateAvailable: false,
+    });
   });
 });
 

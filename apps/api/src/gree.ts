@@ -26,12 +26,23 @@ export interface GreeStatePayload {
   targetTemperatureC: number | null;
   currentTemperatureC: number | null;
   currentTemperatureSource: "reported" | "unavailable";
+  currentHumidityPercent: number | null;
+  targetHumidityPercent: number | null;
   fanSpeed: string | null;
   horizontalSwing: string | null;
   verticalSwing: string | null;
+  freshAir: boolean | null;
+  anion: boolean | null;
+  sleep: boolean | null;
+  light: boolean | null;
   quiet: boolean | null;
   turbo: boolean | null;
   xfan: boolean | null;
+  steadyHeat: boolean | null;
+  powerSave: boolean | null;
+  cleanFilter: boolean | null;
+  waterFull: boolean | null;
+  dehumidifierMode: string | null;
   compressorFrequencyHz: number | null;
   diagnostics: HeatPumpState["diagnostics"];
   activity: "off" | "unknown";
@@ -123,6 +134,7 @@ function parsedDiagnostics(value: unknown): HeatPumpState["diagnostics"] | null 
   const allowed = new Set([
     "environmentTemperatureRaw", "indoorCoilTemperatureRaw", "outdoorTemperatureRaw",
     "compressorTemperatureRaw", "waterSensorRaw", "totalEnergyRaw", "energyConsumptionRaw",
+    "sleepModeRaw", "temperatureUnitRaw", "temperatureRecordRaw", "heatCoolTypeRaw",
     "faultCode", "allErrors", "shutdownFaults", "subhealthFaults", "wifiStatus",
   ]);
   const diagnostics: HeatPumpState["diagnostics"] = {};
@@ -137,10 +149,24 @@ function parseState(value: unknown): GreeStatePayload | null {
   const item = value as Record<string, unknown>;
   const target = finiteNullable(item?.targetTemperatureC, -60, 100);
   const current = finiteNullable(item?.currentTemperatureC, -60, 100);
+  const currentHumidity = item?.currentHumidityPercent === undefined
+    ? null
+    : finiteNullable(item.currentHumidityPercent, 0, 100);
+  const targetHumidity = item?.targetHumidityPercent === undefined
+    ? null
+    : finiteNullable(item.targetHumidityPercent, 0, 100);
   const power = boolNullable(item?.power);
+  const freshAir = item?.freshAir === undefined ? null : boolNullable(item.freshAir);
+  const anion = item?.anion === undefined ? null : boolNullable(item.anion);
+  const sleep = item?.sleep === undefined ? null : boolNullable(item.sleep);
+  const light = item?.light === undefined ? null : boolNullable(item.light);
   const quiet = boolNullable(item?.quiet);
   const turbo = boolNullable(item?.turbo);
   const xfan = boolNullable(item?.xfan);
+  const steadyHeat = item?.steadyHeat === undefined ? null : boolNullable(item.steadyHeat);
+  const powerSave = item?.powerSave === undefined ? null : boolNullable(item.powerSave);
+  const cleanFilter = item?.cleanFilter === undefined ? null : boolNullable(item.cleanFilter);
+  const waterFull = item?.waterFull === undefined ? null : boolNullable(item.waterFull);
   const compressorFrequency = item?.compressorFrequencyHz === undefined
     ? null
     : finiteNullable(item.compressorFrequencyHz, 0, 300);
@@ -148,7 +174,10 @@ function parseState(value: unknown): GreeStatePayload | null {
   const modes: Array<HeatPumpMode | null> = [null, "auto", "cool", "dry", "fan", "heat"];
   if (!item || typeof item.observedAt !== "string" || !Number.isFinite(Date.parse(item.observedAt))
     || typeof item.available !== "boolean" || power === undefined || target === undefined || current === undefined
+    || currentHumidity === undefined || targetHumidity === undefined
+    || freshAir === undefined || anion === undefined || sleep === undefined || light === undefined
     || quiet === undefined || turbo === undefined || xfan === undefined
+    || steadyHeat === undefined || powerSave === undefined || cleanFilter === undefined || waterFull === undefined
     || compressorFrequency === undefined || diagnostics === null
     || !modes.includes(item.selectedMode as HeatPumpMode | null)
     || !["reported", "unavailable"].includes(String(item.currentTemperatureSource))
@@ -162,7 +191,9 @@ function parseState(value: unknown): GreeStatePayload | null {
   const fanSpeed = shortText(item.fanSpeed);
   const horizontalSwing = shortText(item.horizontalSwing);
   const verticalSwing = shortText(item.verticalSwing);
-  if (fanSpeed === undefined || horizontalSwing === undefined || verticalSwing === undefined) return null;
+  const dehumidifierMode = item.dehumidifierMode === undefined ? null : shortText(item.dehumidifierMode);
+  if (fanSpeed === undefined || horizontalSwing === undefined || verticalSwing === undefined
+    || dehumidifierMode === undefined) return null;
   return {
     observedAt: new Date(item.observedAt).toISOString(),
     available: item.available,
@@ -171,12 +202,23 @@ function parseState(value: unknown): GreeStatePayload | null {
     targetTemperatureC: target,
     currentTemperatureC: current,
     currentTemperatureSource: item.currentTemperatureSource as GreeStatePayload["currentTemperatureSource"],
+    currentHumidityPercent: currentHumidity,
+    targetHumidityPercent: targetHumidity,
     fanSpeed,
     horizontalSwing,
     verticalSwing,
+    freshAir,
+    anion,
+    sleep,
+    light,
     quiet,
     turbo,
     xfan,
+    steadyHeat,
+    powerSave,
+    cleanFilter,
+    waterFull,
+    dehumidifierMode,
     compressorFrequencyHz: compressorFrequency,
     diagnostics,
     activity: item.activity as GreeStatePayload["activity"],
@@ -313,9 +355,13 @@ export class GreeBridge {
     return this.#cloud.bind(username, password, target);
   }
 
-  recordInitial(connection: GreeConnectionSecret, payload: GreeStatePayload): HeatPumpState {
+  recordInitial(
+    connection: GreeConnectionSecret,
+    payload: GreeStatePayload,
+    reclaimDetached = false,
+  ): HeatPumpState {
     const state = this.publicState(connection, payload);
-    const changed = this.states.record(state);
+    const changed = this.states.record(state, { reclaimDetached });
     this.notifyStateRecorded();
     if (changed) this.bus.publish({ type: "heat-pump", data: structuredClone(state) });
     return state;

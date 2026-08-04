@@ -47,11 +47,16 @@ function registerUpdateEventStream(
     if (!context.authorizedStreamVisibility(request, response, acceptedAuthorization)) return;
     const status = context.systemUpdates.status();
     const serialized = JSON.stringify({
+      schema: status.schema,
+      revision: status.revision,
       currentVersion: status.currentVersion,
       latestVersion: status.latestVersion,
       updateAvailable: status.updateAvailable,
       capability: status.capability,
       operation: status.operation,
+      application: status.application,
+      host: status.host,
+      workflow: status.workflow,
     });
     if (serialized === previousStatus) return;
     previousStatus = serialized;
@@ -130,6 +135,33 @@ export function registerSystemUpdateRoutes(context: SystemUpdateRouteContext): v
       next(error instanceof SystemUpdateError
         ? new HttpError(error.status, error.code, error.message)
         : error);
+    }
+  });
+  context.app.post(`${context.prefix}/system/updates/operations`, requireWorkspaceAdmin, async (request, response, next) => {
+    try {
+      const input = bodyObject(request.body);
+      const status = await context.systemUpdates.requestOperation(input);
+      const principal = requestPrincipal(response);
+      const action = typeof input.action === "string" ? input.action : "unknown";
+      const requestedWorkflowId = typeof input.workflowId === "string" ? input.workflowId : null;
+      context.recordSecurityAudit(principal, {
+        eventType: "system.update.requested",
+        subjectType: "system-update",
+        subjectId: requestedWorkflowId ?? (action === "update-everything" ? "new" : status.workflow?.id ?? "unknown"),
+        details: {
+          action,
+          revision: status.revision,
+          ...(status.workflow?.targets.hostVersion ? { version: status.workflow.targets.hostVersion } : {}),
+        },
+      });
+      response.setHeader("cache-control", "no-store");
+      response.status(202).json(status);
+    } catch (error) {
+      next(error instanceof TypeError
+        ? new HttpError(400, "INVALID_SYSTEM_UPDATE_OPERATION", error.message)
+        : error instanceof SystemUpdateError
+          ? new HttpError(error.status, error.code, error.message)
+          : error);
     }
   });
 }

@@ -1,0 +1,40 @@
+[Unit]
+Description=Stugu bounded host-update UI bridge
+Documentation=https://github.com/liljestk/open-stuga/blob/main/docs/system-updates.md
+Requires=stugu-host-updated.service
+After=stugu-host-updated.service stugu.service
+RequiresMountsFor=/persistent
+
+[Service]
+Type=simple
+User=stugu-update-bridge
+Group=stugu-update-bridge
+SupplementaryGroups=stugu
+ExecStartPre=+/usr/bin/install -d -m 0750 -o root -g stugu /persistent/stugu/update-operations/host-bridge
+ExecStartPre=+/usr/bin/install -d -m 2770 -o stugu -g stugu /persistent/stugu/update-operations/host-bridge/requests
+ExecStartPre=+/usr/bin/install -d -m 2750 -o stugu-update-bridge -g stugu /persistent/stugu/update-operations/host-bridge/status
+ExecStart=/usr/bin/stugu-host-update-bridge
+Restart=on-failure
+RestartSec=10s
+UMask=0027
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+PrivateNetwork=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+LockPersonality=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_UNIX
+SystemCallArchitectures=native
+ReadWritePaths=/persistent/stugu/update-operations/host-bridge
+
+[Install]
+WantedBy=multi-user.target

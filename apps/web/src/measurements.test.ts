@@ -1,6 +1,16 @@
 import type { MeasurementSample } from "@climate-twin/contracts";
 import { describe, expect, it, vi } from "vitest";
-import { appendHistory, appendLiveHistory, samplesAt, type MeasurementHistory } from "./measurements";
+import {
+  BUILTIN_MEASUREMENTS,
+  appendHistory,
+  appendLiveHistory,
+  displayUnit,
+  formatMeasurementDelta,
+  fromDisplayValue,
+  samplesAt,
+  toDisplayValue,
+  type MeasurementHistory,
+} from "./measurements";
 
 function sample(sensorId: string, minute: number, value: number): MeasurementSample {
   return {
@@ -25,6 +35,20 @@ describe("samplesAt", () => {
       .toMatchObject({ value: 21, source: "replay" });
     expect(samplesAt(history, [sensorId], "temperature", Date.parse("2026-01-01T00:10:00.000Z"))[sensorId])
       .toMatchObject({ value: 22, source: "replay" });
+  });
+});
+
+describe("temperature dimensions", () => {
+  it("converts heat-pump target temperature definitions in imperial homes", () => {
+    const definition = {
+      ...BUILTIN_MEASUREMENTS[0]!,
+      id: "heat_pump_target_temperature",
+    };
+
+    expect(displayUnit(definition, "imperial")).toBe("°F");
+    expect(toDisplayValue(20, definition, "imperial")).toBe(68);
+    expect(fromDisplayValue(68, definition, "imperial")).toBe(20);
+    expect(formatMeasurementDelta(2, definition, "imperial")).toBe("3.6°F");
   });
 });
 
