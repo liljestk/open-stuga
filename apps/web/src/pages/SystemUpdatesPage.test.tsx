@@ -107,6 +107,87 @@ const v2Status: SystemUpdateStatus = {
   workflow: null,
 };
 
+const currentV2Status: SystemUpdateStatus = {
+  ...v2Status,
+  latestVersion: status.currentVersion,
+  updateAvailable: false,
+  latestRelease: null,
+  application: {
+    ...v2Status.application!,
+    latestVersion: status.currentVersion,
+    updateAvailable: false,
+  },
+  host: {
+    ...v2Status.host!,
+    phase: "current",
+    updateAvailable: false,
+    targetVersion: null,
+    targetGeneration: null,
+    targetDigest: null,
+  },
+};
+
+const blockedSummaryCases: ReadonlyArray<{ name: string; componentName: string; blockedStatus: SystemUpdateStatus }> = [
+  {
+    name: "the host updater is unavailable",
+    componentName: "Host system",
+    blockedStatus: {
+      ...currentV2Status,
+      host: {
+        ...currentV2Status.host!,
+        supported: false,
+        phase: "unavailable",
+        reason: "bridge-not-connected",
+        detail: "The host update bridge is not connected",
+      },
+    },
+  },
+  {
+    name: "the application update agent is offline",
+    componentName: "Application",
+    blockedStatus: {
+      ...currentV2Status,
+      capability: {
+        available: false,
+        runtime: "raspberry-pi",
+        agentLastSeenAt: null,
+        reason: "agent-not-connected",
+      },
+      application: {
+        ...currentV2Status.application!,
+        capability: {
+          available: false,
+          runtime: "raspberry-pi",
+          agentLastSeenAt: null,
+          reason: "agent-not-connected",
+        },
+      },
+    },
+  },
+  {
+    name: "an update interlock is reported without an active workflow",
+    componentName: "Application",
+    blockedStatus: {
+      ...currentV2Status,
+      capability: {
+        available: false,
+        runtime: "raspberry-pi",
+        agentLastSeenAt: "2026-08-04T16:03:00.000Z",
+        reason: "host-update-active",
+      },
+      application: {
+        ...currentV2Status.application!,
+        capability: {
+          available: false,
+          runtime: "raspberry-pi",
+          agentLastSeenAt: "2026-08-04T16:03:00.000Z",
+          reason: "host-update-active",
+        },
+      },
+    },
+  },
+];
+
 const stagedStatus: SystemUpdateStatus = {
   ...v2Status,
   revision: 12,
@@ -250,9 +331,9 @@ afterEach(() => {
 describe("system updates page", () => {
   it("treats a non-Pi host as managed separately instead of an action item", async () => {
     vi.spyOn(api, "systemUpdateStatus").mockResolvedValue({
-      ...v2Status,
+      ...currentV2Status,
       host: {
-        ...v2Status.host!,
+        ...currentV2Status.host!,
         supported: false,
         phase: "unavailable",
         reason: "not-raspberry-pi",
@@ -269,6 +350,180 @@ describe("system updates page", () => {
     expect(within(hostCard).getByText("Managed separately")).toBeTruthy();
     expect(within(hostCard).getByText(/managed outside Stugu/)).toBeTruthy();
     expect(within(hostCard).queryByText("Action needed")).toBeNull();
+    expect(screen.getByRole("heading", { name: "Stugu is up to date", level: 2 })).toBeTruthy();
+  });
+
+  it("keeps application-only updates available when the host is intentionally managed elsewhere", async () => {
+    const externallyManagedStatus: SystemUpdateStatus = {
+      ...v2Status,
+      host: {
+        ...v2Status.host!,
+        supported: false,
+        phase: "unavailable",
+        reason: "not-raspberry-pi",
+        detail: "Host updates are managed outside Stugu",
+        updateAvailable: false,
+        targetVersion: null,
+        targetGeneration: null,
+        targetDigest: null,
+      },
+    };
+    vi.spyOn(api, "systemUpdateStatus").mockResolvedValue(externallyManagedStatus);
+    const install = vi.spyOn(api, "installLatestSystemUpdate").mockResolvedValue(externallyManagedStatus);
+    const operate = vi.spyOn(api, "operateSystemUpdate").mockResolvedValue(externallyManagedStatus);
+    render(<I18nProvider><SystemUpdatesPage /></I18nProvider>);
+
+    expect(await screen.findByRole("heading", { name: "Application update is ready", level: 2 })).toBeTruthy();
+    expect(screen.getByText("Update the application here; the host system is managed separately.")).toBeTruthy();
+    fireEvent.click(await screen.findByRole("button", { name: "Update application" }));
+
+    await waitFor(() => expect(install).toHaveBeenCalledOnce());
+    expect(operate).not.toHaveBeenCalled();
+  });
+
+  it.each(blockedSummaryCases)("fails the overall summary closed when $name", async ({ blockedStatus, componentName }) => {
+    vi.spyOn(api, "systemUpdateStatus").mockResolvedValue(blockedStatus);
+    render(<I18nProvider><SystemUpdatesPage /></I18nProvider>);
+
+    const heading = await screen.findByRole("heading", { name: "Update information needs attention", level: 2 });
+    expect(heading.closest("section")?.classList.contains("attention")).toBe(true);
+    expect(screen.getByText("Stugu will not start or restart an update until the reported safety state is resolved.")).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Stugu is up to date", level: 2 })).toBeNull();
+    const component = screen.getByRole("heading", { name: componentName, level: 3 }).closest("article")!;
+    expect(within(component).getByText("Action needed")).toBeTruthy();
+  });
+
+  it.each(["system-update-workflow-active", "host-update-active"] as const)(
+    "keeps the expected %s interlock inside an active workflow in progress",
+    async (reason) => {
+      const workflowCapability = {
+        available: false,
+        runtime: "raspberry-pi" as const,
+        agentLastSeenAt: "2026-08-04T16:03:00.000Z",
+        reason,
+      };
+      vi.spyOn(api, "systemUpdateStatus").mockResolvedValue({
+        ...v2Status,
+        capability: workflowCapability,
+        application: { ...v2Status.application!, capability: workflowCapability },
+        host: { ...v2Status.host!, phase: "installing" },
+        workflow: {
+          ...stagedStatus.workflow!,
+          revision: v2Status.revision!,
+          phase: "host-staging",
+          detail: "Installing the signed release into the inactive host slot",
+          steps: [
+            { id: "backup", state: "complete" },
+            { id: "stage-host", state: "active" },
+            { id: "restart-host", state: "waiting" },
+          ],
+          canCancel: false,
+        },
+      });
+      render(<I18nProvider><SystemUpdatesPage /></I18nProvider>);
+
+      expect(await screen.findByRole("heading", { name: "Stugu is updating", level: 2 })).toBeTruthy();
+      expect(screen.getByText("The verified update sequence is continuing and its progress is preserved across restarts.")).toBeTruthy();
+      expect(screen.queryByRole("heading", { name: "Update information needs attention", level: 2 })).toBeNull();
+      const application = screen.getByRole("heading", { name: "Application", level: 3 }).closest("article")!;
+      expect(within(application).queryByText("Action needed")).toBeNull();
+    },
+  );
+
+  it("blocks application-only updates while the required host bridge is offline", async () => {
+    vi.spyOn(api, "systemUpdateStatus").mockResolvedValue({
+      ...v2Status,
+      host: {
+        ...v2Status.host!,
+        supported: false,
+        phase: "unavailable",
+        reason: "bridge-not-connected",
+        detail: "The host update bridge is not connected",
+        updateAvailable: false,
+        targetVersion: null,
+        targetGeneration: null,
+        targetDigest: null,
+      },
+    });
+    render(<I18nProvider><SystemUpdatesPage /></I18nProvider>);
+
+    expect(await screen.findByRole("heading", { name: "Update information needs attention", level: 2 })).toBeTruthy();
+    expect(screen.getByText("Stugu will not start or restart an update until the reported safety state is resolved.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Update application" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Update everything" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Restart and install" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Cancel prepared update" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Retry application update" })).toBeNull();
+  });
+
+  it("does not offer restart or cancellation when a prepared host loses its bridge", async () => {
+    vi.spyOn(api, "systemUpdateStatus").mockResolvedValue({
+      ...stagedStatus,
+      host: {
+        ...stagedStatus.host!,
+        supported: false,
+        phase: "unavailable",
+        reason: "bridge-not-connected",
+        detail: "The host update bridge is not connected",
+      },
+    });
+    render(<I18nProvider><SystemUpdatesPage /></I18nProvider>);
+
+    expect(await screen.findByRole("heading", { name: "Update information needs attention", level: 2 })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Restart and install" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Cancel prepared update" })).toBeNull();
+    const host = screen.getByRole("heading", { name: "Host system", level: 3 }).closest("article")!;
+    expect(within(host).getByText("Action needed")).toBeTruthy();
+  });
+
+  it("distinguishes a connected but unready application updater from a disconnect", async () => {
+    const capability = {
+      available: false,
+      runtime: "raspberry-pi" as const,
+      agentLastSeenAt: "2026-08-04T16:03:00.000Z",
+      reason: "agent-not-ready" as const,
+    };
+    vi.spyOn(api, "systemUpdateStatus").mockResolvedValue({
+      ...currentV2Status,
+      capability,
+      application: { ...currentV2Status.application!, capability },
+    });
+    render(<I18nProvider><SystemUpdatesPage /></I18nProvider>);
+
+    expect(await screen.findByText("The application update service is connected but not ready. Review its status before trying again.")).toBeTruthy();
+    expect(screen.queryByText(/not connected/)).toBeNull();
+  });
+
+  it("keeps target-incomplete wording for incomplete trusted metadata", async () => {
+    vi.spyOn(api, "systemUpdateStatus").mockResolvedValue({
+      ...v2Status,
+      latestVersion: null,
+      application: { ...v2Status.application!, latestVersion: null },
+      host: { ...v2Status.host!, updateAvailable: false },
+    });
+    render(<I18nProvider><SystemUpdatesPage /></I18nProvider>);
+
+    expect(await screen.findByText("A trusted target is incomplete, so Stugu will not start the update.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Update application" })).toBeNull();
+  });
+
+  it("announces asynchronous overall and component status transitions", async () => {
+    vi.stubGlobal("EventSource", FakeSystemUpdateEventSource);
+    vi.spyOn(api, "systemUpdateStatus").mockResolvedValue(currentV2Status);
+    render(<I18nProvider><SystemUpdatesPage /></I18nProvider>);
+
+    const announcement = await screen.findByRole("status", { name: "System update status" });
+    expect(announcement).toHaveAttribute("aria-live", "polite");
+    expect(announcement).toHaveAttribute("aria-atomic", "true");
+    expect(announcement).toHaveTextContent(/Stugu is up to date.*Application: Current.*Host system: Current/);
+
+    await act(async () => {
+      FakeSystemUpdateEventSource.latest?.emit("system-update", blockedSummaryCases[0]!.blockedStatus);
+    });
+
+    await waitFor(() => expect(announcement).toHaveTextContent(
+      /Update information needs attention.*Application: Current.*Host system: Action needed/,
+    ));
   });
 
   it("keeps completed update history out of the default view", async () => {
@@ -719,6 +974,7 @@ describe("system updates page", () => {
     });
     render(<I18nProvider><SystemUpdatesPage /></I18nProvider>);
 
+    expect(await screen.findByRole("heading", { name: "Update information needs attention", level: 2 })).toBeTruthy();
     expect((await screen.findAllByText(/prepared outside the current verified workflow/)).length).toBeGreaterThan(0);
     expect(screen.queryByRole("button", { name: "Restart and install" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Update everything" })).toBeNull();
@@ -848,9 +1104,17 @@ describe("system updates page", () => {
   });
 
   it("retries only the application after its post-host update fails", async () => {
+    const workflowCapability = {
+      available: false,
+      runtime: "raspberry-pi" as const,
+      agentLastSeenAt: "2026-08-04T16:03:00.000Z",
+      reason: "system-update-workflow-active" as const,
+    };
     const failedStatus: SystemUpdateStatus = {
       ...v2Status,
       revision: 16,
+      capability: workflowCapability,
+      application: { ...v2Status.application!, capability: workflowCapability },
       host: {
         ...v2Status.host!,
         phase: "complete",
@@ -873,6 +1137,7 @@ describe("system updates page", () => {
     });
     render(<I18nProvider><SystemUpdatesPage /></I18nProvider>);
 
+    expect(await screen.findByRole("heading", { name: "The application update needs another try", level: 2 })).toBeTruthy();
     fireEvent.click(await screen.findByRole("button", { name: "Retry application update" }));
 
     await waitFor(() => expect(operate).toHaveBeenCalledWith({
@@ -881,5 +1146,40 @@ describe("system updates page", () => {
       workflowId: failedStatus.workflow!.id,
     }));
     expect(screen.queryByRole("button", { name: "Update application" })).toBeNull();
+  });
+
+  it("requires the application updater to reconnect before offering a failed-workflow retry", async () => {
+    const disconnectedCapability = {
+      available: false,
+      runtime: "raspberry-pi" as const,
+      agentLastSeenAt: null,
+      reason: "agent-not-connected" as const,
+    };
+    const failedStatus: SystemUpdateStatus = {
+      ...v2Status,
+      revision: 18,
+      capability: disconnectedCapability,
+      application: { ...v2Status.application!, capability: disconnectedCapability },
+      host: {
+        ...v2Status.host!,
+        phase: "complete",
+        updateAvailable: false,
+        readyToRestart: null,
+      },
+      workflow: {
+        ...stagedStatus.workflow!,
+        revision: 18,
+        phase: "application-failed",
+        canCancel: false,
+        detail: "The host is healthy; reconnect the application updater before retrying",
+      },
+    };
+    vi.spyOn(api, "systemUpdateStatus").mockResolvedValue(failedStatus);
+    render(<I18nProvider><SystemUpdatesPage /></I18nProvider>);
+
+    expect(await screen.findByRole("heading", { name: "Update information needs attention", level: 2 })).toBeTruthy();
+    expect(screen.getByText("Stugu will not start or restart an update until the reported safety state is resolved.")).toBeTruthy();
+    expect(screen.queryByText("The host is healthy. Retry only the application update; another restart is not needed.")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Retry application update" })).toBeNull();
   });
 });

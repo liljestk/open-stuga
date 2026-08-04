@@ -415,9 +415,13 @@ export interface SystemUpdateStatus {
     reason:
       | "ready"
       | "agent-not-connected"
+      | "agent-not-ready"
       | "agent-upgrade-required"
       | "appliance-upgrade-required"
-      | "not-configured";
+      | "host-update-active"
+      | "not-configured"
+      | "system-update-workflow-active"
+      | "system-update-recovery-needed";
   };
   operation: SystemUpdateOperation | null;
   /** Additive v2 fields. Legacy servers continue to populate the app fields above. */

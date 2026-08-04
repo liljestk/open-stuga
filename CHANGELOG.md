@@ -4,6 +4,22 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.35.2 - 2026-08-04
+
+- Make the unified update summary fail closed when the application update
+  agent or native host updater is unavailable, a trusted target is incomplete,
+  or a prepared host target is not bound to the active workflow.
+- Keep verified in-progress workflows visible during their expected mutation
+  interlock, but suppress update, retry, restart, and cancellation controls
+  whenever a required updater safety state is unavailable or stale.
+- Keep recovery, rollback, and component-specific failures ahead of generic
+  availability while leaving externally managed hosts neutral and accessible
+  application-only updates intact.
+
+Upgrade impact: no persistent-data migration change. This preview uses host
+generation 8 and retains explicit host activation, exact-device qualification,
+TUF/RAUC verification, A/B probation, and automatic rollback.
+
 ## 0.35.1 - 2026-08-04
 
 - Repair the clean-container release build by keeping the heat-pump test
