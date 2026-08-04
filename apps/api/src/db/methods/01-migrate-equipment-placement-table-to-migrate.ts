@@ -357,6 +357,16 @@ registerDatabaseMethods({
         }
 
         const activatedAt = existingActivatedAt ?? new Date().toISOString();
+        this.db.prepare(`DELETE FROM sensor_recorded_measurements AS catalogue
+          WHERE EXISTS (
+            SELECT 1 FROM measurement_samples AS sample
+            WHERE sample.sensor_id = catalogue.sensor_id AND sample.metric = catalogue.metric
+              AND sample.source IN ('mock', 'replay')
+          ) AND NOT EXISTS (
+            SELECT 1 FROM measurement_samples AS sample
+            WHERE sample.sensor_id = catalogue.sensor_id AND sample.metric = catalogue.metric
+              AND sample.source NOT IN ('mock', 'replay')
+          )`).run();
         const measurementSamples = Number(this.db.prepare(
           "DELETE FROM measurement_samples WHERE source IN ('mock', 'replay')",
         ).run().changes);
@@ -379,6 +389,16 @@ registerDatabaseMethods({
     },
   purgeSourceLabelledDemoTelemetry(): void {
       this.immediateTransaction(() => {
+        this.db.prepare(`DELETE FROM sensor_recorded_measurements AS catalogue
+          WHERE EXISTS (
+            SELECT 1 FROM measurement_samples AS sample
+            WHERE sample.sensor_id = catalogue.sensor_id AND sample.metric = catalogue.metric
+              AND sample.source IN ('mock', 'replay')
+          ) AND NOT EXISTS (
+            SELECT 1 FROM measurement_samples AS sample
+            WHERE sample.sensor_id = catalogue.sensor_id AND sample.metric = catalogue.metric
+              AND sample.source NOT IN ('mock', 'replay')
+          )`).run();
         this.db.prepare("DELETE FROM measurement_samples WHERE source IN ('mock', 'replay')").run();
         this.db.prepare("DELETE FROM readings WHERE source IN ('mock', 'replay')").run();
         this.db.prepare("DELETE FROM outdoor_temperature_samples WHERE source = 'mock'").run();
@@ -401,6 +421,8 @@ registerDatabaseMethods({
         this.db.prepare(`DELETE FROM sensor_data_gaps WHERE sensor_id IN (${sharedSensorIds})`).run(...parameters);
         this.db.prepare(`DELETE FROM tapo_history_export_jobs WHERE sensor_id IN (${sharedSensorIds})`).run(...parameters);
         this.db.prepare(`DELETE FROM sensor_measurement_bindings WHERE sensor_id IN (${sharedSensorIds})`).run(...parameters);
+        this.db.prepare(`DELETE FROM sensor_recorded_measurements
+          WHERE sensor_id IN (${sharedSensorIds})`).run(...parameters);
         this.db.prepare(`DELETE FROM measurement_samples
           WHERE sensor_id IN (${sharedSensorIds})`).run(...parameters);
         this.db.prepare(`DELETE FROM readings

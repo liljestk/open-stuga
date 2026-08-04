@@ -130,6 +130,37 @@ describe("analytics query API", () => {
     });
   });
 
+  it("allows explicitly selected archived sensors without adding them to the default scope", async () => {
+    runtime.database.updateSensor("sensor-01", { enabled: false });
+    expect(runtime.database.getSensor("sensor-01")?.recordedMeasurementIds).toEqual(["temperature"]);
+
+    const response = await request(runtime.app).post("/api/v2/analytics/query").send(query()).expect(200);
+    expect(response.body).toMatchObject({
+      series: [{ entityId: "sensor-01", summary: { count: 3 } }],
+    });
+
+    const coverage = await request(runtime.app).post("/api/v2/analytics/coverage").send({
+      apiVersion: "1.0",
+      dataMode: "live",
+      scope: { kind: "house", id: "house-main", entityIds: ["sensor-01"] },
+      measurementIds: ["temperature"],
+      requestId: "archived-analytics-coverage-test",
+    }).expect(200);
+    expect(coverage.body).toMatchObject({
+      range: { start: "2026-07-19T10:00:00.000Z", end: "2026-07-19T10:10:00.000Z" },
+      series: [{ entityId: "sensor-01" }],
+    });
+
+    await request(runtime.app).post("/api/v2/analytics/query").send(query({
+      scope: { kind: "house", id: "house-main" },
+    })).expect(200).expect(({ body }) => expect(
+      body.series.map((series: { entityId: string }) => series.entityId),
+    ).not.toContain("sensor-01"));
+
+    runtime.database.db.prepare("DELETE FROM measurement_samples WHERE sensor_id = ?").run("sensor-01");
+    expect(runtime.database.getSensor("sensor-01")?.recordedMeasurementIds).toEqual(["temperature"]);
+  });
+
   it("rejects a missing or mismatched data mode and invalid measurement aggregation", async () => {
     const missing = query();
     delete (missing as { dataMode?: string }).dataMode;

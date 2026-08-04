@@ -346,6 +346,11 @@ export const CORE_SCHEMA_01 = `
         ON measurement_samples(sensor_id, metric, timestamp DESC, id DESC);
       CREATE INDEX IF NOT EXISTS idx_measurement_samples_time
         ON measurement_samples(timestamp, id);
+      CREATE TABLE IF NOT EXISTS sensor_recorded_measurements (
+        sensor_id TEXT NOT NULL REFERENCES sensors(id) ON DELETE CASCADE,
+        metric TEXT NOT NULL REFERENCES measurement_definitions(id),
+        PRIMARY KEY(sensor_id, metric)
+      );
       CREATE TABLE IF NOT EXISTS sensor_measurement_bindings (
         sensor_id TEXT NOT NULL REFERENCES sensors(id) ON DELETE CASCADE,
         metric TEXT NOT NULL REFERENCES measurement_definitions(id),

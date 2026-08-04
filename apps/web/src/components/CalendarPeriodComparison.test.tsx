@@ -198,4 +198,81 @@ describe("CalendarPeriodComparison", () => {
     });
     expect(accessibility.violations).toEqual([]);
   });
+
+  it("labels an archived-only calendar comparison as historical", async () => {
+    const user = userEvent.setup();
+    const state = createDemoState();
+    const house = state.houses[0]!;
+    const archivedSensor = {
+      ...state.sensors.find((sensor) => sensor.houseId === house.id && sensor.enabled)!,
+      enabled: false,
+    };
+    const archivedName = `${archivedSensor.name} · Archived`;
+    vi.spyOn(api, "calendarComparison").mockResolvedValue(response(
+      [archivedSensor.id],
+      [archivedSensor.name],
+    ));
+
+    render(
+      <ServerStateProvider>
+        <I18nProvider>
+          <CalendarPeriodComparison
+            houseId={house.id}
+            timeZone="Europe/Helsinki"
+            dataMode="demo"
+            sensors={[archivedSensor]}
+            metric="temperature"
+            definition={state.measurementDefinitions.find((item) => item.id === "temperature")!}
+            units="metric"
+          />
+        </I18nProvider>
+      </ServerStateProvider>,
+    );
+
+    await user.click(screen.getByText("Compare calendar periods · Historical · Archived"));
+    expect(await screen.findByRole("img", {
+      name: `Temperature for ${archivedName} across 2 selected calendar periods.`,
+    })).not.toBeNull();
+    expect(screen.getByRole("option", { name: archivedName })).not.toBeNull();
+  });
+
+  it("makes a mixed live and archived calendar source explicit", async () => {
+    const user = userEvent.setup();
+    const state = createDemoState();
+    const house = state.houses[0]!;
+    const sensors = state.sensors
+      .filter((sensor) => sensor.houseId === house.id && sensor.enabled)
+      .slice(0, 2);
+    const mixedSensors = [sensors[0]!, { ...sensors[1]!, enabled: false }];
+    const archivedName = `${mixedSensors[1]!.name} · Archived`;
+    vi.spyOn(api, "calendarComparison").mockResolvedValue(response(
+      mixedSensors.map((sensor) => sensor.id),
+      mixedSensors.map((sensor) => sensor.name),
+    ));
+
+    render(
+      <ServerStateProvider>
+        <I18nProvider>
+          <CalendarPeriodComparison
+            houseId={house.id}
+            timeZone="Europe/Helsinki"
+            dataMode="demo"
+            sensors={mixedSensors}
+            metric="temperature"
+            definition={state.measurementDefinitions.find((item) => item.id === "temperature")!}
+            units="metric"
+          />
+        </I18nProvider>
+      </ServerStateProvider>,
+    );
+
+    await user.click(screen.getByText("Compare calendar periods · Includes archived history"));
+    expect(await screen.findByRole("img", {
+      name: "Temperature for Selected sensors average · Includes archived history across 2 selected calendar periods.",
+    })).not.toBeNull();
+    expect(screen.getByRole("option", {
+      name: "Selected sensors average · Includes archived history",
+    })).not.toBeNull();
+    expect(screen.getByRole("option", { name: archivedName })).not.toBeNull();
+  });
 });

@@ -174,6 +174,25 @@ describe("calendar comparison API", () => {
       .toEqual([22, 20]);
   });
 
+  it("compares explicitly selected archived sensors alone or alongside live sensors", async () => {
+    runtime.database.updateSensor("sensor-b", { enabled: false });
+
+    const mixed = await request(runtime.app)
+      .post("/api/v2/analytics/calendar-comparison")
+      .send(comparison())
+      .expect(200);
+    expect(mixed.body.provenance.sourceIds).toEqual(["sensor-a", "sensor-b"]);
+
+    const archivedOnly = await request(runtime.app)
+      .post("/api/v2/analytics/calendar-comparison")
+      .send(comparison({ sensorIds: ["sensor-b"] }))
+      .expect(200);
+    expect(archivedOnly.body.provenance.sourceIds).toEqual(["sensor-b"]);
+    expect(archivedOnly.body.series.some(
+      (series: { sourceId: string }) => series.sourceId === "sensor-b",
+    )).toBe(true);
+  });
+
   it("accepts only intent fields and rejects unavailable periods and modes", async () => {
     await request(runtime.app)
       .post("/api/v2/analytics/calendar-comparison")

@@ -247,7 +247,7 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
   const { locale, t } = useI18n();
   const now = useNow();
   const sensors = useMemo(
-    () => props.state.sensors.filter((sensor) => sensor.houseId === props.house.id && sensor.enabled),
+    () => props.state.sensors.filter((sensor) => sensor.houseId === props.house.id),
     [props.house.id, props.state.sensors],
   );
   const definitions = useMemo(() => props.state.measurementDefinitions.filter((definition) => definition.enabled), [props.state.measurementDefinitions]);
@@ -285,12 +285,13 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
     Boolean(props.state.latestMeasurements[sensor.id]?.[metric])
       || (props.state.measurementHistory[sensor.id]?.[metric]?.length ?? 0) > 0
       || Boolean(sensor.measurementEntityIds?.[metric])
+      || Boolean(sensor.recordedMeasurementIds?.includes(metric))
       || (metric === "temperature" && Boolean(sensor.temperatureEntityId))
       || (metric === "humidity" && Boolean(sensor.humidityEntityId))
       || sensorGaps.some((gap) => gap.sensorId === sensor.id && gap.metric === metric)
   )), [metric, props.state.latestMeasurements, props.state.measurementHistory, sensorGaps, sensors]);
   const selectedSensors = useMemo(() => selectedSensorIds === null
-    ? metricSensors
+    ? metricSensors.filter((sensor) => sensor.enabled)
     : metricSensors.filter((sensor) => selectedSensorIds.includes(sensor.id)), [metricSensors, selectedSensorIds]);
 
   const writeLocationPatch = (patch: Partial<AnalyticsLocationState>, mode: "push" | "replace") => {
@@ -382,17 +383,15 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
     if (selectedSensorIds === null) return;
     const available = new Set(metricSensors.map((sensor) => sensor.id));
     const valid = selectedSensorIds.filter((sensorId) => available.has(sensorId));
-    const next = valid.length === metricSensors.length && metricSensors.length > 0
-      ? null
-      : valid.length > 0 || selectedSensorIds.length === 0 ? valid : null;
-    if (next === null || valid.length !== selectedSensorIds.length) {
-      if (next === null && selectedSensorIds.length === metricSensors.length) {
-        setSelectedSensorIds(null);
-        writeLocationPatch({ selectedSensorIds: null }, "replace");
-      } else if (valid.length !== selectedSensorIds.length) {
+    const defaultIds = metricSensors.filter((sensor) => sensor.enabled).map((sensor) => sensor.id);
+    const isDefault = valid.length === defaultIds.length && valid.every((sensorId) => defaultIds.includes(sensorId));
+    if (isDefault) {
+      setSelectedSensorIds(null);
+      writeLocationPatch({ selectedSensorIds: null }, "replace");
+    } else if (valid.length !== selectedSensorIds.length) {
+      const next = valid.length > 0 || selectedSensorIds.length === 0 ? valid : null;
       setSelectedSensorIds(next);
-        writeLocationPatch({ selectedSensorIds: next }, "replace");
-      }
+      writeLocationPatch({ selectedSensorIds: next }, "replace");
     }
   }, [metricSensors, selectedSensorIds]);
 
@@ -468,6 +467,7 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
   }, [aggregation, evidenceOpen, metric, props.dataMode, props.house.id, props.house.timezone, qualityPreset, range, refreshRevision, resolution, selectedDefinition, selectedSensorKey, t]);
   const thresholdMs = chartGapThresholdMs(range);
   const visibleSensorGaps = useMemo(() => selectedSensors.flatMap((sensor) => {
+    if (!sensor.enabled) return [];
     const points = (props.state.measurementHistory[sensor.id]?.[metric] ?? [])
       .flatMap((sample) => {
         const timestamp = Date.parse(sample.timestamp);

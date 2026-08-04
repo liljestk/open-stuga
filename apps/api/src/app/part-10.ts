@@ -247,9 +247,10 @@ export function configureApiPart10(context: ApiRouteRegistrationContext) {
           throw new AnalyticsQueryError(404, "ANALYTICS_SCOPE_NOT_FOUND", "Analytics house scope was not found");
         }
         const accessibleSensors = context.database.listSensors(house.id)
-          .filter((sensor) => sensor.enabled && context.visibility(response).sensor(sensor.id));
+          .filter((sensor) => context.visibility(response).sensor(sensor.id));
         const byId = new Map(accessibleSensors.map((sensor) => [sensor.id, sensor]));
-        const requestedSensorIds = coverageRequest.scope.entityIds ?? accessibleSensors.map((sensor) => sensor.id);
+        const requestedSensorIds = coverageRequest.scope.entityIds
+          ?? accessibleSensors.filter((sensor) => sensor.enabled).map((sensor) => sensor.id);
         const sensors = requestedSensorIds.map((sensorId) => {
           const sensor = byId.get(sensorId);
           if (!sensor) {
@@ -323,9 +324,10 @@ export function configureApiPart10(context: ApiRouteRegistrationContext) {
           throw new AnalyticsQueryError(404, "ANALYTICS_SCOPE_NOT_FOUND", "Analytics house scope was not found");
         }
         const accessibleSensors = context.database.listSensors(house.id)
-          .filter((sensor) => sensor.enabled && context.visibility(response).sensor(sensor.id));
+          .filter((sensor) => context.visibility(response).sensor(sensor.id));
         const byId = new Map(accessibleSensors.map((sensor) => [sensor.id, sensor]));
-        const requestedSensorIds = analyticsRequest.scope.entityIds ?? accessibleSensors.map((sensor) => sensor.id);
+        const requestedSensorIds = analyticsRequest.scope.entityIds
+          ?? accessibleSensors.filter((sensor) => sensor.enabled).map((sensor) => sensor.id);
         const sensors = requestedSensorIds.map((sensorId) => {
           const sensor = byId.get(sensorId);
           if (!sensor) {

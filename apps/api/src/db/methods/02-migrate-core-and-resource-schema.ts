@@ -101,6 +101,17 @@ import { registerDatabaseMethods } from "../core.js";
 registerDatabaseMethods({
   migrateCoreAndResourceSchema(): void {
       this.db.exec(CORE_SCHEMA_SQL);
+      const recordedMeasurementsMigrated = this.db.prepare(
+        "SELECT 1 FROM metadata WHERE key = 'sensor_recorded_measurements_v1'",
+      ).get();
+      if (!recordedMeasurementsMigrated) {
+        this.db.exec(`
+          INSERT OR IGNORE INTO sensor_recorded_measurements(sensor_id, metric)
+            SELECT DISTINCT sensor_id, metric FROM measurement_samples
+            WHERE source NOT IN ('mock', 'replay');
+          INSERT INTO metadata(key, value) VALUES ('sensor_recorded_measurements_v1', 'complete');
+        `);
+      }
       const archiveRowIds = this.db.prepare(
         "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'telemetry_archive_row_ids'",
       ).get() as { sql: string } | undefined;

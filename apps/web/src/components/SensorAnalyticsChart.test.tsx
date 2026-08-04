@@ -188,6 +188,99 @@ describe("SensorAnalyticsChart", () => {
     expect(container.querySelector(".sensor-aggregate-line")).not.toBeNull();
   });
 
+  it("keeps an archived-only selection historical in headings, legends, rows, and comparisons", async () => {
+    const user = userEvent.setup();
+    const state = createDemoState();
+    const house = state.houses[0]!;
+    const liveSensor = state.sensors.find((sensor) => sensor.houseId === house.id && sensor.enabled)!;
+    const archivedSensor = { ...liveSensor, enabled: false };
+    const onLoadSeries = vi.fn();
+
+    render(
+      <I18nProvider>
+        <SensorAnalyticsChart
+          houseId={house.id}
+          dataMode="demo"
+          sensors={[archivedSensor]}
+          history={state.measurementHistory}
+          forecasts={state.measurementForecasts}
+          latestMeasurements={state.latestMeasurements}
+          definitions={state.measurementDefinitions}
+          metric="temperature"
+          units="metric"
+          range="24h"
+          timeZone={house.timezone}
+          selectedSensorIds={[archivedSensor.id]}
+          weatherObservationsVisible={false}
+          weatherForecastVisible={false}
+          onMetric={vi.fn()}
+          onRange={vi.fn()}
+          onSensors={vi.fn()}
+          onWeatherObservationsVisible={vi.fn()}
+          onWeatherForecastVisible={vi.fn()}
+          onLoadSeries={onLoadSeries}
+        />
+      </I18nProvider>,
+    );
+
+    const archivedName = `${archivedSensor.name} · Archived`;
+    expect(screen.getByRole("heading", { name: archivedName })).not.toBeNull();
+    expect(screen.getByText("Review preserved historical observations from archived sensors. These series have no live status or prediction.")).not.toBeNull();
+    expect(screen.getByText("Historical reading · Archived")).not.toBeNull();
+    expect(screen.queryByText("Latest reading")).toBeNull();
+    expect(screen.getByText("Compare calendar periods · Historical · Archived")).not.toBeNull();
+    expect(screen.getAllByText(archivedName).length).toBeGreaterThan(1);
+    expect(onLoadSeries).toHaveBeenCalledWith(archivedSensor.id, "temperature", "24h", false);
+
+    await user.click(screen.getByText(/Show accessible data table/));
+    expect(screen.getAllByRole("rowheader", { name: archivedName }).length).toBeGreaterThan(0);
+  });
+
+  it("keeps live and archived series unambiguous in mixed analytics", async () => {
+    const user = userEvent.setup();
+    const state = createDemoState();
+    const house = state.houses[0]!;
+    const sensors = state.sensors.filter((sensor) => sensor.houseId === house.id && sensor.enabled).slice(0, 2);
+    const mixedSensors = [sensors[0]!, { ...sensors[1]!, enabled: false }];
+    const archivedName = `${mixedSensors[1]!.name} · Archived`;
+
+    render(
+      <I18nProvider>
+        <SensorAnalyticsChart
+          houseId={house.id}
+          dataMode="demo"
+          sensors={mixedSensors}
+          history={state.measurementHistory}
+          forecasts={state.measurementForecasts}
+          latestMeasurements={state.latestMeasurements}
+          definitions={state.measurementDefinitions}
+          metric="temperature"
+          units="metric"
+          range="24h"
+          timeZone={house.timezone}
+          selectedSensorIds={mixedSensors.map((sensor) => sensor.id)}
+          weatherObservationsVisible={false}
+          weatherForecastVisible={false}
+          onMetric={vi.fn()}
+          onRange={vi.fn()}
+          onSensors={vi.fn()}
+          onWeatherObservationsVisible={vi.fn()}
+          onWeatherForecastVisible={vi.fn()}
+        />
+      </I18nProvider>,
+    );
+
+    expect(screen.getByRole("heading", { name: "Home sensor analytics · Includes archived history" })).not.toBeNull();
+    expect(screen.getByText("Compare live sensor data with preserved archived history. Predictions use live sensors only.")).not.toBeNull();
+    expect(screen.getByLabelText("Choose data series")).toHaveTextContent("2 series selected · Includes archived history");
+    expect(screen.getAllByText("Home average · Includes archived history").length).toBeGreaterThan(0);
+    expect(screen.getByText("Compare calendar periods · Includes archived history")).not.toBeNull();
+    expect(screen.getAllByText(archivedName).length).toBeGreaterThan(0);
+
+    await user.click(screen.getByText(/Show accessible data table/));
+    expect(screen.getAllByRole("rowheader", { name: archivedName }).length).toBeGreaterThan(0);
+  });
+
   it("marks a leading history gap and reports its recovery state", () => {
     const state = createDemoState();
     const house = state.houses[0]!;

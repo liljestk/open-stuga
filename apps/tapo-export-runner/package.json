@@ -1,6 +1,6 @@
 {
   "name": "@climate-twin/tapo-export-runner",
-  "version": "0.34.2",
+  "version": "0.35.0",
   "private": true,
   "type": "module",
   "engines": {

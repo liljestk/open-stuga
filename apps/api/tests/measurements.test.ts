@@ -225,6 +225,89 @@ describe("registry-driven measurements API", () => {
     expect(listAlertRules).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps mock and replay samples out of the durable history catalogue and clears stale entries at activation", () => {
+    const samples = [
+      {
+        sensorId: "sensor-01", metric: "co2", value: 700, canonicalUnit: "ppm",
+        timestamp: "2026-07-14T09:00:00.000Z", source: "mock" as const, quality: "good" as const,
+      },
+      {
+        sensorId: "sensor-01", metric: "power", value: 100, canonicalUnit: "W",
+        timestamp: "2026-07-14T09:00:00.000Z", source: "replay" as const, quality: "good" as const,
+      },
+    ];
+    runtime.database.insertMeasurementSamples(samples);
+
+    const catalogue = () => runtime.database.db.prepare(`SELECT metric FROM sensor_recorded_measurements
+      WHERE sensor_id = ? AND metric IN ('co2', 'power') ORDER BY metric`)
+      .all("sensor-01") as unknown as Array<{ metric: string }>;
+    expect(catalogue()).toEqual([]);
+
+    runtime.database.db.prepare(`INSERT OR IGNORE INTO sensor_recorded_measurements(sensor_id, metric)
+      VALUES ('sensor-01', 'co2'), ('sensor-01', 'power')`).run();
+    expect(catalogue()).toEqual([{ metric: "co2" }, { metric: "power" }]);
+
+    runtime.database.activateRealDataMode();
+    expect(catalogue()).toEqual([]);
+    expect(runtime.database.db.prepare(`SELECT COUNT(*) AS count FROM measurement_samples
+      WHERE sensor_id = ? AND source IN ('mock', 'replay')`).get("sensor-01"))
+      .toEqual({ count: 0 });
+  });
+
+  it("backfills the durable history catalogue once and skips the historical scan after reopen", () => {
+    const directory = mkdtempSync(join(tmpdir(), "stugu-recorded-measurements-"));
+    const databasePath = join(directory, "climate-twin.sqlite");
+    let database: ClimateDatabase | null = null;
+    try {
+      database = new ClimateDatabase(databasePath, true);
+      database.activateRealDataMode();
+      database.insertMeasurementSamples([{
+        sensorId: "sensor-01", metric: "co2", value: 700, canonicalUnit: "ppm",
+        timestamp: "2026-07-14T09:00:00.000Z", source: "api", quality: "good",
+      }]);
+      database.close();
+      database = null;
+
+      let raw = new DatabaseSync(databasePath);
+      try {
+        raw.exec(`
+          DELETE FROM sensor_recorded_measurements;
+          DELETE FROM metadata WHERE key = 'sensor_recorded_measurements_v1';
+        `);
+      } finally {
+        raw.close();
+      }
+
+      database = new ClimateDatabase(databasePath, false);
+      expect(database.db.prepare(`SELECT metric FROM sensor_recorded_measurements
+        WHERE sensor_id = ? ORDER BY metric`).all("sensor-01"))
+        .toEqual([{ metric: "co2" }]);
+      expect(database.db.prepare(
+        "SELECT value FROM metadata WHERE key = 'sensor_recorded_measurements_v1'",
+      ).get()).toEqual({ value: "complete" });
+      database.close();
+      database = null;
+
+      raw = new DatabaseSync(databasePath);
+      try {
+        raw.prepare(`INSERT INTO measurement_samples(sensor_id, metric, value, canonical_unit, timestamp, source, quality)
+          VALUES ('sensor-01', 'humidity', 45, '%', '2026-07-14T09:02:00.000Z', 'api', 'good')`).run();
+      } finally {
+        raw.close();
+      }
+
+      database = new ClimateDatabase(databasePath, false);
+      expect(database.db.prepare(`SELECT metric FROM sensor_recorded_measurements
+        WHERE sensor_id = ? ORDER BY metric`).all("sensor-01"))
+        .toEqual([{ metric: "co2" }]);
+      database.close();
+      database = null;
+    } finally {
+      database?.close();
+      rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    }
+  });
+
   it("allows small sender clock skew but atomically rejects samples too far in the future", async () => {
     const now = Date.now();
     const valid = {
@@ -525,6 +608,9 @@ describe("registry-driven measurements API", () => {
     expect(runtime.database.purgeReadingsBefore("2020-01-01T00:00:00.000Z", 2)).toBe(11);
     expect(runtime.database.measurementHistory("retention-sensor", "co2", "2010-01-01T00:00:00Z", "2030-01-01T00:00:00Z")).toHaveLength(1);
     expect(runtime.database.history(["retention-sensor"], "2010-01-01T00:00:00Z", "2030-01-01T00:00:00Z")).toHaveLength(1);
+    runtime.database.updateSensor("retention-sensor", { enabled: false });
+    expect(runtime.database.getSensor("retention-sensor")?.recordedMeasurementIds)
+      .toEqual(["co2", "humidity", "temperature"]);
   });
 
   it("serves truthful and complete version-specific OpenAPI documents", async () => {

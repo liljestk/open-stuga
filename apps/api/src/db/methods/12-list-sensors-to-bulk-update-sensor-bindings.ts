@@ -191,9 +191,16 @@ registerDatabaseMethods({
       const sensor = sensorFromRow(row);
       const bindings = this.db.prepare("SELECT metric, entity_id FROM sensor_measurement_bindings WHERE sensor_id = ? ORDER BY metric")
         .all(sensor.id) as unknown as Array<{ metric: string; entity_id: string }>;
-      return bindings.length > 0
-        ? { ...sensor, measurementEntityIds: Object.fromEntries(bindings.map((binding) => [binding.metric, binding.entity_id])) }
-        : sensor;
+      const recorded = sensor.enabled ? [] : this.db.prepare(
+        "SELECT metric FROM sensor_recorded_measurements WHERE sensor_id = ? ORDER BY metric",
+      ).all(sensor.id) as unknown as Array<{ metric: string }>;
+      return {
+        ...sensor,
+        ...(bindings.length > 0
+          ? { measurementEntityIds: Object.fromEntries(bindings.map((binding) => [binding.metric, binding.entity_id])) }
+          : {}),
+        ...(recorded.length > 0 ? { recordedMeasurementIds: recorded.map((item) => item.metric) } : {}),
+      };
     },
   createSensor(input: Omit<Sensor, "id"> & { id?: string }): Sensor {
       let sensor: Sensor = {
