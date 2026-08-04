@@ -92,6 +92,12 @@ class PreflightPolicyTests(unittest.TestCase):
         with self.assertRaisesRegex(PreflightError, "repair mode"):
             self.preflight._manifest(same, trust(41, "e" * 64), True)
 
+    def test_factory_generation_can_bind_its_first_signed_repair_manifest(self) -> None:
+        same = ReleaseManifest.parse(release_manifest(41))
+        with self.assertRaisesRegex(PreflightError, "repair mode"):
+            self.preflight._manifest(same, trust(41, None), False)
+        self.preflight._manifest(same, trust(41, None), True)
+
     def test_previously_seen_new_generation_can_stage_only_the_exact_manifest(
         self,
     ) -> None:

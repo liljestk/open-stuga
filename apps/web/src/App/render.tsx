@@ -136,9 +136,11 @@ export function renderApp(context: ReturnType<typeof useAppPart03>) {
             sensors={state.sensors}
             latestMeasurements={state.latestMeasurements}
             measurementHistory={state.measurementHistory}
+            measurementDefinitions={state.measurementDefinitions}
             alerts={state.alerts}
             alertRules={state.alertRules}
             integration={state.integration}
+            units={units}
             dataMode={climate.dataMode}
             onOpenProperty={(id) => {
               const targetProperty = state.properties.find((candidate) => candidate.id === id);
@@ -153,6 +155,7 @@ export function renderApp(context: ReturnType<typeof useAppPart03>) {
             onOpenTwin={(id) => { applyHouse(id); navigate("twin", id); }}
             onOpenOutdoor={(id) => { applyHouse(id); navigate("outdoor", id); }}
             onOpenSetup={(id) => { applyHouse(id); navigate("integrations", id); }}
+            onOpenAlerts={() => navigate("alerts", null, false, window.location.pathname, null)}
             readOnly={readOnly}
           />}
           {page === "alerts" && <AlertsPage

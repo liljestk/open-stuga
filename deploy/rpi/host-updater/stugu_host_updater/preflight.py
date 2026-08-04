@@ -295,7 +295,13 @@ class Preflight:
         if manifest.host_generation == trust.highest_host_generation:
             exact = manifest.digest == trust.highest_manifest_sha256
             if self.config.host_generation == manifest.host_generation:
-                if not repair or not exact:
+                # Factory bootstrap establishes the running generation as a
+                # rollback floor before any signed release manifest has been
+                # accepted. Permit one explicit repair to bind that missing
+                # digest after TUF and RAUC verification; once bound, every
+                # same-generation repair must remain exact.
+                factory_digest_unbound = trust.highest_manifest_sha256 is None
+                if not repair or (not exact and not factory_digest_unbound):
                     raise PreflightError(
                         "HOST_REINSTALL_REJECTED",
                         "Same-generation reinstall requires exact signed repair mode",

@@ -1,6 +1,6 @@
 # Stugu brand and interface system
 
-Version 1.8 · 2 August 2026
+Version 1.9 · 4 August 2026
 
 ## 1. Brand idea
 
@@ -386,6 +386,14 @@ Use a 4 px base grid. Preferred spacing steps are `4, 8, 12, 16, 24, 32, 48, 64`
 - At 680 px, headings and controls stack into a single reading order.
 - Support 320 CSS px without horizontal page scrolling. A complex chart may scroll inside its labelled region.
 - At 200% browser zoom, all actions and content must remain available.
+- Phone-size web and iPhone open on a pinnable Home or Property overview. The
+  pin is configurable without changing the underlying active scope.
+- The default glance shows temperature, humidity, current electricity use, and
+  carbon dioxide. A Home breaks these down by Room; a Property breaks them down
+  by Home. People may hide metrics, but the interface must keep at least one.
+- Active high-priority attention precedes quick statistics. Missing or stale
+  readings stay visibly unknown, and an all-clear message appears only when
+  there are no active actionable alerts in the pinned scope.
 
 ## 7. Components
 
@@ -546,6 +554,9 @@ When introducing a component, document any new token here rather than adding a o
 
 ### Change record
 
+- **1.9 (4 August 2026):** Defined the pinned phone overview for web and iOS,
+  including configurable default metrics, Home/Room and Property/Home
+  breakdowns, attention-first ordering, and explicit unknown data states.
 - **1.7 (1 August 2026):** Simplified active-scope and Live View navigation;
   defined progressive lifecycle setup with safe inference and separate
   authoritative records; made weather Property-owned by default with explicit

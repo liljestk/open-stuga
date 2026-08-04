@@ -17,6 +17,7 @@ export const accountStorageKeyFamilies = [
   { key: "stugu-home-map-opening-state-labels-visible", kind: "exact", legacy: "migrate" },
   { key: "stugu-home-map-animations-enabled", kind: "exact", legacy: "migrate" },
   { key: "stugu-home-map-outdoor-extras-visible", kind: "exact", legacy: "migrate" },
+  { key: "stugu-mobile-overview", kind: "exact", legacy: "discard" },
   { key: "stugu-dismissed-tp-link-device-notices", kind: "exact", legacy: "discard" },
   { key: "stugu-dismissed-integration-discovery-notices", kind: "exact", legacy: "discard" },
   { key: "stugu.integration-discovery.", kind: "prefix", legacy: "discard" },

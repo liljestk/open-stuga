@@ -21,7 +21,7 @@ struct MainTabView: View {
                 openCapture: { showingCapture = true },
                 openRoomScan: { openRoomScan() }
             )
-                .tabItem { Label("Home", systemImage: "house") }
+                .tabItem { Label("Overview", systemImage: "house") }
                 .tag(Tab.home)
 
             SensorsView()
