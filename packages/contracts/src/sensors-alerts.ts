@@ -33,6 +33,12 @@ export interface Sensor {
   /** Home Assistant entity bindings keyed by a registered measurement id. */
   measurementEntityIds?: Record<Metric, string>;
   /**
+   * Measurements with durable recorded history for this sensor. The server
+   * retains this catalogue even when local sample retention later prunes the
+   * underlying SQLite duplicate.
+   */
+  recordedMeasurementIds?: Metric[];
+  /**
    * `whole_home` supersedes submeters in Home totals, while `standalone`
    * sources are summed when no whole-Home meter exists. Omitted legacy values
    * are treated as `standalone`.
@@ -42,9 +48,9 @@ export interface Sensor {
   enabled: boolean;
 }
 
-export type SensorCreateInput = Omit<Sensor, "id"> & { id?: string };
+export type SensorCreateInput = Omit<Sensor, "id" | "recordedMeasurementIds"> & { id?: string };
 
-export type SensorPatch = Partial<Omit<Sensor, "id" | "tpLinkDeviceId" | "tpLinkConnectionId">> & {
+export type SensorPatch = Partial<Omit<Sensor, "id" | "tpLinkDeviceId" | "tpLinkConnectionId" | "recordedMeasurementIds">> & {
   tpLinkDeviceId?: string | null;
   tpLinkConnectionId?: string | null;
 };

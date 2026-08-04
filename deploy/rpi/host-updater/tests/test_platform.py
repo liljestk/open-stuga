@@ -2,15 +2,18 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import tempfile
 import unittest
 from unittest.mock import patch
 
 from stugu_host_updater.command import CommandResult
 from stugu_host_updater.errors import PreflightError
 from stugu_host_updater.platform import (
+    ApplianceDisk,
     DeviceResolver,
     LINUX_FILESYSTEM,
     MICROSOFT_BASIC_DATA,
+    hardware_fingerprint,
 )
 
 
@@ -61,6 +64,7 @@ def inventory() -> dict[str, object]:
                 "type": "disk",
                 "size": 16 * 1024**3,
                 "serial": "storejet-1",
+                "model": "TS240GESD230C",
                 "children": children,
             }
         ]
@@ -89,6 +93,7 @@ class DeviceResolverTests(unittest.TestCase):
     def test_exact_layout_and_aliases_resolve(self) -> None:
         disk = self.resolve(inventory())
         self.assertEqual(disk.active_slot, "a")
+        self.assertEqual(disk.disk_model, "TS240GESD230C")
         self.assertEqual(disk.partitions["persistent"].number, 6)
 
     def test_partition_type_mismatch_fails_closed(self) -> None:
@@ -109,6 +114,91 @@ class DeviceResolverTests(unittest.TestCase):
         children[1]["partuuid"] = children[0]["partuuid"]  # type: ignore[index]
         with self.assertRaisesRegex(PreflightError, "not unique"):
             self.resolve(value)
+
+
+class HardwareFingerprintTests(unittest.TestCase):
+    def fixture(self, root: Path, *, sysfs_model: bytes, inventory_model: str):
+        proc_root = root / "proc"
+        sys_root = root / "sys"
+        block_path = sys_root / "class" / "block" / "sda"
+        storage_device = block_path / "device"
+        storage_device.mkdir(parents=True)
+
+        (storage_device / "idVendor").write_bytes(b"152d\n")
+        (storage_device / "idProduct").write_bytes(b"0578\n")
+        (storage_device / "bcdDevice").write_bytes(b"0209\n")
+        (storage_device / "bInterfaceClass").write_bytes(b"08\n")
+        (storage_device / "driver").mkdir()
+        (storage_device / "vendor").write_bytes(b"StoreJet\n")
+        (storage_device / "model").write_bytes(sysfs_model)
+        (storage_device / "rev").write_bytes(b"0\n")
+
+        (proc_root / "device-tree" / "chosen" / "bootloader").mkdir(parents=True)
+        (proc_root / "device-tree" / "model").write_bytes(
+            b"Raspberry Pi 4 Model B Rev 1.1\x00"
+        )
+        timestamp_path = (
+            proc_root / "device-tree" / "chosen" / "bootloader" / "build-timestamp"
+        )
+        timestamp_path.write_bytes((1_700_000_000).to_bytes(4, byteorder="big"))
+        (proc_root / "cpuinfo").write_text(
+            "Hardware\t: BCM2711\nRevision\t: c03111\n", encoding="ascii"
+        )
+        disk = ApplianceDisk(
+            Path("/dev/sda"),
+            "sda",
+            "9b9ba270-1dd2-4b49-9600-123456789abc",
+            "79132267G54068580363",
+            inventory_model,
+            {},
+            "a",
+        )
+        return disk, proc_root, sys_root
+
+    def test_blank_sysfs_model_uses_inventory_model(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            disk, proc_root, sys_root = self.fixture(
+                root, sysfs_model=b"                \n", inventory_model="TS240GESD230C"
+            )
+            fallback_fingerprint = hardware_fingerprint(
+                disk, proc_root=proc_root, sys_root=sys_root
+            )
+            storage_model = sys_root / "class" / "block" / "sda" / "device" / "model"
+            storage_model.write_bytes(b"TS240GESD230C\n")
+            primary_fingerprint = hardware_fingerprint(
+                disk, proc_root=proc_root, sys_root=sys_root
+            )
+            self.assertEqual(fallback_fingerprint, primary_fingerprint)
+
+    def test_blank_sysfs_and_inventory_models_fail_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            disk, proc_root, sys_root = self.fixture(
+                Path(temporary), sysfs_model=b" \n", inventory_model=" "
+            )
+            with self.assertRaisesRegex(PreflightError, "Storage model is invalid"):
+                hardware_fingerprint(disk, proc_root=proc_root, sys_root=sys_root)
+
+    def test_nonblank_sysfs_model_takes_precedence(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            disk, proc_root, sys_root = self.fixture(
+                root, sysfs_model=b"Existing model\n", inventory_model="fallback-one"
+            )
+            first = hardware_fingerprint(disk, proc_root=proc_root, sys_root=sys_root)
+            changed_fallback = ApplianceDisk(
+                disk.path,
+                disk.name,
+                disk.disk_guid,
+                disk.disk_serial,
+                "fallback-two",
+                disk.partitions,
+                disk.active_slot,
+            )
+            second = hardware_fingerprint(
+                changed_fallback, proc_root=proc_root, sys_root=sys_root
+            )
+            self.assertEqual(first, second)
 
 
 if __name__ == "__main__":

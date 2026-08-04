@@ -82,6 +82,7 @@ export const enDataExport = {
   "dataExport.scheduleCsvOnly": "Scheduled files use canonical units in CSV format.",
   "dataExport.scheduleQuickAction": "Schedule weekly export",
   "dataExport.scheduleCustomPeriod": "Scheduled exports need a rolling interval such as the last 30 days; custom dates are only available for one-time exports.",
+  "dataExport.scheduleArchivedSelection": "Archived sensors are available for one-time historical exports. Scheduled exports currently use live sensors only.",
   "dataExport.scheduleNameRequired": "Enter a schedule name.",
   "dataExport.scheduleAdvanced": "Advanced schedule",
   "dataExport.scheduleName": "Schedule name",

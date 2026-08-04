@@ -341,7 +341,7 @@ export function registerAnalyticsRoutes(context: AnalyticsRouteContext): () => v
       throw new HttpError(404, "ANALYTICS_SCOPE_NOT_FOUND", "Analytics Home scope was not found");
     }
     const availableSensors = new Map(context.database.listSensors(house.id)
-      .filter((sensor) => sensor.enabled && access.sensor(sensor.id))
+      .filter((sensor) => access.sensor(sensor.id))
       .map((sensor) => [sensor.id, sensor]));
     const sensors = input.sensorIds.map((sensorId) => {
       const sensor = availableSensors.get(sensorId);

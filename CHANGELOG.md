@@ -4,6 +4,21 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.35.0 - 2026-08-04
+
+- Let archived sensors with known recorded measurements be selected explicitly
+  in Data & analytics, CSV/XLSX exports, and calendar comparison while keeping
+  them out of live defaults, forecasts, and missing-data warnings.
+- Persist each sensor's observed measurement catalogue independently of sample
+  retention so archived history remains discoverable after compaction.
+- Preserve Raspberry Pi appliance identity when a USB SSD exposes its model
+  through `lsblk` but leaves the matching sysfs field blank, while retaining
+  fail-closed validation for missing or invalid identity data.
+
+Upgrade impact: the API creates and backfills a compatible measurement-catalogue
+table automatically. Existing nonblank hardware fingerprints are unchanged;
+factory and host-update publication remains a hardware-qualified preview.
+
 ## 0.34.2 - 2026-08-04
 
 - Package the immutable boot and EROFS root payloads as generic `.img` members

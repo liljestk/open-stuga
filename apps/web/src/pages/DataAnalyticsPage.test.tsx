@@ -289,4 +289,49 @@ describe("DataAnalyticsPage", () => {
     expect(window.location.search).toBe("?range=7d&metric=energy&cost=7d");
     expect(window.location.hash).toBe("#history");
   });
+
+  it("offers archived history for explicit analysis without treating it as live", async () => {
+    const state = createDemoState();
+    const house = state.houses[0]!;
+    const live = state.sensors.find((sensor) => sensor.houseId === house.id && sensor.enabled)!;
+    const archived = {
+      ...live,
+      id: "analytics-archived",
+      name: "Archived analytics sensor",
+      enabled: false,
+      recordedMeasurementIds: ["temperature"],
+    };
+    state.sensors = [...state.sensors, archived];
+    vi.spyOn(api, "outdoorTemperatureHistory").mockResolvedValue({ samples: [], from: "", to: "", truncated: false });
+    vi.spyOn(api, "houseElectricityPrice").mockResolvedValue({ current: null, prices: [] });
+    vi.spyOn(api, "sensorDataGaps").mockResolvedValue([]);
+    const onLoadSeries = vi.fn();
+    const user = userEvent.setup();
+
+    render(<I18nProvider><DataAnalyticsPage
+      state={state}
+      house={house}
+      units="metric"
+      dataMode="demo"
+      onLoadSeries={onLoadSeries}
+    /></I18nProvider>);
+
+    await user.click(screen.getByText("Home sensor analytics").closest("summary")!);
+    const sourcePicker = screen.getByLabelText("Choose data series").closest("details")!;
+    const archivedChoice = within(sourcePicker).getByLabelText("Archived analytics sensor · Archived");
+    expect(archivedChoice).not.toBeChecked();
+
+    await user.click(archivedChoice);
+    await waitFor(() => expect(within(sourcePicker).getByLabelText("Archived analytics sensor · Archived")).toBeChecked());
+    expect(new URLSearchParams(window.location.search).get("sensors")?.split(",")).toContain(archived.id);
+    await waitFor(() => expect(onLoadSeries).toHaveBeenCalledWith(
+      archived.id,
+      "temperature",
+      "24h",
+      false,
+    ));
+
+    await user.selectOptions(screen.getByRole("combobox", { name: "Measurement" }), "energy");
+    await waitFor(() => expect(within(sourcePicker).queryByLabelText("Archived analytics sensor · Archived")).toBeNull());
+  });
 });

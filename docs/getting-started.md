@@ -440,7 +440,8 @@ measurements you approve. Repeating an import is safe: an existing measurement
 for the same sensor, metric, and timestamp is skipped even if it originally
 came from another source. Historical imports do not emit live measurement
 events, evaluate alert rules, or deliver webhooks. Archived sensors can receive
-history without being restored.
+history without being restored. They remain outside the default live view but
+can be selected explicitly in **Data & analytics** and historical exports.
 
 Imported history is real telemetry. The first accepted import permanently
 switches that database out of demo mode and removes bundled mock/replay data, as

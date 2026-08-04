@@ -159,6 +159,7 @@ export const schemasPart05 = {
             x: { type: "number" }, y: { type: "number" }, z: { type: "number" },
             temperatureEntityId: { type: "string" }, humidityEntityId: { type: "string" }, batteryEntityId: { type: "string" },
             tpLinkDeviceId: { type: "string" }, tpLinkConnectionId: { type: "string" }, measurementEntityIds: { type: "object", additionalProperties: { type: "string" } },
+            recordedMeasurementIds: { type: "array", items: { type: "string" }, description: "Measurements for which this sensor has durable recorded history." },
             energyMeterRole: { enum: ["whole_home", "submeter", "standalone"], description: "Controls whether this source represents the whole Home, a submeter, or an independent meter in Home totals." },
             tags: { type: "array", items: { type: "string" } }, enabled: { type: "boolean" },
           },

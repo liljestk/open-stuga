@@ -82,6 +82,7 @@ export const fiDataExport = {
   "dataExport.scheduleCsvOnly": "Ajastetut tiedostot käyttävät kanonisia yksiköitä CSV-muodossa.",
   "dataExport.scheduleQuickAction": "Ajasta viikoittainen vienti",
   "dataExport.scheduleCustomPeriod": "Ajastettu vienti tarvitsee liukuvan aikavälin, kuten viimeiset 30 päivää. Omat päivämäärät ovat vain kertavientiä varten.",
+  "dataExport.scheduleArchivedSelection": "Arkistoidut anturit ovat käytettävissä kertaluonteisiin historiavienteihin. Ajastetut viennit käyttävät toistaiseksi vain aktiivisia antureita.",
   "dataExport.scheduleNameRequired": "Anna aikataululle nimi.",
   "dataExport.scheduleAdvanced": "Aikataulun lisäasetukset",
   "dataExport.scheduleName": "Aikataulun nimi",

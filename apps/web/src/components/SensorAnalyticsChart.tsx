@@ -37,6 +37,11 @@ import {
   type ForecastSeriesPoint,
   type SeriesPoint,
 } from "./SensorAnalyticsPlot";
+import {
+  sensorHistoryName,
+  sensorHistoryState,
+  withSensorHistoryState,
+} from "./sensorHistoryLabels";
 
 export type { AggregateSeriesPoint } from "./SensorAnalyticsPlot";
 
@@ -202,15 +207,23 @@ export function SensorAnalyticsChart(props: Readonly<SensorAnalyticsChartProps>)
   const [exactDataOpen, setExactDataOpen] = useState(false);
   const definition = props.definitions.find((candidate) => candidate.id === props.metric) ?? props.definitions[0];
   const activeSensors = useMemo(() => props.selectedSensorIds === null
-    ? props.sensors
+    ? props.sensors.filter((sensor) => sensor.enabled)
     : props.sensors.filter((sensor) => props.selectedSensorIds?.includes(sensor.id)), [props.selectedSensorIds, props.sensors]);
+  const selectedHistoryState = sensorHistoryState(activeSensors);
+  const sensorDisplayName = (sensor: Sensor) => sensorHistoryName(sensor, t("sensors.archived"));
+  const historyLabel = (label: string) => withSensorHistoryState(
+    label,
+    selectedHistoryState,
+    t("sensors.analyticsArchivedHistory"),
+    t("sensors.analyticsIncludesArchived"),
+  );
   const sensorIds = activeSensors.map((sensor) => sensor.id).join("\u0000");
   const isCombined = activeSensors.length !== 1;
 
   useEffect(() => {
     if (!definition || !props.onLoadSeries) return;
     activeSensors.forEach((sensor) => {
-      props.onLoadSeries?.(sensor.id, definition.id, props.range, definition.forecastSupported);
+      props.onLoadSeries?.(sensor.id, definition.id, props.range, definition.forecastSupported && sensor.enabled);
     });
   }, [definition?.id, definition?.forecastSupported, props.onLoadSeries, props.range, sensorIds]);
 
@@ -223,7 +236,7 @@ export function SensorAnalyticsChart(props: Readonly<SensorAnalyticsChartProps>)
       sensor,
       points: observedSeries(sensor.id, definition.id, props.history, props.latestMeasurements, from),
     }));
-    const predicted = definition.forecastSupported ? activeSensors.map((sensor) => ({
+    const predicted = definition.forecastSupported ? activeSensors.filter((sensor) => sensor.enabled).map((sensor) => ({
       sensor,
       points: forecastSeries(sensor.id, definition.id, props.forecasts, now),
     })) : [];
@@ -309,9 +322,9 @@ export function SensorAnalyticsChart(props: Readonly<SensorAnalyticsChartProps>)
     ...latestWeatherForecast, low: latestWeatherForecast.value, high: latestWeatherForecast.value, sensorCount: 1,
   } : undefined);
   const { missingSeriesCount, missingIntervals, statusKey: gapStatusKey } = deriveSensorAnalyticsGapStatus({
-    observed: data.observed,
+    observed: data.observed.filter((series) => series.sensor.enabled),
     durable: props.sensorGaps ?? [],
-    activeSensorIds: activeSensors.map((sensor) => sensor.id),
+    activeSensorIds: activeSensors.filter((sensor) => sensor.enabled).map((sensor) => sensor.id),
     metric: definition.id,
     from,
     to: now,
@@ -324,21 +337,35 @@ export function SensorAnalyticsChart(props: Readonly<SensorAnalyticsChartProps>)
     : data.outdoorObserved.map((point) => point.value);
   const observedRange = observedValues.length > 0 ? Math.max(...observedValues) - Math.min(...observedValues) : null;
   const metricLabel = measurementLabel(definition, locale);
+  const archivedSensorOnly = activeSensors.length === 1 && !activeSensors[0]!.enabled;
   const chartLabel = isCombined
-    ? t("sensors.analyticsAria", { metric: metricLabel })
-    : t("sensors.analyticsSensorAria", { metric: metricLabel, sensor: activeSensors[0]?.name ?? "" });
-  const summary = [
-    chartLabel,
-    latestAggregate ? t(isCombined && !(reportingSensors === 0 && data.electricityPrice.length > 0)
-      ? "sensors.analyticsAverageSummary"
-      : "sensors.analyticsLatestSummary", {
-      value: formatMeasurement(latestAggregate.value, definition, props.units),
-      count: latestAggregate.sensorCount,
-    }) : t("common.noData"),
-    finalPrediction ? t(isCombined ? "sensors.analyticsPredictionSummary" : "sensors.analyticsSensorPredictionSummary", {
+    ? `${historyLabel(t("sensors.analyticsAria", { metric: metricLabel }))}${selectedHistoryState === "mixed" ? ` · ${t("sensors.analyticsLiveSourcesOnly")}` : ""}`
+    : t(archivedSensorOnly ? "sensors.analyticsHistoricalSensorAria" : "sensors.analyticsSensorAria", {
+      metric: metricLabel,
+      sensor: activeSensors[0] ? sensorDisplayName(activeSensors[0]) : "",
+    });
+  const observationSummary = latestAggregate
+    ? archivedSensorOnly
+      ? `${t("sensors.analyticsHistoricalSummary", {
+        value: formatMeasurement(latestAggregate.value, definition, props.units),
+      })} · ${t("sensors.archived")}`
+      : historyLabel(t(isCombined && !(reportingSensors === 0 && data.electricityPrice.length > 0)
+        ? "sensors.analyticsAverageSummary"
+        : "sensors.analyticsLatestSummary", {
+        value: formatMeasurement(latestAggregate.value, definition, props.units),
+        count: latestAggregate.sensorCount,
+      }))
+    : t("common.noData");
+  const predictionSummary = finalPrediction
+    ? `${t(isCombined ? "sensors.analyticsPredictionSummary" : "sensors.analyticsSensorPredictionSummary", {
       value: formatMeasurement(finalPrediction.value, definition, props.units),
       time: formatInTimeZone(finalPrediction.timestamp, locale, props.timeZone, { dateStyle: "medium", timeStyle: "short" }),
-    }) : null,
+    })}${selectedHistoryState === "mixed" ? ` · ${t("sensors.analyticsLiveSourcesOnly")}` : ""}`
+    : null;
+  const summary = [
+    chartLabel,
+    observationSummary,
+    predictionSummary,
   ].filter(Boolean).join(". ");
   const climateDefinitions = props.definitions.filter((candidate) => ["temperature", "humidity", "co2"].includes(candidate.id));
   const electricityDefinitions = props.definitions.filter((candidate) => ["power", "energy", "electricity_price"].includes(candidate.id));
@@ -347,7 +374,7 @@ export function SensorAnalyticsChart(props: Readonly<SensorAnalyticsChartProps>)
     ? <optgroup label={label}>{candidates.map((candidate) => <option key={candidate.id} value={candidate.id}>{measurementLabel(candidate, locale)}</option>)}</optgroup>
     : null;
   const weatherOnly = activeSensors.length === 0 && (data.outdoorObserved.length > 0 || data.outdoorForecast.length > 0);
-  const aggregateLabel = weatherOnly
+  const aggregateBaseLabel = weatherOnly
     ? t("sensors.analyticsFmiObservations")
     : isCombined
       ? (definition.id === "power" || definition.id === "energy"
@@ -356,9 +383,15 @@ export function SensorAnalyticsChart(props: Readonly<SensorAnalyticsChartProps>)
         ? t("sensors.analyticsPropertyPrice")
         : t("sensors.analyticsHomeAverage"))
     : t("sensors.analyticsLatestReading");
-  const predictionLabel = weatherOnly
+  const aggregateLabel = archivedSensorOnly
+    ? `${t("sensors.analyticsHistoricalReading")} · ${t("sensors.archived")}`
+    : weatherOnly ? aggregateBaseLabel : historyLabel(aggregateBaseLabel);
+  const predictionBaseLabel = weatherOnly
     ? t("sensors.analyticsFmiForecast")
     : isCombined ? t("sensors.analyticsPrediction") : t("sensors.analyticsSensorPrediction");
+  const predictionLabel = selectedHistoryState === "mixed"
+    ? `${predictionBaseLabel} · ${t("sensors.analyticsLiveSourcesOnly")}`
+    : predictionBaseLabel;
   type ExactDataRow = { id: string; source: string; kind: "observed" | "forecast"; timestamp: number; value: number; low: number | null; high: number | null; sensorCount: number; sensorTotal: number; gapMs: number | null };
   const exactRows: ExactDataRow[] = [];
   const appendRows = (
@@ -386,8 +419,8 @@ export function SensorAnalyticsChart(props: Readonly<SensorAnalyticsChartProps>)
       gapMs: previous && interval > threshold ? interval : null,
     });
   });
-  data.observed.forEach(({ sensor, points }) => appendRows(sensor.name, "observed", points, gapThresholdMs));
-  data.predicted.forEach(({ sensor, points }) => appendRows(sensor.name, "forecast", points, forecastGapThresholdMs));
+  data.observed.forEach(({ sensor, points }) => appendRows(sensorDisplayName(sensor), "observed", points, gapThresholdMs));
+  data.predicted.forEach(({ sensor, points }) => appendRows(sensorDisplayName(sensor), "forecast", points, forecastGapThresholdMs));
   if (isCombined) {
     appendRows(aggregateLabel, "observed", data.aggregate, gapThresholdMs, (point) => (point as AggregateSeriesPoint).sensorCount, activeSensors.length);
     appendRows(predictionLabel, "forecast", data.aggregateForecast, forecastGapThresholdMs, (point) => (point as AggregateSeriesPoint).sensorCount, activeSensors.length);
@@ -412,18 +445,25 @@ export function SensorAnalyticsChart(props: Readonly<SensorAnalyticsChartProps>)
     + (weatherAvailable && props.weatherForecastVisible ? 1 : 0);
   const selectableSourceCount = props.sensors.length + (weatherAvailable ? 2 : 0);
   const allSourcesSelected = selectedSourceCount === selectableSourceCount;
-  const sourcePickerLabel = allSourcesSelected
+  const sourcePickerBaseLabel = allSourcesSelected
     ? t("sensors.analyticsAllSources")
     : selectedSourceCount === 1 && activeSensors.length === 1
-      ? activeSensors[0]!.name
+      ? sensorDisplayName(activeSensors[0]!)
       : t("sensors.analyticsSelectedSources", { count: selectedSourceCount });
+  const sourcePickerLabel = selectedSourceCount === 1 && activeSensors.length === 1
+    ? sourcePickerBaseLabel
+    : historyLabel(sourcePickerBaseLabel);
   const toggleSensor = (sensorId: string) => {
-    const current = props.selectedSensorIds ?? props.sensors.map((sensor) => sensor.id);
+    const defaultSensorIds = props.sensors.filter((sensor) => sensor.enabled).map((sensor) => sensor.id);
+    const current = props.selectedSensorIds ?? defaultSensorIds;
     const next = current.includes(sensorId) ? current.filter((id) => id !== sensorId) : [...current, sensorId];
-    props.onSensors(next.length === props.sensors.length ? null : next);
+    const isDefault = next.length === defaultSensorIds.length
+      && next.every((id) => defaultSensorIds.includes(id));
+    props.onSensors(isDefault ? null : next);
   };
   const selectAllSources = () => {
-    props.onSensors(null);
+    const allSensorIds = props.sensors.map((sensor) => sensor.id);
+    props.onSensors(props.sensors.every((sensor) => sensor.enabled) ? null : allSensorIds);
     if (weatherAvailable) {
       props.onWeatherObservationsVisible(true);
       props.onWeatherForecastVisible(true);
@@ -436,14 +476,26 @@ export function SensorAnalyticsChart(props: Readonly<SensorAnalyticsChartProps>)
       props.onWeatherForecastVisible(false);
     }
   };
+  const headingTitle = weatherOnly
+    ? t("sensors.analyticsWeatherTitle")
+    : isCombined
+      ? historyLabel(t("sensors.analyticsTitle"))
+      : activeSensors[0] ? sensorDisplayName(activeSensors[0]) : t("sensors.analyticsTitle");
+  const headingDescription = weatherOnly
+    ? t("sensors.analyticsWeatherDescription")
+    : selectedHistoryState === "archived"
+      ? t("sensors.analyticsArchivedDescription")
+      : selectedHistoryState === "mixed"
+        ? t("sensors.analyticsMixedDescription")
+        : t(isCombined ? "sensors.analyticsDescription" : "sensors.analyticsSensorDescription");
 
   return (
     <section className="panel sensor-analytics-panel" aria-labelledby="sensor-analytics-title">
       <header className="sensor-analytics-heading">
         <div>
           <span className="eyebrow"><GitCompareArrows size={13} aria-hidden="true" />{t(weatherOnly ? "sensors.analyticsWeatherEyebrow" : isCombined ? "sensors.analyticsEyebrow" : "sensors.analyticsSensorEyebrow")}</span>
-          <h2 id="sensor-analytics-title">{weatherOnly ? t("sensors.analyticsWeatherTitle") : isCombined ? t("sensors.analyticsTitle") : activeSensors[0]?.name ?? t("sensors.analyticsTitle")}</h2>
-          <p>{t(weatherOnly ? "sensors.analyticsWeatherDescription" : isCombined ? "sensors.analyticsDescription" : "sensors.analyticsSensorDescription")}</p>
+          <h2 id="sensor-analytics-title">{headingTitle}</h2>
+          <p>{headingDescription}</p>
         </div>
         <div className="sensor-analytics-controls">
           <div className="field sensor-series-picker-field">
@@ -459,7 +511,7 @@ export function SensorAnalyticsChart(props: Readonly<SensorAnalyticsChartProps>)
                   <legend>{t("sensors.analyticsSensorsGroup")}</legend>
                   {props.sensors.map((sensor) => <label key={sensor.id}>
                     <input type="checkbox" checked={activeSensors.some((candidate) => candidate.id === sensor.id)} onChange={() => toggleSensor(sensor.id)} />
-                    <span>{sensor.name}</span>
+                    <span>{sensorDisplayName(sensor)}</span>
                   </label>)}
                 </fieldset>
                 {weatherAvailable && <fieldset>
@@ -488,7 +540,7 @@ export function SensorAnalyticsChart(props: Readonly<SensorAnalyticsChartProps>)
       </header>
 
       <div className="sensor-analytics-stats" aria-label={t("sensors.analyticsSummary")}>
-        <div><span><Activity size={14} aria-hidden="true" />{aggregateLabel}</span><strong>{latestAggregate ? formatMeasurement(latestAggregate.value, definition, props.units) : "—"}</strong><small>{weatherOnly ? t("sensors.analyticsFmiSource") : isCombined ? (reportingSensors === 0 && data.electricityPrice.length > 0 ? t("sensors.analyticsPropertyPriceSource") : t("sensors.analyticsReporting", { count: reportingSensors, total: activeSensors.length })) : t("sensors.analyticsSelectedSource")}</small></div>
+        <div><span><Activity size={14} aria-hidden="true" />{aggregateLabel}</span><strong>{latestAggregate ? formatMeasurement(latestAggregate.value, definition, props.units) : "—"}</strong><small>{weatherOnly ? t("sensors.analyticsFmiSource") : isCombined ? (reportingSensors === 0 && data.electricityPrice.length > 0 ? t("sensors.analyticsPropertyPriceSource") : t("sensors.analyticsReporting", { count: reportingSensors, total: activeSensors.length })) : archivedSensorOnly ? `${t("sensors.analyticsSelectedSource")} · ${t("sensors.analyticsArchivedHistory")}` : t("sensors.analyticsSelectedSource")}</small></div>
         <div><span><GitCompareArrows size={14} aria-hidden="true" />{t(!weatherOnly && isCombined ? "sensors.analyticsSensorRange" : "sensors.analyticsObservedRange")}</span><strong>{!weatherOnly && isCombined ? (latestAggregate ? formatMeasurementDelta(latestAggregate.high - latestAggregate.low, definition, props.units) : "—") : (observedRange === null ? "—" : formatMeasurementDelta(observedRange, definition, props.units))}</strong><small>{t(!weatherOnly && isCombined ? "sensors.analyticsMinMax" : "sensors.analyticsRangeContext")}</small></div>
         <div><span><BrainCircuit size={14} aria-hidden="true" />{predictionLabel}</span><strong>{finalPrediction ? formatMeasurement(finalPrediction.value, definition, props.units) : "—"}</strong><small>{finalPrediction ? formatInTimeZone(finalPrediction.timestamp, locale, props.timeZone, { weekday: "short", hour: "2-digit", minute: "2-digit" }) : t("sensors.analyticsNoPrediction")}</small></div>
       </div>
@@ -500,7 +552,7 @@ export function SensorAnalyticsChart(props: Readonly<SensorAnalyticsChartProps>)
       />}
 
       <div className="sensor-analytics-legend" aria-label={t("sensors.analyticsLegend")}>
-        {data.observed.map(({ sensor, points }, index) => points.length > 0 && <span key={sensor.id}><i className={`sensor-series-swatch series-${index % 6}`} style={{ borderTopStyle: sensorDashes[index % sensorDashes.length] ? "dashed" : "solid" }} aria-hidden="true" />{sensor.name}</span>)}
+        {data.observed.map(({ sensor, points }, index) => points.length > 0 && <span key={sensor.id}><i className={`sensor-series-swatch series-${index % 6}`} style={{ borderTopStyle: sensorDashes[index % sensorDashes.length] ? "dashed" : "solid" }} aria-hidden="true" />{sensorDisplayName(sensor)}</span>)}
         {isCombined && data.aggregate.length > 0 && <span><i className="sensor-series-swatch aggregate" aria-hidden="true" />{aggregateLabel}</span>}
         {data.aggregateForecast.length > 0 && <span><i className="sensor-series-swatch prediction" aria-hidden="true" />{predictionLabel}</span>}
         {data.outdoorObserved.length > 0 && <span><i className="sensor-series-swatch outdoor" aria-hidden="true" />{t("decision.outdoor")}</span>}

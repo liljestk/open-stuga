@@ -18,6 +18,11 @@ import { useCalendarComparisonQuery } from "../data/analytics/calendarComparison
 import { formatInTimeZone } from "../dateTime";
 import { useI18n } from "../i18n";
 import { CalendarComparisonResult } from "./CalendarComparisonResult";
+import {
+  sensorHistoryName,
+  sensorHistoryState,
+  withSensorHistoryState,
+} from "./sensorHistoryLabels";
 
 interface CalendarPeriodComparisonProps {
   houseId: string;
@@ -109,6 +114,14 @@ export function CalendarPeriodComparison(props: Readonly<CalendarPeriodCompariso
   const sensorIds = useMemo(
     () => sensorKey === "" ? [] : sensorKey.split("\u0000"),
     [sensorKey],
+  );
+  const selectedHistoryState = sensorHistoryState(props.sensors);
+  const sensorDisplayName = (sensor: Sensor) => sensorHistoryName(sensor, t("sensors.archived"));
+  const historyLabel = (label: string, sensors = props.sensors) => withSensorHistoryState(
+    label,
+    sensorHistoryState(sensors),
+    t("sensors.analyticsArchivedHistory"),
+    t("sensors.analyticsIncludesArchived"),
   );
   const availableAggregations = useMemo(
     () => aggregationOptions(props.definition.kind),
@@ -220,11 +233,13 @@ export function CalendarPeriodComparison(props: Readonly<CalendarPeriodCompariso
         : { month: compact ? "short" : "long", year: "numeric" },
     );
   };
-  const sourceLabel = source === "combined"
-    ? t(combinedMode(props.definition) === "sum"
+  const sourceSensor = props.sensors.find((sensor) => sensor.id === source);
+  const combinedSourceLabel = historyLabel(t(combinedMode(props.definition) === "sum"
       ? "analytics.comparisonCombinedTotal"
-      : "analytics.comparisonCombinedAverage")
-    : props.sensors.find((sensor) => sensor.id === source)?.name ?? source;
+      : "analytics.comparisonCombinedAverage"));
+  const sourceLabel = source === "combined"
+    ? combinedSourceLabel
+    : sourceSensor ? sensorDisplayName(sourceSensor) : source;
   const orderedCandidates = [...candidates].reverse();
   const comparisonSensors = source === "combined"
     ? props.sensors
@@ -252,7 +267,12 @@ export function CalendarPeriodComparison(props: Readonly<CalendarPeriodCompariso
     onToggle={(event) => setOpen(event.currentTarget.open)}
   >
     <summary><span><CalendarRange size={17} aria-hidden="true" /><span>
-      <strong>{t("analytics.comparisonTitle")}</strong>
+      <strong>{withSensorHistoryState(
+        t("analytics.comparisonTitle"),
+        selectedHistoryState,
+        t("sensors.analyticsArchivedHistory"),
+        t("sensors.analyticsIncludesArchived"),
+      )}</strong>
       <small>{t("analytics.comparisonDescriptionDetailed")}</small>
     </span></span></summary>
     <div className="calendar-comparison-body" aria-busy={loading}>
@@ -344,12 +364,10 @@ export function CalendarPeriodComparison(props: Readonly<CalendarPeriodCompariso
           onChange={(event) => setSource(event.target.value)}
         >
           {props.sensors.length > 1 && <option value="combined">
-            {t(combinedMode(props.definition) === "sum"
-              ? "analytics.comparisonCombinedTotal"
-              : "analytics.comparisonCombinedAverage")}
+            {combinedSourceLabel}
           </option>}
           {props.sensors.map((sensor) => <option key={sensor.id} value={sensor.id}>
-            {sensor.name}
+            {sensorDisplayName(sensor)}
           </option>)}
         </select></label>
         <label className="field"><span>{t("analytics.comparisonCalculation")}</span><select

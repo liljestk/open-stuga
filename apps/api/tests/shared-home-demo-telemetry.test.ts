@@ -86,6 +86,9 @@ describe("shared Home demo telemetry isolation", () => {
       quality: "good",
     });
     expect(runtime.database.getLatestReading(sharedSensor.id)?.source).toBe("home-assistant");
+    expect(runtime.database.db.prepare(`SELECT metric FROM sensor_recorded_measurements
+      WHERE sensor_id = ? ORDER BY metric`).all(sharedSensor.id))
+      .toEqual([{ metric: "humidity" }, { metric: "temperature" }]);
 
     runtime.database.setHouseStugubyLink(sharedHouse.id, {
       stugubyId: "stuguby-test",
@@ -104,6 +107,8 @@ describe("shared Home demo telemetry isolation", () => {
     expect(runtime.database.getLatestMeasurementSample(sharedSensor.id, "temperature")).toBeNull();
     expect(runtime.database.getSensor(sharedSensor.id)).not.toHaveProperty("tpLinkDeviceId");
     expect(runtime.database.getSensor(sharedSensor.id)?.measurementEntityIds ?? {}).toEqual({});
+    expect(runtime.database.db.prepare(`SELECT metric FROM sensor_recorded_measurements
+      WHERE sensor_id = ?`).all(sharedSensor.id)).toEqual([]);
     expect(runtime.mock.generate().map(({ sensorId }) => sensorId)).not.toContain(sharedSensor.id);
     expect(() => runtime.database.insertReading({
       sensorId: sharedSensor.id,

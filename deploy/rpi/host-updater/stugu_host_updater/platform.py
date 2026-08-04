@@ -45,6 +45,7 @@ class ApplianceDisk:
     name: str
     disk_guid: str
     disk_serial: str
+    disk_model: str
     partitions: dict[str, Partition]
     active_slot: str
 
@@ -80,7 +81,7 @@ class DeviceResolver:
                 "--bytes",
                 "--paths",
                 "--output",
-                "NAME,PATH,TYPE,SIZE,FSTYPE,PARTLABEL,PARTUUID,PARTTYPE,PARTN,PKNAME,SERIAL",
+                "NAME,PATH,TYPE,SIZE,FSTYPE,PARTLABEL,PARTUUID,PARTTYPE,PARTN,PKNAME,SERIAL,MODEL",
                 str(disk_path),
             ],
             timeout=20,
@@ -221,19 +222,27 @@ class DeviceResolver:
             boot_name,
             disk_guid,
             str(disk.get("serial") or ""),
+            str(disk.get("model") or ""),
             partitions,
             active_slot,
         )
 
 
-def _hardware_text(path: Path, label: str) -> str:
+def _hardware_text(path: Path, label: str, *, blank_fallback: str | None = None) -> str:
     try:
         data = path.read_bytes()
     except OSError as error:
         raise PreflightError(
             "HARDWARE_IDENTITY_UNAVAILABLE", f"{label} is unavailable"
         ) from error
-    value = " ".join(data.rstrip(b"\x00\r\n ").decode("ascii").split())
+    try:
+        value = " ".join(data.rstrip(b"\x00\r\n ").decode("ascii").split())
+    except UnicodeDecodeError as error:
+        raise PreflightError(
+            "HARDWARE_IDENTITY_INVALID", f"{label} is invalid"
+        ) from error
+    if not value and blank_fallback is not None:
+        value = " ".join(blank_fallback.split())
     if not HARDWARE_VALUE.fullmatch(value):
         raise PreflightError("HARDWARE_IDENTITY_INVALID", f"{label} is invalid")
     return value
@@ -332,7 +341,11 @@ def hardware_fingerprint(
         ).lower(),
         "usbDriver": interface_driver,
         "storageVendor": _hardware_text(storage_device / "vendor", "Storage vendor"),
-        "storageModel": _hardware_text(storage_device / "model", "Storage model"),
+        "storageModel": _hardware_text(
+            storage_device / "model",
+            "Storage model",
+            blank_fallback=disk.disk_model,
+        ),
         "storageRevision": _hardware_text(
             storage_device / "rev", "Storage firmware revision"
         ),

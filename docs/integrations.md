@@ -231,7 +231,8 @@ of up to 10,000. It forces `source: "import"`, accepts archived sensors, and
 deduplicates by sensor/metric/timestamp across all sources. Imported samples do
 not publish live SSE events, evaluate alerts, or deliver webhooks. The guided
 browser workflow sends smaller retry-safe batches and refreshes the house after
-completion.
+completion. Archived sensors stay out of the default live scope but remain
+available as explicit Data & analytics and export sources.
 
 ### Live v2 events
 

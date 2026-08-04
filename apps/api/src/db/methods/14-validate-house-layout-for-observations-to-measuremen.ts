@@ -95,6 +95,7 @@ import {
 } from "../../notification-policy.js";
 import type { EnergyCostAggregateQuery, EnergyCostAggregateRecord, MeasurementCoverageRecord } from "../../timeseries/types.js";
 import { CORE_SCHEMA_SQL } from "../migrations/core-schema.js";
+import { DEMO_TELEMETRY_SOURCES } from "../support/01-json-value-to-area-equipment-row.js";
 import { MeasurementDefinitionRow, MeasurementSampleRow, SensorDataGapSource } from "../support/02-equipment-attachment-row-to-sensor-data-gap-state.js";
 import { ClimateDataValidationError } from "../support/03-sensor-data-gap-row-to-canonical-json-value.js";
 import { measurementDefinitionFromRow, measurementSampleFromRow } from "../support/04-canonical-json-value-to-action-playbook-from-row.js";
@@ -405,6 +406,10 @@ registerDatabaseMethods({
         (sensor_id, metric, value, canonical_unit, timestamp, source, quality) VALUES (?, ?, ?, ?, ?, ?, ?)`)
         .run(sample.sensorId, sample.metric, sample.value, sample.canonicalUnit, sample.timestamp, sample.source, sample.quality);
       if (Number(result.changes) === 0) return false;
+      if (!DEMO_TELEMETRY_SOURCES.has(sample.source)) {
+        this.db.prepare("INSERT OR IGNORE INTO sensor_recorded_measurements(sensor_id, metric) VALUES (?, ?)")
+          .run(sample.sensorId, sample.metric);
+      }
       if (enqueueAlertEvaluation) {
         this.db.prepare("INSERT INTO alert_evaluation_queue(measurement_sample_id) VALUES (?)")
           .run(result.lastInsertRowid);

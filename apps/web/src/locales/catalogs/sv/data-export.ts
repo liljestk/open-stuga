@@ -82,6 +82,7 @@ export const svDataExport = {
   "dataExport.scheduleCsvOnly": "Schemalagda filer använder kanoniska enheter i CSV-format.",
   "dataExport.scheduleQuickAction": "Schemalägg veckoexport",
   "dataExport.scheduleCustomPeriod": "Schemalagda exporter behöver ett rullande intervall, till exempel de senaste 30 dagarna. Egna datum finns bara för engångsexporter.",
+  "dataExport.scheduleArchivedSelection": "Arkiverade sensorer kan användas för enstaka historiska exporter. Schemalagda exporter använder tills vidare bara aktiva sensorer.",
   "dataExport.scheduleNameRequired": "Ange ett namn på schemat.",
   "dataExport.scheduleAdvanced": "Avancerat schema",
   "dataExport.scheduleName": "Schemanamn",

@@ -74,6 +74,7 @@ function sensorSupportsMetric(state: ClimateState, sensor: Sensor, metric: strin
   return Boolean(state.latestMeasurements[sensor.id]?.[metric])
     || (state.measurementHistory[sensor.id]?.[metric]?.length ?? 0) > 0
     || Boolean(sensor.measurementEntityIds?.[metric])
+    || Boolean(sensor.recordedMeasurementIds?.includes(metric))
     || (metric === "temperature" && Boolean(sensor.temperatureEntityId))
     || (metric === "humidity" && Boolean(sensor.humidityEntityId));
 }
@@ -149,7 +150,7 @@ export function DataExportPanel(props: Readonly<DataExportPanelProps>) {
   const { locale, t } = useI18n();
   const canManageSchedules = hasBrowserCapability(props.state.session.tenant.role, "system-operations");
   const sensors = useMemo(
-    () => props.state.sensors.filter((sensor) => sensor.houseId === props.house.id && sensor.enabled),
+    () => props.state.sensors.filter((sensor) => sensor.houseId === props.house.id),
     [props.house.id, props.state.sensors],
   );
   const definitions = useMemo(() => props.state.measurementDefinitions.filter((definition) => (
@@ -161,7 +162,10 @@ export function DataExportPanel(props: Readonly<DataExportPanelProps>) {
   const [period, setPeriod] = useState<ExportPeriod>("30d");
   const [customStart, setCustomStart] = useState(() => localObservationDateTime(new Date(initialNow.current - 30 * 86_400_000), props.house.timezone));
   const [customEnd, setCustomEnd] = useState(() => localObservationDateTime(new Date(initialNow.current), props.house.timezone));
-  const [selectedSensorIds, setSelectedSensorIds] = useState(() => sensors.map((sensor) => sensor.id));
+  const [selectedSensorIds, setSelectedSensorIds] = useState(() => {
+    const activeSensorIds = sensors.filter((sensor) => sensor.enabled).map((sensor) => sensor.id);
+    return activeSensorIds;
+  });
   const [selectedMetricIds, setSelectedMetricIds] = useState(() => initialMetrics);
   const [granularity, setGranularity] = useState<ExportGranularity>("15m");
   const [customMinutes, setCustomMinutes] = useState("10");
@@ -211,6 +215,7 @@ export function DataExportPanel(props: Readonly<DataExportPanelProps>) {
     [definitions, selectedMetricIds],
   );
   const aggregationOptions = useMemo(() => commonAggregations(selectedDefinitions), [selectedDefinitions]);
+  const includesArchivedSensors = selectedSensors.some((sensor) => !sensor.enabled);
 
   useEffect(() => {
     if (!aggregationOptions.includes(aggregation)) setAggregation(aggregationOptions[0] ?? "last");
@@ -421,7 +426,7 @@ export function DataExportPanel(props: Readonly<DataExportPanelProps>) {
                       const definition = definitions.find((candidate) => candidate.id === metric);
                       return definition ? [measurementLabel(definition, locale)] : [];
                     });
-                  return <label key={sensor.id}><input type="checkbox" checked={selectedSensorIds.includes(sensor.id)} onChange={(event) => toggleSensor(sensor.id, event.target.checked)} /><span><strong>{sensor.name}</strong><small>{available.length > 0 ? available.join(", ") : t("dataExport.noSelectedData")}</small></span></label>;
+                  return <label key={sensor.id}><input type="checkbox" checked={selectedSensorIds.includes(sensor.id)} onChange={(event) => toggleSensor(sensor.id, event.target.checked)} /><span><strong>{sensor.name}{sensor.enabled ? "" : ` · ${t("sensors.archived")}`}</strong><small>{available.length > 0 ? available.join(", ") : t("dataExport.noSelectedData")}</small></span></label>;
                 })}</fieldset>
               </div>
             </details></div>
@@ -467,11 +472,11 @@ export function DataExportPanel(props: Readonly<DataExportPanelProps>) {
         {canManageSchedules && <ScheduledDataExportsPanel
           house={props.house}
           period={period}
-          sensorIds={selectedSensorIds}
+          sensorIds={selectedSensors.map((sensor) => sensor.id)}
           measurementIds={selectedMetricIds}
           resolution={resolution}
           aggregation={resolution === "raw" ? "default" : aggregation}
-          configurationError={validationError}
+          configurationError={validationError ?? (includesArchivedSensors ? t("dataExport.scheduleArchivedSelection") : null)}
         />}
 
         {preview && <section className={`data-export-preview ${previewCurrent ? "current" : "stale"}`} aria-labelledby="data-export-preview-title">

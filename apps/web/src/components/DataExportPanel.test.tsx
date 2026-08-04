@@ -175,6 +175,61 @@ describe("DataExportPanel", () => {
     expect(screen.getByText("Showing recent rows with readings (1 of 13 total rows).")).not.toBeNull();
   });
 
+  it("keeps archived sensors available for an explicit historical export", async () => {
+    const state = createDemoState();
+    const house = state.houses[0]!;
+    const live = state.sensors.find((sensor) => sensor.houseId === house.id && sensor.enabled)!;
+    const archived = {
+      ...live,
+      id: "export-archived",
+      name: "Archive history",
+      enabled: false,
+      recordedMeasurementIds: ["temperature", "humidity"],
+    };
+    state.sensors = [...state.sensors, archived];
+    const analyticsQuery = vi.spyOn(api, "analyticsQuery").mockImplementation(async (input) => responseFor(input));
+    const user = userEvent.setup();
+    render(<I18nProvider><DataExportPanel state={state} house={house} units="metric" dataMode="demo" /></I18nProvider>);
+
+    await user.click(screen.getByText("Export sensor data").closest("summary")!);
+    await waitFor(() => expect(analyticsQuery).toHaveBeenCalled());
+    expect(analyticsQuery.mock.calls[0]![0].scope.entityIds).not.toContain(archived.id);
+
+    const sensorPicker = screen.getAllByText("Sensors")
+      .find((element) => element.tagName === "SPAN")!
+      .closest(".data-export-picker-field") as HTMLElement;
+    await user.click(within(sensorPicker).getByText(/sensor.*selected/i));
+    const archivedChoice = within(sensorPicker).getByLabelText(/Archive history · Archived/);
+    expect(archivedChoice).not.toBeChecked();
+    await user.click(archivedChoice);
+    expect(screen.getByText("Archived sensors are available for one-time historical exports. Scheduled exports currently use live sensors only.")).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Schedule weekly export" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Update preview" }));
+
+    await waitFor(() => expect(analyticsQuery.mock.calls.at(-1)?.[0].scope.entityIds).toContain(archived.id));
+  });
+
+  it("requires an explicit sensor choice when a Home contains archived sensors only", async () => {
+    const fullState = createDemoState();
+    const house = fullState.houses[0]!;
+    const archived = {
+      ...fullState.sensors[0]!,
+      id: "only-archive",
+      name: "Only archived history",
+      enabled: false,
+      recordedMeasurementIds: ["temperature", "humidity"],
+    };
+    const state = { ...fullState, sensors: [archived], latestMeasurements: {}, measurementHistory: {} };
+    const analyticsQuery = vi.spyOn(api, "analyticsQuery").mockImplementation(async (input) => responseFor(input));
+    const user = userEvent.setup();
+
+    render(<I18nProvider><DataExportPanel state={state} house={house} units="metric" dataMode="demo" /></I18nProvider>);
+    await user.click(screen.getByText("Export sensor data").closest("summary")!);
+
+    expect((await screen.findAllByText("Select at least one sensor.")).length).toBeGreaterThan(0);
+    expect(analyticsQuery).not.toHaveBeenCalled();
+  });
+
   it("shows and exports only sensors supporting a selected measurement", async () => {
     const fullState = createDemoState();
     const house = fullState.houses[0]!;
@@ -194,9 +249,18 @@ describe("DataExportPanel", () => {
       humidityEntityId: "sensor.humidity",
     };
     delete humiditySensor.temperatureEntityId;
+    const archivedTemperatureSensor: Sensor = {
+      ...temperatureSensor,
+      id: "archived-temperature-only",
+      name: "Archived temperature sensor",
+      enabled: false,
+      measurementEntityIds: {},
+      recordedMeasurementIds: ["temperature"],
+    };
+    delete archivedTemperatureSensor.temperatureEntityId;
     const state = {
       ...fullState,
-      sensors: [temperatureSensor, humiditySensor],
+      sensors: [temperatureSensor, humiditySensor, archivedTemperatureSensor],
       latestMeasurements: {},
       measurementHistory: {},
     };
@@ -210,10 +274,13 @@ describe("DataExportPanel", () => {
     await user.click(within(measurementPicker).getByText("2 measurements selected"));
     await user.click(within(measurementPicker).getByText("Humidity").closest("label")!.querySelector<HTMLInputElement>("input")!);
 
-    const sensorSummary = await screen.findByText("All sensors (1)");
-    const sensorPicker = sensorSummary.closest(".data-export-picker-field") as HTMLElement;
+    const sensorPicker = screen.getAllByText("Sensors")
+      .find((element) => element.tagName === "SPAN")!
+      .closest(".data-export-picker-field") as HTMLElement;
+    const sensorSummary = await within(sensorPicker).findByText("1 sensors selected");
     await user.click(sensorSummary);
     expect(within(sensorPicker).getByText("Temperature sensor")).not.toBeNull();
+    expect(within(sensorPicker).getByText(/Archived temperature sensor/)).not.toBeNull();
     expect(within(sensorPicker).queryByText("Humidity sensor")).toBeNull();
 
     await user.click(screen.getByRole("button", { name: "Update preview" }));
@@ -221,5 +288,9 @@ describe("DataExportPanel", () => {
       measurementIds: ["temperature"],
       scope: { entityIds: ["temperature-only"] },
     }));
+
+    await user.click(within(measurementPicker).getByText("Humidity").closest("label")!.querySelector<HTMLInputElement>("input")!);
+    await user.click(within(measurementPicker).getByText("Temperature").closest("label")!.querySelector<HTMLInputElement>("input")!);
+    await waitFor(() => expect(within(sensorPicker).queryByText(/Archived temperature sensor/)).toBeNull());
   });
 });

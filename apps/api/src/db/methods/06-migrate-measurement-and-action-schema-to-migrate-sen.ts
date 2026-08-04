@@ -386,6 +386,9 @@ registerDatabaseMethods({
           INSERT OR IGNORE INTO measurement_samples
             (sensor_id, metric, value, canonical_unit, timestamp, source, quality)
           SELECT sensor_id, 'humidity', humidity, '%', timestamp, source, quality FROM readings;
+          INSERT OR IGNORE INTO sensor_recorded_measurements(sensor_id, metric)
+            SELECT DISTINCT sensor_id, metric FROM measurement_samples
+            WHERE source NOT IN ('mock', 'replay');
           INSERT INTO metadata(key, value) VALUES ('measurement_eav_v2', 'complete');
         `);
       });
