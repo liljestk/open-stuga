@@ -58,6 +58,12 @@ REQUIRED_HOST_EXECUTABLES = (
     Path("/usr/bin/rauc"),
     Path("/usr/bin/unsquashfs"),
 )
+REQUIRED_HOST_SERVICE_FILES = (
+    Path("/usr/lib/systemd/system/rauc.service"),
+    Path("/usr/share/dbus-1/system-services/de.pengutronix.rauc.service"),
+    Path("/usr/share/dbus-1/system.d/de.pengutronix.rauc.conf"),
+    Path("/usr/share/rauc/rauc-service.sh"),
+)
 
 
 @dataclass(frozen=True)
@@ -170,6 +176,12 @@ class Preflight:
                 raise PreflightError(
                     "HOST_RUNTIME_INCOMPLETE",
                     f"Host updater runtime dependency is unavailable: {path.name}",
+                )
+        for path in REQUIRED_HOST_SERVICE_FILES:
+            if not path.is_file():
+                raise PreflightError(
+                    "HOST_RUNTIME_INCOMPLETE",
+                    f"Host updater service dependency is unavailable: {path}",
                 )
 
     def _hardware(self, manifest: ReleaseManifest) -> None:

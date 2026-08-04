@@ -562,18 +562,25 @@ test("host boot-control records live outside FAT and activation is qualification
   assert.match(builder, /boot selector must be static for early initramfs/u);
 });
 
-test("host releases include and inspect RAUC's extraction runtime", async () => {
+test("host releases include and inspect RAUC's extraction and service runtime", async () => {
   const [layer, builder, publisher] = await Promise.all([
     readFile(new URL("../../deploy/rpi/layer/stugu.yaml", import.meta.url), "utf8"),
     readFile(new URL("../build-rpi-image.sh", import.meta.url), "utf8"),
     readFile(new URL("../publish-local-release.mjs", import.meta.url), "utf8"),
   ]);
 
-  assert.match(layer, /packages:[\s\S]*- rauc[\s\S]*- squashfs-tools/u);
+  assert.match(layer, /packages:[\s\S]*- rauc[\s\S]*- rauc-service[\s\S]*- squashfs-tools/u);
   assert.match(publisher, /apt-get install[^"\n]*\berofs-utils\b/u);
   assert.match(builder, /dump\.erofs --path="\$required_host_runtime"/u);
   assert.match(builder, /\/usr\/bin\/rauc \/usr\/bin\/unsquashfs/u);
   assert.match(builder, /Access: 0755\//u);
+  assert.match(builder, /\/usr\/lib\/systemd\/system\/rauc\.service:0644/u);
+  assert.match(
+    builder,
+    /\/usr\/share\/dbus-1\/system-services\/de\.pengutronix\.rauc\.service:0644/u,
+  );
+  assert.match(builder, /\/usr\/share\/dbus-1\/system\.d\/de\.pengutronix\.rauc\.conf:0644/u);
+  assert.match(builder, /\/usr\/share\/rauc\/rauc-service\.sh:0755/u);
 });
 
 test("clean appliances default to guarded automatic GitHub container updates", async () => {
