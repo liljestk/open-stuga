@@ -28,6 +28,8 @@
 		A60000000000000000000012 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A50000000000000000000012 /* Assets.xcassets */; };
 		A60000000000000000000013 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = A50000000000000000000013 /* Localizable.xcstrings */; };
 		A60000000000000000000014 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = A50000000000000000000015 /* PrivacyInfo.xcprivacy */; };
+		A60000000000000000000017 /* PinnedOverviewSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50000000000000000000017 /* PinnedOverviewSettingsView.swift */; };
+		A60000000000000000000018 /* GlanceOverview.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50000000000000000000018 /* GlanceOverview.swift */; };
 		B60000000000000000000001 /* TrackingModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B50000000000000000000001 /* TrackingModels.swift */; };
 		B60000000000000000000002 /* TrackingProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = B50000000000000000000002 /* TrackingProtocol.swift */; };
 		B60000000000000000000003 /* TrackingSignal.swift in Sources */ = {isa = PBXBuildFile; fileRef = B50000000000000000000003 /* TrackingSignal.swift */; };
@@ -131,6 +133,8 @@
 		A50000000000000000000014 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A50000000000000000000015 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		A50000000000000000000016 /* Monitoring.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Monitoring.xcstrings; sourceTree = "<group>"; };
+		A50000000000000000000017 /* PinnedOverviewSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PinnedOverviewSettingsView.swift; sourceTree = "<group>"; };
+		A50000000000000000000018 /* GlanceOverview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlanceOverview.swift; sourceTree = "<group>"; };
 		B50000000000000000000001 /* TrackingModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackingModels.swift; sourceTree = "<group>"; };
 		B50000000000000000000002 /* TrackingProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackingProtocol.swift; sourceTree = "<group>"; };
 		B50000000000000000000003 /* TrackingSignal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackingSignal.swift; sourceTree = "<group>"; };
@@ -261,6 +265,7 @@
 			isa = PBXGroup;
 			children = (
 				A50000000000000000000008 /* HomeDashboardView.swift */,
+				A50000000000000000000017 /* PinnedOverviewSettingsView.swift */,
 			);
 			path = Home;
 			sourceTree = "<group>";
@@ -307,6 +312,7 @@
 				A5000000000000000000000D /* Models.swift */,
 				A5000000000000000000000E /* ServerAddress.swift */,
 				A5000000000000000000000F /* CompanionLogic.swift */,
+				A50000000000000000000018 /* GlanceOverview.swift */,
 				A50000000000000000000010 /* SSEParser.swift */,
 				A50000000000000000000011 /* APIClient.swift */,
 				B50000000000000000000001 /* TrackingModels.swift */,
@@ -550,6 +556,7 @@
 				A60000000000000000000006 /* StuguMark.swift in Sources */,
 				A60000000000000000000007 /* ConditionViews.swift in Sources */,
 				A60000000000000000000008 /* HomeDashboardView.swift in Sources */,
+				A60000000000000000000017 /* PinnedOverviewSettingsView.swift in Sources */,
 				A60000000000000000000009 /* SensorsView.swift in Sources */,
 				A6000000000000000000000A /* SensorDetailView.swift in Sources */,
 				A6000000000000000000000B /* AlertsView.swift in Sources */,
@@ -557,6 +564,7 @@
 				A6000000000000000000000D /* Models.swift in Sources */,
 				A6000000000000000000000E /* ServerAddress.swift in Sources */,
 				A6000000000000000000000F /* CompanionLogic.swift in Sources */,
+				A60000000000000000000018 /* GlanceOverview.swift in Sources */,
 				A60000000000000000000010 /* SSEParser.swift in Sources */,
 				A60000000000000000000011 /* APIClient.swift in Sources */,
 				E60000000000000000000001 /* EdgeCredential.swift in Sources */,
@@ -749,7 +757,7 @@
 					"@executable_path/Frameworks",
 				);
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MARKETING_VERSION = 0.33.0;
+				MARKETING_VERSION = 0.34.0;
 				PRODUCT_BUNDLE_IDENTIFIER = net.nysta.stuga;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTS_MACCATALYST = YES;
@@ -782,7 +790,7 @@
 					"@executable_path/Frameworks",
 				);
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MARKETING_VERSION = 0.33.0;
+				MARKETING_VERSION = 0.34.0;
 				PRODUCT_BUNDLE_IDENTIFIER = net.nysta.stuga;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTS_MACCATALYST = YES;
@@ -808,7 +816,7 @@
 					"$(inherited)",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 0.33.0;
+				MARKETING_VERSION = 0.34.0;
 				PRODUCT_BUNDLE_IDENTIFIER = net.nysta.stuga.widget;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -833,7 +841,7 @@
 					"$(inherited)",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 0.33.0;
+				MARKETING_VERSION = 0.34.0;
 				PRODUCT_BUNDLE_IDENTIFIER = net.nysta.stuga.widget;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -859,7 +867,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.33.0;
+				MARKETING_VERSION = 0.34.0;
 				PRODUCT_BUNDLE_IDENTIFIER = net.nysta.stuga.watchkitapp;
 				PRODUCT_NAME = StuguWatch;
 				SDKROOT = watchos;
@@ -888,7 +896,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.33.0;
+				MARKETING_VERSION = 0.34.0;
 				PRODUCT_BUNDLE_IDENTIFIER = net.nysta.stuga.watchkitapp;
 				PRODUCT_NAME = StuguWatch;
 				SDKROOT = watchos;

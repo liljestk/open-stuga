@@ -4,6 +4,20 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.34.0 - 2026-08-04
+
+- Allow a factory host-generation seed with no accepted manifest digest to bind
+  its first same-generation repair only after explicit repair authorization and
+  signed TUF/RAUC verification. Once bound, later repairs must still match the
+  exact accepted manifest.
+- Add a pinnable, configurable phone overview to mobile web and iPhone with
+  attention-first Home or Property status, fresh temperature, humidity,
+  electricity and CO2 summaries, and Room or Home breakdowns.
+
+Upgrade impact: this release supersedes the unpublished 0.33.0 preview as host
+generation 4. It combines H500, H200, Gree, telemetry-retention, mobile
+overview, and signed A/B updater changes without a persistent-data migration.
+
 ## 0.33.0 - 2026-08-04
 
 - Honor `RETENTION_DAYS=0` as an unbounded SQLite telemetry duplicate: do not

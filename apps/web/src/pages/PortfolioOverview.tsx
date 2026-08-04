@@ -7,9 +7,11 @@ import type {
   HomeMonitoringSummary,
   House,
   IntegrationStatus,
+  MeasurementDefinition,
   Property,
   PropertyArea,
   Sensor,
+  UnitSystem,
 } from "@climate-twin/contracts";
 import { useI18n, type TranslationKey } from "../i18n";
 import { formatInTimeZone } from "../dateTime";
@@ -17,6 +19,7 @@ import { useNow } from "../useNow";
 import type { LatestMeasurements, MeasurementHistory } from "../measurements";
 import { HomeOriginIndicator, isRemoteHome } from "../components/HomeOriginIndicator";
 import { useHomeMonitoringCollectionQuery } from "../data/analytics/homeMonitoringQuery";
+import { MobileGlanceOverview } from "../components/MobileGlanceOverview";
 
 type MonitoringRequestState = "pending" | "error" | "ready" | "unknown";
 
@@ -27,13 +30,16 @@ interface PortfolioOverviewProps {
   sensors: Sensor[];
   latestMeasurements: LatestMeasurements;
   measurementHistory: MeasurementHistory;
+  measurementDefinitions?: MeasurementDefinition[];
   alerts: AlertEvent[];
   alertRules: AlertRule[];
   integration: IntegrationStatus;
+  units?: UnitSystem;
   onOpenProperty: (propertyId: string) => void;
   onOpenTwin: (houseId: string) => void;
   onOpenOutdoor: (houseId: string) => void;
   onOpenSetup: (houseId: string) => void;
+  onOpenAlerts?: () => void;
   readOnly?: boolean;
   dataMode?: "demo" | "real" | "unknown";
   monitoring?: HomeMonitoringCollectionResponse;
@@ -84,14 +90,18 @@ function PortfolioOverviewView({
   sensors,
   latestMeasurements,
   measurementHistory,
+  measurementDefinitions = [],
   alerts,
   alertRules,
   integration,
+  units = "metric",
   onOpenProperty,
   onOpenTwin,
   onOpenOutdoor,
   onOpenSetup,
+  onOpenAlerts = () => undefined,
   readOnly = false,
+  dataMode,
   monitoring: monitoringResponse,
   monitoringRequestState,
 }: PortfolioOverviewProps) {
@@ -239,6 +249,20 @@ function PortfolioOverviewView({
 
   return (
     <div className="page-stack portfolio-overview">
+      <MobileGlanceOverview
+        properties={properties}
+        houses={houses}
+        sensors={sensors}
+        latestMeasurements={latestMeasurements}
+        measurementDefinitions={measurementDefinitions}
+        alerts={alerts}
+        alertRules={alertRules}
+        units={units}
+        {...(dataMode ? { dataMode } : {})}
+        onOpenHome={onOpenTwin}
+        onOpenProperty={onOpenProperty}
+        onOpenAlerts={onOpenAlerts}
+      />
       <header className="page-heading portfolio-heading">
         <div>
           <span className="eyebrow">{t(properties.length === 1 ? "overview.propertyCountOne" : "overview.propertyCountMany", { count: properties.length })}</span>

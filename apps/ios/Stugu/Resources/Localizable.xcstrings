@@ -1,6 +1,114 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Carbon dioxide" : {
+      "localizations" : {
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Hiilidioksidi" } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Koldioxid" } }
+      }
+    },
+    "Choose a Home or Property and the quick stats to show." : {
+      "localizations" : {
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Valitse koti tai kiinteistö sekä näytettävät pikatiedot." } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Välj ett hem eller en fastighet och vilken snabbstatus som ska visas." } }
+      }
+    },
+    "Electricity now" : {
+      "localizations" : {
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Sähkö nyt" } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "El just nu" } }
+      }
+    },
+    "Homes" : {
+      "localizations" : {
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Kodit" } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Hem" } }
+      }
+    },
+    "Humidity" : {
+      "localizations" : {
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Ilmankosteus" } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Luftfuktighet" } }
+      }
+    },
+    "Keep at least one quick stat visible." : {
+      "localizations" : {
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Pidä vähintään yksi pikatieto näkyvissä." } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Behåll minst en snabbstatus synlig." } }
+      }
+    },
+    "No recent reading" : {
+      "localizations" : {
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Ei tuoretta lukemaa" } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Ingen aktuell avläsning" } }
+      }
+    },
+    "Overview" : {
+      "localizations" : {
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Yleiskuva" } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Översikt" } }
+      }
+    },
+    "Overview scope" : {
+      "localizations" : {
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Yleiskuvan taso" } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Översiktsnivå" } }
+      }
+    },
+    "Pin overview" : {
+      "localizations" : {
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Kiinnitä yleiskuva" } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Fäst översikt" } }
+      }
+    },
+    "Pinned overview" : {
+      "localizations" : {
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Kiinnitetty yleiskuva" } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Fäst översikt" } }
+      }
+    },
+    "PROPERTY OVERVIEW" : {
+      "localizations" : {
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "KIINTEISTÖN YLEISKUVA" } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "FASTIGHETSÖVERSIKT" } }
+      }
+    },
+    "Property" : {
+      "localizations" : {
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Kiinteistö" } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Fastighet" } }
+      }
+    },
+    "Quick stats" : {
+      "localizations" : {
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Pikatiedot" } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Snabbstatus" } }
+      }
+    },
+    "Rooms" : {
+      "localizations" : {
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Huoneet" } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Rum" } }
+      }
+    },
+    "Temperature" : {
+      "localizations" : {
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Lämpötila" } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Temperatur" } }
+      }
+    },
+    "This overview opens first, so the most important status is ready at a glance." : {
+      "localizations" : {
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Tämä yleiskuva avautuu ensin, joten tärkein tila näkyy heti." } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Den här översikten öppnas först, så den viktigaste statusen syns direkt." } }
+      }
+    },
+    "Updated recently" : {
+      "localizations" : {
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Päivitetty äskettäin" } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Nyligen uppdaterad" } }
+      }
+    },
     "%@ · %@" : {
       "comment" : "A label that shows the name of a home and a checkmark if it is the selected home.",
       "isCommentAutoGenerated" : true,

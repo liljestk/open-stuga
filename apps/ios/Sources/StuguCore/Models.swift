@@ -332,6 +332,7 @@ public struct Sensor: Codable, Identifiable, Equatable, Sendable {
     public let tpLinkDeviceId: String?
     public let tpLinkConnectionId: String?
     public let measurementEntityIds: [String: String]?
+    public let energyMeterRole: String?
 
     public init(
         id: String,
@@ -347,7 +348,8 @@ public struct Sensor: Codable, Identifiable, Equatable, Sendable {
         batteryEntityId: String? = nil,
         tpLinkDeviceId: String? = nil,
         tpLinkConnectionId: String? = nil,
-        measurementEntityIds: [String: String]? = nil
+        measurementEntityIds: [String: String]? = nil,
+        energyMeterRole: String? = nil
     ) {
         self.id = id
         self.houseId = houseId
@@ -363,6 +365,7 @@ public struct Sensor: Codable, Identifiable, Equatable, Sendable {
         self.tpLinkDeviceId = tpLinkDeviceId
         self.tpLinkConnectionId = tpLinkConnectionId
         self.measurementEntityIds = measurementEntityIds
+        self.energyMeterRole = energyMeterRole
     }
 }
 

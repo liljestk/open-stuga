@@ -20,7 +20,7 @@ const session = (email: string, tenantId = "tenant-1"): AppSession => ({
 });
 
 describe("account-scoped browser storage", () => {
-  it("keeps an explicit inventory of all 18 production localStorage key families", () => {
+  it("keeps an explicit inventory of all 19 production localStorage key families", () => {
     expect(accountStorageKeyFamilies).toEqual([
       { key: "climate-twin-locale", kind: "exact", legacy: "migrate" },
       { key: "climate-twin-units", kind: "exact", legacy: "migrate" },
@@ -36,6 +36,7 @@ describe("account-scoped browser storage", () => {
       { key: "stugu-home-map-opening-state-labels-visible", kind: "exact", legacy: "migrate" },
       { key: "stugu-home-map-animations-enabled", kind: "exact", legacy: "migrate" },
       { key: "stugu-home-map-outdoor-extras-visible", kind: "exact", legacy: "migrate" },
+      { key: "stugu-mobile-overview", kind: "exact", legacy: "discard" },
       { key: "stugu-dismissed-tp-link-device-notices", kind: "exact", legacy: "discard" },
       { key: "stugu-dismissed-integration-discovery-notices", kind: "exact", legacy: "discard" },
       { key: "stugu.integration-discovery.", kind: "prefix", legacy: "discard" },
@@ -61,6 +62,7 @@ describe("account-scoped browser storage", () => {
   it("migrates presentation preferences but discards unattributable personal and job state", () => {
     const principal = session("owner@example.test");
     localStorage.setItem("climate-twin-locale", "fi");
+    localStorage.setItem("stugu-mobile-overview", '{"scope":"home","targetId":"home-1"}');
     localStorage.setItem("stugu-dismissed-tp-link-device-notices", '["device-1"]');
     localStorage.setItem("stugu.integration-discovery.home-1", "job-1");
     localStorage.setItem("stugu-home-pulse-hidden:v1:home-1", '["insight-1"]');
@@ -71,9 +73,11 @@ describe("account-scoped browser storage", () => {
     expect(localStorage.getItem("climate-twin-locale")).toBeNull();
     expect(localStorage.getItem(accountScopedStorageKeyForTest(principal, "climate-twin-locale"))).toBe("fi");
     expect(readLocalStorage("stugu-dismissed-tp-link-device-notices")).toBeNull();
+    expect(readLocalStorage("stugu-mobile-overview")).toBeNull();
     expect(readLocalStorage("stugu.integration-discovery.home-1")).toBeNull();
     expect(readLocalStorage("stugu-home-pulse-hidden:v1:home-1")).toBeNull();
     expect(localStorage.getItem("stugu-dismissed-tp-link-device-notices")).toBeNull();
+    expect(localStorage.getItem("stugu-mobile-overview")).toBeNull();
     expect(localStorage.getItem("stugu.integration-discovery.home-1")).toBeNull();
     expect(localStorage.getItem("stugu-home-pulse-hidden:v1:home-1")).toBeNull();
   });

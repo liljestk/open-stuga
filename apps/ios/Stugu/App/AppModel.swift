@@ -17,6 +17,9 @@ final class AppModel: ObservableObject {
         static let server = "stugu.server"
         static let selectedHome = "stugu.selectedHome"
         static let selectedProperty = "stugu.selectedProperty"
+        static let pinnedOverviewScope = "stugu.overview.pinnedScope"
+        static let pinnedOverviewTarget = "stugu.overview.pinnedTarget"
+        static let overviewMetrics = "stugu.overview.metrics"
         static let units = "stugu.units"
         static let equipmentObservation = "stugu.tracking.mobileObserver.enabled"
         static let notificationsEnabled = "stugu.notifications.enabled"
@@ -63,6 +66,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var sensors: [Sensor] = []
     @Published private(set) var definitions: [MeasurementDefinition] = []
     @Published private(set) var snapshot: [MeasurementSnapshotEntry] = []
+    @Published private(set) var propertyMeasurementSnapshots: [String: [MeasurementSnapshotEntry]] = [:]
     @Published private(set) var tpLinkDevices: [TpLinkDiscoveredDevice] = []
     @Published private(set) var latestOpeningStateObservation: OpeningStateObservation?
     @Published private(set) var alerts: [AlertEvent] = []
@@ -76,6 +80,19 @@ final class AppModel: ObservableObject {
     @Published private(set) var pendingActions: [PendingCompanionAction] = []
     @Published private(set) var selectedHomeID: String?
     @Published private(set) var selectedPropertyID: String?
+    @Published private(set) var pinnedOverviewScope = GlanceOverviewScope(
+        rawValue: UserDefaults.standard.string(forKey: DefaultsKey.pinnedOverviewScope) ?? ""
+    ) ?? .home
+    @Published private(set) var pinnedOverviewTargetID = UserDefaults.standard.string(
+        forKey: DefaultsKey.pinnedOverviewTarget
+    )
+    @Published private(set) var overviewMetrics: Set<GlanceOverviewMetric> = {
+        let stored = UserDefaults.standard.string(forKey: DefaultsKey.overviewMetrics) ?? ""
+        let selected = Set(stored.split(separator: ",").compactMap {
+            GlanceOverviewMetric(rawValue: String($0))
+        })
+        return selected.isEmpty ? Set(GlanceOverviewMetric.allCases) : selected
+    }()
     @Published private(set) var trackingCapabilities: TrackingCapabilities?
     @Published private(set) var trackingSettings: TrackingPropertySettings?
     @Published private(set) var trackingSnapshot: TrackingMapSnapshot?
@@ -155,6 +172,18 @@ final class AppModel: ObservableObject {
             return property
         }
         guard let propertyID = selectedHome?.propertyId else { return nil }
+        return properties.first { $0.id == propertyID }
+    }
+
+    var pinnedOverviewHome: House? {
+        guard pinnedOverviewScope == .home else { return nil }
+        return houses.first { $0.id == pinnedOverviewTargetID }
+    }
+
+    var pinnedOverviewProperty: StuguProperty? {
+        let propertyID = pinnedOverviewScope == .property
+            ? pinnedOverviewTargetID
+            : pinnedOverviewHome?.propertyId
         return properties.first { $0.id == propertyID }
     }
 
@@ -267,11 +296,23 @@ final class AppModel: ObservableObject {
     }
 
     var selectedConditions: [SensorCondition] {
-        let measurementsBySensor = Dictionary(uniqueKeysWithValues: snapshot.map {
+        conditions(forHomeID: selectedHomeID)
+    }
+
+    func conditions(forHomeID homeID: String?) -> [SensorCondition] {
+        guard let homeID else { return [] }
+        let homeSnapshot = propertyMeasurementSnapshots[homeID]
+            ?? (homeID == selectedHomeID ? snapshot : [])
+        let measurementsBySensor = Dictionary(uniqueKeysWithValues: homeSnapshot.map {
             ($0.sensorId, $0.measurements)
         })
-        return selectedSensors.filter { sensor in
-            !selectedContactDevices.contains { device in
+        let contactDevices = homeID == selectedHomeID ? selectedContactDevices : []
+        return sensors.filter { sensor in
+            sensor.houseId == homeID && sensor.enabled
+        }.sorted {
+            $0.name.localizedStandardCompare($1.name) == .orderedAscending
+        }.filter { sensor in
+            !contactDevices.contains { device in
                 device.deviceId == sensor.tpLinkDeviceId
                     && (sensor.tpLinkConnectionId == nil
                         || sensor.tpLinkConnectionId == device.connectionId)
@@ -867,6 +908,36 @@ final class AppModel: ObservableObject {
             guard isCurrent(scope) else { return }
             handleAuthenticatedError(error)
         }
+    }
+
+    func pinOverview(scope: GlanceOverviewScope, targetID: String) async {
+        switch scope {
+        case .home:
+            guard houses.contains(where: { $0.id == targetID }) else { return }
+        case .property:
+            guard properties.contains(where: { $0.id == targetID }) else { return }
+        }
+        pinnedOverviewScope = scope
+        pinnedOverviewTargetID = targetID
+        UserDefaults.standard.set(scope.rawValue, forKey: DefaultsKey.pinnedOverviewScope)
+        UserDefaults.standard.set(targetID, forKey: DefaultsKey.pinnedOverviewTarget)
+        await reloadPinnedOverviewSnapshots()
+    }
+
+    func setOverviewMetric(_ metric: GlanceOverviewMetric, enabled: Bool) {
+        var next = overviewMetrics
+        if enabled {
+            next.insert(metric)
+        } else if next.count > 1 {
+            next.remove(metric)
+        }
+        guard !next.isEmpty else { return }
+        overviewMetrics = next
+        let stored = GlanceOverviewMetric.allCases
+            .filter(next.contains)
+            .map(\.rawValue)
+            .joined(separator: ",")
+        UserDefaults.standard.set(stored, forKey: DefaultsKey.overviewMetrics)
     }
 
     @discardableResult
@@ -1776,6 +1847,14 @@ final class AppModel: ObservableObject {
         let savedHome = UserDefaults.standard.string(forKey: DefaultsKey.selectedHome)
         if let selectedHomeID, houses.contains(where: { $0.id == selectedHomeID }) {
             // Keep the current selection.
+        } else if pinnedOverviewScope == .home,
+                  let pinnedOverviewTargetID,
+                  houses.contains(where: { $0.id == pinnedOverviewTargetID }) {
+            selectedHomeID = pinnedOverviewTargetID
+        } else if pinnedOverviewScope == .property,
+                  let pinnedOverviewTargetID,
+                  properties.contains(where: { $0.id == pinnedOverviewTargetID }) {
+            selectedHomeID = houses.first { $0.propertyId == pinnedOverviewTargetID }?.id
         } else if let savedHome, houses.contains(where: { $0.id == savedHome }) {
             selectedHomeID = savedHome
         } else {
@@ -1786,6 +1865,14 @@ final class AppModel: ObservableObject {
         if let selectedPropertyID,
            properties.contains(where: { $0.id == selectedPropertyID }) {
             // Keep the current Property selection.
+        } else if pinnedOverviewScope == .property,
+                  let pinnedOverviewTargetID,
+                  properties.contains(where: { $0.id == pinnedOverviewTargetID }) {
+            selectedPropertyID = pinnedOverviewTargetID
+        } else if pinnedOverviewScope == .home,
+                  let pinnedOverviewTargetID,
+                  let pinnedHome = houses.first(where: { $0.id == pinnedOverviewTargetID }) {
+            selectedPropertyID = pinnedHome.propertyId
         } else if let savedProperty,
                   properties.contains(where: { $0.id == savedProperty }) {
             selectedPropertyID = savedProperty
@@ -1797,6 +1884,29 @@ final class AppModel: ObservableObject {
 
         if let selectedPropertyID, selectedHome?.propertyId != selectedPropertyID {
             selectedHomeID = houses.first(where: { $0.propertyId == selectedPropertyID })?.id
+        }
+
+        let pinnedTargetIsValid = pinnedOverviewTargetID.map { targetID in
+            pinnedOverviewScope == .home
+                ? houses.contains(where: { $0.id == targetID })
+                : properties.contains(where: { $0.id == targetID })
+        } ?? false
+        if !pinnedTargetIsValid {
+            if let selectedHomeID {
+                pinnedOverviewScope = .home
+                pinnedOverviewTargetID = selectedHomeID
+            } else {
+                pinnedOverviewScope = .property
+                pinnedOverviewTargetID = selectedPropertyID
+            }
+            UserDefaults.standard.set(
+                pinnedOverviewScope.rawValue,
+                forKey: DefaultsKey.pinnedOverviewScope
+            )
+            UserDefaults.standard.set(
+                pinnedOverviewTargetID,
+                forKey: DefaultsKey.pinnedOverviewTarget
+            )
         }
 
         let scopePropertyID = selectedPropertyID
@@ -1827,6 +1937,24 @@ final class AppModel: ObservableObject {
         }
         if let scopePropertyID {
             UserDefaults.standard.set(scopePropertyID, forKey: DefaultsKey.selectedProperty)
+        }
+        if let overviewPropertyID = pinnedOverviewProperty?.id {
+            let seeded = scopeHomeID.flatMap { homeID in
+                houses.first(where: { $0.id == homeID })?.propertyId == overviewPropertyID
+                    ? [homeID: snapshot]
+                    : nil
+            } ?? [:]
+            let overviewSnapshots = await fetchPropertyMeasurementSnapshots(
+                client: client,
+                propertyID: overviewPropertyID,
+                seeded: seeded
+            )
+            guard isCurrent(scope) else { return }
+            if pinnedOverviewProperty?.id == overviewPropertyID {
+                propertyMeasurementSnapshots = overviewSnapshots
+            }
+        } else {
+            propertyMeasurementSnapshots = [:]
         }
         try await loadInventoryWorkspace()
         guard isCurrent(scope) else { return }
@@ -1882,6 +2010,25 @@ final class AppModel: ObservableObject {
         guard isCurrent(request) else { return }
         snapshot = homeData.snapshot
         tpLinkDevices = homeData.devices
+        if let overviewPropertyID = pinnedOverviewProperty?.id {
+            var seeded = propertyMeasurementSnapshots
+            if let homeID = request.homeID,
+               houses.first(where: { $0.id == homeID })?.propertyId == overviewPropertyID {
+                seeded[homeID] = homeData.snapshot
+            }
+            let overviewSnapshots = await fetchPropertyMeasurementSnapshots(
+                client: client,
+                propertyID: overviewPropertyID,
+                seeded: seeded
+            )
+            guard isCurrent(request) else { return }
+            if pinnedOverviewProperty?.id == overviewPropertyID {
+                propertyMeasurementSnapshots = overviewSnapshots
+            }
+        } else {
+            propertyMeasurementSnapshots = [:]
+        }
+        guard isCurrent(request) else { return }
         try await loadHomeMonitoring()
         guard isCurrent(request) else { return }
         try await loadInventoryWorkspace()
@@ -1905,6 +2052,57 @@ final class AppModel: ObservableObject {
         let snapshot = try await client.measurementSnapshot(houseID: homeID)
         let devices = await loadTpLinkDevices(client: client, homeID: homeID)
         return (snapshot, devices)
+    }
+
+    private func fetchPropertyMeasurementSnapshots(
+        client: StuguAPIClient,
+        propertyID: String,
+        seeded: [String: [MeasurementSnapshotEntry]]
+    ) async -> [String: [MeasurementSnapshotEntry]] {
+        let homeIDs = houses.filter { $0.propertyId == propertyID }.map(\.id)
+        var collected = seeded.filter { homeIDs.contains($0.key) }
+        await withTaskGroup(
+            of: (String, [MeasurementSnapshotEntry])?.self
+        ) { group in
+            for homeID in homeIDs where collected[homeID] == nil {
+                group.addTask {
+                    do {
+                        return (
+                            homeID,
+                            try await client.measurementSnapshot(houseID: homeID)
+                        )
+                    } catch {
+                        return nil
+                    }
+                }
+            }
+            for await result in group {
+                if let (homeID, snapshot) = result {
+                    collected[homeID] = snapshot
+                }
+            }
+        }
+        return collected
+    }
+
+    private func reloadPinnedOverviewSnapshots() async {
+        guard let client, let propertyID = pinnedOverviewProperty?.id else {
+            propertyMeasurementSnapshots = [:]
+            return
+        }
+        let generation = currentRequestGeneration
+        var seeded = propertyMeasurementSnapshots
+        if let selectedHomeID,
+           selectedHome?.propertyId == propertyID {
+            seeded[selectedHomeID] = snapshot
+        }
+        let next = await fetchPropertyMeasurementSnapshots(
+            client: client,
+            propertyID: propertyID,
+            seeded: seeded
+        )
+        guard isCurrent(generation), pinnedOverviewProperty?.id == propertyID else { return }
+        propertyMeasurementSnapshots = next
     }
 
     private func loadTpLinkDevices(
@@ -2100,6 +2298,9 @@ final class AppModel: ObservableObject {
         sensors = cache.sensors
         definitions = cache.definitions
         snapshot = cache.measurementSnapshot
+        propertyMeasurementSnapshots = cache.selectedHomeId.map {
+            [$0: cache.measurementSnapshot]
+        } ?? [:]
         tpLinkDevices = cache.tpLinkDevices ?? []
         latestOpeningStateObservation = cache.latestOpeningStateObservation
         alerts = sortedAlerts(cache.alerts)
@@ -2779,6 +2980,7 @@ final class AppModel: ObservableObject {
         sensors = []
         definitions = []
         snapshot = []
+        propertyMeasurementSnapshots = [:]
         tpLinkDevices = []
         latestOpeningStateObservation = nil
         alerts = []
