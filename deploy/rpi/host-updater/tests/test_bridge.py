@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
@@ -92,6 +93,43 @@ class BridgeContractTests(unittest.TestCase):
 
 
 class BridgeLifecycleTests(unittest.TestCase):
+    def test_native_journal_timestamp_cannot_overwrite_bridge_heartbeat(self) -> None:
+        native_updated_at = "2026-01-01T00:00:00.000Z"
+
+        def native(_socket: Path, request: dict[str, object], _timeout: int):
+            self.assertEqual(request["operation"], "status")
+            return {
+                "ok": True,
+                "result": {
+                    "phase": "idle",
+                    "updatedAt": native_updated_at,
+                },
+            }
+
+        with TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            config = type(
+                "Config",
+                (),
+                {
+                    "host_generation": 41,
+                    "paths": type("Paths", (), {"socket": Path("/run/updater.sock")})(),
+                },
+            )()
+            before = datetime.now(timezone.utc)
+            bridge = HostUpdateBridge(config, directory, call_impl=native)
+            try:
+                bridge.tick()
+                status = read_json(directory / "status" / "status.json")
+            finally:
+                bridge.close()
+            heartbeat = datetime.fromisoformat(
+                str(status["updatedAt"]).replace("Z", "+00:00")
+            )
+
+        self.assertNotEqual(status["updatedAt"], native_updated_at)
+        self.assertGreaterEqual(heartbeat.timestamp(), before.timestamp() - 1)
+
     def test_terminal_native_failure_remains_visible_on_idle_heartbeats(self) -> None:
         operation_id = request_id()
 
