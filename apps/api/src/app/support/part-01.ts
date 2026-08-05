@@ -189,6 +189,17 @@ export class HttpError extends Error {
   }
 }
 
+/**
+ * True for a cancelled request: the client went away, a load was detached, or a
+ * timeout fired. None of these are server faults, so they must not be logged as
+ * errors or answered with 500.
+ */
+export function isRequestCancellation(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false;
+  const name = (error as { name?: unknown }).name;
+  return name === "AbortError" || name === "TimeoutError";
+}
+
 export function bodyObject(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new HttpError(400, "INVALID_BODY", "A JSON object is required");
   return value as Record<string, unknown>;

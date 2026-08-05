@@ -268,7 +268,7 @@ export class LruTtlCache<V> {
     return this.#entries.has(key);
   }
 
-  /** Invalidates one key and cancels an in-progress load for the same key. */
+  /** Invalidates one key and detaches an in-progress load for the same key. */
   invalidate(key: string): boolean {
     const removed = this.#deleteEntry(key);
     if (removed) this.#counters.invalidations += 1;
@@ -292,7 +292,7 @@ export class LruTtlCache<V> {
     return removed;
   }
 
-  /** Invalidates every entry and aborts all loads. */
+  /** Invalidates every entry and detaches every load. */
   clear(): number {
     const removed = this.#entries.size;
     this.#entries.clear();
@@ -433,7 +433,12 @@ export class LruTtlCache<V> {
         // The microtask boundary ensures the flight is registered before loader code runs.
         const value = await Promise.resolve().then(() => loader(controller.signal));
         throwIfAborted(controller.signal);
-        if (this.#flights.get(key) !== flight) throw abortReason(controller.signal);
+        if (this.#flights.get(key) !== flight) {
+          // Invalidated while loading: callers still waiting are answered, but the
+          // result is not stored, so the next request reloads it.
+          this.#counters.loadsSucceeded += 1;
+          return value;
+        }
         this.set(key, value, {
           ...(options.ttlMs !== undefined ? { ttlMs: options.ttlMs } : {}),
           ...(options.staleWhileRevalidateMs !== undefined
@@ -500,10 +505,16 @@ export class LruTtlCache<V> {
     }
   }
 
+  /**
+   * Detaches an in-progress load so its result is never stored. A load that still
+   * has waiting callers is left running and answers them: aborting it would fail a
+   * live request for a cache decision the caller had no part in.
+   */
   #cancelFlight(key: string): void {
     const flight = this.#flights.get(key);
     if (!flight) return;
     this.#flights.delete(key);
+    if (flight.waiters > 0 && !flight.background) return;
     flight.controller.abort(new DOMException("Cache entry invalidated", "AbortError"));
     void flight.promise.catch(() => undefined);
   }

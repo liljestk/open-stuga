@@ -1,9 +1,12 @@
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
 import request from "supertest";
+import { SECURITY_AUDIT_SUBJECT_TYPES } from "@climate-twin/contracts";
 import { createApi, type ApiRuntime } from "../src/app.js";
+import { ClimateDatabase } from "../src/db.js";
 import { loadConfig } from "../src/config.js";
 
 const OWNER = { email: "owner@example.test", password: "correct horse battery staple" };
@@ -17,6 +20,76 @@ describe("security audit trail and credential lifecycle drills", () => {
     runtime = null;
     if (directory) rmSync(directory, { recursive: true, force: true });
     directory = null;
+  });
+
+  it("accepts every audited subject type the contract declares", () => {
+    const database = new ClimateDatabase(":memory:", true);
+    try {
+      for (const subjectType of SECURITY_AUDIT_SUBJECT_TYPES) {
+        const event = database.recordSecurityAuditEvent({
+          eventType: "system.update.requested",
+          actorUserId: null,
+          actorRole: "owner",
+          subjectType,
+          subjectId: `subject-${subjectType}`,
+        });
+        expect(event.subjectType).toBe(subjectType);
+      }
+      expect(database.listSecurityAuditEvents(100)).toHaveLength(SECURITY_AUDIT_SUBJECT_TYPES.length);
+    } finally {
+      database.close();
+    }
+  });
+
+  it("widens the subject constraint of a database created before system auditing existed", () => {
+    directory = mkdtempSync(join(tmpdir(), "stugu-audit-migration-"));
+    const databasePath = join(directory, "legacy.sqlite");
+    const legacy = new ClimateDatabase(databasePath, true);
+    legacy.recordSecurityAuditEvent({
+      eventType: "auth.login",
+      actorUserId: null,
+      actorRole: "owner",
+      subjectType: "account",
+      subjectId: "owner@example.test",
+    });
+    legacy.close();
+
+    // Restore the original four-value CHECK to reproduce an appliance upgraded in place.
+    const raw = new DatabaseSync(databasePath);
+    raw.exec(`
+      DROP TABLE IF EXISTS security_audit_events_legacy;
+      CREATE TABLE security_audit_events_legacy (
+        id TEXT PRIMARY KEY,
+        event_type TEXT NOT NULL,
+        outcome TEXT NOT NULL CHECK(outcome IN ('succeeded', 'denied')),
+        actor_user_id TEXT,
+        actor_role TEXT CHECK(actor_role IS NULL OR actor_role IN ('owner', 'admin', 'member', 'guest', 'service')),
+        subject_type TEXT NOT NULL CHECK(subject_type IN ('account', 'workspace-member', 'integration', 'integration-grant')),
+        subject_id TEXT NOT NULL CHECK(length(subject_id) BETWEEN 1 AND 512),
+        details_json TEXT NOT NULL CHECK(json_valid(details_json) AND json_type(details_json) = 'object'),
+        created_at TEXT NOT NULL
+      );
+      INSERT INTO security_audit_events_legacy SELECT * FROM security_audit_events;
+      DROP TABLE security_audit_events;
+      ALTER TABLE security_audit_events_legacy RENAME TO security_audit_events;
+    `);
+    raw.close();
+
+    const migrated = new ClimateDatabase(databasePath, false);
+    try {
+      expect(migrated.listSecurityAuditEvents(100)).toHaveLength(1);
+      const event = migrated.recordSecurityAuditEvent({
+        eventType: "system.update.requested",
+        actorUserId: null,
+        actorRole: "owner",
+        subjectType: "system-update",
+        subjectId: "host-generation-15",
+      });
+      expect(event.subjectType).toBe("system-update");
+      expect(migrated.listSecurityAuditEvents(100)).toHaveLength(2);
+    } finally {
+      migrated.close();
+    }
   });
 
   it("records authentication and membership outcomes without exposing secrets", async () => {

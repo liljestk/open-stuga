@@ -4,6 +4,30 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.36.1 - 2026-08-05
+
+- Stop answering a cancelled request with "The request could not be completed".
+  Navigating away from a page, or a background refresh clearing an analytics
+  cache, produced a server error instead of a cancellation, and each one was
+  filed in the system error log as a fault. Cancellations now answer `503
+  REQUEST_CANCELLED` and are no longer logged, so **Advanced → System → Export
+  error log** shows real problems again.
+- Let a Monitoring Home page finish loading when a cache entry is invalidated
+  while its data is still being read. The reader is now allowed to finish and
+  answer the waiting page; only the caching of its result is skipped. This was
+  most visible on the Raspberry Pi appliance, where the slower history read left
+  a wide window for a routine event to cancel the request.
+- Fix **Request system update**, **Change update settings**, **Change storage
+  location**, and **Start Cloudflare setup** failing on installations upgraded
+  from an earlier release. Each writes a security audit event, and the audit
+  table in those databases still constrained subjects to the four kinds that
+  existed when it was created, so the write — and the whole request — failed.
+
+Upgrade impact: the security audit table is rebuilt in place on first start to
+accept every audited subject; existing audit events are preserved and no
+operator action is required. Clients that treated any non-2xx monitoring
+response as an outage should treat `503 REQUEST_CANCELLED` as a retry.
+
 ## 0.36.0 - 2026-08-05
 
 - Let an Owner or Admin enable bug reporting from **System → Bug report relay**

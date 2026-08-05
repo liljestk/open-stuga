@@ -150,17 +150,40 @@ describe("LruTtlCache", () => {
     expect(cache.has("house:10:latest")).toBe(true);
 
     const started = deferred<void>();
+    const release = deferred<number>();
+    const loader = (): Promise<number> => {
+      started.resolve();
+      return release.promise;
+    };
+    const pending = cache.getOrLoad("house:1:openapi", loader);
+    await started.promise;
+    cache.invalidatePrefix("house:1:");
+    release.resolve(7);
+
+    // The waiting caller is still answered; only the caching of the result is dropped.
+    await expect(pending).resolves.toBe(7);
+    expect(cache.has("house:1:openapi")).toBe(false);
+    expect(cache.stats()).toMatchObject({ entries: 1, invalidations: 2, loadsAborted: 0 });
+  });
+
+  it("aborts an invalidated load once no caller is waiting for it", async () => {
+    const cache = new LruTtlCache<number>();
+    const started = deferred<void>();
     const loader = (signal: AbortSignal): Promise<number> => {
       started.resolve();
       return new Promise((_resolve, reject) => {
         signal.addEventListener("abort", () => reject(signal.reason), { once: true });
       });
     };
-    const pending = cache.getOrLoad("house:1:openapi", loader);
+    const caller = new AbortController();
+    const pending = cache.getOrLoad("house:2:openapi", loader, { signal: caller.signal });
     await started.promise;
-    cache.invalidatePrefix("house:1:");
+    caller.abort();
     await expect(pending).rejects.toMatchObject({ name: "AbortError" });
-    expect(cache.stats()).toMatchObject({ entries: 1, invalidations: 2, loadsAborted: 1 });
+
+    cache.invalidate("house:2:openapi");
+    await cache.waitForIdle();
+    expect(cache.stats()).toMatchObject({ entries: 0, loadsAborted: 1 });
   });
 
   it("retains stale data after a failed background refresh and reports the error", async () => {

@@ -2,7 +2,11 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
-import { DEFAULT_ELECTRICITY_PRICE_ENDPOINT, fixedPlanElementOpeningState } from "@climate-twin/contracts";
+import {
+  DEFAULT_ELECTRICITY_PRICE_ENDPOINT,
+  SECURITY_AUDIT_SUBJECT_TYPES,
+  fixedPlanElementOpeningState,
+} from "@climate-twin/contracts";
 import type {
   AreaEquipment,
   AreaEquipmentInput,
@@ -100,6 +104,9 @@ import { MIN_SEED_OUTDOOR_READINGS } from "../support/01-json-value-to-area-equi
 import { parseJson } from "../support/03-sensor-data-gap-row-to-canonical-json-value.js";
 import { outdoorLocationKey } from "../support/06-canonical-observation-patch-time-to-outdoor-location.js";
 import { registerDatabaseMethods } from "../core.js";
+
+/** Derived from the contract so the table can never accept fewer subjects than the code records. */
+const SECURITY_AUDIT_SUBJECT_TYPE_LIST = SECURITY_AUDIT_SUBJECT_TYPES.map((subject) => `'${subject}'`).join(", ");
 
 registerDatabaseMethods({
   migrateMeasurementAndActionSchema(): void {
@@ -222,7 +229,7 @@ registerDatabaseMethods({
               outcome TEXT NOT NULL CHECK(outcome IN ('succeeded', 'denied')),
               actor_user_id TEXT,
               actor_role TEXT CHECK(actor_role IS NULL OR actor_role IN ('owner', 'admin', 'member', 'guest', 'service')),
-              subject_type TEXT NOT NULL CHECK(subject_type IN ('account', 'workspace-member', 'integration', 'integration-grant')),
+              subject_type TEXT NOT NULL CHECK(subject_type IN (${SECURITY_AUDIT_SUBJECT_TYPE_LIST})),
               subject_id TEXT NOT NULL CHECK(length(subject_id) BETWEEN 1 AND 512),
               details_json TEXT NOT NULL CHECK(json_valid(details_json) AND json_type(details_json) = 'object'),
               created_at TEXT NOT NULL
@@ -363,6 +370,43 @@ registerDatabaseMethods({
             BEGIN SELECT RAISE(ABORT, 'MAINTENANCE_TASK_REVISIONS_ARE_APPEND_ONLY'); END;
         `);
       }
+    },
+  /**
+   * Widens the security audit subject constraint to every subject the code records.
+   * Databases created before system update, storage, and Cloudflare auditing existed
+   * still carry the original four-value CHECK, which rejected those inserts and failed
+   * the whole request.
+   */
+  migrateSecurityAuditSubjectTypes(): void {
+      const schema = this.db.prepare(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'security_audit_events'",
+      ).get() as { sql: string } | undefined;
+      if (!schema) return;
+      if (SECURITY_AUDIT_SUBJECT_TYPES.every((subject) => schema.sql.includes(`'${subject}'`))) return;
+      this.db.exec(`
+          DROP TABLE IF EXISTS security_audit_events_next;
+          CREATE TABLE security_audit_events_next (
+            id TEXT PRIMARY KEY,
+            event_type TEXT NOT NULL,
+            outcome TEXT NOT NULL CHECK(outcome IN ('succeeded', 'denied')),
+            actor_user_id TEXT,
+            actor_role TEXT CHECK(actor_role IS NULL OR actor_role IN ('owner', 'admin', 'member', 'guest', 'service')),
+            subject_type TEXT NOT NULL CHECK(subject_type IN (${SECURITY_AUDIT_SUBJECT_TYPE_LIST})),
+            subject_id TEXT NOT NULL CHECK(length(subject_id) BETWEEN 1 AND 512),
+            details_json TEXT NOT NULL CHECK(json_valid(details_json) AND json_type(details_json) = 'object'),
+            created_at TEXT NOT NULL
+          );
+          INSERT INTO security_audit_events_next
+            (id, event_type, outcome, actor_user_id, actor_role, subject_type, subject_id, details_json, created_at)
+          SELECT id, event_type, outcome, actor_user_id, actor_role, subject_type, subject_id, details_json, created_at
+            FROM security_audit_events;
+          DROP TABLE security_audit_events;
+          ALTER TABLE security_audit_events_next RENAME TO security_audit_events;
+          CREATE INDEX IF NOT EXISTS idx_security_audit_events_created
+            ON security_audit_events(created_at DESC, id DESC);
+          CREATE INDEX IF NOT EXISTS idx_security_audit_events_type_created
+            ON security_audit_events(event_type, created_at DESC);
+        `);
     },
   migrateOutdoorLocationKeys(): void {
       const migrated = this.db.prepare("SELECT value FROM metadata WHERE key = 'outdoor_location_keys_v2'").get();
