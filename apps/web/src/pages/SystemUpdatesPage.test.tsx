@@ -554,6 +554,7 @@ describe("system updates page", () => {
     vi.spyOn(api, "systemUpdateStatus").mockResolvedValue(status);
     render(<I18nProvider><SystemUpdatesPage /></I18nProvider>);
 
+    expect(await screen.findByText("Latest stable release notes")).toBeTruthy();
     expect(await screen.findByText("Safer system updates")).toBeTruthy();
     expect(screen.getByText("v0.5.0")).toBeTruthy();
     expect(screen.getByText("v0.6.0")).toBeTruthy();

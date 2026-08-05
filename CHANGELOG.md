@@ -4,6 +4,21 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.35.7 - 2026-08-05
+
+- Restore the Raspberry Pi host-update status in **Advanced → System** by
+  accepting a legacy completed bridge record only when its target generation
+  exactly equals the current host generation and its signed manifest identity
+  remains valid.
+- Include the target application version in every newly completed native host
+  operation so future bridge records satisfy the full API contract directly.
+- Distinguish an older GitHub stable or preview release from an available
+  update, and hide redundant application target rows when nothing can update.
+
+Upgrade impact: no persistent-data migration change. Host update selection,
+exact-device qualification, explicit activation, shared mutation locks, signed
+TUF/RAUC verification, A/B probation, and automatic rollback are unchanged.
+
 ## 0.35.6 - 2026-08-05
 
 - Keep the native host-update bridge heartbeat independent from the durable

@@ -572,7 +572,9 @@ export function SystemUpdatesPage() {
         <summary>
           <ShieldCheck size={18} aria-hidden="true" />
           <span className="updates-disclosure-copy">
-            <span className="eyebrow">{t("updates.releaseEyebrow")}</span>
+            <span className="eyebrow">{t(status.latestRelease?.prerelease
+              ? "updates.releaseEyebrowPreview"
+              : "updates.releaseEyebrowStable")}</span>
             <strong id="latest-release-title" role="heading" aria-level={3}>{status.latestRelease?.name ?? t("updates.noRelease")}</strong>
             {status.latestRelease && <small>{t("updates.published", { date: dateTime(status.latestRelease.publishedAt, locale) })}</small>}
           </span>

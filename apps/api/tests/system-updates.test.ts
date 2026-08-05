@@ -1034,6 +1034,48 @@ describe("system update service", () => {
       updateAvailable: false,
     });
   });
+
+  it("accepts a legacy completed bridge only for the exact current generation", () => {
+    const operationsDirectory = directory();
+    const now = new Date("2026-08-05T12:03:30Z");
+    writeAgentHeartbeat(operationsDirectory, now);
+    writeBridgeStatus(operationsDirectory, now, {
+      phase: "complete",
+      detail: "Host update completed successfully",
+      operationId: "d7e56492-5c89-435c-8d8f-95958fa68b2e",
+      targetVersion: null,
+      targetGeneration: 5,
+    });
+    const service = new SystemUpdateService({
+      currentVersion: "0.35.6",
+      repository: "liljestk/open-stuga",
+      imagePrefix: "ghcr.io/liljestk/open-stuga",
+      operationsDirectory,
+      now: () => now,
+    });
+
+    expect(service.status().host).toMatchObject({
+      supported: true,
+      phase: "complete",
+      reason: null,
+      currentGeneration: 5,
+      targetVersion: null,
+      targetGeneration: 5,
+      updateAvailable: false,
+    });
+
+    writeBridgeStatus(operationsDirectory, now, {
+      phase: "complete",
+      operationId: "d7e56492-5c89-435c-8d8f-95958fa68b2e",
+      targetVersion: null,
+      targetGeneration: 6,
+    });
+    expect(service.status().host).toMatchObject({
+      supported: false,
+      phase: "unavailable",
+      reason: "bridge-not-connected",
+    });
+  });
 });
 
 describe("system version comparison", () => {

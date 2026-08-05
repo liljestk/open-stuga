@@ -626,6 +626,7 @@ class BootTrialStateTests(unittest.TestCase):
         ):
             result = resumed.reconcile()
         self.assertEqual(result["phase"], "complete")
+        self.assertEqual(result["targetVersion"], manifest.version)
         self.assertEqual(resumed_state["journal"]["phase"], "complete")
         self.assertNotIn(("health", "b"), resumed_events)
         self.assertFalse(any(event[0] == "boot" for event in resumed_events))
