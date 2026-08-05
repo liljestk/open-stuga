@@ -4,6 +4,20 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.35.5 - 2026-08-05
+
+- Create the bounded native host-update bridge directory during appliance
+  startup, before systemd applies the bridge service's strict writable-path
+  sandbox.
+- Lock the ordering contract into the Pi OTA tests so fresh factory disks,
+  restored appliances, and future A/B slots cannot regress into a restart
+  loop even when the persistent directory does not exist yet.
+
+Upgrade impact: no persistent-data migration change. Existing appliances keep
+their operation history and permissions; the exact TS240 qualification,
+explicit host activation, signed TUF/RAUC selection, A/B probation, and
+automatic rollback remain unchanged.
+
 ## 0.35.4 - 2026-08-05
 
 - Materialize the dedicated, unprivileged host-update bridge account while the

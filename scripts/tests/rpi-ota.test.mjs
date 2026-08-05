@@ -563,7 +563,7 @@ test("host boot-control records live outside FAT and activation is qualification
 });
 
 test("the web host-update bridge is narrow, unprivileged, and separately permissioned", async () => {
-  const [layer, unit, wrapper, sysusers, compose] = await Promise.all([
+  const [layer, unit, wrapper, sysusers, compose, composeStart] = await Promise.all([
     readFile(new URL("../../deploy/rpi/layer/stugu.yaml", import.meta.url), "utf8"),
     readFile(
       new URL("../../deploy/rpi/assets/stugu-host-update-bridge.service", import.meta.url),
@@ -578,6 +578,7 @@ test("the web host-update bridge is narrow, unprivileged, and separately permiss
       "utf8",
     ),
     readFile(new URL("../../docker-compose.yml", import.meta.url), "utf8"),
+    readFile(new URL("../../deploy/rpi/assets/stugu-compose-start", import.meta.url), "utf8"),
   ]);
 
   assert.match(layer, /stugu-host-update-bridge[\s\S]*usr\/bin\/stugu-host-update-bridge/u);
@@ -592,6 +593,7 @@ test("the web host-update bridge is narrow, unprivileged, and separately permiss
     /systemd-sysusers --root="\$1" stugu-host-update-bridge\.conf/u,
   );
   assert.match(unit, /^User=stugu-update-bridge$/mu);
+  assert.match(unit, /^After=.*stugu\.service$/mu);
   assert.match(unit, /^SupplementaryGroups=stugu$/mu);
   assert.match(unit, /^PrivateDevices=yes$/mu);
   assert.match(unit, /^PrivateNetwork=yes$/mu);
@@ -607,6 +609,7 @@ test("the web host-update bridge is narrow, unprivileged, and separately permiss
   );
   assert.doesNotMatch(unit, /\/dev\/|rauc|sudo|docker\.sock/u);
   assert.match(compose, /! -name host-bridge -exec chown -R/u);
+  assert.match(composeStart, /"\$state_dir\/update-operations\/host-bridge"/u);
 });
 
 test("host releases include and inspect RAUC's extraction and service runtime", async () => {
