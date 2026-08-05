@@ -56,6 +56,13 @@ publishes the GitHub release. The local CI report and checksum are attached to
 the release. The factory image remains local unless `--upload-factory` is
 explicitly supplied.
 
+Without `--publish`, the command prints a plan only; it does not run CI or
+validate tags, credentials, input files, or artifacts. `--keep-draft --publish`
+still pushes the container tags before leaving the GitHub release as a draft.
+Follow the complete [application release cycle](release-cycle.md) for the
+private-source/public-feed tags, channel decision, operator context, audit, and
+appliance verification.
+
 The **CI (manual hosted fallback)** and **Raspberry Pi release (manual
 fallback)** workflows require an explicit paid-runner confirmation. Use them
 only when a suitable local machine is unavailable.

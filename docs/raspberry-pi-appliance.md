@@ -260,6 +260,10 @@ npm run release:local -- \
   --ssh-public-key "$HOME/.ssh/stuga_appliance.pub"
 ```
 
+This is a plan-only view. It does not validate the tags, files, credentials,
+Docker daemon, CI, or artifacts. Use the read-only preflight in the
+[application release cycle](release-cycle.md) before authorizing publication.
+
 Add `--publish` to execute it:
 
 ```sh
@@ -299,7 +303,8 @@ The factory image remains under `dist/rpi/` by default. Add
 other provisioning secret. Use `--notes-file PATH` for curated notes, or let
 GitHub generate them. After a partial failure that already published all
 containers, `--reuse-containers` skips rebuilding and resolves their existing
-digests.
+digests. `--keep-draft` leaves the GitHub release unpublished, but still pushes
+all container tags to GHCR.
 
 The local publisher creates these GHCR packages:
 

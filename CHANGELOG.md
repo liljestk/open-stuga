@@ -22,6 +22,10 @@ All notable Stugu releases are recorded here.
   from an earlier release. Each writes a security audit event, and the audit
   table in those databases still constrained subjects to the four kinds that
   existed when it was created, so the write — and the whole request — failed.
+- Make the complete application release cycle transferable between agents with
+  provider-neutral instructions, explicit private-source/public-feed tagging,
+  operator-context and approval gates, artifact checks, failure recovery, and
+  the separate host-signing boundary.
 
 Upgrade impact: the security audit table is rebuilt in place on first start to
 accept every audited subject; existing audit events are preserved and no

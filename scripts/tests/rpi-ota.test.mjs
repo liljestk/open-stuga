@@ -766,6 +766,8 @@ test("local publishing owns expensive builds and hosted release work is an expli
     /copyFileSync\(artifacts\.releaseManifest, artifacts\.hostContainerManifest\)/u,
   );
   assert.match(publisher, /--publish/);
+  assert.match(publisher, /Plan only\. No tag, file, credential, CI, build, push/);
+  assert.match(publisher, /--keep-draft\s+Push public image tags\/assets/);
   assert.doesNotMatch(publisher, /deploy-rpi-ota|Deploy OTA/);
   assert.doesNotMatch(publisher, /const paths = \[artifacts\.ota/);
   assert.match(workflow, /Attach validated factory image to GitHub release/);

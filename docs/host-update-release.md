@@ -6,6 +6,11 @@ matches the exact runtime Pi, EEPROM, USB bridge, and storage fingerprint.
 Deployed layout-v1/updater-contract-3 appliances cannot use the raw-tail
 bootstrap and still require a factory transition.
 
+Begin with the merge, source/feed tags, container publication, and validated
+host inputs from the [application release cycle](release-cycle.md). This
+runbook starts at the separate signing boundary; it never grants a general
+release agent access to RAUC or TUF private keys.
+
 ## Trust boundary
 
 - The image builder receives only immutable TUF root v1 and the public RAUC CA.

@@ -43,7 +43,7 @@ Required for publishing:
   --host-rauc-ca PATH      Offline-approved public RAUC CA certificate
   --host-update-base-url URL
                            HTTPS base URL of the TUF repository
-  --publish                Execute registry and GitHub writes; otherwise preview
+  --publish                Execute registry and GitHub writes; otherwise print plan only
 
 Options:
   --tag TAG                Release tag (default: v<package.json version>)
@@ -56,11 +56,12 @@ Options:
                            Immutable lab receipt; omit to disable activation
   --upload-factory         Also attach the factory image to the public release
   --prerelease             Mark the published GitHub release as a preview
-  --keep-draft             Build, push, and upload, but leave the release draft
+  --keep-draft             Push public image tags/assets; leave release draft
   --help                   Show this help
 
 The factory image stays under dist/rpi by default. Never upload a factory image
 that contains a Raspberry Pi Connect auth key or another provisioning secret.
+Plan-only mode does not validate tags, files, credentials, CI, or artifacts.
 `;
 }
 
@@ -654,13 +655,16 @@ async function main(argv = process.argv.slice(2), env = process.env) {
   Tag:             ${tag}
   Repository:      ${repository}
   Image platforms: linux/amd64, linux/arm64
-  Raspberry Pi:    factory image + signed-host inputs
+  Raspberry Pi:    factory image + host-signing inputs
   Host generation: ${hostGeneration ?? "not supplied"}
   Host activation: ${hostQualification ? "qualification receipt supplied" : "disabled"}
   GitHub release:  ${options.keepDraft ? "draft" : options.prerelease ? "preview" : "stable"}
   Factory upload:  ${options.uploadFactory ? "yes" : "no; retained locally"}`);
   if (!options.publish) {
-    console.log("\nPreview only. Add --publish to build, push, and upload this release.");
+    console.log(
+      "\nPlan only. No tag, file, credential, CI, build, push, or artifact validation ran.\n"
+      + "Add --publish to build, push, and upload this release.",
+    );
     return;
   }
 

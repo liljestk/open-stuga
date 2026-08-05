@@ -92,6 +92,10 @@ CHANGELOG entry user-facing with an "Upgrade impact" note, and open a PR.
 `npm run release:local -- --publish` is a separate, deliberate step that pushes
 GHCR images and Pi artifacts — it is not part of merging a change.
 
+For release work, follow `docs/release-cycle.md`. It covers the private source
+and public feed tags, operator-owned trust context, draft/channel side effects,
+artifact audit, and appliance verification.
+
 ## Secrets and privacy
 
 - Operator credentials entered in the UI go to the protected integration
