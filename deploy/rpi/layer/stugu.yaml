@@ -210,6 +210,11 @@ mmdebstrap:
         "$1/etc/systemd/system/stugu-host-update-bridge.service"
       install -m 0644 "${IGconf_stugu_assetdir}/stugu-host-update-bridge.sysusers.conf" \
         "$1/usr/lib/sysusers.d/stugu-host-update-bridge.conf"
+      # The shipped EROFS root is immutable and already current, so the
+      # boot-time ConditionNeedsUpdate gate will not create release-added
+      # accounts. Materialize the bridge identity while the image root is
+      # still writable.
+      systemd-sysusers --root="$1" stugu-host-update-bridge.conf
       install -m 0644 "${IGconf_stugu_assetdir}/stugu-host-update-tmpfiles.conf" \
         "$1/usr/lib/tmpfiles.d/stugu-host-update.conf"
       install -m 0644 "${IGconf_stugu_assetdir}/stugu-system-watchdog.conf" \

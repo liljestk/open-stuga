@@ -587,6 +587,10 @@ test("the web host-update bridge is narrow, unprivileged, and separately permiss
   assert.match(wrapper, /python3 -m stugu_host_updater\.bridge/u);
   assert.match(sysusers, /^u stugu-update-bridge /mu);
   assert.match(sysusers, /^m stugu-update-bridge stugu$/mu);
+  assert.match(
+    layer,
+    /systemd-sysusers --root="\$1" stugu-host-update-bridge\.conf/u,
+  );
   assert.match(unit, /^User=stugu-update-bridge$/mu);
   assert.match(unit, /^SupplementaryGroups=stugu$/mu);
   assert.match(unit, /^PrivateDevices=yes$/mu);
@@ -624,6 +628,10 @@ test("host releases include and inspect RAUC's extraction and service runtime", 
   );
   assert.match(builder, /\/usr\/share\/dbus-1\/system\.d\/de\.pengutronix\.rauc\.conf:0644/u);
   assert.match(builder, /\/usr\/share\/rauc\/rauc-service\.sh:0755/u);
+  assert.match(builder, /dump\.erofs --cat --path=\/etc\/passwd/u);
+  assert.match(builder, /dump\.erofs --cat --path=\/etc\/group/u);
+  assert.match(builder, /Generated host image lacks the stugu-update-bridge service account/u);
+  assert.match(builder, /does not grant the bridge its bounded stugu group access/u);
 });
 
 test("clean appliances default to guarded automatic GitHub container updates", async () => {
