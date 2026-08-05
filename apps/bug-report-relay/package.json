@@ -12,7 +12,7 @@
     "test": "vitest run --configLoader runner"
   },
   "dependencies": {
-    "@climate-twin/contracts": "0.36.0"
+    "@climate-twin/contracts": "0.36.1"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.20.1",

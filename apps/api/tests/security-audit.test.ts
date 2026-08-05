@@ -92,6 +92,48 @@ describe("security audit trail and credential lifecycle drills", () => {
     }
   });
 
+  it("rolls back the audit-table rebuild when a later migration statement fails", () => {
+    const database = new ClimateDatabase(":memory:", true);
+    try {
+      database.recordSecurityAuditEvent({
+        eventType: "auth.login",
+        actorUserId: null,
+        actorRole: "owner",
+        subjectType: "account",
+        subjectId: "owner@example.test",
+      });
+      database.db.exec(`
+        DROP INDEX idx_security_audit_events_created;
+        DROP INDEX idx_security_audit_events_type_created;
+        ALTER TABLE security_audit_events RENAME TO security_audit_events_current;
+        CREATE TABLE security_audit_events (
+          id TEXT PRIMARY KEY,
+          event_type TEXT NOT NULL,
+          outcome TEXT NOT NULL CHECK(outcome IN ('succeeded', 'denied')),
+          actor_user_id TEXT,
+          actor_role TEXT CHECK(actor_role IS NULL OR actor_role IN ('owner', 'admin', 'member', 'guest', 'service')),
+          subject_type TEXT NOT NULL CHECK(subject_type IN ('account', 'workspace-member', 'integration', 'integration-grant')),
+          subject_id TEXT NOT NULL CHECK(length(subject_id) BETWEEN 1 AND 512),
+          details_json TEXT NOT NULL CHECK(json_valid(details_json) AND json_type(details_json) = 'object'),
+          created_at TEXT NOT NULL
+        );
+        INSERT INTO security_audit_events SELECT * FROM security_audit_events_current;
+        DROP TABLE security_audit_events_current;
+        CREATE TABLE idx_security_audit_events_created(blocker INTEGER);
+      `);
+
+      expect(() => database.migrateSecurityAuditSubjectTypes()).toThrow();
+      const schema = database.db.prepare(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'security_audit_events'",
+      ).get() as { sql: string };
+      expect(schema.sql).toContain("'integration-grant'");
+      expect(schema.sql).not.toContain("'system-update'");
+      expect(database.listSecurityAuditEvents(100)).toHaveLength(1);
+    } finally {
+      database.close();
+    }
+  });
+
   it("records authentication and membership outcomes without exposing secrets", async () => {
     runtime = createApi({
       config: loadConfig({

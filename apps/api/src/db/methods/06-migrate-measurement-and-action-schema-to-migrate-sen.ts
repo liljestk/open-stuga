@@ -383,7 +383,13 @@ registerDatabaseMethods({
       ).get() as { sql: string } | undefined;
       if (!schema) return;
       if (SECURITY_AUDIT_SUBJECT_TYPES.every((subject) => schema.sql.includes(`'${subject}'`))) return;
-      this.db.exec(`
+      this.immediateTransaction(() => {
+        const currentSchema = this.db.prepare(
+          "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'security_audit_events'",
+        ).get() as { sql: string } | undefined;
+        if (!currentSchema
+          || SECURITY_AUDIT_SUBJECT_TYPES.every((subject) => currentSchema.sql.includes(`'${subject}'`))) return;
+        this.db.exec(`
           DROP TABLE IF EXISTS security_audit_events_next;
           CREATE TABLE security_audit_events_next (
             id TEXT PRIMARY KEY,
@@ -407,6 +413,7 @@ registerDatabaseMethods({
           CREATE INDEX IF NOT EXISTS idx_security_audit_events_type_created
             ON security_audit_events(event_type, created_at DESC);
         `);
+      });
     },
   migrateOutdoorLocationKeys(): void {
       const migrated = this.db.prepare("SELECT value FROM metadata WHERE key = 'outdoor_location_keys_v2'").get();

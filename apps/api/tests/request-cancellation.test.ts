@@ -46,4 +46,25 @@ describe("cancelled requests", () => {
       await runtime.close();
     }
   });
+
+  it("reports a server-owned deadline as a real failure", async () => {
+    const runtime = createApi({
+      config,
+      startBackground: false,
+      homeAssistantCredentialTester: () => Promise.reject(new DOMException("Probe deadline exceeded", "TimeoutError")),
+    });
+    try {
+      await request(runtime.app).post("/api/v1/integrations/home-assistant/test-draft")
+        .send(DRAFT)
+        .expect(500)
+        .expect(({ body }) => {
+          expect(body.error.code).toBe("INTERNAL_ERROR");
+        });
+      expect(runtime.systemErrorLog.list()).toEqual(expect.arrayContaining([
+        expect.objectContaining({ source: "api", code: "TimeoutError", message: "Probe deadline exceeded" }),
+      ]));
+    } finally {
+      await runtime.close();
+    }
+  });
 });
