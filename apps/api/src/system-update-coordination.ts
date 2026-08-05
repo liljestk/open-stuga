@@ -261,7 +261,16 @@ export function bridgeStatusFromJson(value: unknown, nowMs: number): HostBridgeS
   const targetBoundPhase = [
     "available", "downloading", "installing", "ready-to-restart", "restarting", "verifying", "complete",
   ].includes(phase);
-  if (targetBoundPhase && (!validReleaseVersion(value.targetVersion)
+  // Generation 14 completed successfully before the native coordinator added
+  // targetVersion to its terminal status. Accept only that non-actionable,
+  // exact-current completion shape; every stage or activation state remains
+  // fully identity-bound and a mismatched completed generation still fails closed.
+  const legacyCompletedCurrent = phase === "complete"
+    && (value.targetVersion === null || value.targetVersion === undefined)
+    && positiveGeneration(value.targetGeneration)
+    && value.targetGeneration === value.currentGeneration
+    && validDigest(value.manifestSha256);
+  if (targetBoundPhase && ((!validReleaseVersion(value.targetVersion) && !legacyCompletedCurrent)
     || !positiveGeneration(value.targetGeneration)
     || !validDigest(value.manifestSha256))) return null;
   if (["ready-to-restart", "restarting", "verifying", "complete"].includes(phase)

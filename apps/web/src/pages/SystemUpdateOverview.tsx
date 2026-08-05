@@ -385,6 +385,19 @@ export function SystemUpdateOverview({
     "host-stage-requested", "host-stage-queueing", "host-staging", "restarting", "host-verifying",
     "staging-host", "activating-host", "verifying-host",
   ].includes(workflow.phase));
+  const showApplicationRelease = Boolean(app.latestVersion
+    && (app.updateAvailable || app.latestVersion !== app.currentVersion));
+  const applicationReleaseLabel = app.updateAvailable
+    ? t("updates.component.available")
+    : t(status.latestRelease?.prerelease
+      ? "updates.component.latestPreview"
+      : "updates.component.latestStable");
+  const showHostTarget = Boolean(host.targetVersion && (
+    host.updateAvailable
+    || awaitingRestart
+    || hostWorkflowActive
+    || host.targetGeneration !== host.currentGeneration
+  ));
   const overallTone = recovery || overallBlocked || workflowFailed || applicationFailed || hostReturned
     ? "attention"
     : available || awaitingRestart || active
@@ -487,7 +500,7 @@ export function SystemUpdateOverview({
           <div className="unified-update-component__heading"><h3>{t("updates.component.application")}</h3><StateBadge label={appState} tone={appBlockedReason || appMetadataMissing || applicationFailed ? "attention" : app.updateAvailable ? "available" : "ready"} /></div>
           <dl>
             <div><dt>{t("updates.component.installed")}</dt><dd>{version(app.currentVersion)}</dd></div>
-            <div><dt>{t("updates.component.available")}</dt><dd>{version(app.latestVersion)}</dd></div>
+            {showApplicationRelease && <div><dt>{applicationReleaseLabel}</dt><dd>{version(app.latestVersion)}</dd></div>}
           </dl>
           {appMetadataMissing
             ? <p className="unified-update-reason"><CircleAlert size={14} aria-hidden="true" />{t("updates.block.metadataUnavailable")}</p>
@@ -501,7 +514,7 @@ export function SystemUpdateOverview({
           <div className="unified-update-component__heading"><h3>{t("updates.component.host")}</h3><StateBadge label={hostState} tone={hostMetadataMissing || unboundPreparedHost || hostReasonBlocks ? "attention" : host.updateAvailable || awaitingRestart ? "available" : host.supported ? "ready" : "muted"} /></div>
           <dl>
             <div><dt>{t("updates.component.installed")}</dt><dd>{host.currentVersion ? version(host.currentVersion) : host.currentGeneration !== null && host.currentGeneration !== undefined ? t("updates.component.generation", { generation: host.currentGeneration }) : "\u2014"}</dd></div>
-            <div><dt>{t("updates.component.available")}</dt><dd>{host.targetVersion ? `${version(host.targetVersion)} \u00b7 ${t("updates.component.generation", { generation: host.targetGeneration ?? "\u2014" })}` : "\u2014"}</dd></div>
+            {showHostTarget && <div><dt>{t(host.updateAvailable ? "updates.component.available" : "updates.component.target")}</dt><dd>{`${version(host.targetVersion)} \u00b7 ${t("updates.component.generation", { generation: host.targetGeneration ?? "\u2014" })}`}</dd></div>}
           </dl>
           {hostMetadataMissing
             ? <p className="unified-update-reason"><CircleAlert size={14} aria-hidden="true" />{t("updates.block.metadataUnavailable")}</p>
