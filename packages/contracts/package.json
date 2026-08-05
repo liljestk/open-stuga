@@ -1,6 +1,6 @@
 {
   "name": "@climate-twin/contracts",
-  "version": "0.35.5",
+  "version": "0.35.6",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",

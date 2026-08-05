@@ -4,6 +4,18 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.35.6 - 2026-08-05
+
+- Keep the native host-update bridge heartbeat independent from the durable
+  host operation timestamp, so a healthy idle bridge remains connected in
+  **Advanced → System** after the API's two-minute freshness window.
+- Add a regression test that reproduces a completed native journal with an old
+  timestamp and proves every bridge heartbeat reports its own current time.
+
+Upgrade impact: no persistent-data migration change. This supersedes 0.35.5
+for Raspberry Pi appliances; update selection, qualification, explicit host
+activation, A/B probation, and automatic rollback are unchanged.
+
 ## 0.35.5 - 2026-08-05
 
 - Create the bounded native host-update bridge directory during appliance

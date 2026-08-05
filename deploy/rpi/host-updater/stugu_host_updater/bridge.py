@@ -391,11 +391,13 @@ class HostUpdateBridge:
             "bridgeVersion": VERSION,
             "available": native is not None,
             "currentGeneration": self.config.host_generation,
+            **preserved,
+            **self._sanitized_native(native),
+            # This timestamp is the bridge heartbeat.  A native operation's
+            # durable updatedAt must never make a live bridge appear stale.
             "updatedAt": datetime.now(timezone.utc)
             .isoformat(timespec="milliseconds")
             .replace("+00:00", "Z"),
-            **preserved,
-            **self._sanitized_native(native),
             "error": error,
         }
         if request is not None:
