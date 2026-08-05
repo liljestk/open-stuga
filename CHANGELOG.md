@@ -4,6 +4,25 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.36.0 - 2026-08-05
+
+- Let an Owner or Admin enable bug reporting from **System → Bug report relay**
+  by saving the relay address and shared token into the protected integration
+  secrets file, instead of requiring deployment environment variables and a
+  restart. Environment-provided relays stay read-only and cannot be replaced
+  through the API.
+- Keep the offered "Download copy" fallback working in Firefox and Safari by
+  attaching the download anchor to the document and revoking the object URL
+  only after the browser has started the download.
+- Document the repository's build, test, invariant, and release expectations in
+  `CLAUDE.md` for future contributors and assistants.
+
+Upgrade impact: no persistent-data migration change. Deployments that already
+set `BUG_REPORT_RELAY_URL` and `BUG_REPORT_RELAY_TOKEN` keep working unchanged
+and now show the relay as read-only in the app; deployments without those
+variables can configure the relay in **System → Bug report relay**, which
+writes it to the existing protected integration secrets file.
+
 ## 0.35.7 - 2026-08-05
 
 - Restore the Raspberry Pi host-update status in **Advanced → System** by

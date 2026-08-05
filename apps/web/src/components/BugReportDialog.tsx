@@ -17,8 +17,11 @@ function downloadReport(value: unknown): void {
   const anchor = document.createElement("a");
   anchor.href = url;
   anchor.download = `stugu-bug-report-${new Date().toISOString().replace(/[:.]/gu, "-")}.json`;
+  anchor.style.display = "none";
+  document.body.append(anchor);
   anchor.click();
-  URL.revokeObjectURL(url);
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
 export function BugReportDialog({ page, principalEmail = null }: BugReportDialogProps) {
@@ -34,6 +37,7 @@ export function BugReportDialog({ page, principalEmail = null }: BugReportDialog
   const [sending, setSending] = useState(false);
   const [receipt, setReceipt] = useState<BugReportReceipt | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [unconfigured, setUnconfigured] = useState(false);
 
   const payload = useMemo(() => ({
     description: description.trim(),
@@ -58,6 +62,7 @@ export function BugReportDialog({ page, principalEmail = null }: BugReportDialog
     setDiagnostics(buildBugReportDiagnostics(page, locale));
     setReceipt(null);
     setError(null);
+    setUnconfigured(false);
     setOpen(true);
   };
 
@@ -74,10 +79,11 @@ export function BugReportDialog({ page, principalEmail = null }: BugReportDialog
     setError(null);
     try {
       setReceipt(await api.reportBug(payload));
+      setUnconfigured(false);
     } catch (caught) {
-      setError(caught instanceof ApiRequestError && caught.code === "BUG_REPORTING_UNAVAILABLE"
-        ? t("bugReport.errorUnavailable")
-        : t("bugReport.error"));
+      const missingRelay = caught instanceof ApiRequestError && caught.code === "BUG_REPORTING_UNAVAILABLE";
+      setUnconfigured(missingRelay);
+      setError(t(missingRelay ? "bugReport.errorUnavailable" : "bugReport.error"));
     } finally {
       setSending(false);
     }
@@ -131,7 +137,7 @@ export function BugReportDialog({ page, principalEmail = null }: BugReportDialog
           <input type="checkbox" checked={contactAllowed} onChange={(event) => setContactAllowed(event.target.checked)} />
           <span>{t("bugReport.contact", { email: principalEmail })}</span>
         </label>}
-        {error && <p className="bug-report-dialog__error" role="alert">{error}</p>}
+        {error && <p className="bug-report-dialog__error" role="alert">{error}{unconfigured && <small>{t("bugReport.errorUnavailableHelp")}</small>}</p>}
         <div className="bug-report-dialog__actions">
           <button type="button" className="secondary-button" onClick={() => downloadReport(payload)}><Download size={15} aria-hidden="true" />{t("bugReport.download")}</button>
           <span />

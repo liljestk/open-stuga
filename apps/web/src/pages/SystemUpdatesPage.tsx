@@ -24,6 +24,7 @@ import {
 import { formatInTimeZone, twentyFourHourInputLocale } from "../dateTime";
 import { confirmAction } from "../components/ConfirmationProvider";
 import { useI18n } from "../i18n";
+import { BugReportRelayPanel } from "./BugReportRelayPanel";
 import { HostSystemPanel } from "./HostSystemPanel";
 import { SystemStoragePanel } from "./SystemStoragePanel";
 import { SystemUpdateOverview, systemUpdateIsActive, type SystemUpdateStreamState } from "./SystemUpdateOverview";
@@ -440,6 +441,7 @@ export function SystemUpdatesPage() {
     </header>
     <HostSystemPanel />
     <SystemStoragePanel />
+    <BugReportRelayPanel />
   </>;
   if (!status || !draft) {
     return <>{systemHeading}<section className="route-recovery" aria-live="polite">

@@ -114,8 +114,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   }
   const localAuthProxyBindAddress = optional(env.LOCAL_AUTH_PROXY_BIND_ADDRESS);
   const proxySecret = localAuthProxySecret(env);
-  const bugReportRelayUrl = optional(env.BUG_REPORT_RELAY_URL);
-  const bugReportRelayToken = optionalFileSecret(
+  const environmentBugReportRelayUrl = optional(env.BUG_REPORT_RELAY_URL);
+  const environmentBugReportRelayToken = optionalFileSecret(
     env,
     "BUG_REPORT_RELAY_TOKEN",
     "BUG_REPORT_RELAY_TOKEN_FILE",
@@ -123,12 +123,21 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     32,
     true,
   );
-  if (Boolean(bugReportRelayUrl) !== Boolean(bugReportRelayToken)) {
+  if (Boolean(environmentBugReportRelayUrl) !== Boolean(environmentBugReportRelayToken)) {
     throw new Error("Bug reporting requires both BUG_REPORT_RELAY_URL and BUG_REPORT_RELAY_TOKEN");
   }
-  if (bugReportRelayUrl && new URL(bugReportRelayUrl).protocol !== "https:") {
+  if (environmentBugReportRelayUrl && new URL(environmentBugReportRelayUrl).protocol !== "https:") {
     throw new Error("BUG_REPORT_RELAY_URL must use HTTPS");
   }
+  /** Deployment environment wins so an operator-owned relay cannot be replaced through the API. */
+  const storedBugReportRelay = environmentBugReportRelayUrl ? null : stored.bugReportRelay ?? null;
+  const bugReportRelayUrl = environmentBugReportRelayUrl ?? storedBugReportRelay?.url ?? null;
+  const bugReportRelayToken = environmentBugReportRelayToken ?? storedBugReportRelay?.token ?? null;
+  const bugReportRelaySource: AppConfig["bugReportRelaySource"] = environmentBugReportRelayUrl
+    ? "environment"
+    : storedBugReportRelay
+      ? "protected-file"
+      : null;
   const cloudflareAccessAccountId = optional(env.CLOUDFLARE_ACCESS_ACCOUNT_ID);
   const cloudflareAccessGroupId = optional(env.CLOUDFLARE_ACCESS_GROUP_ID);
   const cloudflareAccessApiToken = optionalFileSecret(
@@ -451,6 +460,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     localAuthProxySecret: proxySecret,
     bugReportRelayUrl,
     bugReportRelayToken,
+    bugReportRelaySource,
+    bugReportRelayUpdatedAt: storedBugReportRelay?.updatedAt ?? null,
     cloudflareAccessAccountId,
     cloudflareAccessGroupId,
     cloudflareAccessGroupName,

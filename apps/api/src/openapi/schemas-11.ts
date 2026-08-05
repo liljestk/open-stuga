@@ -2,6 +2,18 @@ const dateTime = { type: "string", format: "date-time" } as const;
 const nullableDateTime = { type: ["string", "null"], format: "date-time" } as const;
 
 export const schemasPart11 = {
+  BugReportRelaySettings: {
+    type: "object",
+    additionalProperties: false,
+    required: ["configured", "url", "source", "updatedAt", "editable"],
+    properties: {
+      configured: { type: "boolean" },
+      url: { type: ["string", "null"], format: "uri" },
+      source: { enum: ["environment", "protected-file", null] },
+      updatedAt: nullableDateTime,
+      editable: { type: "boolean" },
+    },
+  },
   Nexus433Sample: {
     type: "object",
     additionalProperties: false,

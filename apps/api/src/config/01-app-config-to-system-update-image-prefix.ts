@@ -173,6 +173,10 @@ export interface AppConfig {
   bugReportRelayUrl?: string | null;
   /** Shared high-entropy relay credential; never expose or log AppConfig. */
   bugReportRelayToken?: string | null;
+  /** Effective source; environment configuration is authoritative and is never overwritten through the API. */
+  bugReportRelaySource?: "environment" | "protected-file" | null;
+  /** When a workspace administrator last saved the relay through the API. */
+  bugReportRelayUpdatedAt?: string | null;
   /** Optional account-scoped Cloudflare Access group synchronized from local members and invitations. */
   cloudflareAccessAccountId?: string | null;
   cloudflareAccessGroupId?: string | null;
