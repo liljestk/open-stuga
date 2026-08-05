@@ -23,6 +23,7 @@ install -d -m 0750 -o "$appliance_user" -g "$appliance_user" \
   "$state_dir/migrations/chunks" \
   "$state_dir/config" \
   "$state_dir/update-operations" \
+  "$state_dir/update-operations/host-bridge" \
   "$state_dir/update-release" \
   "$state_dir/secrets" \
   "$state_dir/secrets/apns" \

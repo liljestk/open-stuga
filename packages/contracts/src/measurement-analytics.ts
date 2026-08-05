@@ -55,7 +55,7 @@ export type AggregationSemantic =
   | "custom";
 
 /** Product release version. Pre-1.0 minor releases may contain breaking changes. */
-export const SYSTEM_VERSION = "0.35.4" as const;
+export const SYSTEM_VERSION = "0.35.5" as const;
 
 export interface MeasurementDefinition {
   id: Metric;
