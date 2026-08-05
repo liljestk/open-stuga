@@ -458,6 +458,17 @@ it must not resize/move p2-p6 or shrink/rebuild p1 in place. Factory layout v2
 keeps the same 96 MiB partition but reserves its final MiB outside FAT;
 existing devices remain layout v1 unless the fixed-extent bridge is qualified.
 
+### Deferred zero-touch recovery goal
+
+After the first TS240 factory transition, eliminate planned physical SSD
+removal for kernel, Pi boot-firmware, boot-chain, EEPROM, and recovery-class
+software changes. A future design must provide signed remote staging, bounded
+trial and rollback, and a trustworthy remote rescue path without weakening
+device qualification, TUF/RAUC verification, mutation locks, or the rule that
+p6 is never a raw-write target. This is deliberately deferred beyond the
+v0.35.x exact-device preview; hardware replacement, loss of power/network, and
+irrecoverable storage failure remain outside any absolute zero-touch promise.
+
 ## Recovery and observability
 
 Recovery is layered:
