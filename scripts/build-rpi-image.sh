@@ -567,6 +567,22 @@ done <<'EOF'
 /usr/share/dbus-1/system.d/de.pengutronix.rauc.conf:0644
 /usr/share/rauc/rauc-service.sh:0755
 EOF
+bridge_passwd="$(dump.erofs --cat --path=/etc/passwd "$system_source")"
+bridge_group="$(dump.erofs --cat --path=/etc/group "$system_source")"
+if ! awk -F: '
+  $1 == "stugu-update-bridge" && $3 ~ /^[0-9]+$/ && $4 ~ /^[0-9]+$/ { found = 1 }
+  END { exit !found }
+' <<<"$bridge_passwd"; then
+  echo "Generated host image lacks the stugu-update-bridge service account" >&2
+  exit 1
+fi
+if ! awk -F: '
+  $1 == "stugu" && ("," $4 ",") ~ /,stugu-update-bridge,/ { found = 1 }
+  END { exit !found }
+' <<<"$bridge_group"; then
+  echo "Generated host image does not grant the bridge its bounded stugu group access" >&2
+  exit 1
+fi
 mkdir -p "$host_inputs"
 install -m 0644 "$boot_source" "$host_inputs/boot.vfat"
 install -m 0644 "$system_source" "$host_inputs/system.erofs"

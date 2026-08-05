@@ -4,6 +4,21 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.35.4 - 2026-08-05
+
+- Materialize the dedicated, unprivileged host-update bridge account while the
+  immutable Raspberry Pi root is built, instead of relying on a boot-time
+  sysusers condition that is intentionally false for a current EROFS image.
+- Inspect the generated EROFS account and group databases before any host or
+  factory artifact can be released, preventing a healthy application with a
+  restart-looping native updater bridge from passing publication.
+
+Upgrade impact: no persistent-data migration change. This patch supersedes the
+generation-9 v0.35.3 host image with generation 10. A generation-9 appliance
+can stage and activate it through the recovery SSH CLI; host activation remains
+explicit and the signed qualification remains limited to the exact TS240
+appliance.
+
 ## 0.35.3 - 2026-08-05
 
 - Carry the unified, backup-first application and Raspberry Pi host-update
