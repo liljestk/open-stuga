@@ -4,6 +4,22 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.35.3 - 2026-08-05
+
+- Carry the unified, backup-first application and Raspberry Pi host-update
+  experience forward as the direct installation candidate for the current
+  TS240 SSD appliance.
+- Bind host activation to that appliance's exact Pi, EEPROM, USB bridge, and
+  storage fingerprint while retaining explicit restart confirmation, signed
+  TUF/RAUC selection, shared mutation locks, A/B probation, and rollback.
+- Record the accepted-risk first physical validation and preserve the future
+  goal of remotely recoverable boot-chain, firmware, and recovery updates.
+
+Upgrade impact: no persistent-data migration change. The existing generation-6
+SSD requires one final offline factory transition with verified backup/restore.
+The candidate uses host generation 9 and does not claim general hardware
+qualification.
+
 ## 0.35.2 - 2026-08-04
 
 - Make the unified update summary fail closed when the application update
