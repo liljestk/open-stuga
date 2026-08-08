@@ -12,6 +12,10 @@ import type {
   Sensor,
 } from "@climate-twin/contracts";
 import { HOME_PERFORMANCE_ALGORITHM_VERSION } from "@climate-twin/contracts";
+import {
+  isTimeWithinPassiveIntervals,
+  type PassiveInterval,
+} from "../heat-pump-evidence.js";
 
 export { HOME_PERFORMANCE_ALGORITHM_VERSION };
 
@@ -155,6 +159,7 @@ export interface HomePerformanceInput {
   generatedAt?: string;
   sensorScopeTruncated?: boolean;
   evidenceScopeTruncated?: boolean;
+  hvacPassiveIntervals?: readonly PassiveInterval[];
 }
 
 export interface ValuePoint {
@@ -358,10 +363,14 @@ export function absoluteHumiditySeries(response: AnalyticsQueryResponse | null, 
 
 export function recoveryEvidenceBySensor(input: HomePerformanceInput): Map<string, RecoveryEvidence> {
   const result = new Map<string, RecoveryEvidence>();
+  const passive = (point: ValuePoint) => isTimeWithinPassiveIntervals(
+    input.hvacPassiveIntervals,
+    point.time,
+  );
   for (const sensor of input.sensors.filter((candidate) => candidate.enabled)) {
     const evidence = {
-      co2: values(seriesFor(input.recoveryClimate, sensor.id, "co2")),
-      absoluteHumidity: absoluteHumiditySeries(input.recoveryClimate, sensor.id),
+      co2: values(seriesFor(input.recoveryClimate, sensor.id, "co2")).filter(passive),
+      absoluteHumidity: absoluteHumiditySeries(input.recoveryClimate, sensor.id).filter(passive),
     };
     if (evidence.co2.length > 0 || evidence.absoluteHumidity.length > 0) {
       result.set(sensor.id, evidence);

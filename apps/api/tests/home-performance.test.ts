@@ -16,10 +16,64 @@ import type {
 import { HOME_PERFORMANCE_ALGORITHM_VERSION } from "@climate-twin/contracts";
 
 import { deriveHomePerformance } from "../src/analytics/home-performance/derive.js";
+import {
+  exposureResult,
+  recoveryEvidenceBySensor,
+  type HomePerformanceInput,
+} from "../src/analytics/home-performance/model.js";
 
 import { actionRun, analyticsPoint, analyticsSeries, climateSensor, definition, definitions, energySensor, from, hourlyPoints, house, maintenanceTask, opening, recoveryPoints, recoveryStart, response, to } from "./home-performance-test-support.js";
 
 describe("deriveHomePerformance", () => {
+  it("keeps actual comfort exposure but censors causal recovery evidence outside verified-off intervals", () => {
+    const climate = response([
+      analyticsSeries(climateSensor, "temperature", hourlyPoints(() => 21), "1h"),
+    ], "1h");
+    const recovery = response([
+      analyticsSeries(climateSensor, "co2", recoveryPoints("co2"), "15m"),
+    ], "15m");
+    const input = {
+      sensors: [climateSensor],
+      climate,
+      recoveryClimate: recovery,
+      hvacPassiveIntervals: [],
+    } as HomePerformanceInput;
+    expect(exposureResult(input).observedHours).toBeGreaterThan(0);
+    expect(recoveryEvidenceBySensor(input).has(climateSensor.id)).toBe(false);
+  });
+
+  it("keeps recovery points only inside half-open verified-off intervals without censoring exposure", () => {
+    const intervalStart = recoveryStart + 15 * 60_000;
+    const intervalEnd = recoveryStart + 45 * 60_000;
+    const timestamps = [
+      intervalStart,
+      intervalStart + 15 * 60_000,
+      intervalEnd,
+      intervalEnd + 15 * 60_000,
+    ].map((time) => new Date(time).toISOString());
+    const climate = response([
+      analyticsSeries(climateSensor, "temperature", hourlyPoints(() => 21), "1h"),
+    ], "1h");
+    const recovery = response([
+      analyticsSeries(
+        climateSensor,
+        "co2",
+        timestamps.map((timestamp, index) => analyticsPoint(timestamp, 1_200 - index * 100)),
+        "15m",
+      ),
+    ], "15m");
+    const input = {
+      sensors: [climateSensor],
+      climate,
+      recoveryClimate: recovery,
+      hvacPassiveIntervals: [{ fromMs: intervalStart, toMs: intervalEnd }],
+    } as HomePerformanceInput;
+
+    expect(exposureResult(input).observedHours).toBeGreaterThan(0);
+    expect(recoveryEvidenceBySensor(input).get(climateSensor.id)?.co2.map((point) => point.timestamp))
+      .toEqual(timestamps.slice(0, 2));
+  });
+
   it("derives all six checks while preserving evidence boundaries", () => {
     const climate = response([
       analyticsSeries(climateSensor, "temperature", hourlyPoints((index) => index === 0 ? 16 : 21), "1h"),

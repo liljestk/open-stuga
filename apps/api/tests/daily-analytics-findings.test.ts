@@ -40,6 +40,10 @@ describe("daily analytics findings", () => {
       id: "finding-sensor", houseId: "finding-house", floorId: "main", roomId: "living", room: "Living room",
       name: "Living room meter", model: "Test", x: 5, y: 4, z: 1.2, tags: [], enabled: true,
     });
+    runtime.database.createSensor({
+      id: "wilfa-projection", houseId: "finding-house", floorId: "main", roomId: "living", room: "Living room",
+      name: "Wilfa return air", model: "Wilfa", x: 6, y: 4, z: 2, tags: ["equipment:heat-pump"], enabled: true,
+    });
     runtime.database.activateRealDataMode();
 
     const measurements = [2025, 2026].flatMap((year) => Array.from({ length: 21 }, (_, day) => {
@@ -51,6 +55,17 @@ describe("daily analytics findings", () => {
       ];
     })).flat();
     runtime.database.insertMeasurementSamples(measurements);
+    runtime.database.insertMeasurementSamples([2025, 2026].flatMap((year) => (
+      Array.from({ length: 21 }, (_, day) => ({
+        sensorId: "wilfa-projection",
+        metric: "temperature",
+        value: year === 2026 ? 35 : 10,
+        canonicalUnit: "°C",
+        timestamp: new Date(Date.UTC(year, 6, day + 1, 12)).toISOString(),
+        source: "gree" as const,
+        quality: "good" as const,
+      }))
+    )));
 
     const key = outdoorLocationKey({ latitude: 60.1699, longitude: 24.9384 });
     for (const year of [2025, 2026]) {
@@ -128,6 +143,9 @@ describe("daily analytics findings", () => {
       expect.objectContaining({ category: "electricity", subjectLabel: "Living room meter", metric: "energy", direction: "higher" }),
       expect.objectContaining({ category: "outdoor-weather", metric: "outdoor_temperature", direction: "higher", absoluteDifference: 3 }),
       expect.objectContaining({ category: "opening", subjectLabel: "Front door", metric: "opening_events", direction: "higher", absoluteDifference: 10 }),
+    ]));
+    expect(findings).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ subjectLabel: "Wilfa return air" }),
     ]));
     const opening = findings.find((finding) => finding.category === "opening") as { current: { value: number }; baselineMedian: number };
     expect(opening.current.value).toBe(13);

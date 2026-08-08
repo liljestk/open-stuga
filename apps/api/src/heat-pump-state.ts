@@ -8,6 +8,7 @@ import {
   heatPumpMeasurementSamples,
   heatPumpSensorId,
 } from "./heat-pump-measurements.js";
+import { heatPumpEvidenceInfluenceRange } from "./analytics/heat-pump-evidence.js";
 
 interface StateRow {
   state_json: string;
@@ -246,11 +247,19 @@ export class HeatPumpStateStore {
           received_at = excluded.received_at,
           state_json = excluded.state_json
       `).run(state.connectionId, state.houseId, state.observedAt, state.receivedAt, encoded);
-      this.database.db.prepare(`
+      const historyInsert = this.database.db.prepare(`
         INSERT OR IGNORE INTO heat_pump_state_history
           (connection_id, house_id, observed_at, received_at, state_json)
         VALUES (?, ?, ?, ?, ?)
       `).run(state.connectionId, state.houseId, state.observedAt, state.receivedAt, encoded);
+      if (Number(historyInsert.changes) > 0) {
+        const influence = heatPumpEvidenceInfluenceRange(state.observedAt);
+        this.database.invalidateDerivedAnalyticsHistory(
+          state.houseId,
+          influence.from,
+          influence.to,
+        );
+      }
       return changed;
     });
     if (accepted) {

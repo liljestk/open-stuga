@@ -4,8 +4,9 @@ import type {
   DerivedAnalyticsProvenance,
   DerivedAnalyticsWarning,
 } from "./analytics-common.js";
+import type { HvacExclusionSummary } from "./weather-thermal.js";
 
-export const HOME_PERFORMANCE_ALGORITHM_VERSION = "home-performance-v2.0.0";
+export const HOME_PERFORMANCE_ALGORITHM_VERSION = "home-performance-v3.0.0";
 
 export type HomePerformanceEvidenceState = "ready" | "limited" | "unavailable";
 
@@ -112,6 +113,8 @@ export interface HomePerformanceResponse {
   sensorHealth: HomePerformanceSensorHealth;
   limitations: HomePerformanceLimitation[];
   warnings: DerivedAnalyticsWarning[];
+  /** Heat-pump evidence used only for recovery and opening-effectiveness episodes. */
+  hvacExclusion?: HvacExclusionSummary;
   provenance: DerivedAnalyticsProvenance & {
     truthClass: "derived";
     archiveStates: string[];

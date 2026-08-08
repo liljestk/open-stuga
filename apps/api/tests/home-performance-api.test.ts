@@ -111,7 +111,7 @@ describe("home performance durable API", () => {
       result: {
         provenance: {
           algorithmKey: "home-performance",
-          algorithmVersion: "home-performance-v2.0.0",
+          algorithmVersion: "home-performance-v3.0.0",
         },
       },
     });

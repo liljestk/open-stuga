@@ -22,6 +22,7 @@ import {
   outdoorLocationKey,
 } from "../db.js";
 import { deriveOpeningActivity } from "../analytics/temporal/opening-intervals.js";
+import { HEAT_PUMP_SENSOR_TAG } from "../heat-pump-measurements.js";
 import {
   HybridTelemetryReader,
   IncompleteTelemetryHistoryError,
@@ -147,7 +148,8 @@ export class DailyAnalyticsFindingsWorker {
   async #generateHouse(house: House, dataMode: DataMode, periods: FindingPeriods): Promise<DailyAnalyticsFindingsSnapshot> {
     const warnings = new Set<DailyAnalyticsFindingsSnapshot["warnings"][number]>();
     const ranked: RankedFinding[] = [];
-    const sensors = this.#database.listSensors(house.id).filter((sensor) => sensor.enabled);
+    const sensors = this.#database.listSensors(house.id)
+      .filter((sensor) => sensor.enabled && !sensor.tags.includes(HEAT_PUMP_SENSOR_TAG));
     const definitions = this.#database.listMeasurementDefinitions(false).filter((definition) => {
       const semantics = analyticsDefinitionSemantics(definition);
       return definition.genericHistoryEnabled !== false

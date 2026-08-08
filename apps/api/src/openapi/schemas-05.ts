@@ -4,6 +4,24 @@ import { jsonRequestBody, jsonResponse, localAuthPaths, localAuthSchemas, operat
 import type { OpenApiSchema } from "./support/index.js";
 
 export const schemasPart05 = {
+  HvacExclusionSummary: {
+          type: "object",
+          additionalProperties: false,
+          required: ["policy", "evidenceState", "heatPumpCount", "stateGapMinutes", "paddingBeforeMinutes", "paddingAfterMinutes", "minimumClassifiedPercent", "minimumUsablePercent", "windowHours", "classifiedPercent", "verifiedOffHours", "confirmedActiveHours", "possibleActiveHours", "unknownHours", "usableHours", "excludedHours", "retainedSampleCount", "excludedSampleCount", "truncated"],
+          properties: {
+            policy: { const: "verified-heat-pump-off-v1" },
+            evidenceState: { enum: ["not-present", "complete", "partial", "insufficient"] },
+            heatPumpCount: { type: "integer", minimum: 0 },
+            stateGapMinutes: { const: 5 }, paddingBeforeMinutes: { const: 5 }, paddingAfterMinutes: { const: 30 },
+            minimumClassifiedPercent: { const: 90 }, minimumUsablePercent: { const: 50 },
+            windowHours: { type: "number", minimum: 0 }, classifiedPercent: { type: "number", minimum: 0, maximum: 100 },
+            verifiedOffHours: { type: "number", minimum: 0 }, confirmedActiveHours: { type: "number", minimum: 0 },
+            possibleActiveHours: { type: "number", minimum: 0 }, unknownHours: { type: "number", minimum: 0 },
+            usableHours: { type: "number", minimum: 0 }, excludedHours: { type: "number", minimum: 0 },
+            retainedSampleCount: { type: "integer", minimum: 0 }, excludedSampleCount: { type: "integer", minimum: 0 },
+            truncated: { type: "boolean" },
+          },
+        },
   ThermalSimulationResult: {
           type: "object",
           required: ["generatedAt", "systemVersion", "houseId", "sensorId", "roomLabel", "from", "to", "horizonHours", "scenarioOutdoorTemperatureC", "scenarioAnchorTimestamp", "calibration", "points"],
@@ -29,6 +47,7 @@ export const schemasPart05 = {
                 assumptions: { type: "array", items: { type: "string" } },
               },
             },
+            hvacExclusion: { $ref: "#/components/schemas/HvacExclusionSummary" },
             points: { type: "array", items: { $ref: "#/components/schemas/ThermalSimulationPoint" } },
           },
         },
@@ -88,6 +107,7 @@ export const schemasPart05 = {
             methodology: { type: "object", additionalProperties: false, required: ["scoreMethod", "aggregationMethod", "interpretation", "limitations"], properties: {
               scoreMethod: { const: "modeled-24h-retention-v1" }, aggregationMethod: { const: "median-child-score-v1" },
               interpretation: { type: "string" }, limitations: { type: "array", items: { type: "string" } },
+              hvacExclusion: { $ref: "#/components/schemas/HvacExclusionSummary" },
             } },
           },
         },
@@ -144,6 +164,7 @@ export const schemasPart05 = {
               conversionMethod: { const: "buck-vapor-pressure-v1" }, modelMethod: { const: "first-order-moisture-response-v1" },
               aggregationMethod: { const: "median-child-metric-v1" }, interpretation: { type: "string" },
               limitations: { type: "array", items: { type: "string" } },
+              hvacExclusion: { $ref: "#/components/schemas/HvacExclusionSummary" },
             } },
           },
         },

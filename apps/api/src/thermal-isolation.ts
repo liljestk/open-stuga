@@ -1,5 +1,6 @@
 import type {
   House,
+  HvacExclusionSummary,
   MeasurementSample,
   OutdoorTemperatureSample,
   Sensor,
@@ -18,6 +19,7 @@ import {
   type PreparedThermalOutdoorBoundary,
 } from "./thermal-simulation.js";
 import { SYSTEM_VERSION } from "./version.js";
+import { HEAT_PUMP_SENSOR_TAG } from "./heat-pump-measurements.js";
 
 const DAY_HOURS = 24;
 const CALIBRATION_BUCKET_MS = 5 * 60_000;
@@ -31,6 +33,7 @@ export interface ThermalIsolationInput {
   from: string;
   to: string;
   generatedAt?: string;
+  hvacExclusion?: HvacExclusionSummary;
 }
 
 interface RoomGroup {
@@ -68,6 +71,7 @@ export function isThermalIsolationTemperatureSensor(
   sensor: Sensor,
   hasRecordedTemperature = false,
 ): boolean {
+  if (sensor.tags.includes(HEAT_PUMP_SENSOR_TAG)) return false;
   return hasRecordedTemperature
     || Boolean(sensor.temperatureEntityId?.trim())
     || Boolean(sensor.measurementEntityIds?.temperature?.trim())
@@ -150,6 +154,7 @@ function sensorEntry(
     outdoorSamples: input.outdoorSamples,
     horizonHours: 0,
     ...(input.generatedAt ? { generatedAt: input.generatedAt } : {}),
+    ...(input.hvacExclusion ? { hvacExclusion: input.hvacExclusion } : {}),
   }, preparedOutdoor).calibration;
   return sensorEntryFromCalibration(input, sensor, parentId, calibration);
 }
@@ -211,6 +216,7 @@ async function sensorEntryAsync(
     outdoorSamples: input.outdoorSamples,
     horizonHours: 0,
     ...(input.generatedAt ? { generatedAt: input.generatedAt } : {}),
+    ...(input.hvacExclusion ? { hvacExclusion: input.hvacExclusion } : {}),
   }, preparedOutdoor, signal ? { signal } : {})).calibration;
   return sensorEntryFromCalibration(input, sensor, parentId, calibration);
 }
@@ -677,10 +683,11 @@ function completeThermalIsolation(
       aggregationMethod: "median-child-score-v1",
       interpretation: "Higher scores mean the fitted indoor temperature changes more slowly after an outdoor temperature step.",
       limitations: [
-        "The score combines envelope heat transfer, thermal mass, HVAC, ventilation, solar gains, occupants, appliances, and sensor placement.",
+        "Periods without verified heat-pump-off evidence are excluded when a tracked heat pump exists; other heating, ventilation, solar gains, occupants, appliances, and sensor placement remain mixed into the fit.",
         "It is a comparative empirical indicator, not a wall U-value, airtightness result, energy rating, or building-code assessment.",
         "Floor and house values are medians of child scopes so one heavily instrumented room does not dominate the result.",
       ],
+      ...(input.hvacExclusion ? { hvacExclusion: input.hvacExclusion } : {}),
     },
   };
 }

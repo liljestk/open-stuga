@@ -154,6 +154,7 @@ export const schemasPart09 = {
       to: { type: "string", format: "date-time" },
       recoveryFrom: { type: "string", format: "date-time" },
       complete: { type: "boolean" },
+      hvacExclusion: { $ref: "#/components/schemas/HvacExclusionSummary" },
       exposure: { $ref: "#/components/schemas/HomePerformanceExposure" },
       recovery: {
         type: "object", additionalProperties: false,

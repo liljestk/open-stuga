@@ -1,5 +1,6 @@
 import type {
   House,
+  HvacExclusionSummary,
   MeasurementSample,
   MoistureResponseConfidence,
   MoistureResponseEntry,
@@ -28,6 +29,7 @@ export interface MoistureResponseInput {
   from: string;
   to: string;
   generatedAt?: string;
+  hvacExclusion?: HvacExclusionSummary;
 }
 
 interface RoomGroup {
@@ -127,7 +129,12 @@ function sensorEntry(
       validationMaeHpa: calibration.quality.validationMaeHpa,
       persistenceMaeHpa: calibration.quality.persistenceMaeHpa,
     },
-    warnings: [...calibration.warnings],
+    warnings: [
+      ...calibration.warnings,
+      ...(input.hvacExclusion?.excludedSampleCount
+        ? ["HVAC_ACTIVE_OR_UNVERIFIED_PERIODS_EXCLUDED"]
+        : []),
+    ],
   };
 }
 
@@ -403,10 +410,11 @@ function complete(
       interpretation: "Response time describes how quickly temperature-corrected indoor water vapor follows the observed outdoor moisture boundary. Meteorological relative humidity and dew point use Buck saturation pressure over liquid water, including below freezing.",
       limitations: [
         "Relative humidity is converted with paired temperature before comparison; raw indoor and outdoor percentages are never compared directly.",
-        "Ventilation, air leakage, occupants, showers, cooking, laundry, plants, HVAC, dehumidification, condensation, material sorption, and sensor placement remain mixed into the response.",
+        "Periods without verified heat-pump-off evidence are excluded when a tracked heat pump exists; ventilation, air leakage, occupants, showers, cooking, laundry, plants, other dehumidification, condensation, material sorption, and sensor placement remain mixed into the response.",
         "This is an empirical moisture-response comparison, not an airtightness, dampness, mould, condensation, or building-code assessment.",
         "Floor and Home values are medians of child scopes so one heavily instrumented room does not dominate.",
       ],
+      ...(input.hvacExclusion ? { hvacExclusion: input.hvacExclusion } : {}),
     },
   };
 }

@@ -4,6 +4,26 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.38.0 - 2026-08-08
+
+- Exclude powered, compressor-active, unavailable, and stale-gap heat-pump
+  periods from passive thermal and moisture fits. A five-minute lead and
+  thirty-minute recovery margin are applied, and insufficient state coverage
+  now fails closed to the durable last-good result instead of being treated as
+  heat-pump-off evidence.
+- Remove the Gree/Wilfa equipment projection from ambient room comparisons,
+  Home monitoring, Home Performance recovery/opening analysis, and daily
+  environmental findings while retaining actual comfort exposure and energy
+  outcomes.
+- Report the classified, usable, excluded, and unknown heat-pump evidence in
+  thermal, moisture, and Home Performance API results. Appliance power and raw
+  compressor frequency are not normalized into delivered thermal output.
+
+Upgrade impact: this application-only release changes derived analytics
+identities and recomputes them under the verified-off policy. Existing telemetry
+and last-good artifacts are retained; no database rewrite or signed host update
+is required.
+
 ## 0.37.1 - 2026-08-08
 
 - Keep experimental spatial-layer storage completely idle on ordinary House,

@@ -2,13 +2,15 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { SYSTEM_VERSION, type ThermalIsolationResult } from "@climate-twin/contracts";
+import { SYSTEM_VERSION, type HeatPumpState, type ThermalIsolationResult } from "@climate-twin/contracts";
 import { AnalyticsWorkLimiter } from "../src/analytics/work-limiter.js";
 import { DerivedAnalyticsCoordinator } from "../src/analytics/derived-artifacts/coordinator.js";
 import { canonicalWindowDays, lastCompleteDayCutoff } from "../src/analytics/derived-artifacts/compute.js";
 import { ClimateDatabase } from "../src/db.js";
 import { DataModeCoordinator } from "../src/services.js";
 import type { HybridTelemetryReader } from "../src/timeseries/read-facade.js";
+import { HeatPumpStateStore } from "../src/heat-pump-state.js";
+import { heatPumpSensorId } from "../src/heat-pump-measurements.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -56,6 +58,23 @@ function result(generatedAt: string): ThermalIsolationResult {
       interpretation: "Test",
       limitations: [],
     },
+  };
+}
+
+function heatPumpState(observedAt: string, power: boolean): HeatPumpState {
+  return {
+    connectionId: "connection-a", houseId: "home-a", equipmentId: null,
+    deviceId: "device-a", name: "Heat pump", brand: "Wilfa", model: "Test",
+    transport: "local", observedAt, receivedAt: observedAt, available: true,
+    power, selectedMode: power ? "heat" : null, targetTemperatureC: null,
+    currentTemperatureC: null, currentTemperatureSource: "unavailable",
+    currentHumidityPercent: null, targetHumidityPercent: null, fanSpeed: null,
+    horizontalSwing: null, verticalSwing: null, freshAir: null, anion: null,
+    sleep: null, light: null, quiet: null, turbo: null, xfan: null,
+    steadyHeat: null, powerSave: null, cleanFilter: null, waterFull: null,
+    dehumidifierMode: null, compressorFrequencyHz: null, diagnostics: {},
+    activity: power ? "unknown" : "off", activityEvidence: "protocol",
+    floorId: null, roomId: null, x: null, y: null, z: null,
   };
 }
 
@@ -138,6 +157,39 @@ describe("durable derived analytics coordinator", () => {
       kind: "thermal-isolation", houseId: "home-a", dataMode: "live", windowDays: 7,
     })).toMatchObject({ state: "idle", stale: true });
     expect(coordinator.snapshot()).toMatchObject({ pending: 0, artifacts: 1 });
+    db.close();
+  });
+
+  it("invalidates artifacts across heat-pump padding even when its sensor projection is unavailable", async () => {
+    const db = database(":memory:");
+    db.activateRealDataMode();
+    db.createSensor({
+      id: heatPumpSensorId("connection-a"), houseId: "home-a", floorId: "floor-a", roomId: "room-a",
+      room: "Room A", name: "Conflicting unmanaged sensor", model: "Test", x: 1, y: 1, z: 1,
+      tags: [], enabled: true,
+    });
+    const now = new Date("2026-08-08T12:00:00.000Z");
+    const coordinator = new DerivedAnalyticsCoordinator(
+      db,
+      fakeTelemetryReader,
+      new AnalyticsWorkLimiter({ maxConcurrent: 1 }),
+      { now: () => now, compute: async () => result(now.toISOString()) },
+    );
+    coordinator.refresh({
+      kind: "thermal-isolation", houseId: "home-a", dataMode: "live", windowDays: 7,
+    });
+    await coordinator.drainOnce();
+    const states = new HeatPumpStateStore(db);
+    states.record(heatPumpState("2026-08-08T10:00:00.000Z", false));
+    expect(coordinator.read({
+      kind: "thermal-isolation", houseId: "home-a", dataMode: "live", windowDays: 7,
+    })).toMatchObject({ state: "ready", stale: false });
+    // The canonical artifact ends at midnight. This observation is just after
+    // it, but its five-minute pre-operation exclusion overlaps the artifact.
+    states.record(heatPumpState("2026-08-08T00:04:00.000Z", true));
+    expect(coordinator.read({
+      kind: "thermal-isolation", houseId: "home-a", dataMode: "live", windowDays: 7,
+    })).toMatchObject({ state: "idle", stale: true });
     db.close();
   });
 
@@ -617,8 +669,8 @@ describe("durable derived analytics coordinator", () => {
         compute: async () => result(now.toISOString()),
         algorithmVersions: {
           "thermal-isolation": "thermal-isolation-v2-test",
-          "moisture-response": "moisture-response-v1.0.0",
-          "home-performance": "home-performance-v2.0.0",
+          "moisture-response": "moisture-response-v2.0.0",
+          "home-performance": "home-performance-v3.0.0",
         },
       },
     );

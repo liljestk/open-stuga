@@ -1,6 +1,7 @@
 import type {
   MeasurementSample,
   OutdoorTemperatureSample,
+  HvacExclusionSummary,
   ThermalCalibrationQuality,
   ThermalCalibrationResult,
   ThermalModelV1,
@@ -70,6 +71,7 @@ export interface ThermalSimulationInput {
   horizonHours?: number;
   scenarioOutdoorTemperatureC?: number | null;
   generatedAt?: string;
+  hvacExclusion?: HvacExclusionSummary;
 }
 
 function thermalStep(indoorC: number, outdoorC: number, dtHours: number, tauHours: number, liftC: number): number {
@@ -720,6 +722,10 @@ function completeThermalSimulation(
     calibration.warnings.push("STALE_SCENARIO_ANCHOR");
     calibration.status = "provisional";
   }
+  if (input.hvacExclusion && input.hvacExclusion.excludedSampleCount > 0
+    && !calibration.warnings.includes("HVAC_ACTIVE_OR_UNVERIFIED_PERIODS_EXCLUDED")) {
+    calibration.warnings.push("HVAC_ACTIVE_OR_UNVERIFIED_PERIODS_EXCLUDED");
+  }
   const empiricalBandC = Math.max(0.1, calibration.quality.residualP90C ?? calibration.quality.validationRmseC ?? 0.5);
   const points = calibration.model
     ? [
@@ -747,6 +753,7 @@ function completeThermalSimulation(
     scenarioAnchorTimestamp,
     calibration,
     points,
+    ...(input.hvacExclusion ? { hvacExclusion: input.hvacExclusion } : {}),
   };
 }
 

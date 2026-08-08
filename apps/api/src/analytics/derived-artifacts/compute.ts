@@ -17,6 +17,10 @@ import {
 import type { HybridTelemetryReader } from "../../timeseries/read-facade.js";
 import { getHomePerformance } from "../home-performance/service.js";
 import {
+  filterHeatPumpAffectedSampleMap,
+  loadHeatPumpExclusionWindow,
+} from "../heat-pump-evidence.js";
+import {
   runMoistureResponseIsolated,
   runThermalIsolationIsolated,
 } from "./fit-isolate.js";
@@ -25,8 +29,8 @@ import type { DerivedIdentity, DerivedResult, StoredDerivedJob } from "./types.j
 const BOUNDARY_PADDING_MS = 2 * 3_600_000;
 
 export const DERIVED_ANALYTICS_ALGORITHM_VERSIONS = {
-  "thermal-isolation": "thermal-isolation-v1.0.0",
-  "moisture-response": "moisture-response-v1.0.0",
+  "thermal-isolation": "thermal-isolation-v2.0.0",
+  "moisture-response": "moisture-response-v2.0.0",
   "home-performance": HOME_PERFORMANCE_ALGORITHM_VERSION,
 } as const satisfies Record<DurableDerivedAnalyticsKind, string>;
 
@@ -199,23 +203,27 @@ export class DerivedAnalyticsComputer {
       indoorSamplesBySensor.set(sensor.id, read.records);
       await new Promise<void>((resolve) => setImmediate(resolve));
     }
+    const heatPumpWindow = loadHeatPumpExclusionWindow(this.#database, house.id, from, to);
+    const filtered = filterHeatPumpAffectedSampleMap(indoorSamplesBySensor, heatPumpWindow);
     if (job.kind === "thermal-isolation") {
       return runThermalIsolationIsolated({
         house,
         sensors: eligible,
-        indoorSamplesBySensor,
+        indoorSamplesBySensor: filtered.samplesBySensor,
         outdoorSamples: outdoor,
         from,
         to,
+        hvacExclusion: filtered.summary,
       }, signal);
     }
     return runMoistureResponseIsolated({
       house,
       sensors: eligible,
-      indoorSamplesBySensor,
+      indoorSamplesBySensor: filtered.samplesBySensor,
       outdoorSamples: outdoor,
       from,
       to,
+      hvacExclusion: filtered.summary,
     }, signal);
   }
 }

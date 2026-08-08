@@ -18,6 +18,12 @@ import {
 } from "../../timeseries/read-facade.js";
 import { executeAnalyticsQuery } from "../query/execute.js";
 import { deriveHomePerformance } from "./derive.js";
+import { HEAT_PUMP_SENSOR_TAG } from "../../heat-pump-measurements.js";
+import {
+  isPassiveHeatPumpTime,
+  loadHeatPumpExclusionWindow,
+  withHeatPumpPointCounts,
+} from "../heat-pump-evidence.js";
 
 const DAY_MS = 86_400_000;
 const PERFORMANCE_DAYS = 30;
@@ -225,7 +231,7 @@ export async function getHomePerformance(
 ): Promise<HomePerformanceResponse> {
   input.signal?.throwIfAborted();
   const sensors = [...input.sensors]
-    .filter((sensor) => sensor.enabled)
+    .filter((sensor) => sensor.enabled && !sensor.tags.includes(HEAT_PUMP_SENSOR_TAG))
     .sort((left, right) => left.id.localeCompare(right.id));
   if (sensors.length > MAX_HOME_PERFORMANCE_SENSORS) {
     throw new HomePerformanceScopeError(
@@ -241,6 +247,12 @@ export async function getHomePerformance(
   const to = input.evaluatedAt;
   const from = new Date(Date.parse(to) - PERFORMANCE_DAYS * DAY_MS).toISOString();
   const recoveryFrom = new Date(Date.parse(to) - RECOVERY_DAYS * DAY_MS).toISOString();
+  const heatPumpWindow = loadHeatPumpExclusionWindow(
+    input.database,
+    input.house.id,
+    recoveryFrom,
+    to,
+  );
   const projectedPoints = sensors.length * (
     pointCount(from, to, "1h") * (climateDefinitions.length + energyDefinitions.length)
     + pointCount(recoveryFrom, to, "15m") * climateDefinitions.length
@@ -330,6 +342,16 @@ export async function getHomePerformance(
   const energy = fulfilled(evidence[2]);
   const outdoorRead = fulfilled(evidence[3]);
   const openingReads = fulfilled(evidence[4]);
+  const recoveryPoints = recovery?.series.flatMap((series) => series.points
+    .filter((point) => point.value !== null && Number.isFinite(point.value))) ?? [];
+  const retainedRecoveryPoints = recoveryPoints.filter((point) => (
+    isPassiveHeatPumpTime(heatPumpWindow, point.timestamp)
+  ));
+  const hvacExclusion = withHeatPumpPointCounts(
+    heatPumpWindow,
+    recoveryPoints.length,
+    retainedRecoveryPoints.length,
+  );
   const outdoorTruncated = (outdoorRead?.records.length ?? 0) >= OUTDOOR_LIMIT;
   const openingTruncated = Boolean(
     openingReads
@@ -385,6 +407,7 @@ export async function getHomePerformance(
     from,
     to,
     generatedAt: input.evaluatedAt,
+    hvacPassiveIntervals: heatPumpWindow.passiveIntervals,
   });
   input.signal?.throwIfAborted();
   const limitations = result.limitations.filter((item): item is HomePerformanceLimitation => (
@@ -410,6 +433,7 @@ export async function getHomePerformance(
     sensorHealth: result.sensorHealth,
     limitations,
     warnings,
+    hvacExclusion,
     provenance: {
       truthClass: "derived",
       algorithmKey: "home-performance",

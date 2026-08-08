@@ -10,6 +10,10 @@ import {
   requiredString,
   telemetryReader,
 } from "./01-config-to-get-house-weather.js";
+import {
+  filterHeatPumpAffectedSampleMap,
+  loadHeatPumpExclusionWindow,
+} from "../analytics/heat-pump-evidence.js";
 
 export async function homeMoistureResponse(
   args: Record<string, unknown>,
@@ -58,15 +62,18 @@ export async function homeMoistureResponse(
     })),
   ]);
 
+  const heatPumpWindow = loadHeatPumpExclusionWindow(database, house.id, from, to);
+  const filtered = filterHeatPumpAffectedSampleMap(new Map(sensors.map((sensor, index) => [
+    sensor.id,
+    indoorReads[index]!.records,
+  ])), heatPumpWindow);
   return runMoistureResponseAsync({
     house,
     sensors,
-    indoorSamplesBySensor: new Map(sensors.map((sensor, index) => [
-      sensor.id,
-      indoorReads[index]!.records,
-    ])),
+    indoorSamplesBySensor: filtered.samplesBySensor,
     outdoorSamples: outdoorRead.records,
     from,
     to,
+    hvacExclusion: filtered.summary,
   });
 }

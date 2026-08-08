@@ -289,6 +289,30 @@ export interface ThermalSimulationResult {
   scenarioAnchorTimestamp: string | null;
   calibration: ThermalCalibrationResult;
   points: ThermalSimulationPoint[];
+  /** Heat-pump evidence applied before fitting. Absent for legacy callers. */
+  hvacExclusion?: HvacExclusionSummary;
+}
+
+export interface HvacExclusionSummary {
+  policy: "verified-heat-pump-off-v1";
+  evidenceState: "not-present" | "complete" | "partial" | "insufficient";
+  heatPumpCount: number;
+  stateGapMinutes: 5;
+  paddingBeforeMinutes: 5;
+  paddingAfterMinutes: 30;
+  minimumClassifiedPercent: 90;
+  minimumUsablePercent: 50;
+  windowHours: number;
+  classifiedPercent: number;
+  verifiedOffHours: number;
+  confirmedActiveHours: number;
+  possibleActiveHours: number;
+  unknownHours: number;
+  usableHours: number;
+  excludedHours: number;
+  retainedSampleCount: number;
+  excludedSampleCount: number;
+  truncated: boolean;
 }
 
 /** Scope levels exposed by the whole-home thermal-isolation comparison. */
@@ -370,6 +394,8 @@ export interface ThermalIsolationResult {
     aggregationMethod: "median-child-score-v1";
     interpretation: string;
     limitations: string[];
+    /** Present when House heat-pump evidence was considered. */
+    hvacExclusion?: HvacExclusionSummary;
   };
 }
 
@@ -440,5 +466,7 @@ export interface MoistureResponseResult {
     aggregationMethod: "median-child-metric-v1";
     interpretation: string;
     limitations: string[];
+    /** Present when House heat-pump evidence was considered. */
+    hvacExclusion?: HvacExclusionSummary;
   };
 }

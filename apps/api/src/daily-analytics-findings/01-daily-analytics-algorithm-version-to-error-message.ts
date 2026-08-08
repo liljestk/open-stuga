@@ -22,7 +22,7 @@ import {
   type HybridArchiveReadState,
 } from "../timeseries/read-facade.js";
 
-export const DAILY_ANALYTICS_ALGORITHM_VERSION = "calendar-peer-findings-v2.0.0";
+export const DAILY_ANALYTICS_ALGORITHM_VERSION = "calendar-peer-findings-v3.0.0";
 
 export const HISTORY_LIMIT = 100_000;
 

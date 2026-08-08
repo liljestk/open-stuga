@@ -1,11 +1,17 @@
 import type { House, MeasurementSample, OutdoorTemperatureSample, Sensor } from "@climate-twin/contracts";
 import { describe, expect, it } from "vitest";
 import {
+  isThermalIsolationTemperatureSensor,
   runThermalIsolation,
   runThermalIsolationAsync,
   thermalIsolationScore,
 } from "../src/thermal-isolation.js";
 import { simulateThermalStep } from "../src/thermal-simulation.js";
+import {
+  buildHeatPumpExclusionWindow,
+  filterHeatPumpAffectedSampleMap,
+  type HeatPumpEvidencePoint,
+} from "../src/analytics/heat-pump-evidence.js";
 
 const house: Pick<House, "id" | "name" | "floors"> = {
   id: "house-test",
@@ -108,10 +114,65 @@ function onSecondIteration(
 }
 
 describe("whole-home thermal isolation comparison", () => {
+  it("never treats a heat-pump projection as an ambient room sensor", () => {
+    expect(isThermalIsolationTemperatureSensor({
+      ...sensor("heat-pump", "ground", "slow", "Buffered room"),
+      tags: ["equipment:heat-pump"],
+    }, true)).toBe(false);
+  });
   it("turns the fitted time constant into an interpretable 24-hour retention score", () => {
     expect(thermalIsolationScore(24)).toBeCloseTo(36.8, 1);
     expect(thermalIsolationScore(48)).toBeCloseTo(60.7, 1);
     expect(thermalIsolationScore(12)).toBeCloseTo(13.5, 1);
+  });
+
+  it("carries filtered heat-pump evidence into fit warnings and methodology", () => {
+    const climate = syntheticSeries("climate", 48);
+    const from = climate.indoor[0]!.timestamp;
+    const to = climate.indoor.at(-1)!.timestamp;
+    const expandedFrom = Date.parse(from) - 30 * 60_000;
+    const expandedTo = Date.parse(to) + 5 * 60_000;
+    const activeAt = Date.parse(from) + 72 * 3_600_000;
+    const points: HeatPumpEvidencePoint[] = Array.from(
+      { length: (expandedTo - expandedFrom) / (5 * 60_000) + 1 },
+      (_, index) => {
+        const time = expandedFrom + index * 5 * 60_000;
+        return {
+          connectionId: "wilfa",
+          time,
+          classification: time === activeAt ? "confirmed-active" : "off",
+        };
+      },
+    );
+    const window = buildHeatPumpExclusionWindow({
+      from,
+      to,
+      connectionIds: ["wilfa"],
+      points,
+    });
+    const filtered = filterHeatPumpAffectedSampleMap(
+      new Map([["climate", climate.indoor]]),
+      window,
+    );
+
+    const result = runThermalIsolation({
+      house: {
+        ...house,
+        floors: [{ ...house.floors[0]!, rooms: [house.floors[0]!.rooms[0]!] }],
+      },
+      sensors: [sensor("climate", "ground", "slow", "Buffered room")],
+      indoorSamplesBySensor: filtered.samplesBySensor,
+      outdoorSamples: climate.outdoor,
+      from,
+      to,
+      generatedAt: "2026-02-01T00:00:00.000Z",
+      hvacExclusion: filtered.summary,
+    });
+
+    expect(filtered.summary.excludedSampleCount).toBeGreaterThan(0);
+    expect(result.methodology.hvacExclusion).toEqual(filtered.summary);
+    expect(result.entries.find((entry) => entry.scope.id === "sensor:climate")?.warnings)
+      .toContain("HVAC_ACTIVE_OR_UNVERIFIED_PERIODS_EXCLUDED");
   });
 
   it("ranks rooms, rolls medians through floors and the house, and preserves missing evidence", () => {

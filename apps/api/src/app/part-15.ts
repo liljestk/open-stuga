@@ -109,6 +109,12 @@ import {
   runMoistureResponseIsolated,
   runThermalIsolationIsolated,
 } from "../analytics/derived-artifacts/fit-isolate.js";
+import {
+  filterHeatPumpAffectedSampleMap,
+  filterHeatPumpAffectedSamples,
+  loadHeatPumpExclusionWindow,
+} from "../analytics/heat-pump-evidence.js";
+import { HEAT_PUMP_SENSOR_TAG } from "../heat-pump-measurements.js";
 import { SYSTEM_VERSION } from "../version.js";
 import { SystemUpdateError, SystemUpdateService } from "../system-updates.js";
 import { LocationDiscoveryService } from "../location-discovery.js";
@@ -265,6 +271,9 @@ export function configureApiPart15(context: ReturnType<typeof configureApiPart14
       if (sensor.houseId !== house.id) {
         throw new HttpError(409, "SENSOR_HOUSE_MISMATCH", "Sensor does not belong to the selected house");
       }
+      if (sensor.tags.includes(HEAT_PUMP_SENSOR_TAG)) {
+        throw new HttpError(422, "SENSOR_NOT_AMBIENT", "Heat-pump equipment telemetry is not an ambient temperature sensor");
+      }
       const to = dateValue(request.query.to, new Date(), "to");
       const from = dateValue(request.query.from, new Date(Date.parse(to) - 7 * 24 * 3_600_000), "from");
       if (Date.parse(from) >= Date.parse(to)) throw new HttpError(400, "INVALID_RANGE", "from must be before to");
@@ -299,16 +308,19 @@ export function configureApiPart15(context: ReturnType<typeof configureApiPart14
               signal: abortController.signal,
             }),
           ]);
+          const heatPumpWindow = loadHeatPumpExclusionWindow(context.database, house.id, from, to);
+          const filtered = filterHeatPumpAffectedSamples(indoorRead.records, heatPumpWindow);
           return runThermalSimulationAsync({
             houseId: house.id,
             sensorId: sensor.id,
             roomLabel: sensor.room,
             from,
             to,
-            indoorSamples: indoorRead.records,
+            indoorSamples: filtered.samples,
             outdoorSamples: outdoorRead.records,
             horizonHours,
             scenarioOutdoorTemperatureC,
+            hvacExclusion: filtered.summary,
           }, undefined, { signal: abortController.signal });
         }, abortController.signal);
         if (abortController.signal.aborted) return;
@@ -388,13 +400,16 @@ export function configureApiPart15(context: ReturnType<typeof configureApiPart14
               sensor.id,
               indoorReads[index]!.records,
             ]));
+            const heatPumpWindow = loadHeatPumpExclusionWindow(context.database, house.id, from, to);
+            const filtered = filterHeatPumpAffectedSampleMap(indoorSamplesBySensor, heatPumpWindow);
             return runThermalIsolationIsolated({
               house,
               sensors,
-              indoorSamplesBySensor,
+              indoorSamplesBySensor: filtered.samplesBySensor,
               outdoorSamples: outdoorRead.records,
               from,
               to,
+              hvacExclusion: filtered.summary,
             }, abortController.signal);
           }, abortController.signal);
         if (abortController.signal.aborted) return;
@@ -472,13 +487,16 @@ export function configureApiPart15(context: ReturnType<typeof configureApiPart14
             sensor.id,
             indoorReads[index]!.records,
           ]));
+          const heatPumpWindow = loadHeatPumpExclusionWindow(context.database, house.id, from, to);
+          const filtered = filterHeatPumpAffectedSampleMap(indoorSamplesBySensor, heatPumpWindow);
           return runMoistureResponseIsolated({
             house,
             sensors,
-            indoorSamplesBySensor,
+            indoorSamplesBySensor: filtered.samplesBySensor,
             outdoorSamples: outdoorRead.records,
             from,
             to,
+            hvacExclusion: filtered.summary,
           }, abortController.signal);
         }, abortController.signal);
         if (abortController.signal.aborted) return;
