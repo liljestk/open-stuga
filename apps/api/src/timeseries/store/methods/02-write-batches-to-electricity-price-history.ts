@@ -652,6 +652,7 @@ registerTimeseriesStoreMethods({
             valid_until, external_id, connection_id, recorded_at, metadata, ingested_at
           FROM ${qualifiedName(this.schema, "opening_state_samples")}
           WHERE house_id = $1 AND observed_at <= $2::TIMESTAMPTZ
+            AND (valid_until IS NULL OR valid_until > $2::TIMESTAMPTZ)
           ORDER BY floor_id, element_id, source, COALESCE(external_id, ''), COALESCE(connection_id, ''),
             observed_at DESC, ingested_at DESC, observation_id DESC
         ) latest

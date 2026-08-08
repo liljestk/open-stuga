@@ -34,6 +34,7 @@ interface DataAnalyticsPageProps {
   house: House;
   units: UnitSystem;
   dataMode: "demo" | "real" | "unknown";
+  readOnly?: boolean;
   onLoadSeries: (sensorId: string, metric: Metric, range: TimeRange, forecastSupported: boolean) => void;
 }
 
@@ -585,6 +586,7 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
                 definitions={props.state.measurementDefinitions}
                 dataMode={props.dataMode}
                 refreshRevision={refreshRevision}
+                canRefresh={!props.readOnly}
                 embedded
               />
             </div>}
@@ -655,7 +657,7 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
             <span className="analytics-tool-copy"><strong>{t("isolation.title")}</strong><small>{t("isolation.description")}</small></span>
             <ChevronDown className="analytics-tool-chevron" size={18} aria-hidden="true" />
           </summary>
-          {isolationOpen && <ThermalIsolationPanel house={props.house} units={props.units} dataMode={props.dataMode} embedded />}
+          {isolationOpen && <ThermalIsolationPanel house={props.house} units={props.units} dataMode={props.dataMode} canRefresh={!props.readOnly} embedded />}
         </details>
 
         <details className="analytics-tool" onToggle={(event) => setMoistureOpen(event.currentTarget.open)}>
@@ -664,7 +666,7 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
             <span className="analytics-tool-copy"><strong>{t("moisture.title")}</strong><small>{t("moisture.description")}</small></span>
             <ChevronDown className="analytics-tool-chevron" size={18} aria-hidden="true" />
           </summary>
-          {moistureOpen && <MoistureResponsePanel house={props.house} embedded />}
+          {moistureOpen && <MoistureResponsePanel house={props.house} dataMode={props.dataMode} canRefresh={!props.readOnly} embedded />}
         </details>
 
         <details className="analytics-tool analytics-evidence-tool" open={evidenceOpen} onToggle={(event) => setEvidenceOpen(event.currentTarget.open)}>

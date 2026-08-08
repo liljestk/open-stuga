@@ -2,7 +2,7 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
-import { DEFAULT_ELECTRICITY_PRICE_ENDPOINT, automaticWeatherLocation, fixedPlanElementOpeningState, isAutomaticWeatherLocation } from "@climate-twin/contracts";
+import { DEFAULT_ELECTRICITY_PRICE_ENDPOINT, automaticWeatherLocation, fixedPlanElementOpeningState, isAutomaticWeatherLocation, openingObservationMatchesElement } from "@climate-twin/contracts";
 import type {
   AreaEquipment,
   AreaEquipmentInput,
@@ -101,6 +101,27 @@ import { ClimateDataValidationError } from "../support/03-sensor-data-gap-row-to
 import { openingStateObservationFromRow } from "../support/04-canonical-json-value-to-action-playbook-from-row.js";
 import { outdoorLocationKey } from "../support/06-canonical-observation-patch-time-to-outdoor-location.js";
 import { registerDatabaseMethods } from "../core.js";
+
+const MAX_OPENING_PROVIDER_STALE_MS = 30 * 86_400_000;
+const OPENING_CANDIDATE_CHECKPOINT_BATCH_ROWS = 256;
+function openingCandidateLane(observation: OpeningStateObservation): string {
+  return observation.source === "manual" || observation.source === "api"
+    ? JSON.stringify([observation.source])
+    : JSON.stringify([observation.source, observation.externalId ?? "", observation.connectionId ?? ""]);
+}
+
+function openingCandidateCeiling(observation: OpeningStateObservation): string | null {
+  const explicit = observation.validUntil === undefined
+    ? Number.POSITIVE_INFINITY
+    : Date.parse(observation.validUntil);
+  if (observation.source !== "home-assistant" && observation.source !== "tapo") {
+    return Number.isFinite(explicit) ? new Date(explicit).toISOString() : null;
+  }
+  return new Date(Math.min(
+    explicit,
+    Date.parse(observation.observedAt) + MAX_OPENING_PROVIDER_STALE_MS,
+  )).toISOString();
+}
 
 registerDatabaseMethods({
   listOpeningStateObservationHistory(
@@ -292,12 +313,64 @@ registerDatabaseMethods({
         ...(connectionId ? { connectionId } : {}),
       };
       try {
-        this.db.prepare(`INSERT INTO opening_state_observations
-          (id, house_id, floor_id, element_id, state, open_fraction, source, observed_at, valid_until, external_id, connection_id, created_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-          .run(observation.id, houseId, floor.id, element.id, observation.state, observation.openFraction ?? null,
-            observation.source, observation.observedAt, observation.validUntil ?? null, observation.externalId ?? null,
-            observation.connectionId ?? null, new Date().toISOString());
+        this.immediateTransaction(() => {
+          const recordedAt = new Date().toISOString();
+          const inserted = this.db.prepare(`INSERT INTO opening_state_observations
+            (id, house_id, floor_id, element_id, state, open_fraction, source, observed_at, valid_until, external_id, connection_id, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+            .run(observation.id, houseId, floor.id, element.id, observation.state, observation.openFraction ?? null,
+              observation.source, observation.observedAt, observation.validUntil ?? null, observation.externalId ?? null,
+              observation.connectionId ?? null, recordedAt);
+          this.db.prepare(`INSERT INTO metadata(key, value)
+              VALUES ('opening_state_current_candidates_rowid_v2', ?)
+              ON CONFLICT(key) DO UPDATE SET value = excluded.value
+              WHERE CAST(metadata.value AS INTEGER) + ? <= CAST(excluded.value AS INTEGER)`)
+            .run(String(inserted.lastInsertRowid), OPENING_CANDIDATE_CHECKPOINT_BATCH_ROWS);
+          this.invalidateDerivedAnalyticsHistory(
+            houseId,
+            observation.observedAt,
+            observation.validUntil ?? observation.observedAt,
+            recordedAt,
+          );
+
+          // Keep only candidates that can still become the latest effective
+          // row. A shorter temporary observation deliberately retains the
+          // older baseline beneath it so expiry cannot erase known state.
+          this.db.prepare(`DELETE FROM opening_state_current_candidates
+            WHERE effective_until_ceiling IS NOT NULL AND effective_until_ceiling <= ?`).run(recordedAt);
+          const lane = openingCandidateLane(observation);
+          const ceiling = openingCandidateCeiling(observation);
+          if (ceiling === null || ceiling > recordedAt) {
+            const dominated = this.db.prepare(`SELECT 1 FROM opening_state_current_candidates
+              WHERE house_id = ? AND floor_id = ? AND element_id = ? AND lane_key = ?
+                AND observed_at <= ?
+                AND (observed_at > ? OR (observed_at = ? AND observation_id > ?))
+                AND (effective_until_ceiling IS NULL OR (? IS NOT NULL AND effective_until_ceiling >= ?))
+              LIMIT 1`).get(
+                houseId, floor.id, element.id, lane,
+                recordedAt,
+                observation.observedAt, observation.observedAt, observation.id,
+                ceiling, ceiling,
+              );
+            if (!dominated) {
+              this.db.prepare(`INSERT OR IGNORE INTO opening_state_current_candidates
+                (observation_id, house_id, floor_id, element_id, lane_key, observed_at, effective_until_ceiling)
+                VALUES (?, ?, ?, ?, ?, ?, ?)`)
+                .run(observation.id, houseId, floor.id, element.id, lane, observation.observedAt, ceiling);
+              if (observation.observedAt <= recordedAt) {
+                this.db.prepare(`DELETE FROM opening_state_current_candidates
+                  WHERE house_id = ? AND floor_id = ? AND element_id = ? AND lane_key = ?
+                    AND (observed_at < ? OR (observed_at = ? AND observation_id < ?))
+                    AND (? IS NULL OR (effective_until_ceiling IS NOT NULL AND effective_until_ceiling <= ?))`)
+                  .run(
+                    houseId, floor.id, element.id, lane,
+                    observation.observedAt, observation.observedAt, observation.id,
+                    ceiling, ceiling,
+                  );
+              }
+            }
+          }
+        });
       } catch (error) {
         if (error instanceof Error && error.message.includes("UNIQUE constraint failed: opening_state_observations.id")) {
           throw new ClimateDataValidationError(409, "OPENING_OBSERVATION_ID_CONFLICT", `Opening observation ${id} already exists`);
@@ -440,6 +513,28 @@ registerDatabaseMethods({
             next.mapPlacement ? JSON.stringify(next.mapPlacement) : null,
             next.orientationDegrees ?? null,
             JSON.stringify(next.floors), next.updatedAt, id);
+        if (patch.floors !== undefined) {
+          const openings = new Map(next.floors.flatMap((floor) => (floor.planElements ?? []).flatMap((element) => (
+            element.kind === "door" || element.kind === "window" || element.kind === "vent"
+              ? [[`${floor.id}\u0000${element.id}`, element] as const]
+              : []
+          ))));
+          const candidates = this.db.prepare(`SELECT observation.id, observation.house_id, observation.floor_id,
+              observation.element_id, observation.state, observation.open_fraction, observation.source,
+              observation.observed_at, observation.valid_until, observation.external_id, observation.connection_id
+            FROM opening_state_current_candidates candidate
+            JOIN opening_state_observations observation ON observation.id = candidate.observation_id
+            WHERE candidate.house_id = ?`).all(id) as unknown as OpeningStateObservationRow[];
+          const removeCandidate = this.db.prepare(
+            "DELETE FROM opening_state_current_candidates WHERE observation_id = ?",
+          );
+          for (const row of candidates) {
+            const observation = openingStateObservationFromRow(row);
+            const opening = openings.get(`${observation.floorId}\u0000${observation.elementId}`);
+            if (!opening || fixedPlanElementOpeningState(opening) !== null
+              || !openingObservationMatchesElement(opening, observation)) removeCandidate.run(observation.id);
+          }
+        }
         this.recordScopeMoveMaintenanceRevisions(affectedTasks, actor);
         const weatherLocationChanged = outdoorLocationKey(current.location) !== outdoorLocationKey(next.location);
         if (patch.floors !== undefined || weatherLocationChanged || patch.timezone !== undefined) {

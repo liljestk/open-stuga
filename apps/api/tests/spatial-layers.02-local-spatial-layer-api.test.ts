@@ -111,21 +111,73 @@ describe("local spatial layer API", () => {
       .expect(({ body }) => expect(body.error.code).toBe("TOO_MANY_LAYERS"));
   });
 
-  it("returns inference reports that conform to the documented flattened snapshot schema", async () => {
+  it("starts, reports, and stops bounded Home inference sessions without deleting retained state", async () => {
     const { runtime, core } = seededRuntime();
     const house = core.listHouses()[0]!;
+    await runtime.host.inferScope({ kind: "house", id: house.id }, new Date().toISOString());
     const app = express();
     app.use(express.json());
     registerSpatialLayerRoutes(app, { runtime });
 
-    const inferred = await request(app)
-      .post(`/api/v1/houses/${house.id}/layers/infer`)
-      .send({ bucketAt: new Date().toISOString() })
-      .expect(200);
+    const retainedBefore = runtime.state.db.prepare(`SELECT
+      (SELECT COUNT(*) FROM spatial_config_versions) AS configurations,
+      (SELECT COUNT(*) FROM spatial_layer_snapshots) AS snapshots`).get() as {
+        configurations: number;
+        snapshots: number;
+      };
+    expect(retainedBefore.configurations).toBeGreaterThan(0);
+    expect(retainedBefore.snapshots).toBeGreaterThan(0);
 
-    expect(inferred.body.snapshots.length).toBeGreaterThan(0);
-    expect(inferred.body.snapshots[0]).not.toHaveProperty("payload");
-    expectOpenApiConformance(inferred.body, spatialOpenApiSchemas.SpatialLayerInferenceResult!);
+    const initial = await request(app)
+      .get(`/api/v1/houses/${house.id}/layers/inference-session`)
+      .expect(200);
+    expect(initial.body).toEqual({ session: null });
+    expectOpenApiConformance(initial.body, documentedResponseSchema("/houses/{id}/layers/inference-session", "get", 200));
+    await request(app)
+      .post(`/api/v1/houses/${house.id}/layers/inference-session`)
+      .send({ durationMinutes: 10, cadenceMinutes: 5 })
+      .expect(400)
+      .expect(({ body }) => expect(body.error.code).toBe("INVALID_SESSION_DURATION"));
+
+    const started = await request(app)
+      .post(`/api/v1/houses/${house.id}/layers/inference-session`)
+      .send({})
+      .expect(201);
+    expect(started.body.session).toMatchObject({ houseId: house.id, status: "active", cadenceMinutes: 10 });
+    expect(Date.parse(started.body.session.expiresAt) - Date.parse(started.body.session.startedAt)).toBe(60 * 60_000);
+    expectOpenApiConformance(started.body, documentedResponseSchema("/houses/{id}/layers/inference-session", "post", 201));
+    expect(runtime.state.db.prepare(`SELECT scope_kind, scope_id, session_id
+      FROM spatial_inference_jobs WHERE status = 'pending'`).get()).toMatchObject({
+      scope_kind: "house", scope_id: house.id, session_id: started.body.session.id,
+    });
+    await request(app)
+      .post(`/api/v1/houses/${house.id}/layers/inference-session`)
+      .send({})
+      .expect(409)
+      .expect(({ body }) => expect(body.error.code).toBe("SPATIAL_SESSION_ACTIVE"));
+
+    const status = await request(app)
+      .get(`/api/v1/houses/${house.id}/layers/inference-session`)
+      .expect(200);
+    expect(status.body.session.id).toBe(started.body.session.id);
+    expectOpenApiConformance(status.body, documentedResponseSchema("/houses/{id}/layers/inference-session", "get", 200));
+
+    const stopped = await request(app)
+      .delete(`/api/v1/houses/${house.id}/layers/inference-session`)
+      .expect(200);
+    expect(stopped.body.session).toMatchObject({ id: started.body.session.id, status: "stopped" });
+    expectOpenApiConformance(stopped.body, documentedResponseSchema("/houses/{id}/layers/inference-session", "delete", 200));
+    expect(runtime.state.db.prepare("SELECT status FROM spatial_inference_jobs WHERE session_id = ?")
+      .get(started.body.session.id)).toMatchObject({ status: "cancelled" });
+
+    const retainedAfter = runtime.state.db.prepare(`SELECT
+      (SELECT COUNT(*) FROM spatial_config_versions) AS configurations,
+      (SELECT COUNT(*) FROM spatial_layer_snapshots) AS snapshots`).get();
+    expect(retainedAfter).toEqual(retainedBefore);
+
+    await request(app).post(`/api/v1/houses/${house.id}/layers/infer`).send({}).expect(404);
+    await request(app).post(`/api/v1/properties/${house.propertyId}/layers/infer`).send({}).expect(404);
+    await request(app).post(`/api/v1/properties/${house.propertyId}/layers/inference-session`).send({}).expect(404);
   });
 
   it("returns documented payloads for spatial binding, session, and context writes", async () => {
@@ -240,7 +292,7 @@ describe("local spatial layer API", () => {
         body: { baseVersion: 0, config: {}, undocumented: true },
       },
       {
-        method: "post", path: `/api/v1/houses/${house.id}/layers/infer`,
+        method: "post", path: `/api/v1/houses/${house.id}/layers/inference-session`,
         body: { undocumented: true },
       },
       {

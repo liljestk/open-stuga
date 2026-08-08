@@ -466,7 +466,7 @@ describe("direct TP-Link H100/H200 bridge", () => {
       externalId: "contact-entry", connectionId: "legacy",
     });
     expect(runtime.status.value.tpLink.mappedDevices).toBe(1);
-    expect(wakeHouse).toHaveBeenCalledWith(house.id, house.propertyId, observation.observedAt, "property-context-changed");
+    expect(wakeHouse).toHaveBeenCalledWith(house.id, null, observation.observedAt, "property-context-changed");
   });
 
   it("imports the legacy child map into SQLite and uses it after the file is removed", async () => {

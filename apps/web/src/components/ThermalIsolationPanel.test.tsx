@@ -181,6 +181,18 @@ describe("ThermalIsolationPanel", () => {
     expect(screen.getByRole("status")).toHaveTextContent("not an estimate of this Home");
   });
 
+  it("does not offer a derived refresh to read-only viewers", () => {
+    const house = createDemoState().houses[0]!;
+    render(<I18nProvider><ThermalIsolationPanel
+      house={house}
+      units="metric"
+      dataMode="real"
+      canRefresh={false}
+    /></I18nProvider>);
+
+    expect(screen.queryByRole("button", { name: "Refresh" })).toBeNull();
+  });
+
   it("shows a specific archive recovery message with technical details", () => {
     mocks.result = null;
     mocks.error = true;

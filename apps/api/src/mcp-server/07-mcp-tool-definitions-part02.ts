@@ -150,7 +150,7 @@ export const mcpToolDefinitionsPart02 = [
       },
   {
         name: "get_house_weather",
-        description: "Fetch provider-neutral current conditions, forecasts, and warning coverage for a located house without storing the result.",
+        description: "Read the latest locally stored provider-neutral current conditions, forecast, and warning coverage for a located Home without contacting the provider.",
         inputSchema: {
           type: "object",
           properties: {

@@ -75,13 +75,19 @@ export class ClimateDatabaseSpatialInputAdapter implements SpatialCoreInputPort 
     bucketAt: string;
     configuration: SpatialConfigurationVersion;
     bindings: StoredSpatialSensorBinding[];
+    currentProjection?: boolean;
+    signal?: AbortSignal;
   }): Promise<SpatialCoreDescription> {
+    request.signal?.throwIfAborted();
     const resolved = await this.#resolveControlData(
       request.scope,
       request.bucketAt,
       request.configuration,
       request.bindings,
+      request.currentProjection ? "current-local" : "historical-local",
+      request.signal,
     );
+    request.signal?.throwIfAborted();
     return { topology: resolved.built.topology, warnings: resolved.built.warnings };
   }
 
@@ -95,7 +101,9 @@ export class ClimateDatabaseSpatialInputAdapter implements SpatialCoreInputPort 
     bindings: StoredSpatialSensorBinding[];
     calibrations: StoredSpatialSensorCalibration[];
     contextEvents: StoredSpatialContextEvent[];
+    signal?: AbortSignal;
   }): Promise<SpatialCoreDataset> {
+    request.signal?.throwIfAborted();
     const bucketEpoch = Date.parse(request.bucketAt);
     if (!Number.isFinite(bucketEpoch)) throw new TypeError("bucketAt must be an ISO timestamp");
     const windowStart = new Date(bucketEpoch - request.windowMinutes * 60_000).toISOString();
@@ -105,18 +113,26 @@ export class ClimateDatabaseSpatialInputAdapter implements SpatialCoreInputPort 
       request.bucketAt,
       request.configuration,
       request.bindings,
+      "archive-merged",
+      request.signal,
     );
     let openingStateObservations: OpeningStateObservation[] = [];
     let openingProvenance: HybridTelemetryReadProvenance[] = [];
     if (resolved.house !== null) {
       if (this.telemetry.openingStateSnapshot && this.telemetry.openingStateHistory) {
         const [leading, history] = await Promise.all([
-          this.telemetry.openingStateSnapshot({ houseId: resolved.house.id, at: windowStart, limit: 10_000 }),
+          this.telemetry.openingStateSnapshot({
+            houseId: resolved.house.id,
+            at: windowStart,
+            limit: 10_000,
+            ...(request.signal ? { signal: request.signal } : {}),
+          }),
           this.telemetry.openingStateHistory({
             houseId: resolved.house.id,
             from: windowStart,
             to: windowEnd,
             limit: 10_000,
+            ...(request.signal ? { signal: request.signal } : {}),
           }),
         ]);
         openingStateObservations = [...leading.records, ...history.records];
@@ -139,6 +155,7 @@ export class ClimateDatabaseSpatialInputAdapter implements SpatialCoreInputPort 
       from: windowStart,
       to: windowEnd,
       limit: 250_000,
+      ...(request.signal ? { signal: request.signal } : {}),
     });
     const outdoorReads = await Promise.all(resolved.houses.map((candidate) => this.telemetry.outdoorTemperatureHistory({
       houseId: candidate.id,
@@ -146,7 +163,9 @@ export class ClimateDatabaseSpatialInputAdapter implements SpatialCoreInputPort 
       from: windowStart,
       to: windowEnd,
       limit: 20_000,
+      ...(request.signal ? { signal: request.signal } : {}),
     })));
+    request.signal?.throwIfAborted();
     const sparseSamples = measurements.records;
     const outdoorTemperature = outdoorReads.flatMap((result) => result.records);
     const engineInput: SpatialLayerEngineInput = {
@@ -200,7 +219,10 @@ export class ClimateDatabaseSpatialInputAdapter implements SpatialCoreInputPort 
     bucketAt: string,
     configuration: SpatialConfigurationVersion,
     bindings: StoredSpatialSensorBinding[],
+    openingStateSource: "current-local" | "historical-local" | "archive-merged",
+    signal?: AbortSignal,
   ): Promise<ResolvedSpatialControlData> {
+    signal?.throwIfAborted();
     if (!Number.isFinite(Date.parse(bucketAt))) throw new TypeError("bucketAt must be an ISO timestamp");
     const houses = this.housesForScope(scope);
     const house = scope.kind === "house" ? houses[0] ?? null : null;
@@ -211,11 +233,24 @@ export class ClimateDatabaseSpatialInputAdapter implements SpatialCoreInputPort 
       throw new Error(`${scope.kind} ${scope.id} does not exist`);
     }
     const sensors = houses.flatMap((candidate) => this.core.listSensors(candidate.id)).filter((sensor) => sensor.enabled);
-    const openingStateObservations = house
-      ? this.telemetry.openingStateSnapshot
-        ? (await this.telemetry.openingStateSnapshot({ houseId: house.id, at: bucketAt, limit: 10_000 })).records
-        : this.core.listOpeningStateObservations(house.id, 10_000, bucketAt)
-      : [];
+    let openingStateObservations: OpeningStateObservation[] = [];
+    if (house) {
+      if (openingStateSource === "current-local") {
+        openingStateObservations = this.core.listCurrentOpeningStateCandidates
+          ? this.core.listCurrentOpeningStateCandidates(house.id, bucketAt, 10_000)
+          : this.core.listOpeningStateObservations(house.id, 10_000, bucketAt);
+      } else if (openingStateSource === "archive-merged" && this.telemetry.openingStateSnapshot) {
+        openingStateObservations = (await this.telemetry.openingStateSnapshot({
+          houseId: house.id,
+          at: bucketAt,
+          limit: 10_000,
+          ...(signal ? { signal } : {}),
+        })).records;
+      } else {
+        openingStateObservations = this.core.listOpeningStateObservations(house.id, 10_000, bucketAt);
+      }
+    }
+    signal?.throwIfAborted();
     const built = house
       ? buildHouseTopology({ house, sensors, bindings, at: bucketAt, configuration: configuration.config,
         openingStateObservations })

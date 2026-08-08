@@ -53,7 +53,8 @@ flowchart LR
         HR --> SL
         SL --> SDB[(Experimental spatial SQLite)]
         DB --> WM[Bounded multi-home\nweather monitor]
-        WM --> WX[House weather service\n10 min response cache]
+        WM --> WX[House weather service\nbounded provider coalescing]
+        WX --> WS[(Durable canonical\n48 h weather snapshot)]
         WX --> WEB[Provider-neutral\nweather event broker]
         WEB --> ODB[(Outdoor boundary history)]
         WEB --> E
@@ -103,15 +104,34 @@ truncate sensor scope, or reproduce decision rules. The web owns one pair of
 telemetry transports through `LiveEventCoordinator`, which updates the live
 snapshot and invalidates only affected query resources.
 
-Heavy request-time analytics pass through one bounded process coordinator. At
-most two Home-performance, historical analytics, energy, or thermal operations
-run concurrently and at most 32 wait; overflow receives a retryable
-`ANALYTICS_BUSY` response. Identical Home Performance, Home monitoring, and
-whole-Home energy requests single-flight through bounded LRU caches. Monitoring
-separates a two-second current-state snapshot from minute-cached trend evidence.
-Routine measurement ingestion does not evict Home Performance's minute
-snapshot, and the browser coalesces duplicate legacy/measurement refresh
-signals before invalidating monitoring.
+Heavy interactive analytics pass through one bounded process coordinator. At
+most two historical analytics, energy, or thermal-simulation operations run
+concurrently and at most 32 wait; overflow receives a retryable
+`ANALYTICS_BUSY` response. Foreground work is admitted ahead of low-priority
+work. Thermal isolation, moisture response, and Home Performance never fit on
+an HTTP request: GET performs only bounded SQLite artifact/job lookups and
+returns the immutable last-good artifact plus idle, queued, refreshing, stale,
+or failed state. It never creates or promotes work. An authorized refresh or
+the night scheduler coalesces one canonical Home/window/cutoff/algorithm/evidence
+job. One durable worker fits at most one such job at a time. It refreshes
+seven-day defaults once per last-complete day at a stable per-Home night-time
+jitter; explicit refresh uses the same idempotent queue. A two-minute appliance
+startup grace cannot be shortened by page polling, and persisted background
+jobs are claimable only inside that Home's night window unless a person opens
+or refreshes the corresponding panel. Four successful generations per
+canonical view are retained, and restart or failure does not replace the
+last-good result. Each thermal or moisture numerical fit runs in a
+resource-limited worker thread; the durable coordinator starts at most one,
+while v1 exact-window compatibility operations retain their existing bounded
+interactive admission. Their legacy telemetry reads remain request-scoped.
+Late measurement/import, weather-recovery, and opening evidence invalidates the
+revision only when it overlaps an already evaluated artifact/job window;
+ordinary current-day ingestion after the cutoff cannot churn daily identities.
+
+Home monitoring and whole-Home energy still single-flight through bounded LRU
+caches. Monitoring separates a two-second current-state snapshot from
+minute-cached trend evidence, and the browser coalesces duplicate
+legacy/measurement refresh signals before invalidating monitoring.
 
 The browser does not talk to Home Assistant, TP-Link, Tuya devices, FMI, or Open-Meteo
 directly. The API owns credentials, normalisation, retention, alert evaluation,
@@ -343,7 +363,8 @@ archive outage from blocking ingestion. TimescaleDB supplies time partitioning,
 cold-chunk optimization, and continuous rollups for multi-year history. House
 location metadata stays in the control plane. Fresh provider temperatures are
 also retained in a location-isolated outdoor-boundary series for physics
-calibration; full weather-response caching remains process-local. All stored
+calibration; one bounded 48-hour last-good weather snapshot per Home remains in
+SQLite for local foreground reads. All stored
 timestamps are UTC ISO-8601, and a Home timezone controls display and calendar
 grouping.
 
@@ -393,7 +414,8 @@ retention, migration, backup, and restore contract.
   metric retains its own timestamp/source/quality. A client reconnect should
   refresh snapshots/history rather than assume it saw every event.
 - **Live weather:** the scheduled monitor converts pull-only provider results
-  into `weather` events, and accepted on-demand results enter the same broker.
+  into `weather` events and updates the durable local snapshot. Foreground reads
+  never own provider work.
   The full provider-neutral snapshot is emitted only after the guarded outdoor
   boundary projection succeeds. Cache hits with identical content do not
   invent another event.

@@ -137,13 +137,15 @@ export class ClimateDatabaseCore {
       // Never seed a database that has crossed the one-way boundary, including
       // partially restored databases whose seed metadata is missing.
       if (seed && !realDataMode) this.seed();
+      // A persisted real-data latch is authoritative even if the database was
+      // modified outside the application while it was stopped.
       if (realDataMode) this.purgeSourceLabelledDemoTelemetry();
       this.purgeSharedHomeLocalState();
       this.backfillLegacyMeasurements();
       if (seed && !realDataMode) this.backfillSeedOutdoorTemperature();
-      // A persisted real-data latch is authoritative even if a database was
-      // modified outside the application while it was stopped.
-      if (this.isRealDataMode()) this.purgeSourceLabelledDemoTelemetry();
+      // Preserve the same fail-closed cleanup if initialization ever crosses
+      // the one-way boundary, without rescanning an already-real database.
+      if (!realDataMode && this.isRealDataMode()) this.purgeSourceLabelledDemoTelemetry();
     }
   transaction<T>(operation: () => T): T {
       return this.immediateTransaction(operation);

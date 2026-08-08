@@ -11,8 +11,9 @@ import type {
   OutdoorTemperatureSample,
   Sensor,
 } from "@climate-twin/contracts";
+import { HOME_PERFORMANCE_ALGORITHM_VERSION } from "@climate-twin/contracts";
 
-export const HOME_PERFORMANCE_ALGORITHM_VERSION = "home-performance-v1.0.0";
+export { HOME_PERFORMANCE_ALGORITHM_VERSION };
 
 export const HOUR_MS = 3_600_000;
 

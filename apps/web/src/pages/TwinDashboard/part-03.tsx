@@ -42,6 +42,11 @@ import { integrationForHouse } from "../../integrationScope";
 import { BuildingScene, FloorPlan, HomeActivityTimeline, MeasurementGlyph, RoomComparisonChart, SensorInspector, SpatialLayerLab, StructureEditor, ThermalSimulationPanel, energyDeviceLayerPreferenceKey, experimentalVisualizationPreferenceKey, houseLocalDateTimeCandidates, initialEnergyDeviceLayerVisibility, initialExperimentalVisualizations, localDateTimeValue, localDateValue, mergeOpeningStateObservations, observationConfidences, observationKinds, observationSources, observationTimeFields, observationTimePrecisions, zonedDateTimeParts } from "./support";
 import type { TwinDashboardProps } from "./support";
 import { useTwinDashboardPart02 } from "./part-02";
+
+const OPENING_FALLBACK_MIN_MS = 60_000;
+const OPENING_FALLBACK_MAX_MS = 5 * 60_000;
+const OPENING_STREAM_STALE_MS = 45_000;
+
 export function useTwinDashboardPart03(context: ReturnType<typeof useTwinDashboardPart02>) {
   const { props, state, house, floor, houseId, floorId, metric, units, viewMode, selectedSensorId, scenario, connection, dataMode, locale, t, scopedIntegration, sensorSourceHealthy, editing, setEditing, fullPage, setFullPage, liveMapOpen, setLiveMapOpen, historyOpen, setHistoryOpen, analysisOpen, setAnalysisOpen, fullPagePanelRef, fullPageTriggerRef, readOnly, localAuthority, range, setRange, replayActive, setReplayActive, replayPlaying, setReplayPlaying, replayStartPending, setReplayStartPending, replayPrepared, setReplayPrepared, replaySpeed, setReplaySpeed, replayWindowFrom, setReplayWindowFrom, replayWindowTo, setReplayWindowTo, replayResolutionSeconds, setReplayResolutionSeconds, replayRequestedBounds, setReplayRequestedBounds, replayLoadState, setReplayLoadState, replayLoadError, setReplayLoadError, replayLoadPartial, setReplayLoadPartial, replaySampleCount, setReplaySampleCount, liveSpatialClockMs, setLiveSpatialClockMs, experimentalVisualizations, setExperimentalVisualizations, energyDevicesVisible, setEnergyDevicesVisible, observationPlacement, setObservationPlacement, observationKind, setObservationKind, observationSeverity, setObservationSeverity, observationNote, setObservationNote, observationTimePrecision, setObservationTimePrecision, observationDateTime, setObservationDateTime, observationDate, setObservationDate, observationValidFrom, setObservationValidFrom, observationValidTo, setObservationValidTo, observationSource, setObservationSource, observationSourceDetail, setObservationSourceDetail, observationConfidence, setObservationConfidence, observationDraft, setObservationDraft, observationValidationError, setObservationValidationError, observationStatus, setObservationStatus, observationError, setObservationError, parameterLabel, setParameterLabel, parameterValue, setParameterValue, parameterUnit, setParameterUnit, parameterPending, setParameterPending, parameterFeedback, setParameterFeedback, replayBatchRef, replayPreparationBatchRef, airflowReplayBatchRef, inspectorReplayBatchRef, replayWindowRequestRef, previousReplayActiveRef, effectSeriesLoadsRef, loadSeriesOnce, houseWeather, outdoorContext, outdoor, houseSensors, energyDeviceCount, floorSensors, selectedSensor, selectedFloor, viewSensors, summarySensors, definitions, houseDefinitions, availableDefinitions, airflowDefinitions, airflowMetricKey, definition, metricOptions, metricLabel, liveSamples, houseSensorIdList, houseSensorIds, replayMetricIds, loadedReplayBounds, fallbackReplayBounds, replayMin, replayMax, replayHistoryReady, replayEvents, replayTimestamp, setReplayTimestamp, spatialReferenceTimeMs, spatialLayerScope, spatialLayers, liveSpatialMaxSampleAgeMs, spatialMaxSampleAgeMs, spatialFreshness, changeReplayPlaying } = context;
   const selectReplayEvent = (event: ReplayClimateEvent) => {
@@ -280,15 +285,25 @@ export function useTwinDashboardPart03(context: ReturnType<typeof useTwinDashboa
   const coverageSelected = spatialLayers.available && experimentalVisualizations.includes("sensor-coverage");
   const openingStateAt = replayActive ? new Date(replayTimestamp).toISOString() : undefined;
   const [openingStateObservations, setOpeningStateObservations] = useState<OpeningStateObservation[]>([]);
+  const [replayOpeningStateObservations, setReplayOpeningStateObservations] = useState<OpeningStateObservation[]>([]);
   const [pendingOpeningStateKeys, setPendingOpeningStateKeys] = useState<ReadonlySet<string>>(() => new Set());
   const [openingStateError, setOpeningStateError] = useState<string | null>(null);
   const [openingStateAnnouncement, setOpeningStateAnnouncement] = useState("");
   const openingStateRequestsRef = useRef(new Set<string>());
   const openingStateContextRef = useRef({ houseId });
+  const openingStateHydrationKeyRef = useRef("");
+  const suppressedOpeningObservationIdRef = useRef("");
+  const openingLiveSinceRef = useRef(Date.now());
+  const openingTelemetryHeartbeatRef = useRef(state.latestTelemetryHeartbeatAt);
+  openingTelemetryHeartbeatRef.current = state.latestTelemetryHeartbeatAt;
+  const [openingPageVisible, setOpeningPageVisible] = useState(() => document.visibilityState !== "hidden");
   if (openingStateContextRef.current.houseId !== houseId) openingStateContextRef.current = { houseId };
   const houseOpeningStateObservations = useMemo(
-      () => openingStateObservationsForHouse(houseId, openingStateObservations),
-      [houseId, openingStateObservations],
+      () => openingStateObservationsForHouse(
+        houseId,
+        openingStateAt === undefined ? openingStateObservations : replayOpeningStateObservations,
+      ),
+      [houseId, openingStateAt, openingStateObservations, replayOpeningStateObservations],
     );
   const controllableOpenings = useMemo(() => house.floors.flatMap((candidateFloor) => (
       (candidateFloor.planElements ?? []).flatMap((element, index) => (
@@ -300,16 +315,64 @@ export function useTwinDashboardPart03(context: ReturnType<typeof useTwinDashboa
   const hasOpeningElements = useMemo(() => house.floors.some((candidateFloor) => (
       (candidateFloor.planElements ?? []).some(isAirflowPlanElement)
     )), [house.floors]);
+  const replayOpeningMinimum = replayRequestedBounds?.minimum ?? replayMin;
+  const replayOpeningMaximum = replayRequestedBounds?.maximum ?? replayMax;
   useEffect(() => {
       setOpeningStateObservations([]);
+      setReplayOpeningStateObservations([]);
       setPendingOpeningStateKeys(new Set());
       setOpeningStateError(null);
       setOpeningStateAnnouncement("");
       openingStateRequestsRef.current.clear();
+      openingStateHydrationKeyRef.current = "";
+      suppressedOpeningObservationIdRef.current = "";
     }, [houseId]);
   useEffect(() => {
+      if (!replayActive || !hasOpeningElements) {
+        setReplayOpeningStateObservations([]);
+        return;
+      }
+      const minimum = replayOpeningMinimum;
+      const maximum = replayOpeningMaximum;
+      if (!Number.isFinite(minimum) || !Number.isFinite(maximum) || maximum <= minimum) {
+        setReplayOpeningStateObservations([]);
+        return;
+      }
+      const controller = new AbortController();
+      setReplayOpeningStateObservations([]);
+      void api.openingStateHistory(
+        houseId,
+        new Date(minimum).toISOString(),
+        new Date(maximum).toISOString(),
+        10_000,
+        controller.signal,
+      ).then((observations) => {
+        if (!controller.signal.aborted) setReplayOpeningStateObservations(observations);
+      }).catch(() => {
+        // Configured opening defaults remain visible when replay history is not
+        // available. One range request replaces per-frame archive lookups.
+      });
+      return () => controller.abort();
+    }, [hasOpeningElements, houseId, replayActive, replayOpeningMaximum, replayOpeningMinimum]);
+  useEffect(() => {
+      const updateVisibility = () => setOpeningPageVisible(document.visibilityState !== "hidden");
+      document.addEventListener("visibilitychange", updateVisibility);
+      return () => document.removeEventListener("visibilitychange", updateVisibility);
+    }, []);
+  useEffect(() => {
+      if (connection === "live") openingLiveSinceRef.current = Date.now();
+    }, [connection]);
+  useEffect(() => {
       const observation = state.latestOpeningStateObservation;
-      if (openingStateAt !== undefined || observation?.houseId !== houseId) return;
+      if (observation?.houseId !== houseId) return;
+      if (openingStateAt !== undefined || editing || !openingPageVisible) {
+        suppressedOpeningObservationIdRef.current = observation.id;
+        return;
+      }
+      if (suppressedOpeningObservationIdRef.current === observation.id) {
+        suppressedOpeningObservationIdRef.current = "";
+        return;
+      }
       const observedAtMs = Date.parse(observation.observedAt);
       setLiveSpatialClockMs((current) => Math.max(
         current,
@@ -317,32 +380,75 @@ export function useTwinDashboardPart03(context: ReturnType<typeof useTwinDashboa
         Number.isFinite(observedAtMs) ? observedAtMs : 0,
       ));
       setOpeningStateObservations((current) => mergeOpeningStateObservations(current, [observation]));
-    }, [houseId, openingStateAt, state.latestOpeningStateObservation]);
+    }, [editing, houseId, openingPageVisible, openingStateAt, state.latestOpeningStateObservation]);
   useEffect(() => {
-      if (!hasOpeningElements) return;
+      if (!hasOpeningElements || openingStateAt !== undefined || editing || !openingPageVisible) {
+        // The next live render must perform one authoritative catch-up after a
+        // replay, layout edit, or hidden-tab interval. Keeping the completed key
+        // here would defer missed state until the slow disconnected fallback.
+        if (openingStateAt !== undefined || editing || !openingPageVisible) openingStateHydrationKeyRef.current = "";
+        return;
+      }
+      const hydrationKey = `${houseId}:${openingStateAt ?? "current"}`;
+      if (openingStateHydrationKeyRef.current === hydrationKey) return;
+      openingStateHydrationKeyRef.current = hydrationKey;
       const controller = new AbortController();
-      let loading = false;
-      const load = async () => {
-        if (loading) return;
-        loading = true;
-        try {
-          const result = await api.openingStates(houseId, openingStateAt, controller.signal);
-          if (!controller.signal.aborted) {
-            setOpeningStateObservations((current) => mergeOpeningStateObservations(current, result.observations));
-          }
-        } catch {
-          // Keep the last-good states; configured/manual fallbacks remain authoritative.
-        } finally {
-          loading = false;
+      let settled = false;
+      void api.openingStates(houseId, openingStateAt, controller.signal).then((result) => {
+        if (!controller.signal.aborted) {
+          setOpeningStateObservations((current) => mergeOpeningStateObservations(current, result.observations));
         }
-      };
-      void load();
-      const refreshMs = connection === "live" ? 30_000 : 5_000;
-      const timer = openingStateAt === undefined ? window.setInterval(() => { void load(); }, refreshMs) : null;
+      }).catch(() => {
+        // Keep configured/manual fallbacks. A disconnected stream uses the
+        // deliberately slow fallback below; a healthy stream supplies updates.
+      }).finally(() => {
+        settled = true;
+      });
       return () => {
         controller.abort();
-        if (timer !== null) window.clearInterval(timer);
+        if (!settled && openingStateHydrationKeyRef.current === hydrationKey) {
+          openingStateHydrationKeyRef.current = "";
+        }
       };
-    }, [connection, hasOpeningElements, houseId, openingStateAt]);
+    }, [editing, hasOpeningElements, houseId, openingPageVisible, openingStateAt]);
+  useEffect(() => {
+      if (!hasOpeningElements || openingStateAt !== undefined || editing || !openingPageVisible) return;
+      let stopped = false;
+      let timer: number | null = null;
+      let controller: AbortController | null = null;
+      let delayMs = OPENING_FALLBACK_MIN_MS;
+      const schedule = () => {
+        if (!stopped) timer = window.setTimeout(() => { void check(); }, delayMs);
+      };
+      const check = async () => {
+        if (stopped || document.visibilityState === "hidden") return;
+        const lastHeartbeat = openingTelemetryHeartbeatRef.current ?? openingLiveSinceRef.current;
+        const streamFresh = connection === "live" && Date.now() - lastHeartbeat < OPENING_STREAM_STALE_MS;
+        if (streamFresh) {
+          delayMs = OPENING_FALLBACK_MIN_MS;
+          schedule();
+          return;
+        }
+        controller = new AbortController();
+        try {
+          const result = await api.openingStates(houseId, undefined, controller.signal);
+          if (!controller.signal.aborted && !stopped) {
+            setOpeningStateObservations((current) => mergeOpeningStateObservations(current, result.observations));
+            delayMs = OPENING_FALLBACK_MIN_MS;
+          }
+        } catch {
+          if (!controller.signal.aborted) delayMs = Math.min(OPENING_FALLBACK_MAX_MS, delayMs * 2);
+        } finally {
+          controller = null;
+          schedule();
+        }
+      };
+      schedule();
+      return () => {
+        stopped = true;
+        if (timer !== null) window.clearTimeout(timer);
+        controller?.abort();
+      };
+    }, [connection, editing, hasOpeningElements, houseId, openingPageVisible, openingStateAt]);
   return Object.assign(context, { outdoor: replayAwareOutdoor, outdoorContext: replayAwareOutdoorContext, replayOutdoorSample, selectReplayEvent, loadReplayWindow, displayedSamples, mapSensorMeasurements, airflowSamples, sensorCoverage, airMovementSelected, coverageSelected, openingStateAt, openingStateObservations, setOpeningStateObservations, pendingOpeningStateKeys, setPendingOpeningStateKeys, openingStateError, setOpeningStateError, openingStateAnnouncement, setOpeningStateAnnouncement, openingStateRequestsRef, openingStateContextRef, houseOpeningStateObservations, controllableOpenings, hasOpeningElements });
 }

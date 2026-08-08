@@ -70,11 +70,11 @@ export type TestSchema = {
 
 export const spatialOpenApiSchemas = openApiV1Document.components.schemas as unknown as Record<string, TestSchema>;
 
-export const spatialOpenApiPaths = openApiV1Document.paths as unknown as Record<string, Partial<Record<"get" | "post" | "put", {
+export const spatialOpenApiPaths = openApiV1Document.paths as unknown as Record<string, Partial<Record<"get" | "post" | "put" | "delete", {
   responses: Record<string, { content?: Record<string, { schema: TestSchema }> }>;
 }>>>;
 
-export function documentedResponseSchema(path: string, method: "get" | "post" | "put", status: number): TestSchema {
+export function documentedResponseSchema(path: string, method: "get" | "post" | "put" | "delete", status: number): TestSchema {
   const schema = spatialOpenApiPaths[path]?.[method]?.responses[String(status)]?.content?.["application/json"]?.schema;
   if (!schema) throw new Error(`Missing OpenAPI response schema for ${method.toUpperCase()} ${path} ${status}`);
   return schema;
@@ -166,6 +166,7 @@ export const SPATIAL_PARTITION_TABLES = [
   "spatial_inference_runs",
   "spatial_layer_snapshots",
   "spatial_ground_truth",
+  "spatial_inference_sessions",
   "spatial_inference_jobs",
   "spatial_checkpoints",
 ] as const;
@@ -209,6 +210,10 @@ export function seedEverySpatialTable(
     id: `truth-${suffix}`, scope, startAt: createdAt, endAt: null, label: suffix,
     zoneId: null, fromZoneId: null, toZoneId: null, source: "controlled_test", note: null,
     createdAt, createdBy: "test",
+  });
+  store.startInferenceSession({
+    partition: value, houseId: scope.id, durationMinutes: 60, cadenceMinutes: 10,
+    now: createdAt, createdBy: "test",
   });
   store.scheduleJob({
     partition: value, scope, bucketAt: "2026-07-16T12:01:00.000Z", reason: suffix,

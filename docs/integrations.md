@@ -375,10 +375,12 @@ Weather wind bearing is a wind-from direction. A client maps it to the plan with
 `normalize(windFromDegrees - orientationDegrees)` and should omit directional
 geometry whenever either bearing is unavailable.
 
-Request outdoor context with
+Read the monitor's local outdoor context with
 `GET /api/v1/houses/{id}/weather?hours=48`; the horizon defaults to 48 and is
 bounded to 1–240 hours (the Open-Meteo adapter currently caps returned forecast
-hours at 168). Automatic routing selects FMI for Finnish locations and
+hours at 168). This foreground read uses a canonical durable 48-hour snapshot
+and does not contact an upstream provider. Automatic routing selects FMI for
+Finnish locations and
 Open-Meteo elsewhere. FMI responses combine a recent station observation,
 edited/HARMONIE point forecasts, and active CAP warnings that geometrically
 cover the house. Open-Meteo responses contain modelled current and `best_match`
@@ -387,10 +389,10 @@ adapter. Neither provider requires a weather API key or environment variable.
 
 Consumers must preserve `provider`, `attribution`, `fetchedAt`,
 `forecastIssuedAt`, `observationStation`, `stale`, and `unavailable`. Upstream
-parts settle independently, so a 200 response can be partial; a failed refresh
-can return an older in-memory result with `stale: true`. A missing house location
-returns `HOUSE_LOCATION_REQUIRED`, and no usable upstream or cached result
-returns `WEATHER_UNAVAILABLE`.
+parts settle independently, so a 200 response can be partial; a failed
+background refresh preserves the durable last-good result with `stale: true`.
+A missing house location returns `HOUSE_LOCATION_REQUIRED`, and no retained
+snapshot returns `WEATHER_UNAVAILABLE`.
 
 New clients must also inspect `componentStatus`. In particular, an empty warning
 array is authoritative only when the warnings component is available, covered,
@@ -399,11 +401,14 @@ fresh, and sets `emptyResultIsAuthoritative: true`. Open-Meteo marks warnings
 authoritative.
 
 With background services enabled, a non-overlapping monitor refreshes every
-located home for 48 hours. Concurrency is bounded to two, scheduled cycles use
-jitter, and failures back off independently per home. A revision/location fence
+located Home for 48 hours. Homes refresh sequentially by default, scheduled
+cycles use jitter, and failures back off independently per Home. Historical
+gap discovery and backfill are serialized too. A revision/location fence
 prevents an old in-flight response from being persisted after a home is moved.
-Only fresh current temperature is retained as an outdoor boundary; forecasts
-and stale fallbacks are not stored as observations.
+The accepted canonical 48-hour response and attempt status are retained in one
+bounded SQLite row per Home. Only fresh current temperature is additionally
+retained as an outdoor boundary; forecasts and stale fallbacks are not stored
+as observations.
 
 After a successful provider refresh, the recovery coordinator scans the prior
 30 days of retained outdoor-temperature timestamps. It records previously
@@ -412,12 +417,12 @@ inserts them duplicate-safely into the SQLite ingestion buffer. A successful
 recovery immediately wakes the archive worker so the same rows are reconciled
 to TimescaleDB. Forecast and warning outages remain non-historical components.
 
-Accepted scheduled and on-demand results pass through a provider-neutral event
+Accepted scheduled results pass through a provider-neutral event
 broker after that fence. The broker projects the durable boundary first, then
 emits a named `weather` event on `/api/v1/stream` and `/api/v1/events`. Its
 payload is a `WeatherUpdateEvent` containing a stable `id`, `publishedAt`,
-`trigger`, and the complete `HouseWeather` snapshot. Identical cached responses
-coalesce, so an API cache hit does not masquerade as a provider update.
+`trigger`, and the complete `HouseWeather` snapshot. Identical monitor results
+coalesce, so a local REST read never masquerades as a provider update.
 
 See [Outdoor weather and home location](weather.md) for requested fields,
 station/model caveats, caching, background refresh, CC BY 4.0 attribution,

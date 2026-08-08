@@ -8,7 +8,7 @@ import {
   type SpatialEngineExecutor,
 } from "./executor.js";
 import { InMemorySpatialSnapshotNotifier } from "./notifier.js";
-import { SpatialLayerScheduler } from "./scheduler.js";
+import { SpatialLayerScheduler, type SpatialInferenceAdmission } from "./scheduler.js";
 import { deriveSpatialStatePath, sourceDatabaseId, SpatialLayerStateStore } from "./state-store.js";
 import type { SpatialDataPartition } from "./types.js";
 
@@ -41,6 +41,7 @@ export function createLocalSpatialLayerRuntime(options: {
   timeoutMs?: number;
   intervalMs?: number;
   retentionDays?: number;
+  admission?: SpatialInferenceAdmission;
   logger?: SpatialEngineHostLogger;
   executor?: SpatialEngineExecutor;
 }): LocalSpatialLayerRuntime {
@@ -81,6 +82,7 @@ export function createLocalSpatialLayerRuntime(options: {
     ...(options.logger === undefined ? {} : { logger: options.logger }),
     ...(options.intervalMs === undefined ? {} : { intervalMs: options.intervalMs }),
     ...(options.retentionDays === undefined ? {} : { retentionDays: options.retentionDays }),
+    ...(options.admission === undefined ? {} : { admission: options.admission }),
   });
   let stopped = false;
   const streams = new Set<() => void>();
@@ -102,13 +104,10 @@ export function createLocalSpatialLayerRuntime(options: {
       host.close();
       state.close();
     },
-    wakeMeasurement(sample): void {
-      if (stopped || (sample.metric !== "temperature" && sample.metric !== "humidity")) return;
-      runtime.synchronizeDataMode();
-      const sensor = options.coreDatabase.getSensor(sample.sensorId);
-      if (!sensor) return;
-      const house = options.coreDatabase.getHouse(sensor.houseId);
-      scheduler.wakeHouse(sensor.houseId, house?.propertyId ?? null, sample.timestamp);
+    wakeMeasurement(_sample): void {
+      // Timed Home sessions consume the newest retained inputs at their own
+      // cadence. Live ingestion must do no spatial lookup or queue work.
+      if (stopped) return;
     },
     handleDataModeActivated(dataMode = "real"): void {
       if (stopped) return;
@@ -132,7 +131,7 @@ export function createLocalSpatialLayerRuntime(options: {
       return () => streams.delete(close);
     },
   };
-  host.ensureAllScopeDefaults();
+  scheduler.initialize();
   if (options.startBackground) runtime.start();
   return runtime;
 }

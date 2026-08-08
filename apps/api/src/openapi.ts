@@ -6,6 +6,8 @@ const V2_PATHS = new Set([
   "/analytics/findings",
   "/analytics/opening-activity",
   "/analytics/home-performance",
+  "/analytics/thermal-isolation",
+  "/analytics/moisture-response",
   "/analytics/calendar-comparison",
   "/monitoring/houses",
   "/monitoring/houses/{houseId}",

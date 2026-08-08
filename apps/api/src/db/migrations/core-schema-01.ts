@@ -169,6 +169,74 @@ export const CORE_SCHEMA_01 = `
         ON opening_state_observations(house_id, floor_id, element_id, observed_at DESC);
       CREATE INDEX IF NOT EXISTS idx_opening_state_external_time
         ON opening_state_observations(source, external_id, observed_at DESC);
+      CREATE TABLE IF NOT EXISTS opening_state_current_candidates (
+        observation_id TEXT PRIMARY KEY REFERENCES opening_state_observations(id) ON DELETE CASCADE,
+        house_id TEXT NOT NULL,
+        floor_id TEXT NOT NULL,
+        element_id TEXT NOT NULL,
+        lane_key TEXT NOT NULL,
+        observed_at TEXT NOT NULL,
+        effective_until_ceiling TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_opening_state_current_candidates_scope
+        ON opening_state_current_candidates(house_id, floor_id, element_id, observed_at DESC, observation_id DESC);
+      CREATE INDEX IF NOT EXISTS idx_opening_state_current_candidates_lane
+        ON opening_state_current_candidates(house_id, floor_id, element_id, lane_key, observed_at DESC, observation_id DESC);
+      CREATE TRIGGER IF NOT EXISTS opening_state_current_candidate_insert
+        AFTER INSERT ON opening_state_observations BEGIN
+          INSERT OR IGNORE INTO opening_state_current_candidates(
+            observation_id, house_id, floor_id, element_id, lane_key, observed_at, effective_until_ceiling
+          ) VALUES (
+            NEW.id, NEW.house_id, NEW.floor_id, NEW.element_id,
+            CASE
+              WHEN NEW.source IN ('manual', 'api') THEN json_array(NEW.source)
+              ELSE json_array(NEW.source, COALESCE(NEW.external_id, ''), COALESCE(NEW.connection_id, ''))
+            END,
+            NEW.observed_at,
+            CASE
+              WHEN NEW.source IN ('home-assistant', 'tapo') THEN CASE
+                WHEN NEW.valid_until IS NULL THEN strftime('%Y-%m-%dT%H:%M:%fZ', NEW.observed_at, '+30 days')
+                WHEN NEW.valid_until <= strftime('%Y-%m-%dT%H:%M:%fZ', NEW.observed_at, '+30 days') THEN NEW.valid_until
+                ELSE strftime('%Y-%m-%dT%H:%M:%fZ', NEW.observed_at, '+30 days')
+              END
+              ELSE NEW.valid_until
+            END
+          );
+          DELETE FROM opening_state_current_candidates
+          WHERE observation_id = NEW.id
+            AND effective_until_ceiling IS NOT NULL
+            AND effective_until_ceiling <= NEW.created_at;
+          DELETE FROM opening_state_current_candidates
+          WHERE house_id = NEW.house_id
+            AND floor_id = NEW.floor_id
+            AND element_id = NEW.element_id
+            AND lane_key = CASE
+              WHEN NEW.source IN ('manual', 'api') THEN json_array(NEW.source)
+              ELSE json_array(NEW.source, COALESCE(NEW.external_id, ''), COALESCE(NEW.connection_id, ''))
+            END
+            AND EXISTS (
+              SELECT 1 FROM opening_state_current_candidates AS newer
+              WHERE newer.house_id = opening_state_current_candidates.house_id
+                AND newer.floor_id = opening_state_current_candidates.floor_id
+                AND newer.element_id = opening_state_current_candidates.element_id
+                AND newer.lane_key = opening_state_current_candidates.lane_key
+                AND newer.observed_at <= NEW.created_at
+                AND (
+                  newer.observed_at > opening_state_current_candidates.observed_at
+                  OR (
+                    newer.observed_at = opening_state_current_candidates.observed_at
+                    AND newer.observation_id > opening_state_current_candidates.observation_id
+                  )
+                )
+                AND (
+                  newer.effective_until_ceiling IS NULL
+                  OR (
+                    opening_state_current_candidates.effective_until_ceiling IS NOT NULL
+                    AND newer.effective_until_ceiling >= opening_state_current_candidates.effective_until_ceiling
+                  )
+                )
+            );
+        END;
       CREATE TABLE IF NOT EXISTS analytics_daily_findings (
         house_id TEXT PRIMARY KEY REFERENCES houses(id) ON DELETE CASCADE,
         data_mode TEXT NOT NULL CHECK (data_mode IN ('live', 'demo')),
@@ -351,6 +419,19 @@ export const CORE_SCHEMA_01 = `
         metric TEXT NOT NULL REFERENCES measurement_definitions(id),
         PRIMARY KEY(sensor_id, metric)
       );
+      CREATE TABLE IF NOT EXISTS sensor_source_metrics (
+        sensor_id TEXT NOT NULL REFERENCES sensors(id) ON DELETE CASCADE,
+        source TEXT NOT NULL CHECK (source IN ('home-assistant', 'tp-link')),
+        metric TEXT NOT NULL REFERENCES measurement_definitions(id) ON DELETE CASCADE,
+        PRIMARY KEY(sensor_id, source, metric)
+      ) WITHOUT ROWID;
+      CREATE TRIGGER IF NOT EXISTS sensor_source_metrics_from_measurement_insert
+        AFTER INSERT ON measurement_samples
+        WHEN NEW.source IN ('home-assistant', 'tp-link')
+      BEGIN
+        INSERT OR IGNORE INTO sensor_source_metrics(sensor_id, source, metric)
+          VALUES (NEW.sensor_id, NEW.source, NEW.metric);
+      END;
       CREATE TABLE IF NOT EXISTS sensor_measurement_bindings (
         sensor_id TEXT NOT NULL REFERENCES sensors(id) ON DELETE CASCADE,
         metric TEXT NOT NULL REFERENCES measurement_definitions(id),

@@ -27,6 +27,35 @@ import {
 import { config, forecastXml, location, weather } from "./weatherTestSupport.js";
 
 describe("FMI weather parsing", () => {
+  it("forwards cancellation to an FMI historical observation request", async () => {
+    let upstreamSignal: AbortSignal | null | undefined;
+    let started!: () => void;
+    const requestStarted = new Promise<void>((resolve) => { started = resolve; });
+    const fetchImpl = vi.fn((_input: string | URL | Request, init?: RequestInit) => {
+      upstreamSignal = init?.signal;
+      started();
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true });
+      });
+    });
+    const provider = new FmiWeatherProvider({ fetchImpl: fetchImpl as typeof fetch });
+    const controller = new AbortController();
+    const reason = new Error("cancel FMI recovery");
+
+    const pending = provider.fetchObservationHistory(
+      "house-main",
+      location,
+      "2026-07-14T10:00:00.000Z",
+      "2026-07-14T11:00:00.000Z",
+      controller.signal,
+    );
+    await requestStarted;
+    controller.abort(reason);
+
+    await expect(pending).rejects.toBe(reason);
+    expect(upstreamSignal?.aborted).toBe(true);
+  });
+
   it("classifies definitely outside warning coverage without treating the Finland envelope as proof of coverage", () => {
     expect(fmiWarningCoverage(location)).toBe("unknown");
     expect(fmiWarningCoverage({ ...location, countryCode: "FI" })).toBe("covered");
@@ -409,6 +438,39 @@ describe("WeatherService", () => {
     await service.get(house, 72);
     await service.get(house, 48);
     expect(provider.fetch).toHaveBeenCalledTimes(4);
+  });
+
+  it("shares one provider result across sequential Homes at the same location", async () => {
+    const status: IntegrationStatus["weather"] = {
+      provider: "fmi", configuredHouses: 2, lastSuccessAt: null, error: null,
+    };
+    const provider: WeatherProvider = {
+      fetch: vi.fn(async (houseId, requestedLocation) => weather({
+        houseId,
+        location: requestedLocation,
+      })),
+    };
+    const service = new WeatherService(provider, status, vi.fn());
+    const first: House = {
+      id: "same-location-a", name: "A", timezone: "Europe/Helsinki", location, floors: [],
+      createdAt: "2026-07-14T00:00:00.000Z", updatedAt: "2026-07-14T00:00:00.000Z",
+    };
+    const second: House = {
+      ...first,
+      id: "same-location-b",
+      name: "B",
+    };
+
+    const firstResult = await service.refresh(first);
+    const secondResult = await service.refresh(second);
+
+    expect(provider.fetch).toHaveBeenCalledTimes(1);
+    expect(firstResult).toMatchObject({ houseId: first.id, location: first.location });
+    expect(secondResult).toMatchObject({ houseId: second.id, location: second.location });
+    expect(status.connections).toEqual(expect.arrayContaining([
+      expect.objectContaining({ houseId: first.id, lastSuccessAt: firstResult.fetchedAt, error: null }),
+      expect.objectContaining({ houseId: second.id, lastSuccessAt: secondResult.fetchedAt, error: null }),
+    ]));
   });
 
   it("rejects an invalidated in-flight result without updating cache or integration status", async () => {

@@ -133,16 +133,16 @@ export const pathsPart02 = {
         get: {
           tags: ["Weather"],
           operationId: "getHouseWeather",
-          description: "Returns provider-neutral house-scoped current conditions, point forecasts, and warning capability. Automatic routing uses FMI where Finnish official warning/observation coverage applies and Open-Meteo worldwide. Components can fail independently; inspect componentStatus (or the legacy unavailable field) and stale before using the result. An empty warnings array means no warnings only when componentStatus.warnings.emptyResultIsAuthoritative is true.",
+          description: "Returns the local, durable provider-neutral weather snapshot last accepted by the background monitor; this read never contacts FMI or Open-Meteo. The canonical stored horizon is 48 hours and shorter requested horizons are filtered locally. Components can fail independently; inspect componentStatus (or the legacy unavailable field) and stale before using the result. An empty warnings array means no warnings only when componentStatus.warnings.emptyResultIsAuthoritative is true.",
           parameters: [
             { $ref: "#/components/parameters/Id" },
-            { name: "hours", in: "query", description: "Requested point-forecast horizon in hours.", schema: { type: "integer", minimum: 1, maximum: 240, default: 48 } },
+            { name: "hours", in: "query", description: "Local view horizon in hours. The durable upstream snapshot is bounded to 48 hours, so larger values cannot add points beyond that canonical window.", schema: { type: "integer", minimum: 1, maximum: 240, default: 48 } },
           ],
           responses: {
-            "200": { description: "Weather context, possibly partial or served from stale in-memory cache", content: { "application/json": { schema: { type: "object", required: ["weather"], properties: { weather: { $ref: "#/components/schemas/HouseWeather" } } } } } },
+            "200": { description: "Durable last-good weather context, possibly partial or marked stale", content: { "application/json": { schema: { type: "object", required: ["weather"], properties: { weather: { $ref: "#/components/schemas/HouseWeather" } } } } } },
             "404": { $ref: "#/components/responses/NotFound" },
-            "409": { description: "HOUSE_LOCATION_REQUIRED: set the house WGS84 location first; or WEATHER_REQUEST_SUPERSEDED: house metadata changed while the upstream request was running" },
-            "503": { description: "WEATHER_UNAVAILABLE: no usable provider result or cached fallback is available" },
+            "409": { description: "HOUSE_LOCATION_REQUIRED: set the house WGS84 location first; or WEATHER_REQUEST_SUPERSEDED: house metadata changed while the snapshot was being read" },
+            "503": { description: "WEATHER_UNAVAILABLE: the background monitor has not retained a usable snapshot for this Home and location" },
           },
         },
       },

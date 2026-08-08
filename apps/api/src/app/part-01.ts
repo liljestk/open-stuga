@@ -202,6 +202,7 @@ export function configureApiPart01(context: { options: CreateApiOptions }) {
   config.alertWebhookAllowedHosts ??= config.alertWebhookDestinations
       .map((destination) => new URL(destination.url).hostname.toLowerCase());
   config.dailyAnalyticsFindingsEnabled ??= false;
+  config.sensorGapRecoveryEnabled ??= false;
   config.appleNotesGrants ??= [];
   config.homeAssistantLegacyDisabled ??= false;
   config.tpLinkLegacyDisabled ??= false;

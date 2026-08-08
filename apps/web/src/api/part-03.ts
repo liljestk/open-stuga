@@ -21,6 +21,7 @@ import type {
   DataExportPreview,
   DataExportPrivacyLevel,
   DailyAnalyticsFindingsResponse,
+  DurableDerivedAnalyticsResponse,
   OpeningActivityRequest,
   OpeningActivityResponse,
   EnergyOptimizationReport,
@@ -471,9 +472,17 @@ export const apiPart03 = {
     houseId: string,
     dataMode: "live" | "demo",
     signal?: AbortSignal,
-  ) => requestV2<HomePerformanceResponse>(
+  ) => requestV2<DurableDerivedAnalyticsResponse<HomePerformanceResponse>>(
       `/analytics/home-performance?houseId=${encodeURIComponent(houseId)}&dataMode=${dataMode}`,
       signal ? { signal } : undefined,
+    ),
+  refreshHomePerformance: (
+    houseId: string,
+    dataMode: "live" | "demo",
+    signal?: AbortSignal,
+  ) => requestV2<DurableDerivedAnalyticsResponse<HomePerformanceResponse>>(
+      `/analytics/home-performance?houseId=${encodeURIComponent(houseId)}&dataMode=${dataMode}`,
+      { method: "POST", ...(signal ? { signal } : {}) },
     ),
   homeMonitoringCollection: (
     dataMode: "live" | "demo",

@@ -149,6 +149,7 @@
 .home-performance-loading, .home-performance-notice, .home-performance-empty { min-height: 56px; display: flex; align-items: center; gap: 8px; margin: 0; padding: 12px 18px; color: var(--muted); }
 
 .home-performance-notice { border-bottom: 1px solid var(--line); color: var(--yellow); background: var(--yellow-soft); }
+.derived-artifact-age { display: flex; align-items: center; gap: 6px; padding: 8px 18px; color: var(--muted); border-bottom: 1px solid var(--line); }
 
 .home-performance-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 0; background: var(--panel-soft); }
 

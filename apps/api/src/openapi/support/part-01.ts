@@ -76,15 +76,6 @@ export function spatialScopePaths(collection: "houses" | "properties", scopeLabe
         responses: { "200": spatialJsonResponse("New immutable configuration version.", overviewResponse), "409": { description: "Configuration version conflict" }, "503": { description: "Optional engine unavailable" } },
       },
     },
-    [`${base}/infer`]: {
-      parameters: pathParameters,
-      post: {
-        tags: ["Spatial layers"], operationId: `infer${scopeLabel}SpatialLayers`,
-        description: "Runs the selected engines in a disposable worker. Intended for explicit replay, calibration, and research use.",
-        requestBody: spatialRequestBody({ $ref: "#/components/schemas/SpatialLayerInferenceInput" }),
-        responses: { "200": spatialJsonResponse("Versioned inference snapshots.", { $ref: "#/components/schemas/SpatialLayerInferenceResult" }), "503": { description: "Optional engine unavailable" } },
-      },
-    },
     [`${base}/ground-truth`]: {
       parameters: pathParameters,
       get: {
@@ -139,6 +130,25 @@ export const spatialLayerPaths = {
   },
   ...spatialScopePaths("houses", "House"),
   ...spatialScopePaths("properties", "Property"),
+  "/houses/{id}/layers/inference-session": {
+    parameters: [{ $ref: "#/components/parameters/Id" }],
+    get: {
+      tags: ["Spatial layers"], operationId: "getHouseSpatialInferenceSession",
+      description: "Returns the latest bounded Home inference session. A null session means the experimental engine has never been started for this Home.",
+      responses: { "200": spatialJsonResponse("Latest Home inference session status.", { $ref: "#/components/schemas/SpatialInferenceSessionResponse" }), "503": { description: "Optional engine unavailable" } },
+    },
+    post: {
+      tags: ["Spatial layers"], operationId: "startHouseSpatialInferenceSession",
+      description: "Starts a durable, time-bounded Home-only inference session. It schedules one immediate job and then coalesced jobs at the requested cadence.",
+      requestBody: spatialRequestBody({ $ref: "#/components/schemas/SpatialInferenceSessionStartInput" }),
+      responses: { "201": spatialJsonResponse("Started Home inference session.", { $ref: "#/components/schemas/SpatialInferenceSessionResponse" }), "409": { description: "A Home inference session is already active" }, "503": { description: "Optional engine unavailable" } },
+    },
+    delete: {
+      tags: ["Spatial layers"], operationId: "stopHouseSpatialInferenceSession",
+      description: "Stops the active Home inference session and cancels its queued or running work without deleting configuration or snapshots.",
+      responses: { "200": spatialJsonResponse("Stopped or latest Home inference session status.", { $ref: "#/components/schemas/SpatialInferenceSessionResponse" }), "503": { description: "Optional engine unavailable" } },
+    },
+  },
   ...spatialHouseResourcePath("bindings", "Bindings", "SpatialSensorBinding", "SpatialSensorBindingInput", "bindings", "binding"),
   ...spatialHouseResourcePath("calibrations", "Calibrations", "SpatialSensorCalibration", "SpatialSensorCalibrationInput", "calibrations", "calibration"),
   ...spatialHouseResourcePath("calibration-sessions", "CalibrationSessions", "SpatialCalibrationSession", "SpatialCalibrationSessionInput", "sessions", "session", "SpatialCalibrationSessionCreateResponse"),

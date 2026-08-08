@@ -212,9 +212,28 @@ export const spatialLayerSchemas = {
   },
   SpatialLayerConfigurationOverview: { type: "object", additionalProperties: false, required: ["partition", "scope", "configuration", "assignments", "topology", "warnings"], properties: { partition: { $ref: "#/components/schemas/SpatialPartition" }, scope: { $ref: "#/components/schemas/SpatialScope" }, configuration: { $ref: "#/components/schemas/SpatialConfigurationVersion" }, assignments: { type: "array", items: { $ref: "#/components/schemas/SpatialEngineAssignment" } }, topology: { $ref: "#/components/schemas/SpatialTopology" }, warnings: { type: "array", items: { type: "string" } } } },
   SpatialLayerConfigurationInput: { type: "object", additionalProperties: false, required: ["baseVersion", "config"], properties: { baseVersion: { type: "integer", minimum: 0 }, config: { type: "object", additionalProperties: true }, assignments: { type: "array", items: { $ref: "#/components/schemas/SpatialEngineAssignmentInput" } } } },
-  SpatialLayerInferenceInput: { type: "object", additionalProperties: false, properties: { bucketAt: { type: "string", format: "date-time" }, layers: { type: "array", items: { type: "string" } } } },
-  SpatialInferenceFailure: { type: "object", additionalProperties: false, required: ["engineId", "code", "message"], properties: { engineId: { type: "string" }, code: { type: "string" }, message: { type: "string" } } },
-  SpatialLayerInferenceResult: { type: "object", additionalProperties: false, required: ["scope", "bucketAt", "status", "snapshots", "failures"], properties: { scope: { $ref: "#/components/schemas/SpatialScope" }, bucketAt: { type: "string", format: "date-time" }, status: { enum: ["succeeded", "partial", "failed", "disabled"] }, snapshots: { type: "array", items: { $ref: "#/components/schemas/SpatialLayerSnapshot" } }, failures: { type: "array", items: { $ref: "#/components/schemas/SpatialInferenceFailure" } } } },
+  SpatialInferenceSession: {
+    type: "object", additionalProperties: false,
+    required: ["id", "partition", "houseId", "status", "startedAt", "expiresAt", "cadenceMinutes", "nextRunAt", "lastScheduledAt", "stoppedAt", "createdBy", "createdAt", "updatedAt"],
+    properties: {
+      id: { type: "string" }, partition: { $ref: "#/components/schemas/SpatialPartition" }, houseId: { type: "string" },
+      status: { enum: ["active", "stopped", "expired"] }, startedAt: { type: "string", format: "date-time" }, expiresAt: { type: "string", format: "date-time" },
+      cadenceMinutes: { type: "integer", minimum: 5, maximum: 60 }, nextRunAt: { type: "string", format: "date-time" },
+      lastScheduledAt: { type: ["string", "null"], format: "date-time" }, stoppedAt: { type: ["string", "null"], format: "date-time" },
+      createdBy: { type: ["string", "null"] }, createdAt: { type: "string", format: "date-time" }, updatedAt: { type: "string", format: "date-time" },
+    },
+  },
+  SpatialInferenceSessionResponse: {
+    type: "object", additionalProperties: false, required: ["session"],
+    properties: { session: { oneOf: [{ $ref: "#/components/schemas/SpatialInferenceSession" }, { type: "null" }] } },
+  },
+  SpatialInferenceSessionStartInput: {
+    type: "object", additionalProperties: false,
+    properties: {
+      durationMinutes: { type: "integer", minimum: 15, maximum: 240, default: 60 },
+      cadenceMinutes: { type: "integer", minimum: 5, maximum: 60, default: 10 },
+    },
+  },
   SpatialGroundTruthInput: { type: "object", additionalProperties: false, required: ["label"], properties: { id: { type: "string" }, startAt: { type: "string", format: "date-time" }, endAt: { type: ["string", "null"], format: "date-time" }, label: { type: "string" }, zoneId: { type: ["string", "null"] }, fromZoneId: { type: ["string", "null"] }, toZoneId: { type: ["string", "null"] }, source: { enum: ["user", "optional_sensor", "controlled_test"] }, note: { type: ["string", "null"] } } },
   SpatialGroundTruth: { type: "object", additionalProperties: false, required: ["id", "scope", "startAt", "endAt", "label", "zoneId", "fromZoneId", "toZoneId", "source", "note", "createdAt", "createdBy"], properties: { id: { type: "string" }, scope: { $ref: "#/components/schemas/SpatialScope" }, startAt: { type: "string", format: "date-time" }, endAt: { type: ["string", "null"], format: "date-time" }, label: { type: "string" }, zoneId: { type: ["string", "null"] }, fromZoneId: { type: ["string", "null"] }, toZoneId: { type: ["string", "null"] }, source: { enum: ["user", "optional_sensor", "controlled_test"] }, note: { type: ["string", "null"] }, createdAt: { type: "string", format: "date-time" }, createdBy: { type: ["string", "null"] } } },
   SpatialSensorBindingInput: { type: "object", additionalProperties: false, required: ["sensorId", "zoneId", "frameId", "position", "role"], properties: { id: { type: "string" }, sensorId: { type: "string" }, zoneId: { type: "string" }, frameId: { type: "string" }, position: { $ref: "#/components/schemas/Vector3" }, role: { enum: ["primary", "supporting", "outdoor"] }, activeFrom: { type: "string", format: "date-time" }, activeTo: { type: ["string", "null"], format: "date-time" }, placementRisks: { type: "array", items: { enum: ["near-window", "near-exterior-wall", "near-radiator", "near-heat-pump", "direct-sunlight", "unknown"] } } } },

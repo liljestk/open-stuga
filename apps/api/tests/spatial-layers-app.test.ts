@@ -32,7 +32,7 @@ function enabledRuntime(localAuthTestBypass = true): ApiRuntime {
 }
 
 describe("spatial layer application lifecycle", () => {
-  it("wires isolated worker inference into authenticated house routes without adding core tables", async () => {
+  it("runs isolated worker inference only through an authenticated bounded Home session", async () => {
     const runtime = enabledRuntime();
     const house = runtime.database.listHouses()[0]!;
 
@@ -45,12 +45,15 @@ describe("spatial layer application lifecycle", () => {
       ]));
     });
 
-    const inferred = await request(runtime.app)
-      .post(`/api/v1/houses/${house.id}/layers/infer`)
-      .send({ bucketAt: new Date().toISOString() })
-      .expect(200);
-    expect(inferred.body.status).toBe("succeeded");
-    expect(inferred.body.snapshots.length).toBeGreaterThan(0);
+    const started = await request(runtime.app)
+      .post(`/api/v1/houses/${house.id}/layers/inference-session`)
+      .send({ durationMinutes: 60, cadenceMinutes: 10 })
+      .expect(201);
+    expect(started.body.session).toMatchObject({ houseId: house.id, status: "active", cadenceMinutes: 10 });
+    await runtime.spatialLayers!.scheduler.tick();
+
+    await request(runtime.app).post(`/api/v1/houses/${house.id}/layers/infer`).send({}).expect(404);
+    await request(runtime.app).post(`/api/v1/properties/${house.propertyId}/layers/infer`).send({}).expect(404);
 
     const current = await request(runtime.app)
       .get(`/api/v1/houses/${house.id}/layers/current`)
@@ -63,6 +66,10 @@ describe("spatial layer application lifecycle", () => {
         coordinateFrames: expect.arrayContaining([expect.objectContaining({ id: expect.any(String), version: expect.any(String) })]),
       }),
     ]));
+    await request(runtime.app)
+      .delete(`/api/v1/houses/${house.id}/layers/inference-session`)
+      .expect(200)
+      .expect(({ body }) => expect(body.session).toMatchObject({ id: started.body.session.id, status: "stopped" }));
     expect(runtime.database.db.prepare("SELECT name FROM sqlite_master WHERE name LIKE 'spatial_%'").all()).toEqual([]);
   });
 
@@ -106,7 +113,7 @@ describe("spatial layer application lifecycle", () => {
     expect(console.error).toHaveBeenCalledWith(expect.stringContaining("Optional change notification failed"));
   });
 
-  it("invalidates property and house topology after every topology-changing property route", async () => {
+  it("keeps topology changes dormant until a Home spatial session is active", async () => {
     const runtime = enabledRuntime();
     const house = runtime.database.listHouses()[0]!;
     const spatial = runtime.spatialLayers!;
@@ -117,18 +124,13 @@ describe("spatial layer application lifecycle", () => {
         scope_id: string;
         reason: string;
       }>;
-    const expectHouseAndPropertyJobs = () => expect(jobs()).toEqual([
-      { scope_kind: "house", scope_id: house.id, reason: "property-context-changed" },
-      { scope_kind: "property", scope_id: house.propertyId, reason: "property-context-changed" },
-    ]);
+    const expectNoAmbientJobs = () => expect(jobs()).toEqual([]);
 
     clearJobs();
     await request(runtime.app).patch(`/api/v1/properties/${house.propertyId}`).send({
       location: { latitude: 60.17, longitude: 24.93, source: "manual" },
     }).expect(200);
-    expect(jobs()).toEqual([
-      { scope_kind: "property", scope_id: house.propertyId, reason: "property-context-changed" },
-    ]);
+    expectNoAmbientJobs();
 
     clearJobs();
     await request(runtime.app).patch(`/api/v1/houses/${house.id}`).send({
@@ -139,19 +141,19 @@ describe("spatial layer application lifecycle", () => {
         footprintFloorId: house.floors[0]!.id,
       },
     }).expect(200);
-    expectHouseAndPropertyJobs();
+    expectNoAmbientJobs();
 
     clearJobs();
     await request(runtime.app).put(`/api/v1/houses/${house.id}/layout`).send({ floors: house.floors }).expect(200);
-    expectHouseAndPropertyJobs();
+    expectNoAmbientJobs();
 
     clearJobs();
     await request(runtime.app).put(`/api/v1/houses/${house.id}/floors/${house.floors[0]!.id}`)
       .send(house.floors[0]).expect(200);
-    expectHouseAndPropertyJobs();
+    expectNoAmbientJobs();
   });
 
-  it("invalidates shared experimental topology after sensor create, update, and delete", async () => {
+  it("does not schedule ambient spatial jobs for sensor mutations", async () => {
     const runtime = enabledRuntime();
     const house = runtime.database.listHouses()[0]!;
     const floor = house.floors[0]!;
@@ -159,10 +161,7 @@ describe("spatial layer application lifecycle", () => {
     const clearJobs = () => spatial.state.db.prepare("DELETE FROM spatial_inference_jobs").run();
     const jobs = () => spatial.state.db.prepare(`SELECT scope_kind, scope_id, reason
       FROM spatial_inference_jobs ORDER BY scope_kind, scope_id`).all();
-    const expected = [
-      { scope_kind: "house", scope_id: house.id, reason: "sensor-context-changed" },
-      { scope_kind: "property", scope_id: house.propertyId, reason: "sensor-context-changed" },
-    ];
+    const expected: unknown[] = [];
 
     clearJobs();
     await request(runtime.app).post("/api/v1/sensors").send({
@@ -209,12 +208,23 @@ describe("spatial layer application lifecycle", () => {
         grants: [{ scopeType: "house", scopeId: house.id }],
       })
       .expect(201);
-    await guest.post("/api/v1/auth/register")
+    const guestSession = await guest.post("/api/v1/auth/register")
       .send({ email: "guest@example.test", password: guestPassword, token: invitation.body.registrationToken })
       .expect(201);
 
     await guest.get(`/api/v1/houses/${house.id}/layers/config`).expect(200);
     await guest.get(`/api/v1/properties/${house.propertyId}/layers/current`).expect(404);
-    await guest.post(`/api/v1/houses/${house.id}/layers/infer`).send({}).expect(403);
+    await guest.get(`/api/v1/houses/${house.id}/layers/inference-session`).expect(200);
+    const mutation = (method: "post" | "put" | "delete", path: string) => guest[method](path)
+      .set("x-csrf-token", guestSession.body.csrfToken)
+      .send({});
+    await mutation("put", `/api/v1/houses/${house.id}/layers/config`).expect(403);
+    await mutation("post", `/api/v1/houses/${house.id}/layers/ground-truth`).expect(403);
+    await mutation("post", `/api/v1/houses/${house.id}/layers/inference-session`).expect(403);
+    await mutation("delete", `/api/v1/houses/${house.id}/layers/inference-session`).expect(403);
+    await mutation("post", `/api/v1/houses/${house.id}/layers/bindings`).expect(403);
+    await mutation("post", `/api/v1/houses/${house.id}/layers/calibrations`).expect(403);
+    await mutation("post", `/api/v1/houses/${house.id}/layers/calibration-sessions`).expect(403);
+    await mutation("post", `/api/v1/houses/${house.id}/layers/context-events`).expect(403);
   });
 });

@@ -118,6 +118,7 @@ declare module "../core.js" {
         };
     migratePropertyInto(sourcePropertyId: string, targetPropertyId: string, houseLinks: Readonly<Record<string, StugubyHouseLink>>): PropertyMigrationResult;
     listOpeningStateObservations(houseId: string, limit?: number, at?: string | number | Date): OpeningStateObservation[];
+    listCurrentOpeningStateCandidates(houseId: string, at?: string | number | Date, limit?: number): OpeningStateObservation[];
   }
 
   interface ClimateDatabaseCore {
@@ -130,5 +131,6 @@ declare module "../core.js" {
         };
     migratePropertyInto(sourcePropertyId: string, targetPropertyId: string, houseLinks: Readonly<Record<string, StugubyHouseLink>>): PropertyMigrationResult;
     listOpeningStateObservations(houseId: string, limit?: number, at?: string | number | Date): OpeningStateObservation[];
+    listCurrentOpeningStateCandidates(houseId: string, at?: string | number | Date, limit?: number): OpeningStateObservation[];
   }
 }

@@ -13,3 +13,4 @@ export { readTextWithByteLimit } from "./weather/02-current-observation-to-fmi-w
 export type { FmiWeatherProviderOptions } from "./weather/02-current-observation-to-fmi-weather-provider-options.js";
 export { FmiWeatherProvider } from "./weather/03-fmi-weather-provider-to-weather-service.js";
 export { WeatherService } from "./weather/03-fmi-weather-provider-to-weather-service.js";
+export type { WeatherSnapshotRepository } from "./weather/03-fmi-weather-provider-to-weather-service.js";

@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState, type FormEvent, type SyntheticEvent } from "react";
-import { Check, ChevronDown, FlaskConical, Plus, RefreshCw, Save } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type FormEvent, type SyntheticEvent } from "react";
+import { Check, ChevronDown, FlaskConical, Play, Plus, RefreshCw, Save, Square } from "lucide-react";
 import type { Sensor } from "@climate-twin/contracts";
 import type { SpatialContextEventKind } from "@climate-twin/spatial-layers";
 import { api } from "../api";
@@ -10,6 +10,7 @@ import type {
   SpatialCalibrationSessionKind,
   SpatialCalibrationSessionStatus,
   SpatialGroundTruth,
+  SpatialInferenceSession,
   SpatialLayerAssignment,
   SpatialLayerConfigurationResponse,
   SpatialSensorBinding,
@@ -36,6 +37,8 @@ const contextKinds: SpatialContextEventKind[] = [
 const groundTruthLabels: SpatialGroundTruth["label"][] = ["house_empty", "people_present", "zone_active", "transition", "false_positive", "unknown"];
 const calibrationSessionKinds: SpatialCalibrationSessionKind[] = ["co-location", "empty-house-baseline", "controlled-propagation"];
 const calibrationSessionStatuses: SpatialCalibrationSessionStatus[] = ["planned", "running", "completed", "cancelled"];
+const inferenceDurationPresets = [30, 60, 120, 240] as const;
+const inferenceCadencePresets = [5, 10, 15, 30] as const;
 
 function localDateTimeInput(value = new Date()): string {
   const local = new Date(value.getTime() - value.getTimezoneOffset() * 60_000);
@@ -59,11 +62,16 @@ export function SpatialLayerLab({ houseId, sensors, layers }: SpatialLayerLabPro
   const [bindings, setBindings] = useState<SpatialSensorBinding[]>([]);
   const [calibrations, setCalibrations] = useState<SpatialSensorCalibration[]>([]);
   const [calibrationSessions, setCalibrationSessions] = useState<SpatialCalibrationSession[]>([]);
+  const [inferenceSession, setInferenceSession] = useState<SpatialInferenceSession | null>(null);
   const [contextEvents, setContextEvents] = useState<SpatialContextEvent[]>([]);
   const [groundTruth, setGroundTruth] = useState<SpatialGroundTruth[]>([]);
   const [loading, setLoading] = useState(false);
   const [pending, setPending] = useState(false);
   const [feedback, setFeedback] = useState<Feedback>(null);
+  const [inferenceFeedback, setInferenceFeedback] = useState<"started" | "stopped" | "error" | null>(null);
+  const [inferenceDuration, setInferenceDuration] = useState("60");
+  const [inferenceCadence, setInferenceCadence] = useState("10");
+  const [sessionClock, setSessionClock] = useState(() => Date.now());
   const [advancedConfig, setAdvancedConfig] = useState("{}");
   const [configInvalid, setConfigInvalid] = useState(false);
   const [bindingSensorId, setBindingSensorId] = useState("");
@@ -83,22 +91,59 @@ export function SpatialLayerLab({ houseId, sensors, layers }: SpatialLayerLabPro
   const [contextZoneId, setContextZoneId] = useState("");
   const [truthLabel, setTruthLabel] = useState<SpatialGroundTruth["label"]>("house_empty");
   const [truthZoneId, setTruthZoneId] = useState("");
+  const openRef = useRef(false);
+  const activeHouseId = useRef(houseId);
+  const loadController = useRef<AbortController | null>(null);
+  const loadGeneration = useRef(0);
+  const sessionController = useRef<AbortController | null>(null);
+  const sessionGeneration = useRef(0);
+  const mutationGeneration = useRef(0);
+  activeHouseId.current = houseId;
 
   const topology = configuration?.configuration.topology;
   const zones = topology?.zones ?? [];
   const eligibleSensors = useMemo(() => sensors.filter((sensor) => sensor.enabled), [sensors]);
+  const inferenceStatus = !inferenceSession ? "off"
+    : inferenceSession.status === "active" && Date.parse(inferenceSession.expiresAt) <= sessionClock ? "expired"
+      : inferenceSession.status;
+  const inferenceActive = inferenceStatus === "active";
 
   useEffect(() => {
+    loadController.current?.abort();
+    loadController.current = null;
+    loadGeneration.current += 1;
+    sessionController.current?.abort();
+    sessionController.current = null;
+    sessionGeneration.current += 1;
+    mutationGeneration.current += 1;
     setLoadedHouseId("");
     setConfiguration(null);
     setAssignments([]);
     setBindings([]);
     setCalibrations([]);
     setCalibrationSessions([]);
+    setInferenceSession(null);
     setContextEvents([]);
     setGroundTruth([]);
     setFeedback(null);
+    setInferenceFeedback(null);
+    setLoading(false);
+    setPending(false);
   }, [houseId]);
+
+  useEffect(() => () => {
+    loadController.current?.abort();
+    sessionController.current?.abort();
+    loadGeneration.current += 1;
+    sessionGeneration.current += 1;
+    mutationGeneration.current += 1;
+  }, []);
+
+  useEffect(() => {
+    if (!open || !inferenceActive) return undefined;
+    const timer = window.setInterval(() => setSessionClock(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, [open, inferenceActive, inferenceSession?.expiresAt]);
 
   useEffect(() => {
     if (!bindingSensorId || !eligibleSensors.some((sensor) => sensor.id === bindingSensorId)) setBindingSensorId(eligibleSensors[0]?.id ?? "");
@@ -110,18 +155,32 @@ export function SpatialLayerLab({ houseId, sensors, layers }: SpatialLayerLabPro
   }, [zones, bindingZoneId]);
 
   const load = async () => {
+    const targetHouseId = houseId;
+    const requestId = ++loadGeneration.current;
+    loadController.current?.abort();
+    sessionController.current?.abort();
+    sessionController.current = null;
+    sessionGeneration.current += 1;
+    const controller = new AbortController();
+    loadController.current = controller;
     setLoading(true);
     setFeedback(null);
+    setInferenceFeedback(null);
+    setSessionClock(Date.now());
     try {
-      const [nextConfiguration, nextBindings, nextCalibrations, nextSessions, nextEvents, nextGroundTruth] = await Promise.all([
-        api.houseSpatialLayerConfig(houseId),
-        api.houseSpatialLayerBindings(houseId),
-        api.houseSpatialLayerCalibrations(houseId),
-        api.houseSpatialLayerCalibrationSessions(houseId),
-        api.houseSpatialLayerContextEvents(houseId),
-        api.houseSpatialLayerGroundTruth(houseId),
+      const [nextConfiguration, nextInferenceSession, nextBindings, nextCalibrations, nextSessions, nextEvents, nextGroundTruth] = await Promise.all([
+        api.houseSpatialLayerConfig(targetHouseId, controller.signal),
+        api.houseSpatialInferenceSession(targetHouseId, controller.signal),
+        api.houseSpatialLayerBindings(targetHouseId, controller.signal),
+        api.houseSpatialLayerCalibrations(targetHouseId, controller.signal),
+        api.houseSpatialLayerCalibrationSessions(targetHouseId, controller.signal),
+        api.houseSpatialLayerContextEvents(targetHouseId, controller.signal),
+        api.houseSpatialLayerGroundTruth(targetHouseId, controller.signal),
       ]);
+      if (controller.signal.aborted || requestId !== loadGeneration.current
+          || activeHouseId.current !== targetHouseId) return;
       setConfiguration(nextConfiguration);
+      setInferenceSession(nextInferenceSession);
       setAssignments(nextConfiguration.assignments.length ? nextConfiguration.assignments : assignmentsFromCatalog(layers));
       setBindings(nextBindings);
       setCalibrations(nextCalibrations);
@@ -129,18 +188,76 @@ export function SpatialLayerLab({ houseId, sensors, layers }: SpatialLayerLabPro
       setContextEvents(nextEvents);
       setGroundTruth(nextGroundTruth);
       setAdvancedConfig(JSON.stringify(nextConfiguration.configuration.config, null, 2));
-      setLoadedHouseId(houseId);
+      setLoadedHouseId(targetHouseId);
     } catch {
-      setFeedback("error");
+      if (!controller.signal.aborted && requestId === loadGeneration.current) setFeedback("error");
     } finally {
-      setLoading(false);
+      if (loadController.current === controller) loadController.current = null;
+      if (!controller.signal.aborted && requestId === loadGeneration.current) setLoading(false);
     }
   };
 
+  const revalidateInferenceSession = async () => {
+    const targetHouseId = houseId;
+    const requestId = ++sessionGeneration.current;
+    sessionController.current?.abort();
+    const controller = new AbortController();
+    sessionController.current = controller;
+    setSessionClock(Date.now());
+    try {
+      const next = await api.houseSpatialInferenceSession(targetHouseId, controller.signal);
+      if (controller.signal.aborted || requestId !== sessionGeneration.current
+          || activeHouseId.current !== targetHouseId) return;
+      setInferenceSession(next);
+    } catch {
+      if (!controller.signal.aborted && requestId === sessionGeneration.current) setInferenceFeedback("error");
+    } finally {
+      if (sessionController.current === controller) sessionController.current = null;
+    }
+  };
+
+  useEffect(() => {
+    if (open) void load();
+    // A Home can change while the parent disclosure remains mounted and open.
+    // The request generation above fences any late response from the old Home.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [houseId]);
+
+  useEffect(() => {
+    if (!open || loadedHouseId !== houseId) return;
+    const catchUp = () => {
+      if (document.visibilityState !== "hidden") void revalidateInferenceSession();
+    };
+    document.addEventListener("visibilitychange", catchUp);
+    return () => document.removeEventListener("visibilitychange", catchUp);
+    // Revalidation intentionally follows disclosure/House identity, not every
+    // layer render from the parent.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [houseId, loadedHouseId, open]);
+
   const onToggle = (event: SyntheticEvent<HTMLDetailsElement>) => {
     const nextOpen = event.currentTarget.open;
+    // Native <details> toggle events are coalesced and can be delivered again
+    // after the controlled `open` attribute has already caught up.
+    if (nextOpen === openRef.current) return;
+    openRef.current = nextOpen;
     setOpen(nextOpen);
-    if (nextOpen && loadedHouseId !== houseId && !loading) void load();
+    if (!nextOpen) {
+      loadController.current?.abort();
+      loadController.current = null;
+      loadGeneration.current += 1;
+      if (sessionController.current) {
+        sessionController.current.abort();
+        sessionController.current = null;
+        sessionGeneration.current += 1;
+      }
+      setLoading(false);
+      return;
+    }
+    if (loading) return;
+    setSessionClock(Date.now());
+    if (loadedHouseId !== houseId) void load();
+    else void revalidateInferenceSession();
   };
 
   const toggleAssignment = (engineId: string, enabled: boolean) => {
@@ -154,25 +271,73 @@ export function SpatialLayerLab({ houseId, sensors, layers }: SpatialLayerLabPro
     try { parsed = JSON.parse(advancedConfig); }
     catch { setConfigInvalid(true); return; }
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) { setConfigInvalid(true); return; }
+    const targetHouseId = houseId;
+    const requestId = ++mutationGeneration.current;
     setConfigInvalid(false);
     setPending(true);
     setFeedback(null);
     try {
-      const saved = await api.updateHouseSpatialLayerConfig(houseId, {
+      const saved = await api.updateHouseSpatialLayerConfig(targetHouseId, {
         baseVersion: configuration.configuration.version,
         config: parsed as Record<string, unknown>,
         assignments,
-        enabled: assignments.some((assignment) => assignment.enabled),
       });
+      if (requestId !== mutationGeneration.current || activeHouseId.current !== targetHouseId) return;
       setConfiguration(saved);
       setAssignments(saved.assignments);
       setAdvancedConfig(JSON.stringify(saved.configuration.config, null, 2));
       setFeedback("saved");
       await layers.refresh();
     } catch {
-      setFeedback("error");
+      if (requestId === mutationGeneration.current && activeHouseId.current === targetHouseId) setFeedback("error");
     } finally {
-      setPending(false);
+      if (requestId === mutationGeneration.current && activeHouseId.current === targetHouseId) setPending(false);
+    }
+  };
+
+  const startInference = async (event: FormEvent) => {
+    event.preventDefault();
+    if (pending) return;
+    setPending(true);
+    setInferenceFeedback(null);
+    sessionController.current?.abort();
+    sessionController.current = null;
+    const targetHouseId = houseId;
+    const requestId = ++sessionGeneration.current;
+    try {
+      const session = await api.startHouseSpatialInferenceSession(targetHouseId, {
+        durationMinutes: Number(inferenceDuration),
+        cadenceMinutes: Number(inferenceCadence),
+      });
+      if (requestId !== sessionGeneration.current || activeHouseId.current !== targetHouseId) return;
+      setInferenceSession(session);
+      setSessionClock(Date.now());
+      setInferenceFeedback("started");
+    } catch {
+      if (requestId === sessionGeneration.current && activeHouseId.current === targetHouseId) setInferenceFeedback("error");
+    } finally {
+      if (requestId === sessionGeneration.current && activeHouseId.current === targetHouseId) setPending(false);
+    }
+  };
+
+  const stopInference = async () => {
+    if (pending) return;
+    setPending(true);
+    setInferenceFeedback(null);
+    sessionController.current?.abort();
+    sessionController.current = null;
+    const targetHouseId = houseId;
+    const requestId = ++sessionGeneration.current;
+    try {
+      const stopped = await api.stopHouseSpatialInferenceSession(targetHouseId);
+      if (requestId !== sessionGeneration.current || activeHouseId.current !== targetHouseId) return;
+      setInferenceSession(stopped);
+      setSessionClock(Date.now());
+      setInferenceFeedback("stopped");
+    } catch {
+      if (requestId === sessionGeneration.current && activeHouseId.current === targetHouseId) setInferenceFeedback("error");
+    } finally {
+      if (requestId === sessionGeneration.current && activeHouseId.current === targetHouseId) setPending(false);
     }
   };
 
@@ -181,9 +346,11 @@ export function SpatialLayerLab({ houseId, sensors, layers }: SpatialLayerLabPro
     const sensor = eligibleSensors.find((candidate) => candidate.id === bindingSensorId);
     const zone = zones.find((candidate) => candidate.id === bindingZoneId);
     if (!sensor || !zone || pending) return;
+    const targetHouseId = houseId;
+    const requestId = ++mutationGeneration.current;
     setPending(true); setFeedback(null);
     try {
-      const binding = await api.createHouseSpatialLayerBinding(houseId, {
+      const binding = await api.createHouseSpatialLayerBinding(targetHouseId, {
         sensorId: sensor.id,
         zoneId: zone.id,
         frameId: zone.frameId,
@@ -191,10 +358,14 @@ export function SpatialLayerLab({ houseId, sensors, layers }: SpatialLayerLabPro
         role: "primary",
         activeFrom: new Date().toISOString(),
       });
+      if (requestId !== mutationGeneration.current || activeHouseId.current !== targetHouseId) return;
       setBindings((current) => [...current.filter((item) => item.sensorId !== binding.sensorId || item.activeTo), binding]);
       setFeedback("saved");
-    } catch { setFeedback("error"); }
-    finally { setPending(false); }
+    } catch {
+      if (requestId === mutationGeneration.current && activeHouseId.current === targetHouseId) setFeedback("error");
+    } finally {
+      if (requestId === mutationGeneration.current && activeHouseId.current === targetHouseId) setPending(false);
+    }
   };
 
   const addCalibration = async (event: FormEvent) => {
@@ -203,9 +374,11 @@ export function SpatialLayerLab({ houseId, sensors, layers }: SpatialLayerLabPro
     const humidityOffsetPct = Number(humidityOffset);
     const confidence = Number(calibrationConfidence);
     if (!calibrationSensorId || !Number.isFinite(temperatureOffsetC) || !Number.isFinite(humidityOffsetPct) || !Number.isFinite(confidence) || pending) return;
+    const targetHouseId = houseId;
+    const requestId = ++mutationGeneration.current;
     setPending(true); setFeedback(null);
     try {
-      const calibration = await api.createHouseSpatialLayerCalibration(houseId, {
+      const calibration = await api.createHouseSpatialLayerCalibration(targetHouseId, {
         sensorId: calibrationSensorId,
         validFrom: new Date().toISOString(),
         temperatureOffsetC,
@@ -213,10 +386,14 @@ export function SpatialLayerLab({ houseId, sensors, layers }: SpatialLayerLabPro
         confidence: Math.max(0, Math.min(1, confidence)),
         method: "manual",
       });
+      if (requestId !== mutationGeneration.current || activeHouseId.current !== targetHouseId) return;
       setCalibrations((current) => [...current, calibration]);
       setFeedback("saved");
-    } catch { setFeedback("error"); }
-    finally { setPending(false); }
+    } catch {
+      if (requestId === mutationGeneration.current && activeHouseId.current === targetHouseId) setFeedback("error");
+    } finally {
+      if (requestId === mutationGeneration.current && activeHouseId.current === targetHouseId) setPending(false);
+    }
   };
 
   const addCalibrationSession = async (event: FormEvent) => {
@@ -228,11 +405,13 @@ export function SpatialLayerLab({ houseId, sensors, layers }: SpatialLayerLabPro
       || (sessionStatus === "completed" && end === null)
       || (end !== null && (!Number.isFinite(end) || end < start));
     if (invalid) { setSessionInvalid(true); return; }
+    const targetHouseId = houseId;
+    const requestId = ++mutationGeneration.current;
     setSessionInvalid(false);
     setPending(true);
     setFeedback(null);
     try {
-      const result = await api.createHouseSpatialLayerCalibrationSession(houseId, {
+      const result = await api.createHouseSpatialLayerCalibrationSession(targetHouseId, {
         kind: sessionKind,
         status: sessionStatus,
         startAt: new Date(start).toISOString(),
@@ -240,6 +419,7 @@ export function SpatialLayerLab({ houseId, sensors, layers }: SpatialLayerLabPro
         ...(sessionIntervention.trim() ? { intervention: { description: sessionIntervention.trim() } } : {}),
         ...(sessionNotes.trim() ? { notes: sessionNotes.trim() } : { notes: null }),
       });
+      if (requestId !== mutationGeneration.current || activeHouseId.current !== targetHouseId) return;
       setCalibrationSessions((current) => [result.session, ...current.filter((item) => item.id !== result.session.id)]);
       if (result.calibrations.length) setCalibrations((current) => [...current, ...result.calibrations]);
       setSessionIntervention("");
@@ -247,38 +427,53 @@ export function SpatialLayerLab({ houseId, sensors, layers }: SpatialLayerLabPro
       setSessionStartAt(localDateTimeInput());
       setSessionEndAt("");
       setFeedback("saved");
-    } catch { setFeedback("error"); }
-    finally { setPending(false); }
+    } catch {
+      if (requestId === mutationGeneration.current && activeHouseId.current === targetHouseId) setFeedback("error");
+    } finally {
+      if (requestId === mutationGeneration.current && activeHouseId.current === targetHouseId) setPending(false);
+    }
   };
 
   const addContext = async (event: FormEvent) => {
     event.preventDefault();
     if (pending) return;
+    const targetHouseId = houseId;
+    const requestId = ++mutationGeneration.current;
     setPending(true); setFeedback(null);
     try {
-      const saved = await api.createHouseSpatialLayerContextEvent(houseId, {
+      const saved = await api.createHouseSpatialLayerContextEvent(targetHouseId, {
         id: identifier("context"), kind: contextKind, startAt: new Date().toISOString(),
         ...(contextZoneId ? { zoneIds: [contextZoneId] } : {}),
       });
+      if (requestId !== mutationGeneration.current || activeHouseId.current !== targetHouseId) return;
       setContextEvents((current) => [...current, saved]);
       setFeedback("saved");
-    } catch { setFeedback("error"); }
-    finally { setPending(false); }
+    } catch {
+      if (requestId === mutationGeneration.current && activeHouseId.current === targetHouseId) setFeedback("error");
+    } finally {
+      if (requestId === mutationGeneration.current && activeHouseId.current === targetHouseId) setPending(false);
+    }
   };
 
   const addGroundTruth = async (event: FormEvent) => {
     event.preventDefault();
     if (pending) return;
+    const targetHouseId = houseId;
+    const requestId = ++mutationGeneration.current;
     setPending(true); setFeedback(null);
     try {
-      const saved = await api.createHouseSpatialLayerGroundTruth(houseId, {
+      const saved = await api.createHouseSpatialLayerGroundTruth(targetHouseId, {
         id: identifier("truth"), startAt: new Date().toISOString(), label: truthLabel, source: "user",
         ...(truthZoneId && truthLabel === "zone_active" ? { zoneId: truthZoneId } : {}),
       });
+      if (requestId !== mutationGeneration.current || activeHouseId.current !== targetHouseId) return;
       setGroundTruth((current) => [...current, saved]);
       setFeedback("saved");
-    } catch { setFeedback("error"); }
-    finally { setPending(false); }
+    } catch {
+      if (requestId === mutationGeneration.current && activeHouseId.current === targetHouseId) setFeedback("error");
+    } finally {
+      if (requestId === mutationGeneration.current && activeHouseId.current === targetHouseId) setPending(false);
+    }
   };
 
   if (!layers.available) return null;
@@ -288,7 +483,27 @@ export function SpatialLayerLab({ houseId, sensors, layers }: SpatialLayerLabPro
       {loading && <p role="status">{t("common.loading")}</p>}
       {!loading && configuration && <>
         <section className="spatial-lab-section">
-          <div className="panel-header"><div><h3>{t("spatial.lab.engines")}</h3><p>{t("spatial.lab.enginesHelp")}</p></div><button type="button" className="icon-button small" aria-label={t("spatial.refresh")} onClick={() => void load()}><RefreshCw size={14} aria-hidden="true" /></button></div>
+          <div className="panel-header"><div><h3>{t("spatial.inference.title")}</h3><p>{t("spatial.inference.description")}</p></div><strong role="status">{t(`spatial.inference.status.${inferenceStatus}` as TranslationKey)}</strong></div>
+          <p>{t("spatial.inference.retained")}</p>
+          {inferenceActive && inferenceSession ? <>
+            <dl className="spatial-lab-facts">
+              <div><dt>{t("spatial.inference.statusLabel")}</dt><dd>{t("spatial.inference.status.active")}</dd></div>
+              <div><dt>{t("spatial.inference.cadence")}</dt><dd>{t("spatial.inference.minutes", { count: inferenceSession.cadenceMinutes })}</dd></div>
+              <div><dt>{t("spatial.inference.expires")}</dt><dd><time dateTime={inferenceSession.expiresAt}>{formatInTimeZone(inferenceSession.expiresAt, locale, undefined, { year: "numeric", month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit" })}</time></dd></div>
+            </dl>
+            <button type="button" className="secondary-button" disabled={pending} onClick={() => void stopInference()}><Square size={14} aria-hidden="true" />{t("spatial.inference.stop")}</button>
+          </> : <form className="spatial-lab-form" onSubmit={(event) => void startInference(event)}>
+            <label><span>{t("spatial.inference.duration")}</span><select value={inferenceDuration} onChange={(event) => setInferenceDuration(event.target.value)}>{inferenceDurationPresets.map((minutes) => <option key={minutes} value={minutes}>{t("spatial.inference.minutes", { count: minutes })}</option>)}</select></label>
+            <label><span>{t("spatial.inference.cadence")}</span><select value={inferenceCadence} onChange={(event) => setInferenceCadence(event.target.value)}>{inferenceCadencePresets.map((minutes) => <option key={minutes} value={minutes}>{t("spatial.inference.minutes", { count: minutes })}</option>)}</select></label>
+            <button type="submit" className="primary-button" disabled={pending}><Play size={14} aria-hidden="true" />{t("spatial.inference.start")}</button>
+          </form>}
+          {inferenceFeedback === "started" && <p className="success-message" role="status"><Check size={14} aria-hidden="true" />{t("spatial.inference.started")}</p>}
+          {inferenceFeedback === "stopped" && <p className="success-message" role="status"><Check size={14} aria-hidden="true" />{t("spatial.inference.stopped")}</p>}
+          {inferenceFeedback === "error" && <p className="inline-error" role="alert">{t("spatial.inference.failed")}</p>}
+        </section>
+
+        <section className="spatial-lab-section">
+          <div className="panel-header"><div><h3>{t("spatial.lab.engines")}</h3><p>{t("spatial.lab.enginesHelp")}</p></div><button type="button" className="icon-button small" aria-label={t("spatial.refresh")} disabled={loading || pending} onClick={() => void load()}><RefreshCw size={14} aria-hidden="true" /></button></div>
           <div className="spatial-engine-list">{assignments.map((assignment) => {
             const engine = layers.engines.find((candidate) => candidate.id === assignment.engineId);
             const health = layers.health.find((candidate) => candidate.engineId === assignment.engineId);

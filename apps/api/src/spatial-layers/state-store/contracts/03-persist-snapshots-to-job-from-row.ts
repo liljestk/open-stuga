@@ -9,6 +9,7 @@ import type {
   SpatialDataPartition,
   SpatialEngineAssignment,
   SpatialGroundTruth,
+  SpatialInferenceSession,
   SpatialInferenceRun,
   SpatialLayerSnapshotDraft,
   SpatialRunStatus,
@@ -40,12 +41,31 @@ declare module "../core.js" {
             reason: string;
             availableAt?: string;
             allowReopen?: boolean;
+            sessionId?: string | null;
             now?: string;
         }): SpatialInferenceJob;
     claimDueJobs(partition: SpatialDataPartition, now?: string, limit?: number): SpatialInferenceJob[];
     completeJob(partition: SpatialDataPartition, id: string, lockToken: string, now?: string): boolean;
     failJob(partition: SpatialDataPartition, id: string, lockToken: string, error: string, retryAt: string, maximumAttempts?: number): boolean;
+    deferJob(partition: SpatialDataPartition, id: string, lockToken: string, availableAt: string, now?: string): boolean;
     cancelOutstandingJobs(partition: SpatialDataPartition, now?: string): number;
+    cancelOutstandingJobsForSession(partition: SpatialDataPartition, sessionId: string, now?: string): number;
+    cancelLegacyOutstandingJobs(partition: SpatialDataPartition, now?: string): number;
+    recoverInterruptedSessionJobs(partition: SpatialDataPartition, now?: string): number;
+    startInferenceSession(input: {
+            partition: SpatialDataPartition;
+            houseId: string;
+            durationMinutes?: number;
+            cadenceMinutes?: number;
+            now?: string;
+            createdBy?: string | null;
+        }): SpatialInferenceSession;
+    latestInferenceSession(partition: SpatialDataPartition, houseId: string): SpatialInferenceSession | null;
+    getInferenceSession(partition: SpatialDataPartition, id: string): SpatialInferenceSession | null;
+    hasActiveInferenceSessions(partition: SpatialDataPartition): boolean;
+    stopInferenceSession(partition: SpatialDataPartition, houseId: string, now?: string): SpatialInferenceSession | null;
+    expireInferenceSessions(partition: SpatialDataPartition, now?: string): SpatialInferenceSession[];
+    scheduleDueInferenceSessions(partition: SpatialDataPartition, now?: string, limit?: number, houseId?: string): SpatialInferenceJob[];
     purgeOperationalHistoryBefore(partition: SpatialDataPartition, before: string): {
             snapshots: number;
             runs: number;
@@ -76,12 +96,31 @@ declare module "../core.js" {
             reason: string;
             availableAt?: string;
             allowReopen?: boolean;
+            sessionId?: string | null;
             now?: string;
         }): SpatialInferenceJob;
     claimDueJobs(partition: SpatialDataPartition, now?: string, limit?: number): SpatialInferenceJob[];
     completeJob(partition: SpatialDataPartition, id: string, lockToken: string, now?: string): boolean;
     failJob(partition: SpatialDataPartition, id: string, lockToken: string, error: string, retryAt: string, maximumAttempts?: number): boolean;
+    deferJob(partition: SpatialDataPartition, id: string, lockToken: string, availableAt: string, now?: string): boolean;
     cancelOutstandingJobs(partition: SpatialDataPartition, now?: string): number;
+    cancelOutstandingJobsForSession(partition: SpatialDataPartition, sessionId: string, now?: string): number;
+    cancelLegacyOutstandingJobs(partition: SpatialDataPartition, now?: string): number;
+    recoverInterruptedSessionJobs(partition: SpatialDataPartition, now?: string): number;
+    startInferenceSession(input: {
+            partition: SpatialDataPartition;
+            houseId: string;
+            durationMinutes?: number;
+            cadenceMinutes?: number;
+            now?: string;
+            createdBy?: string | null;
+        }): SpatialInferenceSession;
+    latestInferenceSession(partition: SpatialDataPartition, houseId: string): SpatialInferenceSession | null;
+    getInferenceSession(partition: SpatialDataPartition, id: string): SpatialInferenceSession | null;
+    hasActiveInferenceSessions(partition: SpatialDataPartition): boolean;
+    stopInferenceSession(partition: SpatialDataPartition, houseId: string, now?: string): SpatialInferenceSession | null;
+    expireInferenceSessions(partition: SpatialDataPartition, now?: string): SpatialInferenceSession[];
+    scheduleDueInferenceSessions(partition: SpatialDataPartition, now?: string, limit?: number, houseId?: string): SpatialInferenceJob[];
     purgeOperationalHistoryBefore(partition: SpatialDataPartition, before: string): {
             snapshots: number;
             runs: number;
@@ -89,5 +128,6 @@ declare module "../core.js" {
         };
     getCheckpoint<T>(partition: SpatialDataPartition, scope: SpatialScope, key: string): T | null;
     putCheckpoint(partition: SpatialDataPartition, scope: SpatialScope, key: string, value: unknown, now?: string): void;
+    getJob(partition: SpatialDataPartition, id: string): SpatialInferenceJob | null;
   }
 }

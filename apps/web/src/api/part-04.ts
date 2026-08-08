@@ -19,6 +19,7 @@ import type {
   DataExportPreview,
   DataExportPrivacyLevel,
   DailyAnalyticsFindingsResponse,
+  DurableDerivedAnalyticsResponse,
   EnergyOptimizationReport,
   AlertRulePatch,
   AppleNotesGrantCreated,
@@ -111,6 +112,7 @@ import type {
 import {
   spatialCalibrationSessionResult,
   spatialCalibrationSessions,
+  spatialInferenceSession,
   spatialLayerEngines,
   spatialLayerHealth,
   spatialLayerSnapshotEvent,
@@ -129,6 +131,8 @@ import {
   type SpatialCalibrationSession,
   type SpatialCalibrationSessionInput,
   type SpatialCalibrationSessionResult,
+  type SpatialInferenceSession,
+  type SpatialInferenceSessionStartInput,
 } from "../spatialLayers";
 import { publishAuthEpoch } from "../authEpoch";
 import { API_BASE, API_REQUEST_TIMEOUT_MS, API_V2_BASE, ApiRequestError, COLLECTION_PAGE_SIZE, SAFE_API_PATH, SAFE_HTTP_METHODS, STREAM_STABILITY_DELAY_MS, TRACKING_EVENT_TYPES, activeRequestControllers, apiClientState, apiRequestGeneration, assertSafeApiPath, authorizationChange, authorizationListeners, cancelPendingApiRequests, collectionPagePath, completeAuthentication, completeCollection, entity, houseResponse, isPollingHeartbeat, list, memberSummary, notifyAuthorizationChange, observationResponse, rememberSession, request, requestFrom, requestV2, sensorResponse, spatialConfigurationResponse, subscribeToApiAuthorizationChanges, subscribeToEvents, subscribeToMeasurementEvents, subscribeToSpatialLayerEvents, subscribeToSystemUpdateEvents, subscribeToTrackingEvents, updateHouseGeoreference } from "./support";
@@ -242,6 +246,38 @@ export const apiPart04 = {
         signal ? { signal } : undefined,
       )).moistureResponse;
     },
+  cachedThermalIsolation: (
+      houseId: string,
+      options: { windowDays: 1 | 7 | 14; dataMode: "live" | "demo" },
+      signal?: AbortSignal,
+    ) => requestV2<DurableDerivedAnalyticsResponse<ThermalIsolationResult>>(
+      `/analytics/thermal-isolation?houseId=${encodeURIComponent(houseId)}&dataMode=${options.dataMode}&windowDays=${options.windowDays}`,
+      signal ? { signal } : undefined,
+    ),
+  refreshCachedThermalIsolation: (
+      houseId: string,
+      options: { windowDays: 1 | 7 | 14; dataMode: "live" | "demo" },
+      signal?: AbortSignal,
+    ) => requestV2<DurableDerivedAnalyticsResponse<ThermalIsolationResult>>(
+      `/analytics/thermal-isolation?houseId=${encodeURIComponent(houseId)}&dataMode=${options.dataMode}&windowDays=${options.windowDays}`,
+      { method: "POST", ...(signal ? { signal } : {}) },
+    ),
+  cachedMoistureResponse: (
+      houseId: string,
+      options: { windowDays: 1 | 7 | 14; dataMode: "live" | "demo" },
+      signal?: AbortSignal,
+    ) => requestV2<DurableDerivedAnalyticsResponse<MoistureResponseResult>>(
+      `/analytics/moisture-response?houseId=${encodeURIComponent(houseId)}&dataMode=${options.dataMode}&windowDays=${options.windowDays}`,
+      signal ? { signal } : undefined,
+    ),
+  refreshCachedMoistureResponse: (
+      houseId: string,
+      options: { windowDays: 1 | 7 | 14; dataMode: "live" | "demo" },
+      signal?: AbortSignal,
+    ) => requestV2<DurableDerivedAnalyticsResponse<MoistureResponseResult>>(
+      `/analytics/moisture-response?houseId=${encodeURIComponent(houseId)}&dataMode=${options.dataMode}&windowDays=${options.windowDays}`,
+      { method: "POST", ...(signal ? { signal } : {}) },
+    ),
   spatialLayerEngines: async (): Promise<SpatialLayerEngineManifest[]> => spatialLayerEngines(
       await request<unknown>("/layer-engines"),
     ),
@@ -250,11 +286,25 @@ export const apiPart04 = {
     ),
   updateHouseSpatialLayerConfig: async (
       houseId: string,
-      input: { baseVersion: number; config: Record<string, unknown>; assignments: SpatialLayerAssignment[]; enabled?: boolean },
+      input: { baseVersion: number; config: Record<string, unknown>; assignments: SpatialLayerAssignment[] },
     ): Promise<SpatialLayerConfigurationResponse> => spatialConfigurationResponse(await request<unknown>(`/houses/${encodeURIComponent(houseId)}/layers/config`, {
       method: "PUT",
       body: JSON.stringify(input),
     })),
+  houseSpatialInferenceSession: async (houseId: string, signal?: AbortSignal): Promise<SpatialInferenceSession | null> => spatialInferenceSession(
+      await request<unknown>(`/houses/${encodeURIComponent(houseId)}/layers/inference-session`, signal ? { signal } : undefined),
+    ),
+  startHouseSpatialInferenceSession: async (houseId: string, input: SpatialInferenceSessionStartInput): Promise<SpatialInferenceSession> => {
+      const session = spatialInferenceSession(await request<unknown>(`/houses/${encodeURIComponent(houseId)}/layers/inference-session`, {
+        method: "POST",
+        body: JSON.stringify(input),
+      }));
+      if (!session) throw new Error("The spatial inference-session response was invalid");
+      return session;
+    },
+  stopHouseSpatialInferenceSession: async (houseId: string): Promise<SpatialInferenceSession | null> => spatialInferenceSession(
+      await request<unknown>(`/houses/${encodeURIComponent(houseId)}/layers/inference-session`, { method: "DELETE" }),
+    ),
   houseSpatialLayerBindings: async (houseId: string, signal?: AbortSignal): Promise<SpatialSensorBinding[]> => list<SpatialSensorBinding>(
       await request<unknown>(`/houses/${encodeURIComponent(houseId)}/layers/bindings`, signal ? { signal } : undefined),
       ["bindings", "data"],
@@ -298,14 +348,22 @@ export const apiPart04 = {
       await request<SpatialGroundTruth | { groundTruth: SpatialGroundTruth }>(`/houses/${encodeURIComponent(houseId)}/layers/ground-truth`, { method: "POST", body: JSON.stringify(truth) }),
       "groundTruth",
     ),
-  houseSpatialLayersCurrent: async (houseId: string, layerIds: readonly string[] = [], signal?: AbortSignal): Promise<SpatialLayerSnapshot[]> => {
+  houseSpatialLayersCurrent: async (
+      houseId: string,
+      layerIds: readonly string[] = [],
+      signal?: AbortSignal,
+    ): Promise<{ snapshots: SpatialLayerSnapshot[]; topology: SpatialTopology | null }> => {
       const query = new URLSearchParams();
       if (layerIds.length) query.set("layers", layerIds.join(","));
       const suffix = query.size ? `?${query.toString()}` : "";
-      return spatialLayerSnapshots(await request<unknown>(
+      const payload = await request<unknown>(
         `/houses/${encodeURIComponent(houseId)}/layers/current${suffix}`,
         signal ? { signal } : undefined,
-      ));
+      );
+      return {
+        snapshots: spatialLayerSnapshots(payload),
+        topology: spatialConfigurationResponse(payload).topology ?? null,
+      };
     },
   houseSpatialLayersHistory: async (
       houseId: string,
@@ -325,14 +383,22 @@ export const apiPart04 = {
         signal ? { signal } : undefined,
       ),
     ),
-  propertySpatialLayersCurrent: async (propertyId: string, layerIds: readonly string[] = [], signal?: AbortSignal): Promise<SpatialLayerSnapshot[]> => {
+  propertySpatialLayersCurrent: async (
+      propertyId: string,
+      layerIds: readonly string[] = [],
+      signal?: AbortSignal,
+    ): Promise<{ snapshots: SpatialLayerSnapshot[]; topology: SpatialTopology | null }> => {
       const query = new URLSearchParams();
       if (layerIds.length) query.set("layers", layerIds.join(","));
       const suffix = query.size ? `?${query.toString()}` : "";
-      return spatialLayerSnapshots(await request<unknown>(
+      const payload = await request<unknown>(
         `/properties/${encodeURIComponent(propertyId)}/layers/current${suffix}`,
         signal ? { signal } : undefined,
-      ));
+      );
+      return {
+        snapshots: spatialLayerSnapshots(payload),
+        topology: spatialConfigurationResponse(payload).topology ?? null,
+      };
     },
   propertySpatialLayerConfig: async (propertyId: string, signal?: AbortSignal): Promise<SpatialLayerConfigurationResponse> => spatialConfigurationResponse(
       await request<unknown>(`/properties/${encodeURIComponent(propertyId)}/layers/config`, signal ? { signal } : undefined),

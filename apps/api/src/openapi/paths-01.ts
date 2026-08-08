@@ -3,6 +3,51 @@ import { STUGBY_MEDIA_TYPE } from "@climate-twin/stuguby-protocol";
 import { jsonRequestBody, jsonResponse, localAuthPaths, localAuthSchemas, operationalOrchestrationPaths, spatialHouseResourcePath, spatialJsonResponse, spatialLayerPaths, spatialLayerSchemas, spatialRequestBody, spatialScopePaths, spatialScopeQueryParameters, stugubyIdParameter, stugubyNodeSecurity, stugubyObject, stugubyPaths, stugubyRequestBody, stugubyResponse, trackingObject, trackingObserverBearerSecurity, trackingObserverSecurity, trackingPathParameter, trackingPaths } from "./support/index.js";
 import type { OpenApiSchema } from "./support/index.js";
 
+const durableAnalyticsPath = (input: {
+  getOperationId: string;
+  refreshOperationId: string;
+  responseSchema: string;
+  description: string;
+  windowed?: boolean;
+}) => {
+  const parameters = [
+    { name: "houseId", in: "query", required: true, schema: { type: "string", minLength: 1, maxLength: 200 } },
+    { name: "dataMode", in: "query", required: true, schema: { enum: ["live", "demo"] } },
+    ...(input.windowed ? [{ name: "windowDays", in: "query", schema: { enum: [1, 7, 14], default: 7 } }] : []),
+  ];
+  const success = {
+    description: "Last successful immutable artifact and explicit durable refresh status",
+    content: { "application/json": { schema: { $ref: input.responseSchema } } },
+  };
+  const errors = {
+    "400": { description: "Home, data mode, or canonical window is invalid" },
+    "404": { description: "The Home is absent or outside the caller's visibility" },
+    "409": { description: "Requested dataMode does not match the isolated local database mode" },
+  };
+  return {
+    get: {
+      servers: [{ url: "/api/v2" }],
+      tags: ["Measurements"],
+      operationId: input.getOperationId,
+      description: `${input.description} This read never scans telemetry, fits a model, queues work, or wakes the background worker.`,
+      parameters,
+      responses: { "200": success, ...errors },
+    },
+    post: {
+      servers: [{ url: "/api/v2" }],
+      tags: ["Measurements"],
+      operationId: input.refreshOperationId,
+      description: "Idempotently queues a low-priority refresh while retaining the last successful artifact.",
+      parameters,
+      responses: {
+        "202": success,
+        ...errors,
+        "403": { description: "Guest accounts cannot queue manual refresh work" },
+      },
+    },
+  };
+};
+
 export const pathsPart01 = {
   ...localAuthPaths,
   ...spatialLayerPaths,
@@ -96,25 +141,26 @@ export const pathsPart01 = {
           },
         },
       },
-  "/analytics/home-performance": {
-        get: {
-          servers: [{ url: "/api/v2" }],
-          tags: ["Measurements"],
-          operationId: "homePerformance",
-          description: "Returns the server-owned, whole-Home 30-day performance derivation. Evidence windows, metrics, quality policy, and scope limits are fixed by the algorithm version.",
-          parameters: [
-            { name: "houseId", in: "query", required: true, schema: { type: "string", minLength: 1, maxLength: 200 } },
-            { name: "dataMode", in: "query", required: true, schema: { enum: ["live", "demo"] } },
-          ],
-          responses: {
-            "200": { description: "Six versioned performance sections with evidence limitations, provenance, and cache metadata", content: { "application/json": { schema: { $ref: "#/components/schemas/HomePerformanceResponse" } } } },
-            "400": { description: "houseId or dataMode is missing or invalid" },
-            "404": { description: "The Home is absent or outside the caller's visibility" },
-            "409": { description: "Requested dataMode does not match the isolated local database mode" },
-            "422": { description: "The complete visible Home scope exceeds a deterministic sensor, evidence-point, or response-byte limit" },
-          },
-        },
-      },
+  "/analytics/thermal-isolation": durableAnalyticsPath({
+    getOperationId: "cachedThermalIsolation",
+    refreshOperationId: "refreshCachedThermalIsolation",
+    responseSchema: "#/components/schemas/DurableThermalIsolationResponse",
+    description: "Returns the canonical thermal-isolation comparison for the last complete day.",
+    windowed: true,
+  }),
+  "/analytics/moisture-response": durableAnalyticsPath({
+    getOperationId: "cachedMoistureResponse",
+    refreshOperationId: "refreshCachedMoistureResponse",
+    responseSchema: "#/components/schemas/DurableMoistureResponseResponse",
+    description: "Returns the canonical moisture-response comparison for the last complete day.",
+    windowed: true,
+  }),
+  "/analytics/home-performance": durableAnalyticsPath({
+    getOperationId: "homePerformance",
+    refreshOperationId: "refreshHomePerformance",
+    responseSchema: "#/components/schemas/DurableHomePerformanceResponse",
+    description: "Returns the server-owned canonical 30-day whole-Home performance artifact.",
+  }),
   "/analytics/coverage": {
         post: {
           servers: [{ url: "/api/v2" }],

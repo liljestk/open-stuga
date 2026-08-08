@@ -542,6 +542,7 @@ export function renderApp(context: ReturnType<typeof useAppPart03>) {
             house={house}
             units={units}
             dataMode={climate.dataMode}
+            readOnly={readOnly}
             onLoadSeries={loadSeriesInBackground}
           />
         )}

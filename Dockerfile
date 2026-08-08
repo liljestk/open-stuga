@@ -92,6 +92,7 @@ ENV NODE_ENV=production \
     SPATIAL_LAYERS_ENABLED=false \
     SPATIAL_LAYERS_DATABASE_PATH=/app/data/experimental-spatial-layers.sqlite \
     DAILY_ANALYTICS_FINDINGS_ENABLED=false \
+    SENSOR_GAP_RECOVERY_ENABLED=false \
     INTEGRATION_SECRETS_FILE=/app/data/integration-secrets.json \
     HA_ENTITY_MAP_FILE=/app/config/home-assistant.entities.json \
     TP_LINK_DEVICE_MAP_FILE=/app/config/tp-link.devices.json \

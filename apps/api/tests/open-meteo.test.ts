@@ -3,6 +3,35 @@ import { AutomaticWeatherProvider, OpenMeteoWeatherProvider, openMeteoConditions
 import type { HouseWeather } from "@climate-twin/contracts";
 
 describe("Open-Meteo weather provider", () => {
+  it("forwards cancellation to an Open-Meteo historical observation request", async () => {
+    let upstreamSignal: AbortSignal | null | undefined;
+    let started!: () => void;
+    const requestStarted = new Promise<void>((resolve) => { started = resolve; });
+    const fetchImpl = vi.fn((_input: string | URL | Request, init?: RequestInit) => {
+      upstreamSignal = init?.signal;
+      started();
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true });
+      });
+    });
+    const provider = new OpenMeteoWeatherProvider({ fetchImpl: fetchImpl as typeof fetch });
+    const controller = new AbortController();
+    const reason = new Error("cancel Open-Meteo recovery");
+
+    const pending = provider.fetchObservationHistory(
+      "global-home",
+      { latitude: -36.85, longitude: 174.76 },
+      "2026-07-14T10:00:00.000Z",
+      "2026-07-14T11:00:00.000Z",
+      controller.signal,
+    );
+    await requestStarted;
+    controller.abort(reason);
+
+    await expect(pending).rejects.toBe(reason);
+    expect(upstreamSignal?.aborted).toBe(true);
+  });
+
   it("normalizes UTC model values into the canonical outdoor contract", () => {
     expect(openMeteoConditions({
       time: ["2026-07-14T12:00"],
@@ -71,5 +100,30 @@ describe("Open-Meteo weather provider", () => {
     await router.fetch("two", { latitude: -36.85, longitude: 174.76 }, 48);
     expect(fmi.fetch).toHaveBeenCalledOnce();
     expect(worldwide.fetch).toHaveBeenCalledOnce();
+  });
+
+  it("forwards the recovery signal through the automatic provider", async () => {
+    const reason = new Error("history unavailable");
+    const fmi = {
+      fetch: vi.fn(),
+      fetchObservationHistory: vi.fn().mockRejectedValue(reason),
+    };
+    const router = new AutomaticWeatherProvider(fmi, { fetch: vi.fn() });
+    const controller = new AbortController();
+
+    await expect(router.fetchObservationHistory(
+      "one",
+      { latitude: 60.17, longitude: 24.94 },
+      "2026-07-14T10:00:00.000Z",
+      "2026-07-14T11:00:00.000Z",
+      controller.signal,
+    )).rejects.toBe(reason);
+    expect(fmi.fetchObservationHistory).toHaveBeenCalledWith(
+      "one",
+      { latitude: 60.17, longitude: 24.94 },
+      "2026-07-14T10:00:00.000Z",
+      "2026-07-14T11:00:00.000Z",
+      controller.signal,
+    );
   });
 });

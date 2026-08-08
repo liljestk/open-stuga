@@ -67,8 +67,8 @@ function invalidate(
 }
 
 export function invalidateForMeasurement(client: QueryClient, houseId?: string): void {
-  // Monitoring is explicitly current-state data. Home Performance keeps its
-  // 60-second server/client TTL and is not invalidated by routine ingestion.
+  // Monitoring is explicitly current-state data. Home Performance reads the
+  // last-complete-day artifact and is not invalidated by routine ingestion.
   invalidate(client, (query) => isMonitoringQuery(query, houseId));
 }
 

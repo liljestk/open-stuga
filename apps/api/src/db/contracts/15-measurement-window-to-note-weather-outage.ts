@@ -117,8 +117,8 @@ declare module "../core.js" {
         };
     thermalTemperatureHistory(sensorId: string, from: string, to: string, bucketMinutes?: number, limit?: number): MeasurementSample[];
     thermalClimateHistory(sensorId: string, from: string, to: string, bucketMinutes?: number, limitPerMetric?: number): MeasurementSample[];
-    upsertOutdoorTemperatureSample(sample: OutdoorTemperatureSample): OutdoorTemperatureSample;
-    upsertCurrentOutdoorTemperatureSample(sample: OutdoorTemperatureSample): OutdoorTemperatureSample;
+    upsertOutdoorTemperatureSample(sample: OutdoorTemperatureSample, options?: { deferDerivedInvalidation?: boolean }): OutdoorTemperatureSample;
+    upsertCurrentOutdoorTemperatureSample(sample: OutdoorTemperatureSample, options?: { deferDerivedInvalidation?: boolean }): OutdoorTemperatureSample;
     outdoorTemperatureHistory(houseId: string, locationKey: string, from: string, to: string, limit?: number): OutdoorTemperatureSample[];
     outdoorTemperatureGaps(houseId: string, locationKey: string, provider: WeatherProviderName, from: string, to: string, minimumGapMs: number, limit?: number): HistoricalTelemetryGap[];
     latestOutdoorTemperatureTimestamp(houseId: string, locationKey: string, provider: WeatherProviderName): string | null;
@@ -140,8 +140,8 @@ declare module "../core.js" {
         };
     thermalTemperatureHistory(sensorId: string, from: string, to: string, bucketMinutes?: number, limit?: number): MeasurementSample[];
     thermalClimateHistory(sensorId: string, from: string, to: string, bucketMinutes?: number, limitPerMetric?: number): MeasurementSample[];
-    upsertOutdoorTemperatureSample(sample: OutdoorTemperatureSample): OutdoorTemperatureSample;
-    upsertCurrentOutdoorTemperatureSample(sample: OutdoorTemperatureSample): OutdoorTemperatureSample;
+    upsertOutdoorTemperatureSample(sample: OutdoorTemperatureSample, options?: { deferDerivedInvalidation?: boolean }): OutdoorTemperatureSample;
+    upsertCurrentOutdoorTemperatureSample(sample: OutdoorTemperatureSample, options?: { deferDerivedInvalidation?: boolean }): OutdoorTemperatureSample;
     outdoorTemperatureHistory(houseId: string, locationKey: string, from: string, to: string, limit?: number): OutdoorTemperatureSample[];
     outdoorTemperatureGaps(houseId: string, locationKey: string, provider: WeatherProviderName, from: string, to: string, minimumGapMs: number, limit?: number): HistoricalTelemetryGap[];
     latestOutdoorTemperatureTimestamp(houseId: string, locationKey: string, provider: WeatherProviderName): string | null;

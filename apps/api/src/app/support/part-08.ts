@@ -276,6 +276,8 @@ export interface CreateApiOptions {
   dailyAnalyticsNow?: () => number;
   timeseriesStore?: TimeseriesStore;
   telemetryReader?: HybridTelemetryReader;
+  /** Test/embedding admission seam; production defaults to live host health. */
+  backgroundWorkAdmission?: () => boolean | Promise<boolean>;
   startBackground?: boolean;
 }
 

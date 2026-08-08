@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import request from "supertest";
 import { createApi, type ApiRuntime } from "../src/app.js";
 import type { AppConfig } from "../src/config.js";
@@ -28,7 +28,7 @@ const config: AppConfig = {
   corsOrigin: null,
 };
 
-describe("home performance API", () => {
+describe("home performance durable API", () => {
   let runtime: ApiRuntime;
 
   beforeEach(() => {
@@ -69,107 +69,124 @@ describe("home performance API", () => {
     const timestamp = new Date(Date.now() - 30 * 60_000).toISOString();
     runtime.database.insertMeasurementSamples([
       {
-        sensorId: "performance-sensor",
-        metric: "temperature",
-        value: 21,
-        canonicalUnit: "Â°C",
-        timestamp,
-        source: "api",
-        quality: "good",
+        sensorId: "performance-sensor", metric: "temperature", value: 21,
+        canonicalUnit: "°C", timestamp, source: "api", quality: "good",
       },
       {
-        sensorId: "performance-sensor",
-        metric: "humidity",
-        value: 45,
-        canonicalUnit: "%",
-        timestamp,
-        source: "api",
-        quality: "good",
+        sensorId: "performance-sensor", metric: "humidity", value: 45,
+        canonicalUnit: "%", timestamp, source: "api", quality: "good",
       },
     ]);
   });
 
-  afterEach(async () => {
-    await runtime.close();
-  });
+  afterEach(async () => runtime.close());
 
-  it("owns the complete evidence policy and returns a cached versioned result", async () => {
-    const first = await request(runtime.app)
+  it("keeps 20 constant-time reads pure without queueing, telemetry, or fitting", async () => {
+    const rollup = vi.spyOn(runtime.telemetryReader, "measurementAnalyticsRollup");
+    const responses = await Promise.all(Array.from({ length: 20 }, () => request(runtime.app)
+      .get("/api/v2/analytics/home-performance?houseId=performance-house&dataMode=live")
+      .expect(200)));
+
+    expect(responses[0]?.headers["cache-control"]).toBe("private, no-store");
+    expect(responses.every(({ body }) => body.state === "idle" && body.result === null)).toBe(true);
+    expect(runtime.derivedAnalytics.snapshot()).toMatchObject({ pending: 0, artifacts: 0 });
+    expect(rollup).not.toHaveBeenCalled();
+    expect(await runtime.derivedAnalytics.drainOnce()).toBe(false);
+
+    await request(runtime.app)
+      .post("/api/v2/analytics/home-performance?houseId=performance-house&dataMode=live")
+      .expect(202);
+    expect(await runtime.derivedAnalytics.drainOnce()).toBe(true);
+    const ready = await request(runtime.app)
       .get("/api/v2/analytics/home-performance?houseId=performance-house&dataMode=live")
       .expect(200);
-
-    expect(first.headers["cache-control"]).toBe("private, no-store");
-    expect(first.headers["x-stugu-cache"]).toBe("miss");
-    expect(first.body).toMatchObject({
+    expect(ready.body).toMatchObject({
       apiVersion: "1.0",
+      kind: "home-performance",
       houseId: "performance-house",
       dataMode: "live",
-      cache: { hit: false, keyVersion: "home-performance-v1", ttlSeconds: 60 },
-      provenance: {
-        algorithmKey: "home-performance",
-        algorithmVersion: "home-performance-v2.0.0",
+      windowDays: 30,
+      state: "ready",
+      stale: false,
+      result: {
+        provenance: {
+          algorithmKey: "home-performance",
+          algorithmVersion: "home-performance-v2.0.0",
+        },
       },
-      exposure: { state: "limited" },
     });
-    expect(Date.parse(first.body.from)).toBeLessThan(Date.parse(first.body.recoveryFrom));
-    expect(Date.parse(first.body.recoveryFrom)).toBeLessThan(Date.parse(first.body.to));
-
-    const second = await request(runtime.app)
+    const callsAfterFit = rollup.mock.calls.length;
+    await request(runtime.app)
       .get("/api/v2/analytics/home-performance?houseId=performance-house&dataMode=live")
       .expect(200);
-    expect(second.body.cache.hit).toBe(true);
-    expect(second.body.generatedAt).toBe(first.body.generatedAt);
-
-    runtime.bus.publishMeasurement({
-      sensorId: "performance-sensor",
-      metric: "temperature",
-      value: 22,
-      canonicalUnit: "Â°C",
-      timestamp: new Date().toISOString(),
-      source: "api",
-      quality: "good",
-    });
-    const afterMeasurement = await request(runtime.app)
-      .get("/api/v2/analytics/home-performance?houseId=performance-house&dataMode=live")
-      .expect(200);
-    expect(afterMeasurement.body.cache).toMatchObject({ hit: true, coalesced: false });
-    expect(afterMeasurement.headers["x-stugu-cache"]).toBe("hit");
+    expect(rollup).toHaveBeenCalledTimes(callsAfterFit);
   });
 
-  it("does not cancel an active calculation when a routine measurement arrives", async () => {
-    const originalRollup = runtime.telemetryReader.measurementAnalyticsRollup
-      .bind(runtime.telemetryReader);
-    let releaseRollups!: () => void;
-    const rollupsReleased = new Promise<void>((resolve) => { releaseRollups = resolve; });
-    let markRollupStarted!: () => void;
-    const rollupStarted = new Promise<void>((resolve) => { markRollupStarted = resolve; });
-    runtime.telemetryReader.measurementAnalyticsRollup = async (query) => {
-      markRollupStarted();
-      await rollupsReleased;
-      return originalRollup(query);
-    };
+  it("returns 202 for idempotent refreshes and retains last-good", async () => {
+    await request(runtime.app)
+      .post("/api/v2/analytics/home-performance?houseId=performance-house&dataMode=live")
+      .expect(202);
+    await runtime.derivedAnalytics.drainOnce();
 
-    const pending = request(runtime.app)
-      .get("/api/v2/analytics/home-performance?houseId=performance-house&dataMode=live")
-      .then((response) => response);
-    await rollupStarted;
-    runtime.bus.publishMeasurement({
-      sensorId: "performance-sensor",
-      metric: "temperature",
-      value: 22,
-      canonicalUnit: "Ã‚Â°C",
-      timestamp: new Date().toISOString(),
-      source: "api",
-      quality: "good",
-    });
-    releaseRollups();
-
-    const response = await pending;
-    expect(response.status).toBe(200);
-    expect(response.body.cache).toMatchObject({ hit: false, coalesced: false });
+    const refreshes = await Promise.all(Array.from({ length: 20 }, () => request(runtime.app)
+      .post("/api/v2/analytics/home-performance?houseId=performance-house&dataMode=live")
+      .expect(202)));
+    expect(refreshes.every(({ body }) => body.state === "queued" && body.result !== null)).toBe(true);
+    expect(runtime.derivedAnalytics.snapshot()).toMatchObject({ pending: 1, artifacts: 1 });
   });
 
-  it("rejects cross-mode requests and whole-Home scopes over the deterministic limit", async () => {
+  it("propagates evidence AbortError instead of publishing a partial artifact", async () => {
+    vi.spyOn(runtime.telemetryReader, "measurementAnalyticsRollup")
+      .mockRejectedValue(new DOMException("history read canceled", "AbortError"));
+
+    await request(runtime.app)
+      .post("/api/v2/analytics/home-performance?houseId=performance-house&dataMode=live")
+      .expect(202);
+    await runtime.derivedAnalytics.drainOnce();
+
+    await request(runtime.app)
+      .get("/api/v2/analytics/home-performance?houseId=performance-house&dataMode=live")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.state).toBe("failed");
+        expect(body.result).toBeNull();
+        expect(body.artifact).toBeNull();
+        expect(body.job.errorMessage).toBe("history read canceled");
+      });
+    expect(runtime.derivedAnalytics.snapshot().artifacts).toBe(0);
+  });
+
+  it("keeps thermal and moisture panel reads off telemetry and the fitters", async () => {
+    const history = vi.spyOn(runtime.telemetryReader, "thermalMeasurementHistory");
+    const reads = await Promise.all(Array.from({ length: 20 }, (_, index) => request(runtime.app)
+      .get(`/api/v2/analytics/${index % 2 === 0 ? "thermal-isolation" : "moisture-response"}?houseId=performance-house&dataMode=live&windowDays=7`)
+      .expect(200)));
+    expect(reads.every(({ body }) => body.state === "idle" && body.result === null)).toBe(true);
+    expect(runtime.derivedAnalytics.snapshot()).toMatchObject({ pending: 0, artifacts: 0 });
+    expect(history).not.toHaveBeenCalled();
+    expect(await runtime.derivedAnalytics.drainOnce()).toBe(false);
+
+    await request(runtime.app)
+      .post("/api/v2/analytics/thermal-isolation?houseId=performance-house&dataMode=live&windowDays=7")
+      .expect(202);
+    await request(runtime.app)
+      .post("/api/v2/analytics/moisture-response?houseId=performance-house&dataMode=live&windowDays=7")
+      .expect(202);
+    await runtime.derivedAnalytics.drainOnce();
+    await runtime.derivedAnalytics.drainOnce();
+    expect(runtime.derivedAnalytics.snapshot()).toMatchObject({ pending: 0, artifacts: 2 });
+    expect(history).toHaveBeenCalled();
+    await request(runtime.app)
+      .get("/api/v2/analytics/thermal-isolation?houseId=performance-house&dataMode=live&windowDays=7")
+      .expect(200)
+      .expect(({ body }) => expect(body.state).toBe("ready"));
+    await request(runtime.app)
+      .get("/api/v2/analytics/moisture-response?houseId=performance-house&dataMode=live&windowDays=7")
+      .expect(200)
+      .expect(({ body }) => expect(body.state).toBe("ready"));
+  });
+
+  it("reports cross-mode immediately and oversized work as a durable failure", async () => {
     await request(runtime.app)
       .get("/api/v2/analytics/home-performance?houseId=performance-house&dataMode=demo")
       .expect(409);
@@ -191,10 +208,17 @@ describe("home performance API", () => {
       });
     }
     await request(runtime.app)
+      .post("/api/v2/analytics/home-performance?houseId=performance-house&dataMode=live")
+      .expect(202);
+    await runtime.derivedAnalytics.drainOnce();
+    await request(runtime.app)
       .get("/api/v2/analytics/home-performance?houseId=performance-house&dataMode=live")
-      .expect(422)
+      .expect(200)
       .expect(({ body }) => {
-        expect(body.error.code).toBe("HOME_PERFORMANCE_SCOPE_TOO_LARGE");
+        expect(body.state).toBe("failed");
+        expect(body.result).toBeNull();
+        expect(body.job.errorCode).toBe("HOME_PERFORMANCE_SCOPE_TOO_LARGE");
+        expect(body.job.nextAttemptAt).toBeNull();
       });
   });
 });

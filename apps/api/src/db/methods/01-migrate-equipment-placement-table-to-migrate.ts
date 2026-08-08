@@ -100,6 +100,23 @@ import { ClimateDataValidationError, parseJson, securityAuditEventFromRow } from
 import { canonicalIntegrationMappingsJson } from "../support/04-canonical-json-value-to-action-playbook-from-row.js";
 import { registerDatabaseMethods } from "../core.js";
 
+function ensureDemoTelemetryPurgeIndexes(database: DatabaseSync): void {
+  // Real installations normally contain no synthetic rows. Partial indexes
+  // keep that safety check proportional to synthetic data instead of scanning
+  // the complete local telemetry buffer during every process start.
+  database.exec(`
+    CREATE INDEX IF NOT EXISTS idx_measurement_samples_demo_source
+      ON measurement_samples(source, sensor_id, metric)
+      WHERE source IN ('mock', 'replay');
+    CREATE INDEX IF NOT EXISTS idx_readings_demo_source
+      ON readings(source)
+      WHERE source IN ('mock', 'replay');
+    CREATE INDEX IF NOT EXISTS idx_outdoor_temperature_demo_source
+      ON outdoor_temperature_samples(source)
+      WHERE source = 'mock';
+  `);
+}
+
 registerDatabaseMethods({
   /**
      * SQLite cannot remove the legacy NOT NULL constraint from `area_id` with
@@ -357,6 +374,7 @@ registerDatabaseMethods({
         }
 
         const activatedAt = existingActivatedAt ?? new Date().toISOString();
+        ensureDemoTelemetryPurgeIndexes(this.db);
         this.db.prepare(`DELETE FROM sensor_recorded_measurements AS catalogue
           WHERE EXISTS (
             SELECT 1 FROM measurement_samples AS sample
@@ -381,6 +399,11 @@ registerDatabaseMethods({
         const alertEvents = Number(this.db.prepare("DELETE FROM alert_events").run().changes);
         this.db.prepare("DELETE FROM alert_evaluation_state").run();
         this.db.prepare("DELETE FROM analytics_daily_findings").run();
+        // Cached analytics are evidence-mode specific. Cancel jobs first, then
+        // remove immutable demo artifacts in the same transaction as the latch
+        // so no process can claim or publish demo work after activation.
+        this.db.prepare("DELETE FROM derived_analytics_jobs WHERE data_mode = 'demo'").run();
+        this.db.prepare("DELETE FROM derived_analytics_artifacts WHERE data_mode = 'demo'").run();
         this.db.prepare(`INSERT INTO metadata(key, value) VALUES ('data_mode', 'real')
           ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run();
         this.db.prepare("INSERT OR IGNORE INTO metadata(key, value) VALUES ('real_data_mode_activated_at', ?)").run(activatedAt);
@@ -389,6 +412,7 @@ registerDatabaseMethods({
     },
   purgeSourceLabelledDemoTelemetry(): void {
       this.immediateTransaction(() => {
+        ensureDemoTelemetryPurgeIndexes(this.db);
         this.db.prepare(`DELETE FROM sensor_recorded_measurements AS catalogue
           WHERE EXISTS (
             SELECT 1 FROM measurement_samples AS sample
@@ -403,6 +427,8 @@ registerDatabaseMethods({
         this.db.prepare("DELETE FROM readings WHERE source IN ('mock', 'replay')").run();
         this.db.prepare("DELETE FROM outdoor_temperature_samples WHERE source = 'mock'").run();
         this.db.prepare("DELETE FROM analytics_daily_findings WHERE data_mode = 'demo'").run();
+        this.db.prepare("DELETE FROM derived_analytics_jobs WHERE data_mode = 'demo'").run();
+        this.db.prepare("DELETE FROM derived_analytics_artifacts WHERE data_mode = 'demo'").run();
       });
     },
   /** Removes every local producer/runtime artifact from active remote Homes. */
@@ -422,6 +448,8 @@ registerDatabaseMethods({
         this.db.prepare(`DELETE FROM tapo_history_export_jobs WHERE sensor_id IN (${sharedSensorIds})`).run(...parameters);
         this.db.prepare(`DELETE FROM sensor_measurement_bindings WHERE sensor_id IN (${sharedSensorIds})`).run(...parameters);
         this.db.prepare(`DELETE FROM sensor_recorded_measurements
+          WHERE sensor_id IN (${sharedSensorIds})`).run(...parameters);
+        this.db.prepare(`DELETE FROM sensor_source_metrics
           WHERE sensor_id IN (${sharedSensorIds})`).run(...parameters);
         this.db.prepare(`DELETE FROM measurement_samples
           WHERE sensor_id IN (${sharedSensorIds})`).run(...parameters);
@@ -444,6 +472,12 @@ registerDatabaseMethods({
               AND json_extract(stugby_json, '$.syncState') <> 'detached' ${houseId ? "AND id = ?" : ""}
           )`).run(...parameters);
         this.db.prepare(`DELETE FROM weather_outages
+          WHERE house_id IN (
+            SELECT id FROM houses
+            WHERE json_extract(stugby_json, '$.ownership') = 'shared'
+              AND json_extract(stugby_json, '$.syncState') <> 'detached' ${houseId ? "AND id = ?" : ""}
+          )`).run(...parameters);
+        this.db.prepare(`DELETE FROM weather_snapshots
           WHERE house_id IN (
             SELECT id FROM houses
             WHERE json_extract(stugby_json, '$.ownership') = 'shared'

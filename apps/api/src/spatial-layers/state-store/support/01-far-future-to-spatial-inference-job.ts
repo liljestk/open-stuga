@@ -9,6 +9,7 @@ import type {
   SpatialDataPartition,
   SpatialEngineAssignment,
   SpatialGroundTruth,
+  SpatialInferenceSession,
   SpatialInferenceRun,
   SpatialLayerSnapshotDraft,
   SpatialRunStatus,
@@ -194,6 +195,24 @@ export function runFromRow(row: SqlRow): SpatialInferenceRun {
   };
 }
 
+export function inferenceSessionFromRow(row: SqlRow): SpatialInferenceSession {
+  return {
+    id: String(row.id),
+    partition: partitionFromRow(row),
+    houseId: String(row.house_id),
+    status: row.status as SpatialInferenceSession["status"],
+    startedAt: String(row.started_at),
+    expiresAt: String(row.expires_at),
+    cadenceMinutes: Number(row.cadence_minutes),
+    nextRunAt: String(row.next_run_at),
+    lastScheduledAt: row.last_scheduled_at === null ? null : String(row.last_scheduled_at),
+    stoppedAt: row.stopped_at === null ? null : String(row.stopped_at),
+    createdBy: row.created_by === null ? null : String(row.created_by),
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at),
+  };
+}
+
 export interface SpatialInferenceJob {
   id: string;
   partition: SpatialDataPartition;
@@ -205,6 +224,7 @@ export interface SpatialInferenceJob {
   attempts: number;
   lastError: string | null;
   lockToken: string | null;
+  sessionId: string | null;
   createdAt: string;
   updatedAt: string;
 }

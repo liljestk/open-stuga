@@ -397,8 +397,10 @@ registerDatabaseMethods({
       sample: MeasurementSample,
       deduplicateAcrossSources = false,
       enqueueAlertEvaluation = false,
+      deferDerivedInvalidation = false,
     ): boolean {
-      if (!this.getSensor(sample.sensorId)) return false;
+      const sensor = this.getSensor(sample.sensorId);
+      if (!sensor) return false;
       if (deduplicateAcrossSources && this.db.prepare(`SELECT 1 FROM measurement_samples
         WHERE sensor_id = ? AND metric = ? AND timestamp = ? LIMIT 1`)
         .get(sample.sensorId, sample.metric, sample.timestamp)) return false;
@@ -414,6 +416,9 @@ registerDatabaseMethods({
         this.db.prepare("INSERT INTO alert_evaluation_queue(measurement_sample_id) VALUES (?)")
           .run(result.lastInsertRowid);
       }
+      if (!deferDerivedInvalidation) {
+        this.invalidateDerivedAnalyticsHistory(sensor.houseId, sample.timestamp, sample.timestamp);
+      }
       return true;
     },
   insertMeasurementSamples(
@@ -428,7 +433,22 @@ registerDatabaseMethods({
             sample,
             options.deduplicateAcrossSources,
             options.enqueueAlertEvaluation,
+            true,
           )) inserted.push(sample);
+        }
+        const intervals = new Map<string, { from: string; to: string }>();
+        for (const sample of inserted) {
+          const sensor = this.getSensor(sample.sensorId);
+          if (!sensor) continue;
+          const interval = intervals.get(sensor.houseId);
+          if (!interval) intervals.set(sensor.houseId, { from: sample.timestamp, to: sample.timestamp });
+          else {
+            if (sample.timestamp < interval.from) interval.from = sample.timestamp;
+            if (sample.timestamp > interval.to) interval.to = sample.timestamp;
+          }
+        }
+        for (const [houseId, interval] of intervals) {
+          this.invalidateDerivedAnalyticsHistory(houseId, interval.from, interval.to);
         }
         return inserted;
       });

@@ -190,6 +190,7 @@ export function finishCreateApi(context: ReturnType<typeof configureApiPart28>):
   return {
     app, database, systemErrorLog, integrationMetadata, bus, telemetry, measurements, mock, replay, status, homeAssistant, tpLink, gree, heatPumpStates, tuya, connectedDevices, tapoHistory, electricityPrices, telegram, weather, weatherMonitor, dailyAnalyticsFindings, scheduledDataExports,
     weatherRecovery, sensorGapRecovery, weatherEvents, dataMode, notificationOutbox, dataOperations, energyOptimizer, energyCost, setupDoctor, cloudflareAccess, cloudflareSetup, spatialLayers, timeseries, telemetryArchive, telemetryReader, stuguby, tracking, systemUpdates, systemStorage, hostSystem,
+    derivedAnalytics: context.derivedAnalytics,
     ready: () => runtimeReady,
     beginShutdown,
     close,

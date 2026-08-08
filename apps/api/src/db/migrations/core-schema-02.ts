@@ -268,6 +268,12 @@ export const CORE_SCHEMA_02 = `          SELECT 1 FROM observations AS observati
         ON sensor_data_gaps(sensor_id, started_at DESC, id DESC);
       CREATE INDEX IF NOT EXISTS idx_sensor_data_gaps_series_interval
         ON sensor_data_gaps(sensor_id, metric, source, started_at, ended_at);
+      CREATE TRIGGER IF NOT EXISTS sensor_source_metrics_from_gap_insert
+        AFTER INSERT ON sensor_data_gaps
+      BEGIN
+        INSERT OR IGNORE INTO sensor_source_metrics(sensor_id, source, metric)
+          VALUES (NEW.sensor_id, NEW.source, NEW.metric);
+      END;
       CREATE TABLE IF NOT EXISTS tapo_history_export_jobs (
         id TEXT PRIMARY KEY,
         dedupe_key TEXT NOT NULL UNIQUE CHECK (length(trim(dedupe_key)) BETWEEN 1 AND 500),

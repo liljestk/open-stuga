@@ -180,6 +180,8 @@ import {
   parseAnalyticsQueryRequest,
 } from "../analytics.js";
 import { AnalyticsWorkLimiter } from "../analytics/work-limiter.js";
+import { DerivedAnalyticsCoordinator } from "../analytics/derived-artifacts/coordinator.js";
+import { hostAllowsBackgroundWork } from "../analytics/background-admission.js";
 import { Nexus433Service } from "../nexus433/index.js";
 import { loadOrCreateStugubyNodeKeys } from "../stuguby/identity.js";
 import { registerStugubyLocalRoutes, registerStugubyProtocolRoutes } from "../stuguby/routes.js";
@@ -299,6 +301,18 @@ export function configureApiPart03(context: ReturnType<typeof configureApiPart02
       maxConcurrent: Math.max(1, Math.min(2, config.timeseriesPoolMax)),
       maxQueued: 32,
     });
+  const admitLowPriority = context.options.backgroundWorkAdmission
+    ?? (context.options.startBackground === false
+      ? () => true
+      : async (): Promise<boolean> => hostAllowsBackgroundWork(
+          await context.hostSystem.snapshot(),
+        ));
+  const derivedAnalytics = new DerivedAnalyticsCoordinator(
+      context.database,
+      telemetryReader,
+      analyticsWorkLimiter,
+      { admitLowPriority },
+    );
   context.energyOptimizer.setTelemetryReader(telemetryReader);
   const dailyAnalyticsFindings = new DailyAnalyticsFindingsWorker({
       database: context.database,
@@ -529,7 +543,7 @@ export function configureApiPart03(context: ReturnType<typeof configureApiPart02
         return telemetryArchive?.reconcileNow();
       },
     });
-  const extended = Object.assign(context, { timeseries, telemetryArchive, telemetryRetention, telemetryOrderedRollups, telemetryReader, analyticsWorkLimiter, dailyAnalyticsFindings, scheduledDataExports, measurementSnapshotCache, readingSnapshotCache, status, setupDoctor, energyCost, storedTelegramIdentity, telegram, alertEngine, telemetry, nexus433, measurements, notificationOutbox, mock, replay, wakeSensorGapRecovery, tapoHistory, tapoHistoryFallbackKeys, historyFallbackKey, homeAssistant, heatPumpStates, gree, connectedDevices, tuya });
+  const extended = Object.assign(context, { timeseries, telemetryArchive, telemetryRetention, telemetryOrderedRollups, telemetryReader, analyticsWorkLimiter, admitLowPriority, derivedAnalytics, dailyAnalyticsFindings, scheduledDataExports, measurementSnapshotCache, readingSnapshotCache, status, setupDoctor, energyCost, storedTelegramIdentity, telegram, alertEngine, telemetry, nexus433, measurements, notificationOutbox, mock, replay, wakeSensorGapRecovery, tapoHistory, tapoHistoryFallbackKeys, historyFallbackKey, homeAssistant, heatPumpStates, gree, connectedDevices, tuya });
   return extended as typeof extended & DeferredContext & {
     sensorGapRecovery: SensorGapRecoveryCoordinator;
     tpLink: TpLinkBridge;

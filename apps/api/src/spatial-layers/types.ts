@@ -52,6 +52,27 @@ export interface SpatialCalibrationSession {
   updatedAt: string;
 }
 
+/**
+ * A deliberately time-bounded Home-owned permission to run spatial
+ * inference. Raw telemetry continues to be collected when no session is
+ * active; this record only controls derived research work.
+ */
+export interface SpatialInferenceSession {
+  id: string;
+  partition: SpatialDataPartition;
+  houseId: string;
+  status: "active" | "stopped" | "expired";
+  startedAt: string;
+  expiresAt: string;
+  cadenceMinutes: number;
+  nextRunAt: string;
+  lastScheduledAt: string | null;
+  stoppedAt: string | null;
+  createdBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface StoredSpatialContextEvent extends SpatialContextEvent {
   houseId: string;
   source: string;
@@ -134,6 +155,8 @@ export interface SpatialCoreInputPort {
     bucketAt: string;
     configuration: SpatialConfigurationVersion;
     bindings: StoredSpatialSensorBinding[];
+    currentProjection?: boolean;
+    signal?: AbortSignal;
   }): Promise<SpatialCoreDescription>;
   load(request: {
     partition: SpatialDataPartition;
@@ -145,6 +168,7 @@ export interface SpatialCoreInputPort {
     bindings: StoredSpatialSensorBinding[];
     calibrations: StoredSpatialSensorCalibration[];
     contextEvents: StoredSpatialContextEvent[];
+    signal?: AbortSignal;
   }): Promise<SpatialCoreDataset>;
 }
 

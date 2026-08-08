@@ -102,6 +102,9 @@ import { ClimateDataValidationError, SensorDataGapRecord, SensorDataGapRow } fro
 import { normalizedTapoHistoryText, normalizedTapoHistoryTimestamp, sensorDataGapFromRow, weatherOutageFromRow } from "../support/06-canonical-observation-patch-time-to-outdoor-location.js";
 import { registerDatabaseMethods } from "../core.js";
 
+export const SENSOR_SOURCE_METRICS_SQL = `SELECT metric FROM sensor_source_metrics
+  WHERE sensor_id = ? AND source = ? ORDER BY metric`;
+
 function knownRecoverableUntil(
   source: SensorDataGapSource,
   metric: string,
@@ -156,6 +159,46 @@ registerDatabaseMethods({
         .all(houseId, locationKey, safeLimit) as unknown as WeatherOutageRow[];
       return rows.map(weatherOutageFromRow);
     },
+  listActiveWeatherOutages(houseId: string, locationKey: string, limit = 20): WeatherOutageRecord[] {
+      if (!this.getHouse(houseId)) return [];
+      const safeLimit = Math.max(1, Math.min(100, Math.trunc(limit)));
+      const rows = this.db.prepare(`SELECT * FROM weather_outages
+        WHERE house_id = ? AND location_key = ? AND ended_at IS NULL
+        ORDER BY started_at DESC, id DESC LIMIT ?`)
+        .all(houseId, locationKey, safeLimit) as unknown as WeatherOutageRow[];
+      return rows.map(weatherOutageFromRow);
+    },
+  listWeatherBackfillHistory(houseId: string, locationKey: string, limit = 50): WeatherOutageRecord[] {
+      if (!this.getHouse(houseId)) return [];
+      const safeLimit = Math.max(1, Math.min(500, Math.trunc(limit)));
+      const rows = this.db.prepare(`SELECT * FROM weather_outages
+        WHERE house_id = ? AND location_key = ? AND component IN ('service', 'observation')
+        ORDER BY started_at DESC, id DESC LIMIT ?`)
+        .all(houseId, locationKey, safeLimit) as unknown as WeatherOutageRow[];
+      return rows.map(weatherOutageFromRow);
+    },
+  listPendingWeatherBackfills(
+      houseId: string,
+      locationKey: string,
+      provider: WeatherProviderName | null = null,
+      limit = 500,
+    ): WeatherOutageRecord[] {
+      if (!this.getHouse(houseId)) return [];
+      const safeLimit = Math.max(1, Math.min(500, Math.trunc(limit)));
+      const providerPredicate = provider === null ? "" : "AND provider = ?";
+      const rows = this.db.prepare(`SELECT * FROM weather_outages
+        WHERE house_id = ? AND location_key = ? ${providerPredicate}
+          AND ended_at IS NOT NULL
+          AND component IN ('service', 'observation')
+          AND backfill_state IN ('pending', 'running', 'failed', 'partial')
+        ORDER BY CASE WHEN backfill_state = 'failed' THEN 1 ELSE 0 END ASC,
+          CASE WHEN backfill_state = 'failed' THEN COALESCE(last_attempt_at, '') ELSE started_at END ASC,
+          started_at ASC, id ASC LIMIT ?`);
+      const rowsForProvider = provider === null
+        ? rows.all(houseId, locationKey, safeLimit)
+        : rows.all(houseId, locationKey, provider, safeLimit);
+      return (rowsForProvider as unknown as WeatherOutageRow[]).map(weatherOutageFromRow);
+    },
   updateWeatherOutageBackfill(
       id: number,
       state: WeatherBackfillState,
@@ -176,9 +219,8 @@ registerDatabaseMethods({
     },
   sensorSourceMetrics(sensorId: string, source: SensorDataGapSource): string[] {
       if (!this.getSensor(sensorId)) return [];
-      const rows = this.db.prepare(`SELECT metric, MAX(timestamp) AS latest_timestamp FROM measurement_samples
-        WHERE sensor_id = ? AND source = ? GROUP BY metric ORDER BY metric`)
-        .all(sensorId, source) as unknown as Array<{ metric: string; latest_timestamp: string }>;
+      const rows = this.db.prepare(SENSOR_SOURCE_METRICS_SQL)
+        .all(sensorId, source) as unknown as Array<{ metric: string }>;
       return rows.map((row) => row.metric);
     },
   measurementSampleGaps(

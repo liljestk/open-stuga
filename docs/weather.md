@@ -117,9 +117,9 @@ Content-Type: application/json
 }
 ```
 
-Set `location` to `null` to remove it. Updating or removing a location clears
-that house's in-memory weather cache. A coordinate change also deletes that
-house's previously retained outdoor-boundary rows; location keys in the
+Set `location` to `null` to remove it. Updating or removing a location fences
+that house's in-memory and durable weather snapshots by opaque location key. A
+coordinate change also deletes that house's previously retained outdoor-boundary rows; location keys in the
 boundary table are opaque digests rather than plaintext coordinates.
 Moving or clearing `mapPlacement` updates `location` only when that location is
 the automatic `map-placement` fallback and the Property has no location. A
@@ -138,7 +138,7 @@ It requests a 48-hour forecast and divides it into four keyboard-operable
 **+36–48 hours**. The table and mobile cards use the selected home's timezone,
 including its UTC offset, and retain provider attribution, timestamps, partial
 availability, and stale state. Changing home resets the window safely; a manual
-refresh remains available.
+refresh cheaply revalidates the local snapshot and never contacts the provider.
 
 The live Twin view can also load the home's current outdoor values and shows
 outside temperature, relative humidity, wind speed, gust, source direction,
@@ -195,7 +195,7 @@ quality fields are:
 | `fetchedAt` | time this upstream retrieval began |
 | `forecastIssuedAt` | provider issue time when exposed; `null` for Open-Meteo |
 | `observationStation` | FMI station ID, name, coordinates, and straight-line distance; `null` for modelled current conditions |
-| `stale` | `true` when a failed refresh fell back to an older in-memory result |
+| `stale` | `true` when the durable last-good snapshot is delayed or its latest refresh failed |
 | `unavailable` | independently unavailable `observation`, `forecast`, `short-range`, or `warnings` component |
 | `componentStatus` | per-component provider, product, attribution, availability, coverage, freshness, and whether an empty result is authoritative |
 
@@ -268,23 +268,27 @@ component succeeded.
 
 ## Cache and failure behaviour
 
-- A full weather response is fresh in process memory for 10 minutes per house, coordinates,
-  and requested horizon. Recent horizons coexist in a bounded 128-entry LRU,
-  and concurrent identical requests share one provider fetch.
+- The background monitor requests one canonical 48-hour provider snapshot per
+  located Home. Provider work coalesces in a bounded in-process LRU. The
+  accepted last-good snapshot and latest attempt/error status occupy one
+  bounded SQLite row per Home and survive API restarts.
+- `GET /api/v1/houses/{id}/weather` only reads that local row. It never contacts
+  FMI or Open-Meteo. The `hours` query filters the canonical snapshot locally;
+  values above 48 remain wire-compatible but cannot extend the stored horizon.
 - The parsed CAP warning feed is shared for 10 minutes across houses.
 - Forecast, short-range supplement, observation, and warning retrievals settle
   independently. A usable response can therefore be partial and lists failed
   parts in `unavailable`.
-- If refresh fails after a previous result exists for the same key, Climate
-  Twin can return it with `stale: true` for at most 60 minutes after retrieval.
-  Forecast points and warnings that have expired are removed before any cached
-  response is returned. There is no durable full-response cache: restarting the
-  API or changing `House.location` removes that fallback. A fresh current
-  temperature is separately retained as a location-keyed physics boundary;
+- If refresh fails after a previous result exists for the same location, Stugu
+  preserves it and returns it with `stale: true`; a snapshot also becomes stale
+  when no successful monitor attempt has completed for 30 minutes. Forecast
+  points and warnings that have expired are removed before any response is
+  returned. A location change cannot reuse the previous location's snapshot. A
+  fresh current temperature is separately retained as a location-keyed physics boundary;
   stale fallbacks and forecasts are never inserted as observations.
-- If no primary forecast, observation, or warning result is usable and no
-  matching cached result exists, the endpoint returns 503. Callers should use
-  bounded retries with jitter, not a rapid polling loop.
+- If no matching last-good snapshot exists, the endpoint returns 503 while the
+  background monitor continues its bounded retry schedule. Callers should rely
+  on SSE or deliberate local revalidation, not a rapid polling loop.
 - Every provider failure and independently unavailable component opens or
   updates a durable, Home/location-scoped outage record. A later fresh result
   closes the matching record. The 503 response includes public-safe recovery
@@ -294,11 +298,13 @@ component succeeded.
 When normal background services are enabled, a weather monitor refreshes every
 located home with a 48-hour request. It starts after up to 60 seconds of jitter,
 then waits at least 15 minutes plus up to 60 seconds of jitter between cycles.
-At most two homes are refreshed concurrently and cycles never overlap. A failed
+Homes refresh sequentially by default and cycles never overlap. A failed
 or stale refresh gets per-home exponential backoff from 5 minutes up to 6 hours;
 changing that home's location clears the obsolete backoff. Before persistence,
 the monitor rechecks the home update timestamp and opaque location key so a
 late response for a moved home cannot be stored under its new location.
+Historical gap discovery and observation backfill also use single-file queues,
+so repair work cannot fan out across Homes behind the monitor.
 
 ### Outage recovery and historical observations
 
@@ -308,6 +314,14 @@ into bounded 24-hour chunks. Finnish Homes retrieve station observations from
 FMI WFS; worldwide Homes retrieve the same modelled hourly fields from
 Open-Meteo's historical-forecast service. A failed or partial backfill remains
 durable and is retried after a later successful weather update.
+
+One coordinator cycle admits at most one chunk and 768 existing/provider
+records, with a 20-second asynchronous wall-time budget. Unfinished work keeps
+a durable cursor and resumes no sooner than 60 seconds later; restart,
+invalidation, and cancellation cannot discard the remaining interval. The wall
+timer bounds awaited I/O but cannot interrupt synchronous FMI XML parsing that
+has already started; built-in FMI history requests therefore also retain their
+24-hour, 16 MiB, and 15-second input limits.
 
 Each recovered point keeps its canonical outdoor fields, observation time,
 retrieval time, provider, and station provenance. It is upserted through the
@@ -324,7 +338,7 @@ the past.
 ## Weather event middle layer
 
 FMI and Open-Meteo are pull services, but consumers do not depend on that
-transport. Every accepted scheduled refresh and on-demand weather result enters
+transport. Every accepted scheduled refresh enters
 a provider-neutral in-process broker as a `weather.snapshot` event. The monitor
 therefore acts as a polling-to-event adapter today; a future MQTT, webhook, or
 native provider stream can publish the same contract without changing storage,
@@ -338,11 +352,10 @@ and stale/component status intact. The local `/api/v1/events` and
 the stable ID in the SSE `id:` field. Consumers should still deduplicate by ID.
 
 The live broker is intentionally process-local and not a durable event log. An
-SSE reconnect must reload `GET /api/v1/houses/{id}/weather` and then resume live
-events; `Last-Event-ID` does not provide historical replay. Scheduled stale
-fallbacks are rejected by the monitor, while an explicitly requested stale
-snapshot can be emitted with `weather.stale: true` so clients retain its actual
-quality state.
+SSE reconnect reloads the durable `GET /api/v1/houses/{id}/weather` snapshot and
+then resumes live events; `Last-Event-ID` does not provide historical replay.
+Scheduled stale fallbacks are rejected by the monitor; the REST snapshot keeps
+the last-good value and marks it stale until a fresh event replaces it.
 
 Weather context is not inserted into indoor sensor measurement history. Stugu
 persists fresh current observations and recovered historical observations in a

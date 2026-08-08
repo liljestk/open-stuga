@@ -289,48 +289,79 @@ export function configureApiPart14(context: ReturnType<typeof configureApiPart13
       const houseId = request.params.id as string;
       const house = context.database.getHouse(houseId);
       if (!house || !context.visibility(response).house(houseId)) throw new HttpError(404, "NOT_FOUND", "House not found");
-      const at = request.query.at === undefined && request.query.to !== undefined
-        ? dateValue(request.query.to, new Date(), "to")
-        : dateValue(request.query.at, new Date(), "at");
-      const observations = (await context.telemetryReader.openingStateSnapshot({
-        houseId,
-        at,
-        limit: 10_000,
-      })).records;
-      const states = house.floors.flatMap((floor) => (floor.planElements ?? []).flatMap((element) => {
-        if (element.kind !== "door" && element.kind !== "window" && element.kind !== "vent") return [];
-        return [{ floorId: floor.id, elementId: element.id, kind: element.kind, ...(element.label ? { label: element.label } : {}),
-          ...resolvePlanElementOpeningState(element, observations.filter((observation) => observation.floorId === floor.id), at) }];
-      }));
-      if (request.query.from === undefined) {
+      const historical = request.query.at !== undefined
+        || request.query.from !== undefined
+        || request.query.to !== undefined;
+      if (!historical) {
+        const at = new Date().toISOString();
+        const observations = context.database.listCurrentOpeningStateCandidates(houseId, at, 10_000);
+        const states = house.floors.flatMap((floor) => (floor.planElements ?? []).flatMap((element) => {
+          if (element.kind !== "door" && element.kind !== "window" && element.kind !== "vent") return [];
+          return [{ floorId: floor.id, elementId: element.id, kind: element.kind, ...(element.label ? { label: element.label } : {}),
+            ...resolvePlanElementOpeningState(element, observations.filter((observation) => observation.floorId === floor.id), at) }];
+        }));
+        response.setHeader("cache-control", "private, no-store");
         response.json({ snapshot: { houseId, at, states }, observations });
         return;
       }
-      const from = dateValue(request.query.from, new Date(Date.parse(at) - 7 * 86_400_000), "from");
-      const to = dateValue(request.query.to, new Date(at), "to");
-      const durationMs = Date.parse(to) - Date.parse(from);
-      if (durationMs <= 0 || durationMs > 366 * 86_400_000) {
-        throw new HttpError(400, "INVALID_OPENING_HISTORY_RANGE", "Opening-state history must cover more than zero and at most 366 days");
+      const at = request.query.at === undefined && request.query.to !== undefined
+        ? dateValue(request.query.to, new Date(), "to")
+        : dateValue(request.query.at, new Date(), "at");
+      const historyRange = request.query.from === undefined ? null : (() => {
+        const from = dateValue(request.query.from, new Date(Date.parse(at) - 7 * 86_400_000), "from");
+        const to = dateValue(request.query.to, new Date(at), "to");
+        const durationMs = Date.parse(to) - Date.parse(from);
+        if (durationMs <= 0 || durationMs > 366 * 86_400_000) {
+          throw new HttpError(400, "INVALID_OPENING_HISTORY_RANGE", "Opening-state history must cover more than zero and at most 366 days");
+        }
+        return { from, to, limit: boundedQueryInteger(request.query.limit, "limit", 1, 10_000) ?? 10_000 };
+      })();
+      const abortController = new AbortController();
+      const abortOnClose = () => abortController.abort(new DOMException("Client disconnected", "AbortError"));
+      response.once("close", abortOnClose);
+      try {
+        const observations = (await context.telemetryReader.openingStateSnapshot({
+          houseId,
+          at,
+          limit: 10_000,
+          signal: abortController.signal,
+          timeoutMs: 5_000,
+        })).records;
+        const states = house.floors.flatMap((floor) => (floor.planElements ?? []).flatMap((element) => {
+          if (element.kind !== "door" && element.kind !== "window" && element.kind !== "vent") return [];
+          return [{ floorId: floor.id, elementId: element.id, kind: element.kind, ...(element.label ? { label: element.label } : {}),
+            ...resolvePlanElementOpeningState(element, observations.filter((observation) => observation.floorId === floor.id), at) }];
+        }));
+        if (!historyRange) {
+          response.json({ snapshot: { houseId, at, states }, observations });
+          return;
+        }
+        const { from, to, limit } = historyRange;
+        // Seed the requested interval with the effective candidates at its leading
+        // edge so clients can distinguish a real closed-to-open transition from a
+        // startup heartbeat whose previous state lies just outside the range.
+        const initial = (await context.telemetryReader.openingStateSnapshot({
+          houseId,
+          at: from,
+          limit,
+          signal: abortController.signal,
+          timeoutMs: 5_000,
+        })).records;
+        const history = (await context.telemetryReader.openingStateHistory({
+          houseId,
+          from,
+          to,
+          limit: Math.max(1, limit - Math.min(initial.length, limit - 1)),
+          signal: abortController.signal,
+          timeoutMs: 5_000,
+        })).records;
+        const mergedHistory = [...new Map([...initial, ...history].map((observation) => [observation.id, observation])).values()]
+          .sort((left, right) => Date.parse(left.observedAt) - Date.parse(right.observedAt) || left.id.localeCompare(right.id))
+          .slice(-limit);
+        response.json({ snapshot: { houseId, at, states }, observations, history: mergedHistory, from, to });
+      } finally {
+        response.off("close", abortOnClose);
       }
-      const limit = boundedQueryInteger(request.query.limit, "limit", 1, 10_000) ?? 10_000;
-      // Seed the requested interval with the effective candidates at its leading
-      // edge so clients can distinguish a real closed-to-open transition from a
-      // startup heartbeat whose previous state lies just outside the range.
-      const initial = (await context.telemetryReader.openingStateSnapshot({
-        houseId,
-        at: from,
-        limit,
-      })).records;
-      const history = (await context.telemetryReader.openingStateHistory({
-        houseId,
-        from,
-        to,
-        limit: Math.max(1, limit - Math.min(initial.length, limit - 1)),
-      })).records;
-      const mergedHistory = [...new Map([...initial, ...history].map((observation) => [observation.id, observation])).values()]
-        .sort((left, right) => Date.parse(left.observedAt) - Date.parse(right.observedAt) || left.id.localeCompare(right.id))
-        .slice(-limit);
-      response.json({ snapshot: { houseId, at, states }, observations, history: mergedHistory, from, to });
     });
   context.app.post(`${context.prefix}/houses/:id/opening-states`, (request, response) => {
       const houseId = request.params.id as string;

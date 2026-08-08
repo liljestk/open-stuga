@@ -156,11 +156,15 @@ describe("failure-isolated engine host", () => {
       { sensorId: sensor.id, metric: "humidity", value: 42, canonicalUnit: "%", timestamp: oldAt, source: "api", quality: "good" },
       { sensorId: sensor.id, metric: "temperature", value: -99, canonicalUnit: "°C", timestamp: overlapAt, source: "api", quality: "good" },
     ]);
+    const archiveOpeningSnapshot = vi.fn(async () => []);
+    const archiveOpeningHistory = vi.fn(async () => []);
     const archive: ArchiveTelemetryReader = {
       measurementHistory: vi.fn(async () => []),
       measurementWindow: archiveWindow,
       legacyReadingHistory: vi.fn(async () => []),
       outdoorTemperatureHistory: vi.fn(async () => []),
+      openingStateSnapshot: archiveOpeningSnapshot,
+      openingStateHistory: archiveOpeningHistory,
     };
     const telemetryReader = new HybridTelemetryReader({ local: core, archive, archivePhase: () => "ready" });
     const runtime = createLocalSpatialLayerRuntime({
@@ -175,8 +179,12 @@ describe("failure-isolated engine host", () => {
     runtimes.push(runtime);
 
     const houseScope = { kind: "house" as const, id: house.id };
-    await runtime.host.describeScope(houseScope, bucketAt);
+    const currentProjection = vi.spyOn(core, "listCurrentOpeningStateCandidates");
+    await runtime.host.describeScope(houseScope);
     expect(archiveWindow).not.toHaveBeenCalled();
+    expect(archiveOpeningSnapshot).not.toHaveBeenCalled();
+    expect(archiveOpeningHistory).not.toHaveBeenCalled();
+    expect(currentProjection).toHaveBeenCalledOnce();
 
     const configuration = runtime.state.getCurrentConfiguration(runtime.host.partition, houseScope);
     const dataset = await runtime.input.load({
@@ -192,6 +200,8 @@ describe("failure-isolated engine host", () => {
     });
 
     expect(archiveWindow).toHaveBeenCalledOnce();
+    expect(archiveOpeningSnapshot).toHaveBeenCalledTimes(2);
+    expect(archiveOpeningHistory).toHaveBeenCalledOnce();
     expect(dataset.sparseSamples).toEqual(expect.arrayContaining([
       expect.objectContaining({ sensorId: sensor.id, metric: "temperature", timestamp: oldAt, value: 19 }),
       expect.objectContaining({ sensorId: sensor.id, metric: "humidity", timestamp: oldAt, value: 42 }),
@@ -205,6 +215,27 @@ describe("failure-isolated engine host", () => {
       expect.objectContaining({ sensorId: sensor.id, observedAt: oldAt, temperatureC: 19, relativeHumidityPct: 42 }),
       expect.objectContaining({ sensorId: sensor.id, observedAt: overlapAt, temperatureC: 24, relativeHumidityPct: 48 }),
     ]));
+  });
+
+  it("threads cancellation through current topology descriptions", async () => {
+    const { runtime, core } = seededRuntime();
+    const house = core.listHouses()[0]!;
+    const controller = new AbortController();
+    const describe = vi.spyOn(runtime.input, "describe");
+
+    await runtime.host.describeScope({ kind: "house", id: house.id }, undefined, controller.signal);
+    expect(describe).toHaveBeenCalledWith(expect.objectContaining({
+      currentProjection: true,
+      signal: controller.signal,
+    }));
+
+    controller.abort(new DOMException("Client disconnected", "AbortError"));
+
+    await expect(runtime.host.describeScope(
+      { kind: "house", id: house.id },
+      undefined,
+      controller.signal,
+    )).rejects.toMatchObject({ name: "AbortError" });
   });
 
   it("loads every opening transition in the inference window while excluding future replay state", async () => {
@@ -282,6 +313,45 @@ describe("failure-isolated engine host", () => {
       .rejects.toBeInstanceOf(SpatialExecutionTimeoutError);
     expect(eventLoopResponsive).toBe(true);
     executor.close();
+  });
+
+  it("aborts archive input reads as soon as a spatial session is stopped", async () => {
+    const core = new ClimateDatabase(":memory:", true);
+    coreDatabases.push(core);
+    const house = core.listHouses()[0]!;
+    let signalSeen: AbortSignal | undefined;
+    let markStarted!: () => void;
+    const started = new Promise<void>((resolve) => { markStarted = resolve; });
+    const telemetryReader = {
+      measurementWindow: vi.fn((query: { signal?: AbortSignal }) => {
+        signalSeen = query.signal;
+        markStarted();
+        return new Promise((_resolve, reject) => {
+          query.signal?.addEventListener("abort", () => reject(query.signal?.reason), { once: true });
+        });
+      }),
+      outdoorTemperatureHistory: vi.fn(async () => ({
+        records: [],
+        provenance: { source: "sqlite", archiveState: "not-configured", complete: true },
+      })),
+    } as unknown as HybridTelemetryReader;
+    const runtime = createLocalSpatialLayerRuntime({
+      coreDatabase: core,
+      telemetryReader,
+      coreDatabasePath: ":memory:",
+      sourceDbId: "cancel-input-test",
+      dataMode: "demo",
+      statePath: ":memory:",
+    });
+    runtimes.push(runtime);
+    const houseScope = { kind: "house" as const, id: house.id };
+    const inference = runtime.host.inferScope(houseScope, "2035-01-01T12:00:00.000Z");
+    await started;
+    runtime.host.cancelScope(houseScope);
+    const report = await inference;
+    expect(signalSeen?.aborted).toBe(true);
+    expect(report.failures).toEqual([expect.objectContaining({ code: "ENGINE_ABORTED" })]);
+    expect(runtime.state.latestRun(runtime.host.partition, houseScope)?.status).toBe("skipped");
   });
 
   it("does not read or mutate core data when every assigned engine is disabled", async () => {

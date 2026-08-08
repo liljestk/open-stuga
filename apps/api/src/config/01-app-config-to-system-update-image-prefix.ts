@@ -23,6 +23,8 @@ export interface AppConfig {
   spatialLayersRetentionDays?: number;
   /** Scheduled analytical fitting is opt-in until it runs behind the shared resource governor. */
   dailyAnalyticsFindingsEnabled?: boolean;
+  /** Historical gap discovery and source backfill are opt-in until their archive scans are governed. */
+  sensorGapRecoveryEnabled?: boolean;
   /** Property-wide BLE equipment tracking remains an explicit deployment opt-in. */
   trackingEnabled?: boolean;
   trackingMobileObserverEnabled?: boolean;

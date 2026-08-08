@@ -195,6 +195,7 @@ export function useTwinDashboardPart02(context: ReturnType<typeof useTwinDashboa
       // the calm Home summary until a view that can render it is actually open.
       enabled: !editing && (liveMapOpen || analysisOpen || replayActive),
       historyAt: replayActive ? replayTimestamp : null,
+      historyRange: replayActive ? { from: replayMin, to: replayMax } : null,
     });
   const liveSpatialMaxSampleAgeMs = configuredSpatialMaxSampleAgeMs();
   const spatialMaxSampleAgeMs = replayActive

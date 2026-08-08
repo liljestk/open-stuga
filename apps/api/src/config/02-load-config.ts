@@ -304,6 +304,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     spatialLayersIntervalMs: positiveInteger(env.SPATIAL_LAYERS_INTERVAL_MS, 60_000),
     spatialLayersRetentionDays: positiveInteger(env.SPATIAL_LAYERS_RETENTION_DAYS, 30),
     dailyAnalyticsFindingsEnabled: booleanValue(env.DAILY_ANALYTICS_FINDINGS_ENABLED, false),
+    sensorGapRecoveryEnabled: booleanValue(env.SENSOR_GAP_RECOVERY_ENABLED, false),
     trackingEnabled: booleanValue(env.TRACKING_ENABLED, false),
     trackingMobileObserverEnabled: booleanValue(env.TRACKING_MOBILE_OBSERVER_ENABLED, false),
     trackingIosBackgroundEnabled: booleanValue(env.TRACKING_IOS_BACKGROUND_ENABLED, false),

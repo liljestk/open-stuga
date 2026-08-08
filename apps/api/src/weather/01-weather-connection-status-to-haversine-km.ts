@@ -102,6 +102,7 @@ export interface WeatherProvider {
     location: HouseLocation,
     from: string,
     to: string,
+    signal?: AbortSignal,
   ): Promise<WeatherObservationHistory>;
 }
 

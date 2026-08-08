@@ -120,6 +120,7 @@ declare module "../core.js" {
         sample: MeasurementSample,
         deduplicateAcrossSources?: boolean,
         enqueueAlertEvaluation?: boolean,
+        deferDerivedInvalidation?: boolean,
       ): boolean;
     insertMeasurementSamples(samples: MeasurementSample[], options?: {
             deduplicateAcrossSources?: boolean;

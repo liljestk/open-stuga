@@ -5,8 +5,8 @@ traces such as temperature, humidity, and CO2 can reveal occupancy,
 shower/sleep patterns, ventilation habits, room use, incidents, and building
 weaknesses. Floor plans and manually recorded leaks add more sensitive household
 context. A precise Home latitude/longitude is also sensitive: it can identify
-the Property and is sent to the selected weather provider when Home weather is
-requested.
+the Property and is sent to the selected weather provider by the scheduled
+background monitor. Opening the Outdoor page reads only the local snapshot.
 
 ## Default security boundary
 
@@ -340,7 +340,7 @@ If a token or dataset is exposed:
 - [ ] The user can see exactly which entities and Homes are included.
 - [ ] The destination and purpose are documented.
 - [ ] The user understands that FMI or Open-Meteo receives the saved coordinate
-      during weather requests, place-search text goes to Open-Meteo geocoding,
+      during scheduled weather refreshes, place-search text goes to Open-Meteo geocoding,
       and OSM receives browser tile requests only when the map is loaded.
 - [ ] Device geolocation was explicitly requested and approved, or manual/place
       search was used instead; unnecessary browser permission has been revoked.

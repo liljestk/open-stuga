@@ -13,6 +13,7 @@ import type {
   OutdoorTemperatureSample,
   Sensor,
 } from "@climate-twin/contracts";
+import { HOME_PERFORMANCE_ALGORITHM_VERSION } from "@climate-twin/contracts";
 
 import { deriveHomePerformance } from "../src/analytics/home-performance/derive.js";
 
@@ -134,7 +135,7 @@ describe("deriveHomePerformance", () => {
     expect(result.status).toBe("ready");
     expect(result.provenance).toMatchObject({
       truthClass: "derived",
-      algorithmVersion: "home-performance-v1.0.0",
+      algorithmVersion: HOME_PERFORMANCE_ALGORITHM_VERSION,
       sourceIds: expect.arrayContaining(["climate", "heater"]),
     });
 

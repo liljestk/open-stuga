@@ -84,7 +84,7 @@ describe("DataAnalyticsPage", () => {
       cache: { hit: false, keyVersion: "analytics-query-v1" },
     } satisfies AnalyticsQueryResponse;
     vi.spyOn(api, "analyticsQuery").mockResolvedValue(analyticsResponse);
-    const thermalIsolation = vi.spyOn(api, "thermalIsolation").mockRejectedValue(new Error("Unavailable"));
+    const thermalIsolation = vi.spyOn(api, "cachedThermalIsolation").mockRejectedValue(new Error("Unavailable"));
     vi.spyOn(api, "openingStateHistory").mockResolvedValue([]);
     vi.spyOn(api, "actionRuns").mockResolvedValue([]);
     vi.spyOn(api, "sensorDataGaps").mockResolvedValue([{

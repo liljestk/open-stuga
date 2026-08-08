@@ -114,12 +114,12 @@ describe("MCP measurement argument validation", () => {
     expect(() => requireMcpConfirmation(undefined)).toThrow("confirm must be true for this destructive operation");
   });
 
-  it("keeps weather inspection read-only while marking its provider access", () => {
+  it("keeps weather inspection read-only and local", () => {
     expect(mcpToolAnnotations("get_house_weather")).toEqual({
       readOnlyHint: true,
       destructiveHint: false,
       idempotentHint: true,
-      openWorldHint: true,
+      openWorldHint: false,
     });
   });
 

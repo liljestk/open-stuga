@@ -1,6 +1,71 @@
 const evidenceState = { enum: ["ready", "limited", "unavailable"] } as const;
 
+const durableDerivedResponse = (kind: string, resultSchema: string) => ({
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "apiVersion", "kind", "houseId", "dataMode", "windowDays", "cutoff",
+    "state", "stale", "result", "artifact", "job",
+  ],
+  properties: {
+    apiVersion: { const: "1.0" },
+    kind: { const: kind },
+    houseId: { type: "string" },
+    dataMode: { enum: ["live", "demo"] },
+    windowDays: { type: "integer", minimum: 1, maximum: 30 },
+    cutoff: { type: "string", format: "date-time" },
+    state: { enum: ["idle", "ready", "queued", "refreshing", "failed"] },
+    stale: { type: "boolean" },
+    result: { oneOf: [{ $ref: resultSchema }, { type: "null" }] },
+    artifact: {
+      oneOf: [{
+        type: "object",
+        additionalProperties: false,
+        required: ["id", "generatedAt", "cutoff", "algorithmVersion", "evidenceVersion"],
+        properties: {
+          id: { type: "integer", minimum: 1 },
+          generatedAt: { type: "string", format: "date-time" },
+          cutoff: { type: "string", format: "date-time" },
+          algorithmVersion: { type: "string" },
+          evidenceVersion: { type: "string" },
+        },
+      }, { type: "null" }],
+    },
+    job: {
+      oneOf: [{
+        type: "object",
+        additionalProperties: false,
+        required: [
+          "requestedAt", "startedAt", "completedAt", "nextAttemptAt", "attemptCount",
+          "errorCode", "errorMessage",
+        ],
+        properties: {
+          requestedAt: { type: "string", format: "date-time" },
+          startedAt: { type: ["string", "null"], format: "date-time" },
+          completedAt: { type: ["string", "null"], format: "date-time" },
+          nextAttemptAt: { type: ["string", "null"], format: "date-time" },
+          attemptCount: { type: "integer", minimum: 0 },
+          errorCode: { type: ["string", "null"] },
+          errorMessage: { type: ["string", "null"] },
+        },
+      }, { type: "null" }],
+    },
+  },
+});
+
 export const schemasPart09 = {
+  DurableThermalIsolationResponse: durableDerivedResponse(
+    "thermal-isolation",
+    "#/components/schemas/ThermalIsolationResult",
+  ),
+  DurableMoistureResponseResponse: durableDerivedResponse(
+    "moisture-response",
+    "#/components/schemas/MoistureResponseResult",
+  ),
+  DurableHomePerformanceResponse: durableDerivedResponse(
+    "home-performance",
+    "#/components/schemas/HomePerformanceResponse",
+  ),
   DerivedAnalyticsCache: {
     type: "object",
     additionalProperties: false,

@@ -315,6 +315,20 @@ export function configureApiPart27(context: ReturnType<typeof configureApiPart26
         // corresponding house layer endpoint.
         return scope.kind === "house" ? access.house(scope.id) : access.hasProperty(scope.id);
       },
+      authorizeMutation: (_request, response, scope) => {
+        if (requestPrincipal(response).role === "guest") return false;
+        try {
+          if (scope.kind === "house") {
+            context.stuguby.assertHouseWriteAllowed(scope.id);
+            context.stuguby.assertHouseLocalAuthority(scope.id);
+          } else {
+            context.stuguby.assertPropertyWriteAllowed(scope.id);
+          }
+          return true;
+        } catch {
+          return false;
+        }
+      },
       auditActor: (_request, response) => requestPrincipal(response).userId,
       streamAuthorizationFingerprint: context.streamAuthorizationFingerprint,
       validateStream: (_request, response) => !context.rejectEventStreamDuringShutdown(response),

@@ -2,7 +2,7 @@ import { hasLocalHouseAuthority, type House, type HouseWeather } from "@climate-
 import { outdoorLocationKey } from "./db.js";
 
 const DEFAULT_HOURS = 48;
-const DEFAULT_CONCURRENCY = 2;
+const DEFAULT_CONCURRENCY = 1;
 const DEFAULT_INTERVAL_MS = 15 * 60_000;
 const DEFAULT_STARTUP_JITTER_MS = 60_000;
 const DEFAULT_INTERVAL_JITTER_MS = 60_000;
@@ -17,10 +17,15 @@ export interface WeatherMonitorHouseRepository {
 
 /** The subset of WeatherService used by the monitor. */
 export interface WeatherMonitorRefreshService {
-  get(house: House, hours: number): Promise<HouseWeather>;
+  refresh(house: House, hours: number): Promise<HouseWeather>;
 }
 
 export type WeatherMonitorPersistence = (weather: HouseWeather, currentHouse: House) => void | Promise<void>;
+export type WeatherMonitorFailurePersistence = (
+  house: House,
+  error: unknown,
+  attemptedAt: string,
+) => void | Promise<void>;
 
 export interface WeatherMonitorRunSummary {
   startedAt: string;
@@ -45,6 +50,7 @@ export interface WeatherMonitorOptions {
   houses: WeatherMonitorHouseRepository;
   weather: WeatherMonitorRefreshService;
   persist: WeatherMonitorPersistence;
+  persistFailure?: WeatherMonitorFailurePersistence;
   hours?: number;
   concurrency?: number;
   intervalMs?: number;
@@ -89,6 +95,7 @@ export class WeatherMonitor {
   readonly #houses: WeatherMonitorHouseRepository;
   readonly #weather: WeatherMonitorRefreshService;
   readonly #persist: WeatherMonitorPersistence;
+  readonly #persistFailure: WeatherMonitorFailurePersistence | undefined;
   readonly #hours: number;
   readonly #concurrency: number;
   readonly #intervalMs: number;
@@ -102,6 +109,7 @@ export class WeatherMonitor {
   readonly #backoff = new Map<string, HouseBackoff>();
   #timer: ReturnType<typeof setTimeout> | null = null;
   #activeRun: Promise<WeatherMonitorRunSummary> | null = null;
+  #rerunRequested = false;
   #lifecycle = 0;
   #cancellation = 0;
   #status: WeatherMonitorStatus = {
@@ -115,6 +123,7 @@ export class WeatherMonitor {
     this.#houses = options.houses;
     this.#weather = options.weather;
     this.#persist = options.persist;
+    this.#persistFailure = options.persistFailure;
     this.#hours = finiteInteger(options.hours ?? DEFAULT_HOURS, "hours", 1, 240);
     this.#concurrency = finiteInteger(
       options.concurrency ?? DEFAULT_CONCURRENCY,
@@ -152,6 +161,7 @@ export class WeatherMonitor {
   stop(): void {
     if (!this.#status.started && !this.#timer && !this.#activeRun) return;
     this.#status.started = false;
+    this.#rerunRequested = false;
     this.#status.nextRunAt = null;
     this.#lifecycle += 1;
     if (this.#activeRun) this.#cancellation += 1;
@@ -168,6 +178,15 @@ export class WeatherMonitor {
     return run;
   }
 
+  /** Starts now, or queues exactly one follow-up when a cycle is already active. */
+  requestRun(): void {
+    if (this.#activeRun) {
+      this.#rerunRequested = true;
+      return;
+    }
+    void this.runOnce();
+  }
+
   async #executeAndRelease(cancellation: number): Promise<WeatherMonitorRunSummary> {
     try {
       // Yield once so runOnce() can publish the active promise before any
@@ -176,6 +195,9 @@ export class WeatherMonitor {
       return await this.#executeRun(cancellation);
     } finally {
       this.#activeRun = null;
+      const rerun = this.#rerunRequested && cancellation === this.#cancellation;
+      this.#rerunRequested = false;
+      if (rerun) void this.runOnce();
     }
   }
 
@@ -263,7 +285,7 @@ export class WeatherMonitor {
   ): Promise<void> {
     let weather: HouseWeather;
     try {
-      weather = await this.#weather.get(snapshot.house, this.#hours);
+      weather = await this.#weather.refresh(snapshot.house, this.#hours);
     } catch (error) {
       await this.#recordFailureUnlessSuperseded(snapshot, summary, error, cancellation);
       return;
@@ -286,7 +308,7 @@ export class WeatherMonitor {
     try {
       current = await this.#houses.getHouse(snapshot.house.id);
     } catch (error) {
-      this.#recordFailure(snapshot, summary, error);
+      await this.#recordFailure(snapshot, summary, error);
       return;
     }
     if (this.#cancelled(cancellation)) {
@@ -328,10 +350,10 @@ export class WeatherMonitor {
         return;
       }
     } catch (refreshError) {
-      this.#recordFailure(snapshot, summary, refreshError);
+      await this.#recordFailure(snapshot, summary, refreshError);
       return;
     }
-    this.#recordFailure(snapshot, summary, error);
+    await this.#recordFailure(snapshot, summary, error);
   }
 
   #cancelled(cancellation: number): boolean {
@@ -355,7 +377,11 @@ export class WeatherMonitor {
     summary.superseded += 1;
   }
 
-  #recordFailure(snapshot: LocatedHouseSnapshot, summary: WeatherMonitorRunSummary, error: unknown): void {
+  async #recordFailure(
+    snapshot: LocatedHouseSnapshot,
+    summary: WeatherMonitorRunSummary,
+    error: unknown,
+  ): Promise<void> {
     const failures = (this.#backoff.get(snapshot.house.id)?.failures ?? 0) + 1;
     const exponent = Math.min(30, failures - 1);
     const delay = Math.min(this.#backoffMaxMs, this.#backoffBaseMs * 2 ** exponent);
@@ -367,6 +393,15 @@ export class WeatherMonitor {
     });
     summary.failed += 1;
     summary.lastError = errorMessage(error);
+    try {
+      await this.#persistFailure?.(
+        snapshot.house,
+        error,
+        new Date(this.#now()).toISOString(),
+      );
+    } catch {
+      // Failure bookkeeping is best effort and must not create retry storms.
+    }
   }
 
   #jitter(maximumMs: number): number {

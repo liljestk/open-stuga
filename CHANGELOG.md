@@ -4,6 +4,32 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.37.0 - 2026-08-08
+
+- Replace request-time thermal-isolation, moisture-response, and Home
+  Performance recalculation with durable last-good artifacts, explicit refresh,
+  stable Home-local nightly scheduling, and one shared host-load governor.
+- Serve current opening state from a bounded SQLite projection, use cancellable
+  archive reads only for explicit history/replay, and make the browser SSE-first
+  with edit, visibility, reconnect, and replay load controls.
+- Persist canonical outdoor-weather snapshots so pages and MCP reads never call
+  FMI or Open-Meteo; serialize and coalesce provider refresh/recovery work in the
+  background while preserving stale last-good data on failure.
+- Turn experimental spatial inference into an authorized, timed Home session
+  that is off by default, max-one and low priority, with no Property fan-out or
+  measurement-triggered ambient inference.
+- Keep heavy daily findings and historical sensor-gap recovery deployment
+  opt-ins, remove full-history startup/live-ingestion scans, and isolate
+  thermal/moisture fitting in a resource-limited worker.
+
+Upgrade impact: this application-only release adds idempotent SQLite projections
+and durable weather/analytics job tables; it does not require a signed host
+update. Existing telemetry and last-good results are preserved. The v2 Home
+Performance endpoint now returns the common durable-artifact status envelope;
+v1 exact-window thermal and moisture endpoints remain available. Spatial
+capability must be enabled by deployment configuration before the timed House
+control is shown, but no inference session starts automatically.
+
 ## 0.36.1 - 2026-08-05
 
 - Stop answering a cancelled request with "The request could not be completed".

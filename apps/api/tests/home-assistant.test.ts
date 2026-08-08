@@ -466,7 +466,7 @@ describe("Home Assistant normalization and state cache", () => {
       externalId: "binary_sensor.entry", connectionId: "house-main" });
     expect(Date.parse(initial.observedAt)).toBeGreaterThanOrEqual(startedAt);
     expect(runtime.status.value.homeAssistant.mappedEntities).toBe(1);
-    expect(wakeHouse).toHaveBeenCalledWith(house.id, house.propertyId, initial.observedAt, "property-context-changed");
+    expect(wakeHouse).toHaveBeenCalledWith(house.id, null, initial.observedAt, "property-context-changed");
 
     wakeHouse.mockClear();
     const changedAt = new Date().toISOString();
@@ -478,6 +478,6 @@ describe("Home Assistant normalization and state cache", () => {
     await waitFor(() => runtime!.database.listOpeningStateObservations(house.id).length === 2);
     const changed = runtime.database.listOpeningStateObservations(house.id)[0]!;
     expect(changed).toMatchObject({ state: "closed", source: "home-assistant" });
-    expect(wakeHouse).toHaveBeenCalledWith(house.id, house.propertyId, changed.observedAt, "property-context-changed");
+    expect(wakeHouse).toHaveBeenCalledWith(house.id, null, changed.observedAt, "property-context-changed");
   });
 });

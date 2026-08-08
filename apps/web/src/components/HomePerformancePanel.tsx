@@ -9,6 +9,7 @@ import {
   Gauge,
   Info,
   RadioTower,
+  RefreshCw,
   Wind,
   Wrench,
 } from "lucide-react";
@@ -21,6 +22,7 @@ import type {
 import { useHomePerformanceQuery } from "../data/analytics/homePerformanceQuery";
 import { useI18n } from "../i18n";
 import { measurementLabel } from "../measurements";
+import { DerivedArtifactNotices } from "./DerivedArtifactNotices";
 
 const PERFORMANCE_DAYS = 30;
 
@@ -30,6 +32,7 @@ interface HomePerformancePanelProps {
   dataMode: "demo" | "real" | "unknown";
   refreshRevision: number;
   embedded?: boolean;
+  canRefresh?: boolean;
 }
 
 interface PerformanceRowProps {
@@ -96,6 +99,7 @@ function issueText(
 
 export function HomePerformancePanel(props: Readonly<HomePerformancePanelProps>) {
   const { locale, t } = useI18n();
+  const canRefresh = props.canRefresh ?? true;
   const dataMode = props.dataMode === "real" ? "live" as const : "demo" as const;
   const queryIdentity = `${props.house.id}:${dataMode}`;
   const query = useHomePerformanceQuery(
@@ -111,7 +115,10 @@ export function HomePerformancePanel(props: Readonly<HomePerformancePanelProps>)
       firstRefresh.current = false;
       return;
     }
-    if (props.dataMode !== "unknown") void query.refetch();
+    if (canRefresh && props.dataMode !== "unknown") void query.refresh();
+    // Only an explicit global refresh revision may enqueue background work;
+    // bootstrap/auth/data-mode changes must remain pure reads.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.refreshRevision]);
 
   useEffect(() => {
@@ -122,7 +129,8 @@ export function HomePerformancePanel(props: Readonly<HomePerformancePanelProps>)
     });
   }, [query.data, query.error, queryIdentity]);
 
-  const performance = query.data ?? null;
+  const durable = query.data ?? null;
+  const performance = durable?.result ?? null;
   const visibleFailure = query.error
     ?? (settledFailure?.identity === queryIdentity ? settledFailure.error : null);
   const loading = query.isLoading && !visibleFailure;
@@ -172,12 +180,18 @@ export function HomePerformancePanel(props: Readonly<HomePerformancePanelProps>)
             <h2 id="home-performance-title">{t("performance.title")}</h2>
             <p>{t("performance.description")}</p>
           </div>}
-      {performance && <PerformanceState state={performance.status} />}
+      <div className="isolation-controls">
+        {performance && <PerformanceState state={performance.status} />}
+        {canRefresh && <button type="button" className="secondary-button" onClick={() => void query.refresh()} disabled={query.isFetching || props.dataMode === "unknown"}>
+          <RefreshCw className={query.isFetching ? "spin" : ""} size={14} aria-hidden="true" />{t("common.refresh")}
+        </button>}
+      </div>
     </header>
 
     {loading && <output className="home-performance-loading" aria-live="polite">
-      <CircleDashed size={16} aria-hidden="true" />{t("performance.loading")}
+      <CircleDashed size={16} aria-hidden="true" />{t("derived.loading")}
     </output>}
+    <DerivedArtifactNotices status={durable} hasResult={Boolean(performance)} canRefresh={canRefresh} />
     {!loading && partialFailures.length > 0 && <p className="home-performance-notice" role="status">
       <Info size={15} aria-hidden="true" />{t("performance.partial", { sources: partialFailures.join(", ") })}
     </p>}

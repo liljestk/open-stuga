@@ -38,7 +38,7 @@ const chatgptToolPresentation: Record<string, { title: string; description: stri
   },
   get_house_weather: {
     title: "Get current Home weather",
-    description: "Get current outdoor conditions, wind, forecasts, and weather warnings for one Home.",
+    description: "Get the latest locally stored outdoor conditions, wind, forecast, and weather warnings for one Home.",
   },
   get_house_opening_states: {
     title: "Check doors and windows",

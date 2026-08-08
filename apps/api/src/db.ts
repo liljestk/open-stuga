@@ -23,6 +23,8 @@ import "./db/contracts/22-create-alert-event-to-dead-letter-notification-outbo.j
 import "./db/contracts/23-list-notification-deliveries-to-create-observation.js";
 import "./db/contracts/24-update-observation-to-create-maintenance-task.js";
 import "./db/contracts/25-update-maintenance-task-to-delete-asset.js";
+import "./db/contracts/weather-snapshot.js";
+import "./db/contracts/derived-analytics-history.js";
 import "./db/methods/01-migrate-equipment-placement-table-to-migrate.js";
 import "./db/methods/02-migrate-core-and-resource-schema.js";
 import "./db/methods/03-migrate-sensor-and-notification-schema.js";
@@ -48,6 +50,8 @@ import "./db/methods/22-create-alert-event-to-dead-letter-notification-outbo.js"
 import "./db/methods/23-list-notification-deliveries-to-create-observation.js";
 import "./db/methods/24-update-observation-to-create-maintenance-task.js";
 import "./db/methods/25-update-maintenance-task-to-delete-asset.js";
+import "./db/methods/weather-snapshot.js";
+import "./db/methods/derived-analytics-history.js";
 
 export type { DemoTelemetryPurgeResult } from "./db/support/01-json-value-to-area-equipment-row.js";
 export type { StoredDailyAnalyticsFindings } from "./db/support/01-json-value-to-area-equipment-row.js";
@@ -68,6 +72,7 @@ export type { TelemetryArchiveTable } from "./db/support/01-json-value-to-area-e
 export type { TelemetryArchiveMutableTable } from "./db/support/01-json-value-to-area-equipment-row.js";
 export type { TelemetryArchiveWatermarks } from "./db/support/01-json-value-to-area-equipment-row.js";
 export type { WeatherOutageRecord } from "./db/support/02-equipment-attachment-row-to-sensor-data-gap-state.js";
+export type { StoredWeatherSnapshot } from "./db/weather-snapshot-types.js";
 export type { SensorDataGapSource } from "./db/support/02-equipment-attachment-row-to-sensor-data-gap-state.js";
 export type { SensorDataGapState } from "./db/support/02-equipment-attachment-row-to-sensor-data-gap-state.js";
 export type { SensorDataGapCompleteness } from "./db/support/02-equipment-attachment-row-to-sensor-data-gap-state.js";

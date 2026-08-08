@@ -9,7 +9,7 @@ const RAW_CREDENTIAL_WRITING_MCP_TOOLS = new Set([
 ]);
 
 const EXTERNALLY_CONNECTED_MCP_TOOLS = new Set([
-  "search_locations", "resolve_coordinate_defaults", "get_house_weather", "discover_integrations",
+  "search_locations", "resolve_coordinate_defaults", "discover_integrations",
 ]);
 
 const STATE_CHANGING_MCP_TOOLS = new Set([

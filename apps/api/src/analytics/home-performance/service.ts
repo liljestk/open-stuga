@@ -142,6 +142,7 @@ async function analyticsEvidence(input: {
   resolution: "15m" | "1h";
   key: string;
 }): Promise<AnalyticsQueryResponse | null> {
+  input.service.signal?.throwIfAborted();
   if (input.sensors.length === 0 || input.definitions.length === 0) return null;
   const buckets = pointCount(input.start, input.end, input.resolution);
   const pointsPerSensor = buckets * input.definitions.length;
@@ -155,6 +156,7 @@ async function analyticsEvidence(input: {
   }
   const responses: AnalyticsQueryResponse[] = [];
   for (const [index, sensors] of batches.entries()) {
+    input.service.signal?.throwIfAborted();
     responses.push(await executeAnalyticsQuery({
       request: queryRequest({
         house: input.service.house,
@@ -173,13 +175,22 @@ async function analyticsEvidence(input: {
       ...(input.service.signal ? { signal: input.service.signal } : {}),
     }));
   }
+  input.service.signal?.throwIfAborted();
   return combineAnalytics(responses, input.key);
 }
 
-async function settled<T>(task: () => Promise<T>): Promise<PromiseSettledResult<T>> {
+async function settled<T>(
+  task: () => Promise<T>,
+  signal?: AbortSignal,
+): Promise<PromiseSettledResult<T>> {
   try {
     return { status: "fulfilled", value: await task() };
   } catch (reason) {
+    // Evidence outages are intentionally downgraded to warnings, but a
+    // cancellation is control flow: swallowing it would let a stopped job
+    // derive and publish a partial "successful" artifact.
+    signal?.throwIfAborted();
+    if (reason instanceof Error && reason.name === "AbortError") throw reason;
     return { status: "rejected", reason };
   }
 }
@@ -212,6 +223,7 @@ function archiveState(responses: readonly (AnalyticsQueryResponse | null)[]) {
 export async function getHomePerformance(
   input: HomePerformanceServiceInput,
 ): Promise<HomePerformanceResponse> {
+  input.signal?.throwIfAborted();
   const sensors = [...input.sensors]
     .filter((sensor) => sensor.enabled)
     .sort((left, right) => left.id.localeCompare(right.id));
@@ -248,7 +260,7 @@ export async function getHomePerformance(
       end: to,
       resolution: "1h",
       key: `home-performance-climate-${input.house.id}`,
-    })),
+    }), input.signal),
     settled(() => analyticsEvidence({
       service: input,
       sensors,
@@ -257,8 +269,9 @@ export async function getHomePerformance(
       end: to,
       resolution: "15m",
       key: `home-performance-recovery-${input.house.id}`,
-    })),
+    }), input.signal),
   ]);
+  input.signal?.throwIfAborted();
   const [energyEvidence, outdoorEvidence] = await Promise.all([
     settled(() => analyticsEvidence({
       service: input,
@@ -268,7 +281,7 @@ export async function getHomePerformance(
       end: to,
       resolution: "1h",
       key: `home-performance-energy-${input.house.id}`,
-    })),
+    }), input.signal),
     settled(() => input.house.location
       ? input.telemetryReader.outdoorTemperatureHistory({
           houseId: input.house.id,
@@ -278,8 +291,9 @@ export async function getHomePerformance(
           limit: OUTDOOR_LIMIT,
           ...(input.signal ? { signal: input.signal } : {}),
         })
-      : Promise.resolve(null)),
+      : Promise.resolve(null), input.signal),
   ]);
+  input.signal?.throwIfAborted();
   const openingsEvidence = await settled(() => Promise.all([
       input.telemetryReader.openingStateSnapshot({
         houseId: input.house.id,
@@ -294,7 +308,8 @@ export async function getHomePerformance(
         limit: OPENING_LIMIT,
         ...(input.signal ? { signal: input.signal } : {}),
       }),
-    ]));
+    ]), input.signal);
+  input.signal?.throwIfAborted();
   const evidence = [
     climateEvidence,
     recoveryEvidence,
@@ -371,6 +386,7 @@ export async function getHomePerformance(
     to,
     generatedAt: input.evaluatedAt,
   });
+  input.signal?.throwIfAborted();
   const limitations = result.limitations.filter((item): item is HomePerformanceLimitation => (
     item !== "sensor-scope-limited" && item !== "evidence-scope-limited"
   ));

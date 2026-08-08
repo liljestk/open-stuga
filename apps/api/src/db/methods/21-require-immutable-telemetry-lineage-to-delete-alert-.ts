@@ -210,6 +210,9 @@ registerDatabaseMethods({
         electricityDeleted += changes;
         if (changes < batchSize) break;
       }
+      this.db.prepare(`DELETE FROM opening_state_current_candidates
+        WHERE effective_until_ceiling IS NOT NULL AND effective_until_ceiling <= ?`)
+        .run(new Date().toISOString());
       const openingStatement = archivedThrough
         ? this.db.prepare(`DELETE FROM opening_state_observations WHERE rowid IN (
             SELECT observation.rowid
@@ -218,6 +221,10 @@ registerDatabaseMethods({
               ON observation.id = json_extract(archive.natural_key, '$[0]')
             WHERE archive.table_name = 'opening_state_samples'
               AND observation.observed_at < ? AND archive.archive_id <= ?
+              AND NOT EXISTS (
+                SELECT 1 FROM opening_state_current_candidates candidate
+                WHERE candidate.observation_id = observation.id
+              )
               AND observation.id != (
                 SELECT latest.id FROM opening_state_observations latest
                 WHERE latest.house_id = observation.house_id
@@ -233,6 +240,10 @@ registerDatabaseMethods({
         : this.db.prepare(`DELETE FROM opening_state_observations WHERE rowid IN (
             SELECT observation.rowid FROM opening_state_observations observation
             WHERE observation.observed_at < ?
+              AND NOT EXISTS (
+                SELECT 1 FROM opening_state_current_candidates candidate
+                WHERE candidate.observation_id = observation.id
+              )
               AND observation.id != (
                 SELECT latest.id FROM opening_state_observations latest
                 WHERE latest.house_id = observation.house_id
