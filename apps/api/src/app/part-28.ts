@@ -208,7 +208,7 @@ export function configureApiPart28(context: ReturnType<typeof configureApiPart27
       sensorGapRecovery.start();
       context.electricityPrices.start();
       context.weatherMonitor.start();
-      context.dailyAnalyticsFindings.start();
+      if (config.dailyAnalyticsFindingsEnabled) context.dailyAnalyticsFindings.start();
       context.scheduledDataExports.start();
       context.notifySpatial((runtime) => runtime.start());
     }

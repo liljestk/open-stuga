@@ -21,6 +21,8 @@ export interface AppConfig {
   spatialLayersDatabasePath?: string;
   spatialLayersIntervalMs?: number;
   spatialLayersRetentionDays?: number;
+  /** Scheduled analytical fitting is opt-in until it runs behind the shared resource governor. */
+  dailyAnalyticsFindingsEnabled?: boolean;
   /** Property-wide BLE equipment tracking remains an explicit deployment opt-in. */
   trackingEnabled?: boolean;
   trackingMobileObserverEnabled?: boolean;

@@ -128,6 +128,15 @@ export class NotificationOutboxWorker extends DurableWorker {
       ? this.database.getIOSPushDestinationForAlert(item.destinationId, item.eventId)
       : null;
     try {
+      if (item.channel === "webhook" && !webhookDestination) {
+        this.database.abandonNotificationOutbox(
+          item.id,
+          item.lockToken,
+          "Notification destination configuration was removed after this item was queued",
+        );
+        this.status.changed();
+        return;
+      }
       const currentDestinationRef = item.channel === "apns"
         ? apnsNotificationDestinationRef(apnsProviderRef(this.config), apnsDestination)
         : notificationDestinationRef(item.channel, this.config, item.destinationId);
@@ -141,7 +150,6 @@ export class NotificationOutboxWorker extends DurableWorker {
         return;
       }
       if (item.channel === "webhook") {
-        if (!webhookDestination) throw new Error("Alert webhook destination is not configured");
         const webhookHost = new URL(webhookDestination.url).hostname.toLowerCase();
         if (!(this.config.alertWebhookAllowedHosts ?? []).includes(webhookHost)) {
           throw new Error("Alert webhook destination is not on the configured allowlist");

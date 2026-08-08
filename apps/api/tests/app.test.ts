@@ -414,6 +414,7 @@ describe("Climate Twin API v1", () => {
       spatialLayersIntervalMs: 60_000,
       spatialLayersRetentionDays: 30,
     });
+    expect(loadConfig({ NODE_ENV: "production", DATABASE_PATH: ":memory:" }).spatialLayersEnabled).toBe(false);
     expect(loadConfig({
       NODE_ENV: "production",
       DATABASE_PATH: ":memory:",
@@ -426,6 +427,25 @@ describe("Climate Twin API v1", () => {
       spatialLayersIntervalMs: 30_000,
       spatialLayersRetentionDays: 7,
     });
+  });
+
+  it("keeps scheduled daily analytics dormant unless explicitly enabled", async () => {
+    const disabled = loadConfig({ NODE_ENV: "test", DATABASE_PATH: ":memory:" });
+    expect(disabled.dailyAnalyticsFindingsEnabled).toBe(false);
+    await runtime.close();
+    runtime = createApi({ config: disabled, startBackground: true });
+    expect(runtime.dailyAnalyticsFindings.status().started).toBe(false);
+
+    await runtime.close();
+    runtime = createApi({
+      config: loadConfig({
+        NODE_ENV: "test",
+        DATABASE_PATH: ":memory:",
+        DAILY_ANALYTICS_FINDINGS_ENABLED: "true",
+      }),
+      startBackground: true,
+    });
+    expect(runtime.dailyAnalyticsFindings.status().started).toBe(true);
   });
 
   it("treats Compose-style empty integration tuples as absent but rejects partial tuples", () => {
