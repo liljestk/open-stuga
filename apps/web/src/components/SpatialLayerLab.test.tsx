@@ -114,7 +114,7 @@ describe("SpatialLayerLab guided calibration", () => {
       status: "completed",
       intervention: { description: "Opened the kitchen door" },
       notes: "Observed a humidity pulse",
-    })));
+    }), expect.any(AbortSignal)));
   });
 
   it("keeps inference off by default and starts and stops a bounded session", async () => {
@@ -135,13 +135,67 @@ describe("SpatialLayerLab guided calibration", () => {
     await waitFor(() => expect(mocks.startInference).toHaveBeenCalledWith("house-1", {
       durationMinutes: 60,
       cadenceMinutes: 10,
-    }));
+    }, expect.any(AbortSignal)));
     expect((await screen.findAllByText("Running")).length).toBeGreaterThan(0);
     expect(screen.getByText("Stops at")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Stop analysis" }));
-    await waitFor(() => expect(mocks.stopInference).toHaveBeenCalledWith("house-1"));
+    await waitFor(() => expect(mocks.stopInference).toHaveBeenCalledWith("house-1", expect.any(AbortSignal)));
     expect(await screen.findByText("Stopped")).toBeInTheDocument();
+  });
+
+  it("does not let visibility revalidation supersede a pending start", async () => {
+    const sensor = createDemoState().sensors[0]!;
+    let resolveStart!: (value: typeof activeInference) => void;
+    mocks.startInference.mockReturnValueOnce(new Promise<typeof activeInference>((resolve) => { resolveStart = resolve; }));
+    const view = render(<I18nProvider><SpatialLayerLab houseId="house-1" sensors={[sensor]} layers={layerState()} /></I18nProvider>);
+    const details = view.container.querySelector("details")!;
+    await act(async () => {
+      details.open = true;
+      fireEvent(details, new Event("toggle"));
+    });
+    await screen.findByText("Experimental spatial analysis");
+    expect(mocks.inference).toHaveBeenCalledOnce();
+
+    fireEvent.click(screen.getByRole("button", { name: "Start analysis" }));
+    await waitFor(() => expect(mocks.startInference).toHaveBeenCalledOnce());
+    act(() => document.dispatchEvent(new Event("visibilitychange")));
+    expect(mocks.inference).toHaveBeenCalledOnce();
+
+    await act(async () => {
+      resolveStart(activeInference);
+      await Promise.resolve();
+    });
+    expect(await screen.findByRole("button", { name: "Stop analysis" })).toBeEnabled();
+    expect((await screen.findAllByText("Running")).length).toBeGreaterThan(0);
+  });
+
+  it("does not let visibility revalidation supersede a pending stop", async () => {
+    const sensor = createDemoState().sensors[0]!;
+    const stoppedInference = { ...activeInference, status: "stopped" as const, stoppedAt: "2026-07-16T16:30:00.000Z" };
+    let resolveStop!: (value: typeof stoppedInference) => void;
+    mocks.inference.mockResolvedValue(activeInference);
+    mocks.stopInference.mockReturnValueOnce(new Promise<typeof stoppedInference>((resolve) => { resolveStop = resolve; }));
+    const view = render(<I18nProvider><SpatialLayerLab houseId="house-1" sensors={[sensor]} layers={layerState()} /></I18nProvider>);
+    const details = view.container.querySelector("details")!;
+    await act(async () => {
+      details.open = true;
+      fireEvent(details, new Event("toggle"));
+    });
+    await screen.findByRole("button", { name: "Stop analysis" });
+    expect(mocks.inference).toHaveBeenCalledOnce();
+
+    fireEvent.click(screen.getByRole("button", { name: "Stop analysis" }));
+    await waitFor(() => expect(mocks.stopInference).toHaveBeenCalledOnce());
+    act(() => document.dispatchEvent(new Event("visibilitychange")));
+    expect(mocks.inference).toHaveBeenCalledOnce();
+
+    await act(async () => {
+      resolveStop(stoppedInference);
+      await Promise.resolve();
+    });
+    expect(await screen.findByRole("button", { name: "Start analysis" })).toBeEnabled();
+    expect((await screen.findAllByText("Stopped")).length).toBeGreaterThan(0);
   });
 
   it("revalidates the bounded session on reopen and visibility return without reloading all lab data", async () => {
@@ -236,6 +290,7 @@ describe("SpatialLayerLab guided calibration", () => {
     await act(async () => {
       details.open = false;
       fireEvent(details, new Event("toggle"));
+      expect(mocks.startInference.mock.calls[0]?.[2]).toEqual(expect.objectContaining({ aborted: true }));
       resolveStart(activeInference);
       await Promise.resolve();
     });

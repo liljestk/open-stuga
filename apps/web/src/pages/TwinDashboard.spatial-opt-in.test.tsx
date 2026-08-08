@@ -44,20 +44,33 @@ function spatialRequests() {
     updatedAt: "2026-08-08T09:00:00.000Z",
   });
   const stopInference = vi.spyOn(api, "stopHouseSpatialInferenceSession").mockResolvedValue(null);
-  vi.spyOn(api, "houseSpatialLayerBindings").mockResolvedValue([]);
-  vi.spyOn(api, "houseSpatialLayerCalibrations").mockResolvedValue([]);
-  vi.spyOn(api, "houseSpatialLayerCalibrationSessions").mockResolvedValue([]);
-  vi.spyOn(api, "houseSpatialLayerContextEvents").mockResolvedValue([]);
-  vi.spyOn(api, "houseSpatialLayerGroundTruth").mockResolvedValue([]);
-  return { engines, current, health, configuration, inference, stopInference };
+  const bindings = vi.spyOn(api, "houseSpatialLayerBindings").mockResolvedValue([]);
+  const calibrations = vi.spyOn(api, "houseSpatialLayerCalibrations").mockResolvedValue([]);
+  const calibrationSessions = vi.spyOn(api, "houseSpatialLayerCalibrationSessions").mockResolvedValue([]);
+  const contextEvents = vi.spyOn(api, "houseSpatialLayerContextEvents").mockResolvedValue([]);
+  const groundTruth = vi.spyOn(api, "houseSpatialLayerGroundTruth").mockResolvedValue([]);
+  return {
+    engines, current, health, configuration, inference, stopInference,
+    bindings, calibrations, calibrationSessions, contextEvents, groundTruth,
+  };
 }
 
-function renderDashboard() {
-  const state = createDemoState();
-  const house = state.houses[0]!;
+function specialistRequests(requests: ReturnType<typeof spatialRequests>) {
+  return [
+    requests.configuration,
+    requests.inference,
+    requests.bindings,
+    requests.calibrations,
+    requests.calibrationSessions,
+    requests.contextEvents,
+    requests.groundTruth,
+  ];
+}
+
+function dashboard(state = createDemoState(), house = state.houses[0]!) {
   const floor = house.floors[0]!;
   const sensor = state.sensors.find((candidate) => candidate.houseId === house.id && candidate.enabled)!;
-  return render(<I18nProvider><TwinDashboard
+  return <I18nProvider><TwinDashboard
     state={state}
     house={house}
     floor={floor}
@@ -83,7 +96,11 @@ function renderDashboard() {
     onRunScenario={vi.fn()}
     onCreateObservation={vi.fn().mockResolvedValue(state.observations[0]!)}
     onCreateStaticParameter={vi.fn().mockResolvedValue(state.staticParameters[0]!)}
-  /></I18nProvider>);
+  /></I18nProvider>;
+}
+
+function renderDashboard() {
+  return render(dashboard());
 }
 
 describe("TwinDashboard spatial research opt-in", () => {
@@ -113,6 +130,7 @@ describe("TwinDashboard spatial research opt-in", () => {
     fireEvent.click(labTitle);
     await waitFor(() => expect(requests.current).toHaveBeenCalledOnce());
     await waitFor(() => expect(requests.configuration).toHaveBeenCalledOnce());
+    specialistRequests(requests).forEach((request) => expect(request).toHaveBeenCalledOnce());
     expect(requests.engines).toHaveBeenCalledOnce();
     expect(requests.health).not.toHaveBeenCalled();
     expect(requests.inference).toHaveBeenCalledOnce();
@@ -126,6 +144,115 @@ describe("TwinDashboard spatial research opt-in", () => {
     fireEvent.click(labTitle);
     await waitFor(() => expect(clearedIntervals).toHaveBeenCalledWith(spatialTimer));
     expect(requests.stopInference).not.toHaveBeenCalled();
+
+    view.unmount();
+    localStorage.removeItem("climate-twin-locale");
+  });
+
+  it("requires a fresh opt-in after navigating A to B to A", async () => {
+    localStorage.setItem("climate-twin-locale", "en");
+    const requests = spatialRequests();
+    const state = createDemoState();
+    const houseA = state.houses[0]!;
+    const houseB = { ...houseA, id: "house-second", name: "Birch House" };
+    const stateWithBoth = {
+      ...state,
+      houses: [houseA, houseB],
+      sensors: [
+        ...state.sensors,
+        ...state.sensors.map((sensor) => ({
+          ...sensor,
+          id: `second-${sensor.id}`,
+          houseId: houseB.id,
+        })),
+      ],
+    };
+    const view = render(dashboard(stateWithBoth, houseA));
+
+    fireEvent.click(screen.getByText("Open analysis tools"));
+    fireEvent.click(await screen.findByText("Environmental layer lab", { selector: "strong" }));
+    await waitFor(() => expect(requests.current).toHaveBeenCalledOnce());
+    await waitFor(() => specialistRequests(requests).forEach((request) => expect(request).toHaveBeenCalledOnce()));
+    expect(requests.current).toHaveBeenLastCalledWith(houseA.id, [], expect.any(AbortSignal));
+    specialistRequests(requests).forEach((request) => {
+      expect(request).toHaveBeenLastCalledWith(houseA.id, expect.any(AbortSignal));
+    });
+
+    view.rerender(dashboard(stateWithBoth, houseB));
+    expect(requests.current).toHaveBeenCalledOnce();
+    specialistRequests(requests).forEach((request) => expect(request).toHaveBeenCalledOnce());
+
+    view.rerender(dashboard(stateWithBoth, houseA));
+    expect(requests.current).toHaveBeenCalledOnce();
+    specialistRequests(requests).forEach((request) => expect(request).toHaveBeenCalledOnce());
+
+    fireEvent.click(screen.getByText("Environmental layer lab", { selector: "strong" }));
+    await waitFor(() => expect(requests.current).toHaveBeenCalledTimes(2));
+    await waitFor(() => specialistRequests(requests).forEach((request) => expect(request).toHaveBeenCalledTimes(2)));
+    expect(requests.current.mock.calls.map(([houseId]) => houseId)).toEqual([houseA.id, houseA.id]);
+    specialistRequests(requests).forEach((request) => {
+      expect(request.mock.calls.map(([houseId]) => houseId)).toEqual([houseA.id, houseA.id]);
+    });
+
+    view.unmount();
+    localStorage.removeItem("climate-twin-locale");
+  });
+
+  it("aborts specialist work for editing and stays dormant until a fresh opt-in", async () => {
+    localStorage.setItem("climate-twin-locale", "en");
+    const requests = spatialRequests();
+    const createContext = vi.spyOn(api, "createHouseSpatialLayerContextEvent");
+    let revalidationSignal: AbortSignal | undefined;
+    let mutationSignal: AbortSignal | undefined;
+    const rejectOnAbort = <T,>(signal: AbortSignal): Promise<T> => new Promise((_resolve, reject) => {
+      signal.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true });
+    });
+    const view = renderDashboard();
+
+    fireEvent.click(screen.getByRole("button", { name: "Open live home view" }));
+    const viewOptions = view.container.querySelector<HTMLDetailsElement>(".twin-view-options")!;
+    fireEvent.click(viewOptions.querySelector("summary")!);
+    fireEvent.click(screen.getByText("Open analysis tools"));
+    fireEvent.click(await screen.findByText("Environmental layer lab", { selector: "strong" }));
+    await waitFor(() => specialistRequests(requests).forEach((request) => expect(request).toHaveBeenCalledOnce()));
+
+    requests.inference.mockImplementationOnce((_houseId, signal) => {
+      revalidationSignal = signal;
+      return rejectOnAbort(signal!);
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+    await waitFor(() => expect(requests.inference).toHaveBeenCalledTimes(2));
+
+    createContext.mockImplementationOnce((_houseId, _event, signal) => {
+      mutationSignal = signal;
+      return rejectOnAbort(signal!);
+    });
+    const contextButton = screen.getByRole("button", { name: "Record context" });
+    fireEvent.submit(contextButton.closest("form")!);
+    await waitFor(() => expect(createContext).toHaveBeenCalledOnce());
+
+    const overviewCount = requests.current.mock.calls.length;
+    const specialistCounts = specialistRequests(requests).map((request) => request.mock.calls.length);
+    fireEvent.click(screen.getByRole("button", { name: "Edit layout" }));
+
+    await waitFor(() => {
+      expect(revalidationSignal?.aborted).toBe(true);
+      expect(mutationSignal?.aborted).toBe(true);
+    });
+    expect(screen.queryByText("Environmental layer lab", { selector: "strong" })).toBeNull();
+
+    fireEvent.click(view.container.querySelector<HTMLButtonElement>(".toolbar-edit-actions .secondary-button")!);
+    await screen.findByText("Environmental layer lab", { selector: "strong" });
+    expect(requests.current).toHaveBeenCalledTimes(overviewCount);
+    specialistRequests(requests).forEach((request, index) => {
+      expect(request).toHaveBeenCalledTimes(specialistCounts[index]!);
+    });
+
+    fireEvent.click(screen.getByText("Environmental layer lab", { selector: "strong" }));
+    await waitFor(() => expect(requests.current).toHaveBeenCalledTimes(overviewCount + 1));
+    await waitFor(() => specialistRequests(requests).forEach((request, index) => {
+      expect(request).toHaveBeenCalledTimes(specialistCounts[index]! + 1);
+    }));
 
     view.unmount();
     localStorage.removeItem("climate-twin-locale");

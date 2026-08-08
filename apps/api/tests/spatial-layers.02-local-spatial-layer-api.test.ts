@@ -93,6 +93,7 @@ describe("local spatial layer API", () => {
     expectOpenApiConformance(propertyCurrent.body, spatialOpenApiSchemas.SpatialLayerCurrent!);
 
     const houseHealth = await request(app).get(`/api/v1/houses/${house.id}/layers/health`).expect(200);
+    expect(houseCurrent.body.health).toEqual(houseHealth.body.engines);
     expectOpenApiConformance(houseHealth.body, documentedResponseSchema("/houses/{id}/layers/health", "get", 200));
 
     const houseHistory = await request(app).get(`/api/v1/houses/${house.id}/layers/history`).query({

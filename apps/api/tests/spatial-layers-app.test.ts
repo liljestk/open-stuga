@@ -213,7 +213,10 @@ describe("spatial layer application lifecycle", () => {
       .expect(201);
 
     await guest.get(`/api/v1/houses/${house.id}/layers/config`).expect(200);
+    await guest.get(`/api/v1/houses/${house.id}/layers/current`).expect(200);
+    await guest.get(`/api/v1/houses/${house.id}/layers/health`).expect(200);
     await guest.get(`/api/v1/properties/${house.propertyId}/layers/current`).expect(404);
+    await guest.get(`/api/v1/properties/${house.propertyId}/layers/health`).expect(404);
     await guest.get(`/api/v1/houses/${house.id}/layers/inference-session`).expect(200);
     const mutation = (method: "post" | "put" | "delete", path: string) => guest[method](path)
       .set("x-csrf-token", guestSession.body.csrfToken)

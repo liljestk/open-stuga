@@ -98,6 +98,7 @@ export function SpatialLayerLab({ houseId, sensors, layers, onActiveChange }: Sp
   const loadGeneration = useRef(0);
   const sessionController = useRef<AbortController | null>(null);
   const sessionGeneration = useRef(0);
+  const mutationController = useRef<AbortController | null>(null);
   const mutationGeneration = useRef(0);
   const activeChange = useRef(onActiveChange);
   activeChange.current = onActiveChange;
@@ -118,6 +119,8 @@ export function SpatialLayerLab({ houseId, sensors, layers, onActiveChange }: Sp
     sessionController.current?.abort();
     sessionController.current = null;
     sessionGeneration.current += 1;
+    mutationController.current?.abort();
+    mutationController.current = null;
     mutationGeneration.current += 1;
     setLoadedHouseId("");
     setConfiguration(null);
@@ -139,6 +142,7 @@ export function SpatialLayerLab({ houseId, sensors, layers, onActiveChange }: Sp
   useEffect(() => () => {
     loadController.current?.abort();
     sessionController.current?.abort();
+    mutationController.current?.abort();
     loadGeneration.current += 1;
     sessionGeneration.current += 1;
     mutationGeneration.current += 1;
@@ -204,6 +208,9 @@ export function SpatialLayerLab({ houseId, sensors, layers, onActiveChange }: Sp
   };
 
   const revalidateInferenceSession = async () => {
+    // Start/Stop responses are authoritative for the singular session resource.
+    // A visibility catch-up must not supersede their generation while pending.
+    if (mutationController.current) return;
     const targetHouseId = houseId;
     const requestId = ++sessionGeneration.current;
     sessionController.current?.abort();
@@ -260,7 +267,13 @@ export function SpatialLayerLab({ houseId, sensors, layers, onActiveChange }: Sp
         sessionController.current = null;
         sessionGeneration.current += 1;
       }
+      if (mutationController.current) {
+        mutationController.current.abort();
+        mutationController.current = null;
+        mutationGeneration.current += 1;
+      }
       setLoading(false);
+      setPending(false);
       return;
     }
     setSessionClock(Date.now());
@@ -271,6 +284,17 @@ export function SpatialLayerLab({ houseId, sensors, layers, onActiveChange }: Sp
     setFeedback(null);
   };
 
+  const beginMutation = (): AbortController => {
+    mutationController.current?.abort();
+    const controller = new AbortController();
+    mutationController.current = controller;
+    return controller;
+  };
+
+  const finishMutation = (controller: AbortController): void => {
+    if (mutationController.current === controller) mutationController.current = null;
+  };
+
   const saveConfiguration = async () => {
     if (!configuration || pending) return;
     let parsed: unknown;
@@ -279,6 +303,7 @@ export function SpatialLayerLab({ houseId, sensors, layers, onActiveChange }: Sp
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) { setConfigInvalid(true); return; }
     const targetHouseId = houseId;
     const requestId = ++mutationGeneration.current;
+    const controller = beginMutation();
     setConfigInvalid(false);
     setPending(true);
     setFeedback(null);
@@ -287,17 +312,18 @@ export function SpatialLayerLab({ houseId, sensors, layers, onActiveChange }: Sp
         baseVersion: configuration.configuration.version,
         config: parsed as Record<string, unknown>,
         assignments,
-      });
-      if (requestId !== mutationGeneration.current || activeHouseId.current !== targetHouseId) return;
+      }, controller.signal);
+      if (controller.signal.aborted || requestId !== mutationGeneration.current || activeHouseId.current !== targetHouseId) return;
       setConfiguration(saved);
       setAssignments(saved.assignments);
       setAdvancedConfig(JSON.stringify(saved.configuration.config, null, 2));
       setFeedback("saved");
       await layers.refresh();
     } catch {
-      if (requestId === mutationGeneration.current && activeHouseId.current === targetHouseId) setFeedback("error");
+      if (!controller.signal.aborted && requestId === mutationGeneration.current && activeHouseId.current === targetHouseId) setFeedback("error");
     } finally {
-      if (requestId === mutationGeneration.current && activeHouseId.current === targetHouseId) setPending(false);
+      finishMutation(controller);
+      if (!controller.signal.aborted && requestId === mutationGeneration.current && activeHouseId.current === targetHouseId) setPending(false);
     }
   };
 
@@ -310,19 +336,21 @@ export function SpatialLayerLab({ houseId, sensors, layers, onActiveChange }: Sp
     sessionController.current = null;
     const targetHouseId = houseId;
     const requestId = ++sessionGeneration.current;
+    const controller = beginMutation();
     try {
       const session = await api.startHouseSpatialInferenceSession(targetHouseId, {
         durationMinutes: Number(inferenceDuration),
         cadenceMinutes: Number(inferenceCadence),
-      });
-      if (requestId !== sessionGeneration.current || activeHouseId.current !== targetHouseId) return;
+      }, controller.signal);
+      if (controller.signal.aborted || requestId !== sessionGeneration.current || activeHouseId.current !== targetHouseId) return;
       setInferenceSession(session);
       setSessionClock(Date.now());
       setInferenceFeedback("started");
     } catch {
-      if (requestId === sessionGeneration.current && activeHouseId.current === targetHouseId) setInferenceFeedback("error");
+      if (!controller.signal.aborted && requestId === sessionGeneration.current && activeHouseId.current === targetHouseId) setInferenceFeedback("error");
     } finally {
-      if (requestId === sessionGeneration.current && activeHouseId.current === targetHouseId) setPending(false);
+      finishMutation(controller);
+      if (!controller.signal.aborted && requestId === sessionGeneration.current && activeHouseId.current === targetHouseId) setPending(false);
     }
   };
 
@@ -334,16 +362,18 @@ export function SpatialLayerLab({ houseId, sensors, layers, onActiveChange }: Sp
     sessionController.current = null;
     const targetHouseId = houseId;
     const requestId = ++sessionGeneration.current;
+    const controller = beginMutation();
     try {
-      const stopped = await api.stopHouseSpatialInferenceSession(targetHouseId);
-      if (requestId !== sessionGeneration.current || activeHouseId.current !== targetHouseId) return;
+      const stopped = await api.stopHouseSpatialInferenceSession(targetHouseId, controller.signal);
+      if (controller.signal.aborted || requestId !== sessionGeneration.current || activeHouseId.current !== targetHouseId) return;
       setInferenceSession(stopped);
       setSessionClock(Date.now());
       setInferenceFeedback("stopped");
     } catch {
-      if (requestId === sessionGeneration.current && activeHouseId.current === targetHouseId) setInferenceFeedback("error");
+      if (!controller.signal.aborted && requestId === sessionGeneration.current && activeHouseId.current === targetHouseId) setInferenceFeedback("error");
     } finally {
-      if (requestId === sessionGeneration.current && activeHouseId.current === targetHouseId) setPending(false);
+      finishMutation(controller);
+      if (!controller.signal.aborted && requestId === sessionGeneration.current && activeHouseId.current === targetHouseId) setPending(false);
     }
   };
 
@@ -354,6 +384,7 @@ export function SpatialLayerLab({ houseId, sensors, layers, onActiveChange }: Sp
     if (!sensor || !zone || pending) return;
     const targetHouseId = houseId;
     const requestId = ++mutationGeneration.current;
+    const controller = beginMutation();
     setPending(true); setFeedback(null);
     try {
       const binding = await api.createHouseSpatialLayerBinding(targetHouseId, {
@@ -363,14 +394,15 @@ export function SpatialLayerLab({ houseId, sensors, layers, onActiveChange }: Sp
         position: { x: sensor.x, y: sensor.y, z: sensor.z },
         role: "primary",
         activeFrom: new Date().toISOString(),
-      });
-      if (requestId !== mutationGeneration.current || activeHouseId.current !== targetHouseId) return;
+      }, controller.signal);
+      if (controller.signal.aborted || requestId !== mutationGeneration.current || activeHouseId.current !== targetHouseId) return;
       setBindings((current) => [...current.filter((item) => item.sensorId !== binding.sensorId || item.activeTo), binding]);
       setFeedback("saved");
     } catch {
-      if (requestId === mutationGeneration.current && activeHouseId.current === targetHouseId) setFeedback("error");
+      if (!controller.signal.aborted && requestId === mutationGeneration.current && activeHouseId.current === targetHouseId) setFeedback("error");
     } finally {
-      if (requestId === mutationGeneration.current && activeHouseId.current === targetHouseId) setPending(false);
+      finishMutation(controller);
+      if (!controller.signal.aborted && requestId === mutationGeneration.current && activeHouseId.current === targetHouseId) setPending(false);
     }
   };
 
@@ -382,6 +414,7 @@ export function SpatialLayerLab({ houseId, sensors, layers, onActiveChange }: Sp
     if (!calibrationSensorId || !Number.isFinite(temperatureOffsetC) || !Number.isFinite(humidityOffsetPct) || !Number.isFinite(confidence) || pending) return;
     const targetHouseId = houseId;
     const requestId = ++mutationGeneration.current;
+    const controller = beginMutation();
     setPending(true); setFeedback(null);
     try {
       const calibration = await api.createHouseSpatialLayerCalibration(targetHouseId, {
@@ -391,14 +424,15 @@ export function SpatialLayerLab({ houseId, sensors, layers, onActiveChange }: Sp
         humidityOffsetPct,
         confidence: Math.max(0, Math.min(1, confidence)),
         method: "manual",
-      });
-      if (requestId !== mutationGeneration.current || activeHouseId.current !== targetHouseId) return;
+      }, controller.signal);
+      if (controller.signal.aborted || requestId !== mutationGeneration.current || activeHouseId.current !== targetHouseId) return;
       setCalibrations((current) => [...current, calibration]);
       setFeedback("saved");
     } catch {
-      if (requestId === mutationGeneration.current && activeHouseId.current === targetHouseId) setFeedback("error");
+      if (!controller.signal.aborted && requestId === mutationGeneration.current && activeHouseId.current === targetHouseId) setFeedback("error");
     } finally {
-      if (requestId === mutationGeneration.current && activeHouseId.current === targetHouseId) setPending(false);
+      finishMutation(controller);
+      if (!controller.signal.aborted && requestId === mutationGeneration.current && activeHouseId.current === targetHouseId) setPending(false);
     }
   };
 
@@ -413,6 +447,7 @@ export function SpatialLayerLab({ houseId, sensors, layers, onActiveChange }: Sp
     if (invalid) { setSessionInvalid(true); return; }
     const targetHouseId = houseId;
     const requestId = ++mutationGeneration.current;
+    const controller = beginMutation();
     setSessionInvalid(false);
     setPending(true);
     setFeedback(null);
@@ -424,8 +459,8 @@ export function SpatialLayerLab({ houseId, sensors, layers, onActiveChange }: Sp
         ...(end === null ? { endAt: null } : { endAt: new Date(end).toISOString() }),
         ...(sessionIntervention.trim() ? { intervention: { description: sessionIntervention.trim() } } : {}),
         ...(sessionNotes.trim() ? { notes: sessionNotes.trim() } : { notes: null }),
-      });
-      if (requestId !== mutationGeneration.current || activeHouseId.current !== targetHouseId) return;
+      }, controller.signal);
+      if (controller.signal.aborted || requestId !== mutationGeneration.current || activeHouseId.current !== targetHouseId) return;
       setCalibrationSessions((current) => [result.session, ...current.filter((item) => item.id !== result.session.id)]);
       if (result.calibrations.length) setCalibrations((current) => [...current, ...result.calibrations]);
       setSessionIntervention("");
@@ -434,9 +469,10 @@ export function SpatialLayerLab({ houseId, sensors, layers, onActiveChange }: Sp
       setSessionEndAt("");
       setFeedback("saved");
     } catch {
-      if (requestId === mutationGeneration.current && activeHouseId.current === targetHouseId) setFeedback("error");
+      if (!controller.signal.aborted && requestId === mutationGeneration.current && activeHouseId.current === targetHouseId) setFeedback("error");
     } finally {
-      if (requestId === mutationGeneration.current && activeHouseId.current === targetHouseId) setPending(false);
+      finishMutation(controller);
+      if (!controller.signal.aborted && requestId === mutationGeneration.current && activeHouseId.current === targetHouseId) setPending(false);
     }
   };
 
@@ -445,19 +481,21 @@ export function SpatialLayerLab({ houseId, sensors, layers, onActiveChange }: Sp
     if (pending) return;
     const targetHouseId = houseId;
     const requestId = ++mutationGeneration.current;
+    const controller = beginMutation();
     setPending(true); setFeedback(null);
     try {
       const saved = await api.createHouseSpatialLayerContextEvent(targetHouseId, {
         id: identifier("context"), kind: contextKind, startAt: new Date().toISOString(),
         ...(contextZoneId ? { zoneIds: [contextZoneId] } : {}),
-      });
-      if (requestId !== mutationGeneration.current || activeHouseId.current !== targetHouseId) return;
+      }, controller.signal);
+      if (controller.signal.aborted || requestId !== mutationGeneration.current || activeHouseId.current !== targetHouseId) return;
       setContextEvents((current) => [...current, saved]);
       setFeedback("saved");
     } catch {
-      if (requestId === mutationGeneration.current && activeHouseId.current === targetHouseId) setFeedback("error");
+      if (!controller.signal.aborted && requestId === mutationGeneration.current && activeHouseId.current === targetHouseId) setFeedback("error");
     } finally {
-      if (requestId === mutationGeneration.current && activeHouseId.current === targetHouseId) setPending(false);
+      finishMutation(controller);
+      if (!controller.signal.aborted && requestId === mutationGeneration.current && activeHouseId.current === targetHouseId) setPending(false);
     }
   };
 
@@ -466,19 +504,21 @@ export function SpatialLayerLab({ houseId, sensors, layers, onActiveChange }: Sp
     if (pending) return;
     const targetHouseId = houseId;
     const requestId = ++mutationGeneration.current;
+    const controller = beginMutation();
     setPending(true); setFeedback(null);
     try {
       const saved = await api.createHouseSpatialLayerGroundTruth(targetHouseId, {
         id: identifier("truth"), startAt: new Date().toISOString(), label: truthLabel, source: "user",
         ...(truthZoneId && truthLabel === "zone_active" ? { zoneId: truthZoneId } : {}),
-      });
-      if (requestId !== mutationGeneration.current || activeHouseId.current !== targetHouseId) return;
+      }, controller.signal);
+      if (controller.signal.aborted || requestId !== mutationGeneration.current || activeHouseId.current !== targetHouseId) return;
       setGroundTruth((current) => [...current, saved]);
       setFeedback("saved");
     } catch {
-      if (requestId === mutationGeneration.current && activeHouseId.current === targetHouseId) setFeedback("error");
+      if (!controller.signal.aborted && requestId === mutationGeneration.current && activeHouseId.current === targetHouseId) setFeedback("error");
     } finally {
-      if (requestId === mutationGeneration.current && activeHouseId.current === targetHouseId) setPending(false);
+      finishMutation(controller);
+      if (!controller.signal.aborted && requestId === mutationGeneration.current && activeHouseId.current === targetHouseId) setPending(false);
     }
   };
 

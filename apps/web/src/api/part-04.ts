@@ -287,47 +287,51 @@ export const apiPart04 = {
   updateHouseSpatialLayerConfig: async (
       houseId: string,
       input: { baseVersion: number; config: Record<string, unknown>; assignments: SpatialLayerAssignment[] },
+      signal?: AbortSignal,
     ): Promise<SpatialLayerConfigurationResponse> => spatialConfigurationResponse(await request<unknown>(`/houses/${encodeURIComponent(houseId)}/layers/config`, {
       method: "PUT",
       body: JSON.stringify(input),
+      ...(signal ? { signal } : {}),
     })),
   houseSpatialInferenceSession: async (houseId: string, signal?: AbortSignal): Promise<SpatialInferenceSession | null> => spatialInferenceSession(
       await request<unknown>(`/houses/${encodeURIComponent(houseId)}/layers/inference-session`, signal ? { signal } : undefined),
     ),
-  startHouseSpatialInferenceSession: async (houseId: string, input: SpatialInferenceSessionStartInput): Promise<SpatialInferenceSession> => {
+  startHouseSpatialInferenceSession: async (houseId: string, input: SpatialInferenceSessionStartInput, signal?: AbortSignal): Promise<SpatialInferenceSession> => {
       const session = spatialInferenceSession(await request<unknown>(`/houses/${encodeURIComponent(houseId)}/layers/inference-session`, {
         method: "POST",
         body: JSON.stringify(input),
+        ...(signal ? { signal } : {}),
       }));
       if (!session) throw new Error("The spatial inference-session response was invalid");
       return session;
     },
-  stopHouseSpatialInferenceSession: async (houseId: string): Promise<SpatialInferenceSession | null> => spatialInferenceSession(
-      await request<unknown>(`/houses/${encodeURIComponent(houseId)}/layers/inference-session`, { method: "DELETE" }),
+  stopHouseSpatialInferenceSession: async (houseId: string, signal?: AbortSignal): Promise<SpatialInferenceSession | null> => spatialInferenceSession(
+      await request<unknown>(`/houses/${encodeURIComponent(houseId)}/layers/inference-session`, { method: "DELETE", ...(signal ? { signal } : {}) }),
     ),
   houseSpatialLayerBindings: async (houseId: string, signal?: AbortSignal): Promise<SpatialSensorBinding[]> => list<SpatialSensorBinding>(
       await request<unknown>(`/houses/${encodeURIComponent(houseId)}/layers/bindings`, signal ? { signal } : undefined),
       ["bindings", "data"],
     ),
-  createHouseSpatialLayerBinding: async (houseId: string, binding: SpatialSensorBinding): Promise<SpatialSensorBinding> => entity(
-      await request<SpatialSensorBinding | { binding: SpatialSensorBinding }>(`/houses/${encodeURIComponent(houseId)}/layers/bindings`, { method: "POST", body: JSON.stringify(binding) }),
+  createHouseSpatialLayerBinding: async (houseId: string, binding: SpatialSensorBinding, signal?: AbortSignal): Promise<SpatialSensorBinding> => entity(
+      await request<SpatialSensorBinding | { binding: SpatialSensorBinding }>(`/houses/${encodeURIComponent(houseId)}/layers/bindings`, { method: "POST", body: JSON.stringify(binding), ...(signal ? { signal } : {}) }),
       "binding",
     ),
   houseSpatialLayerCalibrations: async (houseId: string, signal?: AbortSignal): Promise<SpatialSensorCalibration[]> => list<SpatialSensorCalibration>(
       await request<unknown>(`/houses/${encodeURIComponent(houseId)}/layers/calibrations`, signal ? { signal } : undefined),
       ["calibrations", "sessions", "data"],
     ),
-  createHouseSpatialLayerCalibration: async (houseId: string, calibration: SpatialSensorCalibration): Promise<SpatialSensorCalibration> => entity(
-      await request<SpatialSensorCalibration | { calibration: SpatialSensorCalibration }>(`/houses/${encodeURIComponent(houseId)}/layers/calibrations`, { method: "POST", body: JSON.stringify(calibration) }),
+  createHouseSpatialLayerCalibration: async (houseId: string, calibration: SpatialSensorCalibration, signal?: AbortSignal): Promise<SpatialSensorCalibration> => entity(
+      await request<SpatialSensorCalibration | { calibration: SpatialSensorCalibration }>(`/houses/${encodeURIComponent(houseId)}/layers/calibrations`, { method: "POST", body: JSON.stringify(calibration), ...(signal ? { signal } : {}) }),
       "calibration",
     ),
   houseSpatialLayerCalibrationSessions: async (houseId: string, signal?: AbortSignal): Promise<SpatialCalibrationSession[]> => spatialCalibrationSessions(
       await request<unknown>(`/houses/${encodeURIComponent(houseId)}/layers/calibration-sessions`, signal ? { signal } : undefined),
     ),
-  createHouseSpatialLayerCalibrationSession: async (houseId: string, input: SpatialCalibrationSessionInput): Promise<SpatialCalibrationSessionResult> => {
+  createHouseSpatialLayerCalibrationSession: async (houseId: string, input: SpatialCalibrationSessionInput, signal?: AbortSignal): Promise<SpatialCalibrationSessionResult> => {
       const response = spatialCalibrationSessionResult(await request<unknown>(`/houses/${encodeURIComponent(houseId)}/layers/calibration-sessions`, {
         method: "POST",
         body: JSON.stringify(input),
+        ...(signal ? { signal } : {}),
       }));
       if (!response) throw new Error("The spatial calibration-session response was invalid");
       return response;
@@ -336,16 +340,16 @@ export const apiPart04 = {
       await request<unknown>(`/houses/${encodeURIComponent(houseId)}/layers/context-events`, signal ? { signal } : undefined),
       ["events", "contextEvents", "data"],
     ),
-  createHouseSpatialLayerContextEvent: async (houseId: string, event: SpatialContextEvent): Promise<SpatialContextEvent> => entity(
-      await request<SpatialContextEvent | { event: SpatialContextEvent }>(`/houses/${encodeURIComponent(houseId)}/layers/context-events`, { method: "POST", body: JSON.stringify(event) }),
+  createHouseSpatialLayerContextEvent: async (houseId: string, event: SpatialContextEvent, signal?: AbortSignal): Promise<SpatialContextEvent> => entity(
+      await request<SpatialContextEvent | { event: SpatialContextEvent }>(`/houses/${encodeURIComponent(houseId)}/layers/context-events`, { method: "POST", body: JSON.stringify(event), ...(signal ? { signal } : {}) }),
       "event",
     ),
   houseSpatialLayerGroundTruth: async (houseId: string, signal?: AbortSignal): Promise<SpatialGroundTruth[]> => list<SpatialGroundTruth>(
       await request<unknown>(`/houses/${encodeURIComponent(houseId)}/layers/ground-truth`, signal ? { signal } : undefined),
       ["labels", "groundTruth", "data"],
     ),
-  createHouseSpatialLayerGroundTruth: async (houseId: string, truth: SpatialGroundTruth): Promise<SpatialGroundTruth> => entity(
-      await request<SpatialGroundTruth | { groundTruth: SpatialGroundTruth }>(`/houses/${encodeURIComponent(houseId)}/layers/ground-truth`, { method: "POST", body: JSON.stringify(truth) }),
+  createHouseSpatialLayerGroundTruth: async (houseId: string, truth: SpatialGroundTruth, signal?: AbortSignal): Promise<SpatialGroundTruth> => entity(
+      await request<SpatialGroundTruth | { groundTruth: SpatialGroundTruth }>(`/houses/${encodeURIComponent(houseId)}/layers/ground-truth`, { method: "POST", body: JSON.stringify(truth), ...(signal ? { signal } : {}) }),
       "groundTruth",
     ),
   houseSpatialLayersCurrent: async (

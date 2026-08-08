@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Activity, AlertTriangle, BatteryMedium, Bolt, Box, Check, ChevronDown, Droplets, Edit3, Gauge, History, Home, Map, MapPinPlus, Maximize2, Minimize2, Save, Sparkles, Thermometer, Wind } from "lucide-react";
 import { isAirflowPlanElement, type ConfiguredOpeningState, type ConnectionState, type Floor, type House, type ManualObservation, type ManualObservationInput, type ManualObservationPatch, type MeasurementDefinition, type MeasurementSample, type Metric, type MockScenario, type ObservationConfidence, type ObservationRevision, type ObservationSource, type ObservationTimePrecision, type OpeningStateObservation, type Point, type Reading, type Sensor, type StaticParameter, type UnitSystem } from "@climate-twin/contracts";
 import { ReplayControls } from "../../components/ReplayControls";
@@ -188,11 +188,13 @@ export function useTwinDashboardPart02(context: ReturnType<typeof useTwinDashboa
   // current time immediately; the slower clock only ages an otherwise idle view.
   const spatialReferenceTimeMs = replayActive ? replayTimestamp : Math.max(liveSpatialClockMs, Date.now());
   const spatialLayerScope = useMemo(() => ({ kind: "house" as const, id: houseId }), [houseId]);
-  // Bind activation to the Home that was explicitly opened. On a House switch
-  // the old id stops the hook synchronously, before effects can start a read for
-  // the newly selected Home.
+  // A scope mismatch or edit gates spatial reads during render. The committed
+  // transition then clears the prior opt-in before that Home can be revisited.
   const [spatialLabHouseId, setSpatialLabHouseId] = useState<string | null>(null);
-  const spatialLabOpen = spatialLabHouseId === houseId;
+  const spatialLabOpen = !editing && spatialLabHouseId === houseId;
+  useLayoutEffect(() => {
+    setSpatialLabHouseId(null);
+  }, [editing, houseId]);
   const setSpatialLabOpen = useCallback((active: boolean) => {
       setSpatialLabHouseId(active ? houseId : null);
     }, [houseId]);

@@ -378,7 +378,7 @@ export function renderTwinDashboard(context: ReturnType<typeof useTwinDashboardP
               currentOutdoorTemperatureC={visualOutdoor.context?.conditions.temperatureC}
               {...(replayActive ? { cursorTimestamp: replayTimestamp } : {})}
             />
-            {!readOnly && localAuthority && <SpatialLayerLab houseId={houseId} sensors={houseSensors} layers={spatialLayers} onActiveChange={setSpatialLabOpen} />}
+            {!editing && !readOnly && localAuthority && <SpatialLayerLab key={houseId} houseId={houseId} sensors={houseSensors} layers={spatialLayers} onActiveChange={setSpatialLabOpen} />}
 
             <div className="lower-grid">
           <RoomComparisonChart
