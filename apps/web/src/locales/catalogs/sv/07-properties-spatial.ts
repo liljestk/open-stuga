@@ -431,6 +431,7 @@ export const svPart7 = {
   "spatial.lab.eyebrow": "Valfria verktyg",
   "spatial.lab.title": "Laboratorium för miljölager",
   "spatial.lab.description": "Konfigurera och utvärdera isolerade forskningsmotorer.",
+  "spatial.lab.unavailable": "Rumsliga forskningsdata är inte tillgängliga. Grundövervakningen av hemmet påverkas inte.",
   "spatial.lab.engines": "Motortilldelningar",
   "spatial.lab.enginesHelp": "Om en motor stängs av tas dess framtida lager bort. Sensorinsamling, larm och styrning påverkas inte.",
   "spatial.lab.advancedConfig": "Versionshanterad motorkonfiguration (JSON)",

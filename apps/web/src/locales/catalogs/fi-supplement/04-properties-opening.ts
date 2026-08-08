@@ -363,6 +363,7 @@ export const fiSupplementPart4 = {
   "spatial.lab.eyebrow": "Valinnaiset työkalut",
   "spatial.lab.title": "Ympäristökerrosten laboratorio",
   "spatial.lab.description": "Määritä ja arvioi eristettyjä tutkimusmoottoreita.",
+  "spatial.lab.unavailable": "Tila-analyysin tutkimustietoja ei ole saatavilla. Kodin perusseuranta ei muutu.",
   "spatial.lab.engines": "Moottorien määritykset",
   "spatial.lab.enginesHelp": "Moottorin poistaminen käytöstä estää sen tulevat kerrokset. Se ei muuta anturitietojen keruuta, hälytyksiä tai ohjausta.",
   "spatial.lab.advancedConfig": "Versioitu moottorimääritys (JSON)",

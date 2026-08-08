@@ -20,7 +20,7 @@ function mockAvailableSpatialCapability() {
     enabled: true,
     defaultEnabled: true,
   }]);
-  const current = vi.spyOn(api, "houseSpatialLayersCurrent").mockResolvedValue({ snapshots: [], topology: null });
+  const current = vi.spyOn(api, "houseSpatialLayersCurrent").mockResolvedValue({ snapshots: [], topology: null, health: [] });
   const health = vi.spyOn(api, "houseSpatialLayersHealth").mockResolvedValue([]);
   const configuration = vi.spyOn(api, "houseSpatialLayerConfig").mockResolvedValue({
     configuration: { version: 1, enabled: true, config: {} },
@@ -62,8 +62,35 @@ describe("useSpatialLayers optional capability", () => {
 
     expect(requests.engines).toHaveBeenCalledOnce();
     expect(requests.current).toHaveBeenCalledOnce();
-    expect(requests.health).toHaveBeenCalledOnce();
+    expect(requests.health).not.toHaveBeenCalled();
     expect(requests.configuration).not.toHaveBeenCalled();
+  });
+
+  it("aborts both initial requests when the specialist gate closes", async () => {
+    const requests = mockAvailableSpatialCapability();
+    let engineSignal: AbortSignal | undefined;
+    let currentSignal: AbortSignal | undefined;
+    requests.engines.mockImplementationOnce((signal) => new Promise((resolve) => {
+      engineSignal = signal;
+      signal?.addEventListener("abort", () => resolve([]), { once: true });
+    }));
+    requests.current.mockImplementationOnce((_houseId, _layers, signal) => new Promise((resolve) => {
+      currentSignal = signal;
+      signal?.addEventListener("abort", () => resolve({ snapshots: [], topology: null, health: [] }), { once: true });
+    }));
+    const view = renderHook(
+      ({ enabled }) => useSpatialLayers({ scope: { kind: "house", id: "house-1" }, enabled }),
+      { initialProps: { enabled: true } },
+    );
+
+    await waitFor(() => {
+      expect(engineSignal).toBeDefined();
+      expect(currentSignal).toBeDefined();
+    });
+    view.rerender({ enabled: false });
+    expect(engineSignal?.aborted).toBe(true);
+    expect(currentSignal?.aborted).toBe(true);
+    await waitFor(() => expect(view.result.current.loading).toBe(false));
   });
 
   it("skips background polling while hidden and refreshes immediately on return", async () => {
@@ -86,7 +113,7 @@ describe("useSpatialLayers optional capability", () => {
       Object.defineProperty(document, "hidden", { configurable: true, value: false });
       act(() => document.dispatchEvent(new Event("visibilitychange")));
       await waitFor(() => expect(requests.current).toHaveBeenCalledOnce());
-      expect(requests.health).toHaveBeenCalledOnce();
+      expect(requests.health).not.toHaveBeenCalled();
       expect(requests.configuration).not.toHaveBeenCalled();
     } finally {
       view.unmount();
@@ -103,7 +130,7 @@ describe("useSpatialLayers optional capability", () => {
     let firstSignal: AbortSignal | undefined;
     requests.current.mockImplementationOnce((_houseId, _layers, signal) => new Promise((resolve) => {
       firstSignal = signal;
-      signal?.addEventListener("abort", () => resolve({ snapshots: [], topology: null }), { once: true });
+      signal?.addEventListener("abort", () => resolve({ snapshots: [], topology: null, health: [] }), { once: true });
     }));
 
     let firstRefresh!: Promise<void>;

@@ -4,6 +4,20 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.37.1 - 2026-08-08
+
+- Keep experimental spatial-layer storage completely idle on ordinary House,
+  live-map, replay, and analytics views. Spatial summaries and polling now begin
+  only while the nested Spatial Layer Lab is open and stop when it closes.
+- Combine the lab's current-layer and health reads so each refresh resolves the
+  current snapshot set once, and index latest-run lookups by scope, engine, and
+  start time instead of synchronously scanning and sorting retained run history.
+
+Upgrade impact: this application-only patch creates one idempotent, bounded
+index over spatial inference runs on first start. It retains spatial
+configuration, snapshots, jobs, and raw data, starts no inference session, and
+requires no signed host update.
+
 ## 0.37.0 - 2026-08-08
 
 - Replace request-time thermal-isolation, moisture-response, and Home

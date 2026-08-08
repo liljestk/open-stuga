@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Activity, AlertTriangle, BatteryMedium, Bolt, Box, Check, ChevronDown, Droplets, Edit3, Gauge, History, Home, Map, MapPinPlus, Maximize2, Minimize2, Save, Sparkles, Thermometer, Wind } from "lucide-react";
 import { isAirflowPlanElement, type ConfiguredOpeningState, type ConnectionState, type Floor, type House, type ManualObservation, type ManualObservationInput, type ManualObservationPatch, type MeasurementDefinition, type MeasurementSample, type Metric, type MockScenario, type ObservationConfidence, type ObservationRevision, type ObservationSource, type ObservationTimePrecision, type OpeningStateObservation, type Point, type Reading, type Sensor, type StaticParameter, type UnitSystem } from "@climate-twin/contracts";
 import { ReplayControls } from "../../components/ReplayControls";
@@ -188,12 +188,19 @@ export function useTwinDashboardPart02(context: ReturnType<typeof useTwinDashboa
   // current time immediately; the slower clock only ages an otherwise idle view.
   const spatialReferenceTimeMs = replayActive ? replayTimestamp : Math.max(liveSpatialClockMs, Date.now());
   const spatialLayerScope = useMemo(() => ({ kind: "house" as const, id: houseId }), [houseId]);
+  // Bind activation to the Home that was explicitly opened. On a House switch
+  // the old id stops the hook synchronously, before effects can start a read for
+  // the newly selected Home.
+  const [spatialLabHouseId, setSpatialLabHouseId] = useState<string | null>(null);
+  const spatialLabOpen = spatialLabHouseId === houseId;
+  const setSpatialLabOpen = useCallback((active: boolean) => {
+      setSpatialLabHouseId(active ? houseId : null);
+    }, [houseId]);
   const spatialLayers = useSpatialLayers({
       scope: spatialLayerScope,
-      // The spatial host fans out to catalog, snapshot, health, configuration,
-      // polling, and event-stream work. Keep that specialist path dormant on
-      // the calm Home summary until a view that can render it is actually open.
-      enabled: !editing && (liveMapOpen || analysisOpen || replayActive),
+      // Summary, live-map, replay, and general analysis are ordinary Home
+      // workflows. Only the nested research disclosure opts into spatial reads.
+      enabled: !editing && spatialLabOpen,
       historyAt: replayActive ? replayTimestamp : null,
       historyRange: replayActive ? { from: replayMin, to: replayMax } : null,
     });
@@ -252,5 +259,5 @@ export function useTwinDashboardPart02(context: ReturnType<typeof useTwinDashboa
       setReplayStartPending(false);
       setReplayPlaying(true);
     };
-  return Object.assign(context, { houseWeather, outdoorContext, outdoor, houseSensors, energyDeviceCount, floorSensors, selectedSensor, selectedFloor, viewSensors, summarySensors, definitions, houseDefinitions, availableDefinitions, airflowDefinitions, airflowMetricKey, definition, metricOptions, metricLabel, liveSamples, houseSensorIdList, houseSensorIds, replayMetricIds, loadedReplayBounds, fallbackReplayBounds, replayMin, replayMax, replayHistoryReady, replayEvents, replayTimestamp, setReplayTimestamp, spatialReferenceTimeMs, spatialLayerScope, spatialLayers, liveSpatialMaxSampleAgeMs, spatialMaxSampleAgeMs, spatialFreshness, changeReplayPlaying });
+  return Object.assign(context, { houseWeather, outdoorContext, outdoor, houseSensors, energyDeviceCount, floorSensors, selectedSensor, selectedFloor, viewSensors, summarySensors, definitions, houseDefinitions, availableDefinitions, airflowDefinitions, airflowMetricKey, definition, metricOptions, metricLabel, liveSamples, houseSensorIdList, houseSensorIds, replayMetricIds, loadedReplayBounds, fallbackReplayBounds, replayMin, replayMax, replayHistoryReady, replayEvents, replayTimestamp, setReplayTimestamp, spatialReferenceTimeMs, spatialLayerScope, spatialLabOpen, setSpatialLabOpen, spatialLayers, liveSpatialMaxSampleAgeMs, spatialMaxSampleAgeMs, spatialFreshness, changeReplayPlaying });
 }

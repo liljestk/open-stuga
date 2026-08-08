@@ -167,6 +167,8 @@ registerSpatialLayerStateStoreMethods({
         );
         CREATE INDEX IF NOT EXISTS idx_spatial_runs_scope_time
           ON spatial_inference_runs(source_db_id, data_mode, scope_kind, scope_id, bucket_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_spatial_runs_engine_started
+          ON spatial_inference_runs(source_db_id, data_mode, scope_kind, scope_id, engine_id, started_at DESC);
 
         CREATE TABLE IF NOT EXISTS spatial_layer_snapshots (
           source_db_id TEXT NOT NULL,

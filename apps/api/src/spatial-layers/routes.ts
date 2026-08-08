@@ -219,15 +219,21 @@ async function current(
   requireScope(runtime, value);
   const overview = await runtime.host.describeScope(value, undefined, signal);
   const requestedLayers = layerQuery(request);
-  const currentLayerIds = requestedLayers.length > 0 ? requestedLayers : overview.assignments.flatMap((assignment) => assignment.layerIds);
-  const layers = runtime.state.currentSnapshots(runtime.host.partition, value, currentLayerIds)
+  const assignedLayerIds = overview.assignments.flatMap((assignment) => assignment.layerIds);
+  const currentLayerIds = [...new Set([...assignedLayerIds, ...requestedLayers])];
+  const currentLayers = runtime.state.currentSnapshots(runtime.host.partition, value, currentLayerIds)
     .filter((layer) => layer.configVersion === String(overview.configuration.version));
+  const layers = requestedLayers.length > 0
+    ? currentLayers.filter((layer) => requestedLayers.includes(layer.layerId))
+    : currentLayers;
+  const health = runtime.host.health(value, currentLayers);
   return {
     partition: runtime.host.partition,
     scope: value,
     at: layers.reduce<string | null>((latest, layer) => !latest || layer.generatedAt > latest ? layer.generatedAt : latest, null),
     topology: overview.topology,
     layers,
+    health,
     warnings: overview.warnings,
   };
 }

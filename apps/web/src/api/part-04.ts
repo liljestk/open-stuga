@@ -278,8 +278,8 @@ export const apiPart04 = {
       `/analytics/moisture-response?houseId=${encodeURIComponent(houseId)}&dataMode=${options.dataMode}&windowDays=${options.windowDays}`,
       { method: "POST", ...(signal ? { signal } : {}) },
     ),
-  spatialLayerEngines: async (): Promise<SpatialLayerEngineManifest[]> => spatialLayerEngines(
-      await request<unknown>("/layer-engines"),
+  spatialLayerEngines: async (signal?: AbortSignal): Promise<SpatialLayerEngineManifest[]> => spatialLayerEngines(
+      await request<unknown>("/layer-engines", signal ? { signal } : undefined),
     ),
   houseSpatialLayerConfig: async (houseId: string, signal?: AbortSignal): Promise<SpatialLayerConfigurationResponse> => spatialConfigurationResponse(
       await request<unknown>(`/houses/${encodeURIComponent(houseId)}/layers/config`, signal ? { signal } : undefined),
@@ -352,7 +352,7 @@ export const apiPart04 = {
       houseId: string,
       layerIds: readonly string[] = [],
       signal?: AbortSignal,
-    ): Promise<{ snapshots: SpatialLayerSnapshot[]; topology: SpatialTopology | null }> => {
+    ): Promise<{ snapshots: SpatialLayerSnapshot[]; topology: SpatialTopology | null; health: SpatialLayerEngineHealth[] }> => {
       const query = new URLSearchParams();
       if (layerIds.length) query.set("layers", layerIds.join(","));
       const suffix = query.size ? `?${query.toString()}` : "";
@@ -363,6 +363,7 @@ export const apiPart04 = {
       return {
         snapshots: spatialLayerSnapshots(payload),
         topology: spatialConfigurationResponse(payload).topology ?? null,
+        health: spatialLayerHealth(payload),
       };
     },
   houseSpatialLayersHistory: async (
@@ -387,7 +388,7 @@ export const apiPart04 = {
       propertyId: string,
       layerIds: readonly string[] = [],
       signal?: AbortSignal,
-    ): Promise<{ snapshots: SpatialLayerSnapshot[]; topology: SpatialTopology | null }> => {
+    ): Promise<{ snapshots: SpatialLayerSnapshot[]; topology: SpatialTopology | null; health: SpatialLayerEngineHealth[] }> => {
       const query = new URLSearchParams();
       if (layerIds.length) query.set("layers", layerIds.join(","));
       const suffix = query.size ? `?${query.toString()}` : "";
@@ -398,6 +399,7 @@ export const apiPart04 = {
       return {
         snapshots: spatialLayerSnapshots(payload),
         topology: spatialConfigurationResponse(payload).topology ?? null,
+        health: spatialLayerHealth(payload),
       };
     },
   propertySpatialLayerConfig: async (propertyId: string, signal?: AbortSignal): Promise<SpatialLayerConfigurationResponse> => spatialConfigurationResponse(

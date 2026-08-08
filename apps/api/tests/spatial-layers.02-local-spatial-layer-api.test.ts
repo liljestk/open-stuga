@@ -72,11 +72,15 @@ describe("local spatial layer API", () => {
     expect(houseConfig.body.assignments).toEqual(expect.arrayContaining([expect.objectContaining({ engineId: "climate-scalars", enabled: true })]));
     expectOpenApiConformance(houseConfig.body, documentedResponseSchema("/houses/{id}/layers/config", "get", 200));
 
+    const currentSnapshotReads = vi.spyOn(runtime.state, "currentSnapshots");
     const houseCurrent = await request(app).get(`/api/v1/houses/${house.id}/layers/current`).expect(200);
     expect(houseCurrent.body.topology.zones).toHaveLength(houseConfig.body.topology.zones.length);
     expect(houseCurrent.body.layers.length).toBeGreaterThan(0);
+    expect(houseCurrent.body.health).toEqual(expect.arrayContaining([expect.objectContaining({ engineId: "climate-scalars" })]));
+    expect(currentSnapshotReads).toHaveBeenCalledOnce();
     expectOpenApiConformance(houseCurrent.body, spatialOpenApiSchemas.SpatialLayerCurrent!);
 
+    currentSnapshotReads.mockClear();
     const propertyCurrent = await request(app).get(`/api/v1/properties/${property.id}/layers/current`).expect(200);
     expect(propertyCurrent.body.topology.scope).toEqual({ kind: "property", id: property.id });
     const propertyFrame = propertyCurrent.body.topology.frames[0];
@@ -85,6 +89,7 @@ describe("local spatial layer API", () => {
     else expect(propertyFrame).toMatchObject({ unit: "normalized" });
     expect(propertyCurrent.body.topology.zones).toEqual(expect.arrayContaining([expect.objectContaining({ kind: "building" })]));
     expect(propertyCurrent.body.layers.length).toBeGreaterThan(0);
+    expect(currentSnapshotReads).toHaveBeenCalledOnce();
     expectOpenApiConformance(propertyCurrent.body, spatialOpenApiSchemas.SpatialLayerCurrent!);
 
     const houseHealth = await request(app).get(`/api/v1/houses/${house.id}/layers/health`).expect(200);
@@ -426,6 +431,22 @@ describe("local spatial layer API", () => {
       "climate.relative-humidity",
       "climate.temperature",
     ]);
+    store.close();
+  });
+
+  it("uses the ordered latest-run index without temporary sorts", () => {
+    const store = new SpatialLayerStateStore(":memory:");
+    const parameters = [partition.sourceDbId, partition.dataMode, scope.kind, scope.id];
+    const plan = (sql: string, ...values: unknown[]) => (
+      store.db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all(...values) as unknown as Array<{ detail: string }>
+    ).map((row) => row.detail);
+
+    const latestRun = plan(`SELECT * FROM spatial_inference_runs
+      WHERE source_db_id = ? AND data_mode = ? AND scope_kind = ? AND scope_id = ? AND engine_id = ?
+      ORDER BY started_at DESC LIMIT 1`, ...parameters, "climate-scalars");
+    expect(latestRun.join(" ")).toContain("idx_spatial_runs_engine_started");
+    expect(latestRun.join(" ")).not.toContain("TEMP B-TREE");
+
     store.close();
   });
 

@@ -165,10 +165,11 @@ export const spatialLayerSchemas = {
     },
   },
   SpatialLayerCurrent: {
-    type: "object", required: ["partition", "scope", "at", "topology", "layers", "warnings"],
+    type: "object", required: ["partition", "scope", "at", "topology", "layers", "health", "warnings"],
     properties: {
       partition: { $ref: "#/components/schemas/SpatialPartition" }, scope: { $ref: "#/components/schemas/SpatialScope" }, at: { type: ["string", "null"], format: "date-time" },
-      topology: { $ref: "#/components/schemas/SpatialTopology" }, layers: { type: "array", items: { $ref: "#/components/schemas/SpatialLayerSnapshot" } }, warnings: { type: "array", items: { type: "string" } },
+      topology: { $ref: "#/components/schemas/SpatialTopology" }, layers: { type: "array", items: { $ref: "#/components/schemas/SpatialLayerSnapshot" } },
+      health: { type: "array", items: { $ref: "#/components/schemas/SpatialEngineHealth" } }, warnings: { type: "array", items: { type: "string" } },
     }, additionalProperties: false,
   },
   SpatialLayerHistory: {

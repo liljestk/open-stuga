@@ -25,6 +25,7 @@ interface SpatialLayerLabProps {
   houseId: string;
   sensors: readonly Sensor[];
   layers: UseSpatialLayersResult;
+  onActiveChange?: (active: boolean) => void;
 }
 
 type Feedback = "saved" | "error" | null;
@@ -53,7 +54,7 @@ function assignmentsFromCatalog(layers: UseSpatialLayersResult): SpatialLayerAss
   return layers.engines.map((engine) => ({ engineId: engine.id, engineVersion: engine.version, enabled: true, layerIds: engine.layerIds }));
 }
 
-export function SpatialLayerLab({ houseId, sensors, layers }: SpatialLayerLabProps) {
+export function SpatialLayerLab({ houseId, sensors, layers, onActiveChange }: SpatialLayerLabProps) {
   const { locale, t } = useI18n();
   const [open, setOpen] = useState(false);
   const [loadedHouseId, setLoadedHouseId] = useState("");
@@ -98,6 +99,8 @@ export function SpatialLayerLab({ houseId, sensors, layers }: SpatialLayerLabPro
   const sessionController = useRef<AbortController | null>(null);
   const sessionGeneration = useRef(0);
   const mutationGeneration = useRef(0);
+  const activeChange = useRef(onActiveChange);
+  activeChange.current = onActiveChange;
   activeHouseId.current = houseId;
 
   const topology = configuration?.configuration.topology;
@@ -129,6 +132,8 @@ export function SpatialLayerLab({ houseId, sensors, layers }: SpatialLayerLabPro
     setInferenceFeedback(null);
     setLoading(false);
     setPending(false);
+    setOpen(false);
+    openRef.current = false;
   }, [houseId]);
 
   useEffect(() => () => {
@@ -137,6 +142,7 @@ export function SpatialLayerLab({ houseId, sensors, layers }: SpatialLayerLabPro
     loadGeneration.current += 1;
     sessionGeneration.current += 1;
     mutationGeneration.current += 1;
+    activeChange.current?.(false);
   }, []);
 
   useEffect(() => {
@@ -217,11 +223,13 @@ export function SpatialLayerLab({ houseId, sensors, layers }: SpatialLayerLabPro
   };
 
   useEffect(() => {
-    if (open) void load();
+    if (!open || !layers.available) return;
+    if (loadedHouseId !== houseId) void load();
+    else void revalidateInferenceSession();
     // A Home can change while the parent disclosure remains mounted and open.
     // The request generation above fences any late response from the old Home.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [houseId]);
+  }, [houseId, layers.available, open]);
 
   useEffect(() => {
     if (!open || loadedHouseId !== houseId) return;
@@ -242,6 +250,7 @@ export function SpatialLayerLab({ houseId, sensors, layers }: SpatialLayerLabPro
     if (nextOpen === openRef.current) return;
     openRef.current = nextOpen;
     setOpen(nextOpen);
+    activeChange.current?.(nextOpen);
     if (!nextOpen) {
       loadController.current?.abort();
       loadController.current = null;
@@ -254,10 +263,7 @@ export function SpatialLayerLab({ houseId, sensors, layers }: SpatialLayerLabPro
       setLoading(false);
       return;
     }
-    if (loading) return;
     setSessionClock(Date.now());
-    if (loadedHouseId !== houseId) void load();
-    else void revalidateInferenceSession();
   };
 
   const toggleAssignment = (engineId: string, enabled: boolean) => {
@@ -476,12 +482,12 @@ export function SpatialLayerLab({ houseId, sensors, layers }: SpatialLayerLabPro
     }
   };
 
-  if (!layers.available) return null;
   return <details className="spatial-layer-lab panel compact-panel" open={open} onToggle={onToggle}>
     <summary><span className="home-tools-icon" aria-hidden="true"><FlaskConical size={19} /></span><span><span className="eyebrow">{t("spatial.lab.eyebrow")}</span><strong>{t("spatial.lab.title")}</strong><small>{t("spatial.lab.description")}</small></span><ChevronDown className="disclosure-chevron" size={18} aria-hidden="true" /></summary>
     <div className="spatial-lab-content">
-      {loading && <p role="status">{t("common.loading")}</p>}
-      {!loading && configuration && <>
+      {(layers.loading || loading) && <p role="status">{t("common.loading")}</p>}
+      {!layers.loading && !layers.available && <p className="spatial-empty" role="status">{t("spatial.lab.unavailable")}</p>}
+      {!layers.loading && !loading && layers.available && configuration && <>
         <section className="spatial-lab-section">
           <div className="panel-header"><div><h3>{t("spatial.inference.title")}</h3><p>{t("spatial.inference.description")}</p></div><strong role="status">{t(`spatial.inference.status.${inferenceStatus}` as TranslationKey)}</strong></div>
           <p>{t("spatial.inference.retained")}</p>

@@ -170,6 +170,7 @@ export const enPart3 = {
   "spatial.lab.eyebrow": "Optional tools",
   "spatial.lab.title": "Environmental layer lab",
   "spatial.lab.description": "Configure and evaluate isolated research engines.",
+  "spatial.lab.unavailable": "Spatial research data is unavailable. Core Home monitoring is unaffected.",
   "spatial.lab.engines": "Engine assignments",
   "spatial.lab.enginesHelp": "Disabling an engine removes its future layers; it does not change sensor ingestion, alerts, or controls.",
   "spatial.lab.advancedConfig": "Versioned engine configuration (JSON)",

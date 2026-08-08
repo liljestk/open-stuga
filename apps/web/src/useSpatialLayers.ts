@@ -216,15 +216,14 @@ export function useSpatialLayers({ scope, enabled = true, historyAt = null, hist
     const requestId = ++requestSequence.current;
     setLoading(true);
     void Promise.all([
-      api.spatialLayerEngines(),
+      api.spatialLayerEngines(controller.signal),
       loadCurrent(scope, [], controller.signal),
-      scope.kind === "house" ? api.houseSpatialLayersHealth(scope.id, controller.signal) : api.propertySpatialLayersHealth(scope.id, controller.signal),
-    ]).then(([catalog, overview, nextHealth]) => {
+    ]).then(([catalog, overview]) => {
       if (controller.signal.aborted || requestId !== requestSequence.current || activeScope.current !== scopeKey) return;
       const supported = catalog.filter((engine) => engine.enabled !== false && engine.supportedScopes.includes(scope.kind));
       setEngines(supported);
       setCurrent(overview.snapshots);
-      setHealth(nextHealth);
+      setHealth(overview.health);
       setTopology(overview.topology);
       setAvailable(supported.length > 0);
       setSelectedLayerIds(initialSelection(supported, overview.snapshots));
@@ -250,13 +249,10 @@ export function useSpatialLayers({ scope, enabled = true, historyAt = null, hist
     activeRefreshController.current = controller;
     setRefreshing(true);
     try {
-      const [overview, nextHealth] = await Promise.all([
-        loadCurrent(scope, selectedLayerIds, controller.signal),
-        scope.kind === "house" ? api.houseSpatialLayersHealth(scope.id, controller.signal) : api.propertySpatialLayersHealth(scope.id, controller.signal),
-      ]);
+      const overview = await loadCurrent(scope, selectedLayerIds, controller.signal);
       if (requestId !== requestSequence.current || activeScope.current !== scopeKey) return;
       setCurrent(overview.snapshots);
-      setHealth(nextHealth);
+      setHealth(overview.health);
       setTopology(overview.topology);
       setError(null);
       setNow(Date.now());
