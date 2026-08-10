@@ -48,7 +48,8 @@ Start here:
 18. [Versioning](versioning.md) — pre-1.0 compatibility and pull-request release rules.
 19. [Application release cycle](release-cycle.md) — agent/operator merge,
    dual-tag, local build, draft, channel, verification, and appliance handoff;
-   [local CI](local-ci.md) documents the authoritative development-computer gate.
+   [local CI](local-ci.md) documents the authoritative development-computer gate,
+   and [lean tooling](lean-tooling.md) documents canonical commands and receipts.
 20. [Modular roadmap](roadmap.md) — hardening, digital-twin authoring, richer
    models, integrations, testing, and versioning.
 21. [Backend storage and operations](backend-storage.md) — SQLite control-plane

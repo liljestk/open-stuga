@@ -22,12 +22,22 @@ const BETWEEN_JOBS_MS = 30_000;
 const STARTUP_GRACE_MS = 2 * 60_000;
 const MAX_BACKGROUND_CANDIDATES = 256;
 
-export interface DerivedAnalyticsCoordinatorOptions {
+interface DerivedAnalyticsCoordinatorBaseOptions {
   now?: () => Date;
-  compute?: (job: StoredDerivedJob, signal?: AbortSignal) => Promise<DerivedResult>;
   algorithmVersions?: Readonly<Record<DurableDerivedAnalyticsKind, string>>;
   admitLowPriority?: () => boolean | Promise<boolean>;
 }
+
+export type DerivedAnalyticsCoordinatorOptions = DerivedAnalyticsCoordinatorBaseOptions & (
+  | {
+    compute: (job: StoredDerivedJob, signal?: AbortSignal) => Promise<DerivedResult>;
+    heatPumpConnectionIds?: (houseId: string) => readonly string[];
+  }
+  | {
+    compute?: undefined;
+    heatPumpConnectionIds: (houseId: string) => readonly string[];
+  }
+);
 
 function stableNightMinute(houseId: string): number {
   const digest = createHash("sha256").update(houseId).digest();
@@ -42,6 +52,7 @@ export class DerivedAnalyticsCoordinator {
   readonly #compute: (job: StoredDerivedJob, signal?: AbortSignal) => Promise<DerivedResult>;
   readonly #algorithmVersions: Readonly<Record<DurableDerivedAnalyticsKind, string>>;
   readonly #admitLowPriority: () => boolean | Promise<boolean>;
+  readonly #heatPumpConnectionIds: (houseId: string) => readonly string[];
   readonly #explicitIdentities = new Set<string>();
   #timer: ReturnType<typeof setTimeout> | null = null;
   #controller: AbortController | null = null;
@@ -53,14 +64,23 @@ export class DerivedAnalyticsCoordinator {
     database: ClimateDatabase,
     telemetryReader: HybridTelemetryReader,
     workLimiter: AnalyticsWorkLimiter,
-    options: DerivedAnalyticsCoordinatorOptions = {},
+    options: DerivedAnalyticsCoordinatorOptions,
   ) {
     this.#database = database;
     this.#workLimiter = workLimiter;
     this.#store = new DerivedAnalyticsStore(database.db, (options.now?.() ?? new Date()).toISOString());
     this.#now = options.now ?? (() => new Date());
-    const computer = new DerivedAnalyticsComputer(database, telemetryReader);
-    this.#compute = options.compute ?? ((job, signal) => computer.compute(job, signal));
+    this.#heatPumpConnectionIds = options.heatPumpConnectionIds ?? (() => []);
+    if (options.compute) {
+      this.#compute = options.compute;
+    } else {
+      const computer = new DerivedAnalyticsComputer(
+        database,
+        telemetryReader,
+        this.#heatPumpConnectionIds,
+      );
+      this.#compute = (job, signal) => computer.compute(job, signal);
+    }
     this.#algorithmVersions = options.algorithmVersions ?? DERIVED_ANALYTICS_ALGORITHM_VERSIONS;
     this.#admitLowPriority = options.admitLowPriority ?? (() => true);
   }
@@ -107,6 +127,7 @@ export class DerivedAnalyticsCoordinator {
       database: this.#database,
       ...input,
       now,
+      heatPumpConnectionIds: this.#heatPumpConnectionIds(input.houseId),
       algorithmVersions: this.#algorithmVersions,
     });
     const current = this.#store.artifactForIdentity(identity.identityKey);
@@ -167,6 +188,7 @@ export class DerivedAnalyticsCoordinator {
       database: this.#database,
       ...input,
       now,
+      heatPumpConnectionIds: this.#heatPumpConnectionIds(input.houseId),
       algorithmVersions: this.#algorithmVersions,
     });
     const job = this.#store.enqueue(identity, now.toISOString(), true);
@@ -306,6 +328,7 @@ export class DerivedAnalyticsCoordinator {
           dataMode,
           windowDays,
           now,
+          heatPumpConnectionIds: this.#heatPumpConnectionIds(house.id),
           algorithmVersions: this.#algorithmVersions,
         });
         const current = this.#store.latestArtifact(identity);

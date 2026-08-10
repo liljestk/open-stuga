@@ -110,6 +110,7 @@ import {
   runThermalIsolationIsolated,
 } from "../analytics/derived-artifacts/fit-isolate.js";
 import {
+  configuredHeatPumpConnectionIds,
   filterHeatPumpAffectedSampleMap,
   filterHeatPumpAffectedSamples,
   loadHeatPumpExclusionWindow,
@@ -308,7 +309,13 @@ export function configureApiPart15(context: ReturnType<typeof configureApiPart14
               signal: abortController.signal,
             }),
           ]);
-          const heatPumpWindow = loadHeatPumpExclusionWindow(context.database, house.id, from, to);
+          const heatPumpWindow = loadHeatPumpExclusionWindow(
+            context.database,
+            house.id,
+            from,
+            to,
+            configuredHeatPumpConnectionIds(context.config.greeConnections, house.id),
+          );
           const filtered = filterHeatPumpAffectedSamples(indoorRead.records, heatPumpWindow);
           return runThermalSimulationAsync({
             houseId: house.id,
@@ -400,7 +407,13 @@ export function configureApiPart15(context: ReturnType<typeof configureApiPart14
               sensor.id,
               indoorReads[index]!.records,
             ]));
-            const heatPumpWindow = loadHeatPumpExclusionWindow(context.database, house.id, from, to);
+            const heatPumpWindow = loadHeatPumpExclusionWindow(
+              context.database,
+              house.id,
+              from,
+              to,
+              configuredHeatPumpConnectionIds(context.config.greeConnections, house.id),
+            );
             const filtered = filterHeatPumpAffectedSampleMap(indoorSamplesBySensor, heatPumpWindow);
             return runThermalIsolationIsolated({
               house,
@@ -487,7 +500,13 @@ export function configureApiPart15(context: ReturnType<typeof configureApiPart14
             sensor.id,
             indoorReads[index]!.records,
           ]));
-          const heatPumpWindow = loadHeatPumpExclusionWindow(context.database, house.id, from, to);
+          const heatPumpWindow = loadHeatPumpExclusionWindow(
+            context.database,
+            house.id,
+            from,
+            to,
+            configuredHeatPumpConnectionIds(context.config.greeConnections, house.id),
+          );
           const filtered = filterHeatPumpAffectedSampleMap(indoorSamplesBySensor, heatPumpWindow);
           return runMoistureResponseIsolated({
             house,

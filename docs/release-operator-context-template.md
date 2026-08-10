@@ -14,6 +14,10 @@ release agent the completed form or the exact fields it needs.
 
 ## Build inputs
 
+- Full-CI receipt path and SHA-256: `<outside-Git path and digest>`
+- Visual-acceptance receipt path and SHA-256: `<outside-Git path and digest>`
+- Target doctor receipt path and SHA-256: `<outside-Git path and digest>`
+
 - Recovery SSH public-key path: `<absolute path>`
 - Recovery public-key fingerprint: `<SHA256 fingerprint>`
 - Approved TUF root-v1 JSON path: `<absolute path>`
@@ -49,6 +53,9 @@ for different bytes.
 - Appliance access method: `<LAN, Tailscale, or local console>`
 - Current Stugu version: `<version, observed with stuguctl status>`
 - Application channel: `<stable | include previews>`
+- SSH target selector: `<operator@host or SSH alias; omitted from receipts>`
+- SSH host-key fingerprint: `<SHA256 fingerprint>`
+- Appliance hardware fingerprint: `<sha256 fingerprint>`
 
 Never put a GitHub token, Pi private key, Wi-Fi profile, Connect auth key, bug
 report token, or signing private key in this form or command output.

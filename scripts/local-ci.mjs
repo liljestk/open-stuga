@@ -1,10 +1,28 @@
 #!/usr/bin/env node
 
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  closeSync,
+  fsyncSync,
+  linkSync,
+  lstatSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  realpathSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { arch, platform, release } from "node:os";
-import { basename, dirname, resolve } from "node:path";
+import {
+  basename,
+  dirname,
+  isAbsolute,
+  relative,
+  resolve,
+  sep,
+} from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -20,6 +38,8 @@ Options:
   --base-ref REF            Compare the product version with this Git ref
   --skip-container-builds   Validate Compose but skip local Docker image builds
   --with-sonar              Send the completed local coverage reports to Sonar
+  --report PATH             Write the JSON receipt to this path
+  --checksum PATH           Write its SHA-256 checksum to this path
   --help                    Show this help
 
 The command writes a checksummed receipt under dist/ci. Native Apple checks run
@@ -57,6 +77,14 @@ export function parseArguments(argv) {
         break;
       case "--skip-container-builds":
         options.skipContainerBuilds = true;
+        break;
+      case "--report":
+        options.report = optionValue(argv, index, argument);
+        index += 1;
+        break;
+      case "--checksum":
+        options.checksum = optionValue(argv, index, argument);
+        index += 1;
         break;
       case "--with-sonar":
         options.withSonar = true;
@@ -153,6 +181,7 @@ export function createCheckPlan({
         "apps/api/python",
         "apps/api/python_tests",
         "deploy/rpi/host-updater",
+        "scripts/tooling/rpi-doctor-remote.py",
         "scripts/verify-host-tuf-publication.py",
         "scripts/tests/host-publication-e2e.py",
       ],
@@ -168,6 +197,7 @@ export function createCheckPlan({
         "apps/api/python",
         "apps/api/python_tests",
         "deploy/rpi/host-updater",
+        "scripts/tooling/rpi-doctor-remote.py",
         "scripts/verify-host-tuf-publication.py",
         "scripts/tests/host-publication-e2e.py",
       ],
@@ -338,14 +368,178 @@ export function createCheckPlan({
   return checks;
 }
 
-export function reportPaths(repositoryRoot, version) {
-  const directory = resolve(repositoryRoot, "dist", "ci");
-  const report = resolve(directory, `stugu-${version}-local-ci.json`);
+function pathEntry(path) {
+  try {
+    return lstatSync(path);
+  } catch (error) {
+    if (error?.code === "ENOENT" || error?.code === "ENOTDIR") {
+      return undefined;
+    }
+    throw error;
+  }
+}
+
+function pathKey(path) {
+  return resolve(path).toLowerCase();
+}
+
+function samePath(left, right) {
+  return pathKey(left) === pathKey(right);
+}
+
+function containsPath(parent, candidate) {
+  const suffix = relative(parent, candidate);
+  return (
+    suffix === "" ||
+    (suffix !== ".." &&
+      !suffix.startsWith(`..${sep}`) &&
+      !isAbsolute(suffix))
+  );
+}
+
+function inspectOutputPath(
+  path,
+  label,
+  { repositoryRoot, kind = "file" } = {},
+) {
+  const absolute = resolve(path);
+  const missing = [];
+  let existing = absolute;
+  let details = pathEntry(existing);
+
+  while (!details) {
+    const parent = dirname(existing);
+    if (parent === existing) {
+      throw new Error(
+        `${label} has no existing filesystem ancestor: ${absolute}`,
+      );
+    }
+    missing.unshift(basename(existing));
+    existing = parent;
+    details = pathEntry(existing);
+  }
+
+  const worktree = repositoryRoot ? resolve(repositoryRoot) : undefined;
+  const stopAt =
+    worktree && containsPath(worktree, absolute) ? worktree : undefined;
+  let component = existing;
+  while (true) {
+    const componentDetails = lstatSync(component);
+    if (componentDetails.isSymbolicLink()) {
+      throw new Error(
+        `${label} must not use a symbolic-link or junction alias: ${component}`,
+      );
+    }
+    if (stopAt && samePath(component, stopAt)) break;
+    const parent = dirname(component);
+    if (parent === component) break;
+    component = parent;
+  }
+
+  if (missing.length > 0 && !details.isDirectory()) {
+    throw new Error(`${label} has a non-directory parent: ${existing}`);
+  }
+
+  const canonical = resolve(realpathSync.native(existing), ...missing);
+  if (!samePath(canonical, absolute)) {
+    throw new Error(`${label} must not use a filesystem alias: ${absolute}`);
+  }
+
+  const destinationDetails = missing.length === 0 ? details : undefined;
+  if (destinationDetails) {
+    if (kind === "directory" && !destinationDetails.isDirectory()) {
+      throw new Error(`${label} must be a directory: ${absolute}`);
+    }
+    if (kind === "file" && !destinationDetails.isFile()) {
+      throw new Error(`${label} must be a regular file: ${absolute}`);
+    }
+    if (kind === "file" && destinationDetails.nlink > 1) {
+      throw new Error(`${label} must not be a hard-link alias: ${absolute}`);
+    }
+  }
+
   return {
+    canonical,
+    details: destinationDetails,
+    exists: Boolean(destinationDetails),
+    path: absolute,
+  };
+}
+
+function strictDescendant(parent, candidate) {
+  return !samePath(parent, candidate) && containsPath(parent, candidate);
+}
+
+export function assertReportPathsSafe(repositoryRoot, paths) {
+  const repository = resolve(repositoryRoot);
+  const repositoryDetails = pathEntry(repository);
+  if (!repositoryDetails?.isDirectory() || repositoryDetails.isSymbolicLink()) {
+    throw new Error(`Git worktree must be a real directory: ${repository}`);
+  }
+  const canonicalRepository = realpathSync.native(repository);
+  const defaultDirectory = resolve(repository, "dist", "ci");
+  const defaultInfo = inspectOutputPath(
+    defaultDirectory,
+    "Default local-CI receipt directory",
+    { repositoryRoot: repository, kind: "directory" },
+  );
+
+  if (!samePath(paths.directory, dirname(paths.report))) {
+    throw new Error("Local-CI receipt directory must contain the report");
+  }
+
+  const report = inspectOutputPath(paths.report, "Local-CI report", {
+    repositoryRoot: repository,
+  });
+  const checksum = inspectOutputPath(paths.checksum, "Local-CI checksum", {
+    repositoryRoot: repository,
+  });
+
+  for (const output of [report, checksum]) {
+    if (
+      containsPath(canonicalRepository, output.canonical) &&
+      !strictDescendant(defaultInfo.canonical, output.canonical)
+    ) {
+      throw new Error(
+        `${output.path} must be under ${defaultDirectory} or outside the Git worktree`,
+      );
+    }
+  }
+
+  if (
+    samePath(report.canonical, checksum.canonical) ||
+    strictDescendant(report.canonical, checksum.canonical) ||
+    strictDescendant(checksum.canonical, report.canonical)
+  ) {
+    throw new Error("Local-CI report and checksum destinations collide");
+  }
+
+  if (
+    report.details &&
+    checksum.details &&
+    report.details.dev === checksum.details.dev &&
+    report.details.ino === checksum.details.ino
+  ) {
+    throw new Error("Local-CI report and checksum are filesystem aliases");
+  }
+
+  return { report, checksum };
+}
+
+export function reportPaths(repositoryRoot, version, overrides = {}) {
+  const defaultDirectory = resolve(repositoryRoot, "dist", "ci");
+  const report = resolve(
+    overrides.report ??
+      resolve(defaultDirectory, `stugu-${version}-local-ci.json`),
+  );
+  const directory = dirname(report);
+  const paths = {
     directory,
     report,
-    checksum: `${report}.sha256`,
+    checksum: resolve(overrides.checksum ?? `${report}.sha256`),
   };
+  assertReportPathsSafe(repositoryRoot, paths);
+  return paths;
 }
 
 function captured(command, args, options = {}) {
@@ -391,16 +585,150 @@ function differsFromBase(baseRef) {
   return difference.status === 1 || Boolean(untracked);
 }
 
-function writeReport(paths, report) {
-  mkdirSync(paths.directory, { recursive: true });
-  const contents = `${JSON.stringify(report, null, 2)}\n`;
-  writeFileSync(paths.report, contents, "utf8");
-  const checksum = createHash("sha256").update(contents).digest("hex");
-  writeFileSync(
-    paths.checksum,
-    `${checksum}  ${basename(paths.report)}\n`,
-    "utf8",
+function assertExpectedContents(info, contents, label) {
+  if (!info.exists) return true;
+  if (readFileSync(info.path, "utf8") !== contents) {
+    throw new Error(
+      `${label} already exists with different content: ${info.path}`,
+    );
+  }
+  return false;
+}
+
+function assertFinalContents(info, contents, label) {
+  if (!info.exists) {
+    throw new Error(`${label} was not created: ${info.path}`);
+  }
+  assertExpectedContents(info, contents, label);
+}
+
+function atomicCreate(path, contents) {
+  const directory = dirname(path);
+  const temporary = resolve(
+    directory,
+    `.${basename(path)}.${process.pid}.${randomBytes(16).toString("hex")}.tmp`,
   );
+  let descriptor;
+
+  try {
+    descriptor = openSync(temporary, "wx", 0o600);
+    writeFileSync(descriptor, contents, "utf8");
+    fsyncSync(descriptor);
+    closeSync(descriptor);
+    descriptor = undefined;
+
+    // This follows the shared runtime helper's durable temporary-file pattern.
+    // A hard-link publication is atomic but, unlike rename, cannot replace a
+    // destination that appeared after the safety preflight.
+    linkSync(temporary, path);
+  } finally {
+    if (descriptor !== undefined) closeSync(descriptor);
+    if (pathEntry(temporary)) unlinkSync(temporary);
+  }
+}
+
+function createExpectedFile(paths, key, contents, label, repositoryRoot) {
+  let safe = assertReportPathsSafe(repositoryRoot, paths);
+  if (!assertExpectedContents(safe[key], contents, label)) return;
+
+  try {
+    atomicCreate(safe[key].path, contents);
+  } catch (error) {
+    if (error?.code !== "EEXIST") throw error;
+    safe = assertReportPathsSafe(repositoryRoot, paths);
+    if (assertExpectedContents(safe[key], contents, label)) {
+      throw new Error(`${label} destination changed while it was written`);
+    }
+  }
+}
+
+export function writeReport(paths, report, repositoryRoot = root) {
+  const contents = `${JSON.stringify(report, null, 2)}\n`;
+  const checksum = createHash("sha256").update(contents).digest("hex");
+  const checksumContents = `${checksum}  ${basename(paths.report)}\n`;
+
+  let safe = assertReportPathsSafe(repositoryRoot, paths);
+  assertExpectedContents(safe.report, contents, "Local-CI report");
+  assertExpectedContents(
+    safe.checksum,
+    checksumContents,
+    "Local-CI checksum",
+  );
+
+  for (const directory of new Set([
+    dirname(paths.report),
+    dirname(paths.checksum),
+  ])) {
+    mkdirSync(directory, { recursive: true });
+  }
+
+  safe = assertReportPathsSafe(repositoryRoot, paths);
+  const writeReceipt = assertExpectedContents(
+    safe.report,
+    contents,
+    "Local-CI report",
+  );
+  const writeChecksum = assertExpectedContents(
+    safe.checksum,
+    checksumContents,
+    "Local-CI checksum",
+  );
+
+  if (writeReceipt) {
+    createExpectedFile(
+      paths,
+      "report",
+      contents,
+      "Local-CI report",
+      repositoryRoot,
+    );
+  }
+  if (writeChecksum) {
+    createExpectedFile(
+      paths,
+      "checksum",
+      checksumContents,
+      "Local-CI checksum",
+      repositoryRoot,
+    );
+  }
+
+  safe = assertReportPathsSafe(repositoryRoot, paths);
+  assertFinalContents(safe.report, contents, "Local-CI report");
+  assertFinalContents(
+    safe.checksum,
+    checksumContents,
+    "Local-CI checksum",
+  );
+}
+
+function checkIdentifier(check) {
+  const fixed = new Map([
+    ["Install Node.js dependencies", "INSTALL_NODE"],
+    ["Install Python test dependencies", "INSTALL_PYTHON"],
+    ["Check release version against the base", "VERSION_BASE"],
+    ["Check release version consistency", "VERSION"],
+    ["Typecheck and architecture checks", "TYPECHECK"],
+    ["Lint Python components", "PYTHON_LINT"],
+    ["Check Python formatting", "PYTHON_FORMAT"],
+    ["Test signed host publication with native RAUC and TUF", "HOST_PUBLICATION"],
+    ["Test Linux updater durability and process safety", "UPDATER_LINUX"],
+    ["Test application workspaces with coverage", "WORKSPACE_COVERAGE"],
+    ["Test operational tooling", "OPERATIONAL_TOOLING"],
+    ["Test TP-Link bridge with coverage", "TP_LINK_COVERAGE"],
+    ["Build application", "APPLICATION_BUILD"],
+    ["Validate complete Compose configuration", "COMPOSE_COMPLETE"],
+    ["Validate appliance Compose configuration", "COMPOSE_APPLIANCE"],
+    ["Smoke-test built API", "API_SMOKE"],
+    ["Test portable Swift core", "SWIFT_TEST"],
+    ["Build iOS companion", "IOS_BUILD"],
+    ["Build Mac Catalyst companion", "MAC_CATALYST_BUILD"],
+    ["Run Sonar quality gate", "SONAR"],
+  ]);
+  if (fixed.has(check.name)) return fixed.get(check.name);
+  const container = /^Build (.+) production container$/u.exec(check.name);
+  if (container) return `CONTAINER_${container[1].replace(/[^A-Za-z0-9]+/gu, "_").toUpperCase()}`;
+  throw new Error(`Local CI check has no stable id: ${check.name}`);
 }
 
 function runCheck(check) {
@@ -414,6 +742,7 @@ function runCheck(check) {
   });
   const finishedAt = new Date();
   return {
+    id: checkIdentifier(check),
     name: check.name,
     command: printable(check.command, check.args),
     startedAt: startedAt.toISOString(),
@@ -438,7 +767,13 @@ function main(argv = process.argv.slice(2), env = process.env) {
   const workingTreeDirty = Boolean(captured("git", ["status", "--porcelain"]));
   const baseRef = options.baseRef ?? env.VERSION_BASE_REF ?? defaultBaseRef();
   const baseVersionCheck = differsFromBase(baseRef);
-  const paths = reportPaths(root, version);
+  const paths = reportPaths(root, version, {
+    report: options.report,
+    checksum: options.checksum,
+  });
+  // Docker needs the nested mountpoint to exist before it can place the
+  // writable tmpfs beneath the read-only source bind in a fresh checkout.
+  mkdirSync(resolve(root, "data"), { recursive: true });
   const checks = createCheckPlan({
     ...options,
     baseRef,

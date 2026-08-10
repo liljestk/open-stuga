@@ -4,8 +4,10 @@ import {
   buildHeatPumpExclusionWindow,
   filterHeatPumpAffectedSamples,
   isPassiveHeatPumpTime,
+  loadHeatPumpExclusionWindow,
   type HeatPumpEvidencePoint,
 } from "../src/analytics/heat-pump-evidence.js";
+import { ClimateDatabase } from "../src/db.js";
 
 const FROM = "2026-08-01T00:00:00.000Z";
 const TO = "2026-08-01T04:00:00.000Z";
@@ -48,6 +50,57 @@ describe("heat-pump passive analytics evidence", () => {
     });
     expect(isPassiveHeatPumpTime(window, FROM)).toBe(true);
     expect(filterHeatPumpAffectedSamples([sample(TO)], window).samples).toHaveLength(1);
+  });
+
+  it("ignores a stale current row after its heat pump is disconnected", () => {
+    const database = new ClimateDatabase(":memory:", false);
+    database.createHouse({ id: "home-a", name: "Home A", timezone: "UTC", floors: [] });
+    const observedAt = "2026-07-01T00:00:00.000Z";
+    database.db.prepare(`INSERT INTO heat_pump_state_current (
+      connection_id, house_id, observed_at, received_at, state_json
+    ) VALUES (?, ?, ?, ?, ?)`).run(
+      "heat-pump-1",
+      "home-a",
+      observedAt,
+      observedAt,
+      JSON.stringify({ available: false, power: false, compressorFrequencyHz: null }),
+    );
+
+    expect(loadHeatPumpExclusionWindow(database, "home-a", FROM, TO, []).summary)
+      .toMatchObject({ evidenceState: "not-present", heatPumpCount: 0 });
+    expect(loadHeatPumpExclusionWindow(
+      database,
+      "home-a",
+      FROM,
+      TO,
+      ["heat-pump-1"],
+    ).summary).toMatchObject({ evidenceState: "insufficient", heatPumpCount: 1 });
+    database.close();
+  });
+
+  it("retains a disconnected heat pump's historical exclusions without treating it as permanently unknown", () => {
+    const database = new ClimateDatabase(":memory:", false);
+    database.createHouse({ id: "home-a", name: "Home A", timezone: "UTC", floors: [] });
+    const insert = database.db.prepare(`INSERT INTO heat_pump_state_history (
+      connection_id, house_id, observed_at, received_at, state_json
+    ) VALUES (?, ?, ?, ?, ?)`);
+    for (const [observedAt, state] of [
+      ["2026-08-01T00:30:00.000Z", { available: true, power: false, compressorFrequencyHz: 0 }],
+      ["2026-08-01T01:00:00.000Z", { available: true, power: true, compressorFrequencyHz: 18 }],
+      ["2026-08-01T01:30:00.000Z", { available: false, power: true, compressorFrequencyHz: 18 }],
+    ] as const) {
+      insert.run("heat-pump-1", "home-a", observedAt, observedAt, JSON.stringify(state));
+    }
+
+    const window = loadHeatPumpExclusionWindow(database, "home-a", FROM, TO, []);
+    expect(window.summary).toMatchObject({
+      evidenceState: "partial",
+      heatPumpCount: 1,
+      confirmedActiveHours: 0.08,
+    });
+    expect(isPassiveHeatPumpTime(window, "2026-08-01T01:02:00.000Z")).toBe(false);
+    expect(isPassiveHeatPumpTime(window, "2026-08-01T03:00:00.000Z")).toBe(true);
+    database.close();
   });
 
   it("excludes possible and confirmed operation with five-minute lead and thirty-minute recovery", () => {

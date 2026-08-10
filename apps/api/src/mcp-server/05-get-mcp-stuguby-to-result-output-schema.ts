@@ -102,6 +102,7 @@ import { activeStugubyGrant, recommendedOverviewGrant, stugubySide, summarizeMcp
 import { chatgptMcpServerInstructions, isChatgptMcpProfile } from "./chatgpt-profile.js";
 import { runMcpThermalWork } from "./thermal-work.js";
 import {
+  configuredHeatPumpConnectionIds,
   filterHeatPumpAffectedSampleMap,
   loadHeatPumpExclusionWindow,
 } from "../analytics/heat-pump-evidence.js";
@@ -437,7 +438,13 @@ export async function thermalIsolation(
       ...(readSignal ? { signal: readSignal } : {}),
     }),
     complete: ({ indoor, outdoor }, completionSignal) => {
-      const heatPumpWindow = loadHeatPumpExclusionWindow(database, house.id, from, to);
+      const heatPumpWindow = loadHeatPumpExclusionWindow(
+        database,
+        house.id,
+        from,
+        to,
+        configuredHeatPumpConnectionIds(config.greeConnections, house.id),
+      );
       const filtered = filterHeatPumpAffectedSampleMap(new Map(sensors.map((sensor, index) => [
         sensor.id,
         indoor[index]!.records,

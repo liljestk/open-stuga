@@ -1,8 +1,14 @@
 #!/usr/bin/env node
+import { dirname, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
+
+import { validateReleaseVerificationReceipt } from "./tooling/receipt-contracts.mjs";
+import { assertOutsideRepository, boundedJson, sha256, verifyReceiptChecksum } from "./tooling/runtime.mjs";
+import { targetSelectorSha256, validateSshTarget } from "./tooling/ssh-target.mjs";
 
 const defaultApiBase = "https://api.connect.raspberrypi.com";
+const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 function required(env, name) {
   const value = env[name]?.trim();
@@ -18,6 +24,8 @@ export function readConfig(env = process.env) {
   const checksum = required(env, "RPI_OTA_CHECKSUM").toLowerCase();
   const deploy = (env.RPI_OTA_DEPLOY ?? "true").toLowerCase() !== "false";
   const waitMinutes = Number(env.RPI_OTA_WAIT_MINUTES ?? 30);
+  const verificationReceipt = required(env, "RPI_RELEASE_VERIFICATION_RECEIPT");
+  const targetSelector = validateSshTarget(required(env, "RPI_OTA_TARGET_SELECTOR"));
 
   if (!/^[0-9]+\.[0-9]+\.[0-9]+(?:[.-][0-9A-Za-z.-]+)?$/.test(version) || version.length > 64) {
     throw new Error("RPI_OTA_VERSION must be a release-like version of at most 64 characters");
@@ -43,8 +51,29 @@ export function readConfig(env = process.env) {
     checksum,
     deploy,
     waitMinutes,
+    verificationReceipt,
+    targetSelector,
     artefactName: `stugu-rpi4-${version}`,
   };
+}
+
+export function requireDeploymentEvidence(config) {
+  const receiptPath = assertOutsideRepository(resolve(config.verificationReceipt), root, "release verification receipt");
+  const receipt = validateReleaseVerificationReceipt(
+    boundedJson(receiptPath, "release verification receipt", 4 * 1024 * 1024),
+    { version: config.version },
+  );
+  verifyReceiptChecksum(receiptPath, "release verification receipt");
+  if (!receipt.deployment) throw new Error("release verification receipt does not authorize a Connect deployment");
+  if (receipt.target.selectorSha256 !== targetSelectorSha256(config.targetSelector)) {
+    throw new Error("release verification receipt names another SSH target");
+  }
+  if (receipt.deployment.artifactSha256 !== config.checksum
+    || receipt.deployment.uriSha256 !== sha256(config.uri)
+    || receipt.deployment.deviceIdSha256 !== sha256(config.deviceId.toLowerCase())) {
+    throw new Error("release verification receipt does not match the artifact URI and Connect device");
+  }
+  return receipt;
 }
 
 async function connectRequest(config, path, init = {}, fetchImpl = fetch) {
@@ -135,6 +164,7 @@ export async function waitForDeployment(config, deploymentId, fetchImpl = fetch,
 
 export async function main(env = process.env, fetchImpl = fetch) {
   const config = readConfig(env);
+  requireDeploymentEvidence(config);
   const artefact = await ensureArtefact(config, fetchImpl);
   console.log(`Registered artefact ${artefact.name} (${artefact.id})`);
   if (!config.deploy) return artefact;

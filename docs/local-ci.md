@@ -23,7 +23,7 @@ Refresh the comparison ref and run the complete local gate:
 
 ```sh
 git fetch origin main
-npm run ci:local
+npm run verify:local -- --full
 ```
 
 The gate checks the release version, architecture and types, Python lint and
@@ -33,32 +33,42 @@ and the built API smoke test. On macOS it also runs Swift tests and unsigned
 iOS and Mac Catalyst builds. Those native Apple checks are unavailable on
 Windows and Linux and are recorded as such.
 
-A machine-readable report and SHA-256 checksum are written to
-`dist/ci/stugu-<version>-local-ci.json[.sha256]`. Build output remains ignored
+A machine-readable wrapper receipt, the underlying authoritative CI evidence,
+their checksums, and detailed logs are written to the per-user Stugu tooling
+state directory outside Git. The wrapper is reused only for the exact commit,
+worktree, lockfile, configuration, and base hashes. Build output remains ignored
 locally; source code is pushed with Git:
 
 ```sh
 git push origin HEAD
 ```
 
-Useful options:
+Use `npm run verify:local -- --fast` for the diff, architecture/type checks, and
+affected tests while iterating. Useful authoritative-CI options remain available
+through direct `ci:local` maintenance/debugging:
 
 - `--base-ref REF` selects the version-comparison ref.
-- `--skip-container-builds` is for the release publisher, which immediately
-  performs multi-platform container builds itself.
+- `--skip-container-builds` is for explicit CI debugging only; a release full-CI
+  receipt must come from the complete gate.
 - `--with-sonar` optionally submits the already-generated coverage reports.
 
 ## Publish release artifacts
 
-`npm run release:local -- --ssh-public-key PATH --publish` reruns local CI,
-pushes the AMD64/ARM64 images to GHCR, builds the Raspberry Pi artifacts, and
-publishes the GitHub release. The local CI report and checksum are attached to
-the release. The factory image remains local unless `--upload-factory` is
-explicitly supplied.
+Draft preparation consumes the full receipt without rerunning CI:
+
+```sh
+npm run release:local -- --ssh-public-key PATH --full-ci-receipt PATH --keep-draft --publish
+```
+
+It pushes the AMD64/ARM64 images to GHCR, builds the Raspberry Pi artifacts,
+writes the compatibility proof, and leaves a GitHub draft. Final publication
+requires and consumes a matching `release:verify` receipt. The factory image
+remains local unless `--upload-factory` is explicitly supplied.
 
 Without `--publish`, the command prints a plan only; it does not run CI or
 validate tags, credentials, input files, or artifacts. `--keep-draft --publish`
-still pushes the container tags before leaving the GitHub release as a draft.
+still pushes the container tags before leaving the GitHub release as a draft;
+the publisher refuses to make it public without `--verification-receipt`.
 Follow the complete [application release cycle](release-cycle.md) for the
 private-source/public-feed tags, channel decision, operator context, audit, and
 appliance verification.

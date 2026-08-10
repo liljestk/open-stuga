@@ -40,6 +40,30 @@ export interface HeatPumpExclusionWindow {
   summary: HvacExclusionSummary;
 }
 
+export interface ConfiguredHeatPumpConnection {
+  id: string;
+  houseId: string;
+}
+
+export class InsufficientHeatPumpEvidenceError extends Error {
+  readonly code = "HVAC_EVIDENCE_INSUFFICIENT";
+
+  constructor() {
+    super("Configured heat-pump evidence is insufficient for passive derived analytics");
+    this.name = "InsufficientHeatPumpEvidenceError";
+  }
+}
+
+export function configuredHeatPumpConnectionIds(
+  connections: readonly ConfiguredHeatPumpConnection[] | undefined,
+  houseId: string,
+): string[] {
+  return [...new Set((connections ?? [])
+    .filter((connection) => connection.houseId === houseId)
+    .map((connection) => connection.id))]
+    .sort();
+}
+
 export function heatPumpEvidenceInfluenceRange(observedAt: string): { from: string; to: string } {
   const observedAtMs = finiteTime(observedAt, "observedAt");
   return {
@@ -129,6 +153,7 @@ function classAt(
   segments: readonly (PassiveInterval & { classification: EvidenceClass })[],
   index: number,
   time: number,
+  absentClassification: EvidenceClass,
 ): { classification: EvidenceClass; index: number } {
   let current = index;
   while (current < segments.length && segments[current]!.toMs <= time) current += 1;
@@ -136,7 +161,7 @@ function classAt(
   return {
     classification: segment && segment.fromMs <= time && segment.toMs > time
       ? segment.classification
-      : "unknown",
+      : absentClassification,
     index: current,
   };
 }
@@ -152,6 +177,7 @@ export function buildHeatPumpExclusionWindow(input: {
   from: string;
   to: string;
   connectionIds: readonly string[];
+  configuredConnectionIds?: readonly string[];
   points: readonly HeatPumpEvidencePoint[];
   truncated?: boolean;
 }): HeatPumpExclusionWindow {
@@ -160,6 +186,9 @@ export function buildHeatPumpExclusionWindow(input: {
   if (fromMs >= toMs) throw new RangeError("Heat-pump evidence range must be positive");
   const windowMs = toMs - fromMs;
   const connectionIds = [...new Set(input.connectionIds)].sort();
+  const configuredConnectionIds = new Set(
+    input.configuredConnectionIds ?? connectionIds,
+  );
   if (connectionIds.length === 0) {
     return {
       fromMs,
@@ -220,7 +249,12 @@ export function buildHeatPumpExclusionWindow(input: {
     const end = ordered[index + 1]!;
     if (end <= start) continue;
     const classes = connectionIds.map((id) => {
-      const found = classAt(segments.get(id) ?? [], indices.get(id) ?? 0, start);
+      const found = classAt(
+        segments.get(id) ?? [],
+        indices.get(id) ?? 0,
+        start,
+        configuredConnectionIds.has(id) ? "unknown" : "off",
+      );
       indices.set(id, found.index);
       return found.classification;
     });
@@ -295,14 +329,12 @@ export function loadHeatPumpExclusionWindow(
   houseId: string,
   from: string,
   to: string,
+  configuredConnectionIds: readonly string[],
 ): HeatPumpExclusionWindow {
   const fromMs = finiteTime(from, "from");
   const toMs = finiteTime(to, "to");
   const queryFrom = new Date(fromMs - PADDING_AFTER_MS - MAX_STATE_GAP_MS).toISOString();
   const queryTo = new Date(toMs + PADDING_BEFORE_MS).toISOString();
-  const current = database.db.prepare(`
-    SELECT connection_id FROM heat_pump_state_current WHERE house_id = ?
-  `).all(houseId) as unknown as Array<{ connection_id: string }>;
   const rows = database.db.prepare(`
     SELECT connection_id, observed_at,
       CAST(json_extract(state_json, '$.available') AS INTEGER) AS available,
@@ -315,13 +347,14 @@ export function loadHeatPumpExclusionWindow(
   const truncated = rows.length > MAX_HISTORY_ROWS;
   const bounded = truncated ? rows.slice(0, MAX_HISTORY_ROWS) : rows;
   const connectionIds = [
-    ...current.map((row) => row.connection_id),
+    ...configuredConnectionIds,
     ...bounded.map((row) => row.connection_id),
   ];
   return buildHeatPumpExclusionWindow({
     from,
     to,
     connectionIds,
+    configuredConnectionIds,
     points: bounded.map((row) => ({
       connectionId: row.connection_id,
       time: Date.parse(row.observed_at),

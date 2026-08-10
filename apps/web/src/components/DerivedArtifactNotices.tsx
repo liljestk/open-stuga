@@ -70,4 +70,3 @@ export function DerivedArtifactNotices({
     </small>}
   </>;
 }
-

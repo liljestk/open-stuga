@@ -16,7 +16,8 @@ original `climate-twin` identifier.
   `apps/bug-report-relay` that holds a GitHub App key. Neither is part of
   shipping the app, and neither should be deployed as part of ordinary work.
 - Hosted GitHub Actions CI is **paused** while the repo is private.
-  `npm run ci:local` is the authoritative gate (see `docs/local-ci.md`).
+  `npm run verify:local -- --full` runs the authoritative local CI once and
+  produces the reusable receipt (see `docs/local-ci.md`).
 
 ## Layout
 
@@ -43,10 +44,11 @@ npm run build            # packages -> api -> web
 npm test -w @climate-twin/api
 npm test -w @climate-twin/web
 npm run typecheck        # file-size + architecture checks, then all workspaces
-npm run ci:local         # full gate: version, types, Python lint, coverage, build, Compose, Docker images
+npm run verify:local -- --fast  # diff, architecture/types, affected tests
+npm run verify:local -- --full  # authoritative full gate plus exact-input receipt
 ```
 
-`npm run ci:local` needs Docker Desktop and a Python 3.13 environment with
+Full verification needs Docker Desktop and a Python 3.13 environment with
 `apps/api/python/requirements*.txt` installed; the native Apple checks only run
 on macOS.
 
@@ -89,8 +91,10 @@ version in all of these, plus a `## <version>` CHANGELOG heading:
 
 Work on a branch off `main` (history uses `codex/vX.Y.Z-topic`), keep the
 CHANGELOG entry user-facing with an "Upgrade impact" note, and open a PR.
-`npm run release:local -- --publish` is a separate, deliberate step that pushes
-GHCR images and Pi artifacts — it is not part of merging a change.
+`npm run release:local -- --full-ci-receipt PATH --keep-draft --publish` is a
+separate, deliberate preparation step that pushes GHCR images and Pi artifacts.
+Final publication consumes `release:verify` evidence; neither is part of merging
+a change.
 
 For release work, follow `docs/release-cycle.md`. It covers the private source
 and public feed tags, operator-owned trust context, draft/channel side effects,

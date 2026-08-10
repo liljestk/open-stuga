@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -11,10 +12,14 @@ import {
   createDeployment,
   ensureArtefact,
   readConfig,
+  requireDeploymentEvidence,
   waitForDeployment,
 } from "../deploy-rpi-ota.mjs";
 import {
+  assertFinalizationArguments,
   artifactDefinitions,
+  containerInventoryDecision,
+  draftAssetDeletionPlan,
   imageDefinitions,
   parseArguments,
   platformInvocation,
@@ -31,6 +36,8 @@ const baseEnv = {
   RPI_OTA_VERSION: "v1.2.3",
   RPI_OTA_URI: "https://example.test/stugu-rpi4-1.2.3-ota.tar.zst",
   RPI_OTA_CHECKSUM: "a".repeat(64),
+  RPI_RELEASE_VERIFICATION_RECEIPT: "C:\\receipts\\release.json",
+  RPI_OTA_TARGET_SELECTOR: "operator@stugu.local",
 };
 
 function response(body, status = 200) {
@@ -39,6 +46,8 @@ function response(body, status = 200) {
     headers: { "Content-Type": "application/json" },
   });
 }
+
+const digest = (value) => createHash("sha256").update(value).digest("hex");
 
 test("readConfig normalizes and validates release input", () => {
   const config = readConfig(baseEnv);
@@ -63,6 +72,90 @@ test("readConfig rejects malformed versions and device UUIDs", () => {
     () => readConfig({ ...baseEnv, RPI_CONNECT_DEVICE_ID: "a".repeat(36) }),
     /must be a UUID/,
   );
+});
+
+test("legacy Connect deployment consumes an exact target-bound release receipt", () => {
+  const directory = mkdtempSync(join(tmpdir(), "stugu-connect-receipt-"));
+  try {
+    const receiptPath = join(directory, "release.json");
+    const image = (name) => ({
+      reference: `ghcr.io/example/${name}:v1.2.3@sha256:${"1".repeat(64)}`,
+      indexDigest: `sha256:${"1".repeat(64)}`,
+      anonymousRead: true,
+      amd64ManifestDigest: `sha256:${"2".repeat(64)}`,
+      amd64ConfigDigest: `sha256:${"3".repeat(64)}`,
+      amd64DescriptorClosureSha256: "4".repeat(64),
+      amd64ProvenanceSha256: "5".repeat(64),
+      arm64ManifestDigest: `sha256:${"2".repeat(64)}`,
+      arm64ConfigDigest: `sha256:${"3".repeat(64)}`,
+      arm64DescriptorClosureSha256: "6".repeat(64),
+      arm64ProvenanceSha256: "7".repeat(64),
+    });
+    const receipt = {
+      schema: "stugu-release-verification/v1",
+      result: "passed",
+      verifiedAt: "2026-08-09T10:00:00.000Z",
+      commit: "a".repeat(40),
+      worktreeSha256: "b".repeat(64),
+      version: "1.2.3",
+      tagName: "v1.2.3",
+      repository: "example/releases",
+      channel: "preview",
+      cacheKey: "c".repeat(64),
+      inputs: {
+        manifestSha256: "d".repeat(64),
+        fullCiReceiptSha256: "e".repeat(64),
+        compatibilityProofSha256: "f".repeat(64),
+        draftPreparationSha256: "9".repeat(64),
+        visualReceiptSha256: "0".repeat(64),
+        targetReceiptSha256: "1".repeat(64),
+        lockfileSha256: "2".repeat(64),
+        configurationSha256: "3".repeat(64),
+      },
+      draft: {
+        title: "Stugu 1.2.3",
+        bodySha256: digest("Reviewed release notes"),
+        channel: "preview",
+        factoryUploaded: false,
+        assets: {
+          "stugu-release-manifest-v1.json": "1".repeat(64),
+          "stugu-release-compatibility-proof-v1.json": "2".repeat(64),
+          "stugu-release-compatibility-proof-v1.json.sha256": "3".repeat(64),
+          "stugu-nexus433-corresponding-source-1.2.3.tar.gz": "4".repeat(64),
+          "stugu-nexus433-corresponding-source-1.2.3.tar.gz.sha256": "5".repeat(64),
+          "stugu-1.2.3-full-verification.json": "6".repeat(64),
+          "stugu-1.2.3-full-verification.json.sha256": "7".repeat(64),
+        },
+      },
+      images: {
+        api: image("api"), web: image("web"), backup: image("backup"),
+        tapo: image("tapo"), updateAgent: image("update"), mqtt: image("mqtt"),
+        nexus433: image("nexus433"),
+      },
+      target: {
+        selectorSha256: digest(baseEnv.RPI_OTA_TARGET_SELECTOR),
+        sshHostKeyFingerprint: `SHA256:${"A".repeat(30)}`,
+        machineIdSha256: "5".repeat(64),
+        hardwareFingerprint: `sha256:${"6".repeat(64)}`,
+      },
+      deployment: {
+        artifactSha256: baseEnv.RPI_OTA_CHECKSUM,
+        uriSha256: digest(baseEnv.RPI_OTA_URI),
+        deviceIdSha256: digest(baseEnv.RPI_CONNECT_DEVICE_ID.toLowerCase()),
+      },
+    };
+    const contents = `${JSON.stringify(receipt, null, 2)}\n`;
+    writeFileSync(receiptPath, contents);
+    writeFileSync(`${receiptPath}.sha256`, `${digest(contents)}  release.json\n`);
+    const config = readConfig({ ...baseEnv, RPI_RELEASE_VERIFICATION_RECEIPT: receiptPath });
+    assert.equal(requireDeploymentEvidence(config).version, "1.2.3");
+    assert.throws(
+      () => requireDeploymentEvidence({ ...config, checksum: "9".repeat(64) }),
+      /does not match the artifact/u,
+    );
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test("the appliance grows storage before local shared mounts without an ordering cycle", async () => {
@@ -755,9 +848,10 @@ test("local publishing owns expensive builds and hosted release work is an expli
   assert.match(publisher, /"--volume",\s*\n\s*"\/rpi-build"/);
   assert.match(publisher, /RPI_BUILD_ROOT: "\/rpi-build"/);
   assert.match(publisher, /scripts\/build-rpi-image\.sh/);
-  assert.match(publisher, /ci:local/);
-  assert.match(publisher, /--skip-container-builds/);
-  assert.match(publisher, /localCiReport/);
+  assert.doesNotMatch(publisher, /invoke\("npm", \["run", "ci:local"/u);
+  assert.match(publisher, /--full-ci-receipt/);
+  assert.match(publisher, /--verification-receipt/);
+  assert.match(publisher, /writeCompatibilityProof/);
   assert.match(publisher, /"release",\s*\n\s*"upload"/);
   assert.doesNotMatch(publisher, /confirm-nexus433-compliance/);
   assert.match(publisher, /artifacts\.nexus433SourceChecksum/);
@@ -771,6 +865,24 @@ test("local publishing owns expensive builds and hosted release work is an expli
   assert.doesNotMatch(publisher, /deploy-rpi-ota|Deploy OTA/);
   assert.doesNotMatch(publisher, /const paths = \[artifacts\.ota/);
   assert.match(workflow, /Attach validated factory image to GitHub release/);
+});
+
+test("container tag inventory distinguishes zero, partial, and full immutable versions", () => {
+  const images = imageDefinitions("ghcr.io/example/stugu", "v1.2.3");
+  const absent = images.map((image) => ({ ref: image.ref, status: "absent" }));
+  const full = images.map((image) => ({
+    ref: image.ref,
+    status: "present",
+    digest: `sha256:${"8".repeat(64)}`,
+  }));
+  assert.equal(containerInventoryDecision(absent, false), "build");
+  assert.throws(() => containerInventoryDecision(absent, true), /requires all seven/u);
+  assert.equal(containerInventoryDecision(full, true), "reuse");
+  assert.throws(() => containerInventoryDecision(full, false), /refusing to overwrite/u);
+  assert.throws(
+    () => containerInventoryDecision([full[0], ...absent.slice(1)], true),
+    /partial container inventory/u,
+  );
 });
 
 test("local release options and output names are deterministic", () => {
@@ -787,6 +899,8 @@ test("local release options and output names are deterministic", () => {
     "rauc-ca.pem",
     "--host-update-base-url",
     "https://updates.example.test/stugu",
+    "--full-ci-receipt",
+    "full-ci.json",
     "--publish",
     "--prerelease",
     "--keep-draft",
@@ -797,11 +911,43 @@ test("local release options and output names are deterministic", () => {
   assert.equal(options.sshPublicKey, "recovery.pub");
   assert.equal(options.hostGeneration, "42");
   assert.equal(options.hostTufRoot, "root.json");
+  assert.equal(options.fullCiReceipt, "full-ci.json");
   assert.equal(options.publish, true);
   assert.equal(options.prerelease, true);
   assert.equal(options.keepDraft, true);
   assert.equal(options.reuseContainers, true);
   assert.equal(options.uploadFactory, true);
+  assert.throws(
+    () => assertFinalizationArguments(parseArguments([
+      "--verification-receipt", "release.json",
+      "--notes-file", "notes.md",
+    ])),
+    /--notes-file/u,
+  );
+  assert.doesNotThrow(() => assertFinalizationArguments(parseArguments([
+    "--verification-receipt", "release.json",
+    "--repository", "example/releases",
+    "--tag", "v1.2.3",
+    "--publish",
+  ])));
+  const deletionPlan = draftAssetDeletionPlan({
+    isDraft: true,
+    assets: [{
+      name: "stugu-rpi4-1.2.3.img.zst",
+      apiUrl: "https://api.github.com/repos/example/releases/releases/assets/42",
+    }],
+  }, { "stugu-release-manifest-v1.json": "a".repeat(64) });
+  assert.deepEqual(deletionPlan, [{ id: "42", name: "stugu-rpi4-1.2.3.img.zst" }]);
+  assert.throws(
+    () => draftAssetDeletionPlan({
+      isDraft: false,
+      assets: [{
+        name: "stugu-rpi4-1.2.3.img.zst",
+        apiUrl: "https://api.github.com/repos/example/releases/releases/assets/42",
+      }],
+    }, { "stugu-release-manifest-v1.json": "a".repeat(64) }),
+    /non-draft/u,
+  );
   assert.throws(() => parseArguments(["--skip-checks"]), /Unknown argument/);
   assert.doesNotThrow(() => validateHostReleaseSettings({
     generation: "42",
@@ -833,12 +979,17 @@ test("local release options and output names are deterministic", () => {
   );
   assert.equal(images[0].ref, "ghcr.io/liljestk/open-stuga-api:v1.2.3");
 
-  const artifacts = artifactDefinitions("/workspace", "1.2.3");
+  const artifacts = artifactDefinitions(
+    fileURLToPath(new URL("../..", import.meta.url)),
+    "1.2.3",
+  );
   assert.match(artifacts.ota, /stugu-rpi4-1\.2\.3-ota\.tar\.zst$/);
   assert.match(artifacts.factory, /stugu-rpi4-1\.2\.3\.img\.zst$/);
   assert.match(artifacts.localCiReport, /stugu-1\.2\.3-local-ci\.json$/);
   assert.equal(artifacts.localCiChecksum, `${artifacts.localCiReport}.sha256`);
   assert.match(artifacts.releaseManifest, /stugu-release-manifest-v1\.json$/);
+  assert.match(artifacts.compatibilityProof, /stugu-release-compatibility-proof-v1\.json$/);
+  assert.match(artifacts.draftPreparation, /stugu-draft-preparation-v1\.json$/);
   assert.match(artifacts.hostBoot, /host-inputs[\\/]boot\.vfat$/);
   assert.match(artifacts.hostRoot, /host-inputs[\\/]system\.erofs$/);
   assert.match(artifacts.hostContainerManifest, /host-inputs[\\/]stugu-release-manifest-v1\.json$/);

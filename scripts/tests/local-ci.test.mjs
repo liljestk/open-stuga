@@ -1,6 +1,19 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import {
+  existsSync,
+  linkSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 
@@ -9,7 +22,20 @@ import {
   parseArguments,
   platformInvocation,
   reportPaths,
+  writeReport,
 } from "../local-ci.mjs";
+
+function receiptFixture(t) {
+  const temporary = realpathSync.native(
+    mkdtempSync(join(tmpdir(), "stugu-local-ci-")),
+  );
+  const repository = join(temporary, "repository");
+  const outside = join(temporary, "outside");
+  mkdirSync(repository);
+  mkdirSync(outside);
+  t.after(() => rmSync(temporary, { recursive: true, force: true }));
+  return { outside, repository, temporary };
+}
 
 test("local CI options are explicit", () => {
   assert.deepEqual(
@@ -73,10 +99,122 @@ test("local CI covers validation and records platform-only Apple checks", () => 
   assert.doesNotMatch(macCommands.join("\n"), /docker build --target/);
 });
 
-test("local CI receipt names are deterministic", () => {
-  const paths = reportPaths("C:\\workspace", "1.2.3");
+test("local CI receipt names are deterministic", (t) => {
+  const { repository } = receiptFixture(t);
+  const paths = reportPaths(repository, "1.2.3");
   assert.match(paths.report, /stugu-1\.2\.3-local-ci\.json$/);
   assert.equal(paths.checksum, `${paths.report}.sha256`);
+});
+
+test("local CI permits only dist/ci or destinations outside the worktree", (t) => {
+  const { outside, repository } = receiptFixture(t);
+
+  assert.doesNotThrow(() =>
+    reportPaths(repository, "1.2.3", {
+      report: join(repository, "dist", "ci", "custom.json"),
+    }),
+  );
+  assert.doesNotThrow(() =>
+    reportPaths(repository, "1.2.3", {
+      report: join(outside, "custom.json"),
+    }),
+  );
+  assert.throws(
+    () =>
+      reportPaths(repository, "1.2.3", {
+        report: join(repository, "receipt.json"),
+      }),
+    /must be under .*dist.*ci or outside the Git worktree/u,
+  );
+  assert.throws(
+    () =>
+      reportPaths(repository, "1.2.3", {
+        checksum: join(repository, "dist", "other", "receipt.sha256"),
+      }),
+    /must be under .*dist.*ci or outside the Git worktree/u,
+  );
+});
+
+test("local CI rejects aliases and colliding destinations", (t) => {
+  const { outside, repository, temporary } = receiptFixture(t);
+  const alias = join(temporary, "worktree-alias");
+  symlinkSync(
+    repository,
+    alias,
+    process.platform === "win32" ? "junction" : "dir",
+  );
+
+  assert.throws(
+    () =>
+      reportPaths(repository, "1.2.3", {
+        report: join(alias, "receipt.json"),
+      }),
+    /symbolic-link|junction|alias/u,
+  );
+
+  const collision = join(outside, "collision.json");
+  assert.throws(
+    () =>
+      reportPaths(repository, "1.2.3", {
+        report: collision,
+        checksum: collision,
+      }),
+    /destinations collide/u,
+  );
+  assert.throws(
+    () =>
+      reportPaths(repository, "1.2.3", {
+        report: join(outside, "case.json"),
+        checksum: join(outside, "CASE.JSON"),
+      }),
+    /destinations collide/u,
+  );
+});
+
+test("local CI rejects hard-link aliases", (t) => {
+  const { outside, repository } = receiptFixture(t);
+  const report = join(outside, "report.json");
+  const checksum = join(outside, "report.json.sha256");
+  writeFileSync(report, "same file", "utf8");
+  linkSync(report, checksum);
+
+  assert.throws(
+    () => reportPaths(repository, "1.2.3", { report, checksum }),
+    /hard-link alias|filesystem aliases/u,
+  );
+});
+
+test("local CI never replaces differing receipt files", (t) => {
+  const { outside, repository } = receiptFixture(t);
+  const paths = reportPaths(repository, "1.2.3", {
+    report: join(outside, "receipt.json"),
+  });
+  writeFileSync(paths.checksum, "different\n", "utf8");
+
+  assert.throws(
+    () => writeReport(paths, { result: "passed" }, repository),
+    /checksum already exists with different content/u,
+  );
+  assert.equal(existsSync(paths.report), false);
+});
+
+test("local CI writes receipts atomically and accepts identical files", (t) => {
+  const { outside, repository } = receiptFixture(t);
+  const paths = reportPaths(repository, "1.2.3", {
+    report: join(outside, "receipt.json"),
+  });
+  const receipt = { result: "passed" };
+
+  writeReport(paths, receipt, repository);
+  assert.equal(
+    readFileSync(paths.report, "utf8"),
+    '{\n  "result": "passed"\n}\n',
+  );
+  assert.match(
+    readFileSync(paths.checksum, "utf8"),
+    /^[a-f0-9]{64}  receipt\.json\n$/u,
+  );
+  assert.doesNotThrow(() => writeReport(paths, receipt, repository));
 });
 
 test("local CI invokes npm through Node on Windows", () => {

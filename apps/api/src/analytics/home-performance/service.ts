@@ -53,6 +53,7 @@ export interface HomePerformanceServiceInput {
   dataMode: "live" | "demo";
   database: ClimateDatabase;
   telemetryReader: HybridTelemetryReader;
+  heatPumpConnectionIds: readonly string[];
   evaluatedAt: string;
   signal?: AbortSignal;
 }
@@ -252,6 +253,7 @@ export async function getHomePerformance(
     input.house.id,
     recoveryFrom,
     to,
+    input.heatPumpConnectionIds,
   );
   const projectedPoints = sensors.length * (
     pointCount(from, to, "1h") * (climateDefinitions.length + energyDefinitions.length)

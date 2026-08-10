@@ -4,6 +4,26 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.39.0 - 2026-08-10
+
+- Add canonical fast/full local verification with exact-input caches, stable
+  failure codes, detailed logs, and commit-pinned JSON receipts outside Git.
+- Split draft preparation, release verification, and final publication so CI,
+  builds, ARM64 image identity, compatibility, visual acceptance, and target
+  appliance evidence are each produced once and consumed by later steps.
+- Add a one-session, read-only Raspberry Pi doctor with bounded default health,
+  resource, container, archive/database, queue, integration, updater, and
+  identity checks; expensive integrity and log checks require `--deep`.
+- Include the application changes prepared since 0.35.7: correct cancelled-
+  request logging and audit migrations, in-app bug-relay setup, bounded durable
+  analytics, and heat-pump-aware passive thermal and moisture fits.
+
+Upgrade impact: the first application start performs idempotent database updates
+for audit, weather, projections, and durable analytics jobs. Existing telemetry
+and last-good results are retained. This release does not require a signed host
+update or factory image; future publication/deployment commands require matching
+verification receipts.
+
 ## 0.38.0 - 2026-08-08
 
 - Exclude powered, compressor-active, unavailable, and stale-gap heat-pump

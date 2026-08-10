@@ -193,6 +193,40 @@ describe("durable derived analytics coordinator", () => {
     db.close();
   });
 
+  it("invalidates the durable identity when a configured heat pump is disconnected", async () => {
+    const db = database(":memory:");
+    const now = new Date("2026-08-08T12:00:00.000Z");
+    let heatPumpConnectionIds = ["connection-a"];
+    const coordinator = new DerivedAnalyticsCoordinator(
+      db,
+      fakeTelemetryReader,
+      new AnalyticsWorkLimiter({ maxConcurrent: 1 }),
+      {
+        now: () => now,
+        compute: async () => result(now.toISOString()),
+        heatPumpConnectionIds: () => heatPumpConnectionIds,
+      },
+    );
+    const input = {
+      kind: "thermal-isolation" as const,
+      houseId: "home-a",
+      dataMode: "demo" as const,
+      windowDays: 7,
+    };
+    coordinator.refresh(input);
+    await coordinator.drainOnce();
+    const current = coordinator.read<ThermalIsolationResult>(input);
+
+    heatPumpConnectionIds = [];
+    expect(coordinator.read<ThermalIsolationResult>(input)).toMatchObject({
+      state: "idle",
+      stale: true,
+      artifact: { id: current.artifact!.id },
+      result: { generatedAt: now.toISOString() },
+    });
+    db.close();
+  });
+
   it("guards appliance startup and drains persisted jobs only after explicit use or at night", async () => {
     const directory = mkdtempSync(join(tmpdir(), "stugu-derived-startup-"));
     temporaryDirectories.push(directory);
@@ -338,6 +372,69 @@ describe("durable derived analytics coordinator", () => {
     reopened.close();
   });
 
+  it("keeps last-good when configured heat-pump evidence is insufficient", async () => {
+    const db = database(":memory:");
+    db.activateRealDataMode();
+    const now = new Date("2026-08-08T12:00:00.000Z");
+    const input = {
+      kind: "thermal-isolation" as const,
+      houseId: "home-a",
+      dataMode: "live" as const,
+      windowDays: 7,
+    };
+    const baseline = new DerivedAnalyticsCoordinator(
+      db,
+      fakeTelemetryReader,
+      new AnalyticsWorkLimiter({ maxConcurrent: 1 }),
+      { now: () => now, compute: async () => result(now.toISOString()) },
+    );
+    baseline.refresh(input);
+    await baseline.drainOnce();
+    const lastGood = baseline.read<ThermalIsolationResult>(input);
+
+    new HeatPumpStateStore(db).record(heatPumpState("2026-08-07T12:00:00.000Z", false));
+    const telemetryReader = {
+      measurementCoverage: vi.fn(async () => ({
+        records: [{ sensorId: "sensor-a", metric: "temperature" }],
+      })),
+      outdoorTemperatureHistory: vi.fn(async () => ({ records: [] })),
+      thermalMeasurementHistory: vi.fn(async () => ({ records: [] })),
+    } as unknown as HybridTelemetryReader;
+    const insufficient = new DerivedAnalyticsCoordinator(
+      db,
+      telemetryReader,
+      new AnalyticsWorkLimiter({ maxConcurrent: 1 }),
+      {
+        now: () => now,
+        heatPumpConnectionIds: () => ["connection-a"],
+      },
+    );
+    expect(insufficient.read<ThermalIsolationResult>(input)).toMatchObject({
+      state: "idle",
+      stale: true,
+      artifact: { id: lastGood.artifact!.id },
+      result: { generatedAt: now.toISOString() },
+    });
+
+    insufficient.refresh(input);
+    expect(await insufficient.drainOnce()).toBe(true);
+    expect(telemetryReader.measurementCoverage).not.toHaveBeenCalled();
+    expect(insufficient.read<ThermalIsolationResult>(input)).toMatchObject({
+      state: "failed",
+      stale: true,
+      artifact: { id: lastGood.artifact!.id },
+      result: { generatedAt: now.toISOString() },
+      job: {
+        errorCode: "HVAC_EVIDENCE_INSUFFICIENT",
+        nextAttemptAt: null,
+        attemptCount: 1,
+      },
+    });
+    expect(db.db.prepare("SELECT COUNT(*) AS count FROM derived_analytics_artifacts").get())
+      .toEqual({ count: 1 });
+    db.close();
+  });
+
   it("resets the retry budget for every forced refresh lifecycle", async () => {
     const db = database(":memory:");
     const now = new Date("2026-08-08T12:00:00.000Z");
@@ -382,6 +479,7 @@ describe("durable derived analytics coordinator", () => {
     "HOME_PERFORMANCE_SCOPE_TOO_LARGE",
     "THERMAL_SCOPE_TOO_LARGE",
     "MOISTURE_SCOPE_TOO_LARGE",
+    "HVAC_EVIDENCE_INSUFFICIENT",
     "DERIVED_ARTIFACT_TOO_LARGE",
   ])("does not retry deterministic failure %s", async (code) => {
     const db = database(":memory:");

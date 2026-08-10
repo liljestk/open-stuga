@@ -5,12 +5,14 @@ import {
   runMoistureResponseAsync,
 } from "../moisture-response.js";
 import {
+  config,
   database,
   optionalString,
   requiredString,
   telemetryReader,
 } from "./01-config-to-get-house-weather.js";
 import {
+  configuredHeatPumpConnectionIds,
   filterHeatPumpAffectedSampleMap,
   loadHeatPumpExclusionWindow,
 } from "../analytics/heat-pump-evidence.js";
@@ -62,7 +64,13 @@ export async function homeMoistureResponse(
     })),
   ]);
 
-  const heatPumpWindow = loadHeatPumpExclusionWindow(database, house.id, from, to);
+  const heatPumpWindow = loadHeatPumpExclusionWindow(
+    database,
+    house.id,
+    from,
+    to,
+    configuredHeatPumpConnectionIds(config.greeConnections, house.id),
+  );
   const filtered = filterHeatPumpAffectedSampleMap(new Map(sensors.map((sensor, index) => [
     sensor.id,
     indoorReads[index]!.records,

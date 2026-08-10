@@ -181,6 +181,7 @@ import {
 } from "../analytics.js";
 import { AnalyticsWorkLimiter } from "../analytics/work-limiter.js";
 import { DerivedAnalyticsCoordinator } from "../analytics/derived-artifacts/coordinator.js";
+import { configuredHeatPumpConnectionIds } from "../analytics/heat-pump-evidence.js";
 import { hostAllowsBackgroundWork } from "../analytics/background-admission.js";
 import { Nexus433Service } from "../nexus433/index.js";
 import { loadOrCreateStugubyNodeKeys } from "../stuguby/identity.js";
@@ -311,7 +312,13 @@ export function configureApiPart03(context: ReturnType<typeof configureApiPart02
       context.database,
       telemetryReader,
       analyticsWorkLimiter,
-      { admitLowPriority },
+      {
+        admitLowPriority,
+        heatPumpConnectionIds: (houseId) => configuredHeatPumpConnectionIds(
+          context.config.greeConnections,
+          houseId,
+        ),
+      },
     );
   context.energyOptimizer.setTelemetryReader(telemetryReader);
   const dailyAnalyticsFindings = new DailyAnalyticsFindingsWorker({

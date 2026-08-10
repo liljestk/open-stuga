@@ -4,6 +4,7 @@ import type {
   CalendarComparisonRequest,
 } from "@climate-twin/contracts";
 import { compareCalendarPeriods } from "../analytics/calendar-comparison/service.js";
+import { configuredHeatPumpConnectionIds } from "../analytics/heat-pump-evidence.js";
 import { getHomePerformance } from "../analytics/home-performance/service.js";
 import {
   getHomeMonitoringCollection,
@@ -14,6 +15,7 @@ import { requireMcpHouse, requireMcpHouseSensor } from "../mcp-validation.js";
 import {
   dataMode,
   database,
+  config,
   objectArguments,
   optionalString,
   requiredString,
@@ -89,6 +91,7 @@ export async function homePerformance(args: Record<string, unknown>) {
     dataMode: database.isRealDataMode() ? "live" : "demo",
     database,
     telemetryReader,
+    heatPumpConnectionIds: configuredHeatPumpConnectionIds(config.greeConnections, house.id),
     evaluatedAt,
   });
 }

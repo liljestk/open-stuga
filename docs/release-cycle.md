@@ -91,8 +91,10 @@ gh pr view <PR> --repo liljestk/open-stuga `
 
 Confirm the release notes and changelog describe data migration, updater and
 Compose compatibility, factory/host impact, and user-visible changes. Run the
-tests proportionate to the change; `npm run ci:local` is the authoritative full
-gate and is rerun by the publisher.
+tests proportionate to the change with `npm run verify:local -- --fast`. The
+commit-pinned authoritative gate is `npm run verify:local -- --full`; the
+publisher consumes its receipt and never reruns it. See
+[Lean verification and appliance diagnosis](lean-tooling.md).
 
 After explicit authorization, merge using the repository's current merge
 policy, then observe `state: MERGED` and save the merge commit. Do not tag the
@@ -172,6 +174,7 @@ gh repo view liljestk/stugu-releases --json visibility,defaultBranchRef
 docker version
 docker buildx version
 npm run version:check
+npm run verify:local -- --full
 Get-FileHash -Algorithm SHA256 <TUF_ROOT_JSON>, <RAUC_CA_PEM>
 ssh-keygen -lf <RECOVERY_PUBLIC_KEY>
 ```
@@ -189,6 +192,7 @@ npm run release:local -- `
   --host-rauc-ca <RAUC_CA_PEM> `
   --host-update-base-url <HOST_UPDATE_BASE_URL> `
   --ssh-public-key <RECOVERY_PUBLIC_KEY> `
+  --full-ci-receipt <FULL_CI_RECEIPT> `
   --prerelease `
   --keep-draft
 ```
@@ -210,13 +214,14 @@ After explicit publishing authorization, rerun the exact reviewed command with
 npm run release:local -- <REVIEWED_ARGUMENTS> --keep-draft --publish
 ```
 
-This is not a dry run. Before the GitHub draft exists, the publisher logs in to
-GHCR, reruns local CI, builds and publicly pushes all seven AMD64/ARM64 image
+This is not a dry run. Before the GitHub draft exists, the publisher validates
+the exact full-CI receipt, logs in to GHCR, builds and publicly pushes all seven AMD64/ARM64 image
 tags, resolves their digests, and builds the Pi factory/host inputs. It then
 creates or updates the draft and uploads:
 
 - `stugu-release-manifest-v1.json`;
-- the local-CI receipt and checksum;
+- the full-CI receipt and checksum;
+- the host/container compatibility proof and checksum;
 - the Nexus433 corresponding-source archive and checksum;
 - the factory image and checksum only with `--upload-factory`.
 
@@ -225,7 +230,23 @@ Preserve required receipts in the ceremony store; never add raw output to Git.
 
 ## 6. Audit and publish the draft
 
-Before making the draft visible, verify:
+Create the `DESIGN.md` visual-acceptance receipt and collect a healthy,
+target-bound appliance receipt without changing the appliance:
+
+```powershell
+npm run rpi:doctor -- --target <SSH_TARGET>
+npm run release:verify -- `
+  --target <SSH_TARGET> `
+  --target-receipt <DOCTOR_RECEIPT> `
+  --visual-receipt <VISUAL_RECEIPT> `
+  --channel preview
+```
+
+`release:verify` reuses only the exact full-CI receipt and verifies the artifact
+manifest, anonymous AMD64/ARM64 image descriptor closure and source provenance,
+compatibility proof, visual evidence, and target identity. It never rebuilds,
+reruns CI, publishes, or reconnects to the appliance. Before making the draft
+visible, verify:
 
 - the CI receipt says `passed`, has a clean tree, and names the source commit;
 - the manifest names the public feed, exact tag/version, expected compatibility
@@ -246,16 +267,16 @@ gh release download $Tag --repo liljestk/stugu-releases `
 docker buildx imagetools inspect <IMAGE_TAG_AT_DIGEST>
 ```
 
-After explicit authorization, publish without changing the reviewed channel:
+After explicit authorization, publish by consuming the release-verification
+receipt. The receipt fixes the reviewed stable/preview channel and must still
+be fresh; finalization anonymously rechecks all container tags and both
+platforms immediately before making the draft public:
 
 ```powershell
-# Preview channel
-gh release edit $Tag --repo liljestk/stugu-releases `
-  --draft=false --prerelease=true
-
-# Stable channel instead
-gh release edit $Tag --repo liljestk/stugu-releases `
-  --draft=false --prerelease=false
+npm run release:local -- `
+  --repository liljestk/stugu-releases `
+  --verification-receipt <RELEASE_VERIFY_RECEIPT> `
+  --publish
 ```
 
 Fetch the manifest once without GitHub credentials after publication. A public
@@ -266,7 +287,7 @@ feed plus private GHCR packages is not a working anonymous appliance channel.
 On the explicitly named appliance, first record:
 
 ```sh
-stuguctl status
+npm run rpi:doctor -- --target <SSH_TARGET>
 stuguctl backup
 ```
 
@@ -275,12 +296,44 @@ use **Advanced -> System -> Check for updates -> Update now**, or wait for the
 configured maintenance window. A preview release is invisible unless **Include
 preview releases** is enabled.
 
-After the update, run `stuguctl status` again and verify the API/UI version,
+After the update, run the default doctor again and verify the API/UI version,
 service health, expected feature, recent data, and backup/rollback status. The
 application updater backs up first, uses the digest-pinned manifest, replaces
 application services, health-checks the candidate, and restores the known-good
 release on a pre-commit failure. A signed host update is not installed by this
 application-release step.
+
+## Retention and cleanup
+
+Treat cleanup as a separate, explicitly authorized mutation after publication
+and appliance verification. Re-query GitHub, signed host targets, and appliance
+inventory immediately before deleting anything; do not apply a saved list of
+release or package IDs.
+
+The minimum protected set is:
+
+- the latest and previous published application release in **each** channel;
+- every version reported as installed, known-good, or factory recovery by the
+  managed appliances;
+- every application version named by a current signed host target; and
+- any draft, migration boundary, or recovery release still in active use.
+
+Keep source and feed Git tags immutable. Keep lightweight manifests,
+verification receipts, checksums, and the matching Nexus433 corresponding-
+source archive. Never prune TUF roots, rotations, current metadata, or target
+history as ordinary application cleanup. OCI cleanup must retain the complete
+multi-platform index, child manifests, and attestations for every protected
+image; an `untagged` label alone is not deletion evidence.
+
+As of 10 August 2026, GitHub documents public Packages as free and Container
+Registry storage/bandwidth as free, while Releases have no aggregate storage or
+bandwidth quota. Recheck the current
+[Packages billing](https://docs.github.com/en/billing/concepts/product-billing/github-packages)
+and [Releases limits](https://docs.github.com/en/repositories/releasing-projects-on-github/about-releases)
+before cleanup. Do not trade rollback or source-compliance evidence for an
+assumed saving.
+Where recovery policy permits, old large factory images are the preferred
+release assets to move to an approved recovery store and remove from GitHub.
 
 ## Failure and rerun rules
 
@@ -321,4 +374,6 @@ Report, without secrets:
   whether host signing was intentionally omitted;
 - target appliance, before/after version and channel, backup receipt, health,
   and any rollback;
+- retention inventory, protected versions, exact cleanup performed, and its
+  post-delete verification;
 - every incomplete step and the exact missing authority or operator input.

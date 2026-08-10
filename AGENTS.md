@@ -4,6 +4,13 @@ Read `CLAUDE.md` and `DESIGN.md` before changing the product. For release work,
 read `docs/release-cycle.md`; for signed Raspberry Pi host updates, also read
 `docs/host-update-release.md`.
 
+Any change that affects a rendered screen must pass the blocking visual-
+acceptance contract in `DESIGN.md`. Inspect the finished UI with representative
+non-private data, exercise the primary workflow, and record the required
+screenshots and pass/fail findings. Tests, snapshots, and code review do not
+substitute for this inspection. If it cannot run or any criterion fails, report
+visual acceptance as blocked or failed and do not call the UI work complete.
+
 If `.stuga-release-context.md` exists, read it for this machine's approved
 public-input paths and last recorded generation. It is an ignored snapshot:
 revalidate its hashes and all remote state before use, and never commit it.

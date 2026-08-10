@@ -18,6 +18,7 @@ import type { HybridTelemetryReader } from "../../timeseries/read-facade.js";
 import { getHomePerformance } from "../home-performance/service.js";
 import {
   filterHeatPumpAffectedSampleMap,
+  InsufficientHeatPumpEvidenceError,
   loadHeatPumpExclusionWindow,
 } from "../heat-pump-evidence.js";
 import {
@@ -88,6 +89,7 @@ export function derivedIdentity(input: {
   dataMode: DataMode;
   windowDays?: number;
   now: Date;
+  heatPumpConnectionIds: readonly string[];
   algorithmVersions?: Readonly<Record<DurableDerivedAnalyticsKind, string>>;
 }): DerivedIdentity {
   const windowDays = canonicalWindowDays(input.kind, input.windowDays);
@@ -97,7 +99,7 @@ export function derivedIdentity(input: {
   const algorithmVersion = (input.algorithmVersions ?? DERIVED_ANALYTICS_ALGORITHM_VERSIONS)[input.kind];
   const evidenceVersion = derivedEvidenceVersion(input.database, input.houseId, input.kind);
   const identityKey = digest({
-    identitySchema: "derived-artifact-v1",
+    identitySchema: "derived-artifact-v2",
     kind: input.kind,
     houseId: input.houseId,
     dataMode: input.dataMode,
@@ -105,6 +107,7 @@ export function derivedIdentity(input: {
     cutoff,
     algorithmVersion,
     evidenceVersion,
+    heatPumpConnectionIds: [...new Set(input.heatPumpConnectionIds)].sort(),
   });
   return {
     identityKey,
@@ -121,10 +124,16 @@ export function derivedIdentity(input: {
 export class DerivedAnalyticsComputer {
   readonly #database: ClimateDatabase;
   readonly #telemetryReader: HybridTelemetryReader;
+  readonly #heatPumpConnectionIds: (houseId: string) => readonly string[];
 
-  constructor(database: ClimateDatabase, telemetryReader: HybridTelemetryReader) {
+  constructor(
+    database: ClimateDatabase,
+    telemetryReader: HybridTelemetryReader,
+    heatPumpConnectionIds: (houseId: string) => readonly string[],
+  ) {
     this.#database = database;
     this.#telemetryReader = telemetryReader;
+    this.#heatPumpConnectionIds = heatPumpConnectionIds;
   }
 
   async compute(job: StoredDerivedJob, signal?: AbortSignal): Promise<DerivedResult> {
@@ -142,6 +151,7 @@ export class DerivedAnalyticsComputer {
         dataMode: job.dataMode,
         database: this.#database,
         telemetryReader: this.#telemetryReader,
+        heatPumpConnectionIds: this.#heatPumpConnectionIds(house.id),
         evaluatedAt: job.cutoff,
         ...(signal ? { signal } : {}),
       });
@@ -149,6 +159,16 @@ export class DerivedAnalyticsComputer {
 
     const to = job.cutoff;
     const from = windowStart(to, house.timezone, job.windowDays);
+    const heatPumpWindow = loadHeatPumpExclusionWindow(
+      this.#database,
+      house.id,
+      from,
+      to,
+      this.#heatPumpConnectionIds(house.id),
+    );
+    if (heatPumpWindow.summary.evidenceState === "insufficient") {
+      throw new InsufficientHeatPumpEvidenceError();
+    }
     const metrics = job.kind === "thermal-isolation"
       ? ["temperature"] as const
       : ["temperature", "humidity"] as const;
@@ -203,7 +223,6 @@ export class DerivedAnalyticsComputer {
       indoorSamplesBySensor.set(sensor.id, read.records);
       await new Promise<void>((resolve) => setImmediate(resolve));
     }
-    const heatPumpWindow = loadHeatPumpExclusionWindow(this.#database, house.id, from, to);
     const filtered = filterHeatPumpAffectedSampleMap(indoorSamplesBySensor, heatPumpWindow);
     if (job.kind === "thermal-isolation") {
       return runThermalIsolationIsolated({

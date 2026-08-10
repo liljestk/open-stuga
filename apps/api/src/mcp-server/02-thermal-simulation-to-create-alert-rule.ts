@@ -96,6 +96,7 @@ import { config, database, measurements, optionalBoolean, optionalString, option
 import { outdoorTemperatureHistory } from "./05-get-mcp-stuguby-to-result-output-schema.js";
 import { runMcpThermalWork } from "./thermal-work.js";
 import {
+  configuredHeatPumpConnectionIds,
   filterHeatPumpAffectedSamples,
   loadHeatPumpExclusionWindow,
 } from "../analytics/heat-pump-evidence.js";
@@ -139,7 +140,13 @@ export async function thermalSimulation(
       ...(readSignal ? { signal: readSignal } : {}),
     }),
     complete: ({ indoor, outdoor }, completionSignal) => {
-      const heatPumpWindow = loadHeatPumpExclusionWindow(database, house.id, from, to);
+      const heatPumpWindow = loadHeatPumpExclusionWindow(
+        database,
+        house.id,
+        from,
+        to,
+        configuredHeatPumpConnectionIds(config.greeConnections, house.id),
+      );
       const filtered = filterHeatPumpAffectedSamples(indoor[0]!.records, heatPumpWindow);
       return runThermalSimulationAsync({
         houseId,
