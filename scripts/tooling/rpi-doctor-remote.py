@@ -391,6 +391,7 @@ def updater_snapshot() -> dict[str, Any]:
         "schema",
         "phase",
         "detail",
+        "errorCode",
         "updatedAt",
         "targetVersion",
         "targetGeneration",

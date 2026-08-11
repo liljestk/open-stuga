@@ -719,6 +719,7 @@ test("canonical release and doctor paths do not hide expensive or mutating work"
   assert.match(doctor, /filesystem_snapshot\("\/persistent"\)/u);
   assert.match(doctor, /delivered_at IS NULL AND dead_lettered_at IS NULL AND abandoned_at IS NULL/u);
   assert.match(doctor, /deadLetteredNotifications/u);
+  assert.match(doctor, /"errorCode"/u);
   assert.doesNotMatch(doctor, /docker stats(?!.*--no-stream)/u);
   assert.doesNotMatch(publisher, /invoke\("npm", \["run", "ci:local"/u);
   assert.match(publisher, /--full-ci-receipt/u);
