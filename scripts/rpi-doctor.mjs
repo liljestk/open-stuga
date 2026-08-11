@@ -215,12 +215,19 @@ export function diagnoseEvidence(evidence) {
 
   const updater = evidence.updater ?? {};
   const updaterPhase = updater.status?.phase ?? "unknown";
+  const updaterErrorCode = updater.status?.errorCode ?? null;
+  const noSignedUpdateAvailable = updaterPhase === "failed" && updaterErrorCode === "UPDATE_NOT_FOUND";
   const badUpdaterPhases = new Set(["failed", "recovery-needed", "rolled-back", "rollback-failed"]);
   const activeUpdaterPhases = new Set(["installing", "ready-to-restart", "restarting", "verifying"]);
   checks.push(check(
     "UPDATER",
-    !updater.available || badUpdaterPhases.has(updaterPhase) ? "fail" : activeUpdaterPhases.has(updaterPhase) ? "warning" : "pass",
-    updater.available ? `Host updater/controller phase is ${updaterPhase}.` : "Host updater/controller state is unavailable.",
+    !updater.available || (badUpdaterPhases.has(updaterPhase) && !noSignedUpdateAvailable)
+      ? "fail" : activeUpdaterPhases.has(updaterPhase) ? "warning" : "pass",
+    !updater.available
+      ? "Host updater/controller state is unavailable."
+      : noSignedUpdateAvailable
+        ? "Host updater checked successfully; no newer signed target is available."
+        : `Host updater/controller phase is ${updaterPhase}.`,
   ));
 
   const versions = evidence.versions ?? {};

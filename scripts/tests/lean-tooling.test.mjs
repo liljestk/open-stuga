@@ -441,6 +441,20 @@ test("Pi diagnosis reports terminal notification dead letters without treating t
   assert.match(queues?.summary ?? "", /notification 0, Tapo export 0 pending; 100 notification dead-lettered/u);
 });
 
+test("Pi diagnosis accepts a completed host check with no newer signed target", () => {
+  const evidence = healthyEvidence();
+  evidence.updater.status = { phase: "failed", errorCode: "UPDATE_NOT_FOUND" };
+  const updater = diagnoseEvidence(evidence).checks.find((item) => item.id === "UPDATER");
+  assert.equal(updater?.status, "pass");
+  assert.match(updater?.summary ?? "", /no newer signed target is available/u);
+
+  evidence.updater.status = { phase: "failed", errorCode: "TRUST_VERIFICATION_FAILED" };
+  assert.equal(
+    diagnoseEvidence(evidence).checks.find((item) => item.id === "UPDATER")?.status,
+    "fail",
+  );
+});
+
 test("default Pi doctor uses exactly one bounded SSH invocation", async () => {
   const state = mkdtempSync(join(tmpdir(), "stugu-doctor-test-"));
   let calls = 0;
