@@ -125,15 +125,23 @@ export type SecurityAuditEventType =
   | "system.storage.change.requested"
   | "cloudflare.setup.started";
 
-export type SecurityAuditSubjectType =
-  | "account"
-  | "workspace-member"
-  | "integration"
-  | "integration-grant"
-  | "system-update-settings"
-  | "system-update"
-  | "system-storage"
-  | "cloudflare-connection";
+/**
+ * Every subject an audit event may describe. The security audit table constrains
+ * `subject_type` to this list, so both sides must be generated from it: adding a
+ * member here without migrating the table makes the audited route fail its insert.
+ */
+export const SECURITY_AUDIT_SUBJECT_TYPES = [
+  "account",
+  "workspace-member",
+  "integration",
+  "integration-grant",
+  "system-update-settings",
+  "system-update",
+  "system-storage",
+  "cloudflare-connection",
+] as const;
+
+export type SecurityAuditSubjectType = (typeof SECURITY_AUDIT_SUBJECT_TYPES)[number];
 
 export type SecurityAuditDetailValue = string | number | boolean | null;
 

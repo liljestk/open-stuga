@@ -164,9 +164,7 @@ export function alertNotificationBindings(
   context: TelegramAlertContext,
 ): AlertNotificationBindings {
   const configuredWebhooks = config ? configuredAlertWebhookDestinations(config) : [];
-  const webhookDestinations = (configuredWebhooks.length > 0
-    ? configuredWebhooks.map((destination) => destination.id)
-    : ["primary"])
+  const webhookDestinations = configuredWebhooks.map((destination) => destination.id)
     .map((destinationId) => ({
       destinationId,
       destinationRef: notificationDestinationRef("webhook", config, destinationId),

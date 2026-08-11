@@ -12,11 +12,13 @@ import {
 
 export const SPATIAL_LAYER_POLL_MS = 60_000;
 export const SPATIAL_LAYER_HISTORY_WINDOW_MS = 6 * 60 * 60 * 1_000;
+export const SPATIAL_LAYER_HISTORY_MIN_INTERVAL_MS = 5_000;
 
 export interface UseSpatialLayersOptions {
   scope: SpatialLayerScope | null;
   enabled?: boolean;
   historyAt?: number | null;
+  historyRange?: { from: number; to: number } | null;
 }
 
 export interface UseSpatialLayersResult {
@@ -67,20 +69,109 @@ async function loadCurrent(scope: SpatialLayerScope, selected: readonly string[]
     : api.propertySpatialLayersCurrent(scope.id, selected, signal);
 }
 
-async function loadHistory(scope: SpatialLayerScope, selected: readonly string[], at: number, signal?: AbortSignal) {
+async function loadHistory(
+  scope: SpatialLayerScope,
+  selected: readonly string[],
+  at: number,
+  range: { from: number; to: number } | null,
+  signal?: AbortSignal,
+) {
   const options = {
     layerIds: selected,
-    from: new Date(at - SPATIAL_LAYER_HISTORY_WINDOW_MS).toISOString(),
-    to: new Date(at + 60_000).toISOString(),
-    limit: 1_000,
+    from: new Date(range?.from ?? at - SPATIAL_LAYER_HISTORY_WINDOW_MS).toISOString(),
+    to: new Date(range?.to ?? at + 60_000).toISOString(),
+    limit: range ? 20_000 : 1_000,
   };
   return scope.kind === "house"
     ? api.houseSpatialLayersHistory(scope.id, options, signal)
     : api.propertySpatialLayersHistory(scope.id, options, signal);
 }
 
-export function useSpatialLayers({ scope, enabled = true, historyAt = null }: UseSpatialLayersOptions): UseSpatialLayersResult {
+/**
+ * Replay advances its visual cursor four times per second. Archive-backed
+ * spatial snapshots do not change at that cadence, so keep only the latest
+ * cursor and admit at most one history request per interval. A hidden tab does
+ * no history work and catches up once when it becomes visible again.
+ */
+function useThrottledHistoryAt(value: number | null, scopeKey: string, enabled: boolean): number | null {
+  const [throttled, setThrottled] = useState<number | null>(null);
+  const latest = useRef<number | null>(value);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastCommittedAt = useRef(0);
+  const activeScopeKey = useRef(scopeKey);
+  const commit = useRef<() => void>(() => undefined);
+
+  commit.current = () => {
+    if (!enabled || latest.current === null
+        || (typeof document !== "undefined" && document.hidden)) return;
+    if (timer.current !== null) clearTimeout(timer.current);
+    timer.current = null;
+    lastCommittedAt.current = Date.now();
+    setThrottled(latest.current);
+  };
+
+  useEffect(() => {
+    latest.current = value;
+    if (activeScopeKey.current !== scopeKey) {
+      activeScopeKey.current = scopeKey;
+      lastCommittedAt.current = 0;
+      if (timer.current !== null) clearTimeout(timer.current);
+      timer.current = null;
+    }
+    if (!enabled || value === null) {
+      if (timer.current !== null) clearTimeout(timer.current);
+      timer.current = null;
+      lastCommittedAt.current = 0;
+      setThrottled(null);
+      return;
+    }
+    const remaining = SPATIAL_LAYER_HISTORY_MIN_INTERVAL_MS - (Date.now() - lastCommittedAt.current);
+    if (lastCommittedAt.current === 0 || remaining <= 0) {
+      commit.current();
+    } else if (timer.current === null) {
+      timer.current = setTimeout(() => {
+        timer.current = null;
+        commit.current();
+      }, remaining);
+    }
+  }, [enabled, scopeKey, value]);
+
+  useEffect(() => {
+    const catchUp = () => {
+      if (typeof document === "undefined" || !document.hidden) commit.current();
+    };
+    document.addEventListener("visibilitychange", catchUp);
+    return () => document.removeEventListener("visibilitychange", catchUp);
+  }, []);
+
+  useEffect(() => () => {
+    if (timer.current !== null) clearTimeout(timer.current);
+  }, []);
+
+  if (!enabled || value === null || activeScopeKey.current !== scopeKey
+      || (typeof document !== "undefined" && document.hidden)) return null;
+  return throttled;
+}
+
+export function useSpatialLayers({ scope, enabled = true, historyAt = null, historyRange = null }: UseSpatialLayersOptions): UseSpatialLayersResult {
   const scopeKey = scope ? `${scope.kind}:${scope.id}` : "";
+  const boundedHistoryRange = historyAt !== null
+      && historyRange
+      && Number.isFinite(historyRange.from)
+      && Number.isFinite(historyRange.to)
+      && historyRange.to > historyRange.from
+    ? historyRange
+    : null;
+  const historyRangeKey = boundedHistoryRange
+    ? `${boundedHistoryRange.from}:${boundedHistoryRange.to}`
+    : "cursor";
+  // A replay range is prefetched once and filtered locally as the cursor moves.
+  // Callers without a known range retain the bounded trailing-cursor fallback.
+  const historyQueryAt = useThrottledHistoryAt(
+    boundedHistoryRange?.to ?? historyAt,
+    `${scopeKey}:${historyRangeKey}`,
+    enabled,
+  );
   const [engines, setEngines] = useState<SpatialLayerEngineManifest[]>([]);
   const [health, setHealth] = useState<SpatialLayerEngineHealth[]>([]);
   const [topology, setTopology] = useState<SpatialTopology | null>(null);
@@ -125,19 +216,17 @@ export function useSpatialLayers({ scope, enabled = true, historyAt = null }: Us
     const requestId = ++requestSequence.current;
     setLoading(true);
     void Promise.all([
-      api.spatialLayerEngines(),
+      api.spatialLayerEngines(controller.signal),
       loadCurrent(scope, [], controller.signal),
-      scope.kind === "house" ? api.houseSpatialLayersHealth(scope.id, controller.signal) : api.propertySpatialLayersHealth(scope.id, controller.signal),
-      scope.kind === "house" ? api.houseSpatialLayerConfig(scope.id, controller.signal) : api.propertySpatialLayerConfig(scope.id, controller.signal),
-    ]).then(([catalog, snapshots, nextHealth, configuration]) => {
+    ]).then(([catalog, overview]) => {
       if (controller.signal.aborted || requestId !== requestSequence.current || activeScope.current !== scopeKey) return;
       const supported = catalog.filter((engine) => engine.enabled !== false && engine.supportedScopes.includes(scope.kind));
       setEngines(supported);
-      setCurrent(snapshots);
-      setHealth(nextHealth);
-      setTopology(configuration.topology ?? configuration.configuration.topology ?? null);
+      setCurrent(overview.snapshots);
+      setHealth(overview.health);
+      setTopology(overview.topology);
       setAvailable(supported.length > 0);
-      setSelectedLayerIds(initialSelection(supported, snapshots));
+      setSelectedLayerIds(initialSelection(supported, overview.snapshots));
     }).catch((reason: unknown) => {
       if (controller.signal.aborted || requestId !== requestSequence.current) return;
       setAvailable(false);
@@ -160,15 +249,11 @@ export function useSpatialLayers({ scope, enabled = true, historyAt = null }: Us
     activeRefreshController.current = controller;
     setRefreshing(true);
     try {
-      const [snapshots, nextHealth, configuration] = await Promise.all([
-        loadCurrent(scope, selectedLayerIds, controller.signal),
-        scope.kind === "house" ? api.houseSpatialLayersHealth(scope.id, controller.signal) : api.propertySpatialLayersHealth(scope.id, controller.signal),
-        scope.kind === "house" ? api.houseSpatialLayerConfig(scope.id, controller.signal) : api.propertySpatialLayerConfig(scope.id, controller.signal),
-      ]);
+      const overview = await loadCurrent(scope, selectedLayerIds, controller.signal);
       if (requestId !== requestSequence.current || activeScope.current !== scopeKey) return;
-      setCurrent(snapshots);
-      setHealth(nextHealth);
-      setTopology(configuration.topology ?? configuration.configuration.topology ?? null);
+      setCurrent(overview.snapshots);
+      setHealth(overview.health);
+      setTopology(overview.topology);
       setError(null);
       setNow(Date.now());
     } catch (reason) {
@@ -217,7 +302,7 @@ export function useSpatialLayers({ scope, enabled = true, historyAt = null }: Us
   }, [available, historyAt, refresh, scopeKey, selectionKey]);
 
   useEffect(() => {
-    if (!available || !scope || historyAt === null || selectedLayerIds.length === 0) {
+    if (!available || !scope || historyQueryAt === null || selectedLayerIds.length === 0) {
       setHistory([]);
       setHistoryLoading(false);
       return;
@@ -225,7 +310,7 @@ export function useSpatialLayers({ scope, enabled = true, historyAt = null }: Us
     const controller = new AbortController();
     const requestId = ++requestSequence.current;
     setHistoryLoading(true);
-    void loadHistory(scope, selectedLayerIds, historyAt, controller.signal).then((snapshots) => {
+    void loadHistory(scope, selectedLayerIds, historyQueryAt, boundedHistoryRange, controller.signal).then((snapshots) => {
       if (controller.signal.aborted || requestId !== requestSequence.current || activeScope.current !== scopeKey) return;
       setHistory(snapshots);
       setError(null);
@@ -235,7 +320,7 @@ export function useSpatialLayers({ scope, enabled = true, historyAt = null }: Us
       if (!controller.signal.aborted && requestId === requestSequence.current) setHistoryLoading(false);
     });
     return () => controller.abort();
-  }, [available, historyAt, scopeKey, selectionKey]);
+  }, [available, boundedHistoryRange?.from, boundedHistoryRange?.to, historyQueryAt, scopeKey, selectionKey]);
 
   useEffect(() => {
     if (!available || historyAt !== null) return;

@@ -121,12 +121,76 @@ test("host supply-chain inputs are structurally bound before signing", () => {
     ],
     predicateType: "https://slsa.dev/provenance/v1",
     predicate: {
-      buildDefinition: { resolvedDependencies: [{ digest: { gitCommit: "f".repeat(40) } }] },
+      buildDefinition: {
+        buildType: "https://stugu.local/build/rpi-image-gen/v1",
+        externalParameters: {
+          version: "1.2.3",
+          hostGeneration: 42,
+          architecture: "arm64",
+          layout: "stugu-gpt-ab-v2",
+        },
+        internalParameters: {
+          tufRootSha256: "c".repeat(64),
+          raucCaSha256: "d".repeat(64),
+        },
+        resolvedDependencies: [{ digest: { gitCommit: "f".repeat(40) } }],
+      },
       runDetails: { builder: { id: "builder" } },
     },
   }, {
-    bootSha256: "a".repeat(64), rootSha256: "b".repeat(64), sourceCommit: "f".repeat(40),
+    bootSha256: "a".repeat(64),
+    rootSha256: "b".repeat(64),
+    sourceCommit: "f".repeat(40),
+    version: "1.2.3",
+    hostGeneration: 42,
+    tufRootSha256: "c".repeat(64),
+    raucCaSha256: "d".repeat(64),
   }));
+});
+
+test("host provenance rejects release identity and trust-anchor mismatches", () => {
+  const statement = {
+    _type: "https://in-toto.io/Statement/v1",
+    subject: [
+      { name: "boot.vfat", digest: { sha256: "a".repeat(64) } },
+      { name: "system.erofs", digest: { sha256: "b".repeat(64) } },
+    ],
+    predicateType: "https://slsa.dev/provenance/v1",
+    predicate: {
+      buildDefinition: {
+        buildType: "https://stugu.local/build/rpi-image-gen/v1",
+        externalParameters: {
+          version: "1.2.3",
+          hostGeneration: 42,
+          architecture: "arm64",
+          layout: "stugu-gpt-ab-v2",
+        },
+        internalParameters: {
+          tufRootSha256: "c".repeat(64),
+          raucCaSha256: "d".repeat(64),
+        },
+        resolvedDependencies: [{ digest: { gitCommit: "f".repeat(40) } }],
+      },
+      runDetails: { builder: { id: "builder" } },
+    },
+  };
+  const expected = {
+    bootSha256: "a".repeat(64),
+    rootSha256: "b".repeat(64),
+    sourceCommit: "f".repeat(40),
+    version: "1.2.3",
+    hostGeneration: 42,
+    tufRootSha256: "c".repeat(64),
+    raucCaSha256: "d".repeat(64),
+  };
+  assert.throws(
+    () => validateHostProvenance(statement, { ...expected, hostGeneration: 43 }),
+    /release identity/u,
+  );
+  assert.throws(
+    () => validateHostProvenance(statement, { ...expected, tufRootSha256: "e".repeat(64) }),
+    /trust anchors/u,
+  );
 });
 
 test("RAUC manifest contains only the two inactive slot classes and verity", () => {
@@ -146,6 +210,7 @@ test("bundle CLI keeps TUF signing separate from RAUC signing", () => {
     "--container-manifest", "release.json", "--sbom", "sbom.json",
     "--provenance", "provenance.jsonl", "--rauc-cert", "pkcs11:cert",
     "--rauc-key", "pkcs11:key", "--rauc-signing-keyring", "rauc-ca.pem",
+    "--tuf-root", "root.json",
     "--generation", "42",
     "--fallback-generation", "41", "--version", "1.2.3",
     "--min-eeprom", "2026-01-01", "--source-commit", "f".repeat(40),
@@ -153,6 +218,7 @@ test("bundle CLI keeps TUF signing separate from RAUC signing", () => {
   ]);
   assert.equal(options.raucKey, "pkcs11:key");
   assert.equal(options.raucSigningKeyring, "rauc-ca.pem");
+  assert.equal(options.tufRoot, "root.json");
   assert.equal(options.channel, "stable");
   assert.equal("tufKey" in options, false);
 });

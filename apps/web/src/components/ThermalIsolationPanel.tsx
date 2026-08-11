@@ -9,12 +9,14 @@ import type {
 } from "@climate-twin/contracts";
 import { useI18n, type TranslationKey } from "../i18n";
 import { useThermalIsolation } from "../useThermalIsolation";
+import { DerivedArtifactNotices } from "./DerivedArtifactNotices";
 
 interface ThermalIsolationPanelProps {
   house: House;
   units: UnitSystem;
   dataMode: "demo" | "real" | "unknown";
   embedded?: boolean;
+  canRefresh?: boolean;
 }
 
 const WINDOW_OPTIONS = [24, 7 * 24, 14 * 24] as const;
@@ -117,21 +119,23 @@ function ComparisonRows({
   </div>;
 }
 
-export function ThermalIsolationPanel({ house, units, dataMode, embedded = false }: Readonly<ThermalIsolationPanelProps>) {
+export function ThermalIsolationPanel({ house, units, dataMode, embedded = false, canRefresh = true }: Readonly<ThermalIsolationPanelProps>) {
   const { locale, t } = useI18n();
   const [windowHours, setWindowHours] = useState<number>(7 * 24);
-  const { result, loading, error, errorCode, errorStatus, errorDetail, run } = useThermalIsolation(house.id);
+  const activeDataMode = dataMode === "real" ? "live" as const : "demo" as const;
+  const { result, status, loading, error, errorCode, errorStatus, errorDetail, run } = useThermalIsolation(house.id, activeDataMode);
   const errorMessage = errorCopy(errorCode, errorStatus);
 
+  const load = useCallback(() => {
+    void run({ windowDays: (windowHours / 24) as 1 | 7 | 14 });
+  }, [run, windowHours]);
   const refresh = useCallback(() => {
-    const to = new Date();
-    const from = new Date(to.getTime() - windowHours * 3_600_000);
-    void run({ from: from.toISOString(), to: to.toISOString() });
+    void run({ windowDays: (windowHours / 24) as 1 | 7 | 14 }, true);
   }, [run, windowHours]);
 
   useEffect(() => {
-    refresh();
-  }, [refresh]);
+    if (dataMode !== "unknown") load();
+  }, [dataMode, load]);
 
   const houseEntry = result?.entries.find((entry) => entry.scope.type === "house") ?? null;
   const sensorEntries = result?.entries.filter((entry) => entry.scope.type === "sensor") ?? [];
@@ -150,7 +154,7 @@ export function ThermalIsolationPanel({ house, units, dataMode, embedded = false
         <label className="field"><span>{t("isolation.window")}</span><select value={windowHours} onChange={(event) => setWindowHours(Number(event.target.value))}>
           {WINDOW_OPTIONS.map((hours) => <option key={hours} value={hours}>{hours === 24 ? t("isolation.window24h") : t("isolation.windowDays", { count: hours / 24 })}</option>)}
         </select></label>
-        <button type="button" className="secondary-button" onClick={refresh} disabled={loading}><RefreshCw className={loading ? "spin" : ""} size={14} aria-hidden="true" />{t("common.refresh")}</button>
+        {canRefresh && <button type="button" className="secondary-button" onClick={refresh} disabled={loading || dataMode === "unknown"}><RefreshCw className={loading ? "spin" : ""} size={14} aria-hidden="true" />{t("common.refresh")}</button>}
       </div>
     </div> : <header className="panel-header isolation-panel-header">
       <div><span className="eyebrow"><ShieldCheck size={13} aria-hidden="true" />{t("isolation.eyebrow")}</span><h2 id="thermal-isolation-title">{t("isolation.title")}</h2><p>{t("isolation.description")}</p></div>
@@ -158,11 +162,12 @@ export function ThermalIsolationPanel({ house, units, dataMode, embedded = false
         <label className="field"><span>{t("isolation.window")}</span><select value={windowHours} onChange={(event) => setWindowHours(Number(event.target.value))}>
           {WINDOW_OPTIONS.map((hours) => <option key={hours} value={hours}>{hours === 24 ? t("isolation.window24h") : t("isolation.windowDays", { count: hours / 24 })}</option>)}
         </select></label>
-        <button type="button" className="secondary-button" onClick={refresh} disabled={loading}><RefreshCw className={loading ? "spin" : ""} size={14} aria-hidden="true" />{t("common.refresh")}</button>
+        {canRefresh && <button type="button" className="secondary-button" onClick={refresh} disabled={loading || dataMode === "unknown"}><RefreshCw className={loading ? "spin" : ""} size={14} aria-hidden="true" />{t("common.refresh")}</button>}
       </div>
     </header>}
 
-    {loading && !result && <output className="isolation-loading">{t("isolation.calculating")}</output>}
+    {loading && !result && <output className="isolation-loading">{t("derived.loading")}</output>}
+    <DerivedArtifactNotices status={status} hasResult={Boolean(result)} canRefresh={canRefresh} />
     {error && <div className="isolation-error" role="alert"><TriangleAlert size={18} aria-hidden="true" /><div><strong>{t(errorMessage.title)}</strong><p>{t(errorMessage.help)}</p>{technicalError && <details><summary>{t("bootstrap.technicalDetails")}</summary><code>{technicalError}</code></details>}</div></div>}
     {demoEstimate && <div className="isolation-evidence-state demo" role="status"><ShieldCheck size={18} aria-hidden="true" /><div><strong>{t("isolation.demoEvidence")}</strong><p>{t("isolation.demoEvidenceHelp")}</p></div></div>}
     {noRecordedEvidence && <div className="isolation-evidence-state empty" role="status"><Thermometer size={18} aria-hidden="true" /><div><strong>{t("isolation.noRecordedData")}</strong><p>{t("isolation.noRecordedDataHelp")}</p></div></div>}

@@ -95,6 +95,12 @@ import { StugubyStore } from "../stuguby/store.js";
 import { config, database, measurements, optionalBoolean, optionalString, optionalStringArray, requiredArray, requiredNumber, requiredObject, requiredString, status, stuguby, telemetry, telemetryReader, weather } from "./01-config-to-get-house-weather.js";
 import { outdoorTemperatureHistory } from "./05-get-mcp-stuguby-to-result-output-schema.js";
 import { runMcpThermalWork } from "./thermal-work.js";
+import {
+  configuredHeatPumpConnectionIds,
+  filterHeatPumpAffectedSamples,
+  loadHeatPumpExclusionWindow,
+} from "../analytics/heat-pump-evidence.js";
+import { HEAT_PUMP_SENSOR_TAG } from "../heat-pump-measurements.js";
 
 export async function thermalSimulation(
   args: Record<string, unknown>,
@@ -103,6 +109,9 @@ export async function thermalSimulation(
   const houseId = requiredString(args, "houseId");
   const house = requireMcpHouse(database, houseId);
   const sensor = requireMcpHouseSensor(database, houseId, requiredString(args, "sensorId"));
+  if (sensor.tags.includes(HEAT_PUMP_SENSOR_TAG)) {
+    throw new Error("Heat-pump equipment telemetry is not an ambient temperature sensor");
+  }
   const { from, to } = mcpThermalDateRange(optionalString(args, "from"), optionalString(args, "to"));
   const horizonHours = mcpBoundedInteger(args.horizonHours, "horizonHours", 12, 0, 72);
   const scenarioOutdoorTemperatureC = mcpOptionalFiniteNumber(
@@ -130,17 +139,28 @@ export async function thermalSimulation(
       limit: 50_000,
       ...(readSignal ? { signal: readSignal } : {}),
     }),
-    complete: ({ indoor, outdoor }, completionSignal) => runThermalSimulationAsync({
-      houseId,
-      sensorId: sensor.id,
-      roomLabel: sensor.room,
-      from,
-      to,
-      indoorSamples: indoor[0]!.records,
-      outdoorSamples: outdoor.records,
-      horizonHours,
-      scenarioOutdoorTemperatureC,
-    }, undefined, completionSignal ? { signal: completionSignal } : {}),
+    complete: ({ indoor, outdoor }, completionSignal) => {
+      const heatPumpWindow = loadHeatPumpExclusionWindow(
+        database,
+        house.id,
+        from,
+        to,
+        configuredHeatPumpConnectionIds(config.greeConnections, house.id),
+      );
+      const filtered = filterHeatPumpAffectedSamples(indoor[0]!.records, heatPumpWindow);
+      return runThermalSimulationAsync({
+        houseId,
+        sensorId: sensor.id,
+        roomLabel: sensor.room,
+        from,
+        to,
+        indoorSamples: filtered.samples,
+        outdoorSamples: outdoor.records,
+        horizonHours,
+        scenarioOutdoorTemperatureC,
+        hvacExclusion: filtered.summary,
+      }, undefined, completionSignal ? { signal: completionSignal } : {});
+    },
   });
 }
 

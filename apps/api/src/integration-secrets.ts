@@ -11,6 +11,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname } from "node:path";
+import { normalizeBugReportRelayInput, type BugReportRelayInput } from "@climate-twin/contracts";
 import { pendingIntegrationSecretsPath, withIntegrationSecretsLock } from "./integration-secrets-lock.js";
 
 export interface IntegrationSecrets {
@@ -30,6 +31,8 @@ export interface IntegrationSecrets {
   webhook?: { url: string; bearerToken?: string; signingSecret?: string };
   webhookDestinations?: WebhookDestinationSecret[];
   telegram?: { botToken: string; chatId: string };
+  /** Bug-report relay configured by a workspace administrator instead of deployment environment variables. */
+  bugReportRelay?: { url: string; token: string; updatedAt: string };
   appleNotesGrants?: AppleNotesGrantSecret[];
   hiddenHouseData?: HiddenHouseIntegrationData[];
 }
@@ -165,6 +168,21 @@ export function normalizedWebhookDestinations(value: unknown, label: string): We
       ...(typeof item.signingSecret === "string" ? { signingSecret: item.signingSecret } : {}),
     };
   });
+}
+
+export function normalizedBugReportRelay(value: unknown, label: string): NonNullable<IntegrationSecrets["bugReportRelay"]> {
+  const item = value as Record<string, unknown>;
+  if (!item || typeof item !== "object" || Array.isArray(item)) throw new Error(`${label} is invalid`);
+  let relay: BugReportRelayInput;
+  try {
+    relay = normalizeBugReportRelayInput({ url: item.url, token: item.token });
+  } catch (error) {
+    throw new Error(`${label} is invalid: ${error instanceof Error ? error.message : "unknown reason"}`);
+  }
+  if (typeof item.updatedAt !== "string" || !Number.isFinite(Date.parse(item.updatedAt))) {
+    throw new Error(`${label} is missing a valid updatedAt timestamp`);
+  }
+  return { ...relay, updatedAt: new Date(item.updatedAt).toISOString() };
 }
 
 function normalizedTpLinkConnections(value: unknown): TpLinkConnectionSecret[] {
@@ -514,6 +532,12 @@ export function readIntegrationSecrets(path: string): IntegrationSecrets {
     }
     result.telegram = { botToken: value.botToken.trim(), chatId: value.chatId.trim() };
   }
+  if (parsed.bugReportRelay !== undefined) {
+    result.bugReportRelay = normalizedBugReportRelay(
+      parsed.bugReportRelay,
+      "The bug report relay in the integration secrets file",
+    );
+  }
   if (parsed.appleNotesGrants !== undefined) {
     result.appleNotesGrants = normalizedAppleNotesGrants(parsed.appleNotesGrants);
   }
@@ -591,6 +615,7 @@ export interface IntegrationSecretsPatch {
     webhook?: IntegrationSecrets["webhook"] | null;
     webhookDestinations?: WebhookDestinationSecret[] | null;
     telegram?: IntegrationSecrets["telegram"] | null;
+    bugReportRelay?: IntegrationSecrets["bugReportRelay"] | null;
     appleNotesGrants?: AppleNotesGrantSecret[];
     hiddenHouseData?: HiddenHouseIntegrationData[];
     addAppleNotesGrant?: AppleNotesGrantSecret;
@@ -630,6 +655,10 @@ export function applyIntegrationSecretsPatch(
     }
     if (patch.telegram === null) delete next.telegram;
     else if (patch.telegram !== undefined) next.telegram = patch.telegram;
+    if (patch.bugReportRelay === null) delete next.bugReportRelay;
+    else if (patch.bugReportRelay !== undefined) {
+      next.bugReportRelay = normalizedBugReportRelay(patch.bugReportRelay, "The bug report relay");
+    }
     if (patch.appleNotesGrants !== undefined) next.appleNotesGrants = patch.appleNotesGrants.map((grant) => ({ ...grant }));
     if (patch.hiddenHouseData !== undefined) next.hiddenHouseData = normalizedHiddenHouseData(patch.hiddenHouseData);
     if (patch.addAppleNotesGrant !== undefined) {

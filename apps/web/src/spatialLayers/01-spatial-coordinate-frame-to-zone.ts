@@ -179,6 +179,26 @@ export interface SpatialLayerConfigurationResponse {
   topology?: SpatialTopology;
 }
 
+export interface SpatialInferenceSession {
+  id: string;
+  houseId: string;
+  status: "active" | "stopped" | "expired";
+  startedAt: string;
+  expiresAt: string;
+  cadenceMinutes: number;
+  nextRunAt: string;
+  lastScheduledAt: string | null;
+  stoppedAt: string | null;
+  createdBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SpatialInferenceSessionStartInput {
+  durationMinutes?: number;
+  cadenceMinutes?: number;
+}
+
 export interface SpatialGroundTruth {
   id: string;
   startAt: string;
@@ -285,6 +305,30 @@ export function spatialCalibrationSessionResult(value: unknown): SpatialCalibrat
       && typeof candidate.confidence === "number" && typeof candidate.method === "string";
   });
   return { session, calibrations };
+}
+
+export function spatialInferenceSession(value: unknown): SpatialInferenceSession | null {
+  const payload = record(value);
+  const candidate = record(payload && Object.hasOwn(payload, "session") ? payload.session : value);
+  if (!candidate || typeof candidate.id !== "string" || typeof candidate.houseId !== "string") return null;
+  if (candidate.status !== "active" && candidate.status !== "stopped" && candidate.status !== "expired") return null;
+  if (typeof candidate.startedAt !== "string" || typeof candidate.expiresAt !== "string"
+      || typeof candidate.nextRunAt !== "string" || typeof candidate.createdAt !== "string"
+      || typeof candidate.updatedAt !== "string" || !Number.isInteger(candidate.cadenceMinutes)) return null;
+  return {
+    id: candidate.id,
+    houseId: candidate.houseId,
+    status: candidate.status,
+    startedAt: candidate.startedAt,
+    expiresAt: candidate.expiresAt,
+    cadenceMinutes: candidate.cadenceMinutes as number,
+    nextRunAt: candidate.nextRunAt,
+    lastScheduledAt: typeof candidate.lastScheduledAt === "string" ? candidate.lastScheduledAt : null,
+    stoppedAt: typeof candidate.stoppedAt === "string" ? candidate.stoppedAt : null,
+    createdBy: typeof candidate.createdBy === "string" ? candidate.createdBy : null,
+    createdAt: candidate.createdAt,
+    updatedAt: candidate.updatedAt,
+  };
 }
 
 export function metrics(value: unknown): Record<string, SpatialLayerMetric> {

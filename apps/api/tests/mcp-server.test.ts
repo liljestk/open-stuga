@@ -146,7 +146,7 @@ describe("read-only MCP server", () => {
       expect(listed.tools.find((tool) => tool.name === "get_house_weather")?.inputSchema.properties)
         .not.toHaveProperty("persistObservation");
       expect(listed.tools.find((tool) => tool.name === "get_house_weather")?.annotations)
-        .toMatchObject({ openWorldHint: true });
+        .toMatchObject({ openWorldHint: false });
 
       const call = async (name: string, arguments_: Record<string, unknown> = {}): Promise<unknown> => {
         const response = await client.callTool({ name, arguments: arguments_ });

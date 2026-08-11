@@ -11,7 +11,7 @@ import {
   Sensor,
 } from "@climate-twin/contracts";
 import { configuredAlertWebhookDestinations, type AppConfig } from "../config.js";
-import { ClimateDatabase, type AlertTransition } from "../db.js";
+import { ClimateDatabase, outdoorLocationKey, type AlertTransition } from "../db.js";
 import { TelemetryBus } from "../events.js";
 import { alertNotificationBindings } from "../notification-snapshot.js";
 import { DEFAULT_ALERT_DELIVERY_POLICY } from "../notification-policy.js";
@@ -28,6 +28,10 @@ export class RuntimeStatus {
     this.#bus = bus;
     this.#database = database;
     const webhookDestinations = configuredAlertWebhookDestinations(config);
+    const weatherConnections = this.weatherConnections();
+    const latestWeatherSuccess = weatherConnections
+      .filter((connection) => connection.lastSuccessAt !== null)
+      .sort((left, right) => (right.lastSuccessAt as string).localeCompare(left.lastSuccessAt as string))[0];
     this.value = {
       homeAssistant: {
         configured: Boolean((config.homeAssistantConnections?.length ?? 0) > 0
@@ -98,11 +102,11 @@ export class RuntimeStatus {
       weather: {
         policy: "automatic",
         availableProviders: ["fmi", "open-meteo"],
-        provider: "fmi",
+        provider: latestWeatherSuccess?.provider ?? "fmi",
         configuredHouses: this.configuredWeatherHouses(),
-        lastSuccessAt: null,
-        error: null,
-        connections: this.weatherConnections(),
+        lastSuccessAt: latestWeatherSuccess?.lastSuccessAt ?? null,
+        error: weatherConnections.find((connection) => connection.error)?.error ?? null,
+        connections: weatherConnections,
       },
     };
   }
@@ -142,12 +146,15 @@ export class RuntimeStatus {
     return this.#database.listHouses().filter(hasLocalHouseAuthority).map((house) => {
       const prior = previous.get(house.id);
       const configured = house.location !== undefined;
+      const snapshot = house.location
+        ? this.#database.getWeatherSnapshot(house.id, outdoorLocationKey(house.location))
+        : null;
       return {
         houseId: house.id,
         configured,
-        provider: prior?.provider ?? fallbackProvider,
-        lastSuccessAt: configured ? prior?.lastSuccessAt ?? null : null,
-        error: configured ? prior?.error ?? null : null,
+        provider: prior?.provider ?? snapshot?.weather?.provider ?? fallbackProvider,
+        lastSuccessAt: configured ? (prior ? prior.lastSuccessAt : snapshot?.lastSuccessAt ?? null) : null,
+        error: configured ? (prior ? prior.error : snapshot?.lastError ?? null) : null,
       };
     });
   }

@@ -190,6 +190,11 @@ export const weather = new WeatherService(
   new AutomaticWeatherProvider(new FmiWeatherProvider(), new OpenMeteoWeatherProvider()),
   status.value.weather,
   () => status.changed(),
+  undefined,
+  undefined,
+  undefined,
+  undefined,
+  database,
 );
 
 dataMode.onActivated(() => {

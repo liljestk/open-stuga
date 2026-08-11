@@ -543,6 +543,9 @@ describe("TimeseriesStore", () => {
       houseId: "house-1",
       at: TO,
     })).resolves.toEqual([expect.objectContaining(record)]);
+    const snapshotQuery = pool.queries.find(({ text }) => text.includes("DISTINCT ON")
+      && text.includes("opening_state_samples"))!;
+    expect(snapshotQuery.text).toContain("valid_until IS NULL OR valid_until > $2::TIMESTAMPTZ");
 
     const insert = pool.queries.find(({ text }) => text.includes("INSERT INTO")
       && text.includes("opening_state_samples"))!;

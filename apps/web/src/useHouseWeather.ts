@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { House, HouseWeather, WeatherUpdateEvent } from "@climate-twin/contracts";
 import { api } from "./api";
 
-export const HOUSE_WEATHER_REFRESH_MS = 10 * 60 * 1000;
+export const HOUSE_WEATHER_REVALIDATE_MIN_MS = 60 * 1000;
 
 export interface UseHouseWeatherResult {
   weather: HouseWeather | null;
@@ -46,7 +46,9 @@ function asError(error: unknown): Error {
 }
 
 /**
- * Load house-scoped FMI weather and refresh it every ten minutes.
+ * Hydrate the local last-good snapshot once, then prefer server-sent weather
+ * updates. Returning to a stale tab performs only a cheap local revalidation;
+ * browser activity never owns an upstream provider refresh.
  *
  * Results are cached by house and coordinates inside the hook instance. This
  * makes switching houses responsive without ever displaying another house's
@@ -66,6 +68,7 @@ export function useHouseWeather(
   const latestRequest = useRef(new Map<string, number>());
   const requestSequence = useRef(0);
   const requestController = useRef<AbortController | null>(null);
+  const lastRevalidatedAt = useRef(0);
   const mounted = useRef(true);
 
   useEffect(() => {
@@ -81,6 +84,7 @@ export function useHouseWeather(
   }, []);
 
   const load = useCallback(async (request: ActiveHouseRequest): Promise<void> => {
+    lastRevalidatedAt.current = Date.now();
     requestController.current?.abort();
     const controller = new AbortController();
     requestController.current = controller;
@@ -132,15 +136,27 @@ export function useHouseWeather(
     active.current = request;
     setState({ key, weather: cache.current.get(key) ?? null, loading: true, error: null });
     load(request);
-    const timer = window.setInterval(() => {
-      load(request);
-    }, HOUSE_WEATHER_REFRESH_MS);
     return () => {
-      window.clearInterval(timer);
       if (active.current?.key === request.key) {
         requestController.current?.abort();
         requestController.current = null;
       }
+    };
+  }, [house?.id, key, load]);
+
+  useEffect(() => {
+    if (!key || !house) return;
+    const revalidate = () => {
+      if (document.visibilityState === "hidden"
+        || Date.now() - lastRevalidatedAt.current < HOUSE_WEATHER_REVALIDATE_MIN_MS) return;
+      const request = active.current;
+      if (request?.key === key) void load(request);
+    };
+    window.addEventListener("focus", revalidate);
+    document.addEventListener("visibilitychange", revalidate);
+    return () => {
+      window.removeEventListener("focus", revalidate);
+      document.removeEventListener("visibilitychange", revalidate);
     };
   }, [house?.id, key, load]);
 
@@ -156,6 +172,7 @@ export function useHouseWeather(
       requestController.current?.abort();
       requestController.current = null;
       latestRequest.current.set(key, ++requestSequence.current);
+      lastRevalidatedAt.current = Date.now();
       cache.current.set(key, event.weather);
       if (mounted.current && active.current?.key === key) {
         setState({ key, weather: event.weather, loading: false, error: null });

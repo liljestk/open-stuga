@@ -322,6 +322,11 @@ describe("useClimateData", () => {
     act(() => handleTelemetry({ type: "opening", data: observation }));
 
     expect(result.current.state.latestOpeningStateObservation).toEqual(observation);
+    const receivedAt = Date.parse("2026-08-08T09:00:00.000Z");
+    const now = vi.spyOn(Date, "now").mockReturnValue(receivedAt);
+    act(() => handleTelemetry({ type: "heartbeat", data: {} } as TelemetryEvent));
+    expect(result.current.state.latestTelemetryHeartbeatAt).toBe(receivedAt);
+    now.mockRestore();
   });
 
   it("retries the currently selected house instead of the initial house", async () => {

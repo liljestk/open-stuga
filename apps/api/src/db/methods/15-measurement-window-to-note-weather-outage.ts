@@ -436,7 +436,10 @@ registerDatabaseMethods({
         quality: row.has_good ? "good" : "estimated",
       }));
     },
-  upsertOutdoorTemperatureSample(sample: OutdoorTemperatureSample): OutdoorTemperatureSample {
+  upsertOutdoorTemperatureSample(
+      sample: OutdoorTemperatureSample,
+      options: { deferDerivedInvalidation?: boolean } = {},
+    ): OutdoorTemperatureSample {
       if (![sample.temperatureC, Date.parse(sample.timestamp), Date.parse(sample.fetchedAt)].every(Number.isFinite)) {
         throw new ClimateDataValidationError(400, "INVALID_OUTDOOR_SAMPLE", "Outdoor temperature and timestamps must be finite");
       }
@@ -460,6 +463,9 @@ registerDatabaseMethods({
           .run(sample.houseId, sample.locationKey, sample.timestamp, sample.temperatureC, sample.source,
             sample.fetchedAt, sample.stationId, sample.stationName,
             sample.conditions ? JSON.stringify(sample.conditions) : null);
+        if (!options.deferDerivedInvalidation) {
+          this.invalidateDerivedAnalyticsHistory(sample.houseId, sample.timestamp, sample.timestamp);
+        }
         return sample;
       });
     },
@@ -468,7 +474,10 @@ registerDatabaseMethods({
      * the house's current weather location. The check happens before the
      * irreversible real-data latch in `upsertOutdoorTemperatureSample`.
      */
-  upsertCurrentOutdoorTemperatureSample(sample: OutdoorTemperatureSample): OutdoorTemperatureSample {
+  upsertCurrentOutdoorTemperatureSample(
+      sample: OutdoorTemperatureSample,
+      options: { deferDerivedInvalidation?: boolean } = {},
+    ): OutdoorTemperatureSample {
       const house = this.getHouse(sample.houseId);
       if (!house) {
         throw new ClimateDataValidationError(404, "HOUSE_NOT_FOUND", `House ${sample.houseId} does not exist`);
@@ -480,7 +489,7 @@ registerDatabaseMethods({
           "House location changed while weather was loading; the old-location observation was discarded",
         );
       }
-      return this.upsertOutdoorTemperatureSample(sample);
+      return this.upsertOutdoorTemperatureSample(sample, options);
     },
   outdoorTemperatureHistory(
       houseId: string,

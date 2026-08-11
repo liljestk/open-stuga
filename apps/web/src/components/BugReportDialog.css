@@ -51,6 +51,7 @@
 .bug-report-dialog__details summary { padding: 10px 12px; cursor: pointer; font-weight: 600; }
 .bug-report-dialog__details pre { max-height: 14rem; margin: 0; padding: 0 12px 12px; overflow: auto; white-space: pre-wrap; font-size: 11px; }
 .bug-report-dialog__error { margin: 0; color: var(--red); }
+.bug-report-dialog__error small { display: block; margin-top: 4px; color: var(--muted); }
 .bug-report-dialog__actions { display: grid; grid-template-columns: auto 1fr auto auto; gap: 10px; align-items: center; }
 .bug-report-dialog__actions button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; }
 .bug-report-dialog__success h3 { margin: 4px 0 0; }

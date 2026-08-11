@@ -206,7 +206,7 @@ export const schemasPart04 = {
             attribution: { type: "string", description: "Required provider attribution; preserve it in displays and downstream exports." },
             fetchedAt: { type: "string", format: "date-time", description: "Time the upstream fetch represented by this object began." },
             forecastIssuedAt: { type: ["string", "null"], format: "date-time", description: "FMI result time for the edited forecast, when available." },
-            stale: { type: "boolean", description: "True when an upstream refresh failed and the service returned its previous in-memory result." },
+            stale: { type: "boolean", description: "True when the durable last-good snapshot is older than the monitor freshness window or its latest upstream refresh failed." },
             current: { oneOf: [{ $ref: "#/components/schemas/OutdoorConditions" }, { type: "null" }] },
             observationStation: { oneOf: [{ $ref: "#/components/schemas/WeatherStation" }, { type: "null" }] },
             forecast: { type: "array", items: { $ref: "#/components/schemas/OutdoorConditions" } },

@@ -59,6 +59,14 @@ export function artifactDefinitions(repositoryRoot, version) {
       `stugu-rpi4-${version}-factory.sha256`,
     ),
     releaseManifest: resolve(releaseDirectory, releaseManifestAsset),
+    compatibilityProof: resolve(
+      releaseDirectory,
+      "stugu-release-compatibility-proof-v1.json",
+    ),
+    draftPreparation: resolve(
+      releaseDirectory,
+      "stugu-draft-preparation-v1.json",
+    ),
     hostInputsDirectory,
     hostBoot: resolve(hostInputsDirectory, "boot.vfat"),
     hostRoot: resolve(hostInputsDirectory, "system.erofs"),

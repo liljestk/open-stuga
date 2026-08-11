@@ -36,6 +36,19 @@ npm test -w @climate-twin/bug-report-relay
 npm run deploy -w @climate-twin/bug-report-relay
 ```
 
+## Enable reporting from the app
+
+The quickest path needs no redeploy of Stugu itself. Sign in as an Owner or
+Admin, open **System**, and use **Bug report relay**: paste the deployed HTTPS
+relay URL (including `/reports`) and the shared token, then save. The token is
+written to the protected integration secrets file (`0600`, never returned by
+the API and never sent to a browser again), and **Report a bug** starts
+delivering immediately — no restart. **Remove relay** clears it again.
+
+Deployment environment variables stay authoritative: when `BUG_REPORT_RELAY_URL`
+is set, the panel shows the relay read-only and the API refuses to overwrite it
+with `409 BUG_REPORT_RELAY_ENVIRONMENT_OWNED`.
+
 For Compose, put the shared secret in the dedicated ignored directory and set
 the deployed HTTPS URL, including `/reports`, in `.env`:
 

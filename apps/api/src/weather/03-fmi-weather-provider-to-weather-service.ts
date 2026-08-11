@@ -14,6 +14,8 @@ import type {
   WeatherWarningSeverity,
 } from "@climate-twin/contracts";
 import { SYSTEM_VERSION } from "../version.js";
+import { outdoorLocationKey, type StoredWeatherSnapshot } from "../db.js";
+import { CANONICAL_WEATHER_HOURS, canonicalWeatherSnapshot } from "../db/weather-snapshot-types.js";
 import { ATTRIBUTION, DEFAULT_MAX_CACHE_ENTRIES, DEFAULT_STALE_MAX_AGE_MS, FMI_WARNING_FEED, FMI_WFS_URL, FORECAST_PARAMETERS, FORECAST_QUERY, OBSERVATION_PARAMETERS, OBSERVATION_QUERY, ParsedCapWarning, SHORT_RANGE_PARAMETERS, SHORT_RANGE_QUERY, WeatherConnectionStatus, WeatherObservationHistory, WeatherProvider, WeatherRecoveryLifecycle, WeatherRequestSupersededError, WeatherUnavailableError, componentStatus, fmiWarningCoverage, forecastFromSeries, mergeForecasts, parseFmiTimeSeries } from "./01-weather-connection-status-to-haversine-km.js";
 import { FmiWeatherProviderOptions, currentObservation, historicalObservations, parseCapFeed, readTextWithByteLimit, warningAreaMatches, warningIsUnexpired } from "./02-current-observation-to-fmi-weather-provider-options.js";
 
@@ -29,14 +31,19 @@ export class FmiWeatherProvider implements WeatherProvider {
     this.#now = options.now ?? (() => new Date());
   }
 
-  async #xml(url: string, maximumBytes: number): Promise<string> {
+  async #xml(url: string, maximumBytes: number, signal?: AbortSignal): Promise<string> {
+    signal?.throwIfAborted();
+    const requestSignal = signal
+      ? AbortSignal.any([signal, AbortSignal.timeout(this.#timeoutMs)])
+      : AbortSignal.timeout(this.#timeoutMs);
     let response: Response;
     try {
       response = await this.#fetch(url, {
         headers: { Accept: "application/xml,text/xml;q=0.9", "User-Agent": `Climate-Twin/${SYSTEM_VERSION} FMI weather adapter` },
-        signal: AbortSignal.timeout(this.#timeoutMs),
+        signal: requestSignal,
       });
     } catch {
+      signal?.throwIfAborted();
       throw new WeatherUnavailableError("FMI request failed");
     }
     if (!response.ok) throw new WeatherUnavailableError(`FMI returned HTTP ${response.status}`);
@@ -45,8 +52,11 @@ export class FmiWeatherProvider implements WeatherProvider {
       throw new WeatherUnavailableError("FMI response exceeded the configured size limit");
     }
     try {
-      return await readTextWithByteLimit(response, maximumBytes);
+      const text = await readTextWithByteLimit(response, maximumBytes, requestSignal);
+      signal?.throwIfAborted();
+      return text;
     } catch (error) {
+      signal?.throwIfAborted();
       if (error instanceof WeatherUnavailableError) throw error;
       throw new WeatherUnavailableError("FMI response could not be read");
     }
@@ -101,7 +111,9 @@ export class FmiWeatherProvider implements WeatherProvider {
     location: HouseLocation,
     from: string,
     to: string,
+    signal?: AbortSignal,
   ): Promise<WeatherObservationHistory> {
+    signal?.throwIfAborted();
     const start = new Date(from);
     const end = new Date(to);
     if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime()) || start >= end) {
@@ -111,7 +123,12 @@ export class FmiWeatherProvider implements WeatherProvider {
       throw new WeatherUnavailableError("FMI observation backfill requests are limited to 24-hour chunks");
     }
     for (const radiusKm of [40, 120]) {
-      const xml = await this.#xml(this.#observationUrl(location, start, end, radiusKm), 16 * 1024 * 1024);
+      signal?.throwIfAborted();
+      const xml = await this.#xml(
+        this.#observationUrl(location, start, end, radiusKm),
+        16 * 1024 * 1024,
+        signal,
+      );
       const parsed = historicalObservations(parseFmiTimeSeries(xml), location);
       if (parsed.observations.length > 0) {
         return {
@@ -227,9 +244,23 @@ export interface WeatherInFlightEntry {
   promise: Promise<HouseWeather>;
 }
 
+interface SharedProviderEntry {
+  sourceHouseId: string;
+  expiresAt: number;
+  promise: Promise<HouseWeather>;
+}
+
+export interface WeatherSnapshotRepository {
+  getWeatherSnapshot(houseId: string, locationKey: string): StoredWeatherSnapshot | null;
+}
+
+const PERSISTED_WEATHER_FRESH_MS = 30 * 60_000;
+const SHARED_PROVIDER_RESULT_TTL_MS = 60_000;
+
 export class WeatherService {
   readonly #cache = new Map<string, WeatherCacheEntry>();
   readonly #inFlight = new Map<string, WeatherInFlightEntry>();
+  readonly #sharedProviderResults = new Map<string, SharedProviderEntry>();
   readonly #houseGeneration = new Map<string, number>();
 
   constructor(
@@ -240,6 +271,7 @@ export class WeatherService {
     private readonly staleMaxAgeMs = DEFAULT_STALE_MAX_AGE_MS,
     private readonly maxCacheEntries = DEFAULT_MAX_CACHE_ENTRIES,
     private readonly recovery?: WeatherRecoveryLifecycle,
+    private readonly snapshots?: WeatherSnapshotRepository,
   ) {}
 
   invalidate(houseId: string): void {
@@ -261,7 +293,25 @@ export class WeatherService {
 
   async get(house: House, hours: number): Promise<HouseWeather> {
     if (!house.location) throw new WeatherUnavailableError("Set the house location before requesting weather");
-    const key = `${house.id}:${house.location.latitude.toFixed(6)}:${house.location.longitude.toFixed(6)}:${hours}`;
+    if (this.snapshots) return this.#stored(house, hours);
+    return this.#upstream(house, hours, true, false);
+  }
+
+  /** The background monitor is the sole production caller of upstream weather. */
+  async refresh(house: House, _hours = CANONICAL_WEATHER_HOURS): Promise<HouseWeather> {
+    if (!house.location) throw new WeatherUnavailableError("Set the house location before requesting weather");
+    return this.#upstream(house, CANONICAL_WEATHER_HOURS, false, true);
+  }
+
+  async #upstream(
+    house: House,
+    hours: number,
+    allowStaleFallback: boolean,
+    canonical: boolean,
+  ): Promise<HouseWeather> {
+    const location = house.location;
+    if (!location) throw new WeatherUnavailableError("Set the house location before requesting weather");
+    const key = `${house.id}:${location.latitude.toFixed(6)}:${location.longitude.toFixed(6)}:${hours}`;
     const generation = this.#generation(house.id);
     const now = Date.now();
     const cached = this.#cache.get(key);
@@ -271,7 +321,15 @@ export class WeatherService {
     }
     const pending = this.#inFlight.get(key);
     if (pending?.generation === generation) return pending.promise;
-    const refresh = this.#refresh(house, hours, key, generation, cached);
+    const refresh = this.#refreshProvider(
+      house,
+      hours,
+      key,
+      generation,
+      cached,
+      allowStaleFallback,
+      canonical,
+    );
     this.#inFlight.set(key, { houseId: house.id, generation, promise: refresh });
     try {
       return await refresh;
@@ -280,15 +338,22 @@ export class WeatherService {
     }
   }
 
-  async #refresh(
+  async #refreshProvider(
     house: House,
     hours: number,
     key: string,
     generation: number,
     cached?: WeatherCacheEntry,
+    allowStaleFallback = true,
+    canonical = false,
   ): Promise<HouseWeather> {
     try {
-      const fetched = await this.provider.fetch(house.id, house.location as HouseLocation, hours);
+      const providerResult = await this.#sharedProviderResult(
+        house.id,
+        house.location as HouseLocation,
+        hours,
+      );
+      const fetched = canonical ? this.#canonical(providerResult) : providerResult;
       this.#assertCurrent(house.id, generation);
       this.recovery?.recordSuccess(house, fetched);
       const cachedAt = Date.now();
@@ -317,7 +382,7 @@ export class WeatherService {
       connection.error = this.status.error;
       this.onStatusChange();
       const now = Date.now();
-      if (cached && now - cached.cachedAt <= this.staleMaxAgeMs) {
+      if (allowStaleFallback && cached && now - cached.cachedAt <= this.staleMaxAgeMs) {
         const weather = this.#forCurrentTime(cached.weather, now, true);
         cached.weather = this.#forCurrentTime(cached.weather, now, false);
         // Keep the original freshness timestamp while preventing every caller
@@ -329,6 +394,66 @@ export class WeatherService {
       if (cached) this.#cache.delete(key);
       throw error;
     }
+  }
+
+  #stored(house: House, hours: number): HouseWeather {
+    const locationKey = outdoorLocationKey(house.location);
+    const snapshot = this.snapshots?.getWeatherSnapshot(house.id, locationKey) ?? null;
+    if (!snapshot?.weather) {
+      throw new WeatherUnavailableError(
+        snapshot?.lastError ?? "Weather is waiting for its first background refresh",
+      );
+    }
+    const now = Date.now();
+    const attemptedAt = Date.parse(snapshot.lastAttemptAt);
+    const stale = snapshot.lastError !== null
+      || !Number.isFinite(attemptedAt)
+      || now - attemptedAt > PERSISTED_WEATHER_FRESH_MS;
+    return this.#withRecovery(
+      house,
+      this.#forCurrentTime(snapshot.weather, now, stale, hours),
+    );
+  }
+
+  #canonical(weather: HouseWeather): HouseWeather {
+    return canonicalWeatherSnapshot(weather);
+  }
+
+  async #sharedProviderResult(
+    houseId: string,
+    location: HouseLocation,
+    hours: number,
+  ): Promise<HouseWeather> {
+    const key = [
+      location.latitude.toFixed(6),
+      location.longitude.toFixed(6),
+      location.countryCode?.trim().toUpperCase() ?? "",
+      String(hours),
+    ].join(":");
+    const now = Date.now();
+    let shared = this.#sharedProviderResults.get(key);
+    if (!shared || shared.expiresAt <= now || shared.sourceHouseId === houseId) {
+      if (shared) this.#sharedProviderResults.delete(key);
+      const promise = this.provider.fetch(houseId, location, hours);
+      shared = { sourceHouseId: houseId, expiresAt: now + SHARED_PROVIDER_RESULT_TTL_MS, promise };
+      this.#sharedProviderResults.set(key, shared);
+      while (this.#sharedProviderResults.size > Math.max(1, this.maxCacheEntries)) {
+        const oldest = this.#sharedProviderResults.keys().next().value as string | undefined;
+        if (!oldest) break;
+        this.#sharedProviderResults.delete(oldest);
+      }
+    } else {
+      // Preserve insertion order as an LRU so many one-off locations cannot
+      // evict a location that several Homes actively share.
+      this.#sharedProviderResults.delete(key);
+      this.#sharedProviderResults.set(key, shared);
+    }
+    const weather = await shared.promise;
+    return {
+      ...weather,
+      houseId,
+      location: { ...location },
+    };
   }
 
   #connectionStatus(house: House): WeatherConnectionStatus {
@@ -349,10 +474,11 @@ export class WeatherService {
     return connection;
   }
 
-  #forCurrentTime(weather: HouseWeather, nowMs: number, stale: boolean): HouseWeather {
+  #forCurrentTime(weather: HouseWeather, nowMs: number, stale: boolean, hours?: number): HouseWeather {
+    const endMs = hours === undefined ? Number.POSITIVE_INFINITY : nowMs + hours * 3_600_000;
     const forecast = weather.forecast.filter((point) => {
       const timestamp = Date.parse(point.timestamp);
-      return Number.isFinite(timestamp) && timestamp >= nowMs;
+      return Number.isFinite(timestamp) && timestamp >= nowMs && timestamp <= endMs;
     });
     const warnings = weather.warnings.filter((warning) => warningIsUnexpired(warning, nowMs));
     const statuses = weather.componentStatus ? {

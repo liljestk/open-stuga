@@ -4,6 +4,133 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.39.0 - 2026-08-10
+
+- Add canonical fast/full local verification with exact-input caches, stable
+  failure codes, detailed logs, and commit-pinned JSON receipts outside Git.
+- Split draft preparation, release verification, and final publication so CI,
+  builds, ARM64 image identity, compatibility, visual acceptance, and target
+  appliance evidence are each produced once and consumed by later steps.
+- Add a one-session, read-only Raspberry Pi doctor with bounded default health,
+  resource, container, archive/database, queue, integration, updater, and
+  identity checks; expensive integrity and log checks require `--deep`.
+- Include the application changes prepared since 0.35.7: correct cancelled-
+  request logging and audit migrations, in-app bug-relay setup, bounded durable
+  analytics, and heat-pump-aware passive thermal and moisture fits.
+
+Upgrade impact: the first application start performs idempotent database updates
+for audit, weather, projections, and durable analytics jobs. Existing telemetry
+and last-good results are retained. This release does not require a signed host
+update or factory image; future publication/deployment commands require matching
+verification receipts.
+
+## 0.38.0 - 2026-08-08
+
+- Exclude powered, compressor-active, unavailable, and stale-gap heat-pump
+  periods from passive thermal and moisture fits. A five-minute lead and
+  thirty-minute recovery margin are applied, and insufficient state coverage
+  now fails closed to the durable last-good result instead of being treated as
+  heat-pump-off evidence.
+- Remove the Gree/Wilfa equipment projection from ambient room comparisons,
+  Home monitoring, Home Performance recovery/opening analysis, and daily
+  environmental findings while retaining actual comfort exposure and energy
+  outcomes.
+- Report the classified, usable, excluded, and unknown heat-pump evidence in
+  thermal, moisture, and Home Performance API results. Appliance power and raw
+  compressor frequency are not normalized into delivered thermal output.
+
+Upgrade impact: this application-only release changes derived analytics
+identities and recomputes them under the verified-off policy. Existing telemetry
+and last-good artifacts are retained; no database rewrite or signed host update
+is required.
+
+## 0.37.1 - 2026-08-08
+
+- Keep experimental spatial-layer storage completely idle on ordinary House,
+  live-map, replay, and analytics views. Spatial summaries and polling now begin
+  only while the nested Spatial Layer Lab is open and stop when it closes.
+- Combine the lab's current-layer and health reads so each refresh resolves the
+  current snapshot set once, and index latest-run lookups by scope, engine, and
+  start time instead of synchronously scanning and sorting retained run history.
+
+Upgrade impact: this application-only patch creates one idempotent, bounded
+index over spatial inference runs on first start. It retains spatial
+configuration, snapshots, jobs, and raw data, starts no inference session, and
+requires no signed host update.
+
+## 0.37.0 - 2026-08-08
+
+- Replace request-time thermal-isolation, moisture-response, and Home
+  Performance recalculation with durable last-good artifacts, explicit refresh,
+  stable Home-local nightly scheduling, and one shared host-load governor.
+- Serve current opening state from a bounded SQLite projection, use cancellable
+  archive reads only for explicit history/replay, and make the browser SSE-first
+  with edit, visibility, reconnect, and replay load controls.
+- Persist canonical outdoor-weather snapshots so pages and MCP reads never call
+  FMI or Open-Meteo; serialize and coalesce provider refresh/recovery work in the
+  background while preserving stale last-good data on failure.
+- Turn experimental spatial inference into an authorized, timed Home session
+  that is off by default, max-one and low priority, with no Property fan-out or
+  measurement-triggered ambient inference.
+- Keep heavy daily findings and historical sensor-gap recovery deployment
+  opt-ins, remove full-history startup/live-ingestion scans, and isolate
+  thermal/moisture fitting in a resource-limited worker.
+
+Upgrade impact: this application-only release adds idempotent SQLite projections
+and durable weather/analytics job tables; it does not require a signed host
+update. Existing telemetry and last-good results are preserved. The v2 Home
+Performance endpoint now returns the common durable-artifact status envelope;
+v1 exact-window thermal and moisture endpoints remain available. Spatial
+capability must be enabled by deployment configuration before the timed House
+control is shown, but no inference session starts automatically.
+
+## 0.36.1 - 2026-08-05
+
+- Stop answering a cancelled request with "The request could not be completed".
+  Navigating away from a page, or a background refresh clearing an analytics
+  cache, produced a server error instead of a cancellation, and each one was
+  filed in the system error log as a fault. Cancellations now answer `503
+  REQUEST_CANCELLED` and are no longer logged, so **Advanced → System → Export
+  error log** shows real problems again.
+- Let a Monitoring Home page finish loading when a cache entry is invalidated
+  while its data is still being read. The reader is now allowed to finish and
+  answer the waiting page; only the caching of its result is skipped. This was
+  most visible on the Raspberry Pi appliance, where the slower history read left
+  a wide window for a routine event to cancel the request.
+- Fix **Request system update**, **Change update settings**, **Change storage
+  location**, and **Start Cloudflare setup** failing on installations upgraded
+  from an earlier release. Each writes a security audit event, and the audit
+  table in those databases still constrained subjects to the four kinds that
+  existed when it was created, so the write — and the whole request — failed.
+- Make the complete application release cycle transferable between agents with
+  provider-neutral instructions, explicit private-source/public-feed tagging,
+  operator-context and approval gates, artifact checks, failure recovery, and
+  the separate host-signing boundary.
+
+Upgrade impact: the security audit table is rebuilt in place on first start to
+accept every audited subject; existing audit events are preserved and no
+operator action is required. Clients that treated any non-2xx monitoring
+response as an outage should treat `503 REQUEST_CANCELLED` as a retry.
+
+## 0.36.0 - 2026-08-05
+
+- Let an Owner or Admin enable bug reporting from **System → Bug report relay**
+  by saving the relay address and shared token into the protected integration
+  secrets file, instead of requiring deployment environment variables and a
+  restart. Environment-provided relays stay read-only and cannot be replaced
+  through the API.
+- Keep the offered "Download copy" fallback working in Firefox and Safari by
+  attaching the download anchor to the document and revoking the object URL
+  only after the browser has started the download.
+- Document the repository's build, test, invariant, and release expectations in
+  `CLAUDE.md` for future contributors and assistants.
+
+Upgrade impact: no persistent-data migration change. Deployments that already
+set `BUG_REPORT_RELAY_URL` and `BUG_REPORT_RELAY_TOKEN` keep working unchanged
+and now show the relay as read-only in the app; deployments without those
+variables can configure the relay in **System → Bug report relay**, which
+writes it to the existing protected integration secrets file.
+
 ## 0.35.7 - 2026-08-05
 
 - Restore the Raspberry Pi host-update status in **Advanced → System** by

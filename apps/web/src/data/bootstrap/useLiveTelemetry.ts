@@ -253,7 +253,9 @@ export function useLiveTelemetry(
       });
     }, []);
   const handleTelemetry = useCallback((event: TelemetryEvent) => {
-      if (event.type === "mutation") {
+      if (event.type === "heartbeat") {
+        setState((current) => ({ ...current, latestTelemetryHeartbeatAt: Date.now() }));
+      } else if (event.type === "mutation") {
         if (mutationRefreshTimer.current !== null) window.clearTimeout(mutationRefreshTimer.current);
         mutationRefreshTimer.current = window.setTimeout(() => {
           mutationRefreshTimer.current = null;

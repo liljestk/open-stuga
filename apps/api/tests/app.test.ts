@@ -18,6 +18,8 @@ import { loadConfig, type AppConfig } from "../src/config.js";
 
 import { createApi, type ApiRuntime } from "../src/app.js";
 
+import { SensorGapRecoveryCoordinator } from "../src/sensor-gap-recovery.js";
+
 import { config } from "./appTestSupport.js";
 
 describe("Climate Twin API v1", () => {
@@ -414,6 +416,7 @@ describe("Climate Twin API v1", () => {
       spatialLayersIntervalMs: 60_000,
       spatialLayersRetentionDays: 30,
     });
+    expect(loadConfig({ NODE_ENV: "production", DATABASE_PATH: ":memory:" }).spatialLayersEnabled).toBe(false);
     expect(loadConfig({
       NODE_ENV: "production",
       DATABASE_PATH: ":memory:",
@@ -426,6 +429,49 @@ describe("Climate Twin API v1", () => {
       spatialLayersIntervalMs: 30_000,
       spatialLayersRetentionDays: 7,
     });
+  });
+
+  it("keeps scheduled daily analytics dormant unless explicitly enabled", async () => {
+    const disabled = loadConfig({ NODE_ENV: "test", DATABASE_PATH: ":memory:" });
+    expect(disabled.dailyAnalyticsFindingsEnabled).toBe(false);
+    await runtime.close();
+    runtime = createApi({ config: disabled, startBackground: true });
+    expect(runtime.dailyAnalyticsFindings.status().started).toBe(false);
+
+    await runtime.close();
+    runtime = createApi({
+      config: loadConfig({
+        NODE_ENV: "test",
+        DATABASE_PATH: ":memory:",
+        DAILY_ANALYTICS_FINDINGS_ENABLED: "true",
+      }),
+      startBackground: true,
+    });
+    expect(runtime.dailyAnalyticsFindings.status().started).toBe(true);
+  });
+
+  it("keeps automatic sensor gap recovery dormant unless explicitly enabled", async () => {
+    const start = vi.spyOn(SensorGapRecoveryCoordinator.prototype, "start");
+    try {
+      const disabled = loadConfig({ NODE_ENV: "test", DATABASE_PATH: ":memory:" });
+      expect(disabled.sensorGapRecoveryEnabled).toBe(false);
+      await runtime.close();
+      runtime = createApi({ config: disabled, startBackground: true });
+      expect(start).not.toHaveBeenCalled();
+
+      await runtime.close();
+      runtime = createApi({
+        config: loadConfig({
+          NODE_ENV: "test",
+          DATABASE_PATH: ":memory:",
+          SENSOR_GAP_RECOVERY_ENABLED: "true",
+        }),
+        startBackground: true,
+      });
+      expect(start).toHaveBeenCalledOnce();
+    } finally {
+      start.mockRestore();
+    }
   });
 
   it("treats Compose-style empty integration tuples as absent but rejects partial tuples", () => {

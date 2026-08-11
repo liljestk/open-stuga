@@ -417,6 +417,7 @@ export interface ApiRuntime {
   weather: WeatherService;
   weatherMonitor: WeatherMonitor;
   dailyAnalyticsFindings: DailyAnalyticsFindingsWorker;
+  derivedAnalytics: import("../../analytics/derived-artifacts/coordinator.js").DerivedAnalyticsCoordinator;
   scheduledDataExports: ScheduledDataExportService;
   weatherRecovery: WeatherRecoveryCoordinator;
   sensorGapRecovery: SensorGapRecoveryCoordinator;

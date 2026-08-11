@@ -1,0 +1,99 @@
+.bug-report-relay-panel {
+  display: grid;
+  gap: 16px;
+  margin: 0 0 22px;
+  padding: 18px;
+}
+
+.bug-report-relay-heading {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 12px;
+}
+
+.bug-report-relay-heading > svg {
+  margin-top: 4px;
+  color: var(--action);
+}
+
+.bug-report-relay-heading h2 {
+  margin: 3px 0 0;
+  font: 700 18px/1.2 "Manrope", sans-serif;
+  letter-spacing: -.02em;
+}
+
+.bug-report-relay-heading p {
+  max-width: 72ch;
+  margin: 5px 0 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.bug-report-relay-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-weight: 700;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.bug-report-relay-state.ready {
+  background: var(--positive-soft);
+  color: var(--positive);
+}
+
+.bug-report-relay-state.missing {
+  background: var(--panel-soft);
+  color: var(--muted);
+}
+
+.bug-report-relay-current {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.bug-report-relay-current dt {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+
+.bug-report-relay-current dd {
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.bug-report-relay-loading,
+.bug-report-relay-note,
+.bug-report-relay-feedback {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.bug-report-relay-feedback.success { color: var(--positive); }
+.bug-report-relay-feedback.error { color: var(--red); }
+
+.bug-report-relay-form {
+  display: grid;
+  gap: 12px;
+  max-width: 640px;
+}
+
+.bug-report-relay-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}

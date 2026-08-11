@@ -238,6 +238,7 @@ registerDatabaseMethods({
             `);
           }
       this.migrateRevisionActors();
+      this.migrateSecurityAuditSubjectTypes();
       const maintenanceTasksWithLegacyPropertyScope = this.maintenanceTasksBeforeScopeMove(`
             NOT EXISTS (SELECT 1 FROM properties property WHERE property.id = maintenance_tasks.property_id)
             OR (house_id IS NOT NULL AND NOT EXISTS (

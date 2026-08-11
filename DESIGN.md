@@ -1,6 +1,6 @@
 # Stugu brand and interface system
 
-Version 1.9 · 4 August 2026
+Version 1.10 · 8 August 2026
 
 ## 1. Brand idea
 
@@ -493,7 +493,34 @@ Default interaction transitions are 120–180 ms with a standard ease-out curve.
 - Live-state pulses must be subtle and paired with text.
 - Under `prefers-reduced-motion: reduce`, remove particles, stop nonessential animation, and make transitions effectively instant.
 
-## 10. Accessibility release gate
+## 10. Blocking visual-acceptance contract
+
+This contract applies to every change that affects a rendered screen, including
+components, styles, visible copy, interactions, and data-driven states. The
+change is accepted only when all of these checks pass:
+
+1. **Finished UI:** inspect the latest implementation in its real application
+   shell and route, not an isolated component or design mock-up.
+2. **Representative data:** use realistic, non-private names, values, units,
+   timestamps, and list density. Inspect the populated state and every changed
+   loading, empty, stale, partial, permission, and error state that can occur.
+3. **Coverage:** inspect web UI at 320 and 1440 CSS px in light and dark themes;
+   add 768 px and both sides of any changed breakpoint. For native UI, inspect
+   every affected device class and appearance.
+4. **UI pass:** no unintended clipping, overlap, overflow, truncation, broken
+   alignment, unreadable content, or ambiguous visual state is visible.
+5. **UX pass:** the current scope and state, primary action, and action result
+   are clear; the primary workflow completes; failures explain recovery; and
+   Back, Cancel, and dismissal preserve context where applicable.
+6. **Evidence:** record the route, data scenario, viewport/device, theme,
+   screenshot, workflow exercised, and pass/fail result in the PR or handoff.
+
+Automated tests, snapshots, DOM inspection, and code review are supporting
+evidence only. A failed check must be fixed and re-inspected. If the running UI
+or representative data is unavailable, mark visual acceptance **BLOCKED** and
+do not report the UI change as complete.
+
+## 11. Accessibility release gate
 
 Stugu targets **WCAG 2.2 AA**. A feature is not done until all applicable checks pass.
 
@@ -529,7 +556,7 @@ Run automated checks as a fast gate, then manually verify:
 
 Automation cannot approve wording, focus order, chart comprehension, or whether a visual equivalent is genuinely useful. Those remain manual checks.
 
-## 11. Implementation notes
+## 12. Implementation notes
 
 - Theme and component rules live in [`styles.css`](apps/web/src/styles.css).
 - Brand/product language lives in [`i18n.tsx`](apps/web/src/i18n.tsx).
@@ -554,6 +581,9 @@ When introducing a component, document any new token here rather than adding a o
 
 ### Change record
 
+- **1.10 (8 August 2026):** Added the blocking visual-acceptance contract for
+  finished UI inspection with representative data, workflow checks, and
+  recorded pass/fail evidence.
 - **1.9 (4 August 2026):** Defined the pinned phone overview for web and iOS,
   including configurable default metrics, Home/Room and Property/Home
   breakdowns, attention-first ordering, and explicit unknown data states.

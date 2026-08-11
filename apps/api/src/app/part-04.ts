@@ -225,6 +225,7 @@ export function configureApiPart04(context: ReturnType<typeof configureApiPart03
       undefined,
       undefined,
       weatherRecovery,
+      context.database,
     );
   const weatherEvents = context.options.weatherEventBroker ?? new InMemoryWeatherEventBroker();
   const removeWeatherProjector = weatherEvents.addProjector((event) => {
@@ -238,7 +239,34 @@ export function configureApiPart04(context: ReturnType<typeof configureApiPart03
       houses: context.database,
       weather,
       // Polling is an input adapter: providers do not need native push support.
-      persist: async (result) => { await weatherEvents.publish(result, "scheduled-refresh"); },
+      persist: async (result) => {
+        context.database.saveWeatherSnapshot(result, outdoorLocationKey(result.location));
+        try {
+          await weatherEvents.publish(result, "scheduled-refresh");
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "unknown projection failure";
+          console.error(`[weather] Snapshot stored, but live projection failed: ${message}`);
+        }
+      },
+      persistFailure: (house, error, attemptedAt) => {
+        if (!house.location) return;
+        const message = (error instanceof Error && error.message.trim()
+          ? error.message.trim()
+          : "Weather refresh failed").slice(0, 1000);
+        const connection = context.status.value.weather.connections
+          ?.find((candidate) => candidate.houseId === house.id);
+        const statusChanged = context.status.value.weather.error !== message
+          || (connection !== undefined && connection.error !== message);
+        context.status.value.weather.error = message;
+        if (connection) connection.error = message;
+        if (statusChanged) context.status.changed();
+        context.database.noteWeatherSnapshotFailure(
+          house.id,
+          outdoorLocationKey(house.location),
+          error,
+          attemptedAt,
+        );
+      },
     });
   const app = express();
   // Security middleware classifies route prefixes before Express dispatches.
@@ -254,6 +282,12 @@ export function configureApiPart04(context: ReturnType<typeof configureApiPart03
           coreDatabasePath: config.databasePath,
           dataMode: context.database.isRealDataMode() ? "real" : "demo",
           startBackground: false,
+          admission: {
+            acquire: () => context.analyticsWorkLimiter.acquireLowPriority(
+              "spatial-inference",
+              context.admitLowPriority,
+            ),
+          },
           ...(config.spatialLayersDatabasePath === undefined ? {} : { statePath: config.spatialLayersDatabasePath }),
           ...(config.spatialLayersIntervalMs === undefined ? {} : { intervalMs: config.spatialLayersIntervalMs }),
           ...(config.spatialLayersRetentionDays === undefined ? {} : { retentionDays: config.spatialLayersRetentionDays }),
@@ -280,10 +314,9 @@ export function configureApiPart04(context: ReturnType<typeof configureApiPart03
   context.notifyOpeningStateRecorded = (observation: OpeningStateObservation): void => {
       context.bus.publish({ type: "opening", data: observation });
       void context.telemetryArchive?.reconcileNow().catch(() => undefined);
-      const house = context.database.getHouse(observation.houseId);
       notifySpatial((runtime) => runtime.scheduler.wakeHouse(
         observation.houseId,
-        house?.propertyId ?? null,
+        null,
         observation.observedAt,
         "property-context-changed",
       ));
@@ -294,8 +327,7 @@ export function configureApiPart04(context: ReturnType<typeof configureApiPart03
       const observedAt = new Date().toISOString();
       notifySpatial((runtime) => {
         for (const houseId of houseIds) {
-          const house = context.database.getHouse(houseId);
-          runtime.scheduler.wakeHouse(houseId, house?.propertyId ?? null, observedAt, "sensor-context-changed");
+          runtime.scheduler.wakeHouse(houseId, null, observedAt, "sensor-context-changed");
         }
       });
     };
@@ -305,6 +337,7 @@ export function configureApiPart04(context: ReturnType<typeof configureApiPart03
   context.dataMode.onActivated(() => {
       context.mock.stop();
       context.replay.reset();
+      context.derivedAnalytics.handleDataModeActivated();
       notifySpatial((runtime) => runtime.handleDataModeActivated("real"));
       context.telemetryArchive?.enforceRealDataBoundary();
       context.status.refreshDataMode();

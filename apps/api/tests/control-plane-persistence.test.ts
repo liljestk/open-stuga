@@ -190,7 +190,17 @@ describe("SQLite control-plane durability", () => {
         timestamp: "2026-07-18T08:05:00.000Z",
         source: "home-assistant",
         quality: "good",
-      }, true);
+      }, true, {
+        houseLabel: "Persistent home",
+        sensorLabel: "Persistent sensor",
+        webhookDestinations: [{
+          destinationId: "primary",
+          destinationRef: "webhook:test-persistence",
+        }],
+        telegramDestinationRef: "telegram:test-persistence",
+        apnsProviderRef: "apns:test-persistence",
+        apnsEnabled: false,
+      });
       alertEventId = transition.created!.id;
       database.noteWeatherOutage(
         "house-persisted",

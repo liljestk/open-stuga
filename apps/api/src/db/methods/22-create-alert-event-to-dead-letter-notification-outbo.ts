@@ -100,6 +100,17 @@ import { AlertEventRow, AlertRuleRow, MeasurementSampleRow } from "../support/02
 import { eventFromRow, measurementSampleFromRow, ruleFromRow } from "../support/04-canonical-json-value-to-action-playbook-from-row.js";
 import { registerDatabaseMethods } from "../core.js";
 
+export const PENDING_ALERT_EVALUATION_SAMPLES_SQL = `SELECT queue.measurement_sample_id AS queue_id,
+    sample.sensor_id, sample.metric, sample.value, sample.canonical_unit,
+    sample.timestamp, sample.source, sample.quality
+  FROM alert_evaluation_queue queue
+  CROSS JOIN measurement_samples sample ON sample.id = queue.measurement_sample_id
+  CROSS JOIN sensors sensor ON sensor.id = sample.sensor_id
+  CROSS JOIN houses house ON house.id = sensor.house_id
+  WHERE house.deleted_at IS NULL
+  ORDER BY queue.measurement_sample_id
+  LIMIT ?`;
+
 registerDatabaseMethods({
   createAlertEvent(input: Omit<AlertEvent, "id" | "acknowledgedAt" | "resolvedAt">): AlertEvent {
       const event: AlertEvent = { ...input, id: randomUUID(), acknowledgedAt: null, resolvedAt: null };
@@ -216,16 +227,10 @@ registerDatabaseMethods({
       queueId: number;
       sample: MeasurementSample;
     }> {
-      const rows = this.db.prepare(`SELECT queue.measurement_sample_id AS queue_id,
-          sample.sensor_id, sample.metric, sample.value, sample.canonical_unit,
-          sample.timestamp, sample.source, sample.quality
-        FROM alert_evaluation_queue queue
-        JOIN measurement_samples sample ON sample.id = queue.measurement_sample_id
-        JOIN sensors sensor ON sensor.id = sample.sensor_id
-        JOIN houses house ON house.id = sensor.house_id
-        WHERE house.deleted_at IS NULL
-        ORDER BY queue.measurement_sample_id
-        LIMIT ?`).all(boundedCollectionLimit(limit)) as unknown as Array<MeasurementSampleRow & {
+      // CROSS JOIN is intentional: SQLite must drive this hot path from the
+      // bounded durable queue, including when the queue is empty.
+      const rows = this.db.prepare(PENDING_ALERT_EVALUATION_SAMPLES_SQL)
+        .all(boundedCollectionLimit(limit)) as unknown as Array<MeasurementSampleRow & {
           queue_id: number;
         }>;
       return rows.map((row) => ({

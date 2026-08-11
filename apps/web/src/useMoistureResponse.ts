@@ -1,14 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { MoistureResponseResult } from "@climate-twin/contracts";
+import type {
+  DurableDerivedAnalyticsResponse,
+  MoistureResponseResult,
+} from "@climate-twin/contracts";
 import { api } from "./api";
 
 export interface MoistureResponseOptions {
-  from: string;
-  to: string;
+  windowDays: 1 | 7 | 14;
 }
 
-export function useMoistureResponse(houseId: string) {
+export function useMoistureResponse(houseId: string, dataMode: "live" | "demo") {
   const [result, setResult] = useState<MoistureResponseResult | null>(null);
+  const [status, setStatus] = useState<DurableDerivedAnalyticsResponse<MoistureResponseResult> | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
   const [errorCode, setErrorCode] = useState<string | null>(null);
@@ -18,6 +21,7 @@ export function useMoistureResponse(houseId: string) {
     controller.current?.abort();
     controller.current = null;
     setResult(null);
+    setStatus(null);
     setLoading(false);
     setError(false);
     setErrorCode(null);
@@ -26,21 +30,26 @@ export function useMoistureResponse(houseId: string) {
   useEffect(() => {
     reset();
     return () => controller.current?.abort();
-  }, [houseId, reset]);
+  }, [houseId, dataMode, reset]);
 
-  const run = useCallback(async (options: MoistureResponseOptions) => {
+  const run = useCallback(async (options: MoistureResponseOptions, refresh = false) => {
     controller.current?.abort();
     const nextController = new AbortController();
     controller.current = nextController;
-    setResult(null);
     setLoading(true);
     setError(false);
     setErrorCode(null);
     try {
-      const next = await api.moistureResponse(houseId, options, nextController.signal);
+      const request = refresh ? api.refreshCachedMoistureResponse : api.cachedMoistureResponse;
+      const next = await request(
+        houseId,
+        { windowDays: options.windowDays, dataMode },
+        nextController.signal,
+      );
       if (nextController.signal.aborted) return null;
-      setResult(next);
-      return next;
+      setStatus(next);
+      setResult(next.result);
+      return next.result;
     } catch (caught) {
       if (!nextController.signal.aborted) {
         setError(true);
@@ -53,7 +62,16 @@ export function useMoistureResponse(houseId: string) {
     } finally {
       if (!nextController.signal.aborted) setLoading(false);
     }
-  }, [houseId]);
+  }, [dataMode, houseId]);
 
-  return { result, loading, error, errorCode, run, reset };
+  useEffect(() => {
+    if (!status || (status.state !== "queued" && status.state !== "refreshing"
+      && !(status.state === "failed" && status.job?.nextAttemptAt))) return;
+    const timer = setTimeout(() => {
+      void run({ windowDays: status.windowDays as 1 | 7 | 14 });
+    }, 30_000);
+    return () => clearTimeout(timer);
+  }, [run, status]);
+
+  return { result, status, loading, error, errorCode, run, reset };
 }

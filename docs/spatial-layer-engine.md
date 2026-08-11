@@ -130,11 +130,15 @@ configuration, calibration, labels, core facts, or raw samples.
 Relevant environment variables are:
 
 ```text
-SPATIAL_LAYERS_ENABLED=true
+SPATIAL_LAYERS_ENABLED=false
 SPATIAL_LAYERS_DATABASE_PATH=./data/experimental-spatial-layers.sqlite
 SPATIAL_LAYERS_INTERVAL_MS=60000
 SPATIAL_LAYERS_RETENTION_DAYS=30
 ```
+
+The runtime is deliberately disabled by default because inference is
+CPU-intensive. Disabling it preserves raw telemetry, layer configuration,
+calibrations, and stored snapshots; it only prevents scheduling new runs.
 
 ## API and live delivery
 

@@ -101,6 +101,11 @@ import { config, dataMode, dataOperations, database, energyCost, optionalString,
 import { activeStugubyGrant, recommendedOverviewGrant, stugubySide, summarizeMcpStuguby } from "./04-point-schema-to-summarize-mcp-stuguby.js";
 import { chatgptMcpServerInstructions, isChatgptMcpProfile } from "./chatgpt-profile.js";
 import { runMcpThermalWork } from "./thermal-work.js";
+import {
+  configuredHeatPumpConnectionIds,
+  filterHeatPumpAffectedSampleMap,
+  loadHeatPumpExclusionWindow,
+} from "../analytics/heat-pump-evidence.js";
 
 export function getMcpStuguby(args: Record<string, unknown>): object {
   const stugubyId = requiredString(args, "stugubyId");
@@ -432,17 +437,28 @@ export async function thermalIsolation(
       limitPerMetric: 5_000,
       ...(readSignal ? { signal: readSignal } : {}),
     }),
-    complete: ({ indoor, outdoor }, completionSignal) => runThermalIsolationAsync({
-      house,
-      sensors,
-      indoorSamplesBySensor: new Map(sensors.map((sensor, index) => [
+    complete: ({ indoor, outdoor }, completionSignal) => {
+      const heatPumpWindow = loadHeatPumpExclusionWindow(
+        database,
+        house.id,
+        from,
+        to,
+        configuredHeatPumpConnectionIds(config.greeConnections, house.id),
+      );
+      const filtered = filterHeatPumpAffectedSampleMap(new Map(sensors.map((sensor, index) => [
         sensor.id,
         indoor[index]!.records,
-      ])),
-      outdoorSamples: outdoor.records,
-      from,
-      to,
-    }, completionSignal ? { signal: completionSignal } : {}),
+      ])), heatPumpWindow);
+      return runThermalIsolationAsync({
+        house,
+        sensors,
+        indoorSamplesBySensor: filtered.samplesBySensor,
+        outdoorSamples: outdoor.records,
+        from,
+        to,
+        hvacExclusion: filtered.summary,
+      }, completionSignal ? { signal: completionSignal } : {});
+    },
   });
 }
 

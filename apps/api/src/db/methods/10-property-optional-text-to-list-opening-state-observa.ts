@@ -464,4 +464,27 @@ registerDatabaseMethods({
       return rows.sort((left, right) => right.observed_at.localeCompare(left.observed_at) || right.id.localeCompare(left.id))
         .slice(0, boundedLimit).map(openingStateObservationFromRow);
     },
+  listCurrentOpeningStateCandidates(
+      houseId: string,
+      at: string | number | Date = new Date(),
+      limit = 10_000,
+    ): OpeningStateObservation[] {
+      if (!this.getHouse(houseId)) return [];
+      const atMs = at instanceof Date ? at.getTime() : typeof at === "number" ? at : Date.parse(at);
+      if (!Number.isFinite(atMs)) return [];
+      const atIso = new Date(atMs).toISOString();
+      const boundedLimit = Math.min(10_000, Math.max(1, Math.trunc(limit)));
+      const rows = this.db.prepare(`SELECT observation.id, observation.house_id, observation.floor_id,
+          observation.element_id, observation.state, observation.open_fraction, observation.source,
+          observation.observed_at, observation.valid_until, observation.external_id, observation.connection_id
+        FROM opening_state_current_candidates AS candidate
+        JOIN opening_state_observations AS observation ON observation.id = candidate.observation_id
+        WHERE candidate.house_id = ?
+          AND candidate.observed_at <= ?
+          AND (candidate.effective_until_ceiling IS NULL OR candidate.effective_until_ceiling > ?)
+        ORDER BY candidate.observed_at DESC, candidate.observation_id DESC
+        LIMIT ?`)
+        .all(houseId, atIso, atIso, boundedLimit) as unknown as OpeningStateObservationRow[];
+      return rows.map(openingStateObservationFromRow);
+    },
 });

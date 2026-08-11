@@ -1,6 +1,9 @@
 export const BUG_REPORT_DESCRIPTION_MAX_LENGTH = 4_000;
 export const BUG_REPORT_DIAGNOSTIC_MESSAGE_MAX_LENGTH = 500;
 export const BUG_REPORT_MAX_RECENT_ERRORS = 5;
+export const BUG_REPORT_RELAY_TOKEN_MIN_LENGTH = 32;
+export const BUG_REPORT_RELAY_TOKEN_MAX_LENGTH = 512;
+export const BUG_REPORT_RELAY_URL_MAX_LENGTH = 500;
 
 export type BugReportErrorSource = "browser" | "promise" | "api";
 
@@ -35,6 +38,37 @@ export interface BugReportReceipt {
 
 export interface BugReportRelayPayload extends BugReportInput, BugReportReceipt {
   serverVersion: string;
+}
+
+/** Relay destination as shown to workspace administrators; the shared token is never returned. */
+export interface BugReportRelaySettings {
+  configured: boolean;
+  url: string | null;
+  source: "environment" | "protected-file" | null;
+  updatedAt: string | null;
+  /** False while deployment environment variables own the relay, which the API refuses to overwrite. */
+  editable: boolean;
+}
+
+export interface BugReportRelayInput {
+  url: string;
+  token: string;
+}
+
+export function normalizeBugReportRelayInput(value: unknown): BugReportRelayInput {
+  const input = objectValue(value, "relay");
+  rejectUnknown(input, ["url", "token"], "relay");
+  const url = textValue(input.url, "url", BUG_REPORT_RELAY_URL_MAX_LENGTH);
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new BugReportValidationError("url must be an absolute HTTPS URL");
+  }
+  if (parsed.protocol !== "https:") throw new BugReportValidationError("url must use HTTPS");
+  if (parsed.username || parsed.password) throw new BugReportValidationError("url must not embed credentials");
+  const token = textValue(input.token, "token", BUG_REPORT_RELAY_TOKEN_MAX_LENGTH, BUG_REPORT_RELAY_TOKEN_MIN_LENGTH);
+  return { url: parsed.toString(), token };
 }
 
 export class BugReportValidationError extends Error {}

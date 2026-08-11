@@ -175,6 +175,106 @@ describe("bug report routes", () => {
     expect(response.body.error.code).toBe("BUG_REPORTING_UNAVAILABLE");
   });
 
+  it("enables reporting from an administrator-configured relay and keeps the token private", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "stugu-bug-report-relay-"));
+    const secretsFile = join(directory, "integration-secrets.json");
+    const relay = vi.fn(async () => new Response(JSON.stringify({ reportId: "accepted" }), { status: 201 }));
+    try {
+      runtime = createApi({
+        config: loadConfig({
+          NODE_ENV: "test",
+          DATABASE_PATH: ":memory:",
+          MOCK_ENABLED: "false",
+          LOCAL_AUTH_TEST_BYPASS: "false",
+          INTEGRATION_SECRETS_FILE: secretsFile,
+        }),
+        bugReportFetcher: relay,
+        startBackground: false,
+      });
+      const owner = await setupOwner(runtime);
+
+      await owner.agent.get("/api/v1/bug-reports/relay").expect(200, {
+        configured: false, url: null, source: null, updatedAt: null, editable: true,
+      });
+
+      await owner.agent.put("/api/v1/bug-reports/relay")
+        .set("x-csrf-token", owner.csrf)
+        .send({ url: "http://reports.example.test/reports", token: RELAY_TOKEN })
+        .expect(400);
+
+      const saved = await owner.agent.put("/api/v1/bug-reports/relay")
+        .set("x-csrf-token", owner.csrf)
+        .send({ url: "https://reports.example.test/reports", token: RELAY_TOKEN })
+        .expect(200);
+      expect(saved.body).toMatchObject({
+        configured: true,
+        url: "https://reports.example.test/reports",
+        source: "protected-file",
+        editable: true,
+      });
+      expect(JSON.stringify(saved.body)).not.toContain(RELAY_TOKEN);
+
+      await owner.agent.post("/api/v1/bug-reports")
+        .set("x-csrf-token", owner.csrf)
+        .send(reportBody())
+        .expect(201);
+      expect((relay.mock.calls[0]![1]?.headers as Record<string, string>).authorization).toBe(`Bearer ${RELAY_TOKEN}`);
+
+      // A restart reads the same relay back out of the protected secrets file.
+      expect(loadConfig({
+        NODE_ENV: "test",
+        DATABASE_PATH: ":memory:",
+        INTEGRATION_SECRETS_FILE: secretsFile,
+      })).toMatchObject({
+        bugReportRelayUrl: "https://reports.example.test/reports",
+        bugReportRelayToken: RELAY_TOKEN,
+        bugReportRelaySource: "protected-file",
+      });
+
+      await owner.agent.delete("/api/v1/bug-reports/relay")
+        .set("x-csrf-token", owner.csrf)
+        .expect(200, { configured: false, url: null, source: null, updatedAt: null, editable: true });
+      await owner.agent.post("/api/v1/bug-reports")
+        .set("x-csrf-token", owner.csrf)
+        .send(reportBody())
+        .expect(503);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses to overwrite a relay owned by deployment environment variables", async () => {
+    runtime = createApi({
+      config: loadConfig({
+        NODE_ENV: "test",
+        DATABASE_PATH: ":memory:",
+        MOCK_ENABLED: "false",
+        LOCAL_AUTH_TEST_BYPASS: "false",
+        BUG_REPORT_RELAY_URL: "https://reports.example.test/reports",
+        BUG_REPORT_RELAY_TOKEN: RELAY_TOKEN,
+      }),
+      startBackground: false,
+    });
+    const owner = await setupOwner(runtime);
+
+    await owner.agent.get("/api/v1/bug-reports/relay").expect(200, {
+      configured: true,
+      url: "https://reports.example.test/reports",
+      source: "environment",
+      updatedAt: null,
+      editable: false,
+    });
+    for (const response of [
+      await owner.agent.put("/api/v1/bug-reports/relay")
+        .set("x-csrf-token", owner.csrf)
+        .send({ url: "https://attacker.example.test/reports", token: RELAY_TOKEN })
+        .expect(409),
+      await owner.agent.delete("/api/v1/bug-reports/relay").set("x-csrf-token", owner.csrf).expect(409),
+    ]) {
+      expect(response.body.error.code).toBe("BUG_REPORT_RELAY_ENVIRONMENT_OWNED");
+    }
+  });
+
   it("loads a mounted relay token while allowing an absent optional Compose mount", () => {
     const directory = mkdtempSync(join(tmpdir(), "stugu-bug-report-config-"));
     const tokenFile = join(directory, "relay-token");

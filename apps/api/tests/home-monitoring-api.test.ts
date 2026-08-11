@@ -62,6 +62,19 @@ describe("Home monitoring API", () => {
       tags: [],
       enabled: true,
     });
+    runtime.database.createSensor({
+      id: "wilfa-projection",
+      houseId: "home-one",
+      floorId: "ground",
+      room: "Kitchen",
+      name: "Wilfa return air",
+      model: "Wilfa",
+      x: 2,
+      y: 2,
+      z: 2,
+      tags: ["equipment:heat-pump"],
+      enabled: true,
+    });
     const timestamp = new Date(Date.now() - 60_000).toISOString();
     runtime.database.insertMeasurementSamples([{
       sensorId: "kitchen-t310",
@@ -78,6 +91,14 @@ describe("Home monitoring API", () => {
       canonicalUnit: "%",
       timestamp,
       source: "tp-link",
+      quality: "good",
+    }, {
+      sensorId: "wilfa-projection",
+      metric: "temperature",
+      value: 35,
+      canonicalUnit: "\u00b0C",
+      timestamp,
+      source: "gree",
       quality: "good",
     }]);
   });

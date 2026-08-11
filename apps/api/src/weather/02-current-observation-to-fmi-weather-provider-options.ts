@@ -248,15 +248,24 @@ export function warningIsUnexpired(warning: WeatherWarning, nowMs: number): bool
 }
 
 /** Reads a decoded response stream without ever accepting more than the limit. */
-export async function readTextWithByteLimit(response: Response, maximumBytes: number): Promise<string> {
+export async function readTextWithByteLimit(
+  response: Response,
+  maximumBytes: number,
+  signal?: AbortSignal,
+): Promise<string> {
+  signal?.throwIfAborted();
   if (!response.body) return "";
   const reader = response.body.getReader();
+  const cancel = (): void => { void reader.cancel(signal?.reason).catch(() => undefined); };
+  signal?.addEventListener("abort", cancel, { once: true });
   const decoder = new TextDecoder();
   const chunks: string[] = [];
   let receivedBytes = 0;
   try {
     while (true) {
+      signal?.throwIfAborted();
       const { done, value } = await reader.read();
+      signal?.throwIfAborted();
       if (done) break;
       receivedBytes += value.byteLength;
       if (receivedBytes > maximumBytes) {
@@ -268,6 +277,7 @@ export async function readTextWithByteLimit(response: Response, maximumBytes: nu
     chunks.push(decoder.decode());
     return chunks.join("");
   } finally {
+    signal?.removeEventListener("abort", cancel);
     reader.releaseLock();
   }
 }

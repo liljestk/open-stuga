@@ -215,14 +215,15 @@ The Vite app runs on <http://localhost:5173> and proxies `/api` to the API at
 `127.0.0.1:8787`. Keep `VITE_API_BASE_URL` empty for this same-origin/proxy
 setup.
 
-Run the complete local CI gate before pushing:
+Run the complete receipt-producing local gate before release:
 
 ```sh
-npm run ci:local
+npm run verify:local -- --full
 ```
 
 See [local CI and release publishing](local-ci.md) for prerequisites, outputs,
-and the manually confirmed hosted fallback.
+and the manually confirmed hosted fallback. Use `npm run verify:local -- --fast`
+for the affected gate while iterating.
 
 Run only one workspace when iterating:
 

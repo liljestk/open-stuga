@@ -88,3 +88,13 @@ browser URL, dashboard, or repository.
 
 The structured Owner/Admin endpoint at `GET /api/v1/system/health` is intended
 for the Stugu UI and integrations that use an authenticated local session.
+
+For a bounded read-only appliance summary over SSH, use:
+
+```sh
+npm run rpi:doctor -- --target operator@stugu.local
+```
+
+The default doctor uses one SSH session and one-shot resource samples. Use
+`--deep` only when bounded logs and database integrity checks are needed. See
+[Lean verification and appliance diagnosis](lean-tooling.md).

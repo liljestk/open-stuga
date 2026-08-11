@@ -39,6 +39,7 @@ Usage:
     --container-manifest stugu-release-manifest-v1.json \\
     --sbom host.spdx.json --provenance host.intoto.jsonl \\
     --rauc-cert CERT_OR_PKCS11 --rauc-key KEY_OR_PKCS11 \\
+    --tuf-root root.json \\
     --generation N --fallback-generation N --version X.Y.Z \\
     --min-eeprom YYYY-MM-DD --source-commit SHA --output FILE
 
@@ -63,6 +64,7 @@ export function parseArguments(argv) {
         "--container-manifest": "containerManifest", "--sbom": "sbom",
         "--provenance": "provenance", "--rauc-cert": "raucCert", "--rauc-key": "raucKey",
         "--rauc-signing-keyring": "raucSigningKeyring",
+        "--tuf-root": "tufRoot",
         "--generation": "generation", "--fallback-generation": "fallbackGeneration",
         "--version": "version", "--min-eeprom": "minEeprom", "--source-commit": "sourceCommit",
         "--output": "output", "--channel": "channel", "--data-rollback": "dataRollback",
@@ -193,10 +195,11 @@ export async function main(argv = process.argv.slice(2)) {
     ["provenance", "host provenance"],
   ]) requiredFile(options[key], label);
   for (const key of [
-    "raucCert", "raucKey", "raucSigningKeyring", "generation", "fallbackGeneration",
+    "raucCert", "raucKey", "raucSigningKeyring", "tufRoot", "generation", "fallbackGeneration",
     "version", "minEeprom", "sourceCommit", "output",
   ]) if (!options[key]) throw new Error(`${key} is required`);
   requiredFile(options.raucSigningKeyring, "RAUC signing keyring");
+  requiredFile(options.tufRoot, "TUF root v1");
   for (const [value, label] of [
     [options.raucCert, "RAUC release certificate"],
     [options.raucKey, "RAUC release private key"],
@@ -227,12 +230,16 @@ export async function main(argv = process.argv.slice(2)) {
       sbom: join(input, "stugu-host-sbom.spdx.json"),
       provenance: join(input, "stugu-host-provenance.intoto.jsonl"),
       containerManifest: join(input, "stugu-release-manifest-v1.json"),
+      tufRoot: join(input, "stugu-host-tuf-root.json"),
+      raucCa: join(input, "stugu-host-rauc-ca.pem"),
     };
     copyFileSync(boot, inputFiles.boot);
     copyFileSync(root, inputFiles.root);
     copyFileSync(sbom, inputFiles.sbom);
     copyFileSync(provenance, inputFiles.provenance);
     copyFileSync(containerManifest, inputFiles.containerManifest);
+    copyFileSync(resolve(options.tufRoot), inputFiles.tufRoot);
+    copyFileSync(resolve(options.raucSigningKeyring), inputFiles.raucCa);
     const bootSha256 = await sha256File(inputFiles.boot);
     const rootSha256 = await sha256File(inputFiles.root);
     validateContainerReleaseManifest(
@@ -259,6 +266,10 @@ export async function main(argv = process.argv.slice(2)) {
       bootSha256,
       rootSha256,
       sourceCommit: options.sourceCommit,
+      version: options.version,
+      hostGeneration: boundedInteger(options.generation, "host generation"),
+      tufRootSha256: await sha256File(inputFiles.tufRoot),
+      raucCaSha256: await sha256File(inputFiles.raucCa),
     });
     const manifest = hostReleaseManifest({
       version: options.version,
@@ -312,7 +323,7 @@ compatible=stugu-rpi4-usb:stugu-gpt-ab-v2:arm64
 bootloader=custom
 
 [keyring]
-path=${resolve(options.raucSigningKeyring)}
+path=${inputFiles.raucCa}
 check-purpose=codesign
 
 [handlers]
@@ -322,14 +333,14 @@ bootloader-custom-backend=${signerBackend}
       `--conf=${signerConfig}`,
       `--cert=${options.raucCert}`,
       `--key=${options.raucKey}`,
-      `--signing-keyring=${resolve(options.raucSigningKeyring)}`,
+      `--signing-keyring=${inputFiles.raucCa}`,
       "bundle",
       input,
       temporaryBundle,
     ]);
     const infoOutput = invoke("rauc", [
       `--conf=${signerConfig}`,
-      `--keyring=${resolve(options.raucSigningKeyring)}`,
+      `--keyring=${inputFiles.raucCa}`,
       "info",
       "--output-format=json-2",
       temporaryBundle,

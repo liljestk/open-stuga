@@ -123,15 +123,18 @@ Open <http://localhost:5173>. The API exposes the v1 compatibility contract at
 <http://localhost:8787/api/v1> and registered measurements at
 <http://localhost:8787/api/v2>.
 
-Run the complete local CI gate before pushing:
+Run the fast affected gate while iterating and the complete receipt-producing
+gate before release:
 
 ```powershell
-npm run ci:local
+npm run verify:local -- --fast
+npm run verify:local -- --full
 ```
 
-It runs validation, coverage, builds, Compose checks, production container
-builds, and an API smoke test on this computer. See
-[local CI and release publishing](docs/local-ci.md).
+Full mode runs validation, coverage, builds, Compose checks, production
+container builds, and an API smoke test on this computer. See
+[local CI and release publishing](docs/local-ci.md) and
+[lean verification and appliance diagnosis](docs/lean-tooling.md).
 
 Non-interactive container examples:
 

@@ -106,6 +106,9 @@ declare module "../core.js" {
   interface DatabaseInternals {
     resolveWeatherOutages(houseId: string, locationKey: string, provider: WeatherProviderName, components: readonly WeatherOutageComponent[], endedAt?: string): WeatherOutageRecord[];
     listWeatherOutages(houseId: string, locationKey: string, limit?: number): WeatherOutageRecord[];
+    listActiveWeatherOutages(houseId: string, locationKey: string, limit?: number): WeatherOutageRecord[];
+    listWeatherBackfillHistory(houseId: string, locationKey: string, limit?: number): WeatherOutageRecord[];
+    listPendingWeatherBackfills(houseId: string, locationKey: string, provider?: WeatherProviderName | null, limit?: number): WeatherOutageRecord[];
     updateWeatherOutageBackfill(id: number, state: WeatherBackfillState, recoveredPoints: number, attemptedAt: string, error: string | null): void;
     latestMeasurementTimestamp(sensorId: string, metric: string, source: SensorDataGapSource): string | null;
     sensorSourceMetrics(sensorId: string, source: SensorDataGapSource): string[];
@@ -131,6 +134,9 @@ declare module "../core.js" {
   interface ClimateDatabaseCore {
     resolveWeatherOutages(houseId: string, locationKey: string, provider: WeatherProviderName, components: readonly WeatherOutageComponent[], endedAt?: string): WeatherOutageRecord[];
     listWeatherOutages(houseId: string, locationKey: string, limit?: number): WeatherOutageRecord[];
+    listActiveWeatherOutages(houseId: string, locationKey: string, limit?: number): WeatherOutageRecord[];
+    listWeatherBackfillHistory(houseId: string, locationKey: string, limit?: number): WeatherOutageRecord[];
+    listPendingWeatherBackfills(houseId: string, locationKey: string, provider?: WeatherProviderName | null, limit?: number): WeatherOutageRecord[];
     updateWeatherOutageBackfill(id: number, state: WeatherBackfillState, recoveredPoints: number, attemptedAt: string, error: string | null): void;
     latestMeasurementTimestamp(sensorId: string, metric: string, source: SensorDataGapSource): string | null;
     sensorSourceMetrics(sensorId: string, source: SensorDataGapSource): string[];

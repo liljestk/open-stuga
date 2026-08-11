@@ -391,6 +391,28 @@ describe("thermal simulation API and outdoor persistence", () => {
     expect(response.body.simulation.calibration.warnings).toContain("SYNTHETIC_OUTDOOR_BOUNDARY");
     expect(response.body.simulation.points.some((point: { phase: string }) => point.phase === "scenario")).toBe(true);
 
+    const home = runtime.database.getHouse("house-main")!;
+    const floor = home.floors[0]!;
+    const room = floor.rooms[0]!;
+    runtime.database.createSensor({
+      id: "wilfa-return-air",
+      houseId: home.id,
+      floorId: floor.id,
+      roomId: room.id,
+      room: room.name,
+      name: "Wilfa return air",
+      model: "Wilfa",
+      x: 1,
+      y: 1,
+      z: 2,
+      tags: ["equipment:heat-pump"],
+      enabled: true,
+    });
+    await request(runtime.app).get("/api/v1/houses/house-main/thermal-simulation")
+      .query({ sensorId: "wilfa-return-air" })
+      .expect(422)
+      .expect(({ body }) => expect(body.error.code).toBe("SENSOR_NOT_AMBIENT"));
+
     await request(runtime.app).post("/api/v1/houses").send({
       id: "other-house",
       name: "Other",

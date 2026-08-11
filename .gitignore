@@ -41,6 +41,7 @@ temp/
 !.env.example
 .stuga-release.env
 .stugu-release.env
+.stuga-release-context.md
 config/home-assistant.entities.json
 config/tp-link.devices.json
 config/tapo-flow*.json

@@ -40,11 +40,16 @@ export interface AnalyticsOperationStats {
 
 export interface AnalyticsCoordinatorStats {
   active: number;
+  lowPriorityActive: number;
   queued: number;
   maxConcurrent: number;
   maxQueued: number;
   operations: Record<string, AnalyticsOperationStats>;
   caches: Record<string, CacheStats>;
+}
+
+export interface AnalyticsLowPriorityLease {
+  release(): Promise<void>;
 }
 
 interface QueueItem<T> {
@@ -57,6 +62,7 @@ interface QueueItem<T> {
   abortListener?: () => void;
   cancelled: boolean;
   started: boolean;
+  priority: "foreground" | "low";
 }
 
 function emptyStats(): MutableOperationStats {
@@ -98,6 +104,7 @@ export class AnalyticsWorkLimiter {
   readonly #operations = new Map<string, MutableOperationStats>();
   readonly #caches = new Map<string, () => CacheStats>();
   #active = 0;
+  #lowPriorityActive = 0;
   #queued = 0;
 
   constructor(options: {
@@ -113,6 +120,94 @@ export class AnalyticsWorkLimiter {
   run<T>(
     operation: string,
     task: () => Promise<T> | T,
+    signal?: AbortSignal,
+  ): Promise<T> {
+    return this.#enqueue(operation, task, "foreground", signal);
+  }
+
+  /**
+   * Uses the same bounded admission boundary as request work, but waits behind
+   * every already-queued foreground operation. Durable analytics use this so a
+   * nightly refresh cannot jump ahead of an API response.
+   */
+  runLowPriority<T>(
+    operation: string,
+    task: () => Promise<T> | T,
+    signal?: AbortSignal,
+  ): Promise<T> {
+    return this.#enqueue(operation, task, "low", signal);
+  }
+
+  /**
+   * Reserves the single background slot only after the queued work reaches the
+   * front and the live host-admission check still passes. Spatial inference and
+   * durable analytics share this lease so they can never run together.
+   */
+  acquireLowPriority(
+    operation: string,
+    admit: () => boolean | Promise<boolean>,
+    signal?: AbortSignal,
+  ): Promise<AnalyticsLowPriorityLease | null> {
+    let settle: ((lease: AnalyticsLowPriorityLease | null) => void) | null = null;
+    let rejectAcquisition: ((error: unknown) => void) | null = null;
+    let releaseHold: (() => void) | null = null;
+    let settled = false;
+    let denied = false;
+    const acquired = new Promise<AnalyticsLowPriorityLease | null>((resolve, reject) => {
+      settle = resolve;
+      rejectAcquisition = reject;
+    });
+    const hold = new Promise<void>((resolve) => { releaseHold = resolve; });
+    const occupancy = this.#enqueue(operation, async () => {
+      let admitted: boolean;
+      try {
+        admitted = await admit();
+      } catch (error) {
+        if (signal?.aborted) throw abortReason(signal);
+        throw error;
+      }
+      // Once a queued task starts, its queue abort listener is removed. The
+      // admission callback may yield, so cancellation must be checked again
+      // before exposing a lease that would otherwise hold background capacity.
+      if (signal?.aborted) throw abortReason(signal);
+      if (!admitted) {
+        denied = true;
+        return;
+      }
+      let released = false;
+      settled = true;
+      settle?.({
+        release: async () => {
+          if (!released) {
+            released = true;
+            releaseHold?.();
+          }
+          await occupancy;
+        },
+      });
+      await hold;
+    }, "low", signal);
+    void occupancy.then(
+      () => {
+        if (!settled && denied) {
+          settled = true;
+          settle?.(null);
+        }
+      },
+      (error: unknown) => {
+        if (!settled) {
+          settled = true;
+          rejectAcquisition?.(error);
+        }
+      },
+    );
+    return acquired;
+  }
+
+  #enqueue<T>(
+    operation: string,
+    task: () => Promise<T> | T,
+    priority: "foreground" | "low",
     signal?: AbortSignal,
   ): Promise<T> {
     if (!operation.trim()) throw new RangeError("operation is required");
@@ -133,6 +228,7 @@ export class AnalyticsWorkLimiter {
         ...(signal ? { signal } : {}),
         cancelled: false,
         started: false,
+        priority,
       };
       if (signal) {
         item.abortListener = () => {
@@ -148,7 +244,13 @@ export class AnalyticsWorkLimiter {
         };
         signal.addEventListener("abort", item.abortListener, { once: true });
       }
-      this.#queue.push(item as QueueItem<unknown>);
+      if (priority === "foreground") {
+        const firstLowPriority = this.#queue.findIndex((queued) => queued.priority === "low");
+        if (firstLowPriority >= 0) this.#queue.splice(firstLowPriority, 0, item as QueueItem<unknown>);
+        else this.#queue.push(item as QueueItem<unknown>);
+      } else {
+        this.#queue.push(item as QueueItem<unknown>);
+      }
       this.#queued += 1;
       stats.queued += 1;
       this.#drain();
@@ -166,6 +268,7 @@ export class AnalyticsWorkLimiter {
   snapshot(): AnalyticsCoordinatorStats {
     return {
       active: this.#active,
+      lowPriorityActive: this.#lowPriorityActive,
       queued: this.#queued,
       maxConcurrent: this.#maxConcurrent,
       maxQueued: this.#maxQueued,
@@ -194,7 +297,13 @@ export class AnalyticsWorkLimiter {
 
   #drain(): void {
     while (this.#active < this.#maxConcurrent && this.#queue.length > 0) {
-      const item = this.#queue.shift()!;
+      let index = 0;
+      if (this.#lowPriorityActive > 0 && this.#queue[0]?.priority === "low") {
+        index = this.#queue.findIndex((queued) => queued.priority === "foreground");
+        if (index < 0) break;
+      }
+      const [item] = this.#queue.splice(index, 1);
+      if (!item) break;
       if (item.cancelled) {
         if (item.abortListener && item.signal) {
           item.signal.removeEventListener("abort", item.abortListener);
@@ -214,6 +323,7 @@ export class AnalyticsWorkLimiter {
     this.#queued -= 1;
     stats.queued -= 1;
     this.#active += 1;
+    if (item.priority === "low") this.#lowPriorityActive += 1;
     stats.active += 1;
     stats.started += 1;
     const startedAt = this.#readClock();
@@ -244,6 +354,7 @@ export class AnalyticsWorkLimiter {
       }
       stats.active -= 1;
       this.#active -= 1;
+      if (item.priority === "low") this.#lowPriorityActive -= 1;
       this.#drain();
     });
   }

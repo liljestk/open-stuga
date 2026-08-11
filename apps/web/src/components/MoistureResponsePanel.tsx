@@ -8,10 +8,13 @@ import type {
 } from "@climate-twin/contracts";
 import { useI18n } from "../i18n";
 import { useMoistureResponse } from "../useMoistureResponse";
+import { DerivedArtifactNotices } from "./DerivedArtifactNotices";
 
 interface MoistureResponsePanelProps {
   house: House;
   embedded?: boolean;
+  dataMode?: "demo" | "real" | "unknown";
+  canRefresh?: boolean;
 }
 
 const WINDOW_OPTIONS = [24, 7 * 24, 14 * 24] as const;
@@ -90,20 +93,22 @@ function ComparisonRows({
   </div>;
 }
 
-export function MoistureResponsePanel({ house, embedded = false }: Readonly<MoistureResponsePanelProps>) {
+export function MoistureResponsePanel({ house, embedded = false, dataMode = "real", canRefresh = true }: Readonly<MoistureResponsePanelProps>) {
   const { locale, t } = useI18n();
   const [windowHours, setWindowHours] = useState<number>(7 * 24);
-  const { result, loading, error, errorCode, run } = useMoistureResponse(house.id);
+  const activeDataMode = dataMode === "real" ? "live" as const : "demo" as const;
+  const { result, status, loading, error, errorCode, run } = useMoistureResponse(house.id, activeDataMode);
 
+  const load = useCallback(() => {
+    void run({ windowDays: (windowHours / 24) as 1 | 7 | 14 });
+  }, [run, windowHours]);
   const refresh = useCallback(() => {
-    const to = new Date();
-    const from = new Date(to.getTime() - windowHours * 3_600_000);
-    void run({ from: from.toISOString(), to: to.toISOString() });
+    void run({ windowDays: (windowHours / 24) as 1 | 7 | 14 }, true);
   }, [run, windowHours]);
 
   useEffect(() => {
-    refresh();
-  }, [refresh]);
+    if (dataMode !== "unknown") load();
+  }, [dataMode, load]);
 
   const houseEntry = result?.entries.find((entry) => entry.scope.type === "house") ?? null;
   const sensorEntries = result?.entries.filter((entry) => entry.scope.type === "sensor") ?? [];
@@ -115,7 +120,7 @@ export function MoistureResponsePanel({ house, embedded = false }: Readonly<Mois
         <label className="field"><span>{t("moisture.window")}</span><select value={windowHours} onChange={(event) => setWindowHours(Number(event.target.value))}>
           {WINDOW_OPTIONS.map((value) => <option key={value} value={value}>{value === 24 ? t("moisture.window24h") : t("moisture.windowDays", { count: value / 24 })}</option>)}
         </select></label>
-        <button type="button" className="secondary-button" onClick={refresh} disabled={loading}><RefreshCw className={loading ? "spin" : ""} size={14} aria-hidden="true" />{t("common.refresh")}</button>
+        {canRefresh && <button type="button" className="secondary-button" onClick={refresh} disabled={loading || dataMode === "unknown"}><RefreshCw className={loading ? "spin" : ""} size={14} aria-hidden="true" />{t("common.refresh")}</button>}
       </div>
     </div> : <header className="panel-header isolation-panel-header">
       <div><span className="eyebrow"><Droplets size={13} aria-hidden="true" />{t("moisture.eyebrow")}</span><h2 id="moisture-response-title">{t("moisture.title")}</h2><p>{t("moisture.description")}</p></div>
@@ -123,11 +128,12 @@ export function MoistureResponsePanel({ house, embedded = false }: Readonly<Mois
         <label className="field"><span>{t("moisture.window")}</span><select value={windowHours} onChange={(event) => setWindowHours(Number(event.target.value))}>
           {WINDOW_OPTIONS.map((value) => <option key={value} value={value}>{value === 24 ? t("moisture.window24h") : t("moisture.windowDays", { count: value / 24 })}</option>)}
         </select></label>
-        <button type="button" className="secondary-button" onClick={refresh} disabled={loading}><RefreshCw className={loading ? "spin" : ""} size={14} aria-hidden="true" />{t("common.refresh")}</button>
+        {canRefresh && <button type="button" className="secondary-button" onClick={refresh} disabled={loading || dataMode === "unknown"}><RefreshCw className={loading ? "spin" : ""} size={14} aria-hidden="true" />{t("common.refresh")}</button>}
       </div>
     </header>}
 
-    {loading && !result && <output className="isolation-loading">{t("moisture.calculating")}</output>}
+    {loading && !result && <output className="isolation-loading">{t("derived.loading")}</output>}
+    <DerivedArtifactNotices status={status} hasResult={Boolean(result)} canRefresh={canRefresh} />
     {error && <div className="isolation-error" role="alert"><TriangleAlert size={18} aria-hidden="true" /><div><strong>{t(errorCode === "MOISTURE_SCOPE_TOO_LARGE" ? "moisture.errorScope" : errorCode === "RANGE_TOO_LARGE" ? "moisture.errorRange" : "moisture.error")}</strong><p>{t(errorCode === "MOISTURE_SCOPE_TOO_LARGE" ? "moisture.errorScopeHelp" : errorCode === "RANGE_TOO_LARGE" ? "moisture.errorRangeHelp" : "moisture.errorHelp")}</p></div></div>}
     {houseEntry && <>
       <div className="isolation-house-summary">

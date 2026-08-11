@@ -54,6 +54,30 @@ afterEach(() => {
 });
 
 describe("WeatherMonitor", () => {
+  it("refreshes Homes sequentially by default", async () => {
+    const targets = Array.from({ length: 3 }, (_, index) => house(
+      `sequential-${index}`,
+      { latitude: 60 + index / 100, longitude: 24 + index / 100 },
+    ));
+    const houses = repository(targets);
+    let active = 0;
+    let maximumActive = 0;
+    const weather: WeatherMonitorRefreshService = {
+      refresh: vi.fn(async (target) => {
+        active += 1;
+        maximumActive = Math.max(maximumActive, active);
+        await Promise.resolve();
+        active -= 1;
+        return weatherFor(target);
+      }),
+    };
+    const monitor = new WeatherMonitor({ houses, weather, persist: vi.fn() });
+
+    await expect(monitor.runOnce()).resolves.toMatchObject({ succeeded: 3 });
+
+    expect(maximumActive).toBe(1);
+  });
+
   it("uses a bounded worker pool, ignores unlocated houses, and coalesces overlapping cycles", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(baseTime);
@@ -80,7 +104,7 @@ describe("WeatherMonitor", () => {
     let active = 0;
     let maximumActive = 0;
     const weather: WeatherMonitorRefreshService = {
-      get: vi.fn(async (target) => {
+      refresh: vi.fn(async (target) => {
         active += 1;
         maximumActive = Math.max(maximumActive, active);
         await new Promise<void>((resolve) => setTimeout(resolve, 100));
@@ -97,7 +121,7 @@ describe("WeatherMonitor", () => {
     const summary = await first;
 
     expect(maximumActive).toBe(2);
-    expect(weather.get).toHaveBeenCalledTimes(5);
+    expect(weather.refresh).toHaveBeenCalledTimes(5);
     expect(persist).toHaveBeenCalledTimes(5);
     expect(summary).toMatchObject({
       locatedHouses: 5,
@@ -120,7 +144,7 @@ describe("WeatherMonitor", () => {
     const started = new Promise<void>((resolve) => { signalStarted = resolve; });
     let hold = true;
     const weather: WeatherMonitorRefreshService = {
-      get: vi.fn((target) => {
+      refresh: vi.fn((target) => {
         if (!hold) return Promise.resolve(weatherFor(target));
         startedCount += 1;
         if (startedCount === 2) signalStarted?.();
@@ -155,6 +179,47 @@ describe("WeatherMonitor", () => {
     expect(persist).toHaveBeenCalledTimes(2);
   });
 
+  it("queues exactly one follow-up when location editing requests a run during an active cycle", async () => {
+    const original = house("location-edit", { latitude: 60, longitude: 24 });
+    const updated: House = {
+      ...original,
+      location: { latitude: 61, longitude: 25 },
+      updatedAt: "2026-07-14T00:01:00.000Z",
+    };
+    const houses = repository([original]);
+    let release!: (value: HouseWeather) => void;
+    let signalStarted!: () => void;
+    const started = new Promise<void>((resolve) => { signalStarted = resolve; });
+    const weather: WeatherMonitorRefreshService = {
+      refresh: vi.fn((target) => {
+        if (target.location?.latitude === original.location?.latitude) {
+          signalStarted();
+          return new Promise<HouseWeather>((resolve) => { release = resolve; });
+        }
+        return Promise.resolve(weatherFor(target));
+      }),
+    };
+    const persist = vi.fn();
+    const monitor = new WeatherMonitor({ houses, weather, persist });
+
+    const active = monitor.runOnce();
+    await started;
+    houses.values.set(original.id, updated);
+    monitor.requestRun();
+    monitor.requestRun();
+    release(weatherFor(original));
+
+    await expect(active).resolves.toMatchObject({ superseded: 1, succeeded: 0 });
+    await vi.waitFor(() => {
+      expect(weather.refresh).toHaveBeenCalledTimes(2);
+      expect(persist).toHaveBeenCalledTimes(1);
+      expect(monitor.status.running).toBe(false);
+    });
+    expect(persist).toHaveBeenCalledWith(expect.objectContaining({
+      location: updated.location,
+    }), updated);
+  });
+
   it("backs off stale and failed refreshes exponentially, caps the delay, and resets on house changes", async () => {
     let now = 0;
     const original = house("backoff", { latitude: 60, longitude: 24 });
@@ -163,7 +228,7 @@ describe("WeatherMonitor", () => {
       "stale", "error", "error", "success", "error", "success",
     ];
     const weather: WeatherMonitorRefreshService = {
-      get: vi.fn(async (target) => {
+      refresh: vi.fn(async (target) => {
         const outcome = outcomes.shift() ?? "success";
         if (outcome === "error") throw new Error("provider offline");
         return weatherFor(target, { stale: outcome === "stale" });
@@ -203,7 +268,7 @@ describe("WeatherMonitor", () => {
     });
     // A changed revision/location bypasses the obsolete house's backoff immediately.
     await expect(monitor.runOnce()).resolves.toMatchObject({ attempted: 1, succeeded: 1, backedOff: 0 });
-    expect(weather.get).toHaveBeenCalledTimes(6);
+    expect(weather.refresh).toHaveBeenCalledTimes(6);
     expect(persist).toHaveBeenCalledTimes(2);
   });
 
@@ -212,7 +277,7 @@ describe("WeatherMonitor", () => {
     vi.setSystemTime(baseTime);
     const target = house("scheduled", { latitude: 60, longitude: 24 });
     const houses = repository([target]);
-    const weather: WeatherMonitorRefreshService = { get: vi.fn(async (item) => weatherFor(item)) };
+    const weather: WeatherMonitorRefreshService = { refresh: vi.fn(async (item) => weatherFor(item)) };
     const random = vi.fn().mockReturnValueOnce(0.5).mockReturnValueOnce(0.25).mockReturnValue(0);
     const statusChanges = vi.fn();
     const monitor = new WeatherMonitor({
@@ -235,21 +300,21 @@ describe("WeatherMonitor", () => {
       nextRunAt: new Date(baseTime + 500).toISOString(),
     });
     await vi.advanceTimersByTimeAsync(499);
-    expect(weather.get).not.toHaveBeenCalled();
+    expect(weather.refresh).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(1);
-    expect(weather.get).toHaveBeenCalledTimes(1);
+    expect(weather.refresh).toHaveBeenCalledTimes(1);
     expect(monitor.status.nextRunAt).toBe(new Date(baseTime + 11_000).toISOString());
 
     await vi.advanceTimersByTimeAsync(10_499);
-    expect(weather.get).toHaveBeenCalledTimes(1);
+    expect(weather.refresh).toHaveBeenCalledTimes(1);
     await vi.advanceTimersByTimeAsync(1);
-    expect(weather.get).toHaveBeenCalledTimes(2);
+    expect(weather.refresh).toHaveBeenCalledTimes(2);
 
     monitor.stop();
     monitor.stop();
     expect(monitor.status).toMatchObject({ started: false, running: false, nextRunAt: null });
     await vi.advanceTimersByTimeAsync(60_000);
-    expect(weather.get).toHaveBeenCalledTimes(2);
+    expect(weather.refresh).toHaveBeenCalledTimes(2);
     expect(statusChanges).toHaveBeenCalled();
   });
 
@@ -263,7 +328,7 @@ describe("WeatherMonitor", () => {
     let signalStarted!: () => void;
     const started = new Promise<void>((resolve) => { signalStarted = resolve; });
     const weather: WeatherMonitorRefreshService = {
-      get: vi.fn(() => {
+      refresh: vi.fn(() => {
         signalStarted();
         return new Promise<HouseWeather>((resolve) => { release = resolve; });
       }),

@@ -121,9 +121,9 @@ describe("local Express/OpenAPI parity", () => {
         ...documentOperations(v2, "v2"),
       ].sort();
 
-      expect(runtimeOperations).toHaveLength(333);
-      expect(documentOperations(v1, "v1")).toHaveLength(312);
-      expect(documentOperations(v2, "v2")).toHaveLength(21);
+      expect(runtimeOperations).toHaveLength(342);
+      expect(documentOperations(v1, "v1")).toHaveLength(316);
+      expect(documentOperations(v2, "v2")).toHaveLength(26);
       expect(documentedOperations).toEqual(runtimeOperations);
       auditDocument(v1);
       auditDocument(v2);
@@ -256,12 +256,17 @@ describe("local Express/OpenAPI parity", () => {
     expect(requestSchema("/houses/{id}/layers/calibrations")).toEqual({ $ref: "#/components/schemas/SpatialSensorCalibrationInput" });
     expect(requestSchema("/houses/{id}/layers/calibration-sessions")).toEqual({ $ref: "#/components/schemas/SpatialCalibrationSessionInput" });
     expect(requestSchema("/houses/{id}/layers/context-events")).toEqual({ $ref: "#/components/schemas/SpatialContextEventInput" });
-    expect(responseSchema("/houses/{id}/layers/infer", "200")).toEqual({ $ref: "#/components/schemas/SpatialLayerInferenceResult" });
+    expect(requestSchema("/houses/{id}/layers/inference-session")).toEqual({ $ref: "#/components/schemas/SpatialInferenceSessionStartInput" });
+    expect(responseSchema("/houses/{id}/layers/inference-session", "201")).toEqual({ $ref: "#/components/schemas/SpatialInferenceSessionResponse" });
+    expect(document.paths["/houses/{id}/layers/infer"]).toBeUndefined();
+    expect(document.paths["/properties/{id}/layers/infer"]).toBeUndefined();
+    expect(document.paths["/properties/{id}/layers/inference-session"]).toBeUndefined();
 
     expect(schemas.SpatialSensorBindingInput?.additionalProperties).toBe(false);
     expect(schemas.SpatialSensorCalibrationInput?.additionalProperties).toBe(false);
     expect(schemas.SpatialCalibrationSessionInput?.additionalProperties).toBe(false);
     expect(schemas.SpatialContextEventInput?.additionalProperties).toBe(false);
+    expect(schemas.SpatialInferenceSessionStartInput?.additionalProperties).toBe(false);
 
     expect(schemas.SpatialLayerSnapshot?.required).toEqual(expect.arrayContaining([
       "id", "partition", "scope", "coordinateFrames", "configVersion", "qualityScore", "reasonCodes",

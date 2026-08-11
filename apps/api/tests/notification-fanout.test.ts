@@ -9,6 +9,7 @@ import { loadConfig, type AppConfig } from "../src/config.js";
 import { ClimateDatabase } from "../src/db.js";
 import { TelemetryBus } from "../src/events.js";
 import { DEFAULT_ALERT_DELIVERY_POLICY } from "../src/notification-policy.js";
+import { notificationDestinationRef } from "../src/notification-snapshot.js";
 import { NotificationOutboxWorker } from "../src/outbox.js";
 import { AlertEngine, RuntimeStatus } from "../src/services.js";
 import { TelegramService } from "../src/telegram.js";
@@ -71,6 +72,67 @@ function queueFanoutAlert(database: ClimateDatabase, config: AppConfig): string 
 }
 
 describe("durable webhook fan-out", () => {
+  it("does not queue an unconfigured webhook and abandons legacy unbound work", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "stugu-webhook-unconfigured-"));
+    const config = loadConfig({
+      NODE_ENV: "test",
+      DATABASE_PATH: ":memory:",
+      INTEGRATION_SECRETS_FILE: join(directory, "integration-secrets.json"),
+      MOCK_ENABLED: "false",
+    });
+    const database = new ClimateDatabase(":memory:", true);
+    let worker: NotificationOutboxWorker | null = null;
+    try {
+      const eventId = queueFanoutAlert(database, config);
+      expect(database.db.prepare("SELECT COUNT(*) AS count FROM notification_outbox WHERE event_id = ?")
+        .get(eventId)).toEqual({ count: 0 });
+      expect(database.enqueueOperationalNotification({
+        subjectKind: "system",
+        subjectId: "host-load",
+        stage: "initial",
+        webhookEnabled: true,
+        telegramEnabled: false,
+        config,
+        type: "system.health",
+        text: "The host is under load",
+        data: {},
+      })).toBe(0);
+
+      const now = new Date().toISOString();
+      database.db.prepare(`INSERT INTO notification_outbox
+        (id, subject_kind, subject_id, event_id, stage, sequence, channel, destination_id, attempts,
+         max_attempts, available_at, locked_at, lock_token, last_error, created_at, delivered_at,
+         payload_json, destination_ref, policy_json, dead_lettered_at, abandoned_at)
+        VALUES ('legacy-unbound', 'system', 'legacy-host-load', NULL, 'initial', 0, 'webhook', 'primary',
+          0, 3, ?, NULL, NULL, NULL, ?, NULL, '{}', ?, '{}', NULL, NULL)`)
+        .run(now, now, notificationDestinationRef("webhook", undefined));
+
+      const webhookFetch = vi.fn<typeof fetch>();
+      worker = new NotificationOutboxWorker(
+        database,
+        config,
+        new RuntimeStatus(config, new TelemetryBus(), database),
+        new TelegramService(),
+        webhookFetch,
+      );
+      worker.start();
+      await vi.waitFor(() => expect(database.pendingNotificationCount()).toBe(0));
+
+      expect(webhookFetch).not.toHaveBeenCalled();
+      expect(database.listNotificationDeliveries().find((delivery) => delivery.id === "legacy-unbound"))
+        .toMatchObject({
+          deliveredAt: null,
+          deadLetteredAt: null,
+          abandonedAt: expect.any(String),
+          lastError: expect.stringContaining("configuration was removed"),
+        });
+    } finally {
+      await worker?.stop();
+      database.close();
+      rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    }
+  });
+
   it("signs and delivers each destination independently, then retries a dead letter", async () => {
     const directory = mkdtempSync(join(tmpdir(), "stugu-webhook-fanout-"));
     const config = fanoutConfig(directory);
@@ -193,6 +255,7 @@ describe("durable webhook fan-out", () => {
       DATABASE_PATH: ":memory:",
       MOCK_ENABLED: "false",
       LOCAL_AUTH_TEST_BYPASS: "true",
+      ALERT_WEBHOOK_URL: "https://alerts.example.test/hooks",
     });
     const runtime = createApi({ config, startBackground: false });
     try {

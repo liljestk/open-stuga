@@ -98,23 +98,33 @@ function component(
   };
 }
 
-async function jsonWithLimit(response: Response): Promise<OpenMeteoResponse> {
+async function jsonWithLimit(response: Response, signal?: AbortSignal): Promise<OpenMeteoResponse> {
+  signal?.throwIfAborted();
   if (!response.ok) throw new WeatherUnavailableError(`Open-Meteo returned HTTP ${response.status}`);
   const length = Number(response.headers.get("content-length"));
   if (Number.isFinite(length) && length > MAX_RESPONSE_BYTES) throw new WeatherUnavailableError("Open-Meteo response exceeded the size limit");
   if (!response.body) throw new WeatherUnavailableError("Open-Meteo returned an empty response");
   const reader = response.body.getReader();
+  const cancel = (): void => { void reader.cancel(signal?.reason).catch(() => undefined); };
+  signal?.addEventListener("abort", cancel, { once: true });
   const chunks: Uint8Array[] = [];
   let received = 0;
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    received += value.byteLength;
-    if (received > MAX_RESPONSE_BYTES) {
-      await reader.cancel();
-      throw new WeatherUnavailableError("Open-Meteo response exceeded the size limit");
+  try {
+    while (true) {
+      signal?.throwIfAborted();
+      const { value, done } = await reader.read();
+      signal?.throwIfAborted();
+      if (done) break;
+      received += value.byteLength;
+      if (received > MAX_RESPONSE_BYTES) {
+        await reader.cancel();
+        throw new WeatherUnavailableError("Open-Meteo response exceeded the size limit");
+      }
+      chunks.push(value);
     }
-    chunks.push(value);
+  } finally {
+    signal?.removeEventListener("abort", cancel);
+    reader.releaseLock();
   }
   const combined = new Uint8Array(received);
   let offset = 0;
@@ -215,7 +225,9 @@ export class OpenMeteoWeatherProvider implements WeatherProvider {
     location: HouseLocation,
     from: string,
     to: string,
+    signal?: AbortSignal,
   ): Promise<WeatherObservationHistory> {
+    signal?.throwIfAborted();
     const fromMs = Date.parse(from);
     const toMs = Date.parse(to);
     if (!Number.isFinite(fromMs) || !Number.isFinite(toMs) || fromMs >= toMs) {
@@ -235,16 +247,21 @@ export class OpenMeteoWeatherProvider implements WeatherProvider {
       temperature_unit: "celsius",
       precipitation_unit: "mm",
     });
+    const requestSignal = signal
+      ? AbortSignal.any([signal, AbortSignal.timeout(this.#timeoutMs)])
+      : AbortSignal.timeout(this.#timeoutMs);
     let response: Response;
     try {
       response = await this.#fetch(`${HISTORICAL_FORECAST_API_URL}?${parameters}`, {
         headers: { Accept: "application/json", "User-Agent": `Stugu/${SYSTEM_VERSION} Open-Meteo weather recovery adapter` },
-        signal: AbortSignal.timeout(this.#timeoutMs),
+        signal: requestSignal,
       });
     } catch {
+      signal?.throwIfAborted();
       throw new WeatherUnavailableError("Open-Meteo historical request failed");
     }
-    const payload = await jsonWithLimit(response);
+    const payload = await jsonWithLimit(response, requestSignal);
+    signal?.throwIfAborted();
     const times = Array.isArray(payload.hourly?.time) ? payload.hourly.time : [];
     const observations = payload.hourly
       ? times.map((_, index) => openMeteoConditions(payload.hourly as OpenMeteoValues, index))
@@ -306,11 +323,12 @@ export class AutomaticWeatherProvider implements WeatherProvider {
     location: HouseLocation,
     from: string,
     to: string,
+    signal?: AbortSignal,
   ): Promise<WeatherObservationHistory> {
     const provider = prefersFmi(location) ? this.fmi : this.worldwide;
     if (!provider.fetchObservationHistory) {
       return Promise.reject(new WeatherUnavailableError("This weather provider does not support observation backfill"));
     }
-    return provider.fetchObservationHistory(houseId, location, from, to);
+    return provider.fetchObservationHistory(houseId, location, from, to, signal);
   }
 }

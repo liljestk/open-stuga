@@ -16,6 +16,8 @@ export type { SpatialLayerSnapshotEvent } from "./spatialLayers/01-spatial-coord
 export type { SpatialLayerAssignment } from "./spatialLayers/01-spatial-coordinate-frame-to-zone";
 export type { SpatialLayerConfigurationDocument } from "./spatialLayers/01-spatial-coordinate-frame-to-zone";
 export type { SpatialLayerConfigurationResponse } from "./spatialLayers/01-spatial-coordinate-frame-to-zone";
+export type { SpatialInferenceSession } from "./spatialLayers/01-spatial-coordinate-frame-to-zone";
+export type { SpatialInferenceSessionStartInput } from "./spatialLayers/01-spatial-coordinate-frame-to-zone";
 export type { SpatialGroundTruth } from "./spatialLayers/01-spatial-coordinate-frame-to-zone";
 export type { SpatialCalibrationSessionKind } from "./spatialLayers/01-spatial-coordinate-frame-to-zone";
 export type { SpatialCalibrationSessionStatus } from "./spatialLayers/01-spatial-coordinate-frame-to-zone";
@@ -24,6 +26,7 @@ export type { SpatialCalibrationSessionInput } from "./spatialLayers/01-spatial-
 export type { SpatialCalibrationSessionResult } from "./spatialLayers/01-spatial-coordinate-frame-to-zone";
 export { spatialCalibrationSessions } from "./spatialLayers/01-spatial-coordinate-frame-to-zone";
 export { spatialCalibrationSessionResult } from "./spatialLayers/01-spatial-coordinate-frame-to-zone";
+export { spatialInferenceSession } from "./spatialLayers/01-spatial-coordinate-frame-to-zone";
 export { spatialLayerSnapshots } from "./spatialLayers/02-connection-to-latest-snapshot-per-layer";
 export { spatialLayerEngines } from "./spatialLayers/02-connection-to-latest-snapshot-per-layer";
 export { spatialLayerHealth } from "./spatialLayers/02-connection-to-latest-snapshot-per-layer";

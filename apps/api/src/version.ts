@@ -1,2 +1,2 @@
 /** Compiled API runtime version. Kept in lockstep with manifests/contracts by version:check. */
-export const SYSTEM_VERSION = "0.35.7" as const;
+export const SYSTEM_VERSION = "0.39.0" as const;

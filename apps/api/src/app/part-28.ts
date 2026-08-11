@@ -205,10 +205,11 @@ export function configureApiPart28(context: ReturnType<typeof configureApiPart27
       context.tuya.start();
       context.nexus433.start();
       context.tapoHistory.start();
-      sensorGapRecovery.start();
+      if (config.sensorGapRecoveryEnabled) sensorGapRecovery.start();
       context.electricityPrices.start();
       context.weatherMonitor.start();
-      context.dailyAnalyticsFindings.start();
+      if (config.dailyAnalyticsFindingsEnabled) context.dailyAnalyticsFindings.start();
+      context.derivedAnalytics.start();
       context.scheduledDataExports.start();
       context.notifySpatial((runtime) => runtime.start());
     }
@@ -233,6 +234,7 @@ export function configureApiPart28(context: ReturnType<typeof configureApiPart27
       context.electricityPrices.stop();
       context.weatherMonitor.stop();
       const stoppingDailyAnalyticsFindings = context.dailyAnalyticsFindings.stop();
+      const stoppingDerivedAnalytics = context.derivedAnalytics.stop();
       context.scheduledDataExports.stop();
       for (const closeStream of [...context.activeEventStreams]) closeStream(true);
       context.shutdownPromise = Promise.all([
@@ -245,6 +247,7 @@ export function configureApiPart28(context: ReturnType<typeof configureApiPart27
         stoppingNexus433,
         context.weatherRecovery.stop(),
         stoppingDailyAnalyticsFindings,
+        stoppingDerivedAnalytics,
         context.spatialLayers?.stop() ?? Promise.resolve(),
         Promise.all([
           context.telemetryRetention?.stop() ?? Promise.resolve(),

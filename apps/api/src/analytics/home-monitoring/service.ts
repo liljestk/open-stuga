@@ -30,10 +30,15 @@ import {
   type MeasurementHistory,
 } from "./insights.js";
 import { coverageFreshnessForSample } from "./model.js";
+import { HEAT_PUMP_SENSOR_TAG } from "../../heat-pump-measurements.js";
 
 const HISTORY_BUCKET_MINUTES = 5;
 const HISTORY_LIMIT_PER_METRIC = 100;
 const HISTORY_METRICS = ["temperature", "humidity", "co2"] as const;
+
+function ambientSensor(sensor: Sensor): boolean {
+  return sensor.enabled && !sensor.tags.includes(HEAT_PUMP_SENSOR_TAG);
+}
 
 export interface HomeMonitoringServiceContext {
   database: ClimateDatabase;
@@ -92,7 +97,7 @@ export async function loadHomeMonitoringHistory(input: {
   evaluatedAt: string;
   signal?: AbortSignal;
 }): Promise<MeasurementHistory> {
-  const sensors = input.scope.sensors.filter((sensor) => sensor.enabled);
+  const sensors = input.scope.sensors.filter(ambientSensor);
   if (sensors.length === 0) return {};
   const from = new Date(
     Date.parse(input.evaluatedAt) - HOME_INSIGHT_THRESHOLDS.trendWindowMinutes * 60_000,
@@ -154,7 +159,8 @@ function evidence(
   includeHistory: boolean,
   sharedAlerts?: SharedAlertEvidence,
 ) {
-  const sensorIds = new Set(scope.sensors.map((sensor) => sensor.id));
+  const sensors = scope.sensors.filter(ambientSensor);
+  const sensorIds = new Set(sensors.map((sensor) => sensor.id));
   const rules = (sharedAlerts?.rules ?? context.database.listAlertRules())
     .filter((rule) => rule.sensorId === null || sensorIds.has(rule.sensorId));
   const alerts = (sharedAlerts?.alerts ?? context.database.listAlertEvents(2_000, true))
@@ -162,7 +168,7 @@ function evidence(
   const weather = context.latestWeather(scope.house.id);
   return {
     house: scope.house,
-    sensors: [...scope.sensors],
+    sensors,
     latestMeasurements: latestMap(
       context.latestMeasurements(scope.house.id)
         .filter((sample) => sensorIds.has(sample.sensorId)),
@@ -269,7 +275,7 @@ function summaryFrom(
 }
 
 function latestEvidenceSamples(input: ReturnType<typeof evidence>): MeasurementSample[] {
-  const enabled = new Set(input.sensors.filter((sensor) => sensor.enabled).map((sensor) => sensor.id));
+  const enabled = new Set(input.sensors.filter(ambientSensor).map((sensor) => sensor.id));
   return Object.values(input.latestMeasurements).flatMap((metrics) => Object.values(metrics))
     .filter((sample): sample is MeasurementSample => Boolean(sample && enabled.has(sample.sensorId)));
 }

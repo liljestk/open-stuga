@@ -56,6 +56,11 @@ export interface CoreClimateReader {
   getHouse(id: string): House | null;
   listHouses(): House[];
   listOpeningStateObservations(houseId: string, limit?: number, at?: string | number | Date): OpeningStateObservation[];
+  listCurrentOpeningStateCandidates?(
+    houseId: string,
+    at?: string | number | Date,
+    limit?: number,
+  ): OpeningStateObservation[];
   listOpeningStateObservationHistory(
     houseId: string,
     from: string | number | Date,

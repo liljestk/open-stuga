@@ -85,6 +85,13 @@ describe("MoistureResponsePanel", () => {
     mocks.run.mockClear();
   });
 
+  it("does not offer a derived refresh to read-only viewers", () => {
+    const house = createDemoState().houses[0]!;
+    render(<I18nProvider><MoistureResponsePanel house={house} canRefresh={false} /></I18nProvider>);
+
+    expect(screen.queryByRole("button", { name: "Refresh" })).toBeNull();
+  });
+
   it("shows response, coupling, floor and room comparisons, and sensor evidence", async () => {
     const house = createDemoState().houses[0]!;
     render(<I18nProvider><MoistureResponsePanel house={house} /></I18nProvider>);

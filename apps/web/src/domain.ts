@@ -71,6 +71,8 @@ export interface ClimateState {
   maintenanceTasks: MaintenanceTask[];
   staticParameters: StaticParameter[];
   latestOpeningStateObservation?: OpeningStateObservation;
+  /** Browser receipt time for the latest telemetry-stream heartbeat. */
+  latestTelemetryHeartbeatAt?: number;
   integration: IntegrationStatus;
   scenarios: MockScenario[];
 }

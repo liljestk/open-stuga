@@ -21,6 +21,10 @@ export interface AppConfig {
   spatialLayersDatabasePath?: string;
   spatialLayersIntervalMs?: number;
   spatialLayersRetentionDays?: number;
+  /** Scheduled analytical fitting is opt-in until it runs behind the shared resource governor. */
+  dailyAnalyticsFindingsEnabled?: boolean;
+  /** Historical gap discovery and source backfill are opt-in until their archive scans are governed. */
+  sensorGapRecoveryEnabled?: boolean;
   /** Property-wide BLE equipment tracking remains an explicit deployment opt-in. */
   trackingEnabled?: boolean;
   trackingMobileObserverEnabled?: boolean;
@@ -173,6 +177,10 @@ export interface AppConfig {
   bugReportRelayUrl?: string | null;
   /** Shared high-entropy relay credential; never expose or log AppConfig. */
   bugReportRelayToken?: string | null;
+  /** Effective source; environment configuration is authoritative and is never overwritten through the API. */
+  bugReportRelaySource?: "environment" | "protected-file" | null;
+  /** When a workspace administrator last saved the relay through the API. */
+  bugReportRelayUpdatedAt?: string | null;
   /** Optional account-scoped Cloudflare Access group synchronized from local members and invitations. */
   cloudflareAccessAccountId?: string | null;
   cloudflareAccessGroupId?: string | null;

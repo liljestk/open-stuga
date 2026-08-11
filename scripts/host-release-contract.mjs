@@ -228,7 +228,15 @@ export function validateSpdxSbom(value) {
   return value;
 }
 
-export function validateHostProvenance(value, { bootSha256, rootSha256, sourceCommit }) {
+export function validateHostProvenance(value, {
+  bootSha256,
+  rootSha256,
+  sourceCommit,
+  version,
+  hostGeneration,
+  tufRootSha256,
+  raucCaSha256,
+}) {
   if (!value || typeof value !== "object" || Array.isArray(value)
     || value._type !== "https://in-toto.io/Statement/v1"
     || value.predicateType !== "https://slsa.dev/provenance/v1"
@@ -245,6 +253,23 @@ export function validateHostProvenance(value, { bootSha256, rootSha256, sourceCo
   if (!Array.isArray(dependencies)
     || !dependencies.some((dependency) => dependency?.digest?.gitCommit === sourceCommit)) {
     throw new Error("host provenance does not bind the source commit");
+  }
+  const buildDefinition = value.predicate.buildDefinition;
+  if (buildDefinition.buildType !== "https://stugu.local/build/rpi-image-gen/v1") {
+    throw new Error("host provenance build type is incompatible");
+  }
+  const external = buildDefinition.externalParameters;
+  if (!external || external.version !== version
+    || external.hostGeneration !== hostGeneration
+    || external.architecture !== "arm64"
+    || external.layout !== "stugu-gpt-ab-v2") {
+    throw new Error("host provenance release identity is incompatible");
+  }
+  const internal = buildDefinition.internalParameters;
+  if (!internal
+    || internal.tufRootSha256 !== tufRootSha256
+    || internal.raucCaSha256 !== raucCaSha256) {
+    throw new Error("host provenance trust anchors do not match the release inputs");
   }
   return value;
 }

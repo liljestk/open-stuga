@@ -6,6 +6,11 @@ matches the exact runtime Pi, EEPROM, USB bridge, and storage fingerprint.
 Deployed layout-v1/updater-contract-3 appliances cannot use the raw-tail
 bootstrap and still require a factory transition.
 
+Begin with the merge, source/feed tags, container publication, and validated
+host inputs from the [application release cycle](release-cycle.md). This
+runbook starts at the separate signing boundary; it never grants a general
+release agent access to RAUC or TUF private keys.
+
 ## Trust boundary
 
 - The image builder receives only immutable TUF root v1 and the public RAUC CA.
@@ -66,6 +71,7 @@ npm run build:host-bundle -- \
   --rauc-cert 'pkcs11:object=stugu-host-release-cert' \
   --rauc-key 'pkcs11:object=stugu-host-release-key' \
   --rauc-signing-keyring /secure/public/rauc-ca.pem \
+  --tuf-root /secure/public/root.json \
   --generation 42 \
   --fallback-generation 41 \
   --version 0.29.0 \
@@ -74,8 +80,9 @@ npm run build:host-bundle -- \
   --output outgoing/stugu-rpi4-0.29.0-host.raucb
 ```
 
-The command refuses existing outputs, rejects hooks, validates source
-provenance and the seven-image container manifest, creates a RAUC verity bundle,
+The command refuses existing outputs, rejects hooks, validates source,
+generation, and public trust-anchor provenance plus the seven-image container
+manifest, creates a RAUC verity bundle,
 then asks RAUC to verify the finished signature, exact compatible/version,
 image hashes/sizes, and image classes. It publishes read-only bundle and request
 files only after those checks pass.
@@ -180,6 +187,16 @@ stuguctl host-update status
 stuguctl host-update check --channel stable
 stuguctl host-update stage --channel stable
 ```
+
+Before staging, collect the bounded cross-service and exact-device snapshot from
+the release workstation without mutating the appliance:
+
+```sh
+npm run rpi:doctor -- --target operator@stugu.local
+```
+
+Use `--deep` only when the default receipt points to logs or database integrity.
+The doctor never stages, activates, repairs, or restarts anything.
 
 Activation requires an explicit confirmation and a valid immutable hardware
 qualification receipt:

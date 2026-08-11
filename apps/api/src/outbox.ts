@@ -141,8 +141,17 @@ export class NotificationOutboxWorker extends DurableWorker {
         return;
       }
       if (item.channel === "webhook") {
-        if (!webhookDestination) throw new Error("Alert webhook destination is not configured");
-        const webhookHost = new URL(webhookDestination.url).hostname.toLowerCase();
+        const destination = webhookDestination;
+        if (!destination) {
+          this.database.abandonNotificationOutbox(
+            item.id,
+            item.lockToken,
+            "Notification destination configuration was removed after this item was queued",
+          );
+          this.status.changed();
+          return;
+        }
+        const webhookHost = new URL(destination.url).hostname.toLowerCase();
         if (!(this.config.alertWebhookAllowedHosts ?? []).includes(webhookHost)) {
           throw new Error("Alert webhook destination is not on the configured allowlist");
         }
@@ -150,16 +159,16 @@ export class NotificationOutboxWorker extends DurableWorker {
           "content-type": "application/json",
           "idempotency-key": `stugu-${item.subjectKind}-${item.subjectId}-${item.stage}-${item.sequence}-${item.destinationId}`,
         };
-        if (webhookDestination.bearerToken) headers.authorization = `Bearer ${webhookDestination.bearerToken}`;
-        if (webhookDestination.signingSecret) {
+        if (destination.bearerToken) headers.authorization = `Bearer ${destination.bearerToken}`;
+        if (destination.signingSecret) {
           const timestamp = Math.floor(Date.now() / 1_000).toString();
-          const signature = createHmac("sha256", webhookDestination.signingSecret)
+          const signature = createHmac("sha256", destination.signingSecret)
             .update(`${timestamp}.${item.payloadJson}`, "utf8")
             .digest("hex");
           headers["x-stugu-timestamp"] = timestamp;
           headers["x-stugu-signature"] = `sha256=${signature}`;
         }
-        const response = await this.fetchImpl(webhookDestination.url, {
+        const response = await this.fetchImpl(destination.url, {
           method: "POST",
           headers,
           body: item.payloadJson,

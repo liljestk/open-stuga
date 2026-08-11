@@ -1,20 +1,14 @@
 import type express from "express";
-import { createHash } from "node:crypto";
 import type {
   AnalyticsAggregation,
   CalendarComparisonRequest,
   DataMode,
-  HomePerformanceResponse,
   IntegrationStatus,
   MeasurementSample,
   OpeningActivityRequest,
 } from "@climate-twin/contracts";
-import {
-  CALENDAR_COMPARISON_UNITS,
-  HOME_PERFORMANCE_ALGORITHM_VERSION as HOME_PERFORMANCE_VERSION,
-} from "@climate-twin/contracts";
+import { CALENDAR_COMPARISON_UNITS } from "@climate-twin/contracts";
 import { AnalyticsQueryError } from "../analytics.js";
-import { LruTtlCache } from "../cache.js";
 import type { AnalyticsWorkLimiter } from "./work-limiter.js";
 import type { ClimateDatabase } from "../db.js";
 import type { TelemetryBus } from "../events.js";
@@ -27,13 +21,11 @@ import {
   HttpError,
   bodyObject,
   rejectUnknownFields,
+  requireNonGuest,
   requiredString,
 } from "../app/support/index.js";
 import { getOpeningActivity } from "./opening-activity/service.js";
-import {
-  getHomePerformance,
-  HomePerformanceScopeError,
-} from "./home-performance/service.js";
+import type { DerivedAnalyticsCoordinator } from "./derived-artifacts/coordinator.js";
 import { registerHomeMonitoringRoutes } from "./home-monitoring/routes.js";
 import {
   CalendarComparisonSelectionError,
@@ -50,6 +42,7 @@ interface AnalyticsRouteContext {
   integrationStatusForHouse(houseId?: string): IntegrationStatus;
   weatherEvents: WeatherEventBroker;
   analyticsWorkLimiter: AnalyticsWorkLimiter;
+  derivedAnalytics: DerivedAnalyticsCoordinator;
   visibility(response: express.Response): {
     house(houseId: string): boolean;
     sensor(sensorId: string): boolean;
@@ -223,60 +216,8 @@ function calendarComparisonRequest(value: unknown): CalendarComparisonRequest {
   };
 }
 
-function cacheKey(parts: readonly unknown[]): string {
-  return createHash("sha256").update(JSON.stringify(parts)).digest("hex");
-}
-
-function abortOnResponseClose(response: express.Response): {
-  signal: AbortSignal;
-  dispose: () => void;
-} {
-  const controller = new AbortController();
-  const abort = () => controller.abort(new DOMException("Client disconnected", "AbortError"));
-  response.once("close", abort);
-  return {
-    signal: controller.signal,
-    dispose: () => response.off("close", abort),
-  };
-}
-
 export function registerAnalyticsRoutes(context: AnalyticsRouteContext): () => void {
   const removeHomeMonitoringRoutes = registerHomeMonitoringRoutes(context);
-  const homePerformanceCache = new LruTtlCache<HomePerformanceResponse>({
-    maxEntries: 128,
-    maxBytes: 32 * 1024 * 1024,
-    defaultTtlMs: 60_000,
-    defaultStaleWhileRevalidateMs: 0,
-  });
-  const removeHomePerformanceCacheStats = context.analyticsWorkLimiter.registerCache(
-    "home-performance",
-    () => homePerformanceCache.stats(),
-  );
-  const invalidateHouse = (houseId: string | null | undefined) => {
-    if (houseId) homePerformanceCache.invalidatePrefix(`home:${houseId}:`);
-    else homePerformanceCache.clear();
-  };
-  const invalidateSensorHouse = (sensorId: string) => {
-    invalidateHouse(context.database.getSensor(sensorId)?.houseId);
-  };
-  const removeLegacyCacheWake = context.bus.subscribe((event) => {
-    // Home Performance is a 30-day derived view with a 60-second cache. Routine
-    // ingestion must not cancel an in-flight calculation on a busy live Home.
-    if (
-      event.type === "heartbeat"
-      || event.type === "reading"
-      || event.type === "measurement"
-    ) return;
-    if (event.type === "alert") {
-      invalidateSensorHouse(event.data.sensorId);
-      return;
-    }
-    if (event.type === "opening" || event.type === "weather" || event.type === "heat-pump") {
-      invalidateHouse(event.data.houseId);
-      return;
-    }
-    homePerformanceCache.clear();
-  });
 
   context.app.post(`${context.v2Prefix}/analytics/opening-activity`, async (request, response) => {
     const input = openingActivityRequest(request.body);
@@ -408,7 +349,11 @@ export function registerAnalyticsRoutes(context: AnalyticsRouteContext): () => v
       throw error;
     }
   });
-  context.app.get(`${context.v2Prefix}/analytics/home-performance`, async (request, response) => {
+  const derivedInput = (
+    request: express.Request,
+    response: express.Response,
+    kind: "thermal-isolation" | "moisture-response" | "home-performance",
+  ) => {
     const houseId = typeof request.query.houseId === "string" ? request.query.houseId.trim() : "";
     if (!houseId || houseId.length > 200) {
       throw new HttpError(400, "INVALID_FIELD", "houseId is required");
@@ -431,66 +376,47 @@ export function registerAnalyticsRoutes(context: AnalyticsRouteContext): () => v
         "Analytics Home scope was not found",
       );
     }
-    const sensors = context.database.listSensors(house.id)
-      .filter((sensor) => sensor.enabled && access.sensor(sensor.id))
-      .sort((left, right) => left.id.localeCompare(right.id));
-    const definitions = context.database.listMeasurementDefinitions(false);
-    const authorization = context.streamAuthorizationFingerprint(request, response) ?? "bootstrap";
-    const evaluatedBucket = Math.floor(Date.now() / 60_000);
-    const key = `home:${house.id}:${cacheKey([
-      requestedDataMode,
-      HOME_PERFORMANCE_VERSION,
-      evaluatedBucket,
-      authorization,
-      sensors.map((sensor) => sensor.id),
-      house.updatedAt,
-      definitions.map((definition) => [definition.id, definition.enabled, definition.unit]),
-    ])}`;
-    const hit = homePerformanceCache.has(key);
-    const coalesced = !hit && homePerformanceCache.isLoading(key);
-    const startedAt = performance.now();
-    const cancellation = abortOnResponseClose(response);
-    try {
-      const result = await homePerformanceCache.getOrLoad(
-        key,
-        (signal) => context.analyticsWorkLimiter.run(
-          "home-performance",
-          () => getHomePerformance({
-            house,
-            sensors,
-            definitions,
-            dataMode: requestedDataMode,
-            database: context.database,
-            telemetryReader: context.telemetryReader,
-            evaluatedAt: new Date().toISOString(),
-            signal,
-          }),
-          signal,
-        ),
-        { serveStale: false, ttlMs: 60_000, signal: cancellation.signal },
-      );
+    let windowDays: number | undefined;
+    if (kind !== "home-performance") {
+      const rawWindow = typeof request.query.windowDays === "string"
+        ? Number(request.query.windowDays)
+        : 7;
+      if (rawWindow !== 1 && rawWindow !== 7 && rawWindow !== 14) {
+        throw new HttpError(400, "INVALID_FIELD", "windowDays must be 1, 7, or 14");
+      }
+      windowDays = rawWindow;
+    }
+    return {
+      kind,
+      houseId: house.id,
+      dataMode: requestedDataMode,
+      ...(windowDays === undefined ? {} : { windowDays }),
+    };
+  };
+  const registerDerivedRoute = (
+    path: string,
+    kind: "thermal-isolation" | "moisture-response" | "home-performance",
+  ) => {
+    context.app.get(`${context.v2Prefix}${path}`, (request, response) => {
+      const startedAt = performance.now();
+      const result = context.derivedAnalytics.read(derivedInput(request, response, kind));
       response.setHeader("cache-control", "private, no-store");
-      response.setHeader("x-stugu-cache", hit ? "hit" : coalesced ? "coalesced" : "miss");
       response.setHeader(
         "server-timing",
-        `home-performance;dur=${(performance.now() - startedAt).toFixed(1)}`,
+        `derived-artifact-read;dur=${(performance.now() - startedAt).toFixed(1)}`,
       );
-      response.json({
-        ...result,
-        cache: { ...result.cache, hit, coalesced },
-      });
-    } catch (error) {
-      if (error instanceof HomePerformanceScopeError) {
-        throw new HttpError(422, error.code, error.message);
-      }
-      throw error;
-    } finally {
-      cancellation.dispose();
-    }
-  });
+      response.json(result);
+    });
+    context.app.post(`${context.v2Prefix}${path}`, requireNonGuest, (request, response) => {
+      const result = context.derivedAnalytics.refresh(derivedInput(request, response, kind));
+      response.setHeader("cache-control", "private, no-store");
+      response.status(202).json(result);
+    });
+  };
+  registerDerivedRoute("/analytics/thermal-isolation", "thermal-isolation");
+  registerDerivedRoute("/analytics/moisture-response", "moisture-response");
+  registerDerivedRoute("/analytics/home-performance", "home-performance");
   return () => {
-    removeLegacyCacheWake();
-    removeHomePerformanceCacheStats();
     removeHomeMonitoringRoutes();
   };
 }

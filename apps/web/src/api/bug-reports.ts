@@ -1,4 +1,9 @@
-import type { BugReportInput, BugReportReceipt } from "@climate-twin/contracts";
+import type {
+  BugReportInput,
+  BugReportReceipt,
+  BugReportRelayInput,
+  BugReportRelaySettings,
+} from "@climate-twin/contracts";
 import { request } from "./support";
 
 export const bugReportApi = {
@@ -6,4 +11,10 @@ export const bugReportApi = {
     method: "POST",
     body: JSON.stringify(input),
   }),
+  bugReportRelay: (): Promise<BugReportRelaySettings> => request("/bug-reports/relay"),
+  configureBugReportRelay: (input: BugReportRelayInput): Promise<BugReportRelaySettings> => request("/bug-reports/relay", {
+    method: "PUT",
+    body: JSON.stringify(input),
+  }),
+  clearBugReportRelay: (): Promise<BugReportRelaySettings> => request("/bug-reports/relay", { method: "DELETE" }),
 };

@@ -288,6 +288,13 @@ services:
       STUGA_LOCAL_UI_PORT: ${APP_PORT:-8080}
       MOCK_ENABLED: ${MOCK_ENABLED:-false}
       MOCK_INTERVAL_MS: ${MOCK_INTERVAL_MS:-2000}
+      # Heavy derived work remains dormant until an operator explicitly opts in.
+      SPATIAL_LAYERS_ENABLED: ${SPATIAL_LAYERS_ENABLED:-false}
+      SPATIAL_LAYERS_DATABASE_PATH: ${SPATIAL_LAYERS_DATABASE_PATH:-/app/data/experimental-spatial-layers.sqlite}
+      SPATIAL_LAYERS_INTERVAL_MS: ${SPATIAL_LAYERS_INTERVAL_MS:-60000}
+      SPATIAL_LAYERS_RETENTION_DAYS: ${SPATIAL_LAYERS_RETENTION_DAYS:-30}
+      DAILY_ANALYTICS_FINDINGS_ENABLED: ${DAILY_ANALYTICS_FINDINGS_ENABLED:-false}
+      SENSOR_GAP_RECOVERY_ENABLED: ${SENSOR_GAP_RECOVERY_ENABLED:-false}
       # Fresh generated configuration sets 30. The fallback remains zero so an
       # older deployment cannot begin pruning merely because it omitted the key.
       RETENTION_DAYS: ${RETENTION_DAYS:-0}

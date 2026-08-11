@@ -260,6 +260,10 @@ npm run release:local -- \
   --ssh-public-key "$HOME/.ssh/stuga_appliance.pub"
 ```
 
+This is a plan-only view. It does not validate the tags, files, credentials,
+Docker daemon, CI, or artifacts. Use the read-only preflight in the
+[application release cycle](release-cycle.md) before authorizing publication.
+
 Add `--publish` to execute it:
 
 ```sh
@@ -272,6 +276,8 @@ npm run release:local -- \
   --host-rauc-ca /secure/public/rauc-ca.pem \
   --host-update-base-url https://updates.example.net/stugu \
   --ssh-public-key "$HOME/.ssh/stuga_appliance.pub" \
+  --full-ci-receipt <FULL_CI_RECEIPT> \
+  --keep-draft \
   --publish
 ```
 
@@ -284,22 +290,24 @@ repository and image packages. First create the same tag name on a harmless
 commit in a separate checkout of the public artifact repository. Never push the
 private source repository's tag or commit to that public repository. The
 publisher verifies both tag locations and refuses a private or untagged
-artifact repository before starting CI or builds. It also requires a clean
-checkout at the pushed source tag on `origin/main`, runs local CI, builds and
+artifact repository before starting builds. It also requires a clean checkout
+at the pushed source tag on `origin/main`, consumes an exact full-CI receipt, builds and
 pushes all AMD64/ARM64 containers, resolves their registry digests, builds the
 Pi factory image and public-key-only host signing inputs in a pinned privileged
 ARM64 Debian container, creates a draft
-GitHub Release, uploads the immutable image manifest, local CI receipt, and
-checksums, plus the Nexus433 corresponding-source bundle and its checksum, and
-then publishes the release. RAUC and TUF private-key operations remain a
-separate ceremony; see [the signed host-update runbook](host-update-release.md).
+GitHub Release, and uploads the immutable image manifest, full-CI receipt,
+compatibility proof, checksums, and Nexus433 corresponding-source bundle. A
+separate `release:verify` receipt is required to publish that draft; neither
+phase reruns CI. RAUC and TUF private-key operations remain a separate ceremony;
+see [the signed host-update runbook](host-update-release.md).
 
 The factory image remains under `dist/rpi/` by default. Add
 `--upload-factory` only when it contains no Connect auth key, Wi-Fi profile, or
 other provisioning secret. Use `--notes-file PATH` for curated notes, or let
 GitHub generate them. After a partial failure that already published all
 containers, `--reuse-containers` skips rebuilding and resolves their existing
-digests.
+digests. `--keep-draft` leaves the GitHub release unpublished, but still pushes
+all container tags to GHCR.
 
 The local publisher creates these GHCR packages:
 

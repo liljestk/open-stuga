@@ -18,6 +18,12 @@ import {
 } from "../../timeseries/read-facade.js";
 import { executeAnalyticsQuery } from "../query/execute.js";
 import { deriveHomePerformance } from "./derive.js";
+import { HEAT_PUMP_SENSOR_TAG } from "../../heat-pump-measurements.js";
+import {
+  isPassiveHeatPumpTime,
+  loadHeatPumpExclusionWindow,
+  withHeatPumpPointCounts,
+} from "../heat-pump-evidence.js";
 
 const DAY_MS = 86_400_000;
 const PERFORMANCE_DAYS = 30;
@@ -47,6 +53,7 @@ export interface HomePerformanceServiceInput {
   dataMode: "live" | "demo";
   database: ClimateDatabase;
   telemetryReader: HybridTelemetryReader;
+  heatPumpConnectionIds: readonly string[];
   evaluatedAt: string;
   signal?: AbortSignal;
 }
@@ -142,6 +149,7 @@ async function analyticsEvidence(input: {
   resolution: "15m" | "1h";
   key: string;
 }): Promise<AnalyticsQueryResponse | null> {
+  input.service.signal?.throwIfAborted();
   if (input.sensors.length === 0 || input.definitions.length === 0) return null;
   const buckets = pointCount(input.start, input.end, input.resolution);
   const pointsPerSensor = buckets * input.definitions.length;
@@ -155,6 +163,7 @@ async function analyticsEvidence(input: {
   }
   const responses: AnalyticsQueryResponse[] = [];
   for (const [index, sensors] of batches.entries()) {
+    input.service.signal?.throwIfAborted();
     responses.push(await executeAnalyticsQuery({
       request: queryRequest({
         house: input.service.house,
@@ -173,13 +182,22 @@ async function analyticsEvidence(input: {
       ...(input.service.signal ? { signal: input.service.signal } : {}),
     }));
   }
+  input.service.signal?.throwIfAborted();
   return combineAnalytics(responses, input.key);
 }
 
-async function settled<T>(task: () => Promise<T>): Promise<PromiseSettledResult<T>> {
+async function settled<T>(
+  task: () => Promise<T>,
+  signal?: AbortSignal,
+): Promise<PromiseSettledResult<T>> {
   try {
     return { status: "fulfilled", value: await task() };
   } catch (reason) {
+    // Evidence outages are intentionally downgraded to warnings, but a
+    // cancellation is control flow: swallowing it would let a stopped job
+    // derive and publish a partial "successful" artifact.
+    signal?.throwIfAborted();
+    if (reason instanceof Error && reason.name === "AbortError") throw reason;
     return { status: "rejected", reason };
   }
 }
@@ -212,8 +230,9 @@ function archiveState(responses: readonly (AnalyticsQueryResponse | null)[]) {
 export async function getHomePerformance(
   input: HomePerformanceServiceInput,
 ): Promise<HomePerformanceResponse> {
+  input.signal?.throwIfAborted();
   const sensors = [...input.sensors]
-    .filter((sensor) => sensor.enabled)
+    .filter((sensor) => sensor.enabled && !sensor.tags.includes(HEAT_PUMP_SENSOR_TAG))
     .sort((left, right) => left.id.localeCompare(right.id));
   if (sensors.length > MAX_HOME_PERFORMANCE_SENSORS) {
     throw new HomePerformanceScopeError(
@@ -229,6 +248,13 @@ export async function getHomePerformance(
   const to = input.evaluatedAt;
   const from = new Date(Date.parse(to) - PERFORMANCE_DAYS * DAY_MS).toISOString();
   const recoveryFrom = new Date(Date.parse(to) - RECOVERY_DAYS * DAY_MS).toISOString();
+  const heatPumpWindow = loadHeatPumpExclusionWindow(
+    input.database,
+    input.house.id,
+    recoveryFrom,
+    to,
+    input.heatPumpConnectionIds,
+  );
   const projectedPoints = sensors.length * (
     pointCount(from, to, "1h") * (climateDefinitions.length + energyDefinitions.length)
     + pointCount(recoveryFrom, to, "15m") * climateDefinitions.length
@@ -248,7 +274,7 @@ export async function getHomePerformance(
       end: to,
       resolution: "1h",
       key: `home-performance-climate-${input.house.id}`,
-    })),
+    }), input.signal),
     settled(() => analyticsEvidence({
       service: input,
       sensors,
@@ -257,8 +283,9 @@ export async function getHomePerformance(
       end: to,
       resolution: "15m",
       key: `home-performance-recovery-${input.house.id}`,
-    })),
+    }), input.signal),
   ]);
+  input.signal?.throwIfAborted();
   const [energyEvidence, outdoorEvidence] = await Promise.all([
     settled(() => analyticsEvidence({
       service: input,
@@ -268,7 +295,7 @@ export async function getHomePerformance(
       end: to,
       resolution: "1h",
       key: `home-performance-energy-${input.house.id}`,
-    })),
+    }), input.signal),
     settled(() => input.house.location
       ? input.telemetryReader.outdoorTemperatureHistory({
           houseId: input.house.id,
@@ -278,8 +305,9 @@ export async function getHomePerformance(
           limit: OUTDOOR_LIMIT,
           ...(input.signal ? { signal: input.signal } : {}),
         })
-      : Promise.resolve(null)),
+      : Promise.resolve(null), input.signal),
   ]);
+  input.signal?.throwIfAborted();
   const openingsEvidence = await settled(() => Promise.all([
       input.telemetryReader.openingStateSnapshot({
         houseId: input.house.id,
@@ -294,7 +322,8 @@ export async function getHomePerformance(
         limit: OPENING_LIMIT,
         ...(input.signal ? { signal: input.signal } : {}),
       }),
-    ]));
+    ]), input.signal);
+  input.signal?.throwIfAborted();
   const evidence = [
     climateEvidence,
     recoveryEvidence,
@@ -315,6 +344,16 @@ export async function getHomePerformance(
   const energy = fulfilled(evidence[2]);
   const outdoorRead = fulfilled(evidence[3]);
   const openingReads = fulfilled(evidence[4]);
+  const recoveryPoints = recovery?.series.flatMap((series) => series.points
+    .filter((point) => point.value !== null && Number.isFinite(point.value))) ?? [];
+  const retainedRecoveryPoints = recoveryPoints.filter((point) => (
+    isPassiveHeatPumpTime(heatPumpWindow, point.timestamp)
+  ));
+  const hvacExclusion = withHeatPumpPointCounts(
+    heatPumpWindow,
+    recoveryPoints.length,
+    retainedRecoveryPoints.length,
+  );
   const outdoorTruncated = (outdoorRead?.records.length ?? 0) >= OUTDOOR_LIMIT;
   const openingTruncated = Boolean(
     openingReads
@@ -370,7 +409,9 @@ export async function getHomePerformance(
     from,
     to,
     generatedAt: input.evaluatedAt,
+    hvacPassiveIntervals: heatPumpWindow.passiveIntervals,
   });
+  input.signal?.throwIfAborted();
   const limitations = result.limitations.filter((item): item is HomePerformanceLimitation => (
     item !== "sensor-scope-limited" && item !== "evidence-scope-limited"
   ));
@@ -394,6 +435,7 @@ export async function getHomePerformance(
     sensorHealth: result.sensorHealth,
     limitations,
     warnings,
+    hvacExclusion,
     provenance: {
       truthClass: "derived",
       algorithmKey: "home-performance",

@@ -75,6 +75,15 @@ function finiteNumber(body: Record<string, unknown>, key: string): number {
   return value;
 }
 
+function optionalInteger(body: Record<string, unknown>, key: string): number | undefined {
+  const value = body[key];
+  if (value === undefined) return undefined;
+  if (typeof value !== "number" || !Number.isInteger(value)) {
+    throw new SpatialRouteError(400, "INVALID_FIELD", `${key} must be an integer`);
+  }
+  return value;
+}
+
 function isoTimestamp(value: unknown, field: string, defaultValue?: string): string {
   const candidate = value === undefined ? defaultValue : value;
   if (typeof candidate !== "string" || !Number.isFinite(Date.parse(candidate))) {
@@ -112,6 +121,7 @@ export interface SpatialRouteOptions {
   runtime: LocalSpatialLayerRuntime | null;
   prefix?: string;
   authorizeScope?: (request: Request, response: Response, scope: SpatialScope) => boolean;
+  authorizeMutation?: (request: Request, response: Response, scope: SpatialScope) => boolean;
   auditActor?: (request: Request, response: Response) => string | null;
   streamAuthorizationFingerprint?: (request: Request, response: Response) => string | null;
   /** Return false after sending a terminal response (for example, shutdown). */
@@ -138,6 +148,23 @@ function authorizedScope(
   return value;
 }
 
+function authorizedMutationScope(
+  options: SpatialRouteOptions,
+  kind: SpatialScope["kind"],
+  request: Request,
+  response: Response,
+): SpatialScope {
+  const value = authorizedScope(options, kind, request, response);
+  if (options.authorizeMutation && !options.authorizeMutation(request, response, value)) {
+    throw new SpatialRouteError(
+      403,
+      "SPATIAL_WRITE_FORBIDDEN",
+      "This account or installation cannot change spatial-layer state for this scope",
+    );
+  }
+  return value;
+}
+
 function layerQuery(request: Request): string[] {
   const values = request.query.layers ?? request.query.layer;
   const flattened = Array.isArray(values) ? values : values === undefined ? [] : [values];
@@ -159,6 +186,7 @@ function requireScope(runtime: LocalSpatialLayerRuntime, value: SpatialScope): v
 }
 
 function sendError(response: Response, error: unknown): void {
+  if (response.destroyed || response.writableEnded) return;
   if (error instanceof SpatialRouteError || error instanceof SpatialStateValidationError) {
     response.status(error.status).json({ error: { code: error.code, message: error.message } });
     return;
@@ -170,19 +198,42 @@ function asyncRoute(handler: (request: Request, response: Response) => Promise<v
   return (request, response) => { void handler(request, response).catch((error: unknown) => sendError(response, error)); };
 }
 
-async function current(runtime: LocalSpatialLayerRuntime, value: SpatialScope, request: Request): Promise<Record<string, unknown>> {
+async function withClientAbort<T>(response: Response, operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
+  const controller = new AbortController();
+  const abort = (): void => controller.abort(new DOMException("Client disconnected", "AbortError"));
+  response.once("close", abort);
+  if (response.destroyed) abort();
+  try {
+    return await operation(controller.signal);
+  } finally {
+    response.off("close", abort);
+  }
+}
+
+async function current(
+  runtime: LocalSpatialLayerRuntime,
+  value: SpatialScope,
+  request: Request,
+  signal?: AbortSignal,
+): Promise<Record<string, unknown>> {
   requireScope(runtime, value);
-  const overview = await runtime.host.describeScope(value);
+  const overview = await runtime.host.describeScope(value, undefined, signal);
   const requestedLayers = layerQuery(request);
-  const currentLayerIds = requestedLayers.length > 0 ? requestedLayers : overview.assignments.flatMap((assignment) => assignment.layerIds);
-  const layers = runtime.state.currentSnapshots(runtime.host.partition, value, currentLayerIds)
+  const assignedLayerIds = overview.assignments.flatMap((assignment) => assignment.layerIds);
+  const currentLayerIds = [...new Set([...assignedLayerIds, ...requestedLayers])];
+  const currentLayers = runtime.state.currentSnapshots(runtime.host.partition, value, currentLayerIds)
     .filter((layer) => layer.configVersion === String(overview.configuration.version));
+  const layers = requestedLayers.length > 0
+    ? currentLayers.filter((layer) => requestedLayers.includes(layer.layerId))
+    : currentLayers;
+  const health = runtime.host.health(value, currentLayers);
   return {
     partition: runtime.host.partition,
     scope: value,
     at: layers.reduce<string | null>((latest, layer) => !latest || layer.generatedAt > latest ? layer.generatedAt : latest, null),
     topology: overview.topology,
     layers,
+    health,
     warnings: overview.warnings,
   };
 }
@@ -207,9 +258,13 @@ function history(runtime: LocalSpatialLayerRuntime, value: SpatialScope, request
   return { partition: runtime.host.partition, scope: value, from, to, layers };
 }
 
-async function configuration(runtime: LocalSpatialLayerRuntime, value: SpatialScope): Promise<Record<string, unknown>> {
+async function configuration(
+  runtime: LocalSpatialLayerRuntime,
+  value: SpatialScope,
+  signal?: AbortSignal,
+): Promise<Record<string, unknown>> {
   requireScope(runtime, value);
-  return { ...(await runtime.host.describeScope(value)) };
+  return { ...(await runtime.host.describeScope(value, undefined, signal)) };
 }
 
 async function saveConfiguration(
@@ -217,6 +272,7 @@ async function saveConfiguration(
   value: SpatialScope,
   request: Request,
   createdBy: string | null,
+  signal?: AbortSignal,
 ): Promise<Record<string, unknown>> {
   requireScope(runtime, value);
   const body = bodyObject(request.body);
@@ -263,7 +319,7 @@ async function saveConfiguration(
     createdBy,
   });
   runtime.scheduler.enqueueScope(value, new Date().toISOString(), "configuration-changed", true);
-  const overview = await runtime.host.describeScope(value);
+  const overview = await runtime.host.describeScope(value, undefined, signal);
   return { ...overview, configuration: saved.configuration, assignments: saved.assignments };
 }
 
@@ -273,7 +329,12 @@ function vector3(value: unknown): Vector3 {
   return { x: finiteNumber(body, "x"), y: finiteNumber(body, "y"), z: finiteNumber(body, "z") };
 }
 
-async function addBinding(runtime: LocalSpatialLayerRuntime, houseId: string, request: Request): Promise<StoredSpatialSensorBinding> {
+async function addBinding(
+  runtime: LocalSpatialLayerRuntime,
+  houseId: string,
+  request: Request,
+  signal?: AbortSignal,
+): Promise<StoredSpatialSensorBinding> {
   const body = bodyObject(request.body);
   rejectUnknownFields(body, new Set([
     "id", "sensorId", "zoneId", "frameId", "position", "role", "activeFrom", "activeTo", "placementRisks",
@@ -293,7 +354,7 @@ async function addBinding(runtime: LocalSpatialLayerRuntime, houseId: string, re
   const placementRisks = body.placementRisks === undefined
     ? undefined
     : stringArray(body.placementRisks, "placementRisks").map((risk) => enumValue(risk, PLACEMENT_RISKS, "placementRisks"));
-  const overview = await runtime.host.describeScope({ kind: "house", id: houseId });
+  const overview = await runtime.host.describeScope({ kind: "house", id: houseId }, undefined, signal);
   const zoneId = requiredString(body, "zoneId");
   const zone = overview.topology.zones.find((candidate) => candidate.id === zoneId);
   if (!zone) throw new SpatialRouteError(400, "ZONE_NOT_FOUND", `Zone ${zoneId} is not in this topology`);
@@ -410,7 +471,15 @@ export function registerSpatialLayerRoutes(
   for (const kind of ["house", "property"] as const) {
     const collection = kind === "house" ? "houses" : "properties";
     const base = `${prefix}/${collection}/:id/layers`;
-    app.get(`${base}/current`, asyncRoute(async (request, response) => { response.json(await current(requireRuntime(options.runtime), authorizedScope(options, kind, request, response), request)); }));
+    app.get(`${base}/current`, asyncRoute(async (request, response) => {
+      const body = await withClientAbort(response, (signal) => current(
+        requireRuntime(options.runtime),
+        authorizedScope(options, kind, request, response),
+        request,
+        signal,
+      ));
+      if (!response.destroyed && !response.writableEnded) response.json(body);
+    }));
     app.get(`${base}/history`, (request, response) => { try { response.json(history(requireRuntime(options.runtime), authorizedScope(options, kind, request, response), request)); } catch (error) { sendError(response, error); } });
     app.get(`${base}/health`, (request, response) => {
       try {
@@ -418,21 +487,23 @@ export function registerSpatialLayerRoutes(
         response.json({ partition: runtime.host.partition, scope: value, engines: runtime.host.health(value) });
       } catch (error) { sendError(response, error); }
     });
-    app.get(`${base}/config`, asyncRoute(async (request, response) => { response.json(await configuration(requireRuntime(options.runtime), authorizedScope(options, kind, request, response))); }));
-    app.put(`${base}/config`, asyncRoute(async (request, response) => {
-      response.json(await saveConfiguration(
+    app.get(`${base}/config`, asyncRoute(async (request, response) => {
+      const body = await withClientAbort(response, (signal) => configuration(
         requireRuntime(options.runtime),
         authorizedScope(options, kind, request, response),
+        signal,
+      ));
+      if (!response.destroyed && !response.writableEnded) response.json(body);
+    }));
+    app.put(`${base}/config`, asyncRoute(async (request, response) => {
+      const body = await withClientAbort(response, (signal) => saveConfiguration(
+        requireRuntime(options.runtime),
+        authorizedMutationScope(options, kind, request, response),
         request,
         auditActor(options, request, response),
+        signal,
       ));
-    }));
-    app.post(`${base}/infer`, asyncRoute(async (request, response) => {
-      const runtime = requireRuntime(options.runtime); const value = authorizedScope(options, kind, request, response); requireScope(runtime, value);
-      const body = bodyObject(request.body);
-      rejectUnknownFields(body, new Set(["bucketAt", "layers"]), "Spatial layer inference");
-      const bucketAt = isoTimestamp(body.bucketAt, "bucketAt", new Date().toISOString());
-      response.json(await runtime.host.inferScope(value, bucketAt, stringArray(body.layers, "layers")));
+      if (!response.destroyed && !response.writableEnded) response.json(body);
     }));
     app.get(`${base}/ground-truth`, (request, response) => {
       try {
@@ -442,7 +513,7 @@ export function registerSpatialLayerRoutes(
     });
     app.post(`${base}/ground-truth`, (request, response) => {
       try {
-        const runtime = requireRuntime(options.runtime); const value = authorizedScope(options, kind, request, response); requireScope(runtime, value);
+        const runtime = requireRuntime(options.runtime); const value = authorizedMutationScope(options, kind, request, response); requireScope(runtime, value);
         response.status(201).json({
           groundTruth: addTruth(runtime, value, request, auditActor(options, request, response)),
         });
@@ -451,20 +522,56 @@ export function registerSpatialLayerRoutes(
   }
 
   const houseBase = `${prefix}/houses/:id/layers`;
+  app.get(`${houseBase}/inference-session`, (request, response) => { try {
+    const runtime = requireRuntime(options.runtime);
+    const value = authorizedScope(options, "house", request, response);
+    requireScope(runtime, value);
+    response.json({ session: runtime.scheduler.houseSession(value.id) });
+  } catch (error) { sendError(response, error); } });
+  app.post(`${houseBase}/inference-session`, (request, response) => { try {
+    const runtime = requireRuntime(options.runtime);
+    const value = authorizedMutationScope(options, "house", request, response);
+    requireScope(runtime, value);
+    const body = bodyObject(request.body);
+    rejectUnknownFields(body, new Set(["durationMinutes", "cadenceMinutes"]), "Spatial inference session");
+    const durationMinutes = optionalInteger(body, "durationMinutes");
+    const cadenceMinutes = optionalInteger(body, "cadenceMinutes");
+    response.status(201).json({
+      session: runtime.scheduler.startHouseSession({
+        houseId: value.id,
+        ...(durationMinutes === undefined ? {} : { durationMinutes }),
+        ...(cadenceMinutes === undefined ? {} : { cadenceMinutes }),
+        createdBy: auditActor(options, request, response),
+      }),
+    });
+  } catch (error) { sendError(response, error); } });
+  app.delete(`${houseBase}/inference-session`, (request, response) => { try {
+    const runtime = requireRuntime(options.runtime);
+    const value = authorizedMutationScope(options, "house", request, response);
+    requireScope(runtime, value);
+    const stopped = runtime.scheduler.stopHouseSession(value.id);
+    response.json({ session: stopped ?? runtime.scheduler.houseSession(value.id) });
+  } catch (error) { sendError(response, error); } });
   app.get(`${houseBase}/bindings`, (request, response) => { try {
     const runtime = requireRuntime(options.runtime); requireScope(runtime, authorizedScope(options, "house", request, response));
     response.json({ bindings: runtime.state.listBindings(runtime.host.partition, pathId(request)) });
   } catch (error) { sendError(response, error); } });
   app.post(`${houseBase}/bindings`, asyncRoute(async (request, response) => {
-    authorizedScope(options, "house", request, response);
-    response.status(201).json({ binding: await addBinding(requireRuntime(options.runtime), pathId(request), request) });
+    authorizedMutationScope(options, "house", request, response);
+    const binding = await withClientAbort(response, (signal) => addBinding(
+      requireRuntime(options.runtime),
+      pathId(request),
+      request,
+      signal,
+    ));
+    if (!response.destroyed && !response.writableEnded) response.status(201).json({ binding });
   }));
   app.get(`${houseBase}/calibrations`, (request, response) => { try {
     const runtime = requireRuntime(options.runtime); requireScope(runtime, authorizedScope(options, "house", request, response));
     response.json({ calibrations: runtime.state.listCalibrations(runtime.host.partition, pathId(request)) });
   } catch (error) { sendError(response, error); } });
   app.post(`${houseBase}/calibrations`, (request, response) => { try {
-    authorizedScope(options, "house", request, response);
+    authorizedMutationScope(options, "house", request, response);
     response.status(201).json({ calibration: addCalibration(requireRuntime(options.runtime), pathId(request), request.body) });
   } catch (error) { sendError(response, error); } });
   app.get(`${houseBase}/calibration-sessions`, (request, response) => { try {
@@ -473,7 +580,7 @@ export function registerSpatialLayerRoutes(
   } catch (error) { sendError(response, error); } });
   app.post(`${houseBase}/calibration-sessions`, (request, response) => { try {
     const runtime = requireRuntime(options.runtime);
-    requireScope(runtime, authorizedScope(options, "house", request, response));
+    requireScope(runtime, authorizedMutationScope(options, "house", request, response));
     const body = bodyObject(request.body);
     rejectUnknownFields(body, new Set([
       "id", "kind", "status", "startAt", "endAt", "intervention", "notes", "calibrations",
@@ -506,7 +613,7 @@ export function registerSpatialLayerRoutes(
   } catch (error) { sendError(response, error); } });
   app.post(`${houseBase}/context-events`, (request, response) => { try {
     const runtime = requireRuntime(options.runtime);
-    requireScope(runtime, authorizedScope(options, "house", request, response));
+    requireScope(runtime, authorizedMutationScope(options, "house", request, response));
     response.status(201).json({ event: addContext(runtime, pathId(request), request) });
   } catch (error) { sendError(response, error); } });
 

@@ -6,7 +6,7 @@ const mocks = vi.hoisted(() => ({ houseWeather: vi.fn() }));
 
 vi.mock("./api", () => ({ api: { houseWeather: mocks.houseWeather } }));
 
-import { HOUSE_WEATHER_REFRESH_MS, publishHouseWeatherUpdate, useHouseWeather } from "./useHouseWeather";
+import { HOUSE_WEATHER_REVALIDATE_MIN_MS, publishHouseWeatherUpdate, useHouseWeather } from "./useHouseWeather";
 
 function house(id: string, located = true, latitude = 60.17): House {
   return {
@@ -145,8 +145,9 @@ describe("useHouseWeather", () => {
     expect(result.current.error).toBeNull();
   });
 
-  it("refreshes automatically every ten minutes", async () => {
+  it("uses SSE by default and only revalidates the local snapshot when a stale tab regains focus", async () => {
     vi.useFakeTimers();
+    vi.setSystemTime(1_000);
     const selected = house("timer");
     mocks.houseWeather.mockResolvedValue(weather(selected, 6));
     const { result } = renderHook(() => useHouseWeather(selected));
@@ -154,7 +155,15 @@ describe("useHouseWeather", () => {
     expect(mocks.houseWeather).toHaveBeenCalledTimes(1);
 
     await act(async () => {
-      vi.advanceTimersByTime(HOUSE_WEATHER_REFRESH_MS);
+      vi.advanceTimersByTime(HOUSE_WEATHER_REVALIDATE_MIN_MS - 1);
+      window.dispatchEvent(new Event("focus"));
+      await Promise.resolve();
+    });
+    expect(mocks.houseWeather).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      vi.advanceTimersByTime(1);
+      window.dispatchEvent(new Event("focus"));
       await Promise.resolve();
     });
     expect(mocks.houseWeather).toHaveBeenCalledTimes(2);

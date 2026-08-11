@@ -43,9 +43,20 @@ system described in the roadmap.
 - Bucketed measurement analytics and sensor-based daily findings are computed
   inside PostgreSQL over the complete archived range, so high-frequency source
   rows no longer hit the API's raw-history cap. Output budgets still fail
-  explicitly instead of truncating. Standalone SQLite and raw queries remain
-  bounded, and there are no specialized persisted semantic rollups, semantic
-  cache, or late-data invalidation jobs yet.
+  explicitly instead of truncating. Thermal isolation, moisture response, and
+  Home Performance now have persisted last-good artifacts and daily jobs, but
+  other analytics have no specialized semantic rollup or late-data
+  invalidation job yet. Measurement imports, sensor-gap recovery, weather
+  backfill, and opening history that overlap a retained evaluated window mark
+  these three artifacts stale; routine samples after the evaluated cutoff do
+  not. Other late-changing Home Performance evidence may still require a manual
+  refresh before the next completed-day identity.
+- Durable derived fits run one at a time and behind foreground work. Thermal
+  isolation and moisture-response numerical fitting use one resource-limited
+  worker thread, so those fitting loops do not occupy the API event loop. Home
+  Performance derivation and the bounded structured-clone handoff still share
+  the API process, and the worker is thread isolation rather than a separate
+  operating-system process.
 - Calendar comparison discovers the selected series' range on demand and uses
   bounded internal queries. If complete retained history cannot be proven, the
   server rejects the whole comparison with a typed unavailable-history result;
@@ -197,15 +208,21 @@ system described in the roadmap.
   manual coordinate/country can choose the wrong path. Open-Meteo coverage and
   model availability also vary by location, and this adapter provides no
   official warning service outside FMI's covered Finnish path.
-- The 10-minute weather cache is process-local and not historical storage. A
-  failed refresh can return the previous same-location/same-horizon response as
-  `stale` for up to 60 minutes; expired forecast points and warnings are
-  removed. Restart or a `House.location` change removes that fallback.
-- The production background monitor refreshes all located homes with concurrency
-  two, jitter, and per-home exponential backoff, but its schedule/backoff state
+- The durable weather record is one bounded 48-hour last-good snapshot per Home,
+  not forecast history. A failed monitor refresh preserves the same-location
+  snapshot as `stale`, and expired forecast points and warnings are removed. A
+  `House.location` change fences the old snapshot out.
+- The production background monitor refreshes located Homes sequentially with
+  jitter and per-Home exponential backoff, but its schedule/backoff state
   is process-local. Restarting the API resets that operational state. Provider
-  quotas still need to be budgeted across the number of homes, replicas, manual
-  refreshes, and other clients.
+  quotas still need to be budgeted across the number of homes, replicas, and
+  other provider clients. Browser and MCP reads use only the local snapshot.
+- FMI network and recovery work is serialized and its built-in requests have
+  time and response-size limits, but FMI XML parsing still runs synchronously in
+  the API process. Cancellation and the recovery wall-time budget cannot
+  preempt a parse already in progress. Page loads never start this provider
+  work, but a scheduled refresh can still cause a short event-loop/CPU spike;
+  moving parsing to an isolated worker remains follow-up work.
 - The provider-neutral weather broker and local weather SSE fan-out are also
   process-local, not a durable event log. Identical cache replays coalesce and
   events have stable IDs, but disconnected clients must reload the house weather

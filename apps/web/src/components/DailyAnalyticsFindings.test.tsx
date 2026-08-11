@@ -111,7 +111,7 @@ describe("DailyAnalyticsFindings", () => {
         state: "stale-algorithm",
         lastAttemptAt: "2026-07-22T01:00:00.000Z",
         lastError: null,
-        expectedAlgorithmVersion: "calendar-peer-findings-v2.0.0",
+        expectedAlgorithmVersion: "calendar-peer-findings-v3.0.0",
         actualAlgorithmVersion: "calendar-peer-findings-v1.0.0",
       },
       snapshot: {

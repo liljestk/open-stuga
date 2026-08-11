@@ -98,9 +98,51 @@ import { CORE_SCHEMA_SQL } from "../migrations/core-schema.js";
 import { DEFAULT_PROPERTY_ID } from "../support/01-json-value-to-area-equipment-row.js";
 import { registerDatabaseMethods } from "../core.js";
 
+export const SENSOR_SOURCE_METRICS_RECENT_ROWID_WINDOW = 10_000;
+export const SENSOR_SOURCE_METRICS_RECENT_ROWS_SQL = `SELECT sensor_id, source, metric
+  FROM measurement_samples
+  WHERE id > ? AND source IN ('home-assistant', 'tp-link')`;
+
 registerDatabaseMethods({
   migrateCoreAndResourceSchema(): void {
       this.db.exec(CORE_SCHEMA_SQL);
+      const recentSourceMetricsSeeded = this.db.prepare(
+        "SELECT 1 FROM metadata WHERE key = 'sensor_source_metrics_recent_samples_v1'",
+      ).get();
+      if (!recentSourceMetricsSeeded) {
+        const sampleMaxId = Number((this.db.prepare(
+          "SELECT COALESCE(MAX(id), 0) AS maximum FROM measurement_samples",
+        ).get() as { maximum: number }).maximum);
+        const afterId = Math.max(0, sampleMaxId - SENSOR_SOURCE_METRICS_RECENT_ROWID_WINDOW);
+        // A small exact-source tail covers active integrations during upgrade.
+        // The INTEGER PRIMARY KEY range is fixed; it never walks full history.
+        this.db.prepare(`INSERT OR IGNORE INTO sensor_source_metrics(sensor_id, source, metric)
+          ${SENSOR_SOURCE_METRICS_RECENT_ROWS_SQL}`).run(afterId);
+        this.db.prepare(`INSERT INTO metadata(key, value)
+          VALUES ('sensor_source_metrics_recent_samples_v1', ?)`).run(String(sampleMaxId));
+      }
+      const sourceMetricGapMaxId = Number((this.db.prepare(
+        "SELECT COALESCE(MAX(id), 0) AS maximum FROM sensor_data_gaps",
+      ).get() as { maximum: number }).maximum);
+      const sourceMetricGapCheckpoint = Number((this.db.prepare(
+        "SELECT value FROM metadata WHERE key = 'sensor_source_metrics_gap_rowid_v1'",
+      ).get() as { value?: string } | undefined)?.value ?? 0);
+      if (!Number.isSafeInteger(sourceMetricGapCheckpoint)
+          || sourceMetricGapCheckpoint < sourceMetricGapMaxId) {
+        const afterId = Number.isSafeInteger(sourceMetricGapCheckpoint)
+          && sourceMetricGapCheckpoint >= 0
+          ? sourceMetricGapCheckpoint
+          : 0;
+        // Preserve known offline-device capabilities on upgrade without ever
+        // scanning retained measurement history. The persistent insert trigger
+        // covers rollback writes; this high-watermark repair covers its absence.
+        this.db.prepare(`INSERT OR IGNORE INTO sensor_source_metrics(sensor_id, source, metric)
+          SELECT sensor_id, source, metric FROM sensor_data_gaps WHERE id > ?`).run(afterId);
+        this.db.prepare(`INSERT INTO metadata(key, value)
+            VALUES ('sensor_source_metrics_gap_rowid_v1', ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value`)
+          .run(String(sourceMetricGapMaxId));
+      }
       const recordedMeasurementsMigrated = this.db.prepare(
         "SELECT 1 FROM metadata WHERE key = 'sensor_recorded_measurements_v1'",
       ).get();
@@ -241,6 +283,134 @@ registerDatabaseMethods({
             CREATE INDEX IF NOT EXISTS idx_opening_state_provider_time
               ON opening_state_observations(house_id, floor_id, element_id, source, external_id, connection_id, observed_at DESC);
           `);
+      const openingStateCandidatesMigrated = this.db.prepare(
+        "SELECT 1 FROM metadata WHERE key = 'opening_state_current_candidates_v1'",
+      ).get();
+      if (!openingStateCandidatesMigrated) {
+        // Current reads need only the interval skyline for each source/binding
+        // lane. A newer row permanently hides an older row when it remains
+        // effective at least as long; shorter temporary rows retain the older
+        // fallback that must reappear after expiry. Provider ceilings use the
+        // maximum supported staleness so later binding changes remain correct.
+        this.db.exec(`
+          DELETE FROM opening_state_current_candidates;
+          INSERT INTO opening_state_current_candidates(
+            observation_id, house_id, floor_id, element_id, lane_key, observed_at, effective_until_ceiling
+          )
+          SELECT id, house_id, floor_id, element_id,
+            CASE
+              WHEN source IN ('manual', 'api') THEN json_array(source)
+              ELSE json_array(source, COALESCE(external_id, ''), COALESCE(connection_id, ''))
+            END,
+            observed_at,
+            CASE
+              WHEN source IN ('home-assistant', 'tapo') THEN CASE
+                WHEN valid_until IS NULL THEN strftime('%Y-%m-%dT%H:%M:%fZ', observed_at, '+30 days')
+                WHEN valid_until <= strftime('%Y-%m-%dT%H:%M:%fZ', observed_at, '+30 days') THEN valid_until
+                ELSE strftime('%Y-%m-%dT%H:%M:%fZ', observed_at, '+30 days')
+              END
+              ELSE valid_until
+            END
+          FROM opening_state_observations;
+          DELETE FROM opening_state_current_candidates
+          WHERE effective_until_ceiling IS NOT NULL
+            AND effective_until_ceiling <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now');
+          DELETE FROM opening_state_current_candidates
+          WHERE EXISTS (
+            SELECT 1 FROM opening_state_current_candidates AS newer
+            WHERE newer.house_id = opening_state_current_candidates.house_id
+              AND newer.floor_id = opening_state_current_candidates.floor_id
+              AND newer.element_id = opening_state_current_candidates.element_id
+              AND newer.lane_key = opening_state_current_candidates.lane_key
+              AND newer.observed_at <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+              AND (
+                newer.observed_at > opening_state_current_candidates.observed_at
+                OR (
+                  newer.observed_at = opening_state_current_candidates.observed_at
+                  AND newer.observation_id > opening_state_current_candidates.observation_id
+                )
+              )
+              AND (
+                newer.effective_until_ceiling IS NULL
+                OR (
+                  opening_state_current_candidates.effective_until_ceiling IS NOT NULL
+                  AND newer.effective_until_ceiling >= opening_state_current_candidates.effective_until_ceiling
+                )
+              )
+          );
+          INSERT INTO metadata(key, value) VALUES ('opening_state_current_candidates_v1', 'complete');
+          INSERT OR REPLACE INTO metadata(key, value)
+            SELECT 'opening_state_current_candidates_rowid_v2', CAST(COALESCE(MAX(rowid), 0) AS TEXT)
+            FROM opening_state_observations;
+        `);
+      }
+      const openingStateCandidateMaxRow = Number((this.db.prepare(
+        "SELECT COALESCE(MAX(rowid), 0) AS maximum FROM opening_state_observations",
+      ).get() as { maximum: number }).maximum);
+      const openingStateCandidateCheckpoint = Number((this.db.prepare(
+        "SELECT value FROM metadata WHERE key = 'opening_state_current_candidates_rowid_v2'",
+      ).get() as { value?: string } | undefined)?.value ?? 0);
+      if (!Number.isSafeInteger(openingStateCandidateCheckpoint)
+          || openingStateCandidateCheckpoint < openingStateCandidateMaxRow) {
+        const afterRowId = Number.isSafeInteger(openingStateCandidateCheckpoint)
+          && openingStateCandidateCheckpoint >= 0
+          ? openingStateCandidateCheckpoint
+          : 0;
+        // The insert trigger survives an application rollback because it lives
+        // in SQLite. This bounded high-watermark repair also covers rows written
+        // by a legacy binary if that trigger was absent or temporarily damaged.
+        this.db.prepare(`INSERT OR IGNORE INTO opening_state_current_candidates(
+            observation_id, house_id, floor_id, element_id, lane_key, observed_at, effective_until_ceiling
+          )
+          SELECT id, house_id, floor_id, element_id,
+            CASE
+              WHEN source IN ('manual', 'api') THEN json_array(source)
+              ELSE json_array(source, COALESCE(external_id, ''), COALESCE(connection_id, ''))
+            END,
+            observed_at,
+            CASE
+              WHEN source IN ('home-assistant', 'tapo') THEN CASE
+                WHEN valid_until IS NULL THEN strftime('%Y-%m-%dT%H:%M:%fZ', observed_at, '+30 days')
+                WHEN valid_until <= strftime('%Y-%m-%dT%H:%M:%fZ', observed_at, '+30 days') THEN valid_until
+                ELSE strftime('%Y-%m-%dT%H:%M:%fZ', observed_at, '+30 days')
+              END
+              ELSE valid_until
+            END
+          FROM opening_state_observations
+          WHERE rowid > ?`).run(afterRowId);
+        this.db.exec(`
+          DELETE FROM opening_state_current_candidates
+          WHERE effective_until_ceiling IS NOT NULL
+            AND effective_until_ceiling <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now');
+          DELETE FROM opening_state_current_candidates
+          WHERE EXISTS (
+            SELECT 1 FROM opening_state_current_candidates AS newer
+            WHERE newer.house_id = opening_state_current_candidates.house_id
+              AND newer.floor_id = opening_state_current_candidates.floor_id
+              AND newer.element_id = opening_state_current_candidates.element_id
+              AND newer.lane_key = opening_state_current_candidates.lane_key
+              AND newer.observed_at <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+              AND (
+                newer.observed_at > opening_state_current_candidates.observed_at
+                OR (
+                  newer.observed_at = opening_state_current_candidates.observed_at
+                  AND newer.observation_id > opening_state_current_candidates.observation_id
+                )
+              )
+              AND (
+                newer.effective_until_ceiling IS NULL
+                OR (
+                  opening_state_current_candidates.effective_until_ceiling IS NOT NULL
+                  AND newer.effective_until_ceiling >= opening_state_current_candidates.effective_until_ceiling
+                )
+              )
+          );
+        `);
+        this.db.prepare(`INSERT INTO metadata(key, value)
+            VALUES ('opening_state_current_candidates_rowid_v2', ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value`)
+          .run(String(openingStateCandidateMaxRow));
+      }
       const propertyColumns = this.db.prepare("PRAGMA table_info(properties)").all() as unknown as Array<{ name: string }>;
       if (!propertyColumns.some((column) => column.name === "stugby_json")) {
             this.db.exec("ALTER TABLE properties ADD COLUMN stugby_json TEXT");

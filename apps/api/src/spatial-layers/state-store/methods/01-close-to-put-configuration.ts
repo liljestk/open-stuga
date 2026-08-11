@@ -38,9 +38,10 @@ registerSpatialLayerStateStoreMethods({
       } finally {
         this[spatialLayerStateStoreState].transactionDepth -= 1;
       }
-    },
+  },
   migrate(this: SpatialLayerStateStoreInternals): void {
-      this.transaction(() => this.db.exec(`
+      this.transaction(() => {
+        this.db.exec(`
         CREATE TABLE IF NOT EXISTS spatial_metadata (
           key TEXT PRIMARY KEY,
           value TEXT NOT NULL
@@ -166,6 +167,8 @@ registerSpatialLayerStateStoreMethods({
         );
         CREATE INDEX IF NOT EXISTS idx_spatial_runs_scope_time
           ON spatial_inference_runs(source_db_id, data_mode, scope_kind, scope_id, bucket_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_spatial_runs_engine_started
+          ON spatial_inference_runs(source_db_id, data_mode, scope_kind, scope_id, engine_id, started_at DESC);
 
         CREATE TABLE IF NOT EXISTS spatial_layer_snapshots (
           source_db_id TEXT NOT NULL,
@@ -219,6 +222,28 @@ registerSpatialLayerStateStoreMethods({
         CREATE INDEX IF NOT EXISTS idx_spatial_ground_truth_window
           ON spatial_ground_truth(source_db_id, data_mode, scope_kind, scope_id, start_at DESC);
 
+        CREATE TABLE IF NOT EXISTS spatial_inference_sessions (
+          source_db_id TEXT NOT NULL,
+          data_mode TEXT NOT NULL CHECK (data_mode IN ('demo', 'real')),
+          id TEXT NOT NULL,
+          house_id TEXT NOT NULL,
+          status TEXT NOT NULL CHECK (status IN ('active', 'stopped', 'expired')),
+          started_at TEXT NOT NULL,
+          expires_at TEXT NOT NULL,
+          cadence_minutes INTEGER NOT NULL CHECK (cadence_minutes >= 5 AND cadence_minutes <= 60),
+          next_run_at TEXT NOT NULL,
+          last_scheduled_at TEXT,
+          stopped_at TEXT,
+          created_by TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          PRIMARY KEY(source_db_id, data_mode, id)
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_spatial_one_active_session
+          ON spatial_inference_sessions(source_db_id, data_mode, house_id) WHERE status = 'active';
+        CREATE INDEX IF NOT EXISTS idx_spatial_sessions_due
+          ON spatial_inference_sessions(source_db_id, data_mode, status, next_run_at, expires_at);
+
         CREATE TABLE IF NOT EXISTS spatial_inference_jobs (
           source_db_id TEXT NOT NULL,
           data_mode TEXT NOT NULL CHECK (data_mode IN ('demo', 'real')),
@@ -232,6 +257,7 @@ registerSpatialLayerStateStoreMethods({
           attempts INTEGER NOT NULL DEFAULT 0,
           last_error TEXT,
           lock_token TEXT,
+          session_id TEXT,
           created_at TEXT NOT NULL,
           updated_at TEXT NOT NULL,
           PRIMARY KEY(source_db_id, data_mode, id),
@@ -250,7 +276,20 @@ registerSpatialLayerStateStoreMethods({
           updated_at TEXT NOT NULL,
           PRIMARY KEY(source_db_id, data_mode, scope_kind, scope_id, checkpoint_key)
         );
-      `));
+      `);
+        const jobColumns = this.db.prepare("PRAGMA table_info(spatial_inference_jobs)").all() as unknown as Array<{ name: string }>;
+        if (!jobColumns.some((column) => column.name === "session_id")) {
+          this.db.exec("ALTER TABLE spatial_inference_jobs ADD COLUMN session_id TEXT");
+        }
+        this.db.exec(`
+          CREATE INDEX IF NOT EXISTS idx_spatial_jobs_session
+            ON spatial_inference_jobs(source_db_id, data_mode, session_id, status, available_at);
+          CREATE UNIQUE INDEX IF NOT EXISTS idx_spatial_one_outstanding_session_job
+            ON spatial_inference_jobs(source_db_id, data_mode, session_id)
+            WHERE session_id IS NOT NULL AND status IN ('pending', 'running');
+          UPDATE spatial_metadata SET value = '2' WHERE key = 'schema_version';
+        `);
+      });
     },
   /**
      * Re-keys state written by the former database-path identity scheme to the
