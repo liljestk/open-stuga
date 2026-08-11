@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
+import type { AnalyticsSeries } from "@climate-twin/contracts";
 import { createDemoState } from "../domain";
 import { I18nProvider } from "../i18n";
 import {
@@ -71,7 +72,7 @@ describe("SensorAnalyticsChart", () => {
     expect(container.querySelectorAll(".sensor-series-line")).toHaveLength(sensors.length);
     expect(container.querySelector(".sensor-aggregate-line")).not.toBeNull();
     expect(container.querySelector(".sensor-prediction-line")).not.toBeNull();
-    expect(onLoadSeries).toHaveBeenCalledTimes(sensors.length);
+    expect(onLoadSeries).not.toHaveBeenCalled();
     expect(screen.getByRole("option", { name: "Power" })).not.toBeNull();
     expect(screen.getByRole("group", { name: "History" })).not.toBeNull();
     expect(screen.getByRole("button", { name: "1 year" })).not.toBeNull();
@@ -99,7 +100,7 @@ describe("SensorAnalyticsChart", () => {
 
     await user.click(screen.getByText(/Show accessible data table/));
     expect(screen.getByRole("region", { name: "Analytics source data" })).not.toBeNull();
-    expect(screen.getByRole("link", { name: "Download exact data as CSV" }).getAttribute("download")).toBe("stugu-temperature-24h.csv");
+    expect(screen.getByRole("button", { name: "Download CSV" })).not.toBeNull();
     expect(screen.getByRole("columnheader", { name: "Coverage" })).not.toBeNull();
     expect(screen.getByRole("columnheader", { name: "Gap before reading" })).not.toBeNull();
 
@@ -149,7 +150,7 @@ describe("SensorAnalyticsChart", () => {
     expect(screen.getByRole("img", { name: new RegExp(selected.name) })).not.toBeNull();
     expect(container.querySelectorAll(".sensor-series-line")).toHaveLength(1);
     expect(container.querySelector(".sensor-aggregate-line")).toBeNull();
-    expect(onLoadSeries).toHaveBeenCalledTimes(1);
+    expect(onLoadSeries).not.toHaveBeenCalled();
   });
 
   it("supports an arbitrary multi-sensor comparison", () => {
@@ -230,7 +231,7 @@ describe("SensorAnalyticsChart", () => {
     expect(screen.queryByText("Latest reading")).toBeNull();
     expect(screen.getByText("Compare calendar periods · Historical · Archived")).not.toBeNull();
     expect(screen.getAllByText(archivedName).length).toBeGreaterThan(1);
-    expect(onLoadSeries).toHaveBeenCalledWith(archivedSensor.id, "temperature", "24h", false);
+    expect(onLoadSeries).not.toHaveBeenCalled();
 
     await user.click(screen.getByText(/Show accessible data table/));
     expect(screen.getAllByRole("rowheader", { name: archivedName }).length).toBeGreaterThan(0);
@@ -393,5 +394,193 @@ describe("SensorAnalyticsChart", () => {
 
     expect(screen.getAllByText("Property electricity price").length).toBeGreaterThan(0);
     expect(container.querySelector(".sensor-electricity-price-line")).not.toBeNull();
+  });
+
+  it("renders batched analytics series and materializes paginated export rows only on demand", async () => {
+    const user = userEvent.setup();
+    const state = createDemoState();
+    const house = state.houses[0]!;
+    const sensor = state.sensors.find((candidate) => candidate.houseId === house.id && candidate.enabled)!;
+    const end = Date.now() - 60_000;
+    const points = Array.from({ length: 300 }, (_, index) => ({
+      timestamp: new Date(end - (299 - index) * 60_000).toISOString(),
+      value: 18 + index / 100,
+      minimum: 18 + index / 100,
+      maximum: 18 + index / 100,
+      sampleCount: 1,
+      coverage: 1,
+      qualityFlags: [],
+    }));
+    const analyticsSeries = [{
+      entityId: sensor.id,
+      entityLabel: sensor.name,
+      measurementId: "temperature",
+      canonicalUnit: "°C",
+      truthClass: "derived",
+      aggregation: "mean",
+      resolution: "5m",
+      points,
+      summary: {
+        entityId: sensor.id,
+        measurementId: "temperature",
+        canonicalUnit: "°C",
+        count: points.length,
+        coverage: 1,
+        minimum: 18,
+        maximum: 20.99,
+        mean: 19.495,
+        median: 19.495,
+        standardDeviation: 0.86,
+        medianAbsoluteDeviation: 0.75,
+        p05: 18.15,
+        p95: 20.84,
+      },
+      provenance: {
+        algorithmKey: "analytics-bucket-rollup",
+        algorithmVersion: "1.0.0",
+        generatedAt: new Date(end).toISOString(),
+        inputStart: points[0]!.timestamp,
+        inputEnd: points.at(-1)!.timestamp,
+        sourceIds: [sensor.id],
+        archiveState: "not-configured",
+      },
+    }] satisfies AnalyticsSeries[];
+    const createObjectUrl = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:analytics-export");
+    const clickAnchor = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
+    const { container } = render(
+      <I18nProvider>
+        <SensorAnalyticsChart
+          houseId={house.id}
+          dataMode="demo"
+          sensors={[sensor]}
+          history={{}}
+          forecasts={{}}
+          analyticsSeries={analyticsSeries}
+          analyticsRangeEnd={points.at(-1)!.timestamp}
+          latestMeasurements={{}}
+          definitions={state.measurementDefinitions}
+          metric="temperature"
+          units="metric"
+          range="24h"
+          timeZone={house.timezone}
+          selectedSensorIds={null}
+          weatherObservationsVisible={false}
+          weatherForecastVisible={false}
+          onMetric={vi.fn()}
+          onRange={vi.fn()}
+          onSensors={vi.fn()}
+          onWeatherObservationsVisible={vi.fn()}
+          onWeatherForecastVisible={vi.fn()}
+          onLoadSeries={vi.fn()}
+        />
+      </I18nProvider>,
+    );
+
+    expect(container.querySelectorAll(".sensor-series-line")).toHaveLength(1);
+    expect(screen.queryByRole("region", { name: "Analytics source data" })).toBeNull();
+    expect(container.querySelectorAll(".analytics-data-table tbody tr")).toHaveLength(0);
+    expect(createObjectUrl).not.toHaveBeenCalled();
+
+    await user.click(screen.getByText(/Show accessible data table/));
+
+    expect(screen.getByRole("region", { name: "Analytics source data" })).not.toBeNull();
+    expect(container.querySelectorAll(".analytics-data-table tbody tr")).toHaveLength(250);
+    expect(screen.getByRole("button", { name: /Show 50 more/ })).not.toBeNull();
+    expect(createObjectUrl).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Download CSV" }));
+
+    expect(createObjectUrl).toHaveBeenCalledOnce();
+    expect(createObjectUrl.mock.calls[0]![0]).toBeInstanceOf(Blob);
+    expect(clickAnchor).toHaveBeenCalledOnce();
+  });
+
+  it("extends a completed analytics batch with every newer local history point", async () => {
+    const user = userEvent.setup();
+    const state = createDemoState();
+    const house = state.houses[0]!;
+    const sensor = state.sensors.find((candidate) => candidate.houseId === house.id && candidate.enabled)!;
+    const boundary = Date.now() - 10 * 60_000;
+    const timestamp = (offsetMinutes: number) => new Date(boundary + offsetMinutes * 60_000).toISOString();
+    const analyticsSeries = [{
+      entityId: sensor.id,
+      entityLabel: sensor.name,
+      measurementId: "temperature",
+      canonicalUnit: "°C",
+      truthClass: "derived",
+      aggregation: "mean",
+      resolution: "5m",
+      points: [{ timestamp: timestamp(0), value: 20, minimum: 20, maximum: 20, sampleCount: 1, coverage: 1, qualityFlags: [] }],
+      summary: {
+        entityId: sensor.id,
+        measurementId: "temperature",
+        canonicalUnit: "°C",
+        count: 1,
+        coverage: 1,
+        minimum: 20,
+        maximum: 20,
+        mean: 20,
+        median: 20,
+        standardDeviation: 0,
+        medianAbsoluteDeviation: 0,
+        p05: 20,
+        p95: 20,
+      },
+      provenance: {
+        algorithmKey: "analytics-bucket-rollup",
+        algorithmVersion: "1.0.0",
+        generatedAt: timestamp(0),
+        inputStart: timestamp(-5),
+        inputEnd: timestamp(0),
+        sourceIds: [sensor.id],
+        archiveState: "not-configured",
+      },
+    }] satisfies AnalyticsSeries[];
+    const sample = (offsetMinutes: number, value: number, quality: "good" | "stale" = "good") => ({
+      sensorId: sensor.id,
+      metric: "temperature" as const,
+      value,
+      canonicalUnit: "°C",
+      timestamp: timestamp(offsetMinutes),
+      source: "tp-link" as const,
+      quality,
+    });
+    const { container } = render(
+      <I18nProvider>
+        <SensorAnalyticsChart
+          houseId={house.id}
+          dataMode="demo"
+          sensors={[sensor]}
+          history={{
+            [sensor.id]: {
+              temperature: [sample(-1, 19), sample(0, 99), sample(1, 21), sample(2, 98, "stale")],
+            },
+          }}
+          forecasts={{}}
+          analyticsSeries={analyticsSeries}
+          analyticsRangeEnd={timestamp(0)}
+          latestMeasurements={{ [sensor.id]: { temperature: sample(3, 22) } }}
+          definitions={state.measurementDefinitions}
+          metric="temperature"
+          units="metric"
+          range="24h"
+          timeZone={house.timezone}
+          selectedSensorIds={null}
+          weatherObservationsVisible={false}
+          weatherForecastVisible={false}
+          onMetric={vi.fn()}
+          onRange={vi.fn()}
+          onSensors={vi.fn()}
+          onWeatherObservationsVisible={vi.fn()}
+          onWeatherForecastVisible={vi.fn()}
+        />
+      </I18nProvider>,
+    );
+
+    expect(screen.getByText("Show accessible data table (3 rows)")).not.toBeNull();
+    await user.click(screen.getByText("Show accessible data table (3 rows)"));
+    expect(container.querySelectorAll(".analytics-data-table tbody tr")).toHaveLength(3);
+    expect(screen.queryByText(/99\.0/)).toBeNull();
+    expect(screen.queryByText(/98\.0/)).toBeNull();
   });
 });

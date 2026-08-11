@@ -323,6 +323,10 @@ export function AppShell({
 
   const navigationHidden = mobileViewport ? !menuOpen : !desktopNavigationVisible;
   const mainIsolated = mobileViewport && menuOpen;
+  const showConnectionNotice = dataMode !== "demo" && connection !== "live" && showConnectionException;
+  const showPollingNotice = dataMode !== "demo" && !showConnectionNotice && pollingFallback;
+  const showResourceNotice = dataMode !== "demo" && connection === "live"
+    && !showConnectionNotice && !showPollingNotice && resourceErrors.length > 0;
   const navigationItem = (item: NavigationItem) => {
     const Icon = pageIcons[item.id];
     const scope = item.scope === "workspace"
@@ -485,19 +489,17 @@ export function AppShell({
         <a className="skip-link" href="#main-content">{t("header.skipToContent")}</a>
         {dataMode !== "demo" && <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">{t("connectionBanner.announcement", { status: t(`status.${connection}`) })}</p>}
         {dataMode === "demo" && <div className="demo-banner" role="status" aria-atomic="true"><strong>{t("demo.bannerTitle")}</strong><span>{t("demo.bannerBody")}</span></div>}
-        {pollingFallback && dataMode !== "demo" && <div className="connection-banner reconnecting" role="status">
-          <span className="status-pulse reconnecting" aria-hidden="true" />
-          <span><strong>{t("connectionBanner.pollingTitle")}</strong><small>{t("connectionBanner.pollingBody")}</small></span>
-        </div>}
-        {resourceErrors.length > 0 && <div className="connection-banner offline" role="alert">
-          <span className="status-pulse offline" aria-hidden="true" />
-          <span><strong>{t("resourceError.title")}</strong><small>{resourceErrors.join(" ")}</small></span>
-        </div>}
-        {showConnectionException && <div className={`connection-banner ${connection}`} role="region" aria-label={t("status.dataSource")}>
+        {showConnectionNotice ? <div className={`connection-banner ${connection}`} role="region" aria-label={t("status.dataSource")}>
           <span className={`status-pulse ${connection}`} aria-hidden="true" />
           <span><strong>{t(connection === "reconnecting" ? "connectionBanner.reconnectingTitle" : "connectionBanner.offlineTitle")}</strong><small>{t(lastUpdated ? "connectionBanner.retainedBody" : "connectionBanner.noDataBody")}</small></span>
           {onRetryConnection && <button type="button" className="secondary-button" onClick={onRetryConnection}><RotateCcw size={15} aria-hidden="true" />{t("connectionBanner.retry")}</button>}
-        </div>}
+        </div> : showPollingNotice ? <div className="connection-banner reconnecting" role="status">
+          <span className="status-pulse reconnecting" aria-hidden="true" />
+          <span><strong>{t("connectionBanner.pollingTitle")}</strong><small>{t("connectionBanner.pollingBody")}</small></span>
+        </div> : showResourceNotice ? <div className="connection-banner offline" role="alert">
+          <span className="status-pulse offline" aria-hidden="true" />
+          <span><strong>{t("resourceError.title")}</strong><small>{resourceErrors.join(" ")}</small></span>
+        </div> : null}
         <header className="mobile-header">
           <button
             ref={menuButtonRef}

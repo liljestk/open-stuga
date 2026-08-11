@@ -239,6 +239,10 @@ export function registerAnalyticsRoutes(context: AnalyticsRouteContext): () => v
     }
     try {
       const startedAt = performance.now();
+      const abortController = new AbortController();
+      const abortOnClose = () => abortController.abort(new DOMException("Client disconnected", "AbortError"));
+      response.once("close", abortOnClose);
+      if (response.destroyed) abortOnClose();
       const result = await context.analyticsWorkLimiter.run(
         "opening-activity",
         () => getOpeningActivity({
@@ -246,8 +250,10 @@ export function registerAnalyticsRoutes(context: AnalyticsRouteContext): () => v
           request: input,
           telemetryReader: context.telemetryReader,
           generatedAt: new Date().toISOString(),
+          signal: abortController.signal,
         }),
-      );
+        abortController.signal,
+      ).finally(() => response.off("close", abortOnClose));
       response.setHeader("cache-control", "no-store");
       response.setHeader(
         "server-timing",

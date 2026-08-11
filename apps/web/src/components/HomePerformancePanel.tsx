@@ -115,9 +115,9 @@ export function HomePerformancePanel(props: Readonly<HomePerformancePanelProps>)
       firstRefresh.current = false;
       return;
     }
-    if (canRefresh && props.dataMode !== "unknown") void query.refresh();
-    // Only an explicit global refresh revision may enqueue background work;
-    // bootstrap/auth/data-mode changes must remain pure reads.
+    if (props.dataMode !== "unknown") void query.refetch();
+    // Global refresh only re-reads the durable artifact. The panel button is
+    // the sole UI action here that may enqueue a new computation.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.refreshRevision]);
 

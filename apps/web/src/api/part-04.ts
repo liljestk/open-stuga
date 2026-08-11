@@ -196,9 +196,10 @@ export const apiPart04 = {
       }
       return { submitted: samples.length, accepted, ignoredDuplicates };
     },
-  measurementForecast: async (sensorId: string, metric: string, hours = 12) => (
+  measurementForecast: async (sensorId: string, metric: string, hours = 12, signal?: AbortSignal) => (
       await requestV2<{ forecast: MeasurementForecastPoint[] }>(
         `/measurements/forecast?sensorId=${encodeURIComponent(sensorId)}&metric=${encodeURIComponent(metric)}&hours=${hours}`,
+        signal ? { signal } : undefined,
       )
     ).forecast,
   thermalSimulation: async (

@@ -2,13 +2,131 @@ import axe from "axe-core";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { AnalyticsQueryResponse } from "@climate-twin/contracts";
+import type { AnalyticsQueryResponse, House, Sensor } from "@climate-twin/contracts";
 import { api } from "../api";
 import { createDemoState } from "../domain";
 import { I18nProvider } from "../i18n";
 import { analyticsCsv, DataAnalyticsPage } from "./DataAnalyticsPage";
 
 const refreshWeather = vi.fn();
+
+interface Deferred<T> {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+  reject: (reason?: unknown) => void;
+}
+
+function deferred<T>(): Deferred<T> {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
+function analyticsResponseFor(house: House, sensors: Sensor[], requestId = "batched-sensors"): AnalyticsQueryResponse {
+  const end = new Date(Date.now() - 60_000).toISOString();
+  const start = new Date(Date.now() - 60 * 60_000).toISOString();
+  const summaries = sensors.map((sensor, index) => ({
+    entityId: sensor.id,
+    measurementId: "temperature",
+    canonicalUnit: "°C",
+    count: 1,
+    coverage: 1,
+    minimum: 19 + index,
+    maximum: 19 + index,
+    mean: 19 + index,
+    median: 19 + index,
+    standardDeviation: 0,
+    medianAbsoluteDeviation: 0,
+    p05: 19 + index,
+    p95: 19 + index,
+  }));
+  const provenance = sensors.map((sensor) => ({
+    algorithmKey: "analytics-bucket-rollup",
+    algorithmVersion: "1.0.0",
+    generatedAt: end,
+    inputStart: start,
+    inputEnd: end,
+    sourceIds: [sensor.id],
+    archiveState: "not-configured" as const,
+  }));
+  return {
+    apiVersion: "1.0",
+    requestId,
+    dataMode: "demo",
+    resolvedRange: { start, end, timezone: house.timezone },
+    resolution: "15m",
+    series: sensors.map((sensor, index) => ({
+      entityId: sensor.id,
+      entityLabel: sensor.name,
+      measurementId: "temperature",
+      canonicalUnit: "°C",
+      truthClass: "derived",
+      aggregation: "mean",
+      resolution: "15m",
+      points: [{
+        timestamp: end,
+        value: 19 + index,
+        minimum: 19 + index,
+        maximum: 19 + index,
+        sampleCount: 1,
+        coverage: 1,
+        qualityFlags: [],
+      }],
+      summary: summaries[index]!,
+      provenance: provenance[index]!,
+    })),
+    summaries,
+    quality: {
+      coverage: 1,
+      seriesCount: sensors.length,
+      sampleCount: sensors.length,
+      excludedSampleCount: 0,
+      includedQualities: ["good", "estimated"],
+      lowCoverageSeries: 0,
+    },
+    provenance,
+    warnings: [],
+    generatedAt: end,
+    cache: { hit: false, keyVersion: "analytics-query-v1" },
+  };
+}
+
+function stateWithTemperatureSensors(count: number) {
+  const state = createDemoState();
+  const house = state.houses[0]!;
+  const base = state.sensors.find((sensor) => sensor.houseId === house.id && sensor.enabled
+    && Boolean(state.latestMeasurements[sensor.id]?.temperature))!;
+  const baseLatest = state.latestMeasurements[base.id]!.temperature!;
+  const baseHistory = state.measurementHistory[base.id]!.temperature!;
+  const baseForecast = state.measurementForecasts[base.id]?.temperature ?? [];
+  const sensors = Array.from({ length: count }, (_, index) => ({
+    ...base,
+    id: `batch-sensor-${index + 1}`,
+    name: `Batch sensor ${index + 1}`,
+    enabled: true,
+  }));
+  state.sensors = [...state.sensors.filter((sensor) => sensor.houseId !== house.id), ...sensors];
+  for (const sensor of sensors) {
+    state.latestMeasurements[sensor.id] = {
+      temperature: { ...baseLatest, sensorId: sensor.id },
+    };
+    state.measurementHistory[sensor.id] = {
+      temperature: baseHistory.map((sample) => ({ ...sample, sensorId: sensor.id })),
+    };
+    state.measurementForecasts[sensor.id] = { temperature: [...baseForecast] };
+  }
+  return { state, house, sensors };
+}
+
+function stubAncillaryAnalyticsRequests() {
+  vi.spyOn(api, "outdoorTemperatureHistory").mockResolvedValue({ samples: [], from: "", to: "", truncated: false });
+  vi.spyOn(api, "houseElectricityPrice").mockResolvedValue({ current: null, prices: [] });
+  vi.spyOn(api, "sensorDataGaps").mockResolvedValue([]);
+}
 
 vi.mock("../useHouseWeather", () => ({
   useHouseWeather: () => ({ weather: null, loading: false, error: null, refresh: refreshWeather }),
@@ -131,6 +249,13 @@ describe("DataAnalyticsPage", () => {
     expect(screen.getAllByText("A calm recent view of comfort exposure, recovery, openings, energy, completed actions, and monitoring confidence.")).toHaveLength(1);
     await user.click(sensorsSummary);
     expect(await screen.findByRole("heading", { name: "Home sensor analytics" })).not.toBeNull();
+    await waitFor(() => expect(api.analyticsQuery).toHaveBeenCalledTimes(1));
+    const sensorBatch = vi.mocked(api.analyticsQuery).mock.calls[0]![0];
+    expect(sensorBatch.scope.kind).toBe("house");
+    expect(sensorBatch.scope.entityIds).toContain(sensor.id);
+    expect((sensorBatch.scope.entityIds ?? []).length).toBeGreaterThan(1);
+    expect(sensorBatch.measurementIds).toEqual(["temperature"]);
+    expect(onLoadSeries).not.toHaveBeenCalled();
     expect(new URLSearchParams(window.location.search).get("tools")).toBe("performance,sensors");
     await waitFor(() => expect(screen.getByText("Source has no history")).not.toBeNull());
     const accessibility = await axe.run(performancePanel, {
@@ -144,7 +269,7 @@ describe("DataAnalyticsPage", () => {
     expect(screen.getByText(/History → View All → Download/)).not.toBeNull();
     expect(screen.getAllByText(sensor.name).length).toBeGreaterThan(0);
     expect(thermalIsolation).not.toHaveBeenCalled();
-    expect(vi.mocked(api.analyticsQuery).mock.calls.some(([input]) => input.requestId.startsWith("explorer-"))).toBe(false);
+    expect(vi.mocked(api.analyticsQuery).mock.calls.every(([input]) => input.requestId.startsWith("explorer-"))).toBe(true);
     const isolationSummary = screen.getByText("Thermal isolation comparison").closest("summary");
     await user.click(isolationSummary!);
     await waitFor(() => expect(thermalIsolation).toHaveBeenCalledOnce());
@@ -157,6 +282,7 @@ describe("DataAnalyticsPage", () => {
     await user.click(evidenceSummary!);
     expect(evidenceSummary?.closest("details")?.open).toBe(true);
     await waitFor(() => expect(screen.getByText("4 samples")).not.toBeNull());
+    expect(api.analyticsQuery).toHaveBeenCalledTimes(1);
     expect(screen.getByRole("button", { name: "Export CSV" })).not.toBeNull();
     const csv = analyticsCsv({
       ...analyticsResponse,
@@ -290,6 +416,146 @@ describe("DataAnalyticsPage", () => {
     expect(window.location.hash).toBe("#history");
   });
 
+  it("aborts the batched observation request when the selected identity changes and on unmount", async () => {
+    const { state, house, sensors } = stateWithTemperatureSensors(3);
+    stubAncillaryAnalyticsRequests();
+    const signals: AbortSignal[] = [];
+    const analyticsQuery = vi.spyOn(api, "analyticsQuery").mockImplementation((_input, signal) => {
+      signals.push(signal!);
+      return new Promise<AnalyticsQueryResponse>(() => undefined);
+    });
+    const onLoadSeries = vi.fn();
+    const user = userEvent.setup();
+    const view = render(<I18nProvider><DataAnalyticsPage
+      state={state}
+      house={house}
+      units="metric"
+      dataMode="demo"
+      onLoadSeries={onLoadSeries}
+    /></I18nProvider>);
+
+    await user.click(screen.getByText("Home sensor analytics").closest("summary")!);
+    await waitFor(() => expect(analyticsQuery).toHaveBeenCalledTimes(1));
+    expect(analyticsQuery.mock.calls[0]![0].scope.entityIds).toEqual(sensors.map((sensor) => sensor.id));
+    expect(signals[0]!.aborted).toBe(false);
+    expect(onLoadSeries).not.toHaveBeenCalled();
+
+    const sourcePicker = screen.getByLabelText("Choose data series").closest("details")!;
+    await user.click(within(sourcePicker).getByLabelText(sensors[0]!.name));
+
+    await waitFor(() => expect(analyticsQuery).toHaveBeenCalledTimes(2));
+    expect(signals[0]!.aborted).toBe(true);
+    expect(analyticsQuery.mock.calls[1]![0].scope.entityIds).toEqual(sensors.slice(1).map((sensor) => sensor.id));
+    expect(analyticsQuery.mock.calls[1]![0].requestId).not.toBe(analyticsQuery.mock.calls[0]![0].requestId);
+    expect(signals[1]!.aborted).toBe(false);
+
+    view.unmount();
+    expect(signals[1]!.aborted).toBe(true);
+  });
+
+  it("starts at most two optional forecasts after the observed batch without holding observed loading", async () => {
+    const { state, house, sensors } = stateWithTemperatureSensors(4);
+    stubAncillaryAnalyticsRequests();
+    const observed = deferred<AnalyticsQueryResponse>();
+    const analyticsQuery = vi.spyOn(api, "analyticsQuery").mockReturnValue(observed.promise);
+    const pendingForecasts: Deferred<[]>[] = [];
+    let activeForecasts = 0;
+    let maximumActiveForecasts = 0;
+    const measurementForecast = vi.spyOn(api, "measurementForecast").mockImplementation(() => {
+      const pending = deferred<[]>();
+      pendingForecasts.push(pending);
+      activeForecasts += 1;
+      maximumActiveForecasts = Math.max(maximumActiveForecasts, activeForecasts);
+      return pending.promise.finally(() => {
+        activeForecasts -= 1;
+      });
+    });
+    const user = userEvent.setup();
+    const { container } = render(<I18nProvider><DataAnalyticsPage
+      state={state}
+      house={house}
+      units="metric"
+      dataMode="demo"
+      onLoadSeries={vi.fn()}
+    /></I18nProvider>);
+
+    await user.click(screen.getByText("Home sensor analytics").closest("summary")!);
+    await waitFor(() => expect(analyticsQuery).toHaveBeenCalledTimes(1));
+    expect(analyticsQuery.mock.calls[0]![0].scope.entityIds).toEqual(sensors.map((sensor) => sensor.id));
+    expect(measurementForecast).not.toHaveBeenCalled();
+
+    act(() => observed.resolve(analyticsResponseFor(house, sensors, analyticsQuery.mock.calls[0]![0].requestId)));
+
+    await waitFor(() => expect(measurementForecast).toHaveBeenCalledTimes(2));
+    expect(maximumActiveForecasts).toBe(2);
+    expect(activeForecasts).toBe(2);
+    expect(await screen.findByRole("img", { name: /Combined Temperature history/ })).not.toBeNull();
+    const pageRefresh = container.querySelector<HTMLButtonElement>(".analytics-page-heading > button")!;
+    await waitFor(() => expect(pageRefresh).not.toBeDisabled());
+
+    act(() => pendingForecasts[0]!.resolve([]));
+    await waitFor(() => expect(measurementForecast).toHaveBeenCalledTimes(3));
+    expect(maximumActiveForecasts).toBe(2);
+    expect(activeForecasts).toBe(2);
+
+    act(() => pendingForecasts[1]!.resolve([]));
+    await waitFor(() => expect(measurementForecast).toHaveBeenCalledTimes(4));
+    expect(maximumActiveForecasts).toBe(2);
+    expect(activeForecasts).toBe(2);
+
+    act(() => {
+      pendingForecasts.slice(2).forEach((pending) => pending.resolve([]));
+    });
+    await waitFor(() => expect(activeForecasts).toBe(0));
+  });
+
+  it("invalidates forecast cache entries across selection, data-mode, and explicit refresh identities", async () => {
+    const { state, house, sensors } = stateWithTemperatureSensors(2);
+    stubAncillaryAnalyticsRequests();
+    const analyticsQuery = vi.spyOn(api, "analyticsQuery").mockImplementation(async (input) => analyticsResponseFor(
+      house,
+      sensors.filter((sensor) => (input.scope.entityIds ?? []).includes(sensor.id)),
+      input.requestId,
+    ));
+    const measurementForecast = vi.spyOn(api, "measurementForecast").mockResolvedValue([]);
+    const user = userEvent.setup();
+    const panel = (dataMode: "demo" | "real") => <I18nProvider><DataAnalyticsPage
+      state={state}
+      house={house}
+      units="metric"
+      dataMode={dataMode}
+      onLoadSeries={vi.fn()}
+    /></I18nProvider>;
+    const view = render(panel("demo"));
+
+    await user.click(screen.getByText("Home sensor analytics").closest("summary")!);
+    await waitFor(() => expect(analyticsQuery).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(measurementForecast).toHaveBeenCalledTimes(2));
+    const firstRequestId = analyticsQuery.mock.calls[0]![0].requestId;
+
+    const sourcePicker = screen.getByLabelText("Choose data series").closest("details")!;
+    await user.click(within(sourcePicker).getByLabelText(sensors[0]!.name));
+
+    await waitFor(() => expect(analyticsQuery).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(measurementForecast).toHaveBeenCalledTimes(3));
+    const selectionRequestId = analyticsQuery.mock.calls[1]![0].requestId;
+    expect(selectionRequestId).not.toBe(firstRequestId);
+
+    view.rerender(panel("real"));
+
+    await waitFor(() => expect(analyticsQuery).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(measurementForecast).toHaveBeenCalledTimes(4));
+    const liveRequestId = analyticsQuery.mock.calls[2]![0].requestId;
+    expect(analyticsQuery.mock.calls[2]![0].dataMode).toBe("live");
+    expect(liveRequestId).not.toBe(selectionRequestId);
+
+    await user.click(view.container.querySelector<HTMLButtonElement>(".analytics-page-heading > button")!);
+
+    await waitFor(() => expect(analyticsQuery).toHaveBeenCalledTimes(4));
+    await waitFor(() => expect(measurementForecast).toHaveBeenCalledTimes(5));
+    expect(analyticsQuery.mock.calls[3]![0].requestId).not.toBe(liveRequestId);
+  });
+
   it("offers archived history for explicit analysis without treating it as live", async () => {
     const state = createDemoState();
     const house = state.houses[0]!;
@@ -305,6 +571,12 @@ describe("DataAnalyticsPage", () => {
     vi.spyOn(api, "outdoorTemperatureHistory").mockResolvedValue({ samples: [], from: "", to: "", truncated: false });
     vi.spyOn(api, "houseElectricityPrice").mockResolvedValue({ current: null, prices: [] });
     vi.spyOn(api, "sensorDataGaps").mockResolvedValue([]);
+    const analyticsQuery = vi.spyOn(api, "analyticsQuery").mockImplementation(async (input) => analyticsResponseFor(
+      house,
+      state.sensors.filter((sensor) => (input.scope.entityIds ?? []).includes(sensor.id)),
+      input.requestId,
+    ));
+    vi.spyOn(api, "measurementForecast").mockResolvedValue([]);
     const onLoadSeries = vi.fn();
     const user = userEvent.setup();
 
@@ -324,12 +596,8 @@ describe("DataAnalyticsPage", () => {
     await user.click(archivedChoice);
     await waitFor(() => expect(within(sourcePicker).getByLabelText("Archived analytics sensor · Archived")).toBeChecked());
     expect(new URLSearchParams(window.location.search).get("sensors")?.split(",")).toContain(archived.id);
-    await waitFor(() => expect(onLoadSeries).toHaveBeenCalledWith(
-      archived.id,
-      "temperature",
-      "24h",
-      false,
-    ));
+    await waitFor(() => expect(analyticsQuery.mock.calls.at(-1)?.[0].scope.entityIds).toContain(archived.id));
+    expect(onLoadSeries).not.toHaveBeenCalled();
 
     await user.selectOptions(screen.getByRole("combobox", { name: "Measurement" }), "energy");
     await waitFor(() => expect(within(sourcePicker).queryByLabelText("Archived analytics sensor · Archived")).toBeNull());

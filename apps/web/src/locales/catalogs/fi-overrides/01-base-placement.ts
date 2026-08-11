@@ -205,6 +205,7 @@ export const fiOverridesPart1 = {
   "analytics.showDataTable": "Näytä saavutettava datataulukko ({count} riviä)",
   "analytics.chartInteractionHint": "Tarkastele arvoa viemällä osoitin viivan päälle. Kun kaavio on kohdistettu, siirry datassa vasemmalla ja oikealla nuolinäppäimellä.",
   "analytics.dataTable": "Analytiikan lähdedata",
+  "analytics.dataTableShowMore": "Näytä vielä {count} riviä",
   "analytics.timestamp": "Aikaleima",
   "analytics.value": "Arvo",
   "analytics.quality": "Laatu",

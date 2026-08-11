@@ -221,14 +221,23 @@ export function configureApiPart11(context: ReturnType<typeof configureApiPart10
         }
       }
       const rawLimit = bucketSeconds === null ? limit + 1 : 100_000;
-      const archived = (await context.telemetryReader.measurementHistory({
-        sensorId: request.query.sensorId,
-        metric,
-        from,
-        to,
-        limit: rawLimit,
-        ...(before ? { before } : {}),
-      })).records;
+      const abortController = new AbortController();
+      const abortOnClose = () => abortController.abort(new DOMException("Client disconnected", "AbortError"));
+      response.once("close", abortOnClose);
+      if (response.destroyed) abortOnClose();
+      const archived = (await context.analyticsWorkLimiter.run(
+        "measurement-history",
+        () => context.telemetryReader.measurementHistory({
+          sensorId: request.query.sensorId as string,
+          metric,
+          from,
+          to,
+          limit: rawLimit,
+          signal: abortController.signal,
+          ...(before ? { before } : {}),
+        }),
+        abortController.signal,
+      ).finally(() => response.off("close", abortOnClose))).records;
       const requestedSamples = bucketSeconds === null ? archived : bucketMeasurementSamples(archived, bucketSeconds);
       const truncated = requestedSamples.length > limit || (bucketSeconds !== null && archived.length === rawLimit);
       const samples = truncated ? requestedSamples.slice(-limit) : requestedSamples;
@@ -262,15 +271,23 @@ export function configureApiPart11(context: ReturnType<typeof configureApiPart10
       }
       const metric = measurementId(request.query.metric);
       const hours = safeInteger(request.query.hours, 12, 1, 168);
-      response.json({
-        forecast: await forecastMeasurement(
+      const abortController = new AbortController();
+      const abortOnClose = () => abortController.abort(new DOMException("Client disconnected", "AbortError"));
+      response.once("close", abortOnClose);
+      if (response.destroyed) abortOnClose();
+      const measurementForecast = await context.analyticsWorkLimiter.run(
+        "measurement-forecast",
+        () => forecastMeasurement(
           context.database,
-          request.query.sensorId,
+          request.query.sensorId as string,
           metric,
           hours,
           context.telemetryReader,
+          abortController.signal,
         ),
-      });
+        abortController.signal,
+      ).finally(() => response.off("close", abortOnClose));
+      response.json({ forecast: measurementForecast });
     });
   context.app.get(`${context.v2Prefix}/measurements/events`, (request, response) => {
       if (context.rejectEventStreamDuringShutdown(response)) return;

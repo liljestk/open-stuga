@@ -168,36 +168,45 @@ export function OpeningAnalyticsPanel(props: Readonly<OpeningAnalyticsPanelProps
   const now = useNow();
   const [retryRevision, setRetryRevision] = useState(0);
   const [selectedKey, setSelectedKey] = useState("all");
+  const [historyOpen, setHistoryOpen] = useState(false);
   const targets = useMemo(() => targetSummary(props.house), [props.house]);
-  const from = now - timeRangeHours(props.range) * 3_600_000;
+  const requestIdentity = useMemo(() => [
+    "opening",
+    props.house.id,
+    props.dataMode,
+    props.range,
+    props.refreshRevision,
+    retryRevision,
+    props.liveObservationId ?? "",
+    targets.signature,
+  ].join("-"), [
+    props.dataMode,
+    props.house.id,
+    props.liveObservationId,
+    props.range,
+    props.refreshRevision,
+    retryRevision,
+    targets.signature,
+  ]);
+  const [requestWindow, setRequestWindow] = useState(() => ({ identity: requestIdentity, end: now }));
+  const requestEnd = requestWindow.identity === requestIdentity ? requestWindow.end : now;
+  const from = requestEnd - timeRangeHours(props.range) * 3_600_000;
   const request = useMemo(() => targets.count === 0 ? null : ({
       apiVersion: "1.0",
-      requestId: [
-        "opening",
-        props.house.id,
-        props.range,
-        props.refreshRevision,
-        retryRevision,
-        props.liveObservationId ?? "",
-        targets.signature,
-      ].join("-"),
+      requestId: requestIdentity,
       houseId: props.house.id,
       dataMode: props.dataMode === "real" ? "live" : "demo",
       range: {
         start: new Date(from).toISOString(),
-        end: new Date(now).toISOString(),
+        end: new Date(requestEnd).toISOString(),
       },
     } as const), [
       from,
-      now,
       props.dataMode,
       props.house.id,
-      props.liveObservationId,
-      props.range,
-      props.refreshRevision,
-      retryRevision,
+      requestEnd,
+      requestIdentity,
       targets.count,
-      targets.signature,
     ]);
   const query = useOpeningActivityQuery(request, props.dataMode !== "unknown");
   const response = query.data ?? null;
@@ -209,9 +218,27 @@ export function OpeningAnalyticsPanel(props: Readonly<OpeningAnalyticsPanelProps
       : null;
 
   const series = useMemo(() => viewSeries(response?.series ?? [], t), [response?.series, t]);
-  const visibleSeries = selectedKey === "all"
+  const visibleSeries = useMemo(() => selectedKey === "all"
     ? series
-    : series.filter((item) => item.target.key === selectedKey);
+    : series.filter((item) => item.target.key === selectedKey), [selectedKey, series]);
+  const recordCount = visibleSeries.reduce((sum, item) => sum + item.records.length, 0);
+  const records = useMemo(() => historyOpen
+    ? visibleSeries.flatMap((item) => item.records.map((record) => ({ item, record })))
+      .sort((left, right) => right.record.observedAt - left.record.observedAt)
+    : [], [historyOpen, visibleSeries]);
+
+  useEffect(() => {
+    setRequestWindow((current) => current.identity === requestIdentity
+      ? current
+      : { identity: requestIdentity, end: now });
+  }, [now, requestIdentity]);
+
+  useEffect(() => {
+    if (requestWindow.identity !== requestIdentity || !query.isSuccess || query.isFetching || now <= requestWindow.end) return;
+    setRequestWindow((current) => current.identity === requestIdentity && current.end < now
+      ? { identity: requestIdentity, end: now }
+      : current);
+  }, [now, query.isFetching, query.isSuccess, requestIdentity, requestWindow.end, requestWindow.identity]);
 
   useEffect(() => {
     if (selectedKey !== "all" && !series.some((item) => item.target.key === selectedKey)) setSelectedKey("all");
@@ -230,8 +257,6 @@ export function OpeningAnalyticsPanel(props: Readonly<OpeningAnalyticsPanelProps
   const longest = [...visibleSeries].sort((left, right) => (
     right.longestOpenMs - left.longestOpenMs || left.target.label.localeCompare(right.target.label)
   ))[0];
-  const records = visibleSeries.flatMap((item) => item.records.map((record) => ({ item, record })))
-    .sort((left, right) => right.record.observedAt - left.record.observedAt);
   const truncated = response?.truncated === true;
   const stateNames = new Intl.ListFormat(locale, { style: "long", type: "conjunction" })
     .format(openNow.map((item) => item.target.label));
@@ -263,7 +288,17 @@ export function OpeningAnalyticsPanel(props: Readonly<OpeningAnalyticsPanelProps
   const ticks = Array.from({ length: 5 }, (_, index) => (
     timelineFrom + timelineDuration * index / 4
   ));
-  const csv = activityCsv(visibleSeries);
+  const downloadActivity = () => {
+    const url = URL.createObjectURL(new Blob(["\uFEFF", activityCsv(visibleSeries)], { type: "text/csv;charset=utf-8" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `stugu-opening-activity-${props.range}.csv`;
+    link.hidden = true;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+  };
 
   return <section className="panel opening-analytics-panel" aria-labelledby="opening-analytics-title">
     <header className="opening-analytics-heading">
@@ -368,24 +403,26 @@ export function OpeningAnalyticsPanel(props: Readonly<OpeningAnalyticsPanelProps
           </div>
         </div>
 
-        {records.length > 0 && <details className="opening-history-details">
-          <summary>{t("analytics.openingShowHistory", { count: records.length })}</summary>
-          <div className="opening-history-actions">
-            <a className="secondary-button" href={`data:text/csv;charset=utf-8,${encodeURIComponent(`\uFEFF${csv}`)}`} download={`stugu-opening-activity-${props.range}.csv`}>
-              <Download size={14} aria-hidden="true" />{t("analytics.openingDownload")}
-            </a>
-            {records.length > TABLE_LIMIT && <small>{t("analytics.openingTableLimited", { count: TABLE_LIMIT })}</small>}
-          </div>
-          <div className="opening-history-table-wrap" role="region" aria-label={t("analytics.openingHistoryTable")} tabIndex={0}>
-            <table><thead><tr><th scope="col">{t("analytics.openingSeriesColumn")}</th><th scope="col">{t("analytics.timestamp")}</th><th scope="col">{t("opening.state")}</th><th scope="col">{t("sensors.logSource")}</th></tr></thead>
-              <tbody>{records.slice(0, TABLE_LIMIT).map(({ item, record }) => <tr key={`${item.target.key}:${record.id}`}>
-                <th scope="row">{item.target.label}<small>{item.target.floorName}</small></th>
-                <td><time dateTime={new Date(record.observedAt).toISOString()}>{formatInTimeZone(record.observedAt, locale, props.house.timezone, { dateStyle: "medium", timeStyle: "short" })}</time></td>
-                <td><span className={`opening-record-state ${record.state}`}>{stateLabel(record.state, t)}</span></td>
-                <td>{sourceLabel(record.source, t)}</td>
-              </tr>)}</tbody>
-            </table>
-          </div>
+        {recordCount > 0 && <details className="opening-history-details" open={historyOpen} onToggle={(event) => setHistoryOpen(event.currentTarget.open)}>
+          <summary>{t("analytics.openingShowHistory", { count: recordCount })}</summary>
+          {historyOpen && <>
+            <div className="opening-history-actions">
+              <button type="button" className="secondary-button" onClick={downloadActivity}>
+                <Download size={14} aria-hidden="true" />{t("analytics.openingDownload")}
+              </button>
+              {recordCount > TABLE_LIMIT && <small>{t("analytics.openingTableLimited", { count: TABLE_LIMIT })}</small>}
+            </div>
+            <div className="opening-history-table-wrap" role="region" aria-label={t("analytics.openingHistoryTable")} tabIndex={0}>
+              <table><thead><tr><th scope="col">{t("analytics.openingSeriesColumn")}</th><th scope="col">{t("analytics.timestamp")}</th><th scope="col">{t("opening.state")}</th><th scope="col">{t("sensors.logSource")}</th></tr></thead>
+                <tbody>{records.slice(0, TABLE_LIMIT).map(({ item, record }) => <tr key={`${item.target.key}:${record.id}`}>
+                  <th scope="row">{item.target.label}<small>{item.target.floorName}</small></th>
+                  <td><time dateTime={new Date(record.observedAt).toISOString()}>{formatInTimeZone(record.observedAt, locale, props.house.timezone, { dateStyle: "medium", timeStyle: "short" })}</time></td>
+                  <td><span className={`opening-record-state ${record.state}`}>{stateLabel(record.state, t)}</span></td>
+                  <td>{sourceLabel(record.source, t)}</td>
+                </tr>)}</tbody>
+              </table>
+            </div>
+          </>}
         </details>}
         <p className="opening-analytics-method">{t("analytics.openingMethod")}</p>
       </>}

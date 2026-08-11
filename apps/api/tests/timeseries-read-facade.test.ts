@@ -138,6 +138,121 @@ function archiveReader(overrides: Partial<ArchiveTelemetryReader> = {}): Archive
 }
 
 describe("HybridTelemetryReader", () => {
+  it("does not enter synchronous local measurement reads after cancellation", async () => {
+    const measurementHistory = vi.fn(() => []);
+    const measurementWindow = vi.fn(() => []);
+    const reader = new HybridTelemetryReader({
+      local: localReader({ measurementHistory, measurementWindow }),
+    });
+    const controller = new AbortController();
+    controller.abort(new DOMException("Client disconnected", "AbortError"));
+
+    await expect(reader.measurementHistory({
+      sensorId: "sensor-a",
+      metric: "temperature",
+      from: FROM,
+      to: TO,
+      signal: controller.signal,
+    })).rejects.toMatchObject({ name: "AbortError" });
+    await expect(reader.measurementWindow({
+      sensorIds: ["sensor-a"],
+      metrics: ["temperature"],
+      from: FROM,
+      to: TO,
+      signal: controller.signal,
+    })).rejects.toMatchObject({ name: "AbortError" });
+
+    expect(measurementHistory).not.toHaveBeenCalled();
+    expect(measurementWindow).not.toHaveBeenCalled();
+  });
+
+  it("does not enter synchronous local opening-state reads after cancellation", async () => {
+    const openingHistory = vi.fn(() => []);
+    const openingSnapshot = vi.fn(() => []);
+    const reader = new HybridTelemetryReader({
+      local: localReader({
+        listOpeningStateObservationHistory: openingHistory,
+        listOpeningStateObservations: openingSnapshot,
+      }),
+    });
+    const controller = new AbortController();
+    const reason = new DOMException("Client disconnected", "AbortError");
+    controller.abort(reason);
+
+    await expect(reader.openingStateHistory({
+      houseId: "house-a",
+      from: FROM,
+      to: TO,
+      signal: controller.signal,
+    })).rejects.toBe(reason);
+    await expect(reader.openingStateSnapshot({
+      houseId: "house-a",
+      at: TO,
+      signal: controller.signal,
+    })).rejects.toBe(reason);
+
+    expect(openingHistory).not.toHaveBeenCalled();
+    expect(openingSnapshot).not.toHaveBeenCalled();
+  });
+
+  it("stops opening-state reads cancelled while awaiting archive data", async () => {
+    const historyController = new AbortController();
+    const snapshotController = new AbortController();
+    const historyReason = new DOMException("History request closed", "AbortError");
+    const snapshotReason = new DOMException("Snapshot request closed", "AbortError");
+    const reader = new HybridTelemetryReader({
+      local: localReader(),
+      archive: archiveReader({
+        openingStateHistory: vi.fn(async () => {
+          historyController.abort(historyReason);
+          return [];
+        }),
+        openingStateSnapshot: vi.fn(async () => {
+          snapshotController.abort(snapshotReason);
+          return [];
+        }),
+      }),
+      archivePhase: () => "ready",
+    });
+
+    await expect(reader.openingStateHistory({
+      houseId: "house-a",
+      from: FROM,
+      to: TO,
+      signal: historyController.signal,
+    })).rejects.toBe(historyReason);
+    await expect(reader.openingStateSnapshot({
+      houseId: "house-a",
+      at: TO,
+      signal: snapshotController.signal,
+    })).rejects.toBe(snapshotReason);
+  });
+
+  it("rechecks cancellation after merging opening-state data", async () => {
+    const controller = new AbortController();
+    const reason = new DOMException("Opening merge cancelled", "AbortError");
+    const localOpening = opening("event-local", FROM, "open");
+    Object.defineProperty(localOpening, "id", {
+      configurable: true,
+      get: () => {
+        controller.abort(reason);
+        return "event-local";
+      },
+    });
+    const reader = new HybridTelemetryReader({
+      local: localReader({ listOpeningStateObservationHistory: vi.fn(() => [localOpening]) }),
+      archive: archiveReader({ openingStateHistory: vi.fn(async () => []) }),
+      archivePhase: () => "ready",
+    });
+
+    await expect(reader.openingStateHistory({
+      houseId: "house-a",
+      from: FROM,
+      to: TO,
+      signal: controller.signal,
+    })).rejects.toBe(reason);
+  });
+
   it("merges local and archive coverage for each selected series", async () => {
     const localCoverage = vi.fn(() => [{
       sensorId: "sensor-a", metric: "temperature",

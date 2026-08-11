@@ -221,6 +221,8 @@ export class HybridTelemetryReader {
 
   async measurementHistory(query: MeasurementHistoryQuery): Promise<HybridTelemetryReadResult<MeasurementSample>> {
     const limit = positiveLimit(query.limit, DEFAULT_HISTORY_LIMIT, MAX_HISTORY_LIMIT);
+    const cancellation = aborted(query.signal);
+    if (cancellation) throw cancellation;
     const local = this.#local.measurementHistory(
       query.sensorId,
       query.metric,
@@ -406,6 +408,8 @@ export class HybridTelemetryReader {
     const limit = positiveLimit(query.limit, DEFAULT_WINDOW_LIMIT, MAX_WINDOW_LIMIT);
     const sensorIds = unique(query.sensorIds);
     const metrics = unique(query.metrics);
+    const cancellation = aborted(query.signal);
+    if (cancellation) throw cancellation;
     const local = this.#local.measurementWindow(sensorIds, metrics, query.from, query.to, limit);
     return this.#read({
       family: "measurement",
@@ -564,6 +568,8 @@ export class HybridTelemetryReader {
     query: OpeningStateHistoryQuery,
   ): Promise<HybridTelemetryReadResult<OpeningStateObservation>> {
     const limit = positiveLimit(query.limit, DEFAULT_HISTORY_LIMIT, MAX_HISTORY_LIMIT);
+    const cancellation = aborted(query.signal);
+    if (cancellation) throw cancellation;
     const local = this.#local.listOpeningStateObservationHistory?.(
       query.houseId,
       query.from,
@@ -590,6 +596,8 @@ export class HybridTelemetryReader {
     query: OpeningStateSnapshotQuery,
   ): Promise<HybridTelemetryReadResult<OpeningStateObservation>> {
     const limit = positiveLimit(query.limit, 10_000, MAX_HISTORY_LIMIT);
+    const cancellation = aborted(query.signal);
+    if (cancellation) throw cancellation;
     const local = this.#local.listOpeningStateObservations?.(query.houseId, limit, query.at) ?? [];
     return this.#read({
       family: "opening-state",
@@ -670,6 +678,8 @@ export class HybridTelemetryReader {
       this.#requestReconciliation();
       return this.#localOnly(input, filteredLocal, localFilteredCount, complete, "failed");
     }
+    const afterArchiveCancellation = aborted(input.signal);
+    if (afterArchiveCancellation) throw afterArchiveCancellation;
     const filteredArchive = realMode ? archived.filter((record) => !isSyntheticSource(record.source)) : archived;
     const archiveFilteredCount = archived.length - filteredArchive.length;
     const merged = new Map<string, T>();
@@ -683,6 +693,8 @@ export class HybridTelemetryReader {
     }
     const duplicates = filteredArchive.length + filteredLocal.length - merged.size;
     const records = [...merged.values()].sort(input.compare).slice(-input.limit);
+    const afterMergeCancellation = aborted(input.signal);
+    if (afterMergeCancellation) throw afterMergeCancellation;
     return {
       records,
       provenance: {

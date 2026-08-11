@@ -339,6 +339,7 @@ export async function forecastMeasurement(
   metric: string,
   hours = 12,
   telemetryReader?: HybridTelemetryReader,
+  signal?: AbortSignal,
 ): Promise<MeasurementForecastPoint[]> {
   const definition = database.getMeasurementDefinition(metric);
   if (!definition) throw new MeasurementValidationError("UNKNOWN_METRIC", 404, `Unknown measurement metric: ${metric}`);
@@ -354,6 +355,7 @@ export async function forecastMeasurement(
       from: start.toISOString(),
       to: end.toISOString(),
       limit: 5_000,
+      ...(signal ? { signal } : {}),
     })).records
     : database.measurementHistory(sensorId, metric, start.toISOString(), end.toISOString(), 5_000);
   const latest = samples.at(-1) ?? database.getLatestMeasurementSample(sensorId, metric);

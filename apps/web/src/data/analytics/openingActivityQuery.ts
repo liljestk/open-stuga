@@ -14,5 +14,6 @@ export function useOpeningActivityQuery(
       : ["analytics", "opening-activity", "disabled"],
     queryFn: ({ signal }) => api.openingActivity(request!, signal),
     enabled: request !== null && enabled,
+    retry: false,
   }, queryClient);
 }
