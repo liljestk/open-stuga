@@ -86,9 +86,38 @@ def parse_key_values(value: str | None, allowed: set[str]) -> dict[str, str]:
     return result
 
 
+def filesystem_snapshot(path: str) -> dict[str, Any]:
+    try:
+        disk = os.statvfs(path)
+    except OSError:
+        return {"available": False}
+    mounted = run(
+        [
+            "findmnt",
+            "--noheadings",
+            "--output",
+            "FSTYPE,OPTIONS",
+            "--target",
+            path,
+        ],
+        timeout=1.5,
+    )
+    fields = mounted["stdout"].strip().split(None, 1) if mounted["ok"] else []
+    filesystem_type = fields[0][:40] if fields else None
+    options = fields[1].split(",") if len(fields) == 2 else []
+    return {
+        "available": True,
+        "totalBytes": disk.f_blocks * disk.f_frsize,
+        "availableBytes": disk.f_bavail * disk.f_frsize,
+        "filesystemType": filesystem_type,
+        "readOnly": bool(disk.f_flag & os.ST_RDONLY) or "ro" in options,
+    }
+
+
 def system_snapshot() -> dict[str, Any]:
     memory = parse_key_values(read_text("/proc/meminfo"), {"MemTotal", "MemAvailable"})
-    disk = os.statvfs("/")
+    root = filesystem_snapshot("/")
+    persistent = filesystem_snapshot("/persistent")
     load = os.getloadavg()
     return {
         "architecture": platform.machine(),
@@ -98,8 +127,14 @@ def system_snapshot() -> dict[str, Any]:
         "memoryTotalBytes": int(memory.get("MemTotal", "0 kB").split()[0]) * 1024,
         "memoryAvailableBytes": int(memory.get("MemAvailable", "0 kB").split()[0])
         * 1024,
-        "rootTotalBytes": disk.f_blocks * disk.f_frsize,
-        "rootAvailableBytes": disk.f_bavail * disk.f_frsize,
+        "rootTotalBytes": root.get("totalBytes"),
+        "rootAvailableBytes": root.get("availableBytes"),
+        "rootFilesystemType": root.get("filesystemType"),
+        "rootReadOnly": root.get("readOnly"),
+        "persistentTotalBytes": persistent.get("totalBytes"),
+        "persistentAvailableBytes": persistent.get("availableBytes"),
+        "persistentFilesystemType": persistent.get("filesystemType"),
+        "persistentReadOnly": persistent.get("readOnly"),
     }
 
 
@@ -259,7 +294,8 @@ function rows(table, columns = "1", where = "") {
   return { available: true, count: Math.min(values.length, 100), capped: values.length > 100, values: values.slice(0, 100) };
 }
 const alert = rows("alert_evaluation_queue");
-const outbox = rows("notification_outbox", "delivered_at, dead_lettered_at, abandoned_at", "WHERE delivered_at IS NULL AND abandoned_at IS NULL");
+const pendingNotifications = rows("notification_outbox", "1", "WHERE delivered_at IS NULL AND dead_lettered_at IS NULL AND abandoned_at IS NULL");
+const deadLetteredNotifications = rows("notification_outbox", "1", "WHERE delivered_at IS NULL AND dead_lettered_at IS NOT NULL AND abandoned_at IS NULL");
 const tapo = rows("tapo_history_export_jobs", "status", "WHERE status NOT IN ('completed', 'cancelled')");
 const sources = rows("sensor_source_metrics", "source");
 const heat = rows("heat_pump_state_current");
@@ -270,9 +306,10 @@ const result = {
   queues: {
     alertEvaluation: { count: alert.count, capped: alert.capped },
     notifications: {
-      count: outbox.count,
-      capped: outbox.capped,
-      deadLettered: outbox.values.filter((row) => row.dead_lettered_at !== null).length,
+      count: pendingNotifications.count,
+      capped: pendingNotifications.capped,
+      deadLettered: deadLetteredNotifications.count,
+      deadLetteredCapped: deadLetteredNotifications.capped,
     },
     tapoExports: {
       count: tapo.count,

@@ -385,6 +385,62 @@ test("Pi diagnosis accepts the appliance oneshot service and successful init con
   assert.equal(failed.checks.find((item) => item.id === "CONTAINERS")?.status, "fail");
 });
 
+test("Pi diagnosis measures writable persistent capacity behind an immutable EROFS root", () => {
+  const evidence = healthyEvidence();
+  Object.assign(evidence.system, {
+    rootTotalBytes: 3_000,
+    rootAvailableBytes: 0,
+    rootFilesystemType: "erofs",
+    rootReadOnly: true,
+    persistentTotalBytes: 100_000,
+    persistentAvailableBytes: 84_000,
+    persistentFilesystemType: "ext4",
+    persistentReadOnly: false,
+  });
+
+  const healthy = diagnoseEvidence(evidence);
+  const resources = healthy.checks.find((item) => item.id === "RESOURCES");
+  assert.equal(resources?.status, "pass");
+  assert.match(resources?.summary ?? "", /immutable EROFS root; persistent storage 84% available/u);
+  assert.deepEqual(healthy.summary.resources, {
+    memoryAvailablePercent: 50,
+    rootAvailablePercent: 0,
+    persistentAvailablePercent: 84,
+    storageAvailablePercent: 84,
+    rootFilesystemType: "erofs",
+    persistentFilesystemType: "ext4",
+    rootImmutable: true,
+    storageReadOnly: false,
+    loadPerCpu: 0.1,
+    eventLoopLagMs: 1.5,
+  });
+
+  evidence.system.persistentAvailableBytes = 4_000;
+  assert.equal(
+    diagnoseEvidence(evidence).checks.find((item) => item.id === "RESOURCES")?.status,
+    "fail",
+  );
+  evidence.system.persistentAvailableBytes = 84_000;
+  evidence.system.persistentReadOnly = true;
+  assert.equal(
+    diagnoseEvidence(evidence).checks.find((item) => item.id === "RESOURCES")?.status,
+    "fail",
+  );
+});
+
+test("Pi diagnosis reports terminal notification dead letters without treating them as pending work", () => {
+  const evidence = healthyEvidence();
+  evidence.database.queues.notifications = {
+    count: 0,
+    capped: false,
+    deadLettered: 100,
+    deadLetteredCapped: true,
+  };
+  const queues = diagnoseEvidence(evidence).checks.find((item) => item.id === "QUEUES");
+  assert.equal(queues?.status, "pass");
+  assert.match(queues?.summary ?? "", /notification 0, Tapo export 0 pending; 100 notification dead-lettered/u);
+});
+
 test("default Pi doctor uses exactly one bounded SSH invocation", async () => {
   const state = mkdtempSync(join(tmpdir(), "stugu-doctor-test-"));
   let calls = 0;
@@ -646,6 +702,9 @@ test("canonical release and doctor paths do not hide expensive or mutating work"
   assert.match(release, /--ignore-blank-lines/u);
   assert.match(doctor, /"stats",\s+"--no-stream"/u);
   assert.match(doctor, /line\.partition\(":"\)/u);
+  assert.match(doctor, /filesystem_snapshot\("\/persistent"\)/u);
+  assert.match(doctor, /delivered_at IS NULL AND dead_lettered_at IS NULL AND abandoned_at IS NULL/u);
+  assert.match(doctor, /deadLetteredNotifications/u);
   assert.doesNotMatch(doctor, /docker stats(?!.*--no-stream)/u);
   assert.doesNotMatch(publisher, /invoke\("npm", \["run", "ci:local"/u);
   assert.match(publisher, /--full-ci-receipt/u);

@@ -144,15 +144,31 @@ export function diagnoseEvidence(evidence) {
   const system = evidence.system ?? {};
   const memoryAvailablePercent = percent(number(system.memoryAvailableBytes), number(system.memoryTotalBytes));
   const rootAvailablePercent = percent(number(system.rootAvailableBytes), number(system.rootTotalBytes));
+  const persistentAvailablePercent = percent(
+    number(system.persistentAvailableBytes),
+    number(system.persistentTotalBytes),
+  );
+  const rootFilesystemType = typeof system.rootFilesystemType === "string"
+    ? system.rootFilesystemType.toLowerCase() : null;
+  const persistentFilesystemType = typeof system.persistentFilesystemType === "string"
+    ? system.persistentFilesystemType.toLowerCase() : null;
+  const rootImmutable = rootFilesystemType === "erofs";
+  const storageAvailablePercent = rootImmutable ? persistentAvailablePercent : rootAvailablePercent;
+  const storageReadOnly = rootImmutable ? system.persistentReadOnly === true : system.rootReadOnly === true;
   const loadPerCpu = number(system.loadAverage?.[0]) / Math.max(1, number(system.cpuCount, 1));
-  const resourcesStatus = memoryAvailablePercent === null || rootAvailablePercent === null
+  const resourcesStatus = storageReadOnly
+    ? "fail"
+    : memoryAvailablePercent === null || storageAvailablePercent === null
     ? "warning"
-    : memoryAvailablePercent < 5 || rootAvailablePercent < 5 ? "fail"
-      : memoryAvailablePercent < 10 || rootAvailablePercent < 10 || loadPerCpu > 1.5 ? "warning" : "pass";
+    : memoryAvailablePercent < 5 || storageAvailablePercent < 5 ? "fail"
+      : memoryAvailablePercent < 10 || storageAvailablePercent < 10 || loadPerCpu > 1.5 ? "warning" : "pass";
+  const storageSummary = rootImmutable
+    ? `immutable EROFS root; persistent storage ${persistentAvailablePercent ?? "?"}% available${storageReadOnly ? " and read-only" : ""}`
+    : `root storage ${rootAvailablePercent ?? "?"}% available${storageReadOnly ? " and read-only" : ""}`;
   checks.push(check(
     "RESOURCES",
     resourcesStatus,
-    `Memory ${memoryAvailablePercent ?? "?"}% available; root storage ${rootAvailablePercent ?? "?"}% available; 1m load/core ${loadPerCpu.toFixed(2)}.`,
+    `Memory ${memoryAvailablePercent ?? "?"}% available; ${storageSummary}; 1m load/core ${loadPerCpu.toFixed(2)}.`,
   ));
 
   const eventLoopLagMs = number(health.eventLoopLagMs, -1);
@@ -175,13 +191,16 @@ export function diagnoseEvidence(evidence) {
   ));
 
   const queues = evidence.database?.queues ?? {};
-  const queueFailed = number(queues.notifications?.deadLettered) > 0 || number(queues.tapoExports?.needsAttention) > 0;
+  // Dead-lettered notifications are terminal history retained for operator
+  // inspection. They are not pending work and must not make an otherwise
+  // healthy appliance fail its release-readiness check.
+  const queueFailed = number(queues.tapoExports?.needsAttention) > 0;
   const queueWarning = Object.values(queues).some((item) => item?.capped === true);
   checks.push(check(
     "QUEUES",
     !databaseAvailable ? "warning" : queueFailed ? "fail" : queueWarning ? "warning" : "pass",
     databaseAvailable
-      ? `Alert ${number(queues.alertEvaluation?.count)}, notification ${number(queues.notifications?.count)}, Tapo export ${number(queues.tapoExports?.count)} pending (counts cap at 100).`
+      ? `Alert ${number(queues.alertEvaluation?.count)}, notification ${number(queues.notifications?.count)}, Tapo export ${number(queues.tapoExports?.count)} pending; ${number(queues.notifications?.deadLettered)} notification dead-lettered (counts cap at 100).`
       : "Queue status is unavailable.",
   ));
 
@@ -261,7 +280,18 @@ export function diagnoseEvidence(evidence) {
         unhealthy: unhealthy.length,
         restarts,
       },
-      resources: { memoryAvailablePercent, rootAvailablePercent, loadPerCpu: Number(loadPerCpu.toFixed(2)), eventLoopLagMs },
+      resources: {
+        memoryAvailablePercent,
+        rootAvailablePercent,
+        persistentAvailablePercent,
+        storageAvailablePercent,
+        rootFilesystemType,
+        persistentFilesystemType,
+        rootImmutable,
+        storageReadOnly,
+        loadPerCpu: Number(loadPerCpu.toFixed(2)),
+        eventLoopLagMs,
+      },
       archive: {
         phase: archive.phase ?? null,
         caughtUp: archive.caughtUp ?? null,
