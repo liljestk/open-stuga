@@ -1,6 +1,7 @@
-import { useEffect, useId, useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import { Activity, BrainCircuit, ChevronDown, CloudSun, GitCompareArrows, TriangleAlert, X } from "lucide-react";
 import type {
+  AnalyticsSeries,
   MeasurementDefinition,
   MeasurementForecastPoint,
   MeasurementSample,
@@ -51,6 +52,9 @@ interface SensorAnalyticsChartProps {
   sensors: Sensor[];
   history: MeasurementHistory;
   forecasts: MeasurementForecasts;
+  analyticsSeries?: readonly AnalyticsSeries[] | null;
+  analyticsRangeEnd?: string | null;
+  loading?: boolean;
   latestMeasurements: LatestMeasurements;
   definitions: MeasurementDefinition[];
   outdoorHistory?: OutdoorTemperatureSample[];
@@ -103,16 +107,34 @@ function observedSeries(
   history: MeasurementHistory,
   latestMeasurements: LatestMeasurements,
   from: number,
+  analyticsSeries?: readonly AnalyticsSeries[] | null,
+  analyticsRangeEnd?: string | null,
 ): SeriesPoint[] {
-  const samples = [
-    ...(history[sensorId]?.[metric] ?? []),
-    ...([latestMeasurements[sensorId]?.[metric]].filter(Boolean) as MeasurementSample[]),
-  ];
   const byTimestamp = new Map<number, SeriesPoint>();
-  for (const sample of samples) {
-    const timestamp = validTimestamp(sample.timestamp);
-    if (sample.quality === "stale" || timestamp === null || timestamp < from || !Number.isFinite(sample.value)) continue;
-    byTimestamp.set(timestamp, { timestamp, value: sample.value });
+  const rangeEnd = analyticsRangeEnd ? validTimestamp(analyticsRangeEnd) : null;
+  if (analyticsSeries !== undefined) {
+    const analytics = analyticsSeries?.find((series) => series.entityId === sensorId && series.measurementId === metric);
+    for (const point of analytics?.points ?? []) {
+      const timestamp = validTimestamp(point.timestamp);
+      if (point.value === null || timestamp === null || timestamp < from || !Number.isFinite(point.value)) continue;
+      byTimestamp.set(timestamp, { timestamp, value: point.value });
+    }
+  }
+  if (analyticsSeries === undefined || rangeEnd !== null) {
+    for (const sample of history[sensorId]?.[metric] ?? []) {
+      const timestamp = validTimestamp(sample.timestamp);
+      if (sample.quality === "stale" || timestamp === null || timestamp < from || !Number.isFinite(sample.value)
+        || (analyticsSeries !== undefined && timestamp <= rangeEnd!)) continue;
+      byTimestamp.set(timestamp, { timestamp, value: sample.value });
+    }
+  }
+  const latest = latestMeasurements[sensorId]?.[metric] as MeasurementSample | undefined;
+  if (latest) {
+    const timestamp = validTimestamp(latest.timestamp);
+    const isNewLiveTail = analyticsSeries === undefined || rangeEnd === null || (timestamp !== null && timestamp > rangeEnd);
+    if (isNewLiveTail && latest.quality !== "stale" && timestamp !== null && timestamp >= from && Number.isFinite(latest.value)) {
+      byTimestamp.set(timestamp, { timestamp, value: latest.value });
+    }
   }
   return [...byTimestamp.values()].sort((left, right) => left.timestamp - right.timestamp);
 }
@@ -205,6 +227,7 @@ export function SensorAnalyticsChart(props: Readonly<SensorAnalyticsChartProps>)
   const summaryId = useId();
   const rangeLabelId = `${summaryId}-range`;
   const [exactDataOpen, setExactDataOpen] = useState(false);
+  const [visibleExactRowCount, setVisibleExactRowCount] = useState(250);
   const definition = props.definitions.find((candidate) => candidate.id === props.metric) ?? props.definitions[0];
   const activeSensors = useMemo(() => props.selectedSensorIds === null
     ? props.sensors.filter((sensor) => sensor.enabled)
@@ -220,13 +243,6 @@ export function SensorAnalyticsChart(props: Readonly<SensorAnalyticsChartProps>)
   const sensorIds = activeSensors.map((sensor) => sensor.id).join("\u0000");
   const isCombined = activeSensors.length !== 1;
 
-  useEffect(() => {
-    if (!definition || !props.onLoadSeries) return;
-    activeSensors.forEach((sensor) => {
-      props.onLoadSeries?.(sensor.id, definition.id, props.range, definition.forecastSupported && sensor.enabled);
-    });
-  }, [definition?.id, definition?.forecastSupported, props.onLoadSeries, props.range, sensorIds]);
-
   const data = useMemo(() => {
     if (!definition) return {
       observed: [], predicted: [], aggregate: [], aggregateForecast: [], outdoorObserved: [], outdoorForecast: [], electricityPrice: [],
@@ -234,7 +250,15 @@ export function SensorAnalyticsChart(props: Readonly<SensorAnalyticsChartProps>)
     const from = now - timeRangeHours(props.range) * 60 * 60_000;
     const observed = activeSensors.map((sensor) => ({
       sensor,
-      points: observedSeries(sensor.id, definition.id, props.history, props.latestMeasurements, from),
+      points: observedSeries(
+        sensor.id,
+        definition.id,
+        props.history,
+        props.latestMeasurements,
+        from,
+        props.analyticsSeries,
+        props.analyticsRangeEnd,
+      ),
     }));
     const predicted = definition.forecastSupported ? activeSensors.filter((sensor) => sensor.enabled).map((sensor) => ({
       sensor,
@@ -291,7 +315,7 @@ export function SensorAnalyticsChart(props: Readonly<SensorAnalyticsChartProps>)
       outdoorForecast,
       electricityPrice,
     };
-  }, [activeSensors, definition, now, props.electricityPrices, props.forecasts, props.history, props.latestMeasurements, props.outdoorHistory, props.range, props.weather, props.weatherForecastVisible, props.weatherObservationsVisible]);
+  }, [activeSensors, definition, now, props.analyticsRangeEnd, props.analyticsSeries, props.electricityPrices, props.forecasts, props.history, props.latestMeasurements, props.outdoorHistory, props.range, props.weather, props.weatherForecastVisible, props.weatherObservationsVisible]);
 
   if (!definition) return null;
 
@@ -393,6 +417,12 @@ export function SensorAnalyticsChart(props: Readonly<SensorAnalyticsChartProps>)
     ? `${predictionBaseLabel} · ${t("sensors.analyticsLiveSourcesOnly")}`
     : predictionBaseLabel;
   type ExactDataRow = { id: string; source: string; kind: "observed" | "forecast"; timestamp: number; value: number; low: number | null; high: number | null; sensorCount: number; sensorTotal: number; gapMs: number | null };
+  const exactRowCount = data.observed.reduce((count, series) => count + series.points.length, 0)
+    + data.predicted.reduce((count, series) => count + series.points.length, 0)
+    + (isCombined ? data.aggregate.length + data.aggregateForecast.length : 0)
+    + data.outdoorObserved.length
+    + data.outdoorForecast.length
+    + data.electricityPrice.length;
   const exactRows: ExactDataRow[] = [];
   const appendRows = (
     source: string,
@@ -419,21 +449,32 @@ export function SensorAnalyticsChart(props: Readonly<SensorAnalyticsChartProps>)
       gapMs: previous && interval > threshold ? interval : null,
     });
   });
-  data.observed.forEach(({ sensor, points }) => appendRows(sensorDisplayName(sensor), "observed", points, gapThresholdMs));
-  data.predicted.forEach(({ sensor, points }) => appendRows(sensorDisplayName(sensor), "forecast", points, forecastGapThresholdMs));
-  if (isCombined) {
-    appendRows(aggregateLabel, "observed", data.aggregate, gapThresholdMs, (point) => (point as AggregateSeriesPoint).sensorCount, activeSensors.length);
-    appendRows(predictionLabel, "forecast", data.aggregateForecast, forecastGapThresholdMs, (point) => (point as AggregateSeriesPoint).sensorCount, activeSensors.length);
+  if (exactDataOpen) {
+    data.observed.forEach(({ sensor, points }) => appendRows(sensorDisplayName(sensor), "observed", points, gapThresholdMs));
+    data.predicted.forEach(({ sensor, points }) => appendRows(sensorDisplayName(sensor), "forecast", points, forecastGapThresholdMs));
+    if (isCombined) {
+      appendRows(aggregateLabel, "observed", data.aggregate, gapThresholdMs, (point) => (point as AggregateSeriesPoint).sensorCount, activeSensors.length);
+      appendRows(predictionLabel, "forecast", data.aggregateForecast, forecastGapThresholdMs, (point) => (point as AggregateSeriesPoint).sensorCount, activeSensors.length);
+    }
+    appendRows(t("sensors.analyticsFmiObservations"), "observed", data.outdoorObserved, gapThresholdMs);
+    appendRows(t("sensors.analyticsFmiForecast"), "forecast", data.outdoorForecast, forecastGapThresholdMs);
+    appendRows(t("sensors.analyticsPropertyPrice"), "observed", data.electricityPrice, gapThresholdMs);
+    exactRows.sort((left, right) => left.timestamp - right.timestamp || left.source.localeCompare(right.source));
   }
-  appendRows(t("sensors.analyticsFmiObservations"), "observed", data.outdoorObserved, gapThresholdMs);
-  appendRows(t("sensors.analyticsFmiForecast"), "forecast", data.outdoorForecast, forecastGapThresholdMs);
-  appendRows(t("sensors.analyticsPropertyPrice"), "observed", data.electricityPrice, gapThresholdMs);
-  exactRows.sort((left, right) => left.timestamp - right.timestamp || left.source.localeCompare(right.source));
+  const visibleExactRows = exactRows.slice(0, visibleExactRowCount);
   const csvCell = (value: string | number | null) => `"${String(value ?? "").replaceAll('"', '""')}"`;
-  const exactCsv = [
-    ["timestamp", "source", "kind", "value", "unit", "low", "high", "reporting_sources", "available_sources", "gap_before_seconds"],
-    ...exactRows.map((row) => [new Date(row.timestamp).toISOString(), row.source, row.kind, toDisplayValue(row.value, definition, props.units), displayUnit(definition, props.units), row.low === null ? null : toDisplayValue(row.low, definition, props.units), row.high === null ? null : toDisplayValue(row.high, definition, props.units), row.sensorCount, row.sensorTotal, row.gapMs === null ? null : Math.round(row.gapMs / 1_000)]),
-  ].map((row) => row.map(csvCell).join(",")).join("\r\n");
+  const downloadChartCsv = () => {
+    const csv = [
+      ["timestamp", "source", "kind", "value", "unit", "low", "high", "reporting_sources", "available_sources", "gap_before_seconds"],
+      ...exactRows.map((row) => [new Date(row.timestamp).toISOString(), row.source, row.kind, toDisplayValue(row.value, definition, props.units), displayUnit(definition, props.units), row.low === null ? null : toDisplayValue(row.low, definition, props.units), row.high === null ? null : toDisplayValue(row.high, definition, props.units), row.sensorCount, row.sensorTotal, row.gapMs === null ? null : Math.round(row.gapMs / 1_000)]),
+    ].map((row) => row.map(csvCell).join(",")).join("\r\n");
+    const url = URL.createObjectURL(new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8" }));
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `stugu-${definition.id}-${props.range}.csv`;
+    anchor.click();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+  };
   const gapText = (gapMs: number | null) => gapMs === null
     ? t("analytics.noGap")
     : gapMs >= 60 * 60_000
@@ -581,14 +622,21 @@ export function SensorAnalyticsChart(props: Readonly<SensorAnalyticsChartProps>)
         forecastGapThresholdMs={forecastGapThresholdMs}
         aggregateLabel={aggregateLabel}
         predictionLabel={predictionLabel}
-      /> : <div className="empty-state">{t("common.noData")}</div>}
-      {exactRows.length > 0 && <details className="analytics-data-details" open={exactDataOpen}>
-        <summary onClick={(event) => { event.preventDefault(); setExactDataOpen((current) => !current); }}>{t("analytics.showDataTable", { count: exactRows.length })}</summary>
+      /> : props.loading ? <output className="empty-state" aria-live="polite">{t("sensors.loadingData")}</output> : <div className="empty-state">{t("common.noData")}</div>}
+      {exactRowCount > 0 && <details className="analytics-data-details" open={exactDataOpen}>
+        <summary onClick={(event) => {
+          event.preventDefault();
+          setExactDataOpen((current) => {
+            if (current) setVisibleExactRowCount(250);
+            return !current;
+          });
+        }}>{t("analytics.showDataTable", { count: exactRowCount })}</summary>
         {exactDataOpen && <div className="analytics-data-table-wrap" role="region" aria-label={t("analytics.dataTable")} tabIndex={0}>
-          <a className="secondary-button" href={`data:text/csv;charset=utf-8,${encodeURIComponent(`\uFEFF${exactCsv}`)}`} download={`stugu-${definition.id}-${props.range}.csv`}>{t("analytics.downloadCsv")}</a>
+          <button type="button" className="secondary-button" onClick={downloadChartCsv}>{t("dataExport.downloadCsv")}</button>
           <table className="analytics-data-table"><caption className="sr-only">{chartLabel}</caption><thead><tr><th scope="col">{t("analytics.series")}</th><th scope="col">{t("analytics.timestamp")}</th><th scope="col">{t("observations.kind")}</th><th scope="col">{t("analytics.value")}</th><th scope="col">{t("chart.confidence")}</th><th scope="col">{t("analytics.coverageLabel")}</th><th scope="col">{t("analytics.gap")}</th></tr></thead><tbody>
-            {exactRows.map((row) => <tr key={row.id}><th scope="row">{row.source}</th><td><time dateTime={new Date(row.timestamp).toISOString()}>{formatInTimeZone(row.timestamp, locale, props.timeZone, { dateStyle: "medium", timeStyle: "short" })}</time></td><td>{t(row.kind === "observed" ? "chart.observed" : "chart.predicted")}</td><td>{formatMeasurement(row.value, definition, props.units)}</td><td>{row.low === null || row.high === null ? "—" : `${formatMeasurement(row.low, definition, props.units)} – ${formatMeasurement(row.high, definition, props.units)}`}</td><td>{row.sensorCount} / {row.sensorTotal}</td><td>{gapText(row.gapMs)}</td></tr>)}
+            {visibleExactRows.map((row) => <tr key={row.id}><th scope="row">{row.source}</th><td><time dateTime={new Date(row.timestamp).toISOString()}>{formatInTimeZone(row.timestamp, locale, props.timeZone, { dateStyle: "medium", timeStyle: "short" })}</time></td><td>{t(row.kind === "observed" ? "chart.observed" : "chart.predicted")}</td><td>{formatMeasurement(row.value, definition, props.units)}</td><td>{row.low === null || row.high === null ? "—" : `${formatMeasurement(row.low, definition, props.units)} – ${formatMeasurement(row.high, definition, props.units)}`}</td><td>{row.sensorCount} / {row.sensorTotal}</td><td>{gapText(row.gapMs)}</td></tr>)}
           </tbody></table>
+          {visibleExactRows.length < exactRows.length && <button type="button" className="secondary-button" onClick={() => setVisibleExactRowCount((count) => Math.min(count + 250, exactRows.length))}>{t("analytics.dataTableShowMore", { count: Math.min(250, exactRows.length - visibleExactRows.length) })}</button>}
         </div>}
       </details>}
       <CalendarPeriodComparison

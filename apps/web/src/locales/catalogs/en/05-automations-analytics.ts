@@ -456,6 +456,7 @@ export const enPart5 = {
   "analytics.showDataTable": "Show accessible data table ({count} rows)",
   "analytics.chartInteractionHint": "Hover a line to inspect its value. With the chart focused, use the Left and Right arrow keys to move through the data.",
   "analytics.dataTable": "Analytics source data",
+  "analytics.dataTableShowMore": "Show {count} more rows",
   "analytics.downloadCsv": "Download exact data as CSV",
   "analytics.gap": "Gap before reading",
   "analytics.noGap": "Continuous",

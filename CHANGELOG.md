@@ -4,6 +4,25 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.39.1 - 2026-08-11
+
+- Batch selected sensor history into one cancellable, backpressure-limited
+  analytics request that reuses the existing Timescale rollups and stops work
+  when the page disconnects.
+- Keep sensor and opening source tables lazy and paginated, and generate their
+  CSV files only on request instead of building thousands of rows during the
+  initial page load.
+- Stabilize opening-history request windows, bound history and forecast work,
+  avoid background Home Performance recomputation on a page refresh, and
+  combine related connection failures into one useful notice.
+- Report Raspberry Pi storage health from the writable `/persistent` data
+  volume when present, rather than treating the immutable root slot's expected
+  zero free space as a disk-capacity failure.
+
+Upgrade impact: this is an application-and-tooling-only patch. Existing
+telemetry, databases, configuration, and durable analytics are retained; no
+schema rewrite, signed host update, or factory image is required.
+
 ## 0.39.0 - 2026-08-10
 
 - Add canonical fast/full local verification with exact-input caches, stable

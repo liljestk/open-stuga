@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChartLine, ChevronDown, CloudSun, Database, DoorOpen, Download, Droplets, FileJson, FileSpreadsheet, Gauge, RefreshCw, ShieldCheck, Table2, TriangleAlert } from "lucide-react";
 import type {
   AnalyticsAggregation,
@@ -9,6 +9,7 @@ import type {
   HomeElectricityPricePoint,
   Metric,
   MeasurementDefinition,
+  MeasurementForecastPoint,
   OutdoorTemperatureSample,
   SensorDataGap,
   UnitSystem,
@@ -26,7 +27,7 @@ import { chartGapThresholdMs, detectSeriesGaps } from "../chartGaps";
 import { formatInTimeZone } from "../dateTime";
 import { useHouseWeather } from "../useHouseWeather";
 import { useI18n } from "../i18n";
-import { formatMeasurement, measurementLabel } from "../measurements";
+import { formatMeasurement, measurementLabel, type MeasurementForecasts } from "../measurements";
 import { useNow } from "../useNow";
 
 interface DataAnalyticsPageProps {
@@ -201,6 +202,17 @@ function analyticsPointBudget(range: TimeRange): number {
   return 500;
 }
 
+function analyticsIdentityToken(value: string): string {
+  let left = 0x811c9dc5;
+  let right = 0x9e3779b9;
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    left = Math.imul(left ^ code, 0x01000193);
+    right = Math.imul(right ^ code, 0x85ebca6b);
+  }
+  return `${(left >>> 0).toString(36)}${(right >>> 0).toString(36)}`;
+}
+
 function durationLabel(milliseconds: number, locale: string): string {
   const minutes = Math.max(1, Math.round(milliseconds / 60_000));
   if (minutes < 60) return new Intl.NumberFormat(locale, { style: "unit", unit: "minute", unitDisplay: "short" }).format(minutes);
@@ -274,6 +286,8 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
   const [analytics, setAnalytics] = useState<AnalyticsQueryResponse | null>(null);
   const [analyticsError, setAnalyticsError] = useState<string | null>(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  const [chartForecasts, setChartForecasts] = useState<MeasurementForecasts>({});
+  const forecastCache = useRef(new Map<string, { expiresAt: number; points: MeasurementForecastPoint[] }>());
   const [refreshRevision, setRefreshRevision] = useState(0);
   const [openTools, setOpenTools] = useState<Set<AnalyticsTool>>(() => new Set(analyticsToolsFromLocation()));
   const [isolationOpen, setIsolationOpen] = useState(false);
@@ -294,6 +308,21 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
   const selectedSensors = useMemo(() => selectedSensorIds === null
     ? metricSensors.filter((sensor) => sensor.enabled)
     : metricSensors.filter((sensor) => selectedSensorIds.includes(sensor.id)), [metricSensors, selectedSensorIds]);
+  const selectedSensorKey = selectedSensors.map((sensor) => sensor.id).sort().join("\u0000");
+  const sensorsOpen = openTools.has("sensors");
+  const analyticsNeeded = sensorsOpen || evidenceOpen;
+  const analyticsDataMode = props.dataMode === "real" ? "live" : "demo";
+  const forecastCacheScope = [props.dataMode, props.house.id, refreshRevision, selectedSensorKey].join("\u0001");
+  const analyticsBatchIdentity = [
+    forecastCacheScope,
+    metric,
+    range,
+    resolution,
+    aggregation,
+    qualityPreset,
+    props.house.timezone,
+  ].join("\u0001");
+  const analyticsRequestId = `explorer-${analyticsIdentityToken(analyticsBatchIdentity)}`;
 
   const writeLocationPatch = (patch: Partial<AnalyticsLocationState>, mode: "push" | "replace") => {
     const current = analyticsStateFromLocation(metricIds, sensorIds);
@@ -429,9 +458,8 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
   }, [weather.refresh]);
 
   const fromMs = now - timeRangeHours(range) * 3_600_000;
-  const selectedSensorKey = selectedSensors.map((sensor) => sensor.id).sort().join("\u0000");
   useEffect(() => {
-    if (!evidenceOpen || props.dataMode === "unknown" || !selectedDefinition || selectedSensors.length === 0) {
+    if (!analyticsNeeded || props.dataMode === "unknown" || !selectedDefinition || selectedSensors.length === 0) {
       setAnalytics(null);
       setAnalyticsError(null);
       setAnalyticsLoading(false);
@@ -445,7 +473,7 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
     setAnalyticsError(null);
     void api.analyticsQuery({
       apiVersion: "1.0",
-      dataMode: props.dataMode === "real" ? "live" : "demo",
+      dataMode: analyticsDataMode,
       scope: { kind: "house", id: props.house.id, entityIds: selectedSensors.map((sensor) => sensor.id) },
       measurementIds: [metric],
       range: { start: start.toISOString(), end: end.toISOString(), timezone: props.house.timezone },
@@ -454,7 +482,7 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
       qualityFilter: { include: qualitiesForPreset(qualityPreset) },
       include: ["series", "summary", "quality", "provenance"],
       maxPointsPerSeries: analyticsPointBudget(range),
-      requestId: `explorer-${props.house.id}-${metric}-${range}-${resolution}-${aggregation}-${qualityPreset}-${refreshRevision}`,
+      requestId: analyticsRequestId,
     }, controller.signal).then((result) => {
       if (!controller.signal.aborted) setAnalytics(result);
     }).catch((error: unknown) => {
@@ -465,7 +493,49 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
       if (!controller.signal.aborted) setAnalyticsLoading(false);
     });
     return () => controller.abort();
-  }, [aggregation, evidenceOpen, metric, props.dataMode, props.house.id, props.house.timezone, qualityPreset, range, refreshRevision, resolution, selectedDefinition, selectedSensorKey, t]);
+  }, [aggregation, analyticsDataMode, analyticsNeeded, analyticsRequestId, metric, props.dataMode, props.house.id, props.house.timezone, qualityPreset, range, refreshRevision, resolution, selectedDefinition, selectedSensorKey, t]);
+
+  useEffect(() => {
+    forecastCache.current.clear();
+    setChartForecasts({});
+  }, [forecastCacheScope]);
+
+  useEffect(() => {
+    if (!sensorsOpen || !analytics || analytics.requestId !== analyticsRequestId || !selectedDefinition?.forecastSupported) {
+      setChartForecasts({});
+      return;
+    }
+    const controller = new AbortController();
+    void (async () => {
+      const forecasts: MeasurementForecasts = {};
+      const queue = selectedSensors.filter((sensor) => sensor.enabled);
+      let cursor = 0;
+      const worker = async () => {
+        while (!controller.signal.aborted) {
+          const sensor = queue[cursor++];
+          if (!sensor) return;
+          const cacheKey = `${forecastCacheScope}\u0000${sensor.id}\u0000${selectedDefinition.id}`;
+          const cached = forecastCache.current.get(cacheKey);
+          if (cached && cached.expiresAt > Date.now()) {
+            forecasts[sensor.id] = { [selectedDefinition.id]: cached.points };
+            continue;
+          }
+          try {
+            const points = await api.measurementForecast(sensor.id, selectedDefinition.id, 12, controller.signal);
+            if (controller.signal.aborted) return;
+            forecastCache.current.set(cacheKey, { expiresAt: Date.now() + 5 * 60_000, points });
+            forecasts[sensor.id] = { [selectedDefinition.id]: points };
+          } catch {
+            if (controller.signal.aborted) return;
+            // Forecasts are optional supporting evidence; observed history remains usable.
+          }
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(2, queue.length) }, worker));
+      if (!controller.signal.aborted) setChartForecasts(forecasts);
+    })();
+    return () => controller.abort();
+  }, [analytics?.requestId, analyticsRequestId, forecastCacheScope, selectedDefinition?.forecastSupported, selectedDefinition?.id, selectedSensorKey, sensorsOpen]);
   const thresholdMs = chartGapThresholdMs(range);
   const visibleSensorGaps = useMemo(() => selectedSensors.flatMap((sensor) => {
     if (!sensor.enabled) return [];
@@ -551,7 +621,7 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
     <>
       <header className="page-heading analytics-page-heading">
         <div><span className="eyebrow"><ChartLine size={14} aria-hidden="true" />{t("analytics.eyebrow")}</span><h1>{t("analytics.title")}</h1><p>{t("analytics.description")}</p></div>
-        <button type="button" className="secondary-button" onClick={refresh} disabled={loading}><RefreshCw className={loading ? "spin" : ""} size={15} aria-hidden="true" />{t("common.refresh")}</button>
+        <button type="button" className="secondary-button" onClick={refresh} disabled={loading || analyticsLoading}><RefreshCw className={loading || analyticsLoading ? "spin" : ""} size={15} aria-hidden="true" />{t("common.refresh")}</button>
       </header>
 
       <DailyAnalyticsFindings
@@ -619,12 +689,16 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
               <ChevronDown className="analytics-tool-chevron" size={18} aria-hidden="true" />
             </summary>
             {openTools.has("sensors") && <div className="analytics-primary-tool-content">
+              {analyticsError && <p className="inline-error" role="alert">{analyticsError}</p>}
               {definitions.length > 0 && sensors.length > 0 ? <SensorAnalyticsChart
                 houseId={props.house.id}
                 dataMode={props.dataMode}
                 sensors={metricSensors}
                 history={props.state.measurementHistory}
-                forecasts={props.state.measurementForecasts}
+                forecasts={chartForecasts}
+                analyticsSeries={analytics?.series ?? null}
+                analyticsRangeEnd={analytics?.resolvedRange.end ?? null}
+                loading={analyticsLoading}
                 latestMeasurements={props.state.latestMeasurements}
                 definitions={definitions}
                 outdoorHistory={outdoorHistory}
@@ -643,7 +717,6 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
                 onSensors={selectSensors}
                 onWeatherObservationsVisible={selectWeatherObservationsVisible}
                 onWeatherForecastVisible={selectWeatherForecastVisible}
-                onLoadSeries={props.onLoadSeries}
               /> : <div className="empty-state">{t("common.noData")}</div>}
             </div>}
           </details>

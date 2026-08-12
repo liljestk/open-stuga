@@ -1,14 +1,70 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "../i18n";
 import { AppShell } from "./AppShell";
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
   window.history.replaceState({}, "", "/");
 });
 
 describe("AppShell local account controls", () => {
+  it("shows only the highest-priority live outage notice", () => {
+    vi.useFakeTimers();
+    const { container } = render(
+      <I18nProvider>
+        <AppShell
+          page="analytics"
+          onPage={vi.fn()}
+          connection="offline"
+          units="metric"
+          onUnits={vi.fn()}
+          lastUpdated={null}
+          dataMode="real"
+          pollingFallback
+          resourceErrors={["The API request timed out"]}
+        >
+          <div>Analytics</div>
+        </AppShell>
+      </I18nProvider>,
+    );
+
+    expect(container.querySelectorAll(".connection-banner")).toHaveLength(1);
+    expect(screen.getByText("Using periodic refresh")).not.toBeNull();
+    expect(screen.queryByText("Some data could not be refreshed")).toBeNull();
+
+    act(() => vi.advanceTimersByTime(1_500));
+
+    expect(container.querySelectorAll(".connection-banner")).toHaveLength(1);
+    expect(screen.getByText("Live updates are unavailable")).not.toBeNull();
+    expect(screen.queryByText("Using periodic refresh")).toBeNull();
+    expect(screen.queryByText("Some data could not be refreshed")).toBeNull();
+  });
+
+  it("shows a resource outage only while the live connection is otherwise healthy", () => {
+    const { container } = render(
+      <I18nProvider>
+        <AppShell
+          page="analytics"
+          onPage={vi.fn()}
+          connection="live"
+          units="metric"
+          onUnits={vi.fn()}
+          lastUpdated={null}
+          dataMode="real"
+          resourceErrors={["The API request timed out"]}
+        >
+          <div>Analytics</div>
+        </AppShell>
+      </I18nProvider>,
+    );
+
+    expect(container.querySelectorAll(".connection-banner")).toHaveLength(1);
+    expect(screen.getByText("Some data could not be refreshed")).not.toBeNull();
+    expect(screen.getByText("The API request timed out")).not.toBeNull();
+  });
+
   it("shows API & MCP only when the principal can use developer tools", () => {
     const props = {
       page: "overview" as const,

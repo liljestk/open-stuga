@@ -1,5 +1,5 @@
 import axe from "axe-core";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
@@ -12,10 +12,22 @@ import { createDemoState } from "../domain";
 import { I18nProvider } from "../i18n";
 import { OpeningAnalyticsPanel } from "./OpeningAnalyticsPanel";
 
-afterEach(() => vi.restoreAllMocks());
+const clock = vi.hoisted(() => ({ now: Date.now() }));
+
+vi.mock("../useNow", () => ({
+  useNow: () => clock.now,
+}));
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
 
 describe("OpeningAnalyticsPanel", () => {
-  beforeEach(() => localStorage.setItem("climate-twin-locale", "en"));
+  beforeEach(() => {
+    clock.now = Date.now();
+    localStorage.setItem("climate-twin-locale", "en");
+  });
 
   it("shows contact-state history, current state, and period insights", async () => {
     const state = createDemoState();
@@ -139,12 +151,26 @@ describe("OpeningAnalyticsPanel", () => {
     expect(container.querySelector(".opening-timeline-segment.open")).not.toBeNull();
     expect(screen.getByText("Open", { selector: ".opening-current-state" })).not.toBeNull();
 
+    expect(screen.queryByRole("region", { name: "Door and window state history" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Download activity as CSV" })).toBeNull();
+    const historyDetails = screen.getByText("Show state history (2 records)").closest("details")!;
+    expect(historyDetails.open).toBe(false);
     await user.click(screen.getByText("Show state history (2 records)"));
+    expect(historyDetails.open).toBe(true);
     const table = screen.getByRole("region", { name: "Door and window state history" });
     expect(within(table).getAllByText("Front door")).toHaveLength(2);
     expect(within(table).getAllByText("Tapo")).toHaveLength(2);
-    expect(screen.getByRole("link", { name: "Download activity as CSV" }).getAttribute("download"))
-      .toBe("stugu-opening-activity-24h.csv");
+    const createObjectURL = vi.fn(() => "blob:opening-activity");
+    const revokeObjectURL = vi.fn();
+    class TestUrl extends URL {}
+    Object.assign(TestUrl, { createObjectURL, revokeObjectURL });
+    vi.stubGlobal("URL", TestUrl);
+    const download = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
+    expect(createObjectURL).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Download activity as CSV" }));
+    expect(createObjectURL).toHaveBeenCalledOnce();
+    expect(download).toHaveBeenCalledOnce();
+    await waitFor(() => expect(revokeObjectURL).toHaveBeenCalledWith("blob:opening-activity"));
 
     await user.click(screen.getByRole("button", { name: "7 days" }));
     expect(onRange).toHaveBeenCalledWith("7d");
@@ -241,5 +267,103 @@ describe("OpeningAnalyticsPanel", () => {
 
     expect(await screen.findByText("Waiting for the first contact update")).not.toBeNull();
     expect(screen.getByText(/after its sensor reports an open or closed state/)).not.toBeNull();
+  });
+
+  it("keeps the same request while a minute tick crosses a pending request and its failure", async () => {
+    const state = createDemoState();
+    const baseHouse = state.houses[0]!;
+    const floor = baseHouse.floors[0]!;
+    const door: DoorPlanElement = {
+      id: "slow-door",
+      kind: "door",
+      wallId: floor.walls[0]!.id,
+      position: { x: 130, y: 45 },
+      rotationDegrees: 0,
+      label: "Slow door",
+      stateBinding: { provider: "tapo", externalId: "t110-slow" },
+    };
+    const house = {
+      ...baseHouse,
+      floors: baseHouse.floors.map((candidate, index) => (
+        index === 0 ? { ...candidate, planElements: [...(candidate.planElements ?? []), door] } : candidate
+      )),
+    };
+    let rejectRequest!: (error: Error) => void;
+    const pending = new Promise<OpeningActivityResponse>((_resolve, reject) => { rejectRequest = reject; });
+    const openingActivity = vi.spyOn(api, "openingActivity").mockReturnValue(pending);
+    const panel = () => <I18nProvider><OpeningAnalyticsPanel
+      house={house}
+      dataMode="real"
+      range="24h"
+      refreshRevision={41}
+      onRange={vi.fn()}
+    /></I18nProvider>;
+    const view = render(panel());
+
+    await waitFor(() => expect(openingActivity).toHaveBeenCalledOnce());
+    clock.now += 60_000;
+    view.rerender(panel());
+    expect(openingActivity).toHaveBeenCalledOnce();
+
+    await act(async () => rejectRequest(new Error("The API request timed out")));
+    await waitFor(() => expect(screen.getByText("The API request timed out")).not.toBeNull());
+    clock.now += 60_000;
+    view.rerender(panel());
+    expect(openingActivity).toHaveBeenCalledOnce();
+  });
+
+  it("advances the request window on the next minute only after success", async () => {
+    const state = createDemoState();
+    const baseHouse = state.houses[0]!;
+    const floor = baseHouse.floors[0]!;
+    const door: DoorPlanElement = {
+      id: "fresh-door",
+      kind: "door",
+      wallId: floor.walls[0]!.id,
+      position: { x: 140, y: 45 },
+      rotationDegrees: 0,
+      label: "Fresh door",
+      stateBinding: { provider: "tapo", externalId: "t110-fresh" },
+    };
+    const house = {
+      ...baseHouse,
+      floors: baseHouse.floors.map((candidate, index) => (
+        index === 0 ? { ...candidate, planElements: [...(candidate.planElements ?? []), door] } : candidate
+      )),
+    };
+    const openingActivity = vi.spyOn(api, "openingActivity").mockImplementation(async (request) => ({
+      apiVersion: "1.0",
+      requestId: request.requestId,
+      houseId: house.id,
+      dataMode: "live",
+      range: request.range,
+      generatedAt: request.range.end,
+      complete: true,
+      truncated: false,
+      archiveState: "not-configured",
+      warnings: [],
+      provenance: {
+        algorithmKey: "opening-activity",
+        algorithmVersion: "opening-activity-v2.0.0",
+        evaluatedAt: request.range.end,
+        sourceIds: [],
+        archiveState: "not-configured",
+      },
+      series: [],
+    }));
+    const panel = () => <I18nProvider><OpeningAnalyticsPanel
+      house={house}
+      dataMode="real"
+      range="24h"
+      refreshRevision={42}
+      onRange={vi.fn()}
+    /></I18nProvider>;
+    const view = render(panel());
+
+    await waitFor(() => expect(openingActivity).toHaveBeenCalledOnce());
+    clock.now += 60_000;
+    view.rerender(panel());
+    await waitFor(() => expect(openingActivity).toHaveBeenCalledTimes(2));
+    expect(openingActivity.mock.calls[1]?.[0].range.end).toBe(new Date(clock.now).toISOString());
   });
 });

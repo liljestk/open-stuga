@@ -524,6 +524,7 @@ export const svPart1 = {
   "analytics.showDataTable": "Visa tillgänglig datatabell ({count} rader)",
   "analytics.chartInteractionHint": "Håll pekaren över en linje för att se dess värde. När diagrammet har fokus kan du flytta genom data med vänster- och högerpilen.",
   "analytics.dataTable": "Analysens källdata",
+  "analytics.dataTableShowMore": "Visa {count} rader till",
   "analytics.downloadCsv": "Ladda ner exakta data som CSV",
   "analytics.gap": "Lucka före mätvärdet",
   "analytics.noGap": "Kontinuerlig",

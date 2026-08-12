@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDemoState } from "../domain";
 import { I18nProvider } from "../i18n";
@@ -21,6 +21,7 @@ describe("HomePerformancePanel", () => {
       error: null,
       isFetching: false,
       isLoading: false,
+      refetch: vi.fn(),
       refresh: vi.fn(),
       ...overrides,
     }) as unknown as ReturnType<typeof useHomePerformanceQuery>;
@@ -50,14 +51,16 @@ describe("HomePerformancePanel", () => {
     expect(screen.queryByText("Calculating Home performance")).toBeNull();
   });
 
-  it("does not expose or trigger refresh for a read-only viewer", () => {
+  it("re-reads the saved artifact without computing for a read-only viewer", () => {
     const state = createDemoState();
     const refresh = vi.fn();
+    const refetch = vi.fn();
     vi.mocked(useHomePerformanceQuery).mockReturnValue({
       data: undefined,
       error: null,
       isFetching: false,
       isLoading: false,
+      refetch,
       refresh,
     } as unknown as ReturnType<typeof useHomePerformanceQuery>);
     const panel = (refreshRevision: number) => <I18nProvider><HomePerformancePanel
@@ -71,6 +74,7 @@ describe("HomePerformancePanel", () => {
 
     expect(screen.queryByRole("button", { name: "Refresh" })).toBeNull();
     view.rerender(panel(1));
+    expect(refetch).toHaveBeenCalledOnce();
     expect(refresh).not.toHaveBeenCalled();
   });
 
@@ -82,6 +86,7 @@ describe("HomePerformancePanel", () => {
       error: null,
       isFetching: false,
       isLoading: false,
+      refetch: vi.fn(),
       refresh,
     } as unknown as ReturnType<typeof useHomePerformanceQuery>);
     const panel = (dataMode: "real" | "unknown") => <I18nProvider><HomePerformancePanel
@@ -94,5 +99,30 @@ describe("HomePerformancePanel", () => {
 
     view.rerender(panel("real"));
     expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it("keeps the local Refresh button as the explicit compute action", () => {
+    const state = createDemoState();
+    const refresh = vi.fn();
+    const refetch = vi.fn();
+    vi.mocked(useHomePerformanceQuery).mockReturnValue({
+      data: undefined,
+      error: null,
+      isFetching: false,
+      isLoading: false,
+      refetch,
+      refresh,
+    } as unknown as ReturnType<typeof useHomePerformanceQuery>);
+
+    render(<I18nProvider><HomePerformancePanel
+      house={state.houses[0]!}
+      definitions={state.measurementDefinitions}
+      dataMode="real"
+      refreshRevision={0}
+    /></I18nProvider>);
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+
+    expect(refresh).toHaveBeenCalledOnce();
+    expect(refetch).not.toHaveBeenCalled();
   });
 });

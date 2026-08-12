@@ -1,4 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { once } from "node:events";
+import { createServer } from "node:http";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import request from "supertest";
 import type {
   House,
@@ -8,6 +10,7 @@ import type {
 import { createApi, type ApiRuntime } from "../src/app.js";
 import { deriveOpeningActivity } from "../src/analytics/temporal/opening-intervals.js";
 import type { AppConfig } from "../src/config.js";
+import type { HybridTelemetryReader } from "../src/timeseries/read-facade.js";
 
 const start = "2026-07-28T00:00:00.000Z";
 const end = "2026-07-28T04:00:00.000Z";
@@ -261,6 +264,65 @@ describe("opening activity API", () => {
         openedCount: 1,
       }],
     });
+  });
+
+  it("cancels opening evidence reads when the client disconnects", async () => {
+    await runtime.close();
+    let serverSignal: AbortSignal | undefined;
+    const openingStateSnapshot = vi.fn(async (query: { signal?: AbortSignal }) => {
+      serverSignal = query.signal;
+      return { records: [], provenance: { archiveState: "not-configured" } };
+    });
+    const openingStateHistory = vi.fn((query: { signal?: AbortSignal }) => {
+      serverSignal = query.signal;
+      return new Promise<never>((_resolve, reject) => {
+        const abort = () => reject(query.signal?.reason ?? new DOMException("Aborted", "AbortError"));
+        if (query.signal?.aborted) abort();
+        else query.signal?.addEventListener("abort", abort, { once: true });
+      });
+    });
+    const telemetryReader = { openingStateSnapshot, openingStateHistory } as unknown as HybridTelemetryReader;
+    runtime = createApi({
+      config: { ...config, timeseriesPoolMax: 1 },
+      telemetryReader,
+      startBackground: false,
+    });
+    const server = createServer(runtime.app);
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("Test server did not bind");
+    const clientController = new AbortController();
+
+    try {
+      const settled = fetch(`http://127.0.0.1:${address.port}/api/v2/analytics/opening-activity`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          apiVersion: "1.0",
+          requestId: "opening-cancellation",
+          houseId: "house-main",
+          dataMode: "demo",
+          range: { start, end },
+        }),
+        signal: clientController.signal,
+      }).catch((error: unknown) => error);
+      await vi.waitFor(() => expect(serverSignal).toBeDefined(), { timeout: 2_000 });
+
+      clientController.abort();
+
+      await expect(settled).resolves.toMatchObject({ name: "AbortError" });
+      await vi.waitFor(() => expect(serverSignal?.aborted).toBe(true), { timeout: 2_000 });
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      const health = await request(runtime.app).get("/api/v1/health").expect(200);
+      expect(health.body.analytics.operations["opening-activity"]).toMatchObject({ cancelled: 1 });
+      expect(openingStateSnapshot).toHaveBeenCalledWith(expect.objectContaining({ signal: serverSignal }));
+      expect(openingStateHistory).toHaveBeenCalledWith(expect.objectContaining({ signal: serverSignal }));
+    } finally {
+      clientController.abort();
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
   });
 
   it("rejects cross-mode and invalid ranges", async () => {
