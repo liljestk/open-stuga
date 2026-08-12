@@ -215,8 +215,8 @@ export const apiPart03 = {
   setupDoctor: async () => entity(await request<SetupDoctorReport | { report: SetupDoctorReport }>("/setup/doctor"), "report"),
   dataExportPreview: async (privacyLevel: DataExportPrivacyLevel, includeTelemetry: boolean) => entity(await request<DataExportPreview | { preview: DataExportPreview }>(`/data-export/preview?privacyLevel=${encodeURIComponent(privacyLevel)}&includeTelemetry=${includeTelemetry}`), "preview"),
   dataExportUrl: (privacyLevel: DataExportPrivacyLevel, includeTelemetry: boolean) => `${API_BASE}/data-export?privacyLevel=${encodeURIComponent(privacyLevel)}&includeTelemetry=${includeTelemetry}`,
-  scheduledDataExports: async (houseId: string) => list<ScheduledDataExport>(
-      await request<unknown>(`/houses/${encodeURIComponent(houseId)}/scheduled-data-exports`),
+  scheduledDataExports: async (houseId: string, signal?: AbortSignal) => list<ScheduledDataExport>(
+      await request<unknown>(`/houses/${encodeURIComponent(houseId)}/scheduled-data-exports`, signal ? { signal } : undefined),
       ["exports", "data"],
     ),
   createScheduledDataExport: async (houseId: string, input: ScheduledDataExportInput) => entity(
@@ -440,10 +440,13 @@ export const apiPart03 = {
   cancelTpLinkHistoryExportJob: async (id: string): Promise<void> => {
       await request<unknown>(`/integrations/tp-link/history-export/jobs/${encodeURIComponent(id)}`, { method: "DELETE" });
     },
-  sensorDataGaps: async (houseId?: string, limit = 500): Promise<SensorDataGap[]> => {
+  sensorDataGaps: async (houseId?: string, limit = 500, signal?: AbortSignal): Promise<SensorDataGap[]> => {
       const query = new URLSearchParams({ limit: String(limit) });
       if (houseId) query.set("houseId", houseId);
-      return list<SensorDataGap>(await request<unknown>(`/integrations/sensor-data-gaps?${query}`), ["gaps", "data"]);
+      return list<SensorDataGap>(
+        await request<unknown>(`/integrations/sensor-data-gaps?${query}`, signal ? { signal } : undefined),
+        ["gaps", "data"],
+      );
     },
   scenarios: async () => list<MockScenario>(await request<unknown>("/mock/scenarios"), ["scenarios", "data"]),
   runScenario: (scenarioId: MockScenario["id"]) => request<{ ok: boolean }>("/mock/scenario", { method: "POST", body: JSON.stringify({ scenarioId }) }),
@@ -456,6 +459,7 @@ export const apiPart03 = {
       "/analytics/opening-activity",
       {
         method: "POST",
+        schedulingClass: "background",
         body: JSON.stringify(input),
         ...(signal ? { signal } : {}),
       },
@@ -465,6 +469,7 @@ export const apiPart03 = {
     signal?: AbortSignal,
   ) => requestV2<CalendarComparisonResponse>("/analytics/calendar-comparison", {
     method: "POST",
+    schedulingClass: "background",
     body: JSON.stringify(input),
     ...(signal ? { signal } : {}),
   }),
@@ -482,7 +487,7 @@ export const apiPart03 = {
     signal?: AbortSignal,
   ) => requestV2<DurableDerivedAnalyticsResponse<HomePerformanceResponse>>(
       `/analytics/home-performance?houseId=${encodeURIComponent(houseId)}&dataMode=${dataMode}`,
-      { method: "POST", ...(signal ? { signal } : {}) },
+      { method: "POST", schedulingClass: "background", ...(signal ? { signal } : {}) },
     ),
   homeMonitoringCollection: (
     dataMode: "live" | "demo",
@@ -501,11 +506,13 @@ export const apiPart03 = {
   ),
   analyticsCoverage: (input: AnalyticsCoverageRequest, signal?: AbortSignal) => requestV2<AnalyticsCoverageResponse>("/analytics/coverage", {
       method: "POST",
+      schedulingClass: "background",
       body: JSON.stringify(input),
       ...(signal ? { signal } : {}),
     }),
   analyticsQuery: (input: AnalyticsQueryRequest, signal?: AbortSignal) => requestV2<AnalyticsQueryResponse>("/analytics/query", {
       method: "POST",
+      schedulingClass: "background",
       body: JSON.stringify(input),
       ...(signal ? { signal } : {}),
     }),

@@ -19,6 +19,7 @@ export interface LiveEventHandlers {
   onMeasurement: (sample: MeasurementSample) => void;
   onConnection: (stream: StreamName, state: ConnectionState) => void;
   onOpen: (stream: StreamName) => void;
+  onResume?: () => void;
   houseIdForSensor?: (sensorId: string) => string | null;
 }
 
@@ -156,6 +157,14 @@ export class LiveEventCoordinator {
 
   start(handlers: LiveEventHandlers): () => void {
     this.stop();
+    let stopped = false;
+    let resumePending = false;
+    const transportStates: Record<StreamName, ConnectionState> = {
+      legacy: "offline",
+      measurements: "offline",
+    };
+    let stopLegacy: (() => void) | null = null;
+    let stopMeasurements: (() => void) | null = null;
     let monitoringInvalidationTimer: ReturnType<typeof setTimeout> | null = null;
     let lastMonitoringInvalidationAt = Number.NEGATIVE_INFINITY;
     const pendingMonitoringHouseIds = new Set<string>();
@@ -203,43 +212,86 @@ export class LiveEventCoordinator {
       else invalidateEveryMonitoringHouse = true;
       scheduleMonitoringTimer();
     };
+    const handleTelemetryEvent = (event: TelemetryEvent) => {
+      handlers.onTelemetry(event);
+      if (event.type === "reading" || event.type === "measurement") {
+        scheduleMonitoringInvalidation(event.data.sensorId);
+      }
+      else invalidateForTelemetry(
+        this.client,
+        event,
+        telemetryHouseId(event, handlers.houseIdForSensor),
+      );
+    };
+    const handleMeasurementSample = (sample: MeasurementSample) => {
+      handlers.onMeasurement(sample);
+      scheduleMonitoringInvalidation(sample.sensorId);
+    };
+    const updateTransportState = (stream: StreamName, state: ConnectionState) => {
+      transportStates[stream] = state;
+      handlers.onConnection(stream, state);
+      if (
+        resumePending
+        && transportStates.legacy === "live"
+        && transportStates.measurements === "live"
+      ) {
+        resumePending = false;
+        handlers.onResume?.();
+      }
+    };
+    const stopTransports = (reconnecting: boolean) => {
+      const legacy = stopLegacy;
+      const measurements = stopMeasurements;
+      stopLegacy = null;
+      stopMeasurements = null;
+      legacy?.();
+      measurements?.();
+      if (reconnecting && (legacy || measurements)) {
+        updateTransportState("legacy", "reconnecting");
+        updateTransportState("measurements", "reconnecting");
+      }
+    };
+    const startTransports = () => {
+      if (stopped || stopLegacy || stopMeasurements) return;
+      try {
+        stopLegacy = this.transports.legacy(
+          handleTelemetryEvent,
+          (state) => updateTransportState("legacy", state),
+          () => handlers.onOpen("legacy"),
+        );
+        stopMeasurements = this.transports.measurements(
+          handleMeasurementSample,
+          (state) => updateTransportState("measurements", state),
+          () => handlers.onOpen("measurements"),
+        );
+      } catch (error) {
+        stopTransports(false);
+        throw error;
+      }
+    };
     const handleVisibilityChange = () => {
       if (document.hidden) {
         if (monitoringInvalidationTimer !== null) {
           clearTimeout(monitoringInvalidationTimer);
           monitoringInvalidationTimer = null;
         }
+        // EventSource connections are long-lived HTTP/1.1 requests. Releasing
+        // them in background tabs keeps the browser's per-origin pool free.
+        stopTransports(true);
         return;
       }
+      resumePending = true;
+      startTransports();
       scheduleMonitoringTimer();
     };
     if (typeof document !== "undefined") {
       document.addEventListener("visibilitychange", handleVisibilityChange);
     }
-    const stopLegacy = this.transports.legacy(
-      (event) => {
-        handlers.onTelemetry(event);
-        if (event.type === "reading" || event.type === "measurement") {
-          scheduleMonitoringInvalidation(event.data.sensorId);
-        }
-        else invalidateForTelemetry(
-          this.client,
-          event,
-          telemetryHouseId(event, handlers.houseIdForSensor),
-        );
-      },
-      (state) => handlers.onConnection("legacy", state),
-      () => handlers.onOpen("legacy"),
-    );
-    const stopMeasurements = this.transports.measurements(
-      (sample) => {
-        handlers.onMeasurement(sample);
-        scheduleMonitoringInvalidation(sample.sensorId);
-      },
-      (state) => handlers.onConnection("measurements", state),
-      () => handlers.onOpen("measurements"),
-    );
-    let stopped = false;
+    if (typeof document === "undefined" || !document.hidden) startTransports();
+    else {
+      updateTransportState("legacy", "reconnecting");
+      updateTransportState("measurements", "reconnecting");
+    }
     const stop = () => {
       if (stopped) return;
       stopped = true;
@@ -251,8 +303,7 @@ export class LiveEventCoordinator {
       if (typeof document !== "undefined") {
         document.removeEventListener("visibilitychange", handleVisibilityChange);
       }
-      stopLegacy();
-      stopMeasurements();
+      stopTransports(false);
       if (this.stopCurrent === stop) this.stopCurrent = null;
     };
     this.stopCurrent = stop;

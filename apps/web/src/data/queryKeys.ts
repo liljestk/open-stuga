@@ -1,7 +1,6 @@
 import type {
   CalendarComparisonRequest,
   DataMode,
-  OpeningActivityRequest,
 } from "@climate-twin/contracts";
 
 function fingerprint(value: unknown): string {
@@ -32,8 +31,8 @@ export const queryKeys = {
   heatPumps: (houseId: string) => (
     ["heat-pumps", houseId] as const
   ),
-  openingActivity: (request: OpeningActivityRequest) => (
-    ["analytics", "opening-activity", request.houseId, fingerprint(request)] as const
+  openingActivity: (houseId: string, dataMode: DataMode, range: string) => (
+    ["analytics", "opening-activity", houseId, dataMode, range] as const
   ),
   calendarComparison: (request: CalendarComparisonRequest) => (
     ["analytics", "calendar-comparison", request.houseId, fingerprint(request)] as const

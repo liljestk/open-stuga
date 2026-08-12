@@ -74,6 +74,9 @@ export function useTwinDashboardPart03(context: ReturnType<typeof useTwinDashboa
 
       const requestId = replayWindowRequestRef.current + 1;
       replayWindowRequestRef.current = requestId;
+      context.replayWindowControllerRef.current?.abort();
+      const controller = new AbortController();
+      context.replayWindowControllerRef.current = controller;
       setReplayLoadState("loading");
       setReplayLoadError(null);
       setReplayLoadPartial(false);
@@ -90,15 +93,15 @@ export function useTwinDashboardPart03(context: ReturnType<typeof useTwinDashboa
               from,
               to,
               bucketSeconds: replayResolutionSeconds,
-            })
+            }, controller.signal)
           )))),
           house.location
-            ? api.outdoorTemperatureHistory(houseId, from, to)
+            ? api.outdoorTemperatureHistory(houseId, from, to, 20_000, controller.signal)
               .then((page) => ({ page, failed: false as const }))
               .catch(() => ({ page: null, failed: true as const }))
             : Promise.resolve({ page: null, failed: false as const }),
         ]);
-        if (replayWindowRequestRef.current !== requestId) return;
+        if (controller.signal.aborted || replayWindowRequestRef.current !== requestId) return;
         const minimum = Date.parse(from);
         const maximum = Date.parse(to);
         const outdoorSamples = outdoorResult.page?.samples ?? [];
@@ -114,11 +117,18 @@ export function useTwinDashboardPart03(context: ReturnType<typeof useTwinDashboa
         setReplayLoadState("ready");
         setReplayActive(sampleCount > 0);
       } catch (error) {
-        if (replayWindowRequestRef.current !== requestId) return;
+        if (controller.signal.aborted || replayWindowRequestRef.current !== requestId) return;
+        context.setReplayOutdoorLoading(false);
+        controller.abort();
         setReplayLoadState("error");
         setReplayLoadError(error instanceof Error && error.message.trim() ? error.message : t("replay.loadFailed"));
       } finally {
-        if (replayWindowRequestRef.current === requestId) context.setReplayOutdoorLoading(false);
+        if (context.replayWindowControllerRef.current === controller) {
+          context.replayWindowControllerRef.current = null;
+        }
+        if (!controller.signal.aborted && replayWindowRequestRef.current === requestId) {
+          context.setReplayOutdoorLoading(false);
+        }
       }
     };
   useEffect(() => {
@@ -150,7 +160,7 @@ export function useTwinDashboardPart03(context: ReturnType<typeof useTwinDashboa
   useEffect(() => {
       if (replayActive && replayRequestedBounds) return;
       if (selectedSensor) loadSeriesOnce(selectedSensor.id, definition);
-    }, [replayActive, replayRequestedBounds, selectedSensor?.id, definition.id, range, definition.forecastSupported]);
+    }, [replayActive, replayRequestedBounds, selectedSensor?.id, definition.id, range, definition.forecastSupported, loadSeriesOnce]);
   useEffect(() => {
       if (!replayActive || replayRequestedBounds) {
         replayBatchRef.current = "";
@@ -162,7 +172,7 @@ export function useTwinDashboardPart03(context: ReturnType<typeof useTwinDashboa
       houseSensors.forEach((sensor) => {
         if (sensor.id !== selectedSensor?.id) loadSeriesOnce(sensor.id, definition);
       });
-    }, [replayActive, replayRequestedBounds, houseId, definition.id, definition.forecastSupported, range, houseSensorIds, selectedSensor?.id]);
+    }, [replayActive, replayRequestedBounds, houseId, definition.id, definition.forecastSupported, range, houseSensorIds, selectedSensor?.id, loadSeriesOnce]);
   useEffect(() => {
       // Loading every metric for every sensor can produce dozens of requests.
       // History is an on-demand workspace, so prepare it only after the person
@@ -179,7 +189,7 @@ export function useTwinDashboardPart03(context: ReturnType<typeof useTwinDashboa
         .forEach((replayDefinition) => houseSensors.forEach((sensor) => {
           loadSeriesOnce(sensor.id, replayDefinition);
         }));
-    }, [historyOpen, replayActive, replayPrepared, replayRequestedBounds, houseId, range, houseSensorIds, replayMetricIds]);
+    }, [historyOpen, replayActive, replayPrepared, replayRequestedBounds, houseId, range, houseSensorIds, replayMetricIds, loadSeriesOnce]);
   useEffect(() => {
       if (!replayActive || replayRequestedBounds) {
         airflowReplayBatchRef.current = "";
@@ -195,7 +205,7 @@ export function useTwinDashboardPart03(context: ReturnType<typeof useTwinDashboa
           loadSeriesOnce(sensor.id, airflowDefinition);
         });
       });
-    }, [replayActive, replayPrepared, replayRequestedBounds, houseId, range, houseSensorIds, airflowMetricKey, definition.id]);
+    }, [replayActive, replayPrepared, replayRequestedBounds, houseId, range, houseSensorIds, airflowMetricKey, definition.id, loadSeriesOnce]);
   useEffect(() => {
       if (!replayActive || replayRequestedBounds || !selectedSensor) {
         inspectorReplayBatchRef.current = "";
@@ -212,7 +222,7 @@ export function useTwinDashboardPart03(context: ReturnType<typeof useTwinDashboa
       supported.forEach((candidate) => {
         loadSeriesOnce(selectedSensor.id, candidate);
       });
-    }, [replayActive, replayRequestedBounds, selectedSensor?.id, range, definition.id, airflowMetricKey, state.latestMeasurements, state.measurementHistory]);
+    }, [replayActive, replayRequestedBounds, selectedSensor?.id, range, definition.id, airflowMetricKey, state.latestMeasurements, state.measurementHistory, loadSeriesOnce]);
   const replayOutdoorSample = useMemo(
       () => replayOutdoorSampleAt(context.replayOutdoorSamples, replayTimestamp),
       [context.replayOutdoorSamples, replayTimestamp],

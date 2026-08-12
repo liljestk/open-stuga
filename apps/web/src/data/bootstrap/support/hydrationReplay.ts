@@ -61,11 +61,12 @@ export async function legacySeries(
   from: string,
   to: string,
   forecastSupported: boolean,
+  signal?: AbortSignal,
 ) {
   const [history, forecasts] = await Promise.all([
-    api.readings(sensorId, from, to, seriesLimit(range)),
+    api.readings(sensorId, from, to, seriesLimit(range), signal),
     forecastSupported
-      ? optionalForecast(api.forecast(sensorId, 360))
+      ? optionalForecast(api.forecast(sensorId, 360, signal))
       : Promise.resolve({ value: [], error: null }),
   ]);
   return { history, forecasts };

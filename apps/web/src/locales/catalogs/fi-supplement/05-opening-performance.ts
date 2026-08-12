@@ -565,6 +565,7 @@ export const fiSupplementPart5 = {
   "updates.block.offDeviceBackup": "Valitse käytettävissä oleva erillisen laitteen varmuuskopiointikohde ennen päivitystä.",
   "updates.block.metadataUnavailable": "Luotettu päivitysmetadata ei ole käytettävissä. Stugu ei arvaa asennettavaa järjestelmää.",
   "updates.block.trustFailed": "Päivityksen luotettavuutta ei voitu varmistaa, joten se hylättiin.",
+  "updates.block.verificationFailed": "Stugu ei voinut varmistaa, että päivitys valmistui turvallisesti, joten se pysäytettiin. Nykyinen tai edellinen järjestelmä on edelleen käytössä.",
   "updates.block.statusStale": "Päivitystila muuttui. Tarkista uudelleen ennen jatkamista.",
   "updates.block.notConfigured": "Järjestelmäpäivityksiä ei ole määritetty tässä asennuksessa.",
   "updates.block.unknown": "Päivittäjä ilmoitti tuntemattoman turvallisuustilan. Tarkista uudelleen tai avaa lisätiedot.",

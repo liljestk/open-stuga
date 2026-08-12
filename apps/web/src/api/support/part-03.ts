@@ -134,12 +134,13 @@ import { recordApiError } from "../../bugReportDiagnostics";
 import { API_RUNTIME_VERSION_HEADER, assertApiRuntimeVersion } from "../../apiRuntimeVersion";
 import type { HouseGeoreferencePatch } from "./part-01";
 import { API_BASE, API_REQUEST_TIMEOUT_MS, API_V2_BASE, ApiRequestError, COLLECTION_PAGE_SIZE, SAFE_HTTP_METHODS, activeRequestControllers, apiClientState, apiRequestGeneration, assertSafeApiPath, authorizationChange, notifyAuthorizationChange } from "./part-02";
+import { acquireApiRequestSlot, type ApiRequestInit } from "./requestScheduler";
 import type { SystemUpdateLiveStatus } from "./part-02";
 
 export async function requestFrom<T>(
   base: string,
   path: string,
-  options?: RequestInit,
+  options?: ApiRequestInit,
   timeoutMs = API_REQUEST_TIMEOUT_MS,
 ): Promise<T> {
   assertSafeApiPath(path);
@@ -149,20 +150,26 @@ export async function requestFrom<T>(
   const abortFromCaller = () => controller.abort(callerSignal?.reason);
   if (callerSignal?.aborted) abortFromCaller();
   else callerSignal?.addEventListener("abort", abortFromCaller, { once: true });
-  const timeout = globalThis.setTimeout(() => {
-    controller.abort(new DOMException("The API request timed out", "TimeoutError"));
-  }, timeoutMs);
   activeRequestControllers.add(controller);
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+  let releaseRequestSlot: (() => void) | null = null;
 
   try {
-    const headers = new Headers(options?.headers);
+    const { schedulingClass: requestedSchedulingClass, ...requestOptions } = options ?? {};
+    const method = (requestOptions.method ?? "GET").toUpperCase();
+    const schedulingClass = requestedSchedulingClass
+      ?? (!SAFE_HTTP_METHODS.has(method) || path === "/session" ? "interactive" : "background");
+    releaseRequestSlot = await acquireApiRequestSlot(controller.signal, schedulingClass);
+    timeout = globalThis.setTimeout(() => {
+      controller.abort(new DOMException("The API request timed out", "TimeoutError"));
+    }, timeoutMs);
+    const headers = new Headers(requestOptions.headers);
     if (!headers.has("Accept")) headers.set("Accept", "application/json");
-    if (options?.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
-    const method = (options?.method ?? "GET").toUpperCase();
+    if (requestOptions.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
     if (!SAFE_HTTP_METHODS.has(method) && apiClientState.csrfToken) headers.set("X-CSRF-Token", apiClientState.csrfToken);
     else headers.delete("X-CSRF-Token");
     const response = await fetch(`${base}${path}`, {
-      ...options,
+      ...requestOptions,
       credentials: "include",
       signal: controller.signal,
       headers,
@@ -204,15 +211,16 @@ export async function requestFrom<T>(
     assertCurrentGeneration();
     return payload;
   } finally {
+    releaseRequestSlot?.();
     activeRequestControllers.delete(controller);
-    globalThis.clearTimeout(timeout);
+    if (timeout !== null) globalThis.clearTimeout(timeout);
     callerSignal?.removeEventListener("abort", abortFromCaller);
   }
 }
 
-export const request = <T,>(path: string, options?: RequestInit, timeoutMs?: number) => requestFrom<T>(API_BASE, path, options, timeoutMs);
+export const request = <T,>(path: string, options?: ApiRequestInit, timeoutMs?: number) => requestFrom<T>(API_BASE, path, options, timeoutMs);
 
-export const requestV2 = <T,>(path: string, options?: RequestInit, timeoutMs?: number) => requestFrom<T>(API_V2_BASE, path, options, timeoutMs);
+export const requestV2 = <T,>(path: string, options?: ApiRequestInit, timeoutMs?: number) => requestFrom<T>(API_V2_BASE, path, options, timeoutMs);
 
 function objectList<T extends object>(value: unknown, label: string): T[] {
   if (!Array.isArray(value)) throw new Error(`Invalid API response: ${label} must be an array`);

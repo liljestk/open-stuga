@@ -134,8 +134,53 @@ export function mergeMeasurementSeries(
   return mergeOrderedSeries(loaded, live, limit);
 }
 
+export function replaceMeasurementSeriesWindow(
+  current: MeasurementSample[],
+  refreshed: Iterable<MeasurementSample>,
+  live: Iterable<MeasurementSample>,
+  from: string,
+  to: string,
+  responseTruncated = false,
+): MeasurementSample[] {
+  const fromTime = Date.parse(from);
+  const toTime = Date.parse(to);
+  const refreshedSamples = [...refreshed];
+  const earliestRefreshedTime = refreshedSamples.reduce((earliest, sample) => {
+    const sampleTime = Date.parse(sample.timestamp);
+    return Number.isFinite(sampleTime) ? Math.min(earliest, sampleTime) : earliest;
+  }, Number.POSITIVE_INFINITY);
+  // A truncated history response contains the newest suffix. Its missing
+  // prefix is not authoritative, so keep any already cached samples there.
+  const replacementFromTime = responseTruncated
+    ? Math.max(fromTime, earliestRefreshedTime)
+    : fromTime;
+  const retained = current.filter((sample) => {
+    const sampleTime = Date.parse(sample.timestamp);
+    return !Number.isFinite(sampleTime) || sampleTime < replacementFromTime || sampleTime > toTime;
+  });
+  const withRefreshedWindow = mergeOrderedSeries(retained, refreshedSamples, MAX_SERIES_SAMPLES);
+  return mergeOrderedSeries(withRefreshedWindow, live, MAX_SERIES_SAMPLES);
+}
+
 export function mergeLegacySeries(loaded: Reading[], live: Iterable<Reading>, limit: number): Reading[] {
   return mergeOrderedSeries(loaded, live, limit);
+}
+
+export function replaceLegacySeriesWindow(
+  current: Reading[],
+  refreshed: Iterable<Reading>,
+  live: Iterable<Reading>,
+  from: string,
+  to: string,
+): Reading[] {
+  const fromTime = Date.parse(from);
+  const toTime = Date.parse(to);
+  const retained = current.filter((reading) => {
+    const readingTime = Date.parse(reading.timestamp);
+    return !Number.isFinite(readingTime) || readingTime < fromTime || readingTime > toTime;
+  });
+  const withRefreshedWindow = mergeOrderedSeries(retained, refreshed, MAX_SERIES_SAMPLES);
+  return mergeOrderedSeries(withRefreshedWindow, live, MAX_SERIES_SAMPLES);
 }
 
 export const unauthenticatedSession: AppSession = {

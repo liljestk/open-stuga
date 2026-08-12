@@ -115,6 +115,7 @@ function localReader(overrides: Partial<LocalTelemetryReader> = {}): LocalTeleme
     isRealDataMode: vi.fn(() => false),
     measurementCoverage: vi.fn(() => []),
     measurementHistory: vi.fn(() => []),
+    measurementHistoryBucketed: vi.fn(() => []),
     measurementWindow: vi.fn(() => []),
     history: vi.fn(() => []),
     outdoorTemperatureHistory: vi.fn(() => []),
@@ -140,9 +141,10 @@ function archiveReader(overrides: Partial<ArchiveTelemetryReader> = {}): Archive
 describe("HybridTelemetryReader", () => {
   it("does not enter synchronous local measurement reads after cancellation", async () => {
     const measurementHistory = vi.fn(() => []);
+    const measurementHistoryBucketed = vi.fn(() => []);
     const measurementWindow = vi.fn(() => []);
     const reader = new HybridTelemetryReader({
-      local: localReader({ measurementHistory, measurementWindow }),
+      local: localReader({ measurementHistory, measurementHistoryBucketed, measurementWindow }),
     });
     const controller = new AbortController();
     controller.abort(new DOMException("Client disconnected", "AbortError"));
@@ -161,8 +163,17 @@ describe("HybridTelemetryReader", () => {
       to: TO,
       signal: controller.signal,
     })).rejects.toMatchObject({ name: "AbortError" });
+    await expect(reader.measurementHistoryBucketed({
+      sensorId: "sensor-a",
+      metric: "temperature",
+      from: FROM,
+      to: TO,
+      bucketSeconds: 60,
+      signal: controller.signal,
+    })).rejects.toMatchObject({ name: "AbortError" });
 
     expect(measurementHistory).not.toHaveBeenCalled();
+    expect(measurementHistoryBucketed).not.toHaveBeenCalled();
     expect(measurementWindow).not.toHaveBeenCalled();
   });
 
@@ -329,6 +340,92 @@ describe("HybridTelemetryReader", () => {
       duplicateRecordCount: 1,
       filteredSyntheticRecordCount: 0,
       returnedRecordCount: 2,
+    });
+  });
+
+  it("uses one bounded bucket query per store, merges SQLite precedence, and never loads raw history", async () => {
+    const overlapAt = "2026-07-18T00:20:00.000Z";
+    const newestAt = "2026-07-18T00:30:00.000Z";
+    const localRaw = vi.fn(() => []);
+    const archiveRaw = vi.fn(async () => []);
+    const localBuckets = vi.fn(() => [measurement(overlapAt, 22), measurement(newestAt, 23)]);
+    const archiveBuckets = vi.fn(async () => [
+      measurement("2026-07-18T00:10:00.000Z", 20),
+      measurement(overlapAt, -99),
+    ]);
+    const reader = new HybridTelemetryReader({
+      local: localReader({ measurementHistory: localRaw, measurementHistoryBucketed: localBuckets }),
+      archive: archiveReader({ measurementHistory: archiveRaw, measurementHistoryBucketed: archiveBuckets }),
+      archivePhase: () => "ready",
+    });
+
+    const result = await reader.measurementHistoryBucketed({
+      sensorId: "sensor-a",
+      metric: "temperature",
+      from: FROM,
+      to: TO,
+      bucketSeconds: 60,
+      limit: 2,
+    });
+
+    expect(localBuckets).toHaveBeenCalledOnce();
+    expect(localBuckets).toHaveBeenCalledWith("sensor-a", "temperature", FROM, TO, 60, 2, false);
+    expect(archiveBuckets).toHaveBeenCalledOnce();
+    expect(archiveBuckets).toHaveBeenCalledWith(expect.objectContaining({
+      sensorId: "sensor-a", metric: "temperature", bucketSeconds: 60, limit: 2, excludeSynthetic: false,
+    }));
+    expect(localRaw).not.toHaveBeenCalled();
+    expect(archiveRaw).not.toHaveBeenCalled();
+    expect(result.records.map(({ timestamp, value }) => ({ timestamp, value }))).toEqual([
+      { timestamp: overlapAt, value: 22 },
+      { timestamp: newestAt, value: 23 },
+    ]);
+    expect(result.provenance).toMatchObject({
+      archiveState: "merged",
+      localHistoryComplete: true,
+      localRecordCount: 2,
+      archiveRecordCount: 2,
+      duplicateRecordCount: 1,
+      returnedRecordCount: 2,
+    });
+  });
+
+  it("falls back to complete local buckets when the archive aggregate fails", async () => {
+    const localBuckets = vi.fn(() => [measurement(FROM, 12)]);
+    const archiveBuckets = vi.fn(async () => { throw new Error("archive aggregate unavailable"); });
+    const reconcile = vi.fn();
+    const reader = new HybridTelemetryReader({
+      local: localReader({ measurementHistoryBucketed: localBuckets }),
+      archive: archiveReader({ measurementHistoryBucketed: archiveBuckets }),
+      archivePhase: () => "ready",
+      localHistoryComplete: true,
+      reconcile,
+    });
+
+    const result = await reader.measurementHistoryBucketed({
+      sensorId: "sensor-a", metric: "temperature", from: FROM, to: TO, bucketSeconds: 60,
+    });
+
+    expect(result.records.map((item) => item.value)).toEqual([12]);
+    expect(result.provenance.archiveState).toBe("failed");
+    expect(reconcile).toHaveBeenCalledOnce();
+  });
+
+  it("fails closed when bucketed archive history fails outside the complete local window", async () => {
+    const reader = new HybridTelemetryReader({
+      local: localReader({ measurementHistoryBucketed: vi.fn(() => [measurement(TO, 12)]) }),
+      archive: archiveReader({
+        measurementHistoryBucketed: vi.fn(async () => { throw new Error("archive aggregate unavailable"); }),
+      }),
+      archivePhase: () => "ready",
+      localHistoryComplete: false,
+    });
+
+    await expect(reader.measurementHistoryBucketed({
+      sensorId: "sensor-a", metric: "temperature", from: FROM, to: TO, bucketSeconds: 60,
+    })).rejects.toMatchObject<Partial<IncompleteTelemetryHistoryError>>({
+      code: "TELEMETRY_ARCHIVE_REQUIRED",
+      archiveState: "failed",
     });
   });
 

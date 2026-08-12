@@ -301,7 +301,15 @@ export function useSensorManagementPagePart02(context: ReturnType<typeof useSens
     }, [detailDefinition, detailMetric]);
   useEffect(() => {
       if (!visibleDetailsSensor || !detailDefinition || !onLoadSeries) return;
-      onLoadSeries(visibleDetailsSensor.id, detailDefinition.id, detailRange, detailDefinition.forecastSupported);
+      const controller = new AbortController();
+      onLoadSeries(
+        visibleDetailsSensor.id,
+        detailDefinition.id,
+        detailRange,
+        detailDefinition.forecastSupported,
+        controller.signal,
+      );
+      return () => controller.abort();
     }, [detailDefinition?.id, detailDefinition?.forecastSupported, detailRange, onLoadSeries, visibleDetailsSensor?.id]);
   const chooseSource = (source: DraftSource) => {
       setDraft((current) => ({

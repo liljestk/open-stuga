@@ -282,6 +282,7 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
   const [electricityPrices, setElectricityPrices] = useState<HomeElectricityPricePoint[]>([]);
   const [sensorGaps, setSensorGaps] = useState<SensorDataGap[]>([]);
   const [historyError, setHistoryError] = useState<string | null>(null);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
   const [loading, setLoading] = useState(false);
   const [analytics, setAnalytics] = useState<AnalyticsQueryResponse | null>(null);
   const [analyticsError, setAnalyticsError] = useState<string | null>(null);
@@ -293,6 +294,9 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
   const [isolationOpen, setIsolationOpen] = useState(false);
   const [moistureOpen, setMoistureOpen] = useState(false);
   const [evidenceOpen, setEvidenceOpen] = useState(evidenceIsDeepLinked);
+  const [continuityOpen, setContinuityOpen] = useState(false);
+  const historyIdentity = useRef<string | null>(null);
+  const analyticsIdentity = useRef<string | null>(null);
   const weather = useHouseWeather(props.house);
   const selectedDefinition = definitions.find((definition) => definition.id === metric) ?? definitions[0];
   const availableAggregations = useMemo(() => aggregationOptions(selectedDefinition), [selectedDefinition]);
@@ -310,6 +314,9 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
     : metricSensors.filter((sensor) => selectedSensorIds.includes(sensor.id)), [metricSensors, selectedSensorIds]);
   const selectedSensorKey = selectedSensors.map((sensor) => sensor.id).sort().join("\u0000");
   const sensorsOpen = openTools.has("sensors");
+  const sensorRecoveryErrors = [...new Set([historyError, analyticsError]
+    .filter((detail): detail is string => Boolean(detail)))];
+  const auxiliaryHistoryVisible = sensorsOpen || continuityOpen;
   const analyticsNeeded = sensorsOpen || evidenceOpen;
   const analyticsDataMode = props.dataMode === "real" ? "live" : "demo";
   const forecastCacheScope = [props.dataMode, props.house.id, refreshRevision, selectedSensorKey].join("\u0001");
@@ -323,6 +330,17 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
     props.house.timezone,
   ].join("\u0001");
   const analyticsRequestId = `explorer-${analyticsIdentityToken(analyticsBatchIdentity)}`;
+  const analyticsRetentionIdentity = [
+    props.dataMode,
+    props.house.id,
+    selectedSensorKey,
+    metric,
+    range,
+    resolution,
+    aggregation,
+    qualityPreset,
+    props.house.timezone,
+  ].join("\u0001");
 
   const writeLocationPatch = (patch: Partial<AnalyticsLocationState>, mode: "push" | "replace") => {
     const current = analyticsStateFromLocation(metricIds, sensorIds);
@@ -426,31 +444,55 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
   }, [metricSensors, selectedSensorIds]);
 
   useEffect(() => {
+    if (!auxiliaryHistoryVisible) {
+      setLoading(false);
+      return;
+    }
     const controller = new AbortController();
     const to = new Date();
     const from = new Date(to.getTime() - timeRangeHours(range) * 3_600_000);
-    setOutdoorHistory([]);
-    setElectricityPrices([]);
-    setSensorGaps([]);
+    const identity = `${props.house.id}\u0000${range}`;
+    if (historyIdentity.current !== identity) {
+      historyIdentity.current = identity;
+      setOutdoorHistory([]);
+      setElectricityPrices([]);
+      setSensorGaps([]);
+      setHistoryError(null);
+      setHistoryLoaded(false);
+    }
     setLoading(true);
-    setHistoryError(null);
-    Promise.all([
-      api.outdoorTemperatureHistory(props.house.id, from.toISOString(), to.toISOString(), 100_000, controller.signal),
-      api.sensorDataGaps(props.house.id, 500),
-      api.houseElectricityPrice(props.house.id, from.toISOString(), new Date(to.getTime() + 48 * 3_600_000).toISOString(), controller.signal),
-    ]).then(([outdoor, gaps, prices]) => {
+    const outdoorRequest = api.outdoorTemperatureHistory(
+      props.house.id, from.toISOString(), to.toISOString(), 100_000, controller.signal,
+    ).then((outdoor) => {
+      if (!controller.signal.aborted) setOutdoorHistory(outdoor.samples);
+    });
+    const gapsRequest = api.sensorDataGaps(props.house.id, 500, controller.signal).then((gaps) => {
+      if (!controller.signal.aborted) setSensorGaps(gaps);
+    });
+    const pricesRequest = api.houseElectricityPrice(
+      props.house.id,
+      from.toISOString(),
+      new Date(to.getTime() + 48 * 3_600_000).toISOString(),
+      controller.signal,
+    ).then((prices) => {
+      if (!controller.signal.aborted) {
+        setElectricityPrices(prices.prices ?? (prices.current ? [prices.current] : []));
+      }
+    });
+    Promise.allSettled([outdoorRequest, gapsRequest, pricesRequest]).then(([outdoor, gaps, prices]) => {
       if (controller.signal.aborted) return;
-      setOutdoorHistory(outdoor.samples);
-      setSensorGaps(gaps);
-      setElectricityPrices(prices.prices ?? (prices.current ? [prices.current] : []));
-    }).catch((error: unknown) => {
-      if (controller.signal.aborted) return;
-      setHistoryError(error instanceof Error ? error.message : t("analytics.loadFailed"));
+      const failure = outdoor.status === "rejected"
+        ? outdoor.reason
+        : gaps.status === "rejected" ? gaps.reason : prices.status === "rejected" ? prices.reason : null;
+      setHistoryError(failure === null
+        ? null
+        : failure instanceof Error ? failure.message : t("analytics.loadFailed"));
+      setHistoryLoaded(true);
     }).finally(() => {
       if (!controller.signal.aborted) setLoading(false);
     });
     return () => controller.abort();
-  }, [props.house.id, range, refreshRevision, t]);
+  }, [auxiliaryHistoryVisible, props.house.id, range, refreshRevision, t]);
 
   const refresh = useCallback(() => {
     setRefreshRevision((value) => value + 1);
@@ -459,8 +501,11 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
 
   const fromMs = now - timeRangeHours(range) * 3_600_000;
   useEffect(() => {
-    if (!analyticsNeeded || props.dataMode === "unknown" || !selectedDefinition || selectedSensors.length === 0) {
+    if (analyticsIdentity.current !== analyticsRetentionIdentity) {
+      analyticsIdentity.current = analyticsRetentionIdentity;
       setAnalytics(null);
+    }
+    if (!analyticsNeeded || props.dataMode === "unknown" || !selectedDefinition || selectedSensors.length === 0) {
       setAnalyticsError(null);
       setAnalyticsLoading(false);
       return;
@@ -468,7 +513,6 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
     const controller = new AbortController();
     const end = new Date();
     const start = new Date(end.getTime() - timeRangeHours(range) * 3_600_000);
-    setAnalytics(null);
     setAnalyticsLoading(true);
     setAnalyticsError(null);
     void api.analyticsQuery({
@@ -487,13 +531,12 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
       if (!controller.signal.aborted) setAnalytics(result);
     }).catch((error: unknown) => {
       if (controller.signal.aborted) return;
-      setAnalytics(null);
       setAnalyticsError(error instanceof Error ? error.message : t("analytics.queryFailed"));
     }).finally(() => {
       if (!controller.signal.aborted) setAnalyticsLoading(false);
     });
     return () => controller.abort();
-  }, [aggregation, analyticsDataMode, analyticsNeeded, analyticsRequestId, metric, props.dataMode, props.house.id, props.house.timezone, qualityPreset, range, refreshRevision, resolution, selectedDefinition, selectedSensorKey, t]);
+  }, [aggregation, analyticsDataMode, analyticsNeeded, analyticsRequestId, analyticsRetentionIdentity, metric, props.dataMode, props.house.id, props.house.timezone, qualityPreset, range, refreshRevision, resolution, selectedDefinition, selectedSensorKey, t]);
 
   useEffect(() => {
     forecastCache.current.clear();
@@ -689,7 +732,10 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
               <ChevronDown className="analytics-tool-chevron" size={18} aria-hidden="true" />
             </summary>
             {openTools.has("sensors") && <div className="analytics-primary-tool-content">
-              {analyticsError && <p className="inline-error" role="alert">{analyticsError}</p>}
+              {sensorRecoveryErrors.length > 0 && <p className="inline-error" role="alert">
+                <span>{t("chart.loadError")}</span>
+                {sensorRecoveryErrors.map((detail) => <span key={detail}><br />{detail}</span>)}
+              </p>}
               {definitions.length > 0 && sensors.length > 0 ? <SensorAnalyticsChart
                 houseId={props.house.id}
                 dataMode={props.dataMode}
@@ -772,7 +818,9 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
           </select></label>
         </div>
         {analyticsLoading && <output className="analytics-query-status">{t("analytics.calculating")}</output>}
-        {analyticsError && <p className="inline-error" role="status">{analyticsError}</p>}
+        {analyticsError && !sensorsOpen && <p className="inline-error" role="status">{analytics
+          ? <><span>{t("chart.loadError")}</span><br /><span>{analyticsError}</span></>
+          : analyticsError}</p>}
         {analytics && selectedDefinition && <>
           {analytics.warnings.length > 0 && <ul className="analytics-query-warnings">{analytics.warnings.map((warning) => <li key={warning.code}>{warning.message}</li>)}</ul>}
           <div className="analytics-summary-grid">{analytics.summaries.map((summary) => {
@@ -812,15 +860,15 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
           </section>
         </details>
 
-        <details className="analytics-tool analytics-continuity-tool">
+        <details className="analytics-tool analytics-continuity-tool" open={continuityOpen} onToggle={(event) => setContinuityOpen(event.currentTarget.open)}>
           <summary>
             <span className="analytics-tool-icon"><Database size={18} aria-hidden="true" /></span>
             <span className="analytics-tool-copy"><strong id="analytics-continuity-title">{t("analytics.continuityTitle")}</strong><small>{t("analytics.continuityDescription")}</small></span>
-            <span className={`analytics-gap-count ${visibleGapCount > 0 ? "warning" : "healthy"}`}><TriangleAlert size={14} aria-hidden="true" />{t("analytics.visibleGapCount", { count: visibleGapCount })}</span>
+            {historyLoaded && historyIdentity.current === `${props.house.id}\u0000${range}` && <span className={`analytics-gap-count ${historyError || visibleGapCount > 0 ? "warning" : "healthy"}`}><TriangleAlert size={14} aria-hidden="true" />{historyError ? t("analytics.continuityStale") : t("analytics.visibleGapCount", { count: visibleGapCount })}</span>}
             <ChevronDown className="analytics-tool-chevron" size={18} aria-hidden="true" />
           </summary>
           <section className="analytics-continuity-panel analytics-tool-content" aria-labelledby="analytics-continuity-title">
-        {historyError && <p className="inline-error" role="alert">{historyError}</p>}
+        {historyError && !sensorsOpen && <p className="inline-error" role="alert"><span>{t("chart.loadError")}</span><br /><span>{historyError}</span></p>}
         {showTpLinkImportHelp && <aside className="analytics-gap-import-help">
           <FileSpreadsheet size={17} aria-hidden="true" />
           <p><strong>{t("analytics.tpLinkImportTitle")}</strong>{t("analytics.tpLinkImportHelp")}</p>

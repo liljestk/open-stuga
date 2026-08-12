@@ -29,6 +29,7 @@ import {
   type ReleaseManifest,
   UPDATE_REQUEST_SCHEMA,
 } from "./system-update-release-manifest.js";
+import { canonicalSystemUpdateReason } from "./system-update-reasons.js";
 
 const NEXT_WINDOW_CACHE_MS = 60_000;
 const NEXT_WINDOW_SEARCH_MINUTES = 8 * 24 * 60;
@@ -491,6 +492,7 @@ export class SystemUpdateService {
       this.#pendingWorkflowRequest = null;
     }
     const workflow = workflowFile ? workflowProjection(workflowFile) : null;
+    if (workflow) workflow.reason = canonicalSystemUpdateReason(workflow.reason);
     const bridge = this.#bridgeStatus();
     if (bridge?.requestId === this.#pendingBridgeRequestId) this.#pendingBridgeRequestId = null;
     const host = this.#hostProjection(heartbeat, bridge);
@@ -1090,7 +1092,9 @@ export class SystemUpdateService {
     return {
       supported: true,
       phase: bridge.available ? bridge.phase : "unavailable",
-      reason: bridge.error?.code ?? (bridge.available ? null : "HOST_UPDATER_OFFLINE"),
+      reason: canonicalSystemUpdateReason(
+        bridge.error?.code ?? (bridge.available ? null : "HOST_UPDATER_OFFLINE"),
+      ),
       detail: bridge.error?.message ?? bridge.detail,
       currentVersion: null,
       currentGeneration: bridge.currentGeneration,

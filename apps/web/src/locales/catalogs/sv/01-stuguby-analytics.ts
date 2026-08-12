@@ -458,6 +458,7 @@ export const svPart1 = {
   "analytics.continuityEyebrow": "Datakontinuitet",
   "analytics.continuityTitle": "Luckor och återställning",
   "analytics.continuityDescription": "Linjer avbryts när observationer saknas. Stugu återställer det som anslutna källor behåller och registrerar återstående luckor.",
+  "analytics.continuityStale": "Inaktuellt · senast mottagna data",
   "analytics.visibleGapCount": "{count} synliga luckor",
   "analytics.missingData": "Data saknas",
   "analytics.missingSeriesStatus": "Data saknas i {count} valda serier",

@@ -92,7 +92,7 @@
 
 .data-export-progress { display: block; color: var(--muted); font-size: 12px; }
 
-.data-export-preview { overflow: hidden; border: 1px solid var(--line-strong); border-radius: var(--radius); background: var(--panel); }
+.data-export-preview { min-width: 0; overflow: hidden; border: 1px solid var(--line-strong); border-radius: var(--radius); background: var(--panel); }
 
 .data-export-preview.stale { border-left: 4px solid var(--yellow); }
 

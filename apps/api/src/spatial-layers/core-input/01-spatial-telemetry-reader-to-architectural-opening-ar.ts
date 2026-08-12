@@ -73,6 +73,15 @@ export interface CoreClimateReader {
   listSensors(houseId?: string): Sensor[];
   getSensor(id: string): Sensor | null;
   measurementHistory(sensorId: string, metric: string, from: string, to: string, limit?: number): MeasurementSample[];
+  measurementHistoryBucketed(
+    sensorId: string,
+    metric: string,
+    from: string,
+    to: string,
+    bucketSeconds: number,
+    limit?: number,
+    excludeSynthetic?: boolean,
+  ): MeasurementSample[];
   measurementWindow(sensorIds: string[], metrics: string[], from: string, to: string, limit?: number): MeasurementSample[];
   history(sensorIds: string[], from: string, to: string, limit?: number): Reading[];
   outdoorTemperatureHistory(houseId: string, locationKey: string, from: string, to: string, limit?: number): OutdoorTemperatureSample[];

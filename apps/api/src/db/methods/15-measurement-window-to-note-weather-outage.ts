@@ -163,22 +163,26 @@ registerDatabaseMethods({
       to: string,
       bucketSeconds: number,
       limit = 20_000,
+      excludeSynthetic = false,
     ): MeasurementSample[] {
       if (!this.getSensor(sensorId)) return [];
+      const sourceFilter = excludeSynthetic ? "AND source NOT IN ('mock', 'replay')" : "";
       const rows = this.db.prepare(`WITH source_rows AS (
           SELECT id, timestamp, source,
             CAST(CAST(strftime('%s', timestamp) AS INTEGER) / ? AS INTEGER) * ? AS bucket_epoch, value
           FROM measurement_samples
           WHERE sensor_id = ? AND metric = ? AND timestamp >= ? AND timestamp <= ?
+            ${sourceFilter}
         ), recent_buckets AS (
           SELECT bucket_epoch, AVG(value) AS value, COUNT(*) AS sample_count,
             COUNT(DISTINCT source) AS source_count
           FROM source_rows WHERE bucket_epoch IS NOT NULL
           GROUP BY bucket_epoch ORDER BY bucket_epoch DESC LIMIT ?
         ), chronological_rows AS (
-          SELECT id, bucket_epoch,
-            ROW_NUMBER() OVER (PARTITION BY bucket_epoch ORDER BY timestamp DESC, id DESC) AS position
-          FROM source_rows WHERE bucket_epoch IS NOT NULL
+          SELECT source_rows.id, source_rows.bucket_epoch,
+            ROW_NUMBER() OVER (PARTITION BY bucket_epoch ORDER BY timestamp DESC, source DESC, id DESC) AS position
+          FROM source_rows JOIN recent_buckets USING (bucket_epoch)
+          WHERE bucket_epoch IS NOT NULL
         )
         SELECT recent_buckets.bucket_epoch, recent_buckets.value, recent_buckets.sample_count,
           recent_buckets.source_count,

@@ -170,9 +170,14 @@ export function SystemUpdatesPage() {
   const [busy, setBusy] = useState<"load" | "check" | "save" | "install" | "update-everything" | "activate-host" | "cancel-host" | "retry-application" | null>("load");
   const [error, setError] = useState<string | null>(null);
   const [streamState, setStreamState] = useState<StreamState>("connecting");
+  const [pageVisible, setPageVisible] = useState(() => (
+    typeof document === "undefined" || !document.hidden
+  ));
   const [now, setNow] = useState(() => Date.now());
   const pendingLiveStatus = useRef<SystemUpdateLiveStatus | null>(null);
   const statusRef = useRef<SystemUpdateStatus | null>(null);
+  const draftDirty = useRef(false);
+  const updateStreamWasHidden = useRef(!pageVisible);
   statusRef.current = status;
   const timezone = useMemo(() => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC", []);
   const updateActive = systemUpdateIsActive(status);
@@ -185,7 +190,9 @@ export function SystemUpdatesPage() {
       const live = pendingLiveStatus.current;
       pendingLiveStatus.current = null;
       setStatus((current) => mergeSystemUpdateStatus(current, applyPendingLiveStatus(next, live)));
-      setDraft((current) => current ?? { ...next.settings, updateDays: [...next.settings.updateDays] });
+      setDraft((current) => draftDirty.current && current
+        ? current
+        : { ...next.settings, updateDays: [...next.settings.updateDays] });
       setError(null);
     } catch (loadError) {
       if (!quiet) setError(message(loadError, t("updates.error")));
@@ -199,6 +206,21 @@ export function SystemUpdatesPage() {
   }, [load]);
 
   useEffect(() => {
+    const updateVisibility = () => setPageVisible(!document.hidden);
+    document.addEventListener("visibilitychange", updateVisibility);
+    return () => document.removeEventListener("visibilitychange", updateVisibility);
+  }, []);
+
+  useEffect(() => {
+    if (!pageVisible) {
+      updateStreamWasHidden.current = true;
+      setStreamState("reconnecting");
+      return undefined;
+    }
+    if (updateStreamWasHidden.current) {
+      updateStreamWasHidden.current = false;
+      void load(true);
+    }
     if (typeof EventSource === "undefined") {
       setStreamState("polling");
       return;
@@ -214,7 +236,7 @@ export function SystemUpdatesPage() {
         : current);
       setError(null);
     }, setStreamState);
-  }, [load]);
+  }, [load, pageVisible]);
 
   useEffect(() => {
     if (streamState !== "polling") return;
@@ -271,6 +293,7 @@ export function SystemUpdatesPage() {
     try {
       const next = await api.updateSystemUpdateSettings(draft);
       setStatus((current) => mergeSystemUpdateStatus(current, next));
+      draftDirty.current = false;
       setDraft({ ...next.settings, updateDays: [...next.settings.updateDays] });
     } catch (saveError) {
       setError(message(saveError, t("updates.error")));
@@ -425,6 +448,7 @@ export function SystemUpdatesPage() {
     if (!draft) return;
     const selected = draft.updateDays.includes(day);
     if (selected && draft.updateDays.length === 1) return;
+    draftDirty.current = true;
     setDraft({
       ...draft,
       updateDays: selected ? draft.updateDays.filter((candidate) => candidate !== day) : [...draft.updateDays, day],
@@ -604,20 +628,20 @@ export function SystemUpdatesPage() {
         </summary>
         <div className="updates-disclosure-content">
         <div className="updates-mode" role="radiogroup" aria-label={t("updates.mode")}>
-          <label><input type="radio" name="update-mode" checked={draft.mode === "manual"} onChange={() => setDraft({ ...draft, mode: "manual" })} /><span><strong>{t("updates.manual")}</strong><small>{t("updates.manualHelp")}</small></span></label>
-          <label><input type="radio" name="update-mode" checked={draft.mode === "automatic"} onChange={() => setDraft({ ...draft, mode: "automatic" })} /><span><strong>{t("updates.automatic")}</strong><small>{t("updates.automaticHelp")}</small></span></label>
+          <label><input type="radio" name="update-mode" checked={draft.mode === "manual"} onChange={() => { draftDirty.current = true; setDraft({ ...draft, mode: "manual" }); }} /><span><strong>{t("updates.manual")}</strong><small>{t("updates.manualHelp")}</small></span></label>
+          <label><input type="radio" name="update-mode" checked={draft.mode === "automatic"} onChange={() => { draftDirty.current = true; setDraft({ ...draft, mode: "automatic" }); }} /><span><strong>{t("updates.automatic")}</strong><small>{t("updates.automaticHelp")}</small></span></label>
         </div>
         <div className="updates-form-grid">
-          <label className="field"><span>{t("updates.checkInterval")}</span><select value={draft.checkIntervalHours} onChange={(event) => setDraft({ ...draft, checkIntervalHours: Number(event.target.value) as SystemUpdateSettings["checkIntervalHours"] })}>
+          <label className="field"><span>{t("updates.checkInterval")}</span><select value={draft.checkIntervalHours} onChange={(event) => { draftDirty.current = true; setDraft({ ...draft, checkIntervalHours: Number(event.target.value) as SystemUpdateSettings["checkIntervalHours"] }); }}>
             {intervals.map((hours) => <option key={hours} value={hours}>{t(`updates.interval.${hours}`)}</option>)}
           </select></label>
-          <label className="field"><span>{t("updates.updateTime")}</span><input type="time" lang={twentyFourHourInputLocale(locale)} value={draft.updateTime} onChange={(event) => setDraft({ ...draft, updateTime: event.target.value })} /></label>
-          <label className="field"><span>{t("updates.timezone")}</span><input value={draft.timezone} onChange={(event) => setDraft({ ...draft, timezone: event.target.value })} /><button className="text-button" type="button" onClick={() => setDraft({ ...draft, timezone })}>{t("updates.useBrowserTimezone")}</button></label>
+          <label className="field"><span>{t("updates.updateTime")}</span><input type="time" lang={twentyFourHourInputLocale(locale)} value={draft.updateTime} onChange={(event) => { draftDirty.current = true; setDraft({ ...draft, updateTime: event.target.value }); }} /></label>
+          <label className="field"><span>{t("updates.timezone")}</span><input value={draft.timezone} onChange={(event) => { draftDirty.current = true; setDraft({ ...draft, timezone: event.target.value }); }} /><button className="text-button" type="button" onClick={() => { draftDirty.current = true; setDraft({ ...draft, timezone }); }}>{t("updates.useBrowserTimezone")}</button></label>
         </div>
         <fieldset className="updates-days"><legend>{t("updates.days")}</legend><div>
           {days.map((day) => <label key={day}><input type="checkbox" checked={draft.updateDays.includes(day)} onChange={() => toggleDay(day)} /><span>{t(`updates.day.${day}`)}</span></label>)}
         </div></fieldset>
-        <label className="check-field"><input type="checkbox" checked={draft.includePrereleases} onChange={(event) => setDraft({ ...draft, includePrereleases: event.target.checked })} /><span>{t("updates.prereleases")}</span></label>
+        <label className="check-field"><input type="checkbox" checked={draft.includePrereleases} onChange={(event) => { draftDirty.current = true; setDraft({ ...draft, includePrereleases: event.target.checked }); }} /><span>{t("updates.prereleases")}</span></label>
         {status.nextUpdateWindowAt && <p className="updates-next-window">{t("updates.nextWindow", { date: dateTime(status.nextUpdateWindowAt, locale) })}</p>}
         <button type="button" className="secondary-button" disabled={!settingsChanged || busy !== null} onClick={() => void save()}><Save size={15} aria-hidden="true" />{busy === "save" ? t("common.saving") : t("updates.save")}</button>
         </div>

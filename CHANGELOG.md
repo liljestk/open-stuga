@@ -4,6 +4,21 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.39.3 - 2026-08-12
+
+- Bound and prioritize browser requests so abandoned history work cannot block
+  current data, saves, or recovery actions behind repeated 30-second timeouts.
+- Keep successful history and analytics evidence visible across refreshes,
+  cancel obsolete work, and recover authoritatively after hidden tabs resume.
+- Push 24-hour history bucketing into the database path so the Raspberry Pi no
+  longer reads large raw windows only to discard most samples in JavaScript.
+- Explain known native updater safety states consistently while preserving
+  unknown future states as blocked diagnostics.
+
+Upgrade impact: application-only reliability patch. Existing telemetry,
+configuration, and cached evidence are retained; no schema rewrite, signed host
+update, or factory image is required.
+
 ## 0.39.2 - 2026-08-12
 
 - Preserve exact release-commit provenance when publishing from a clean

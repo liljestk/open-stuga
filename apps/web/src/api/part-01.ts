@@ -169,7 +169,10 @@ export const apiPart01 = {
       method: "POST",
       body: JSON.stringify(input),
     }),
-  systemStorageStatus: () => request<SystemStorageStatus>("/system/storage"),
+  systemStorageStatus: (signal?: AbortSignal) => request<SystemStorageStatus>(
+      "/system/storage",
+      signal ? { signal } : undefined,
+    ),
   updateSystemStorage: (input: {
     settings: SystemStorageSettings;
     expectedRevision: string;

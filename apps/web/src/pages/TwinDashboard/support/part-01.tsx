@@ -87,11 +87,12 @@ export interface TwinDashboardProps {
   onHouseDelete?: (houseId: string) => Promise<void>;
   onOpenSensors?: (houseId: string) => void;
   onOpenConnections?: (houseId: string) => void;
-  onLoadSeries: (sensorId: string, metric: Metric, range: TimeRange, forecastSupported: boolean) => void;
+  onLoadSeries: (sensorId: string, metric: Metric, range: TimeRange, forecastSupported: boolean, signal?: AbortSignal) => void;
   onLoadReplaySeries?: (
     sensorId: string,
     metric: Metric,
     window: { from: string; to: string; bucketSeconds: number | null },
+    signal?: AbortSignal,
   ) => Promise<MeasurementHistoryPage>;
   onRunScenario: (scenario: MockScenario["id"]) => void;
   onCreateObservation: (observation: ManualObservationInput) => Promise<ManualObservation>;

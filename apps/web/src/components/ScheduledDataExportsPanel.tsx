@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   AnalyticsAggregation,
   AnalyticsResolution,
@@ -52,37 +52,93 @@ export function ScheduledDataExportsPanel(props: Readonly<ScheduledDataExportsPa
   const [nasConfigured, setNasConfigured] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [scheduleLoadError, setScheduleLoadError] = useState<string | null>(null);
+  const [storageLoadError, setStorageLoadError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [name, setName] = useState(`${props.house.name} export`);
   const [frequency, setFrequency] = useState<ScheduledDataExportFrequency>("weekly");
   const [timeLocal, setTimeLocal] = useState("02:00");
   const [dayOfWeek, setDayOfWeek] = useState(0);
   const [dayOfMonth, setDayOfMonth] = useState(1);
   const [retentionCount, setRetentionCount] = useState(12);
+  const schedulesInFlight = useRef<{ houseId: string; controller: AbortController; promise: Promise<void> } | null>(null);
+  const storageInFlight = useRef<{ houseId: string; controller: AbortController; promise: Promise<void> } | null>(null);
 
-  const load = useCallback(async (quiet = false) => {
-    if (!quiet) setLoading(true);
-    try {
-      const [nextSchedules, storage] = await Promise.all([
-        api.scheduledDataExports(props.house.id),
-        api.systemStorageStatus(),
-      ]);
-      setSchedules(nextSchedules);
-      setNasConfigured(storage.settings.backups.kind === "nas-path");
-      setError(null);
-    } catch (loadError) {
-      setError(message(loadError, t("dataExport.scheduleLoadError")));
-    } finally {
-      if (!quiet) setLoading(false);
+  const loadSchedules = useCallback((quiet = false): Promise<void> => {
+    if (schedulesInFlight.current?.houseId === props.house.id) return schedulesInFlight.current.promise;
+    if (schedulesInFlight.current) {
+      schedulesInFlight.current.controller.abort();
+      schedulesInFlight.current = null;
     }
+    if (!quiet) setLoading(true);
+    const controller = new AbortController();
+    const task = api.scheduledDataExports(props.house.id, controller.signal).then((nextSchedules) => {
+      if (controller.signal.aborted) return;
+      setSchedules(nextSchedules);
+      setScheduleLoadError(null);
+    }).catch((loadError: unknown) => {
+      if (!controller.signal.aborted) setScheduleLoadError(message(loadError, t("dataExport.scheduleLoadError")));
+    }).finally(() => {
+      if (!quiet && !controller.signal.aborted) setLoading(false);
+      if (schedulesInFlight.current?.promise === task) schedulesInFlight.current = null;
+    });
+    schedulesInFlight.current = { houseId: props.house.id, controller, promise: task };
+    return task;
   }, [props.house.id, t]);
 
-  useEffect(() => { void load(); }, [load]);
+  const loadStorage = useCallback((): Promise<void> => {
+    if (storageInFlight.current?.houseId === props.house.id) return storageInFlight.current.promise;
+    if (storageInFlight.current) {
+      storageInFlight.current.controller.abort();
+      storageInFlight.current = null;
+    }
+    const controller = new AbortController();
+    const task = api.systemStorageStatus(controller.signal).then((storage) => {
+      if (controller.signal.aborted) return;
+      setNasConfigured(storage.settings.backups.kind === "nas-path");
+      setStorageLoadError(null);
+    }).catch((loadError: unknown) => {
+      if (!controller.signal.aborted) setStorageLoadError(message(loadError, t("dataExport.scheduleLoadError")));
+    }).finally(() => {
+      if (storageInFlight.current?.promise === task) storageInFlight.current = null;
+    });
+    storageInFlight.current = { houseId: props.house.id, controller, promise: task };
+    return task;
+  }, [props.house.id, t]);
+
+  useEffect(() => {
+    setSchedules([]);
+    setNasConfigured(null);
+    setScheduleLoadError(null);
+    setStorageLoadError(null);
+    setActionError(null);
+    void loadSchedules();
+    void loadStorage();
+    return () => {
+      schedulesInFlight.current?.controller.abort();
+      storageInFlight.current?.controller.abort();
+      schedulesInFlight.current = null;
+      storageInFlight.current = null;
+    };
+  }, [loadSchedules, loadStorage]);
+  useEffect(() => setName(`${props.house.name} export`), [props.house.id, props.house.name]);
   useEffect(() => {
     if (!schedules.some((schedule) => schedule.lastRunStatus === "pending")) return;
-    const timer = window.setInterval(() => void load(true), 3_000);
-    return () => window.clearInterval(timer);
-  }, [load, schedules]);
+    let stopped = false;
+    let timer: number | null = null;
+    const pollAfterDelay = () => {
+      timer = window.setTimeout(() => {
+        void loadSchedules(true).finally(() => {
+          if (!stopped) pollAfterDelay();
+        });
+      }, 3_000);
+    };
+    pollAfterDelay();
+    return () => {
+      stopped = true;
+      if (timer !== null) window.clearTimeout(timer);
+    };
+  }, [loadSchedules, schedules]);
 
   const selectedInput = (selectedFrequency: ScheduledDataExportFrequency, selectedName: string): ScheduledDataExportInput | null => {
     if (props.period === "custom" || !props.resolution || props.resolution === "auto") return null;
@@ -105,17 +161,18 @@ export function ScheduledDataExportsPanel(props: Readonly<ScheduledDataExportsPa
   const selectionError = props.configurationError
     ?? (props.period === "custom" ? t("dataExport.scheduleCustomPeriod") : null);
   const canCreate = nasConfigured === true && !selectionError && busy === null;
+  const error = actionError ?? scheduleLoadError ?? storageLoadError;
 
   const create = async (selectedFrequency: ScheduledDataExportFrequency, selectedName: string) => {
     const input = selectedInput(selectedFrequency, selectedName);
     if (!input) return;
     setBusy("create");
-    setError(null);
+    setActionError(null);
     try {
       const created = await api.createScheduledDataExport(props.house.id, input);
       setSchedules((current) => [...current, created]);
     } catch (createError) {
-      setError(message(createError, t("dataExport.scheduleSaveError")));
+      setActionError(message(createError, t("dataExport.scheduleSaveError")));
     } finally {
       setBusy(null);
     }
@@ -123,12 +180,12 @@ export function ScheduledDataExportsPanel(props: Readonly<ScheduledDataExportsPa
 
   const run = async (schedule: ScheduledDataExport) => {
     setBusy(schedule.id);
-    setError(null);
+    setActionError(null);
     try {
       const updated = await api.runScheduledDataExport(props.house.id, schedule.id);
       setSchedules((current) => current.map((item) => item.id === updated.id ? updated : item));
     } catch (runError) {
-      setError(message(runError, t("dataExport.scheduleRunError")));
+      setActionError(message(runError, t("dataExport.scheduleRunError")));
     } finally {
       setBusy(null);
     }
@@ -136,7 +193,7 @@ export function ScheduledDataExportsPanel(props: Readonly<ScheduledDataExportsPa
 
   const toggle = async (schedule: ScheduledDataExport) => {
     setBusy(schedule.id);
-    setError(null);
+    setActionError(null);
     try {
       const updated = await api.updateScheduledDataExport(props.house.id, schedule.id, {
         ...scheduleInput(schedule, !schedule.enabled),
@@ -144,7 +201,7 @@ export function ScheduledDataExportsPanel(props: Readonly<ScheduledDataExportsPa
       });
       setSchedules((current) => current.map((item) => item.id === updated.id ? updated : item));
     } catch (updateError) {
-      setError(message(updateError, t("dataExport.scheduleSaveError")));
+      setActionError(message(updateError, t("dataExport.scheduleSaveError")));
     } finally {
       setBusy(null);
     }
@@ -153,12 +210,12 @@ export function ScheduledDataExportsPanel(props: Readonly<ScheduledDataExportsPa
   const remove = async (schedule: ScheduledDataExport) => {
     if (!await confirmAction(t("dataExport.scheduleDeleteConfirm", { name: schedule.name }), t("dataExport.scheduleDelete"), true)) return;
     setBusy(schedule.id);
-    setError(null);
+    setActionError(null);
     try {
       await api.deleteScheduledDataExport(props.house.id, schedule.id);
       setSchedules((current) => current.filter((item) => item.id !== schedule.id));
     } catch (deleteError) {
-      setError(message(deleteError, t("dataExport.scheduleDeleteError")));
+      setActionError(message(deleteError, t("dataExport.scheduleDeleteError")));
     } finally {
       setBusy(null);
     }
@@ -213,7 +270,7 @@ export function ScheduledDataExportsPanel(props: Readonly<ScheduledDataExportsPa
     </details>
 
     {error && <p className="inline-error" role="alert">{error}</p>}
-    {loading ? <p className="scheduled-loading" role="status"><LoaderCircle className="spin" size={16} aria-hidden="true" />{t("dataExport.scheduleLoading")}</p> : schedules.length === 0 ? <p className="scheduled-empty">{t("dataExport.scheduleEmpty")}</p> : <ul className="scheduled-list">{schedules.map((schedule) => <li key={schedule.id}>
+    {loading && schedules.length === 0 ? <p className="scheduled-loading" role="status"><LoaderCircle className="spin" size={16} aria-hidden="true" />{t("dataExport.scheduleLoading")}</p> : schedules.length === 0 ? <p className="scheduled-empty">{t("dataExport.scheduleEmpty")}</p> : <ul className="scheduled-list">{schedules.map((schedule) => <li key={schedule.id}>
       <div className="scheduled-list-main"><strong>{schedule.name}</strong><span>{recurrenceLabel(schedule)} · {schedule.timeLocal} · {schedule.period}</span><small>{t("dataExport.scheduleNextRun")}: {schedule.enabled ? formatDate(schedule.nextRunAt) : t("dataExport.schedulePaused")} · {t("dataExport.scheduleLastRun")}: {statusLabel(schedule)}</small>{schedule.lastOutputName && <small>{t("dataExport.scheduleLastFile")}: <code>{schedule.lastOutputName}</code></small>}{schedule.lastRunError && <small className="scheduled-run-error">{schedule.lastRunError}</small>}</div>
       <div className="scheduled-actions"><button type="button" className="icon-button" title={t("dataExport.scheduleRunNow")} aria-label={t("dataExport.scheduleRunNow")} disabled={busy !== null || schedule.lastRunStatus === "pending"} onClick={() => void run(schedule)}><Play size={15} aria-hidden="true" /></button><button type="button" className="icon-button" title={schedule.enabled ? t("dataExport.schedulePause") : t("dataExport.scheduleResume")} aria-label={schedule.enabled ? t("dataExport.schedulePause") : t("dataExport.scheduleResume")} disabled={busy !== null || schedule.lastRunStatus === "pending"} onClick={() => void toggle(schedule)}>{schedule.enabled ? <Pause size={15} aria-hidden="true" /> : <Play size={15} aria-hidden="true" />}</button><button type="button" className="icon-button danger" title={t("dataExport.scheduleDelete")} aria-label={t("dataExport.scheduleDelete")} disabled={busy !== null || schedule.lastRunStatus === "pending"} onClick={() => void remove(schedule)}><Trash2 size={15} aria-hidden="true" /></button></div>
     </li>)}</ul>}

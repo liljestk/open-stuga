@@ -36,6 +36,7 @@ import type {
   MeasurementCoverageRecord,
   MeasurementGapQuery,
   MeasurementGapRecord,
+  MeasurementHistoryBucketedQuery,
   MeasurementHistoryQuery,
   MeasurementSampleRecord,
   MeasurementWindowQuery,
@@ -360,6 +361,54 @@ registerTimeseriesStoreMethods({
           LIMIT $${values.length}
         ) recent
         ORDER BY observed_at ASC, source ASC`, values, query);
+      return result.rows.map(measurementFromRow);
+    },
+  async measurementHistoryBucketed(
+    this: TimeseriesStoreInternals,
+    query: MeasurementHistoryBucketedQuery,
+  ): Promise<MeasurementSampleRecord[]> {
+      const limit = positiveInteger(query.limit, 20_000, MAX_HISTORY_LIMIT);
+      if (!Number.isInteger(query.bucketSeconds) || query.bucketSeconds < 1 || query.bucketSeconds > 86_400) {
+        throw new RangeError("bucketSeconds must be an integer from 1 to 86400");
+      }
+      const measurements = qualifiedName(this.schema, "measurement_samples");
+      const syntheticFilter = query.excludeSynthetic ? "AND source NOT IN ('mock', 'replay')" : "";
+      const result = await this.__query<MeasurementRow>(`WITH source_rows AS MATERIALIZED (
+          SELECT value, canonical_unit, observed_at, source, quality, metadata,
+            date_bin(make_interval(secs => $5::INT), observed_at, TIMESTAMPTZ '1970-01-01 00:00:00+00') AS bucket_start
+          FROM ${measurements}
+          WHERE sensor_id = $1 AND metric = $2
+            AND observed_at >= $3::TIMESTAMPTZ AND observed_at <= $4::TIMESTAMPTZ
+            ${syntheticFilter}
+        ), recent_buckets AS (
+          SELECT bucket_start, AVG(value)::DOUBLE PRECISION AS value,
+            COUNT(*) AS sample_count, COUNT(DISTINCT source) AS source_count
+          FROM source_rows
+          GROUP BY bucket_start
+          ORDER BY bucket_start DESC
+          LIMIT $6
+        ), latest_rows AS (
+          SELECT DISTINCT ON (sample.bucket_start) sample.bucket_start,
+            sample.canonical_unit, sample.source, sample.quality, sample.metadata
+          FROM source_rows sample
+          JOIN recent_buckets bucket USING (bucket_start)
+          ORDER BY sample.bucket_start ASC, sample.observed_at DESC, sample.source DESC
+        )
+        SELECT $1::TEXT AS sensor_id, $2::TEXT AS metric, bucket.value,
+          latest.canonical_unit, bucket.bucket_start AS observed_at, latest.source,
+          CASE WHEN bucket.sample_count > 1 OR bucket.source_count > 1
+            THEN 'estimated' ELSE latest.quality END AS quality,
+          latest.metadata
+        FROM recent_buckets bucket
+        JOIN latest_rows latest USING (bucket_start)
+        ORDER BY bucket.bucket_start ASC`, [
+        query.sensorId,
+        query.metric,
+        query.from,
+        query.to,
+        query.bucketSeconds,
+        limit,
+      ], query);
       return result.rows.map(measurementFromRow);
     },
   async measurementSampleGaps(this: TimeseriesStoreInternals, query: MeasurementGapQuery): Promise<MeasurementGapRecord[]> {

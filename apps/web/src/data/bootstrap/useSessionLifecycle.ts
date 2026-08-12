@@ -274,6 +274,17 @@ export function useSessionLifecycle(
               if (!invalidated()) updateStreamConnection(stream, nextConnection);
             },
             onOpen: markStreamOpen,
+            onResume: () => {
+              if (invalidated()) return;
+              // Visibility resume takes the authoritative workspace bootstrap
+              // path. Cancel the aggregate stream reconnect's narrower house
+              // resync so the same Home is not hydrated twice.
+              if (reconnectResyncTimer.current !== null) {
+                window.clearTimeout(reconnectResyncTimer.current);
+                reconnectResyncTimer.current = null;
+              }
+              setBootstrapAttempt((attempt) => attempt + 1);
+            },
             houseIdForSensor: (sensorId) => (
               stateRef.current.sensors.find((sensor) => sensor.id === sensorId)?.houseId ?? null
             ),

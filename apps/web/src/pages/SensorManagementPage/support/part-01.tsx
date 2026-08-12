@@ -90,7 +90,7 @@ export interface SensorManagementPageProps {
   canManageIntegrations?: boolean;
   units?: UnitSystem;
   onRequestedDeviceHandled?: () => void;
-  onLoadSeries?: (sensorId: string, metric: Metric, range: TimeRange, forecastSupported: boolean) => void;
+  onLoadSeries?: (sensorId: string, metric: Metric, range: TimeRange, forecastSupported: boolean, signal?: AbortSignal) => void;
   onHouse: (houseId: string) => void;
   onUpdateHouse: (houseId: string, patch: HousePatch) => Promise<House>;
   onRefreshDevices: () => Promise<void>;

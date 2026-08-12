@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ScheduledDataExport } from "@climate-twin/contracts";
@@ -7,7 +7,10 @@ import { createDemoState } from "../domain";
 import { I18nProvider } from "../i18n";
 import { ScheduledDataExportsPanel } from "./ScheduledDataExportsPanel";
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
 
 function renderPanel() {
   const state = createDemoState();
@@ -65,6 +68,113 @@ function mockTarget() {
 }
 
 describe("ScheduledDataExportsPanel", () => {
+  it("shows schedules without waiting for the independent storage check", async () => {
+    const state = createDemoState();
+    const house = state.houses[0]!;
+    vi.spyOn(api, "scheduledDataExports").mockResolvedValue([createdSchedule(house.id)]);
+    vi.spyOn(api, "systemStorageStatus").mockReturnValue(new Promise(() => undefined));
+
+    renderPanel();
+
+    expect(await screen.findByText("Weekly export")).toBeVisible();
+  });
+
+  it("polls pending schedules without waiting for a slow storage check", async () => {
+    vi.useFakeTimers();
+    const state = createDemoState();
+    const house = state.houses[0]!;
+    const pending = createdSchedule(house.id, { lastRunStatus: "pending" });
+    const schedules = vi.spyOn(api, "scheduledDataExports").mockResolvedValue([pending]);
+    vi.spyOn(api, "systemStorageStatus").mockReturnValue(new Promise(() => undefined));
+
+    renderPanel();
+    await act(async () => { await Promise.resolve(); });
+    expect(schedules).toHaveBeenCalledOnce();
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(3_000); });
+    expect(schedules).toHaveBeenCalledTimes(2);
+    expect(screen.getByText("Weekly export")).toBeVisible();
+  });
+
+  it("starts a fresh load when the selected Home changes", async () => {
+    const state = createDemoState();
+    const firstHouse = state.houses[0]!;
+    const secondHouse = { ...firstHouse, id: "house-secondary", name: "Second Home" };
+    let firstSignal: AbortSignal | undefined;
+    let firstStorageSignal: AbortSignal | undefined;
+    const neverSettles = new Promise<ScheduledDataExport[]>(() => undefined);
+    const schedules = vi.spyOn(api, "scheduledDataExports")
+      .mockImplementationOnce((_houseId, signal) => {
+        firstSignal = signal;
+        return neverSettles;
+      })
+      .mockResolvedValueOnce([]);
+    const storageStatus: Awaited<ReturnType<typeof api.systemStorageStatus>> = {
+      settings: { timeseries: { kind: "managed", path: null }, backups: { kind: "nas-path", path: "/mnt/stugu/nas" } },
+      revision: "storage-revision",
+      allowedRoots: ["/mnt/stugu"],
+      capability: { available: true, runtime: "docker", agentLastSeenAt: "2026-08-02T12:00:00.000Z", reason: "ready", detail: null },
+      operation: null,
+    };
+    vi.spyOn(api, "systemStorageStatus")
+      .mockImplementationOnce((signal) => {
+        firstStorageSignal = signal;
+        return new Promise(() => undefined);
+      })
+      .mockResolvedValueOnce(storageStatus);
+    const sensors = state.sensors.filter((sensor) => sensor.houseId === firstHouse.id && sensor.enabled);
+    const panel = (house: typeof firstHouse) => <I18nProvider><ScheduledDataExportsPanel
+      house={house}
+      period="30d"
+      sensorIds={sensors.map((sensor) => sensor.id)}
+      measurementIds={["temperature", "humidity"]}
+      resolution="15m"
+      aggregation="mean"
+      configurationError={null}
+    /></I18nProvider>;
+    const view = render(panel(firstHouse));
+    await waitFor(() => expect(schedules).toHaveBeenCalledTimes(1));
+
+    view.rerender(panel(secondHouse));
+
+    await waitFor(() => expect(schedules).toHaveBeenCalledWith(secondHouse.id, expect.any(AbortSignal)));
+    expect(firstSignal?.aborted).toBe(true);
+    expect(firstStorageSignal?.aborted).toBe(true);
+  });
+
+  it("never overlaps refreshes while a pending export is still loading", async () => {
+    vi.useFakeTimers();
+    const state = createDemoState();
+    const house = state.houses[0]!;
+    const pending = createdSchedule(house.id, { lastRunStatus: "pending" });
+    let resolvePoll!: (value: ScheduledDataExport[]) => void;
+    const poll = new Promise<ScheduledDataExport[]>((resolve) => { resolvePoll = resolve; });
+    const schedules = vi.spyOn(api, "scheduledDataExports")
+      .mockResolvedValueOnce([pending])
+      .mockReturnValueOnce(poll)
+      .mockResolvedValue([pending]);
+    vi.spyOn(api, "systemStorageStatus").mockResolvedValue({
+      settings: { timeseries: { kind: "managed", path: null }, backups: { kind: "nas-path", path: "/mnt/stugu/nas" } },
+      revision: "storage-revision",
+      allowedRoots: ["/mnt/stugu"],
+      capability: { available: true, runtime: "docker", agentLastSeenAt: "2026-08-02T12:00:00.000Z", reason: "ready", detail: null },
+      operation: null,
+    });
+
+    renderPanel();
+    await act(async () => { await Promise.resolve(); });
+    expect(schedules).toHaveBeenCalledTimes(1);
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(3_000); });
+    expect(schedules).toHaveBeenCalledTimes(2);
+    await act(async () => { await vi.advanceTimersByTimeAsync(9_000); });
+    expect(schedules).toHaveBeenCalledTimes(2);
+
+    await act(async () => { resolvePoll([pending]); await poll; });
+    await act(async () => { await vi.advanceTimersByTimeAsync(3_000); });
+    expect(schedules).toHaveBeenCalledTimes(3);
+  });
+
   it("creates the weekly default from the current Data & Analytics selection", async () => {
     mockTarget();
     const create = vi.spyOn(api, "createScheduledDataExport");

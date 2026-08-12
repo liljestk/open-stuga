@@ -18,6 +18,7 @@ import type {
   MeasurementCoverageRecord,
   MeasurementGapQuery,
   MeasurementGapRecord,
+  MeasurementHistoryBucketedQuery,
   MeasurementHistoryQuery,
   MeasurementSampleRecord,
   MeasurementWindowQuery,
@@ -105,6 +106,15 @@ export interface LocalTelemetryReader {
     limit?: number,
     before?: { timestamp: string; source: string },
   ): MeasurementSample[];
+  measurementHistoryBucketed(
+    sensorId: string,
+    metric: string,
+    from: string,
+    to: string,
+    bucketSeconds: number,
+    limit?: number,
+    excludeSynthetic?: boolean,
+  ): MeasurementSample[];
   thermalTemperatureHistory?(
     sensorId: string, from: string, to: string, bucketMinutes?: number, limit?: number,
   ): MeasurementSample[];
@@ -136,6 +146,7 @@ export interface ArchiveTelemetryReader {
   measurementCoverage?(query: MeasurementCoverageQuery): Promise<MeasurementCoverageRecord[]>;
   measurementSampleGaps?(query: MeasurementGapQuery): Promise<MeasurementGapRecord[]>;
   measurementHistory(query: MeasurementHistoryQuery): Promise<MeasurementSampleRecord[]>;
+  measurementHistoryBucketed?(query: MeasurementHistoryBucketedQuery): Promise<MeasurementSampleRecord[]>;
   thermalMeasurementHistory?(query: ThermalMeasurementHistoryQuery): Promise<MeasurementSampleRecord[]>;
   measurementWindow?(query: MeasurementWindowQuery): Promise<MeasurementSampleRecord[]>;
   measurementAnalyticsRollup?(query: MeasurementAnalyticsRollupQuery): Promise<MeasurementAnalyticsRollupResult>;
@@ -240,6 +251,59 @@ export class HybridTelemetryReader {
       signal: query.signal,
       archiveRead: async () => (await this.#archive!.measurementHistory({ ...query, limit })).map(archivedMeasurement),
       key: measurementKey,
+      compare: compareMeasurements,
+    });
+  }
+
+  async measurementHistoryBucketed(
+    query: MeasurementHistoryBucketedQuery,
+  ): Promise<HybridTelemetryReadResult<MeasurementSample>> {
+    if (!Number.isInteger(query.bucketSeconds) || query.bucketSeconds < 1 || query.bucketSeconds > 86_400) {
+      throw new RangeError("bucketSeconds must be an integer from 1 to 86400");
+    }
+    const limit = positiveLimit(query.limit, DEFAULT_HISTORY_LIMIT, MAX_HISTORY_LIMIT);
+    const cancellation = aborted(query.signal);
+    if (cancellation) throw cancellation;
+    const realMode = this.#local.isRealDataMode();
+    const complete = this.#isLocalHistoryComplete({
+      family: "measurement",
+      from: query.from,
+      to: query.to,
+    });
+    const local = this.#local.measurementHistoryBucketed(
+      query.sensorId,
+      query.metric,
+      query.from,
+      query.to,
+      query.bucketSeconds,
+      limit,
+      realMode,
+    ).filter((sample) => complete || this.#isLocalHistoryComplete({
+      family: "measurement",
+      from: sample.timestamp,
+      to: new Date(Math.min(
+        Date.parse(query.to),
+        Date.parse(sample.timestamp) + query.bucketSeconds * 1_000,
+      )).toISOString(),
+    }));
+    return this.#read({
+      family: "measurement",
+      from: query.from,
+      to: query.to,
+      limit,
+      local,
+      signal: query.signal,
+      archiveRead: async () => {
+        if (!this.#archive!.measurementHistoryBucketed) {
+          throw new Error("Bucketed archive reads are unavailable");
+        }
+        return (await this.#archive!.measurementHistoryBucketed({
+          ...query,
+          limit,
+          excludeSynthetic: realMode,
+        })).map(archivedMeasurement);
+      },
+      key: (record) => JSON.stringify([record.sensorId, record.metric, record.timestamp]),
       compare: compareMeasurements,
     });
   }

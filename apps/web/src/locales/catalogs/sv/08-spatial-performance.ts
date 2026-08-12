@@ -647,6 +647,7 @@ export const svPart8 = {
   "updates.block.offDeviceBackup": "Välj en tillgänglig säkerhetskopieringsplats på en annan enhet före uppdateringen.",
   "updates.block.metadataUnavailable": "Betrodd uppdateringsmetadata är inte tillgänglig. Stugu gissar inte vilket system som ska installeras.",
   "updates.block.trustFailed": "Uppdateringen kunde inte verifieras som betrodd och avvisades.",
+  "updates.block.verificationFailed": "Stugu kunde inte verifiera att uppdateringen slutfördes säkert, så den stoppades. Det nuvarande eller föregående systemet används fortfarande.",
   "updates.block.statusStale": "Uppdateringsstatusen ändrades. Kontrollera igen innan du fortsätter.",
   "updates.block.notConfigured": "Systemuppdateringar är inte konfigurerade i denna installation.",
   "updates.block.unknown": "Uppdateraren rapporterade ett okänt säkerhetsläge. Kontrollera igen eller granska avancerad information.",

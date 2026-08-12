@@ -396,15 +396,23 @@ export function DataExportPanel(props: Readonly<DataExportPanelProps>) {
     new Intl.NumberFormat(locale, { minimumFractionDigits: definition.precision, maximumFractionDigits: definition.precision }),
   ])), [locale, selectedDefinitions]);
 
+  const handleOpenChange = (nextOpen: boolean) => {
+    setOpen(nextOpen);
+    if (nextOpen) return;
+    requestController.current?.abort();
+    requestController.current = null;
+    setLoading(false);
+  };
+
   return <section className="data-export-section" aria-labelledby="data-export-title">
-    <details open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
+    <details open={open} onToggle={(event) => handleOpenChange(event.currentTarget.open)}>
       <summary>
         <span className="data-export-icon"><FileSpreadsheet size={19} aria-hidden="true" /></span>
         <span className="data-export-summary-copy"><span className="eyebrow">{t("dataExport.eyebrow")}</span><h2 id="data-export-title">{t("dataExport.title")}</h2><small>{t("dataExport.description")}</small></span>
         <span className="data-export-format-badge">{t("dataExport.formatBadge")}</span>
         <ChevronDown className="data-export-chevron" size={19} aria-hidden="true" />
       </summary>
-      <div className="data-export-content">
+      {open && <div className="data-export-content">
         <aside className="data-export-example">
           <Check size={17} aria-hidden="true" />
           <p><strong>{t("dataExport.exampleTitle")}</strong>{t("dataExport.exampleBody")}</p>
@@ -492,7 +500,7 @@ export function DataExportPanel(props: Readonly<DataExportPanelProps>) {
           <footer><p>{previewCurrent ? t("dataExport.downloadHelp") : t("dataExport.staleHelp")}</p><div className="data-export-downloads"><button type="button" className="secondary-button" disabled={!previewCurrent || downloading !== null || previewRows.length === 0} onClick={() => startDownload("csv")}><Download size={15} aria-hidden="true" />{downloading === "csv" ? t("dataExport.downloading") : t("dataExport.downloadCsv")}</button><button type="button" className="primary-button" disabled={!previewCurrent || downloading !== null || previewRows.length === 0} onClick={() => startDownload("xlsx")}><FileSpreadsheet size={15} aria-hidden="true" />{downloading === "xlsx" ? t("dataExport.downloading") : t("dataExport.downloadXlsx")}</button></div></footer>
         </section>}
         {downloadNotice && <p className="sr-only" role="status" aria-live="polite">{downloadNotice}</p>}
-      </div>
+      </div>}
     </details>
   </section>;
 }

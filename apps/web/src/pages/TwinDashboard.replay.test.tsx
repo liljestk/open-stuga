@@ -25,7 +25,7 @@ function renderDashboard(
     onHouse: vi.fn(), onFloor: vi.fn(), onMetric: vi.fn(), onViewMode: vi.fn(),
     onSensorSelect: vi.fn(), onSensorMove: vi.fn(), onSensorUpdate: vi.fn(),
     onFloorChange: vi.fn(), onSaveLayout: vi.fn(), onLoadSeries: vi.fn(), onRunScenario: vi.fn(),
-    onLoadReplaySeries: vi.fn(async (sensorId: string, metric: string, window: { from: string; to: string; bucketSeconds: number | null }) => {
+    onLoadReplaySeries: vi.fn(async (sensorId: string, metric: string, window: { from: string; to: string; bucketSeconds: number | null }, _signal?: AbortSignal) => {
       const samples = (state.measurementHistory[sensorId]?.[metric] ?? []).filter((sample) => {
         const timestamp = Date.parse(sample.timestamp);
         return timestamp >= Date.parse(window.from) && timestamp <= Date.parse(window.to);
@@ -617,6 +617,8 @@ describe("TwinDashboard replay timing", () => {
         house.id,
         "2024-02-09T22:00:00.000Z",
         "2024-02-10T22:00:00.000Z",
+        20_000,
+        expect.any(AbortSignal),
       ));
       const expectedPairs = state.sensors
         .filter((sensor) => sensor.houseId === house.id && sensor.enabled)
@@ -640,6 +642,67 @@ describe("TwinDashboard replay timing", () => {
       outdoorHistory.mockRestore();
       liveWeather.mockRestore();
     }
+  });
+
+  it("aborts superseded replay-window fanout and the active fanout on unmount", async () => {
+    const demo = createDemoState();
+    const house = { ...demo.houses[0]!, location: { latitude: 60.17, longitude: 24.94 } };
+    const state: ClimateState = { ...demo, houses: [house] };
+    const outdoorHistory = vi.spyOn(api, "outdoorTemperatureHistory")
+      .mockImplementation(() => new Promise(() => {}));
+    const view = renderDashboard(state);
+    view.onLoadReplaySeries.mockImplementation(() => new Promise(() => {}));
+
+    fireEvent.click(screen.getByRole("button", { name: "Open history and replay" }));
+    const historyWindow = screen.getByRole("form", { name: "History window" });
+    fireEvent.click(screen.getByRole("button", { name: "Play replay" }));
+    expect(await screen.findByText("Loading outdoor conditions…")).not.toBeNull();
+    expect(view.container.querySelector(".outdoor-context-card .spin")).not.toBeNull();
+    fireEvent.change(within(historyWindow).getByLabelText("From"), { target: { value: "2024-02-10T00:00" } });
+    fireEvent.change(within(historyWindow).getByLabelText("To"), { target: { value: "2024-02-11T00:00" } });
+
+    act(() => {
+      historyWindow.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+      historyWindow.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    });
+
+    await waitFor(() => expect(new Set(view.onLoadReplaySeries.mock.calls.map((call) => call[3])).size).toBe(2));
+    const historySignals = [...new Set(view.onLoadReplaySeries.mock.calls.map((call) => call[3] as AbortSignal))];
+    expect(historySignals[0]?.aborted).toBe(true);
+    expect(historySignals[1]?.aborted).toBe(false);
+    const customOutdoorSignals = outdoorHistory.mock.calls
+      .filter(([, from]) => from === "2024-02-09T22:00:00.000Z")
+      .map((call) => call[4] as AbortSignal);
+    expect(customOutdoorSignals).toHaveLength(2);
+    expect(customOutdoorSignals[0]?.aborted).toBe(true);
+    expect(customOutdoorSignals[1]?.aborted).toBe(false);
+
+    view.unmount();
+    expect(historySignals[1]?.aborted).toBe(true);
+    expect(customOutdoorSignals[1]?.aborted).toBe(true);
+  });
+
+  it("clears replay outdoor loading when a recording request genuinely fails", async () => {
+    const demo = createDemoState();
+    const house = { ...demo.houses[0]!, location: { latitude: 60.17, longitude: 24.94 } };
+    const state: ClimateState = { ...demo, houses: [house] };
+    vi.spyOn(api, "outdoorTemperatureHistory").mockImplementation(() => new Promise(() => {}));
+    localStorage.setItem("climate-twin-outdoor-panel", "expanded");
+    const view = renderDashboard(state);
+    view.onLoadReplaySeries.mockRejectedValue(new Error("Recording unavailable"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Open history and replay" }));
+    const historyWindow = screen.getByRole("form", { name: "History window" });
+    fireEvent.change(within(historyWindow).getByLabelText("From"), { target: { value: "2024-02-10T00:00" } });
+    fireEvent.change(within(historyWindow).getByLabelText("To"), { target: { value: "2024-02-11T00:00" } });
+    fireEvent.click(within(historyWindow).getByRole("button", { name: "Load recording" }));
+
+    expect(await screen.findByText("Recording unavailable")).not.toBeNull();
+    expect(screen.queryByText("Loading outdoor conditions…")).toBeNull();
+    expect(view.container.querySelector(".outdoor-context-card .spin")).toBeNull();
+
+    view.unmount();
+    localStorage.removeItem("climate-twin-outdoor-panel");
   });
 
   it("loads broad climate history only when replay is opened and seeks a detected event in context", async () => {
@@ -679,6 +742,7 @@ describe("TwinDashboard replay timing", () => {
       "temperature",
       "24h",
       true,
+      expect.any(AbortSignal),
     ));
     expect(new Set(view.onLoadSeries.mock.calls.map(([sensorId, metric]) => `${sensorId}:${metric}`)))
       .toEqual(new Set([`${selectedSensor.id}:temperature`]));
@@ -698,6 +762,46 @@ describe("TwinDashboard replay timing", () => {
     expect(view.onFloor).toHaveBeenLastCalledWith(eventSensor.floorId);
     expect(view.onSensorSelect).toHaveBeenLastCalledWith(eventSensor.id);
     expect(within(screen.getByLabelText("Auto-tagged events")).getByRole("button", { name: /Humidity fell 14 percentage points in Bathroom/ }).getAttribute("aria-current")).toBe("time");
+  });
+
+  it("cancels obsolete dashboard history loads when the range changes and on unmount", async () => {
+    const view = renderDashboard(createDemoState());
+    await waitFor(() => expect(view.onLoadSeries).toHaveBeenCalledWith(
+      view.sensor.id,
+      "temperature",
+      "24h",
+      true,
+      expect.any(AbortSignal),
+    ));
+    const initialSignal = view.onLoadSeries.mock.calls.find(([, metric, range]) => (
+      metric === "temperature" && range === "24h"
+    ))?.[4] as AbortSignal;
+    expect(initialSignal.aborted).toBe(false);
+
+    fireEvent.click(screen.getByText("Explore this home", { selector: "strong" }));
+    fireEvent.click(screen.getByText("Open analysis tools"));
+    const comparisonRange = await waitFor(() => {
+      const element = view.container.querySelector<HTMLElement>(".comparison-range");
+      expect(element).not.toBeNull();
+      return element!;
+    });
+    fireEvent.click(within(comparisonRange).getByRole("button", { name: "7 days" }));
+
+    await waitFor(() => expect(view.onLoadSeries).toHaveBeenCalledWith(
+      view.sensor.id,
+      "temperature",
+      "7d",
+      true,
+      expect.any(AbortSignal),
+    ));
+    expect(initialSignal.aborted).toBe(true);
+    const replacementSignal = view.onLoadSeries.mock.calls.find(([, metric, range]) => (
+      metric === "temperature" && range === "7d"
+    ))?.[4] as AbortSignal;
+    expect(replacementSignal.aborted).toBe(false);
+
+    view.unmount();
+    expect(replacementSignal.aborted).toBe(true);
   });
 
   it("starts first play at the beginning and advances at the selected minutes-per-second rate", () => {

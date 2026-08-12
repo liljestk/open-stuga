@@ -208,7 +208,7 @@ export function OpeningAnalyticsPanel(props: Readonly<OpeningAnalyticsPanelProps
       requestIdentity,
       targets.count,
     ]);
-  const query = useOpeningActivityQuery(request, props.dataMode !== "unknown");
+  const query = useOpeningActivityQuery(request, props.range, props.dataMode !== "unknown");
   const response = query.data ?? null;
   const loading = query.isLoading || query.isFetching && !query.data;
   const error = query.error instanceof Error
@@ -216,6 +216,10 @@ export function OpeningAnalyticsPanel(props: Readonly<OpeningAnalyticsPanelProps
     : query.error
       ? t("analytics.openingLoadFailed")
       : null;
+  const lastReceived = response && query.dataUpdatedAt > 0
+    ? formatInTimeZone(query.dataUpdatedAt, locale, props.house.timezone, { dateStyle: "medium", timeStyle: "short" })
+    : null;
+  const retainedStale = Boolean(response && (query.isFetching || error));
 
   const series = useMemo(() => viewSeries(response?.series ?? [], t), [response?.series, t]);
   const visibleSeries = useMemo(() => selectedKey === "all"
@@ -247,7 +251,9 @@ export function OpeningAnalyticsPanel(props: Readonly<OpeningAnalyticsPanelProps
   if (targets.count === 0 || (series.length === 0 && targets.boundCount === 0)) return null;
 
   const observedSeries = visibleSeries.filter((item) => item.observationCount > 0);
-  const knownCurrent = visibleSeries.filter((item) => item.currentState !== "unknown");
+  const knownCurrent = retainedStale
+    ? []
+    : visibleSeries.filter((item) => item.currentState !== "unknown");
   const openNow = knownCurrent.filter((item) => item.currentState === "open");
   const openedCount = visibleSeries.reduce((sum, item) => sum + item.openedCount, 0);
   const confirmedOpenMs = visibleSeries.reduce((sum, item) => sum + item.confirmedOpenMs, 0);
@@ -331,10 +337,14 @@ export function OpeningAnalyticsPanel(props: Readonly<OpeningAnalyticsPanelProps
 
     {error && <div className="opening-analytics-error inline-error" role="alert">
       <TriangleAlert size={17} aria-hidden="true" />
-      <span><strong>{t("analytics.openingLoadFailed")}</strong><small>{error}</small></span>
+      <span><strong>{response ? t("analytics.openingStaleTitle") : t("analytics.openingLoadFailed")}</strong>{lastReceived && <small>{t("analytics.openingStaleBody", { time: lastReceived })}</small>}<small>{error}</small></span>
       <button type="button" className="secondary-button" onClick={() => setRetryRevision((value) => value + 1)}>
         <RefreshCw size={14} aria-hidden="true" />{t("common.refresh")}
       </button>
+    </div>}
+    {!error && retainedStale && <div className="opening-analytics-warning" role="status">
+      <TriangleAlert size={16} aria-hidden="true" />
+      <span><strong>{t("analytics.openingStaleTitle")}</strong>{lastReceived && <small>{t("analytics.openingStaleBody", { time: lastReceived })}</small>}</span>
     </div>}
     {loading && <output className="opening-analytics-loading" aria-live="polite">
       <span className="spinner" aria-hidden="true" />{t("analytics.openingLoading")}
@@ -369,13 +379,17 @@ export function OpeningAnalyticsPanel(props: Readonly<OpeningAnalyticsPanelProps
               <div>{ticks.map((tick) => <time key={tick} style={{ left: `${(tick - timelineFrom) / timelineDuration * 100}%` }}>{formatInTimeZone(tick, locale, props.house.timezone, tickOptions(props.range))}</time>)}</div>
               <span />
             </div>
-            {visibleSeries.map((item) => <div className="opening-timeline-row" key={item.target.key}>
+            {visibleSeries.map((item) => {
+              const currentState = retainedStale ? "unknown" : item.currentState;
+              return <div className="opening-timeline-row" key={item.target.key}>
               <span className="opening-timeline-label"><strong>{item.target.label}</strong><small>{item.target.floorName}</small></span>
               <div className="opening-timeline-track" role="img" aria-label={t("analytics.openingTimelineAria", {
                 opening: item.target.label,
                 count: item.openedCount,
                 duration: durationLabel(item.confirmedOpenMs, locale),
-                state: item.currentState === "unknown" ? t("analytics.openingNoRecentData") : stateLabel(item.currentState, t),
+                state: retainedStale
+                  ? t("analytics.openingStaleState")
+                  : currentState === "unknown" ? t("analytics.openingNoRecentData") : stateLabel(currentState, t),
               })}>
                 {item.segments.map((segment, index) => <i
                   key={`${segment.startedAt}-${index}`}
@@ -396,10 +410,12 @@ export function OpeningAnalyticsPanel(props: Readonly<OpeningAnalyticsPanelProps
                   style={{ left: `${Math.max(0, Math.min(100, (record.observedAt - timelineFrom) / timelineDuration * 100))}%` }}
                 />)}
               </div>
-              <span className={`opening-current-state ${item.currentState}`}>
-                {item.currentState === "unknown" ? t("analytics.openingNoRecentData") : stateLabel(item.currentState, t)}
+              <span className={`opening-current-state ${currentState}`}>
+                {retainedStale
+                  ? t("analytics.openingStaleState")
+                  : currentState === "unknown" ? t("analytics.openingNoRecentData") : stateLabel(currentState, t)}
               </span>
-            </div>)}
+            </div>})}
           </div>
         </div>
 

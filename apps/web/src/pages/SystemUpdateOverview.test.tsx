@@ -91,4 +91,98 @@ describe("SystemUpdateOverview", () => {
     expect(within(host).queryByText("Target")).toBeNull();
     expect(within(host).queryByText("Available")).toBeNull();
   });
+
+  it("uses the host reason renderer in both the card and advanced details", () => {
+    render(
+      <I18nProvider>
+        <SystemUpdateOverview
+          status={{
+            ...status,
+            host: {
+              ...status.host!,
+              supported: false,
+              phase: "unavailable",
+              reason: "HOST_UPDATER_OFFLINE",
+              detail: "The native host updater is unavailable",
+            },
+          }}
+          busy={null}
+          streamState="live"
+          onCheck={vi.fn()}
+          onUpdateEverything={vi.fn()}
+          onActivateHost={vi.fn()}
+          onCancelHost={vi.fn()}
+          onRetryApplication={vi.fn()}
+        />
+      </I18nProvider>,
+    );
+
+    expect(screen.getAllByText("Host updates are unavailable because the trusted host updater is not connected."))
+      .toHaveLength(2);
+    expect(screen.queryByText("The updater reported an unsupported safety state. Check again or review advanced details."))
+      .toBeNull();
+  });
+
+  it("shows a calm known message for a host verification failure", () => {
+    render(
+      <I18nProvider>
+        <SystemUpdateOverview
+          status={{
+            ...status,
+            host: {
+              ...status.host!,
+              phase: "failed",
+              reason: "verification-failed",
+              detail: "Inactive slot readback failed",
+              updateAvailable: false,
+            },
+          }}
+          busy={null}
+          streamState="live"
+          onCheck={vi.fn()}
+          onUpdateEverything={vi.fn()}
+          onActivateHost={vi.fn()}
+          onCancelHost={vi.fn()}
+          onRetryApplication={vi.fn()}
+        />
+      </I18nProvider>,
+    );
+
+    expect(screen.getAllByText(
+      "Stugu could not verify that the update finished safely, so it stopped. The current or previous system remains in use.",
+    )).toHaveLength(2);
+    expect(screen.queryByText("The updater reported an unsupported safety state. Check again or review advanced details."))
+      .toBeNull();
+  });
+
+  it("keeps an unknown host safety reason blocked", () => {
+    render(
+      <I18nProvider>
+        <SystemUpdateOverview
+          status={{
+            ...status,
+            host: {
+              ...status.host!,
+              phase: "available",
+              reason: "FUTURE_SAFETY_STATE",
+              updateAvailable: true,
+              targetVersion: "0.40.0",
+              targetGeneration: 15,
+            },
+          }}
+          busy={null}
+          streamState="live"
+          onCheck={vi.fn()}
+          onUpdateEverything={vi.fn()}
+          onActivateHost={vi.fn()}
+          onCancelHost={vi.fn()}
+          onRetryApplication={vi.fn()}
+        />
+      </I18nProvider>,
+    );
+
+    expect(screen.getAllByText("The updater reported an unsupported safety state. Check again or review advanced details."))
+      .toHaveLength(2);
+    expect(screen.queryByRole("button", { name: "Update host system" })).toBeNull();
+  });
 });

@@ -243,7 +243,10 @@ describe("useClimateData", () => {
     const readingsRequest = deferred<Array<typeof staleReading>>();
     const { result } = renderHook(() => useClimateData());
     await waitFor(() => expect(result.current.loading).toBe(false));
-    mocks.measurementHistoryPage.mockRejectedValueOnce(new Error("v2 unavailable"));
+    mocks.measurementHistoryPage.mockRejectedValueOnce(Object.assign(
+      new Error("API endpoint not found"),
+      { name: "ApiRequestError", status: 404, code: "NOT_FOUND" },
+    ));
     mocks.readings.mockReturnValueOnce(readingsRequest.promise);
     mocks.forecast.mockResolvedValueOnce([]);
     const [[handleTelemetry]] = mocks.subscribeToEvents.mock.calls as unknown as [[(event: TelemetryEvent) => void]];
@@ -259,6 +262,37 @@ describe("useClimateData", () => {
 
     expect(result.current.state.history[sensor.id]).toEqual([staleReading, liveReading]);
     expect(result.current.state.measurementHistory[sensor.id]?.temperature?.at(-1)?.value).toBe(27.3);
+    expect(mocks.measurementHistoryPage).toHaveBeenLastCalledWith(
+      sensor.id,
+      "temperature",
+      expect.any(String),
+      expect.any(String),
+      20_000,
+      60,
+    );
+  });
+
+  it.each([
+    ["timeout", () => new DOMException("The API request timed out", "TimeoutError")],
+    ["abort", () => new DOMException("The authenticated session changed", "AbortError")],
+    ["general failure", () => new Error("The history service failed")],
+  ])("does not start the legacy fallback after a canonical %s", async (_label, createError) => {
+    const { result } = renderHook(() => useClimateData());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    const sensorId = result.current.state.sensors[0]!.id;
+    const readingsCallsBefore = mocks.readings.mock.calls.length;
+    const forecastCallsBefore = mocks.forecast.mock.calls.length;
+    mocks.measurementHistoryPage.mockRejectedValueOnce(createError());
+
+    await act(async () => {
+      await result.current.loadSeries(sensorId, "temperature", "24h");
+    });
+
+    expect(mocks.readings).toHaveBeenCalledTimes(readingsCallsBefore);
+    expect(mocks.forecast).toHaveBeenCalledTimes(forecastCallsBefore);
+    expect(result.current.seriesStates[seriesStateKey(sensorId, "temperature")]).toMatchObject({
+      status: "error",
+    });
   });
 
   it("batches a legacy reading with duplicate live measurements and applies it once", async () => {
