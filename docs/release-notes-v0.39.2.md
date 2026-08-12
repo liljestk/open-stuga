@@ -1,6 +1,6 @@
-# Stugu 0.39.1 responsive analytics and appliance diagnostics
+# Stugu 0.39.2 responsive analytics and appliance diagnostics
 
-Stugu 0.39.1 is an application-only corrective release for the Raspberry Pi
+Stugu 0.39.2 is an application-only corrective release for the Raspberry Pi
 appliance. It removes avoidable analytics fan-out from Data & analytics, keeps
 expensive detail work behind deliberate actions, and corrects the appliance
 doctor's storage assessment.
@@ -19,6 +19,8 @@ doctor's storage assessment.
 - The Raspberry Pi doctor measures the writable `/persistent` data volume when
   available. The immutable root slot can correctly report zero free space
   without creating a false storage-capacity failure.
+- Release images retain exact source-commit provenance when prepared from a
+  clean Windows checkout after local verification.
 
 ## Upgrade impact
 

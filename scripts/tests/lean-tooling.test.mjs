@@ -726,6 +726,9 @@ test("canonical release and doctor paths do not hide expensive or mutating work"
   assert.match(publisher, /--verification-receipt/u);
   assert.match(publisher, /RELEASE_VERIFICATION_RECEIPT_MAX_AGE_MS/u);
   assert.match(publisher, /verifyContainerReferences/u);
+  assert.match(publisher, /BUILDX_GIT_CHECK_DIRTY:\s*"0"/u);
+  assert.match(publisher, /BUILDX_GIT_INFO:\s*"1"/u);
+  assert.match(publisher, /BUILDX_GIT_LABELS:\s*"full"/u);
 });
 
 test("the documented development command starts tsx in watch mode", () => {
