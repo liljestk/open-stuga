@@ -4,6 +4,16 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.39.2 - 2026-08-12
+
+- Preserve exact release-commit provenance when publishing from a clean
+  Windows checkout whose ignored verification outputs would otherwise make
+  Buildx append a false `-dirty` suffix.
+
+Upgrade impact: tooling-only follow-up to 0.39.1. Application behaviour and
+stored data are unchanged; no schema rewrite, signed host update, or factory
+image is required.
+
 ## 0.39.1 - 2026-08-11
 
 - Batch selected sensor history into one cancellable, backpressure-limited

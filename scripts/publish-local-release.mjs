@@ -500,7 +500,12 @@ function buildContainers(images, builder, commit, sourceRepository) {
     ], {
       env: {
         ...process.env,
-        BUILDX_GIT_CHECK_DIRTY: "1",
+        // The publisher and its exact full-CI receipt already fail closed on a
+        // dirty worktree. Buildx's Windows Git probe can nevertheless append
+        // `-dirty` when only ignored build outputs exist, producing provenance
+        // that cannot bind the release commit. Keep Buildx's VCS metadata and
+        // labels, but use the publisher's authoritative cleanliness check.
+        BUILDX_GIT_CHECK_DIRTY: "0",
         BUILDX_GIT_INFO: "1",
         BUILDX_GIT_LABELS: "full",
       },
