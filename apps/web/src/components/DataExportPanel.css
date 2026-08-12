@@ -26,7 +26,7 @@
 
 .data-export-section > details[open] > summary .data-export-chevron { transform: rotate(180deg); }
 
-.data-export-content { display: grid; gap: 18px; padding: 18px; }
+.data-export-content { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; padding: 18px; }
 
 .data-export-example { display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; border-left: 4px solid var(--action); border-radius: 0 var(--radius) var(--radius) 0; color: var(--ink); background: var(--action-soft); }
 
