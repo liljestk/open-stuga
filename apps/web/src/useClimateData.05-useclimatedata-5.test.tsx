@@ -504,6 +504,85 @@ describe("useClimateData", () => {
     });
   });
 
+  it("retains cached samples outside a refreshed range and replaces samples inside it", async () => {
+    const demo = createDemoState();
+    const sensor = demo.sensors[0]!;
+    const template = demo.latestMeasurements[sensor.id]!.temperature!;
+    const now = Date.now();
+    const outside = { ...template, timestamp: new Date(now - 36 * 3_600_000).toISOString(), value: 16.2 };
+    const staleInside = { ...template, timestamp: new Date(now - 12 * 3_600_000).toISOString(), value: 17.3 };
+    const refreshedInside = { ...template, timestamp: new Date(now - 6 * 3_600_000).toISOString(), value: 22.4 };
+    const broadFrom = new Date(now - 48 * 3_600_000).toISOString();
+    const broadTo = new Date(now + 3_600_000).toISOString();
+    const { result } = renderHook(() => useClimateData());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    mocks.measurementHistoryPage.mockResolvedValueOnce({
+      samples: [outside, staleInside], from: broadFrom, to: broadTo, bucketSeconds: null, truncated: false,
+    });
+    await act(async () => {
+      await result.current.loadHistoricalSeries(sensor.id, "temperature", {
+        from: broadFrom,
+        to: broadTo,
+        bucketSeconds: null,
+      });
+    });
+    mocks.measurementHistoryPage.mockResolvedValueOnce({
+      samples: [refreshedInside],
+      from: refreshedInside.timestamp,
+      to: refreshedInside.timestamp,
+      bucketSeconds: 60,
+      truncated: false,
+    });
+
+    await act(async () => { await result.current.loadSeries(sensor.id, "temperature", "24h"); });
+
+    expect(result.current.state.measurementHistory[sensor.id]?.temperature).toEqual([outside, refreshedInside]);
+  });
+
+  it("retains a cached requested-window prefix when a truncated series response only covers the suffix", async () => {
+    const demo = createDemoState();
+    const sensor = demo.sensors[0]!;
+    const template = demo.latestMeasurements[sensor.id]!.temperature!;
+    const now = Date.now();
+    const outside = { ...template, timestamp: new Date(now - 36 * 3_600_000).toISOString(), value: 16.2 };
+    const cachedPrefix = { ...template, timestamp: new Date(now - 18 * 3_600_000).toISOString(), value: 17.3 };
+    const refreshedStart = { ...template, timestamp: new Date(now - 6 * 3_600_000).toISOString(), value: 22.4 };
+    const staleCoveredGap = { ...template, timestamp: new Date(now - 4 * 3_600_000).toISOString(), value: 19.1 };
+    const broadFrom = new Date(now - 48 * 3_600_000).toISOString();
+    const broadTo = new Date(now + 3_600_000).toISOString();
+    const { result } = renderHook(() => useClimateData());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    mocks.measurementHistoryPage.mockResolvedValueOnce({
+      samples: [outside, cachedPrefix, staleCoveredGap],
+      from: broadFrom,
+      to: broadTo,
+      bucketSeconds: null,
+      truncated: false,
+    });
+    await act(async () => {
+      await result.current.loadHistoricalSeries(sensor.id, "temperature", {
+        from: broadFrom,
+        to: broadTo,
+        bucketSeconds: null,
+      });
+    });
+    mocks.measurementHistoryPage.mockResolvedValueOnce({
+      samples: [refreshedStart],
+      from: broadFrom,
+      to: broadTo,
+      bucketSeconds: 60,
+      truncated: true,
+    });
+
+    await act(async () => { await result.current.loadSeries(sensor.id, "temperature", "24h"); });
+
+    expect(result.current.state.measurementHistory[sensor.id]?.temperature).toEqual([
+      outside,
+      cachedPrefix,
+      refreshedStart,
+    ]);
+  });
+
   it("rejects invalid historical replay resolution before requesting data", async () => {
     const demo = createDemoState();
     const sensor = demo.sensors[0]!;

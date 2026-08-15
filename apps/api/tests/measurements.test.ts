@@ -78,6 +78,12 @@ describe("registry-driven measurements API", () => {
       path: "/api/v2/measurements/history?sensorId=sensor-01&metric=temperature",
     },
     {
+      label: "long bucket history",
+      operation: "measurement-history",
+      path: "/api/v2/measurements/history?sensorId=sensor-01&metric=temperature"
+        + "&from=2026-07-01T00:00:00.000Z&to=2026-07-03T00:00:00.000Z&bucketSeconds=60",
+    },
+    {
       label: "forecast",
       operation: "measurement-forecast",
       path: "/api/v2/measurements/forecast?sensorId=sensor-01&metric=temperature",
@@ -483,6 +489,8 @@ describe("registry-driven measurements API", () => {
         timestamp: new Date(base + seconds * 1_000).toISOString(), source: "home-assistant",
       }).expect(201);
     }
+    const bucketedRead = vi.spyOn(runtime.database, "measurementHistoryBucketed");
+    const rawRead = vi.spyOn(runtime.database, "measurementHistory");
     const history = await request(runtime.app).get("/api/v2/measurements/history").query({
       sensorId: "sensor-01", metric: "co2", from: new Date(base).toISOString(),
       to: new Date(base + 120_000).toISOString(), bucketSeconds: 60,
@@ -492,6 +500,47 @@ describe("registry-driven measurements API", () => {
       expect.objectContaining({ timestamp: "2026-07-14T10:00:00.000Z", value: 750, source: "api", quality: "estimated" }),
       expect.objectContaining({ timestamp: "2026-07-14T10:01:00.000Z", value: 1200, source: "api", quality: "good" }),
     ]);
+    expect(bucketedRead).toHaveBeenCalledOnce();
+    expect(rawRead).not.toHaveBeenCalled();
+
+    bucketedRead.mockClear();
+    const bounded = await request(runtime.app).get("/api/v2/measurements/history").query({
+      sensorId: "sensor-01", metric: "co2", from: new Date(base).toISOString(),
+      to: new Date(base + 120_000).toISOString(), bucketSeconds: 60, limit: 1,
+    }).expect(200);
+    expect(bounded.body).toMatchObject({ bucketSeconds: 60, truncated: true });
+    expect(bounded.body.samples).toEqual([
+      expect.objectContaining({ timestamp: "2026-07-14T10:01:00.000Z", value: 1200 }),
+    ]);
+    expect(bucketedRead).toHaveBeenCalledOnce();
+    expect(bucketedRead).toHaveBeenCalledWith(
+      "sensor-01", "co2", new Date(base).toISOString(), new Date(base + 120_000).toISOString(),
+      60, 2, true,
+    );
+    expect(rawRead).not.toHaveBeenCalled();
+
+    bucketedRead.mockClear();
+    const oneDayTo = new Date(base + 24 * 3_600_000).toISOString();
+    await request(runtime.app).get("/api/v2/measurements/history").query({
+      sensorId: "sensor-01", metric: "co2", from: new Date(base).toISOString(),
+      to: oneDayTo, bucketSeconds: 60,
+    }).expect(200);
+    expect(bucketedRead).toHaveBeenCalledOnce();
+    expect(rawRead).not.toHaveBeenCalled();
+
+    bucketedRead.mockClear();
+    const oversizedTo = new Date(base + 24 * 3_600_000 + 1).toISOString();
+    const oversized = await request(runtime.app).get("/api/v2/measurements/history").query({
+      sensorId: "sensor-01", metric: "co2", from: new Date(base).toISOString(),
+      to: oversizedTo, bucketSeconds: 60,
+    }).expect(200);
+    expect(oversized.body).toMatchObject({ bucketSeconds: 60, truncated: false });
+    expect(oversized.body.samples).toHaveLength(2);
+    expect(bucketedRead).not.toHaveBeenCalled();
+    expect(rawRead).toHaveBeenCalledOnce();
+    expect(rawRead).toHaveBeenCalledWith(
+      "sensor-01", "co2", new Date(base).toISOString(), oversizedTo, 100_000, undefined,
+    );
     await request(runtime.app).get("/api/v2/measurements/history").query({
       sensorId: "sensor-01", metric: "co2", bucketSeconds: 0,
     }).expect(400);

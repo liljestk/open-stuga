@@ -139,6 +139,68 @@ describe("DataAnalyticsPage", () => {
     window.history.replaceState(null, "", "/");
   });
 
+  it("defers auxiliary history until sensor analytics or continuity is opened", async () => {
+    const state = createDemoState();
+    const house = state.houses[0]!;
+    const outdoor = vi.spyOn(api, "outdoorTemperatureHistory").mockResolvedValue({
+      samples: [], from: "", to: "", truncated: false,
+    });
+    const gaps = vi.spyOn(api, "sensorDataGaps").mockResolvedValue([]);
+    const prices = vi.spyOn(api, "houseElectricityPrice").mockResolvedValue({ current: null, prices: [] });
+    const user = userEvent.setup();
+
+    render(<I18nProvider><DataAnalyticsPage
+      state={state}
+      house={house}
+      units="metric"
+      dataMode="demo"
+      onLoadSeries={vi.fn()}
+    /></I18nProvider>);
+
+    await act(async () => Promise.resolve());
+    expect(outdoor).not.toHaveBeenCalled();
+    expect(gaps).not.toHaveBeenCalled();
+    expect(prices).not.toHaveBeenCalled();
+
+    const continuitySummary = screen.getByText("Gaps and recovery").closest("summary")!;
+    await user.click(continuitySummary);
+    expect(continuitySummary.closest("details")).toHaveAttribute("open");
+    await waitFor(() => expect(outdoor).toHaveBeenCalledOnce());
+    expect(gaps).toHaveBeenCalledOnce();
+    expect(prices).toHaveBeenCalledOnce();
+  });
+
+  it("keeps last received continuity data visibly stale after a failed refresh and collapse", async () => {
+    const state = createDemoState();
+    const house = state.houses[0]!;
+    vi.spyOn(api, "outdoorTemperatureHistory").mockResolvedValue({ samples: [], from: "", to: "", truncated: false });
+    const gaps = vi.spyOn(api, "sensorDataGaps").mockResolvedValue([]);
+    vi.spyOn(api, "houseElectricityPrice").mockResolvedValue({ current: null, prices: [] });
+    const user = userEvent.setup();
+    const { container } = render(<I18nProvider><DataAnalyticsPage
+      state={state}
+      house={house}
+      units="metric"
+      dataMode="demo"
+      onLoadSeries={vi.fn()}
+    /></I18nProvider>);
+
+    const continuitySummary = screen.getByText("Gaps and recovery").closest("summary")!;
+    await user.click(continuitySummary);
+    await waitFor(() => expect(container.querySelector(".analytics-gap-count")).not.toBeNull());
+    expect(container.querySelector(".analytics-gap-count")).toHaveTextContent(/visible gaps/);
+
+    gaps.mockRejectedValueOnce(new Error("Gap refresh unavailable"));
+    await user.click(container.querySelector<HTMLButtonElement>(".analytics-page-heading > button")!);
+    expect(await screen.findByText("Stale · last received data")).toBeVisible();
+    expect(screen.queryByText(/visible gaps/)).toBeNull();
+    expect(screen.getByText(/Show \d+ gap details/)).toBeVisible();
+
+    await user.click(continuitySummary);
+    expect(continuitySummary.closest("details")).not.toHaveAttribute("open");
+    expect(screen.getByText("Stale · last received data")).toBeVisible();
+  });
+
   it("combines sensor analytics with outdoor history and durable gap recovery state", async () => {
     const state = createDemoState();
     const house = state.houses[0]!;
@@ -157,7 +219,7 @@ describe("DataAnalyticsPage", () => {
         { sensorId: sensor.id, metric: "temperature", value: 19.1, canonicalUnit: "°C", timestamp: afterGapNext, source: "tp-link", quality: "good" },
       ],
     };
-    vi.spyOn(api, "outdoorTemperatureHistory").mockResolvedValue({
+    const outdoorTemperatureHistory = vi.spyOn(api, "outdoorTemperatureHistory").mockResolvedValue({
       samples: [
         { houseId: house.id, locationKey: "test", timestamp: beforeGap, temperatureC: 12, source: "fmi-observation", fetchedAt: beforeGap, stationId: "1", stationName: "Test" },
         { houseId: house.id, locationKey: "test", timestamp: beforeGapNext, temperatureC: 12.1, source: "fmi-observation", fetchedAt: beforeGapNext, stationId: "1", stationName: "Test" },
@@ -201,7 +263,7 @@ describe("DataAnalyticsPage", () => {
       generatedAt: afterGapNext,
       cache: { hit: false, keyVersion: "analytics-query-v1" },
     } satisfies AnalyticsQueryResponse;
-    vi.spyOn(api, "analyticsQuery").mockResolvedValue(analyticsResponse);
+    const analyticsQuery = vi.spyOn(api, "analyticsQuery").mockResolvedValue(analyticsResponse);
     const thermalIsolation = vi.spyOn(api, "cachedThermalIsolation").mockRejectedValue(new Error("Unavailable"));
     vi.spyOn(api, "openingStateHistory").mockResolvedValue([]);
     vi.spyOn(api, "actionRuns").mockResolvedValue([]);
@@ -293,6 +355,23 @@ describe("DataAnalyticsPage", () => {
     expect(csv).toContain("good|estimated,0");
     expect(csv).toContain("'=formula");
     expect(container.querySelector(".sensor-outdoor-line")).not.toBeNull();
+
+    outdoorTemperatureHistory.mockRejectedValueOnce(new Error("Outdoor history unavailable"));
+    analyticsQuery.mockRejectedValueOnce(new Error("Evidence refresh unavailable"));
+    await user.click(container.querySelector<HTMLButtonElement>(".analytics-page-heading > button")!);
+    await waitFor(() => expect(screen.getByText("Outdoor history unavailable")).not.toBeNull());
+    const recoveryNotice = screen.getByText("Outdoor history unavailable").closest("[role=alert]");
+    expect(recoveryNotice).toHaveTextContent("History could not be refreshed. The last received values remain visible.");
+    expect(recoveryNotice).toHaveTextContent("Evidence refresh unavailable");
+    expect(screen.getAllByText("Evidence refresh unavailable")).toHaveLength(1);
+    expect(screen.getByText("4 samples")).not.toBeNull();
+    expect(container.querySelector(".sensor-outdoor-line")).not.toBeNull();
+
+    outdoorTemperatureHistory.mockRejectedValueOnce(new Error("History service unavailable"));
+    analyticsQuery.mockRejectedValueOnce(new Error("History service unavailable"));
+    await user.click(container.querySelector<HTMLButtonElement>(".analytics-page-heading > button")!);
+    await waitFor(() => expect(screen.getAllByText("History service unavailable")).toHaveLength(1));
+
     expect(api.outdoorTemperatureHistory).toHaveBeenCalledWith(
       house.id,
       expect.any(String),

@@ -496,6 +496,48 @@ describe("TimeseriesStore", () => {
     expect(query.text).toContain("ROW_NUMBER() OVER (PARTITION BY metric ORDER BY observed_at DESC)");
   });
 
+  it("aggregates generic history buckets in one bounded database query", async () => {
+    const pool = new FakePool(({ text }) => text.includes("WITH source_rows AS MATERIALIZED")
+      ? queryResult([{
+        sensor_id: "sensor-1",
+        metric: "temperature",
+        value: 20.5,
+        canonical_unit: "C",
+        observed_at: new Date("2026-07-18T00:15:00.000Z"),
+        source: "api",
+        quality: "estimated",
+        metadata: {},
+      }])
+      : queryResult());
+    const store = storeFor(pool);
+
+    await expect(store.measurementHistoryBucketed({
+      sensorId: "sensor-1",
+      metric: "temperature",
+      from: FROM,
+      to: TO,
+      bucketSeconds: 900,
+      limit: 3,
+      excludeSynthetic: true,
+    })).resolves.toEqual([
+      expect.objectContaining({
+        sensorId: "sensor-1",
+        metric: "temperature",
+        value: 20.5,
+        timestamp: "2026-07-18T00:15:00.000Z",
+        quality: "estimated",
+      }),
+    ]);
+
+    const queries = pool.queries.filter(({ text }) => text.includes("WITH source_rows AS MATERIALIZED"));
+    expect(queries).toHaveLength(1);
+    expect(queries[0]!.values).toEqual(["sensor-1", "temperature", FROM, TO, 900, 3]);
+    expect(queries[0]!.text).toContain("AVG(value)::DOUBLE PRECISION");
+    expect(queries[0]!.text).toContain("source NOT IN ('mock', 'replay')");
+    expect(queries[0]!.text).toContain("LIMIT $6");
+    expect(queries[0]!.text).not.toContain("LIMIT 100000");
+  });
+
   it("upserts and reads immutable opening transitions with deterministic snapshots", async () => {
     const openingRow = {
       observation_id: "opening-event-1",

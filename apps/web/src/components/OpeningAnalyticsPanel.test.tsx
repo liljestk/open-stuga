@@ -8,6 +8,7 @@ import type {
   OpeningStateObservation,
 } from "@climate-twin/contracts";
 import { api } from "../api";
+import { queryClient } from "../data/queryClient";
 import { createDemoState } from "../domain";
 import { I18nProvider } from "../i18n";
 import { OpeningAnalyticsPanel } from "./OpeningAnalyticsPanel";
@@ -19,6 +20,7 @@ vi.mock("../useNow", () => ({
 }));
 
 afterEach(() => {
+  queryClient.clear();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
@@ -74,7 +76,7 @@ describe("OpeningAnalyticsPanel", () => {
         externalId: "t110-entry",
       },
     ];
-    vi.spyOn(api, "openingActivity").mockResolvedValue({
+    const openingActivity = vi.spyOn(api, "openingActivity").mockResolvedValue({
       apiVersion: "1.0",
       requestId: "opening-test",
       houseId: house.id,
@@ -136,13 +138,14 @@ describe("OpeningAnalyticsPanel", () => {
     } satisfies OpeningActivityResponse);
     const onRange = vi.fn();
     const user = userEvent.setup();
-    const { container } = render(<I18nProvider><OpeningAnalyticsPanel
+    const view = render(<I18nProvider><OpeningAnalyticsPanel
       house={house}
       dataMode="demo"
       range="24h"
       refreshRevision={0}
       onRange={onRange}
     /></I18nProvider>);
+    const { container } = view;
 
     expect(await screen.findByRole("heading", { name: "Door & window activity" })).not.toBeNull();
     await waitFor(() => expect(screen.getByText("Front door is open now.")).not.toBeNull());
@@ -171,6 +174,21 @@ describe("OpeningAnalyticsPanel", () => {
     expect(createObjectURL).toHaveBeenCalledOnce();
     expect(download).toHaveBeenCalledOnce();
     await waitFor(() => expect(revokeObjectURL).toHaveBeenCalledWith("blob:opening-activity"));
+
+    openingActivity.mockRejectedValueOnce(new Error("Opening refresh unavailable"));
+    view.rerender(<I18nProvider><OpeningAnalyticsPanel
+      house={house}
+      dataMode="demo"
+      range="24h"
+      refreshRevision={1}
+      onRange={onRange}
+    /></I18nProvider>);
+    expect(await screen.findByText("Door and window activity is stale.")).not.toBeNull();
+    expect(screen.getByText(/Showing activity last received/)).not.toBeNull();
+    expect(screen.getByText("Opening refresh unavailable")).not.toBeNull();
+    expect(screen.queryByText("Front door is open now.")).toBeNull();
+    expect(screen.getByText("Open now").closest("div")?.querySelector("strong")?.textContent).toBe("—");
+    expect(screen.getByText("Last received state")).not.toBeNull();
 
     await user.click(screen.getByRole("button", { name: "7 days" }));
     expect(onRange).toHaveBeenCalledWith("7d");

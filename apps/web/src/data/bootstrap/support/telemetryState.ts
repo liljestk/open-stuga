@@ -312,6 +312,7 @@ export function seriesLimit(range: TimeRange): number {
 }
 
 export function seriesBucketSeconds(range: TimeRange): number | undefined {
+  if (range === "24h") return 60;
   if (range === "7d") return 60;
   if (range === "30d") return 5 * 60;
   if (range === "90d") return 15 * 60;
@@ -321,6 +322,15 @@ export function seriesBucketSeconds(range: TimeRange): number | undefined {
 
 export function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message.trim() ? error.message : fallback;
+}
+
+export function isLegacySeriesCompatibilityError(error: unknown): boolean {
+  if (!(error instanceof Error) || error.name !== "ApiRequestError") return false;
+  const apiError = error as Error & { status?: unknown; code?: unknown };
+  if (apiError.status === 405 || apiError.status === 501) return true;
+  return apiError.status === 404
+    && apiError.code === "NOT_FOUND"
+    && /\bAPI endpoint not found\b/i.test(apiError.message);
 }
 
 export async function optionalForecast<T>(request: Promise<T[]>): Promise<{ value: T[] | null; error: string | null }> {
@@ -338,20 +348,16 @@ export async function canonicalSeries(
   from: string,
   to: string,
   forecastSupported: boolean,
+  signal?: AbortSignal,
 ) {
   const bucketSeconds = seriesBucketSeconds(range);
-  const historyRequest = api.measurementHistoryPage(
-    sensorId,
-    metric,
-    from,
-    to,
-    seriesLimit(range),
-    bucketSeconds,
-  );
+  const historyRequest = signal
+    ? api.measurementHistoryPage(sensorId, metric, from, to, seriesLimit(range), bucketSeconds, signal)
+    : api.measurementHistoryPage(sensorId, metric, from, to, seriesLimit(range), bucketSeconds);
   const [history, forecast] = await Promise.all([
     historyRequest,
     forecastSupported
-      ? optionalForecast(api.measurementForecast(sensorId, metric, 12))
+      ? optionalForecast(api.measurementForecast(sensorId, metric, 12, signal))
       : Promise.resolve({ value: [], error: null }),
   ]);
   return { samples: history.samples, history, forecast };

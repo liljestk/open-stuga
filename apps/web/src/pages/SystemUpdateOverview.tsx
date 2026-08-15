@@ -59,6 +59,7 @@ const reasonKeys = {
   "off-device-backup-required": "updates.block.offDeviceBackup",
   "metadata-unavailable": "updates.block.metadataUnavailable",
   "trust-verification-failed": "updates.block.trustFailed",
+  "verification-failed": "updates.block.verificationFailed",
   "status-stale": "updates.block.statusStale",
   "not-configured": "updates.block.notConfigured",
 } as const satisfies Record<SystemUpdateBlockReason, TranslationKey>;
@@ -540,7 +541,9 @@ export function SystemUpdateOverview({
     {(host.reason || workflow?.reason || host.detail || unboundPreparedHost) && <details ref={detailsRef} className="unified-update-details" open={detailsOpen} onToggle={(event) => setDetailsOpen(event.currentTarget.open)}>
       <summary><ChevronDown size={16} aria-hidden="true" /><span><strong>{recovery ? t("updates.recovery.title") : t("updates.advanced.title")}</strong><small>{recovery ? t("updates.recovery.summary") : t("updates.advanced.summary")}</small></span></summary>
       <div className="unified-update-details__content">
-        {(workflow?.reason || host.reason) && <p>{t(reasonKey(workflow?.reason || host.reason))}</p>}
+        {(workflow?.reason || host.reason) && <p>{t(
+          workflow?.reason ? reasonKey(workflow.reason) : hostReasonKey(host.reason),
+        )}</p>}
         {unboundPreparedHost && <p>{t("updates.block.unboundPrepared")}</p>}
         {host.detail && <p>{host.detail}</p>}
         {(host.reason === "factory-transition-required" || host.reason === "appliance-upgrade-required") && <div className="unified-update-transition"><strong>{t("updates.transition.factoryTitle")}</strong><p>{t("updates.transition.factoryBody")}</p></div>}

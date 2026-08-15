@@ -283,11 +283,25 @@ describe("sensor onboarding and management", () => {
     const details = rendered.container.querySelector<HTMLElement>(".sensor-details-panel")!;
     expect(within(details).getByRole("group", { name: /Temperature history and forecast for Living room/ })).not.toBeNull();
     expect(within(details).getByText("Predicted")).not.toBeNull();
-    expect(onLoadSeries).toHaveBeenCalledWith(sensor.id, "temperature", "24h", true);
+    expect(onLoadSeries).toHaveBeenCalledWith(sensor.id, "temperature", "24h", true, expect.any(AbortSignal));
+    const temperatureSignal = onLoadSeries.mock.calls.find(([, metric]) => metric === "temperature")?.[4] as AbortSignal;
+    expect(temperatureSignal.aborted).toBe(false);
 
     await user.selectOptions(within(details).getByRole("combobox", { name: "Measurement" }), "humidity");
-    await waitFor(() => expect(onLoadSeries).toHaveBeenCalledWith(sensor.id, "humidity", "24h", true));
+    await waitFor(() => expect(onLoadSeries).toHaveBeenCalledWith(
+      sensor.id,
+      "humidity",
+      "24h",
+      true,
+      expect.any(AbortSignal),
+    ));
+    expect(temperatureSignal.aborted).toBe(true);
+    const humiditySignal = onLoadSeries.mock.calls.find(([, metric]) => metric === "humidity")?.[4] as AbortSignal;
+    expect(humiditySignal.aborted).toBe(false);
     expect(within(details).getByRole("group", { name: /Humidity history and forecast for Living room/ })).not.toBeNull();
+
+    rendered.unmount();
+    expect(humiditySignal.aborted).toBe(true);
   });
 
   it("keeps the newly selected sensor details when an older request finishes later", async () => {

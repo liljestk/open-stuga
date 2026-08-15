@@ -288,12 +288,12 @@ export const apiPart02 = {
       houseId === undefined ? "/sensors" : `/sensors?houseId=${encodeURIComponent(houseId)}`,
     ), ["sensors", "data"]),
   snapshot: async (houseId: string) => list<SensorSnapshot>(await request<unknown>(`/snapshot?houseId=${encodeURIComponent(houseId)}`), ["snapshot", "sensors", "data"]),
-  readings: async (sensorId: string, from: string, to: string, limit = 500) => list<Reading>(
-      await request<unknown>(`/readings?sensorId=${encodeURIComponent(sensorId)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&limit=${limit}`),
+  readings: async (sensorId: string, from: string, to: string, limit = 500, signal?: AbortSignal) => list<Reading>(
+      await request<unknown>(`/readings?sensorId=${encodeURIComponent(sensorId)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&limit=${limit}`, signal ? { signal } : undefined),
       ["readings", "data"],
     ),
-  forecast: async (sensorId: string, horizonMinutes = 360) => list<ForecastPoint>(
-      await request<unknown>(`/forecast?sensorId=${encodeURIComponent(sensorId)}&horizonMinutes=${horizonMinutes}`),
+  forecast: async (sensorId: string, horizonMinutes = 360, signal?: AbortSignal) => list<ForecastPoint>(
+      await request<unknown>(`/forecast?sensorId=${encodeURIComponent(sensorId)}&horizonMinutes=${horizonMinutes}`, signal ? { signal } : undefined),
       ["forecast", "points", "data"],
     ),
   updateHouseGeoreference,

@@ -144,6 +144,66 @@ describe("LiveEventCoordinator", () => {
     expect(stopMeasurements).toHaveBeenCalledOnce();
   });
 
+  it("releases global streams while hidden and reconnects before one resume", () => {
+    const originalHidden = Object.getOwnPropertyDescriptor(document, "hidden");
+    const legacyStops = [vi.fn(), vi.fn()];
+    const measurementStops = [vi.fn(), vi.fn()];
+    const legacyStates: Array<(state: "live" | "reconnecting") => void> = [];
+    const measurementStates: Array<(state: "live" | "reconnecting") => void> = [];
+    const legacy = vi.fn((_event: (event: TelemetryEvent) => void, onState: (state: "live" | "reconnecting") => void) => {
+      legacyStates.push(onState);
+      return legacyStops[legacy.mock.calls.length - 1]!;
+    });
+    const measurements = vi.fn((_sample: (sample: MeasurementSample) => void, onState: (state: "live" | "reconnecting") => void) => {
+      measurementStates.push(onState);
+      return measurementStops[measurements.mock.calls.length - 1]!;
+    });
+    const onConnection = vi.fn();
+    const onResume = vi.fn();
+    let stop: (() => void) | undefined;
+    try {
+      Object.defineProperty(document, "hidden", { configurable: true, value: false });
+      const coordinator = new LiveEventCoordinator(new QueryClient(), { legacy, measurements });
+      stop = coordinator.start({
+        onTelemetry: vi.fn(),
+        onMeasurement: vi.fn(),
+        onConnection,
+        onOpen: vi.fn(),
+        onResume,
+      });
+      expect(legacy).toHaveBeenCalledOnce();
+      expect(measurements).toHaveBeenCalledOnce();
+      legacyStates[0]?.("live");
+      measurementStates[0]?.("live");
+      expect(onResume).not.toHaveBeenCalled();
+
+      Object.defineProperty(document, "hidden", { configurable: true, value: true });
+      document.dispatchEvent(new Event("visibilitychange"));
+      expect(legacyStops[0]).toHaveBeenCalledOnce();
+      expect(measurementStops[0]).toHaveBeenCalledOnce();
+      expect(onConnection).toHaveBeenCalledWith("legacy", "reconnecting");
+      expect(onConnection).toHaveBeenCalledWith("measurements", "reconnecting");
+
+      Object.defineProperty(document, "hidden", { configurable: true, value: false });
+      document.dispatchEvent(new Event("visibilitychange"));
+      expect(legacy).toHaveBeenCalledTimes(2);
+      expect(measurements).toHaveBeenCalledTimes(2);
+      legacyStates[1]?.("live");
+      expect(onResume).not.toHaveBeenCalled();
+      measurementStates[1]?.("live");
+      expect(onResume).toHaveBeenCalledOnce();
+
+      stop();
+      stop = undefined;
+      expect(legacyStops[1]).toHaveBeenCalledOnce();
+      expect(measurementStops[1]).toHaveBeenCalledOnce();
+    } finally {
+      stop?.();
+      if (originalHidden) Object.defineProperty(document, "hidden", originalHidden);
+      else Reflect.deleteProperty(document, "hidden");
+    }
+  });
+
   it("coalesces duplicate reading and measurement refreshes into one invalidation", async () => {
     vi.useFakeTimers();
     try {
@@ -254,7 +314,7 @@ describe("LiveEventCoordinator", () => {
     const originalHidden = Object.getOwnPropertyDescriptor(document, "hidden");
     let stop: (() => void) | undefined;
     try {
-      Object.defineProperty(document, "hidden", { configurable: true, value: true });
+      Object.defineProperty(document, "hidden", { configurable: true, value: false });
       let onMeasurement: ((sample: MeasurementSample) => void) | undefined;
       const client = clientWithQueries();
       const invalidate = vi.spyOn(client, "invalidateQueries");
@@ -282,6 +342,8 @@ describe("LiveEventCoordinator", () => {
         source: "api",
         quality: "good",
       });
+      Object.defineProperty(document, "hidden", { configurable: true, value: true });
+      document.dispatchEvent(new Event("visibilitychange"));
       await vi.advanceTimersByTimeAsync(30_000);
       expect(invalidate).not.toHaveBeenCalled();
 

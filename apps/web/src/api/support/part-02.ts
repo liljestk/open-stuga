@@ -267,6 +267,7 @@ export type SystemUpdateBlockReason =
   | "off-device-backup-required"
   | "metadata-unavailable"
   | "trust-verification-failed"
+  | "verification-failed"
   | "status-stale"
   | "not-configured";
 

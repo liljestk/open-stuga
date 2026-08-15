@@ -435,6 +435,60 @@ describe("useClimateData", () => {
     }
   });
 
+  it("rehydrates workspace inventory once after both hidden streams resume, not on initial live", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const originalHidden = Object.getOwnPropertyDescriptor(document, "hidden");
+    let unmount: (() => void) | undefined;
+    try {
+      Object.defineProperty(document, "hidden", { configurable: true, value: false });
+      const hook = renderHook(() => useClimateData());
+      unmount = hook.unmount;
+      await waitFor(() => expect(hook.result.current.loading).toBe(false));
+      const initialSessionLoads = mocks.session.mock.calls.length;
+      const initialPropertyLoads = mocks.properties.mock.calls.length;
+      const initialHouseLoads = mocks.houses.mock.calls.length;
+      const initialSnapshotLoads = mocks.snapshot.mock.calls.length;
+      const [, initialLegacyState] = mocks.subscribeToEvents.mock.calls[0]!;
+      const [, initialMeasurementState] = mocks.subscribeToMeasurementEvents.mock.calls[0]!;
+
+      act(() => {
+        initialLegacyState("live");
+        initialMeasurementState("live");
+      });
+      await act(async () => Promise.resolve());
+      expect(mocks.session).toHaveBeenCalledTimes(initialSessionLoads);
+      expect(mocks.properties).toHaveBeenCalledTimes(initialPropertyLoads);
+      expect(mocks.houses).toHaveBeenCalledTimes(initialHouseLoads);
+
+      Object.defineProperty(document, "hidden", { configurable: true, value: true });
+      act(() => document.dispatchEvent(new Event("visibilitychange")));
+      Object.defineProperty(document, "hidden", { configurable: true, value: false });
+      act(() => document.dispatchEvent(new Event("visibilitychange")));
+      await waitFor(() => expect(mocks.subscribeToMeasurementEvents).toHaveBeenCalledTimes(2));
+      const [, resumedLegacyState] = mocks.subscribeToEvents.mock.calls[1]!;
+      const [, resumedMeasurementState] = mocks.subscribeToMeasurementEvents.mock.calls[1]!;
+
+      act(() => resumedLegacyState("live"));
+      expect(mocks.session).toHaveBeenCalledTimes(initialSessionLoads);
+      act(() => resumedMeasurementState("live"));
+      await waitFor(() => expect(mocks.session).toHaveBeenCalledTimes(initialSessionLoads + 1));
+      await waitFor(() => expect(mocks.properties).toHaveBeenCalledTimes(initialPropertyLoads + 1));
+      await waitFor(() => expect(mocks.houses).toHaveBeenCalledTimes(initialHouseLoads + 1));
+      await act(async () => { vi.advanceTimersByTime(100); await Promise.resolve(); await Promise.resolve(); });
+      expect(mocks.session).toHaveBeenCalledTimes(initialSessionLoads + 1);
+      expect(mocks.properties).toHaveBeenCalledTimes(initialPropertyLoads + 1);
+      expect(mocks.houses).toHaveBeenCalledTimes(initialHouseLoads + 1);
+      expect(mocks.snapshot).toHaveBeenCalledTimes(initialSnapshotLoads + 1);
+      unmount();
+      unmount = undefined;
+    } finally {
+      unmount?.();
+      if (originalHidden) Object.defineProperty(document, "hidden", originalHidden);
+      else Reflect.deleteProperty(document, "hidden");
+      vi.useRealTimers();
+    }
+  });
+
   it("ignores callbacks queued by streams closed during a bootstrap retry", async () => {
     const demo = createDemoState();
     const sensor = demo.sensors[0]!;

@@ -261,7 +261,7 @@ export const apiPart04 = {
       signal?: AbortSignal,
     ) => requestV2<DurableDerivedAnalyticsResponse<ThermalIsolationResult>>(
       `/analytics/thermal-isolation?houseId=${encodeURIComponent(houseId)}&dataMode=${options.dataMode}&windowDays=${options.windowDays}`,
-      { method: "POST", ...(signal ? { signal } : {}) },
+      { method: "POST", schedulingClass: "background", ...(signal ? { signal } : {}) },
     ),
   cachedMoistureResponse: (
       houseId: string,
@@ -277,7 +277,7 @@ export const apiPart04 = {
       signal?: AbortSignal,
     ) => requestV2<DurableDerivedAnalyticsResponse<MoistureResponseResult>>(
       `/analytics/moisture-response?houseId=${encodeURIComponent(houseId)}&dataMode=${options.dataMode}&windowDays=${options.windowDays}`,
-      { method: "POST", ...(signal ? { signal } : {}) },
+      { method: "POST", schedulingClass: "background", ...(signal ? { signal } : {}) },
     ),
   spatialLayerEngines: async (signal?: AbortSignal): Promise<SpatialLayerEngineManifest[]> => spatialLayerEngines(
       await request<unknown>("/layer-engines", signal ? { signal } : undefined),

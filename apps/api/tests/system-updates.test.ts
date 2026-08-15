@@ -982,11 +982,11 @@ describe("system update service", () => {
       revision: 0,
       phase: "failed",
       completedAt: "2026-07-23T20:05:00.000Z",
-      detail: "Workflow request was invalid",
+      detail: "Host updater recovery is required",
       backup: { phase: "failed", verified: false, completedAt: null, receipt: null },
       host: null,
       cancellationEligible: false,
-      error: { code: "WORKFLOW_REQUEST_INVALID", message: "Workflow request was invalid" },
+      error: { code: "BRIDGE_RECOVERY_REQUIRED", message: "Host updater recovery is required" },
     });
     writeFileSync(join(operationsDirectory, "workflow-status.json"), JSON.stringify(failed));
     const service = new SystemUpdateService({
@@ -999,7 +999,7 @@ describe("system update service", () => {
     expect(service.status().workflow).toMatchObject({
       phase: "failed",
       targets: { hostVersion: null, hostGeneration: null, hostDigest: null },
-      reason: "WORKFLOW_REQUEST_INVALID",
+      reason: "recovery-required",
     });
     writeFileSync(join(operationsDirectory, "workflow-status.json"), JSON.stringify({
       ...failed,
@@ -1008,7 +1008,7 @@ describe("system update service", () => {
     expect(service.status().workflow).toBeNull();
   });
 
-  it("fails closed on a stale host bridge projection", () => {
+  it("fails closed on invalid host bridge projections and normalizes native errors", () => {
     const operationsDirectory = directory();
     const now = new Date("2026-07-23T20:30:00Z");
     writeAgentHeartbeat(operationsDirectory, now);
@@ -1032,6 +1032,15 @@ describe("system update service", () => {
       supported: false,
       reason: "bridge-not-connected",
       updateAvailable: false,
+    });
+
+    writeBridgeStatus(operationsDirectory, now, {
+      error: { code: "TRUST_VERIFICATION_FAILED", message: "Native updater diagnostic" },
+    });
+    expect(service.status().host).toMatchObject({
+      supported: true,
+      reason: "trust-verification-failed",
+      detail: "Native updater diagnostic",
     });
   });
 

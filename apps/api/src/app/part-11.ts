@@ -188,6 +188,9 @@ import { configureApiPart10 } from "./part-10.js";
 
 type NormalizedApiConfig = { [Key in keyof AppConfig]-?: Exclude<AppConfig[Key], undefined> };
 
+const MAX_SYNCHRONOUS_BUCKET_WINDOW_MS = 24 * 3_600_000;
+const MAX_BUCKET_SOURCE_ROWS = 100_000;
+
 export function configureApiPart11(context: ReturnType<typeof configureApiPart10>) {
   const config = context.config as NormalizedApiConfig;
   const sensorGapRecovery = context.sensorGapRecovery!;
@@ -220,26 +223,43 @@ export function configureApiPart11(context: ReturnType<typeof configureApiPart10
           throw new HttpError(400, "INVALID_CURSOR", "cursor is invalid");
         }
       }
-      const rawLimit = bucketSeconds === null ? limit + 1 : 100_000;
+      // DatabaseSync cannot observe an AbortSignal mid-statement. Keep exact
+      // SQLite aggregation to the hot 24-hour path and row-bound longer reads.
+      const useDatabaseBuckets = bucketSeconds !== null
+        && Date.parse(to) - Date.parse(from) <= MAX_SYNCHRONOUS_BUCKET_WINDOW_MS;
+      const rawLimit = bucketSeconds === null ? limit + 1 : MAX_BUCKET_SOURCE_ROWS;
       const abortController = new AbortController();
       const abortOnClose = () => abortController.abort(new DOMException("Client disconnected", "AbortError"));
       response.once("close", abortOnClose);
       if (response.destroyed) abortOnClose();
-      const archived = (await context.analyticsWorkLimiter.run(
+      const readSamples = (await context.analyticsWorkLimiter.run(
         "measurement-history",
-        () => context.telemetryReader.measurementHistory({
-          sensorId: request.query.sensorId as string,
-          metric,
-          from,
-          to,
-          limit: rawLimit,
-          signal: abortController.signal,
-          ...(before ? { before } : {}),
-        }),
+        () => !useDatabaseBuckets
+          ? context.telemetryReader.measurementHistory({
+              sensorId: request.query.sensorId as string,
+              metric,
+              from,
+              to,
+              limit: rawLimit,
+              signal: abortController.signal,
+              ...(before ? { before } : {}),
+            })
+          : context.telemetryReader.measurementHistoryBucketed({
+              sensorId: request.query.sensorId as string,
+              metric,
+              from,
+              to,
+              bucketSeconds,
+              limit: limit + 1,
+              signal: abortController.signal,
+            }),
         abortController.signal,
       ).finally(() => response.off("close", abortOnClose))).records;
-      const requestedSamples = bucketSeconds === null ? archived : bucketMeasurementSamples(archived, bucketSeconds);
-      const truncated = requestedSamples.length > limit || (bucketSeconds !== null && archived.length === rawLimit);
+      const requestedSamples = bucketSeconds !== null && !useDatabaseBuckets
+        ? bucketMeasurementSamples(readSamples, bucketSeconds)
+        : readSamples;
+      const truncated = requestedSamples.length > limit
+        || (bucketSeconds !== null && !useDatabaseBuckets && readSamples.length === rawLimit);
       const samples = truncated ? requestedSamples.slice(-limit) : requestedSamples;
       const nextCursor = bucketSeconds === null && truncated && samples[0]
         ? Buffer.from(JSON.stringify([samples[0].timestamp, samples[0].source]), "utf8").toString("base64url")

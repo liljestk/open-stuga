@@ -108,6 +108,21 @@ describe("DataExportPanel", () => {
     });
   });
 
+  it("does not load scheduled exports while the export disclosure is closed", async () => {
+    const state = createDemoState();
+    const house = state.houses[0]!;
+    const user = userEvent.setup();
+
+    render(<I18nProvider><DataExportPanel state={state} house={house} units="metric" dataMode="demo" /></I18nProvider>);
+
+    expect(api.scheduledDataExports).not.toHaveBeenCalled();
+    expect(api.systemStorageStatus).not.toHaveBeenCalled();
+
+    await user.click(screen.getByText("Export sensor data").closest("summary")!);
+    await waitFor(() => expect(api.scheduledDataExports).toHaveBeenCalledOnce());
+    expect(api.systemStorageStatus).toHaveBeenCalledOnce();
+  });
+
   it("does not expose installation-owned schedules to a Guest", () => {
     const state = createDemoState();
     state.session = { ...state.session, tenant: { ...state.session.tenant, role: "guest" } };

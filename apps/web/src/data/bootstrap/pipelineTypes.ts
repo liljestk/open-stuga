@@ -102,6 +102,7 @@ export interface SeriesActions {
     metric: string,
     range: TimeRange,
     forecastSupported?: boolean,
+    signal?: AbortSignal,
   ) => Promise<void>;
 }
 
@@ -110,6 +111,7 @@ export interface SensorActions {
     sensorId: string,
     metric: string,
     window: HistoricalSeriesWindow,
+    signal?: AbortSignal,
   ) => Promise<MeasurementHistoryPage>;
   createSensor: (input: CreateSensorInput) => Promise<Sensor>;
   updateSensor: (sensorId: string, patch: SensorPatch) => Promise<Sensor>;

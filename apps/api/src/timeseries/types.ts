@@ -215,6 +215,18 @@ export interface MeasurementHistoryQuery extends QueryControl {
   before?: { timestamp: string; source: string };
 }
 
+/** Bounded database-side buckets for the generic measurement history route. */
+export interface MeasurementHistoryBucketedQuery extends QueryControl {
+  sensorId: string;
+  metric: string;
+  from: string;
+  to: string;
+  bucketSeconds: number;
+  limit?: number;
+  /** Real-data mode must remove synthetic rows before calculating bucket values. */
+  excludeSynthetic?: boolean;
+}
+
 /** A bounded database-side search for adjacent good samples separated by a real hole. */
 export interface MeasurementGapQuery extends QueryControl {
   sensorId: string;
