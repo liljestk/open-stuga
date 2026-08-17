@@ -24,6 +24,11 @@ export interface ElectricityEndpointPolicy {
 }
 
 export class ElectricityEndpointPolicyError extends Error {}
+/**
+ * Every failure whose message is safe to show an operator. Anything else is
+ * reported as a generic refresh failure, because a provider's endpoint query
+ * string may carry credentials that must never reach the stored error.
+ */
 class ElectricityPriceSourceError extends Error {}
 
 interface CompatiblePricePayload {
@@ -166,20 +171,22 @@ export function parseElectricityPricePayload(payload: unknown): Array<{
 }> {
   const candidates = (payload as CompatiblePricePayload | null)?.prices;
   if (!Array.isArray(candidates) || candidates.length === 0 || candidates.length > MAX_PRICE_POINTS) {
-    throw new Error("Electricity price feed must contain between 1 and 500 prices");
+    throw new ElectricityPriceSourceError("Electricity price feed must contain between 1 and 500 prices");
   }
   const seen = new Set<string>();
   const prices = candidates.map((candidate, index) => {
-    if (!candidate || typeof candidate !== "object") throw new Error(`Invalid electricity price at index ${index}`);
+    if (!candidate || typeof candidate !== "object") {
+      throw new ElectricityPriceSourceError(`Invalid electricity price at index ${index}`);
+    }
     const value = candidate as Record<string, unknown>;
     const rawPriceCentsPerKwh = finitePrice(value.price);
     const startMs = typeof value.startDate === "string" ? Date.parse(value.startDate) : NaN;
     const endMs = typeof value.endDate === "string" ? Date.parse(value.endDate) : NaN;
     if (rawPriceCentsPerKwh === null || !Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
-      throw new Error(`Invalid electricity price fields at index ${index}`);
+      throw new ElectricityPriceSourceError(`Invalid electricity price fields at index ${index}`);
     }
     const startAt = new Date(startMs).toISOString();
-    if (seen.has(startAt)) throw new Error(`Duplicate electricity price interval ${startAt}`);
+    if (seen.has(startAt)) throw new ElectricityPriceSourceError(`Duplicate electricity price interval ${startAt}`);
     seen.add(startAt);
     return { startAt, endAt: new Date(endMs).toISOString(), rawPriceCentsPerKwh };
   }).sort((left, right) => left.startAt.localeCompare(right.startAt));
@@ -187,7 +194,7 @@ export function parseElectricityPricePayload(payload: unknown): Array<{
     const previous = prices[index - 1]!;
     const current = prices[index]!;
     if (Date.parse(previous.endAt) > Date.parse(current.startAt)) {
-      throw new Error(`Electricity price intervals overlap at ${current.startAt}`);
+      throw new ElectricityPriceSourceError(`Electricity price intervals overlap at ${current.startAt}`);
     }
   }
   return prices;
@@ -246,6 +253,11 @@ export class ElectricityPriceService {
       if (config.provider === "porssisahko" && endpoint.toString() !== DEFAULT_ELECTRICITY_PRICE_ENDPOINT) {
         throw new ElectricityEndpointPolicyError("The Porssisahko provider must use its canonical endpoint");
       }
+      // `fetch` resolves the hostname again, so a hostile authority could in
+      // principle answer differently for the two lookups. The endpoint is
+      // operator-configured rather than caller-supplied, and Node offers no
+      // connect-time address hook here, so this pre-check plus the redirect ban
+      // is the boundary we enforce.
       await resolveEndpoint(endpoint, this.endpointPolicy.resolver ?? defaultResolver, allowPrivateNetwork, controller.signal);
       const response = await waitForOperation(
         this.fetcher(endpoint.toString(), {
@@ -256,7 +268,9 @@ export class ElectricityPriceService {
         controller.signal,
       );
       if (response.redirected) throw new ElectricityPriceSourceError("Electricity price source redirects are not allowed");
-      if (!response.ok) throw new Error(`Electricity price source returned HTTP ${response.status}`);
+      if (!response.ok) {
+        throw new ElectricityPriceSourceError(`Electricity price source returned HTTP ${response.status}`);
+      }
       const payload = await limitedJson(response, controller);
       const prices = parseElectricityPricePayload(payload);
       const fetchedAt = new Date().toISOString();
@@ -273,13 +287,15 @@ export class ElectricityPriceService {
         prices.at(-1)!.endAt,
       );
     } catch (error) {
+      // Only the two deliberately public error types carry their message
+      // through. Matching on message text instead silently dropped parse and
+      // interval failures into the generic branch, because none of those
+      // messages actually start with "Electricity price".
       const message = error instanceof Error && error.name === "AbortError"
         ? "Electricity price request timed out"
         : error instanceof ElectricityEndpointPolicyError || error instanceof ElectricityPriceSourceError
           ? error.message
-          : error instanceof Error && /^Electricity price (?:feed|source returned HTTP|at index|fields|interval)/.test(error.message)
-            ? error.message
-            : "Electricity price refresh failed";
+          : "Electricity price refresh failed";
       this.database.setPropertyElectricityFetchError(propertyId, message);
       throw new Error(message);
     } finally {

@@ -8,13 +8,13 @@ import type {
   QualityFlag,
 } from "@climate-twin/contracts";
 import {
-  AnalyticsQueryError,
-  MAX_INTERACTIVE_OUTPUT_POINTS,
+  analyticsMeasurementDefinition,
+  analyticsSeriesKey,
   buildAnalyticsSummary,
   finalizeAnalyticsResponse,
   analyticsResolutionSeconds,
   resolveAnalyticsAggregation,
-  resolveAnalyticsResolution,
+  resolveAnalyticsQueryShape,
 } from "./analytics.js";
 import type { HybridArchiveReadState } from "./timeseries/read-facade.js";
 import type {
@@ -37,58 +37,25 @@ export interface PlanAnalyticsRollupInput {
 export function planAnalyticsRollup(
   input: PlanAnalyticsRollupInput,
 ): Omit<MeasurementAnalyticsRollupQuery, "excludeSynthetic"> | null {
-  const maxPoints = input.request.maxPointsPerSeries ?? 800;
-  const resolution = resolveAnalyticsResolution(
-    input.request.resolution,
-    input.request.range.start,
-    input.request.range.end,
-    maxPoints,
-  );
-  if (resolution === "raw") return null;
-  const start = Date.parse(input.request.range.start);
-  const end = Date.parse(input.request.range.end);
-  const bucketMs = analyticsResolutionSeconds(resolution) * 1_000;
-  const bucketCount = Math.ceil((end - Math.floor(start / bucketMs) * bucketMs) / bucketMs);
-  if (bucketCount > maxPoints) {
-    throw new AnalyticsQueryError(
-      422,
-      "ANALYTICS_POINT_LIMIT_EXCEEDED",
-      `The selected resolution would return ${bucketCount} points per series; choose automatic resolution or a shorter range`,
-    );
-  }
-  const projectedOutputPoints = bucketCount * input.entities.length * input.request.measurementIds.length;
-  if (projectedOutputPoints > MAX_INTERACTIVE_OUTPUT_POINTS) {
-    throw new AnalyticsQueryError(
-      422,
-      "ANALYTICS_QUERY_TOO_LARGE",
-      `The interactive response would exceed ${MAX_INTERACTIVE_OUTPUT_POINTS} points; reduce the entity, measurement, or time scope`,
-    );
-  }
-
+  const shape = resolveAnalyticsQueryShape({
+    request: input.request,
+    entityCount: input.entities.length,
+  });
+  if (shape.resolution === "raw") return null;
   const definitions = new Map(input.definitions.map((definition) => [definition.id, definition]));
-  const series = input.entities.flatMap((entity) => input.request.measurementIds.map((measurementId) => {
-    const definition = definitions.get(measurementId);
-    if (!definition) {
-      throw new AnalyticsQueryError(404, "UNKNOWN_ANALYTICS_MEASUREMENT", `Unknown measurement: ${measurementId}`);
-    }
-    if (definition.genericStatsEnabled === false || definition.genericHistoryEnabled === false) {
-      throw new AnalyticsQueryError(
-        422,
-        "ANALYTICS_MEASUREMENT_DISABLED",
-        `Analytics is disabled for measurement: ${measurementId}`,
-      );
-    }
-    return {
-      sensorId: entity.id,
-      metric: measurementId,
-      aggregation: resolveAnalyticsAggregation(definition, input.request.aggregation),
-    };
-  }));
+  const series = input.entities.flatMap((entity) => input.request.measurementIds.map((measurementId) => ({
+    sensorId: entity.id,
+    metric: measurementId,
+    aggregation: resolveAnalyticsAggregation(
+      analyticsMeasurementDefinition(definitions, measurementId),
+      input.request.aggregation,
+    ),
+  })));
   return {
     series,
     from: input.request.range.start,
     to: input.request.range.end,
-    resolution,
+    resolution: shape.resolution,
     qualities: input.request.qualityFilter?.include ?? ["good", "estimated", "stale"],
   };
 }
@@ -128,6 +95,12 @@ function rollupPoints(
 }
 
 export interface BuildAnalyticsRollupResponseInput extends PlanAnalyticsRollupInput {
+  /**
+   * The plan `planAnalyticsRollup` produced for this exact request. Passing it
+   * in keeps the admission guards from running a second time per request and
+   * guarantees the response is described by the plan the archive actually ran.
+   */
+  plan: Omit<MeasurementAnalyticsRollupQuery, "excludeSynthetic">;
   rollup: MeasurementAnalyticsRollupResult;
   archiveState: HybridArchiveReadState;
   generatedAt?: string;
@@ -137,26 +110,23 @@ export function buildAnalyticsResponseFromRollup(
   input: BuildAnalyticsRollupResponseInput,
 ): AnalyticsQueryResponse {
   const generatedAt = input.generatedAt ?? new Date().toISOString();
-  const plan = planAnalyticsRollup(input);
-  if (!plan) {
-    throw new AnalyticsQueryError(422, "RAW_ROLLUP_NOT_ALLOWED", "Raw analytics requests require source observations");
-  }
+  const plan = input.plan;
   const start = Date.parse(input.request.range.start);
   const end = Date.parse(input.request.range.end);
   const definitions = new Map(input.definitions.map((definition) => [definition.id, definition]));
   const records = new Map(input.rollup.series.map((series) => [
-    JSON.stringify([series.sensorId, series.metric]),
+    analyticsSeriesKey(series.sensorId, series.metric),
     series,
   ]));
   const aggregationBySeries = new Map(plan.series.map((series) => [
-    JSON.stringify([series.sensorId, series.metric]),
+    analyticsSeriesKey(series.sensorId, series.metric),
     series.aggregation,
   ]));
   const series: AnalyticsSeries[] = [];
   for (const entity of input.entities) {
     for (const measurementId of input.request.measurementIds) {
       const definition = definitions.get(measurementId)!;
-      const key = JSON.stringify([entity.id, measurementId]);
+      const key = analyticsSeriesKey(entity.id, measurementId);
       const record = records.get(key);
       const aggregation = aggregationBySeries.get(key)!;
       const points = rollupPoints(record, start, end, plan.resolution);

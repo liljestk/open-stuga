@@ -4,6 +4,30 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.39.4 - 2026-08-17
+
+- Stop analytics queries failing outright when a single bucket holds a very
+  large number of samples. Dense sensors could push bucket minimum/maximum
+  calculations past a JavaScript engine limit and return a server error instead
+  of a chart.
+- Report the real cause when an electricity price feed is rejected. Malformed
+  prices, duplicate intervals, and overlapping intervals previously surfaced
+  only as a generic "refresh failed".
+- Keep sample-source and archive-rollup analytics answers consistent, so the
+  same query no longer reports different coverage or a different low-coverage
+  warning depending on which source served it.
+- Give an actionable message when an automatically chosen resolution still
+  exceeds the point limit, instead of advising the automatic mode already in
+  use.
+- Protect every CSV export against spreadsheet formula injection, including the
+  chart's exact-data download and the historical-import template.
+- Speed up wide analytics queries by grouping source samples once rather than
+  rescanning the whole window for each series.
+
+Upgrade impact: application-only fix release. Existing telemetry,
+configuration, and durable analytics are retained; no schema rewrite, signed
+host update, or factory image is required.
+
 ## 0.39.3 - 2026-08-12
 
 - Bound and prioritize browser requests so abandoned history work cannot block

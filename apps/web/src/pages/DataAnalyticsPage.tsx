@@ -24,6 +24,7 @@ import { ThermalIsolationPanel } from "../components/ThermalIsolationPanel";
 import { MoistureResponsePanel } from "../components/MoistureResponsePanel";
 import { DataExportPanel } from "../components/DataExportPanel";
 import { chartGapThresholdMs, detectSeriesGaps } from "../chartGaps";
+import { csvDocument } from "../csv";
 import { formatInTimeZone } from "../dateTime";
 import { useHouseWeather } from "../useHouseWeather";
 import { useI18n } from "../i18n";
@@ -220,12 +221,6 @@ function durationLabel(milliseconds: number, locale: string): string {
   return new Intl.NumberFormat(locale, { maximumFractionDigits: hours < 10 ? 1 : 0, style: "unit", unit: "hour", unitDisplay: "short" }).format(hours);
 }
 
-function csvCell(value: string | number): string {
-  const text = String(value);
-  const formulaSafe = /^[=+\-@]/u.test(text) ? `'${text}` : text;
-  return /[",\r\n]/u.test(formulaSafe) ? `"${formulaSafe.replaceAll('"', '""')}"` : formulaSafe;
-}
-
 export function analyticsCsv(result: AnalyticsQueryResponse): string {
   const rows: Array<Array<string | number>> = [[
     "api_version", "data_mode", "request_id", "timezone", "range_start", "range_end", "generated_at",
@@ -244,7 +239,7 @@ export function analyticsCsv(result: AnalyticsQueryResponse): string {
       ]);
     }
   }
-  return `${rows.map((row) => row.map(csvCell).join(",")).join("\r\n")}\r\n`;
+  return csvDocument(rows);
 }
 
 function downloadText(filename: string, content: string, type: string): void {

@@ -1,22 +1,19 @@
 import type { MeasurementSample, Reading } from "@climate-twin/contracts";
+import { compareMeasurements, compareReadings } from "./read-records.js";
 
-function compareText(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0;
-}
-
-function compareMeasurements(left: MeasurementSample, right: MeasurementSample): number {
-  return compareText(left.timestamp, right.timestamp)
-    || compareText(left.sensorId, right.sensorId)
-    || compareText(left.metric, right.metric)
-    || compareText(left.source, right.source);
-}
-
-function compareReadings(left: Reading, right: Reading): number {
-  return compareText(left.timestamp, right.timestamp)
-    || compareText(left.sensorId, right.sensorId)
-    || compareText(left.source, right.source);
-}
-
+/**
+ * The in-process half of one bucketing contract with three implementations:
+ * this file, the `measurement_history_bucketed` SQL in
+ * `store/methods/02-write-batches-to-electricity-price-history.ts`, and
+ * `qualityWeightedThermalBuckets` in `read-facade.ts`.
+ *
+ * All three must agree that a bucket's value is the mean of its samples and
+ * that quality degrades to `estimated` as soon as a bucket merges more than one
+ * sample or more than one source. The hybrid reader dedupes local and archived
+ * buckets by (sensor, metric, bucket timestamp), so a divergence here does not
+ * surface as a visible error — it silently returns whichever side won the merge.
+ * `apps/api/tests/timeseries-read-facade.test.ts` pins the shared behaviour.
+ */
 export function bucketMeasurementSamples(
   samples: readonly MeasurementSample[],
   bucketSeconds: number,

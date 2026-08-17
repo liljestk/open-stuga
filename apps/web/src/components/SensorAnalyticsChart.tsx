@@ -29,6 +29,7 @@ import {
 } from "../measurements";
 import { useNow } from "../useNow";
 import { chartGapThresholdMs } from "../chartGaps";
+import { CSV_BYTE_ORDER_MARK, CSV_MEDIA_TYPE, csvDocument, type CsvValue } from "../csv";
 import { CalendarPeriodComparison } from "./CalendarPeriodComparison";
 import { deriveSensorAnalyticsGapStatus } from "./sensorAnalyticsGaps";
 import {
@@ -99,6 +100,22 @@ function bucketMilliseconds(range: TimeRange): number {
 function validTimestamp(value: string): number | null {
   const timestamp = Date.parse(value);
   return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+/**
+ * Span between the smallest and largest value, or null when there is no data.
+ * Reduced rather than spread into `Math.max`: an unbucketed short range across
+ * every sensor can exceed the engine's argument-count limit.
+ */
+function valueExtent(values: readonly number[]): number | null {
+  if (values.length === 0) return null;
+  let minimum = values[0]!;
+  let maximum = values[0]!;
+  for (const value of values) {
+    if (value < minimum) minimum = value;
+    if (value > maximum) maximum = value;
+  }
+  return maximum - minimum;
 }
 
 function observedSeries(
@@ -359,7 +376,7 @@ export function SensorAnalyticsChart(props: Readonly<SensorAnalyticsChartProps>)
   const observedValues = activeSensors.length > 0
     ? data.observed.flatMap((series) => series.points.map((point) => point.value))
     : data.outdoorObserved.map((point) => point.value);
-  const observedRange = observedValues.length > 0 ? Math.max(...observedValues) - Math.min(...observedValues) : null;
+  const observedRange = valueExtent(observedValues);
   const metricLabel = measurementLabel(definition, locale);
   const archivedSensorOnly = activeSensors.length === 1 && !activeSensors[0]!.enabled;
   const chartLabel = isCombined
@@ -462,13 +479,14 @@ export function SensorAnalyticsChart(props: Readonly<SensorAnalyticsChartProps>)
     exactRows.sort((left, right) => left.timestamp - right.timestamp || left.source.localeCompare(right.source));
   }
   const visibleExactRows = exactRows.slice(0, visibleExactRowCount);
-  const csvCell = (value: string | number | null) => `"${String(value ?? "").replaceAll('"', '""')}"`;
   const downloadChartCsv = () => {
-    const csv = [
+    // Sensor names reach this file, so every field goes through the shared
+    // formula-safe encoder rather than being quoted inline.
+    const csv = csvDocument([
       ["timestamp", "source", "kind", "value", "unit", "low", "high", "reporting_sources", "available_sources", "gap_before_seconds"],
-      ...exactRows.map((row) => [new Date(row.timestamp).toISOString(), row.source, row.kind, toDisplayValue(row.value, definition, props.units), displayUnit(definition, props.units), row.low === null ? null : toDisplayValue(row.low, definition, props.units), row.high === null ? null : toDisplayValue(row.high, definition, props.units), row.sensorCount, row.sensorTotal, row.gapMs === null ? null : Math.round(row.gapMs / 1_000)]),
-    ].map((row) => row.map(csvCell).join(",")).join("\r\n");
-    const url = URL.createObjectURL(new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8" }));
+      ...exactRows.map((row): CsvValue[] => [new Date(row.timestamp).toISOString(), row.source, row.kind, toDisplayValue(row.value, definition, props.units), displayUnit(definition, props.units), row.low === null ? null : toDisplayValue(row.low, definition, props.units), row.high === null ? null : toDisplayValue(row.high, definition, props.units), row.sensorCount, row.sensorTotal, row.gapMs === null ? null : Math.round(row.gapMs / 1_000)]),
+    ]);
+    const url = URL.createObjectURL(new Blob([`${CSV_BYTE_ORDER_MARK}${csv}`], { type: CSV_MEDIA_TYPE }));
     const anchor = document.createElement("a");
     anchor.href = url;
     anchor.download = `stugu-${definition.id}-${props.range}.csv`;

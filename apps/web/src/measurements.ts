@@ -326,8 +326,14 @@ export function formatMeasurementDelta(value: number, definition: MeasurementDef
 
 export function measurementDomain(definition: MeasurementDefinition, values: number[]): { min: number; max: number } | null {
   if (!values.length) return null;
-  const actualMin = Math.min(...values);
-  const actualMax = Math.max(...values);
+  // Charts pass every point of every visible series at once, which is well past
+  // the argument-count limit some engines apply to a spread call.
+  let actualMin = values[0]!;
+  let actualMax = values[0]!;
+  for (const value of values) {
+    if (value < actualMin) actualMin = value;
+    if (value > actualMax) actualMax = value;
+  }
   const delta = Math.max(definition.interpolationDelta, 10 ** -definition.precision);
   const min = definition.displayMin == null ? actualMin - delta : Math.min(definition.displayMin, actualMin);
   const max = definition.displayMax == null ? actualMax + delta : Math.max(definition.displayMax, actualMax);

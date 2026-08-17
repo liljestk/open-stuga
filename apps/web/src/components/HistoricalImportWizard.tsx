@@ -25,6 +25,7 @@ import {
   type ImportSheet,
   type InputUnit,
 } from "../historicalImport";
+import { CSV_MEDIA_TYPE, csvDocument } from "../csv";
 import { formatInTimeZone } from "../dateTime";
 import { useI18n, type TranslationKey } from "../i18n";
 
@@ -44,10 +45,6 @@ type WizardStep = 1 | 2 | 3 | 4;
 
 function message(error: unknown, fallback: string): string {
   return error instanceof Error && error.message.trim() ? error.message : fallback;
-}
-
-function csvCell(value: string): string {
-  return `"${value.replaceAll('"', '""')}"`;
 }
 
 export function HistoricalImportWizard({
@@ -304,7 +301,7 @@ export function HistoricalImportWizard({
       sensor?.name ?? "Living room",
       ...definitions.slice(0, 4).map((definition) => definition.id === "humidity" ? "45" : definition.id === "co2" ? "650" : definition.id === "temperature" ? "21.5" : "0"),
     ];
-    const blob = new Blob([[headers, example].map((row) => row.map(csvCell).join(",")).join("\r\n")], { type: "text/csv;charset=utf-8" });
+    const blob = new Blob([csvDocument([headers, example])], { type: CSV_MEDIA_TYPE });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;

@@ -1,6 +1,21 @@
 import { measurementAnalyticsAggregateName, qualifiedName, type MeasurementAnalyticsBaseBucket } from "../schema.js";
 import { MEASUREMENT_ORDERED_ROLLUP_VERSION } from "./methods/measurement-ordered-rollups.js";
 
+/**
+ * Bound parameters, referenced by position across every CTE below:
+ *
+ * - `$1` JSONB array of `{ sensor_id, metric, aggregation }` request rows
+ * - `$2` inclusive range start (TIMESTAMPTZ)
+ * - `$3` exclusive range end (TIMESTAMPTZ)
+ * - `$4` accepted quality states (TEXT[])
+ * - `$5` target output bucket width (INTERVAL)
+ * - `$6` exclude synthetic sources when true (BOOLEAN)
+ * - `$7` width of the pre-materialized base aggregate (INTERVAL)
+ *
+ * Note that `$5` and `$7` are both intervals and are easy to transpose: `$7`
+ * bounds which rows may come from the continuous aggregate, while `$5` is the
+ * bucket the caller asked for.
+ */
 export function mergeableAnalyticsSql(schema: string, base: MeasurementAnalyticsBaseBucket): string {
   const measurements = qualifiedName(schema, "measurement_samples");
   const aggregate = qualifiedName(schema, measurementAnalyticsAggregateName(base));
@@ -58,6 +73,11 @@ export function mergeableAnalyticsSql(schema: string, base: MeasurementAnalytics
         ORDER BY sample.bucket_start DESC LIMIT 1
       ) last_bucket ON TRUE
     ), coverage AS (
+      -- Completeness is judged by first/last bucket alignment only, which
+      -- detects the case this exists for: a continuous aggregate lagging the
+      -- newest raw rows. It assumes the aggregate has no interior refresh hole,
+      -- which holds because Timescale refreshes contiguous windows; an interior
+      -- hole would be counted as complete and silently under-report.
       SELECT raw.sensor_id, raw.metric,
         raw.first_at IS NULL OR (
           aggregate.first_bucket <= date_bin($7::INTERVAL, raw.first_at, TIMESTAMPTZ '1970-01-01 00:00:00+00')
@@ -143,6 +163,22 @@ export function mergeableAnalyticsSql(schema: string, base: MeasurementAnalytics
     ORDER BY counts.sensor_id, counts.metric, buckets.bucket_start`;
 }
 
+/**
+ * Bound parameters, referenced by position across every CTE below:
+ *
+ * - `$1` JSONB array of `{ sensor_id, metric, aggregation }` request rows
+ * - `$2` inclusive range start (TIMESTAMPTZ)
+ * - `$3` exclusive range end (TIMESTAMPTZ)
+ * - `$4` accepted quality states (TEXT[])
+ * - `$5` target output bucket width (INTERVAL)
+ * - `$6` exclude synthetic sources when true (BOOLEAN)
+ * - `$7` quality mask identifying a stored rollup variant (SMALLINT)
+ * - `$8` width of the stored ordered rollup buckets, in seconds (INTEGER)
+ *
+ * `$5` and `$8` describe two different bucket widths — `$8` selects which
+ * persisted rollup rows are readable, `$5` is the width the caller asked for
+ * and is only applied when re-bucketing those rows into the response.
+ */
 export function orderedAnalyticsSql(schema: string): string {
   const measurements = qualifiedName(schema, "measurement_samples");
   const dirty = qualifiedName(schema, "measurement_ordered_rollup_dirty");
