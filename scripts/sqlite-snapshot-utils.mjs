@@ -29,9 +29,20 @@ function sqliteString(value) {
   return `'${value.replaceAll("'", "''")}'`;
 }
 
+/**
+ * Absolute path to a Windows System32 tool. MSYS/Git Bash environments place
+ * their own coreutils first on PATH, and the MSYS `whoami` rejects `/user`,
+ * which made every ACL-hardening test fail when the suite ran from a Bash
+ * shell. Resolving through SystemRoot keeps the lookup shell-independent.
+ */
+function windowsSystemTool(executable) {
+  const systemRoot = process.env.SystemRoot ?? process.env.windir ?? "C:\Windows";
+  return resolve(systemRoot, "System32", executable);
+}
+
 function currentWindowsSid() {
   if (cachedWindowsSid !== undefined) return cachedWindowsSid;
-  const result = spawnSync("whoami.exe", ["/user", "/fo", "csv", "/nh"], {
+  const result = spawnSync(windowsSystemTool("whoami.exe"), ["/user", "/fo", "csv", "/nh"], {
     encoding: "utf8",
     windowsHide: true,
     shell: false,
@@ -48,7 +59,7 @@ function currentWindowsSid() {
 
 function tightenWindowsAcl(path, directory) {
   const permission = directory ? "(OI)(CI)(F)" : "(F)";
-  const result = spawnSync("icacls.exe", [
+  const result = spawnSync(windowsSystemTool("icacls.exe"), [
     resolve(path),
     "/inheritance:r",
     "/grant:r",

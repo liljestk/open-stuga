@@ -33,6 +33,13 @@ and the built API smoke test. On macOS it also runs Swift tests and unsigned
 iOS and Mac Catalyst builds. Those native Apple checks are unavailable on
 Windows and Linux and are recorded as such.
 
+On Windows the gate is shell-independent: tooling that needs System32
+utilities (`whoami.exe`, `icacls.exe`) resolves them through `SystemRoot`
+rather than PATH, because MSYS and Git Bash shells put their own `whoami`
+first and it rejects Windows arguments. Docker Desktop must be running before
+the gate starts; the container steps fail immediately when its named pipe is
+absent.
+
 A machine-readable wrapper receipt, the underlying authoritative CI evidence,
 their checksums, and detailed logs are written to the per-user Stugu tooling
 state directory outside Git. The wrapper is reused only for the exact commit,
