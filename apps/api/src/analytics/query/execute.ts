@@ -45,6 +45,7 @@ export async function executeAnalyticsQuery(
         request: input.request,
         definitions: [...input.definitions],
         entities,
+        plan: rollupPlan,
         rollup: rollup.result,
         archiveState: rollup.archiveState,
         generatedAt: input.generatedAt,

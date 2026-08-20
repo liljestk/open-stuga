@@ -1,63 +1,38 @@
-import { useCallback, useEffect, useRef, useState, type SetStateAction } from "react";
-import type {
-  AppSession,
-  AreaEquipment,
-  AreaEquipmentInput,
-  AreaEquipmentPatch,
-  AlertRule,
-  AlertRulePatch,
-  ConnectionState,
-  Floor,
-  House,
-  IntegrationStatus,
-  ManualObservation,
-  ManualObservationInput,
-  ManualObservationPatch,
-  MaintenanceTask,
-  MaintenanceTaskInput,
-  MaintenanceTaskPatch,
-  MeasurementSample,
-  MockScenario,
-  Point,
-  Property,
-  PropertyArea,
-  PropertyAreaInput,
-  PropertyAreaPatch,
-  PropertyCreateInput,
-  PropertyNote,
-  PropertyNoteInput,
-  PropertyNotePatch,
-  PropertyPatch,
-  Reading,
-  Sensor,
-  SensorSnapshot,
-  StaticParameter,
-  TelemetryEvent,
-  TpLinkDiscoveredDevice,
-} from "@climate-twin/contracts";
+import { useCallback } from "react";
+import { type TimeRange, timeRangeHours } from "../../domain";
 import {
-  api,
-  cancelPendingApiRequests,
-  subscribeToApiAuthorizationChanges,
-  type CreateHouseInput,
-  type CreateSensorInput,
-  type HousePatch,
-  type HouseGeoreferencePatch,
-  type MeasurementHistoryPage,
-  type SensorPatch,
-} from "../../api";
-import { subscribeToAuthEpoch } from "../../authEpoch";
-import { createDemoState, nextMockReading, snapshotToReadings, timeRangeHours, type ClimateState, type TimeRange } from "../../domain";
-import { appendHistory, enabledDefinitions, legacyForecastSamples, readingSamples, upsertLatest } from "../../measurements";
-import { routeFromLocation } from "../../routing";
-import { publishHouseWeatherUpdate } from "../../useHouseWeather";
-import { HEARTBEAT_POLL_MIN_INTERVAL_MS, LIVE_TELEMETRY_BUFFER_LIMIT, MAX_SERIES_SAMPLES, PORTFOLIO_LOAD_CONCURRENCY, STREAM_BOOTSTRAP_WAIT_MS, advanceMockTelemetry, aggregateConnection, apiStatus, blankState, bufferLiveTelemetry, bufferSeriesValue, canonicalSeries, errorMessage, houseMutationKey, isDemoSource, isLegacySeriesCompatibilityError, isPollingCompatibilityHeartbeat, legacySeries, loadPortfolioInBackground, mergeLegacySeries, mergeMeasurementSeries, metricForecastSamples, metricHistorySamples, optionalForecast, preserveMutatedSensorTelemetry, preserveSeriesCommittedDuringLoad, replaceFloor, replaceHouseSensors, replaceLegacySeriesWindow, replaceLoadedHouseTelemetry, replaceMeasurementSeriesWindow, replayBufferedLiveTelemetry, replayHouseInventory, replayHouseMutations, replayMaintenanceTaskMutation, sensorsFromSnapshots, seriesBucketSeconds, seriesLimit, seriesStateKey, settleInBackground, synchronizeSensorRoomLabels, unauthenticatedSession, withoutDemoTelemetry, withoutSensorIds } from "./support";
-import type { BootstrapStatus, BufferedHouseMutation, BufferedLiveTelemetry, BufferedSeriesTelemetry, DataMode, HistoricalSeriesWindow, HouseInventoryMutation, HouseMutationBuffer, LoadedTelemetryState, SeriesCommit, SeriesLoadState, SeriesLoadStatus, StreamConnections } from "./support";
+  MAX_SERIES_SAMPLES,
+  canonicalSeries,
+  errorMessage,
+  isLegacySeriesCompatibilityError,
+  legacySeries,
+  mergeLegacySeries,
+  mergeMeasurementSeries,
+  metricForecastSamples,
+  metricHistorySamples,
+  replaceLegacySeriesWindow,
+  replaceMeasurementSeriesWindow,
+  seriesLimit,
+  seriesStateKey,
+} from "./support";
+import type { BufferedSeriesTelemetry } from "./support";
 import type { LiveTelemetryContext, SeriesActions } from "./pipelineTypes";
+
 export function useSeriesQueries(
   context: LiveTelemetryContext,
 ): LiveTelemetryContext & SeriesActions {
-  const { initialHouseId, sessionLockedRef, sessionLocked, setSessionLocked, state, setStateInternal, setState, loading, setLoading, bootstrapStatus, setBootstrapStatus, bootstrapError, setBootstrapError, bootstrapAttempt, setBootstrapAttempt, dataMode, setDataMode, streamConnections, setStreamConnections, connection, pollingFallback, setPollingFallback, resourceErrors, setResourceErrors, seriesStates, setSeriesStates, scenario, setScenario, saveState, setSaveState, tpLinkDevices, setTpLinkDevices, tpLinkDevicesRef, tpLinkDevicesLoading, setTpLinkDevicesLoading, tpLinkDevicesError, setTpLinkDevicesError, tick, apiAvailable, dataModeRef, stateRef, streamConnectionsRef, hasReachedLiveConnection, hasHydratedActiveHouse, heartbeatPollAt, reconnectResyncTimer, heartbeatFallbackTimer, mutationRefreshTimer, sensorMoveQueues, sensorMoveVersions, persistedSensorPoints, activeHouseId, activeHouseLoadVersion, houseTelemetryVersions, seriesLoadVersions, seriesCommitVersions, seriesCommitSequence, tpLinkPollStatus, tpLinkRefreshVersion, pendingMeasurementSamples, measurementFlushTimer, saveStateTimer, activeTelemetryLoadBuffers, activeHouseMutationBuffers, activeSeriesTelemetryBuffers, activeInventoryMutationBuffers, activeStreamUnsubscribers, activeStreamGateReleases, sessionLifecycleEpoch, globalFieldVersions, recordResourceError, recordHouseMutation, recordInventoryMutation, applyIntegrationStatus, refreshTpLinkDevices, disconnectHomeAssistant, applyDetachedTpLinkSensors, disconnectTpLink, moveHomeAssistant, moveTpLink, loadHouseData, loadPortfolioHouseData, scheduleActiveHouseResync, updateStreamConnection, resetStreamConnections, handleHeartbeat, purgeSessionState, retryBootstrap, revalidateSession, endSession, handleTelemetry, flushMeasurements, handleMeasurement, selectHouse, importHistoricalMeasurements } = context;
+  // Only the pipeline members this hook actually reads are pulled out.
+  // Destructuring the whole context made every unrelated pipeline change touch
+  // this line and turned it into a guaranteed merge conflict.
+  const {
+    activeSeriesTelemetryBuffers,
+    apiAvailable,
+    seriesCommitSequence,
+    seriesCommitVersions,
+    seriesLoadVersions,
+    setSeriesStates,
+    setState,
+  } = context;
   const loadSeries = useCallback(async (sensorId: string, metric: string, range: TimeRange, forecastSupported = true, signal?: AbortSignal) => {
       const seriesKey = seriesStateKey(sensorId, metric);
       const requestVersion = (seriesLoadVersions.current.get(seriesKey) ?? 0) + 1;

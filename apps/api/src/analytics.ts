@@ -287,6 +287,40 @@ function median(values: readonly number[]): number | null {
   return percentile([...values].sort((left, right) => left - right), 0.5);
 }
 
+/**
+ * Bucket and series extents are reduced rather than spread into `Math.min`.
+ * A single bucket may legitimately hold tens of thousands of samples at the
+ * limits this path accepts, which is past the engine's argument-count ceiling.
+ */
+function minimumOf(values: readonly number[]): number | null {
+  let minimum: number | null = null;
+  for (const value of values) if (minimum === null || value < minimum) minimum = value;
+  return minimum;
+}
+
+function maximumOf(values: readonly number[]): number | null {
+  let maximum: number | null = null;
+  for (const value of values) if (maximum === null || value > maximum) maximum = value;
+  return maximum;
+}
+
+/**
+ * Mirrors the archive rollup's `cadence_seconds` expression
+ * (`GREATEST(1, range / GREATEST(1, sample_count))`). Bucket coverage — and
+ * therefore the LOW_COVERAGE warning and the time-weighted-mean clamp — must
+ * not change depending on whether a request was answered from source samples
+ * or from the archive rollup, because the reader silently falls back between
+ * the two whenever the continuous aggregate lags.
+ */
+export function analyticsBucketCadenceSeconds(sampleCount: number, rangeSeconds: number): number {
+  return Math.max(1, rangeSeconds / Math.max(1, sampleCount));
+}
+
+/**
+ * Raw series deliberately keep an observed-median cadence. The archive formula
+ * above is a relative-density measure that degenerates to a constant coverage
+ * of 1 when every sample is its own point, so it cannot describe raw series.
+ */
 function inferredCadenceSeconds(samples: readonly MeasurementSample[], rangeSeconds: number): number {
   const timestamps = [...new Set(samples.map((sample) => Date.parse(sample.timestamp)).filter(Number.isFinite))]
     .sort((left, right) => left - right);
@@ -329,8 +363,8 @@ function aggregateBucket(
   const values = ordered.map((sample) => sample.value);
   const flags = new Set(sampleFlags(ordered));
   if (aggregation === "last") return { value: ordered.at(-1)!.value, flags: [...flags] };
-  if (aggregation === "min") return { value: Math.min(...values), flags: [...flags] };
-  if (aggregation === "max") return { value: Math.max(...values), flags: [...flags] };
+  if (aggregation === "min") return { value: minimumOf(values), flags: [...flags] };
+  if (aggregation === "max") return { value: maximumOf(values), flags: [...flags] };
   if (aggregation === "sum") return { value: values.reduce((sum, value) => sum + value, 0), flags: [...flags] };
   if (aggregation === "time_weighted_mean") {
     return { value: timeWeightedMean(ordered, bucketEnd, cadenceSeconds), flags: [...flags] };
@@ -369,8 +403,8 @@ export function buildAnalyticsSummary(
     canonicalUnit,
     count: sampleCount,
     coverage: points.length === 0 ? 0 : points.reduce((sum, point) => sum + point.coverage, 0) / points.length,
-    minimum: values.length === 0 ? null : Math.min(...values),
-    maximum: values.length === 0 ? null : Math.max(...values),
+    minimum: minimumOf(values),
+    maximum: maximumOf(values),
     mean,
     median: center,
     standardDeviation,
@@ -405,7 +439,7 @@ function bucketPoints(
   const bucketMs = analyticsResolutionSeconds(resolution) * 1_000;
   const firstBucket = Math.floor(start / bucketMs) * bucketMs;
   const rangeSeconds = (end - start) / 1_000;
-  const cadenceSeconds = inferredCadenceSeconds(samples, rangeSeconds);
+  const cadenceSeconds = analyticsBucketCadenceSeconds(samples.length, rangeSeconds);
   const expectedPerBucket = Math.max(1, bucketMs / 1_000 / cadenceSeconds);
   const byBucket = new Map<number, MeasurementSample[]>();
   for (const sample of samples) {
@@ -429,8 +463,8 @@ function bucketPoints(
     points.push({
       timestamp: new Date(timestamp).toISOString(),
       value: aggregated.value,
-      minimum: values.length === 0 ? null : Math.min(...values.map((sample) => sample.value)),
-      maximum: values.length === 0 ? null : Math.max(...values.map((sample) => sample.value)),
+      minimum: minimumOf(values.map((sample) => sample.value)),
+      maximum: maximumOf(values.map((sample) => sample.value)),
       sampleCount: values.length,
       coverage,
       qualityFlags: [...flags],
@@ -499,6 +533,85 @@ export function finalizeAnalyticsResponse(input: {
   };
 }
 
+export interface AnalyticsQueryShape {
+  resolution: Exclude<AnalyticsResolution, "auto">;
+  maxPointsPerSeries: number;
+  /** Null for raw requests, which are bounded per series by their sample count. */
+  bucketCount: number | null;
+}
+
+/**
+ * The single admission ladder for both response builders. `buildAnalyticsResponse`
+ * reads source samples and `buildAnalyticsResponseFromRollup` reads archive
+ * buckets, but a request that is too large has to fail identically on either
+ * path — the reader chooses between them without the caller's knowledge.
+ */
+export function resolveAnalyticsQueryShape(input: {
+  request: AnalyticsQueryRequest;
+  entityCount: number;
+}): AnalyticsQueryShape {
+  const maxPointsPerSeries = input.request.maxPointsPerSeries ?? 800;
+  const resolution = resolveAnalyticsResolution(
+    input.request.resolution,
+    input.request.range.start,
+    input.request.range.end,
+    maxPointsPerSeries,
+  );
+  if (resolution === "raw") return { resolution, maxPointsPerSeries, bucketCount: null };
+  const start = Date.parse(input.request.range.start);
+  const end = Date.parse(input.request.range.end);
+  const bucketMs = analyticsResolutionSeconds(resolution) * 1_000;
+  const bucketCount = Math.ceil((end - Math.floor(start / bucketMs) * bucketMs) / bucketMs);
+  if (bucketCount > maxPointsPerSeries) {
+    throw new AnalyticsQueryError(
+      422,
+      "ANALYTICS_POINT_LIMIT_EXCEEDED",
+      input.request.resolution === "auto"
+        // Automatic selection already picked the coarsest supported bucket, so
+        // repeating the standard "choose automatic resolution" advice would be
+        // telling the caller to do what it just did.
+        ? `The requested range needs ${bucketCount} points per series at the coarsest supported resolution; choose a shorter range or raise maxPointsPerSeries`
+        : `The selected resolution would return ${bucketCount} points per series; choose automatic resolution or a shorter range`,
+    );
+  }
+  if (bucketCount * input.entityCount * input.request.measurementIds.length > MAX_INTERACTIVE_OUTPUT_POINTS) {
+    throw new AnalyticsQueryError(
+      422,
+      "ANALYTICS_QUERY_TOO_LARGE",
+      `The interactive response would exceed ${MAX_INTERACTIVE_OUTPUT_POINTS} points; reduce the entity, measurement, or time scope`,
+    );
+  }
+  return { resolution, maxPointsPerSeries, bucketCount };
+}
+
+/** Resolves a requested measurement, rejecting unknown and analytics-disabled ids alike. */
+export function analyticsMeasurementDefinition(
+  definitions: ReadonlyMap<string, MeasurementDefinition>,
+  measurementId: string,
+): MeasurementDefinition {
+  const definition = definitions.get(measurementId);
+  if (!definition) {
+    throw new AnalyticsQueryError(404, "UNKNOWN_ANALYTICS_MEASUREMENT", `Unknown measurement: ${measurementId}`);
+  }
+  if (definition.genericStatsEnabled === false || definition.genericHistoryEnabled === false) {
+    throw new AnalyticsQueryError(
+      422,
+      "ANALYTICS_MEASUREMENT_DISABLED",
+      `Analytics is disabled for measurement: ${measurementId}`,
+    );
+  }
+  return definition;
+}
+
+/**
+ * Series identity key. Identifiers are caller-supplied text, so this uses the
+ * same JSON encoding as the telemetry reader's record keys rather than a
+ * separator character a caller could embed in an id.
+ */
+export function analyticsSeriesKey(sensorId: string, measurementId: string): string {
+  return JSON.stringify([sensorId, measurementId]);
+}
+
 export interface BuildAnalyticsResponseInput {
   request: AnalyticsQueryRequest;
   samples: MeasurementSample[];
@@ -510,13 +623,10 @@ export interface BuildAnalyticsResponseInput {
 
 export function buildAnalyticsResponse(input: BuildAnalyticsResponseInput): AnalyticsQueryResponse {
   const generatedAt = input.generatedAt ?? new Date().toISOString();
-  const maxPoints = input.request.maxPointsPerSeries ?? 800;
-  const resolution = resolveAnalyticsResolution(
-    input.request.resolution,
-    input.request.range.start,
-    input.request.range.end,
-    maxPoints,
-  );
+  const { resolution, maxPointsPerSeries: maxPoints } = resolveAnalyticsQueryShape({
+    request: input.request,
+    entityCount: input.entities.length,
+  });
   const start = Date.parse(input.request.range.start);
   const end = Date.parse(input.request.range.end);
   const rangeSeconds = (end - start) / 1_000;
@@ -530,19 +640,9 @@ export function buildAnalyticsResponse(input: BuildAnalyticsResponseInput): Anal
   });
   const includedSamples = rangeSamples.filter((sample) => includedQualitySet.has(sample.quality));
   const excludedSampleCount = rangeSamples.length - includedSamples.length;
-  const bucketMs = resolution === "raw" ? null : analyticsResolutionSeconds(resolution) * 1_000;
-  const bucketCount = bucketMs === null ? null : Math.ceil((end - Math.floor(start / bucketMs) * bucketMs) / bucketMs);
-  if (bucketCount !== null && bucketCount > maxPoints) {
-    throw new AnalyticsQueryError(
-      422,
-      "ANALYTICS_POINT_LIMIT_EXCEEDED",
-      `The selected resolution would return ${bucketCount} points per series; choose automatic resolution or a shorter range`,
-    );
-  }
-  const projectedOutputPoints = resolution === "raw"
-    ? includedSamples.length
-    : (bucketCount ?? 0) * input.entities.length * input.request.measurementIds.length;
-  if (projectedOutputPoints > MAX_INTERACTIVE_OUTPUT_POINTS) {
+  // Bucketed sizes are bounded by the shared shape guard above. Raw responses
+  // are bounded by their own sample count, which is only known here.
+  if (resolution === "raw" && includedSamples.length > MAX_INTERACTIVE_OUTPUT_POINTS) {
     throw new AnalyticsQueryError(
       422,
       "ANALYTICS_QUERY_TOO_LARGE",
@@ -550,19 +650,24 @@ export function buildAnalyticsResponse(input: BuildAnalyticsResponseInput): Anal
     );
   }
   const definitions = new Map(input.definitions.map((definition) => [definition.id, definition]));
+  // Partitioning once keeps the series loop linear in the sample count. Filtering
+  // the whole window per series made a wide query O(series x samples).
+  const samplesBySeries = new Map<string, MeasurementSample[]>();
+  for (const sample of includedSamples) {
+    const key = analyticsSeriesKey(sample.sensorId, sample.metric);
+    const bucket = samplesBySeries.get(key);
+    if (bucket) bucket.push(sample);
+    else samplesBySeries.set(key, [sample]);
+  }
   const series: AnalyticsSeries[] = [];
 
   for (const entity of input.entities) {
     for (const measurementId of input.request.measurementIds) {
-      const definition = definitions.get(measurementId);
-      if (!definition) throw new AnalyticsQueryError(404, "UNKNOWN_ANALYTICS_MEASUREMENT", `Unknown measurement: ${measurementId}`);
-      if (definition.genericStatsEnabled === false || definition.genericHistoryEnabled === false) {
-        throw new AnalyticsQueryError(422, "ANALYTICS_MEASUREMENT_DISABLED", `Analytics is disabled for measurement: ${measurementId}`);
-      }
+      const definition = analyticsMeasurementDefinition(definitions, measurementId);
       const aggregation = resolution === "raw"
         ? "last"
         : resolveAnalyticsAggregation(definition, input.request.aggregation);
-      const samples = includedSamples.filter((sample) => sample.sensorId === entity.id && sample.metric === measurementId);
+      const samples = samplesBySeries.get(analyticsSeriesKey(entity.id, measurementId)) ?? [];
       if (resolution === "raw" && samples.length > maxPoints) {
         throw new AnalyticsQueryError(
           422,

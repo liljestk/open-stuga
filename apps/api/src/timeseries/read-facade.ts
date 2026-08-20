@@ -172,6 +172,13 @@ export interface HybridTelemetryReaderOptions {
   archiveWindowConcurrency?: number;
 }
 
+/**
+ * The thermal compatibility variant of the bucketing contract described in
+ * `read-buckets.ts`. It deliberately differs in one respect — estimated samples
+ * carry a quarter weight, matching the archive's `thermalMeasurementHistory`
+ * SQL — but the bucket key and the good/estimated quality rule must stay
+ * identical to the other two implementations.
+ */
 function qualityWeightedThermalBuckets(
   samples: readonly MeasurementSample[],
   bucketMinutes: number,
@@ -270,7 +277,7 @@ export class HybridTelemetryReader {
       from: query.from,
       to: query.to,
     });
-    const local = this.#local.measurementHistoryBucketed(
+    const rawLocal = this.#local.measurementHistoryBucketed(
       query.sensorId,
       query.metric,
       query.from,
@@ -278,11 +285,16 @@ export class HybridTelemetryReader {
       query.bucketSeconds,
       limit,
       realMode,
-    ).filter((sample) => complete || this.#isLocalHistoryComplete({
+    );
+    // The per-bucket completeness probe is only meaningful when the window as a
+    // whole is incomplete; hoisting the check keeps the common case from
+    // re-parsing two dates for every one of up to 20,000 buckets.
+    const queryToMs = Date.parse(query.to);
+    const local = complete ? rawLocal : rawLocal.filter((sample) => this.#isLocalHistoryComplete({
       family: "measurement",
       from: sample.timestamp,
       to: new Date(Math.min(
-        Date.parse(query.to),
+        queryToMs,
         Date.parse(sample.timestamp) + query.bucketSeconds * 1_000,
       )).toISOString(),
     }));
@@ -383,13 +395,14 @@ export class HybridTelemetryReader {
       );
     } else if (metrics.every((metric) => metric === "temperature" || metric === "humidity")
       && this.#local.thermalClimateHistory) {
+      const requestedMetrics = new Set<string>(metrics);
       local = this.#local.thermalClimateHistory(
         query.sensorId,
         query.from,
         query.to,
         bucketMinutes,
         limitPerMetric,
-      ).filter((sample) => new Set<string>(metrics).has(sample.metric));
+      ).filter((sample) => requestedMetrics.has(sample.metric));
     } else {
       local = bucketMeasurementSamples(
         this.#local.measurementWindow(

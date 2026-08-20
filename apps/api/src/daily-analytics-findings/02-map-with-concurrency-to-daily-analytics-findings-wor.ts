@@ -254,6 +254,7 @@ export class DailyAnalyticsFindingsWorker {
             request,
             definitions: [definition],
             entities,
+            plan: rollupPlan,
             rollup: rollup.result,
             archiveState: rollup.archiveState,
           });

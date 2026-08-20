@@ -7,6 +7,7 @@ import type {
   OpeningState,
   OpeningStateSource,
 } from "@climate-twin/contracts";
+import { csvDocument } from "../csv";
 import { useOpeningActivityQuery } from "../data/analytics/openingActivityQuery";
 import { ANALYTICS_TIME_RANGES, timeRangeHours, type TimeRange } from "../domain";
 import { formatInTimeZone } from "../dateTime";
@@ -140,12 +141,6 @@ function stateLabel(state: OpeningState, t: ReturnType<typeof useI18n>["t"]): st
   return t("analytics.openingUnknown");
 }
 
-function csvCell(value: string | number): string {
-  const text = String(value);
-  const formulaSafe = /^[=+\-@]/u.test(text) ? `'${text}` : text;
-  return /[",\r\n]/u.test(formulaSafe) ? `"${formulaSafe.replaceAll('"', '""')}"` : formulaSafe;
-}
-
 function activityCsv(series: readonly OpeningAnalyticsViewSeries[]): string {
   const rows: Array<Array<string | number>> = [["opening", "floor", "kind", "timestamp", "state", "source"]];
   for (const item of series) {
@@ -160,7 +155,7 @@ function activityCsv(series: readonly OpeningAnalyticsViewSeries[]): string {
       ]);
     }
   }
-  return `${rows.map((row) => row.map(csvCell).join(",")).join("\r\n")}\r\n`;
+  return csvDocument(rows);
 }
 
 export function OpeningAnalyticsPanel(props: Readonly<OpeningAnalyticsPanelProps>) {
