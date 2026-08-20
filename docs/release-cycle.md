@@ -95,6 +95,33 @@ gh release list --repo liljestk/stugu-releases --limit 30 `
   --json tagName,isDraft,isPrerelease,publishedAt
 ```
 
+### The image prefix is not the artifact repository
+
+`--repository` names the public feed that holds the release and its assets.
+`--image-prefix` names the GHCR namespace that holds the container images. For
+Stugu these deliberately differ, and the publisher's default for the prefix is
+`ghcr.io/<owner>/<repo>` — derived from `--repository`, and therefore always
+wrong here. Pass the prefix from the operator context explicitly:
+
+```
+--repository liljestk/stugu-releases --image-prefix ghcr.io/liljestk/open-stuga
+```
+
+Omitting it publishes seven images under a namespace no previous release used.
+They are created private, so anonymous clients cannot pull them, and the release
+manifest points every appliance at images it cannot read. The plan header does
+not print the resolved image names, so the mistake is invisible until the images
+are pushed. Confirm the namespace before promoting anything:
+
+```powershell
+docker buildx imagetools inspect ghcr.io/liljestk/open-stuga-api:$Tag
+gh api "user/packages?package_type=container" --jq '.[] | "\(.name) \(.visibility)"'
+```
+
+Every image must resolve under the expected prefix and every package must be
+public. A newly created GHCR package defaults to private, so a prefix typo and a
+visibility failure appear together.
+
 The TUF root JSON, RAUC CA PEM, host-update URL, and recovery SSH public key are
 public trust/configuration inputs, not signing secrets. Their approved location
 and hashes are operator-owned. GitHub/GHCR credentials and all signing private
