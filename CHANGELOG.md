@@ -4,6 +4,22 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.39.5 - 2026-08-18
+
+- Record how to tell a stale checkout from a current one before release work,
+  because an out-of-date tree silently supplies an old gate command, an old
+  publish contract, and a version behind the published feed.
+- State plainly that a drafted release never reaches an appliance: the update
+  agent skips drafts, so appliances stay on the previous version with no error
+  reported anywhere.
+- Collect the environmental gate failures — the Windows account lookup, a
+  stopped Docker engine, and a pre-existing receipt — with the check that
+  separates them from real defects, and note that a receipt only publishes the
+  exact commit and worktree it was produced from.
+
+Upgrade impact: documentation only. No application behaviour, stored data,
+schema, signed host update, or factory image is affected.
+
 ## 0.39.4 - 2026-08-17
 
 - Stop analytics queries failing outright when a single bucket holds a very

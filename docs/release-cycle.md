@@ -27,6 +27,33 @@ Use a fresh source checkout and a separate feed checkout. Do not switch or
 clean a shared working tree. Never put private source commits, telemetry,
 databases, migration captures, secrets, or private keys in the public feed.
 
+### Confirm the checkout is current before trusting anything in it
+
+A stale working tree does not announce itself. Its `package.json` version, its
+`CLAUDE.md`/`AGENTS.md` guidance, its scripts, and its release tooling are all
+the versions that were current when it was last updated, so an agent reading
+them is confidently told the wrong things: an older gate command, an older
+publish contract, and a version number that is behind the published feed.
+Publishing from such a tree would push a regression over a newer release.
+
+Establish the real state first, and compare it with the tree you are standing
+in:
+
+```powershell
+git fetch origin main --tags
+git rev-parse HEAD origin/main
+(Get-Content package.json -Raw | ConvertFrom-Json).version
+git ls-remote --tags origin "refs/tags/v*"
+gh release list --repo liljestk/stugu-releases --limit 10 `
+  --json tagName,isDraft,isPrerelease,publishedAt
+```
+
+If `HEAD` is an ancestor of the newest tag, the branch is already released and
+any work on it must be rebased onto `origin/main` before it means anything. Do
+not port changes by copying whole files out of a stale tree: reapply them onto
+current `main`, because the surrounding code has moved and unrelated
+work-in-progress may be interleaved with them.
+
 ## Release types
 
 - **Application release:** container/application changes compatible with the
@@ -245,8 +272,19 @@ npm run release:verify -- `
 `release:verify` reuses only the exact full-CI receipt and verifies the artifact
 manifest, anonymous AMD64/ARM64 image descriptor closure and source provenance,
 compatibility proof, visual evidence, and target identity. It never rebuilds,
-reruns CI, publishes, or reconnects to the appliance. Before making the draft
-visible, verify:
+reruns CI, publishes, or reconnects to the appliance.
+
+A drafted release is invisible to appliances. The update agent enumerates
+published feed releases and skips anything still marked draft, so a release
+that stops at `--keep-draft` leaves every appliance on the previous version
+indefinitely, with no error anywhere: the agent is idle because it correctly
+sees nothing new. `gh release list` shows the draft, `docker ps` on the
+appliance shows the old tags, and the two disagree until the draft is
+published. Prereleases are filtered the same way unless an appliance opts in,
+so a release intended to reach appliances must end up published and match the
+channel those appliances accept.
+
+Before making the draft visible, verify:
 
 - the CI receipt says `passed`, has a clean tree, and names the source commit;
 - the manifest names the public feed, exact tag/version, expected compatibility
