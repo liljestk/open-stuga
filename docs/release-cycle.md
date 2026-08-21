@@ -301,6 +301,30 @@ manifest, anonymous AMD64/ARM64 image descriptor closure and source provenance,
 compatibility proof, visual evidence, and target identity. It never rebuilds,
 reruns CI, publishes, or reconnects to the appliance.
 
+### Expired feed TUF metadata blocks an unrelated application release
+
+`release:verify` validates the doctor receipt with `requireHealthy: true`, so a
+single failed appliance check stops promotion even when the failure has nothing
+to do with the release being published. The most likely such failure is expired
+TUF metadata on the public feed: the signed host updater refuses stale trust
+metadata and reports
+
+```
+phase: failed   errorCode: TRUST_VERIFICATION_FAILED
+```
+
+which the doctor surfaces as `UPDATER`. Note the doctor deliberately treats
+`phase: failed` with `errorCode: UPDATE_NOT_FOUND` as a pass — that is the
+benign "no newer signed target" case. Any other error code is a real fault.
+
+An application-only release does not use the TUF path at all; containers are
+pulled from GHCR. The expiry therefore blocks the ceremony rather than the
+update. Refreshing timestamp metadata is a signing operation in the separately
+controlled TUF repository and requires a key that is deliberately absent from a
+release machine, so it cannot be resolved from the release checkout — check
+`stuguctl host-update status` early, before building a release, so an expiry is
+found before the artifacts are built rather than at the promotion gate.
+
 A drafted release is invisible to appliances. The update agent enumerates
 published feed releases and skips anything still marked draft, so a release
 that stops at `--keep-draft` leaves every appliance on the previous version
