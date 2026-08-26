@@ -59,6 +59,34 @@ through direct `ci:local` maintenance/debugging:
   receipt must come from the complete gate.
 - `--with-sonar` optionally submits the already-generated coverage reports.
 
+## When the gate fails for environmental reasons
+
+Before investigating a failure as a code defect, confirm it reproduces on an
+unmodified checkout of `origin/main`. A worktree detached at `origin/main` and
+the same single test file is usually enough, and it separates "my change broke
+this" from "this machine cannot run this check" in one step.
+
+Known environmental failures:
+
+- **Every backup, restore-drill, or checkpoint test fails with "Could not
+  identify the Windows account for a private ACL."** The tooling needs the real
+  `whoami.exe`. Shells that place their own coreutils first on PATH — MSYS, Git
+  Bash — supply a `whoami` that rejects `/user`. Resolution through `SystemRoot`
+  makes this shell-independent, so a recurrence means a new caller is invoking a
+  System32 tool by bare name.
+- **A container step fails immediately with "failed to connect to the docker
+  API ... dockerDesktopLinuxEngine."** Docker Desktop is not running. The engine
+  is a precondition of the gate, not something it starts.
+- **The run ends with "already exists with different content."** A receipt for
+  this version is already on disk from an earlier, different run. Move the stale
+  receipt and its `.sha256` aside — keep it rather than deleting it, since a
+  failed receipt is evidence — and rerun.
+
+A receipt is bound to the exact commit, worktree, lockfile, configuration, and
+base hashes it was produced from. A receipt from a feature branch cannot publish
+the merge commit that lands it, so the release gate must run in the checkout
+that will actually be published, after the merge.
+
 ## Publish release artifacts
 
 Draft preparation consumes the full receipt without rerunning CI:

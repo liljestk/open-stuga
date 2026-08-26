@@ -651,6 +651,7 @@ export const svPart8 = {
   "updates.block.statusStale": "Uppdateringsstatusen ändrades. Kontrollera igen innan du fortsätter.",
   "updates.block.notConfigured": "Systemuppdateringar är inte konfigurerade i denna installation.",
   "updates.block.unknown": "Uppdateraren rapporterade ett okänt säkerhetsläge. Kontrollera igen eller granska avancerad information.",
+  "updates.block.feedTrustStale": "Uppdateringsflödets förtroendemetadata är föråldrade eller kan inte nås. Värduppdateringar är pausade tills de förnyas; programuppdateringar påverkas inte.",
   "updates.block.unboundPrepared": "Denna värduppdatering förbereddes utanför det aktuella verifierade arbetsflödet. Slutför eller avbryt den via värduppdateringens kommandorad; Stugu startar inte om den härifrån.",
   "updates.advanced.title": "Avancerad uppdateringsinformation",
   "updates.advanced.summary": "Övergångsvägledning och uppdateringsdiagnostik",

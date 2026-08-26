@@ -4,6 +4,33 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.40.0 - 2026-08-26
+
+- Keep application updates installable while the update feed's trust metadata
+  is stale. Expired feed metadata previously failed the host updater and the
+  combined safety gate hid the application install button, leaving appliances
+  on the old version with no error reported anywhere. Faults that describe the
+  remote feed now pause host updates only, with a precise explanation; faults
+  that describe the machine itself still block everything.
+- Explain the stale-feed state in plain language in English, Finnish, and
+  Swedish instead of reporting an unsupported safety state.
+- Report feed-scoped host updater faults as warnings in the appliance doctor,
+  keeping hard failures for machine-state faults.
+- Refuse to publish a release to a separate artifact repository without an
+  explicit image prefix, and print every resolved image reference in the
+  release plan. A derived prefix once pushed all seven images under a new
+  private namespace that no appliance could pull from.
+- Record the release-runbook lessons from the 0.39.4 cycle: verifying a
+  checkout against origin/main before trusting it, why a drafted release never
+  reaches an appliance, the environmental gate failures and their checks, the
+  image-prefix trap, and how expired feed TUF metadata blocks promotion of an
+  unrelated application release.
+
+Upgrade impact: application-only release. Existing telemetry, configuration,
+and durable analytics are retained; no schema rewrite, signed host update, or
+factory image is required. Pairs with the feed-side TUF refresh automation in
+the release repository, which keeps the trust metadata from expiring again.
+
 ## 0.39.4 - 2026-08-17
 
 - Stop analytics queries failing outright when a single bucket holds a very

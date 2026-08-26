@@ -266,10 +266,23 @@ export type SystemUpdateBlockReason =
   | "backup-unavailable"
   | "off-device-backup-required"
   | "metadata-unavailable"
+  | "feed-trust-stale"
   | "trust-verification-failed"
   | "verification-failed"
   | "status-stale"
   | "not-configured";
+
+/**
+ * Reasons that describe the remote update feed rather than this appliance.
+ * Host updates pause while one is active, but application container updates
+ * remain available: they come from the container registry and never touch the
+ * failing TUF metadata. Keep identical to FEED_SCOPED_SYSTEM_UPDATE_REASONS in
+ * apps/api/src/system-update-reasons.ts.
+ */
+export const FEED_SCOPED_HOST_REASONS: ReadonlySet<string> = new Set([
+  "feed-trust-stale",
+  "metadata-unavailable",
+]);
 
 export type HostSystemUpdatePhase =
   | "unavailable"

@@ -758,6 +758,7 @@ export const enPart1 = {
   "updates.block.offDeviceBackup": "Choose an available off-device backup destination before updating.",
   "updates.block.metadataUnavailable": "Trusted update metadata is unavailable. Stugu will not guess which system to install.",
   "updates.block.trustFailed": "The update could not be verified as trusted and was rejected.",
+  "updates.block.feedTrustStale": "The update feed's trust metadata is stale or unreachable. Host updates are paused until it is refreshed; application updates are unaffected.",
   "updates.block.verificationFailed": "Stugu could not verify that the update finished safely, so it stopped. The current or previous system remains in use.",
   "updates.block.statusStale": "Update status changed. Check again before continuing.",
   "updates.block.notConfigured": "System updates are not configured on this installation.",

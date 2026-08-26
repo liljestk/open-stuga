@@ -928,6 +928,18 @@ async function main(argv = process.argv.slice(2), env = process.env) {
     await finalizeDraft({ options, repository, tag, version, artifacts, env });
     return;
   }
+  // Defaulting the prefix from --repository is only safe when publishing to
+  // the source repository itself. A separate artifact repository (the public
+  // feed) deliberately keeps its images under the source repository's prefix,
+  // so a derived default would create a brand-new private namespace and a
+  // manifest no appliance can pull from. Require the operator to state it.
+  if (repository !== sourceRepository && !options.imagePrefix) {
+    throw new Error(
+      "--image-prefix is required when publishing to a separate artifact "
+      + `repository; the operator context records the expected prefix `
+      + `(for example ghcr.io/${sourceRepository.toLowerCase()})`,
+    );
+  }
   const imagePrefix = options.imagePrefix ?? `ghcr.io/${repository.toLowerCase()}`;
   if (!/^ghcr\.io\/[a-z0-9_.-]{1,100}\/[a-z0-9_.-]{1,100}$/u.test(imagePrefix)) {
     throw new Error(`Invalid lower-case GHCR image prefix: ${imagePrefix}`);
@@ -963,7 +975,9 @@ async function main(argv = process.argv.slice(2), env = process.env) {
   Host generation: ${hostGeneration ?? "not supplied"}
   Host activation: ${hostQualification ? "qualification receipt supplied" : "disabled"}
   GitHub release:  draft (${options.prerelease ? "preview" : "stable"} channel after verification)
-  Factory upload:  ${options.uploadFactory ? "yes" : "no; retained locally"}`);
+  Factory upload:  ${options.uploadFactory ? "yes" : "no; retained locally"}
+  Images:          ${images.map((image) => image.ref).join(`
+                   `)}`);
   if (!options.publish) {
     console.log(
       "\nPlan only. No tag, file, credential, CI, build, push, or artifact validation ran.\n"

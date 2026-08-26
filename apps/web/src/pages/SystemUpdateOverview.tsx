@@ -24,6 +24,7 @@ import type {
   SystemUpdateWorkflowStepId,
   SystemUpdateWorkflowStepState,
 } from "../api";
+import { FEED_SCOPED_HOST_REASONS } from "../api";
 import { useI18n, type TranslationKey } from "../i18n";
 import { RestartInstallDialog } from "./RestartInstallDialog";
 
@@ -58,6 +59,7 @@ const reasonKeys = {
   "backup-unavailable": "updates.block.backupUnavailable",
   "off-device-backup-required": "updates.block.offDeviceBackup",
   "metadata-unavailable": "updates.block.metadataUnavailable",
+  "feed-trust-stale": "updates.block.feedTrustStale",
   "trust-verification-failed": "updates.block.trustFailed",
   "verification-failed": "updates.block.verificationFailed",
   "status-stale": "updates.block.statusStale",
@@ -338,7 +340,14 @@ export function SystemUpdateOverview({
     ? null
     : app.capability.reason === "ready" ? "agent-not-ready" : app.capability.reason;
   const hostManagedExternally = ["platform-managed-externally", "not-raspberry-pi"].includes(host.reason ?? "");
+  // A feed-scoped reason means the remote update feed is degraded (for example
+  // expired TUF metadata), not that this appliance is unsafe. Host updates
+  // pause and the host card explains why, but application container updates
+  // stay available: they never consult the failing metadata. Machine-state
+  // reasons keep blocking everything below.
+  const hostFeedScoped = host.supported && FEED_SCOPED_HOST_REASONS.has(host.reason ?? "");
   const hostReasonBlocks = !hostManagedExternally
+    && !hostFeedScoped
     && Boolean(host.reason || !host.supported || host.phase === "unavailable");
   const overallBlocked = projectionBlocked || applicationCapabilityBlocks || hostReasonBlocks || unboundPreparedHost;
   const workflowAllowsNewUpdate = !workflow || [
@@ -419,7 +428,7 @@ export function SystemUpdateOverview({
               : active
                 ? t("updates.overall.inProgress")
                 : available
-                  ? t(hostManagedExternally && app.updateAvailable && !host.updateAvailable
+                  ? t((hostManagedExternally || hostFeedScoped) && app.updateAvailable && !host.updateAvailable
                     ? "updates.overall.applicationAvailable"
                     : "updates.overall.available")
                   : t("updates.overall.current");

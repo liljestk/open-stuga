@@ -27,6 +27,33 @@ Use a fresh source checkout and a separate feed checkout. Do not switch or
 clean a shared working tree. Never put private source commits, telemetry,
 databases, migration captures, secrets, or private keys in the public feed.
 
+### Confirm the checkout is current before trusting anything in it
+
+A stale working tree does not announce itself. Its `package.json` version, its
+`CLAUDE.md`/`AGENTS.md` guidance, its scripts, and its release tooling are all
+the versions that were current when it was last updated, so an agent reading
+them is confidently told the wrong things: an older gate command, an older
+publish contract, and a version number that is behind the published feed.
+Publishing from such a tree would push a regression over a newer release.
+
+Establish the real state first, and compare it with the tree you are standing
+in:
+
+```powershell
+git fetch origin main --tags
+git rev-parse HEAD origin/main
+(Get-Content package.json -Raw | ConvertFrom-Json).version
+git ls-remote --tags origin "refs/tags/v*"
+gh release list --repo liljestk/stugu-releases --limit 10 `
+  --json tagName,isDraft,isPrerelease,publishedAt
+```
+
+If `HEAD` is an ancestor of the newest tag, the branch is already released and
+any work on it must be rebased onto `origin/main` before it means anything. Do
+not port changes by copying whole files out of a stale tree: reapply them onto
+current `main`, because the surrounding code has moved and unrelated
+work-in-progress may be interleaved with them.
+
 ## Release types
 
 - **Application release:** container/application changes compatible with the
@@ -67,6 +94,33 @@ Query channel history instead of copying an old assumption:
 gh release list --repo liljestk/stugu-releases --limit 30 `
   --json tagName,isDraft,isPrerelease,publishedAt
 ```
+
+### The image prefix is not the artifact repository
+
+`--repository` names the public feed that holds the release and its assets.
+`--image-prefix` names the GHCR namespace that holds the container images. For
+Stugu these deliberately differ, and the publisher's default for the prefix is
+`ghcr.io/<owner>/<repo>` — derived from `--repository`, and therefore always
+wrong here. Pass the prefix from the operator context explicitly:
+
+```
+--repository liljestk/stugu-releases --image-prefix ghcr.io/liljestk/open-stuga
+```
+
+Omitting it publishes seven images under a namespace no previous release used.
+They are created private, so anonymous clients cannot pull them, and the release
+manifest points every appliance at images it cannot read. The plan header does
+not print the resolved image names, so the mistake is invisible until the images
+are pushed. Confirm the namespace before promoting anything:
+
+```powershell
+docker buildx imagetools inspect ghcr.io/liljestk/open-stuga-api:$Tag
+gh api "user/packages?package_type=container" --jq '.[] | "\(.name) \(.visibility)"'
+```
+
+Every image must resolve under the expected prefix and every package must be
+public. A newly created GHCR package defaults to private, so a prefix typo and a
+visibility failure appear together.
 
 The TUF root JSON, RAUC CA PEM, host-update URL, and recovery SSH public key are
 public trust/configuration inputs, not signing secrets. Their approved location
@@ -245,8 +299,43 @@ npm run release:verify -- `
 `release:verify` reuses only the exact full-CI receipt and verifies the artifact
 manifest, anonymous AMD64/ARM64 image descriptor closure and source provenance,
 compatibility proof, visual evidence, and target identity. It never rebuilds,
-reruns CI, publishes, or reconnects to the appliance. Before making the draft
-visible, verify:
+reruns CI, publishes, or reconnects to the appliance.
+
+### Expired feed TUF metadata blocks an unrelated application release
+
+`release:verify` validates the doctor receipt with `requireHealthy: true`, so a
+single failed appliance check stops promotion even when the failure has nothing
+to do with the release being published. The most likely such failure is expired
+TUF metadata on the public feed: the signed host updater refuses stale trust
+metadata and reports
+
+```
+phase: failed   errorCode: TRUST_VERIFICATION_FAILED
+```
+
+which the doctor surfaces as `UPDATER`. Note the doctor deliberately treats
+`phase: failed` with `errorCode: UPDATE_NOT_FOUND` as a pass — that is the
+benign "no newer signed target" case. Any other error code is a real fault.
+
+An application-only release does not use the TUF path at all; containers are
+pulled from GHCR. The expiry therefore blocks the ceremony rather than the
+update. Refreshing timestamp metadata is a signing operation in the separately
+controlled TUF repository and requires a key that is deliberately absent from a
+release machine, so it cannot be resolved from the release checkout — check
+`stuguctl host-update status` early, before building a release, so an expiry is
+found before the artifacts are built rather than at the promotion gate.
+
+A drafted release is invisible to appliances. The update agent enumerates
+published feed releases and skips anything still marked draft, so a release
+that stops at `--keep-draft` leaves every appliance on the previous version
+indefinitely, with no error anywhere: the agent is idle because it correctly
+sees nothing new. `gh release list` shows the draft, `docker ps` on the
+appliance shows the old tags, and the two disagree until the draft is
+published. Prereleases are filtered the same way unless an appliance opts in,
+so a release intended to reach appliances must end up published and match the
+channel those appliances accept.
+
+Before making the draft visible, verify:
 
 - the CI receipt says `passed`, has a clean tree, and names the source commit;
 - the manifest names the public feed, exact tag/version, expected compatibility
