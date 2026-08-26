@@ -569,6 +569,7 @@ export const fiSupplementPart5 = {
   "updates.block.statusStale": "Päivitystila muuttui. Tarkista uudelleen ennen jatkamista.",
   "updates.block.notConfigured": "Järjestelmäpäivityksiä ei ole määritetty tässä asennuksessa.",
   "updates.block.unknown": "Päivittäjä ilmoitti tuntemattoman turvallisuustilan. Tarkista uudelleen tai avaa lisätiedot.",
+  "updates.block.feedTrustStale": "Päivityssyötteen luottamustiedot ovat vanhentuneet tai eivät ole saatavilla. Isäntäpäivitykset on keskeytetty, kunnes tiedot uusitaan; sovelluspäivityksiin tämä ei vaikuta.",
   "updates.block.unboundPrepared": "Tämä isäntäpäivitys valmisteltiin nykyisen tarkistetun työnkulun ulkopuolella. Viimeistele tai peru se isäntäpäivityksen komentorivillä; Stugu ei käynnistä sitä uudelleen täältä.",
   "updates.advanced.title": "Päivityksen lisätiedot",
   "updates.advanced.summary": "Siirtymäohjeet ja päivittäjän diagnostiikka",

@@ -1039,7 +1039,9 @@ describe("system update service", () => {
     });
     expect(service.status().host).toMatchObject({
       supported: true,
-      reason: "trust-verification-failed",
+      // TRUST_VERIFICATION_FAILED describes the remote feed, not the machine,
+      // so from 0.40.0 it canonicalizes to the feed-scoped reason.
+      reason: "feed-trust-stale",
       detail: "Native updater diagnostic",
     });
   });

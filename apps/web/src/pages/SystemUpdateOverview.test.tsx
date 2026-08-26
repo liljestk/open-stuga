@@ -155,6 +155,82 @@ describe("SystemUpdateOverview", () => {
       .toBeNull();
   });
 
+  it("keeps application updates installable while the feed trust metadata is stale", () => {
+    // The 0.39.4 incident: expired feed TUF metadata failed the host updater
+    // and the combined gate hid the application install button entirely.
+    render(
+      <I18nProvider>
+        <SystemUpdateOverview
+          status={{
+            ...status,
+            updateAvailable: true,
+            latestVersion: "0.40.0",
+            application: {
+              ...status.application!,
+              updateAvailable: true,
+              latestVersion: "0.40.0",
+            },
+            host: {
+              ...status.host!,
+              phase: "failed",
+              reason: "feed-trust-stale",
+              detail: "TUF metadata refresh or verification failed",
+              updateAvailable: false,
+            },
+          }}
+          busy={null}
+          streamState="live"
+          onCheck={vi.fn()}
+          onUpdateEverything={vi.fn()}
+          onActivateHost={vi.fn()}
+          onCancelHost={vi.fn()}
+          onRetryApplication={vi.fn()}
+        />
+      </I18nProvider>,
+    );
+
+    expect(screen.getAllByText(
+      "The update feed's trust metadata is stale or unreachable. Host updates are paused until it is refreshed; application updates are unaffected.",
+    ).length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: "Update application" })).toBeEnabled();
+  });
+
+  it("keeps machine trust faults blocking application updates", () => {
+    render(
+      <I18nProvider>
+        <SystemUpdateOverview
+          status={{
+            ...status,
+            updateAvailable: true,
+            latestVersion: "0.40.0",
+            application: {
+              ...status.application!,
+              updateAvailable: true,
+              latestVersion: "0.40.0",
+            },
+            host: {
+              ...status.host!,
+              phase: "failed",
+              reason: "trust-verification-failed",
+              detail: "Clock rollback detected",
+              updateAvailable: false,
+            },
+          }}
+          busy={null}
+          streamState="live"
+          onCheck={vi.fn()}
+          onUpdateEverything={vi.fn()}
+          onActivateHost={vi.fn()}
+          onCancelHost={vi.fn()}
+          onRetryApplication={vi.fn()}
+        />
+      </I18nProvider>,
+    );
+
+    expect(screen.queryByRole("button", { name: "Update application" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Update everything" })).toBeNull();
+  });
+
   it("keeps an unknown host safety reason blocked", () => {
     render(
       <I18nProvider>

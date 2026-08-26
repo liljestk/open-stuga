@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   CURRENT_SYSTEM_UPDATE_REASON_CODE_GROUPS,
+  FEED_SCOPED_SYSTEM_UPDATE_REASONS,
   canonicalSystemUpdateReason,
 } from "../src/system-update-reasons.js";
 import { SystemUpdateService } from "../src/system-updates.js";
@@ -110,10 +111,26 @@ describe("system update reason normalization", () => {
     expect([...sourceCodes].filter((code) => !currentMappedCodes.has(code))).toEqual([]);
   });
 
+  it("scopes remote-feed faults away from machine trust faults", () => {
+    // Expired or unreachable feed metadata pauses host updates only; the
+    // appliance is healthy and container updates never read the TUF chain.
+    expect(canonicalSystemUpdateReason("TRUST_VERIFICATION_FAILED")).toBe("feed-trust-stale");
+    expect(canonicalSystemUpdateReason("METADATA_FETCH_FAILED")).toBe("metadata-unavailable");
+    expect(FEED_SCOPED_SYSTEM_UPDATE_REASONS.has("feed-trust-stale")).toBe(true);
+    expect(FEED_SCOPED_SYSTEM_UPDATE_REASONS.has("metadata-unavailable")).toBe(true);
+    // Machine trust faults must never be treated as feed-scoped.
+    for (const code of ["CLOCK_ROLLBACK", "TIME_UNTRUSTED", "HOST_GENERATION_EQUIVOCATION"]) {
+      const reason = canonicalSystemUpdateReason(code);
+      expect(reason).toBe("trust-verification-failed");
+      expect(FEED_SCOPED_SYSTEM_UPDATE_REASONS.has(reason!)).toBe(false);
+    }
+  });
+
   it.each([
     ["SOURCE_MANIFEST_UNBOUND", "recovery-required"],
     ["LEGACY_SOURCE_MANIFEST_UNBOUND", "recovery-required"],
     ["SLOT_READBACK_FAILED", "verification-failed"],
+    ["TRUST_VERIFICATION_FAILED", "feed-trust-stale"],
   ])("projects bridge code %s through the API as %s", (bridgeCode, expectedReason) => {
     expect(serviceWithBridgeError(bridgeCode).status().host).toMatchObject({
       phase: "recovery-needed",

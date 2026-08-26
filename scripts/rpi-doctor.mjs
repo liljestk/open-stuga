@@ -217,17 +217,27 @@ export function diagnoseEvidence(evidence) {
   const updaterPhase = updater.status?.phase ?? "unknown";
   const updaterErrorCode = updater.status?.errorCode ?? null;
   const noSignedUpdateAvailable = updaterPhase === "failed" && updaterErrorCode === "UPDATE_NOT_FOUND";
+  // These codes describe the remote update feed, not this machine. The
+  // appliance itself is healthy and container updates never consult the
+  // failing metadata, so they degrade the check to a warning rather than a
+  // failure. Keep aligned with FEED_SCOPED_SYSTEM_UPDATE_REASONS in
+  // apps/api/src/system-update-reasons.ts.
+  const feedScopedCodes = new Set(["TRUST_VERIFICATION_FAILED", "METADATA_FETCH_FAILED"]);
+  const feedDegraded = updaterPhase === "failed" && feedScopedCodes.has(updaterErrorCode ?? "");
   const badUpdaterPhases = new Set(["failed", "recovery-needed", "rolled-back", "rollback-failed"]);
   const activeUpdaterPhases = new Set(["installing", "ready-to-restart", "restarting", "verifying"]);
   checks.push(check(
     "UPDATER",
-    !updater.available || (badUpdaterPhases.has(updaterPhase) && !noSignedUpdateAvailable)
-      ? "fail" : activeUpdaterPhases.has(updaterPhase) ? "warning" : "pass",
+    !updater.available || (badUpdaterPhases.has(updaterPhase) && !noSignedUpdateAvailable && !feedDegraded)
+      ? "fail"
+      : feedDegraded || activeUpdaterPhases.has(updaterPhase) ? "warning" : "pass",
     !updater.available
       ? "Host updater/controller state is unavailable."
       : noSignedUpdateAvailable
         ? "Host updater checked successfully; no newer signed target is available."
-        : `Host updater/controller phase is ${updaterPhase}.`,
+        : feedDegraded
+          ? `Host update feed trust metadata is stale or unreachable (${updaterErrorCode}); host updates are paused, application updates are unaffected.`
+          : `Host updater/controller phase is ${updaterPhase}.`,
   ));
 
   const versions = evidence.versions ?? {};

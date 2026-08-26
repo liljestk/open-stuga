@@ -705,6 +705,21 @@ test("the web host-update bridge is narrow, unprivileged, and separately permiss
   assert.match(composeStart, /"\$state_dir\/update-operations\/host-bridge"/u);
 });
 
+test("publishing to a separate artifact repository requires an explicit image prefix", async () => {
+  // Deriving the prefix from --repository once published seven images under a
+  // brand-new private namespace no appliance could pull from. The publisher
+  // must refuse to guess when the artifact repository is not the source repo.
+  const publisher = await readFile(
+    new URL("../publish-local-release.mjs", import.meta.url),
+    "utf8",
+  );
+  assert.match(
+    publisher,
+    /repository !== sourceRepository && !options\.imagePrefix/u,
+  );
+  assert.match(publisher, /--image-prefix is required when publishing to a separate artifact /u);
+});
+
 test("host releases include and inspect RAUC's extraction and service runtime", async () => {
   const [layer, builder, publisher] = await Promise.all([
     readFile(new URL("../../deploy/rpi/layer/stugu.yaml", import.meta.url), "utf8"),
