@@ -40,7 +40,7 @@
     "cloudflare:verify": "node scripts/cloudflare-stugu.mjs verify",
     "cloudflare:verify-coordinator": "node scripts/cloudflare-stugu.mjs verify-coordinator",
     "stuguby:remove": "node scripts/remove-stuguby-connection.mjs",
-    "test:rpi-ota": "node --test scripts/tests/rpi-ota.test.mjs scripts/tests/host-release-contract.test.mjs",
+    "test:rpi-ota": "node --test scripts/tests/rpi-ota.test.mjs scripts/tests/host-release-contract.test.mjs scripts/tests/rpi-tailscale.test.mjs",
     "test:host-updater": "python -m unittest discover -s deploy/rpi/host-updater/tests -t deploy/rpi/host-updater -v",
     "test:update-agent": "node --test scripts/tests/system-update-agent.test.mjs scripts/tests/host-update-agent-interlock.test.mjs scripts/tests/update-agent-process-safety.test.mjs scripts/tests/update-agent-service.test.mjs scripts/tests/source-profile-agent.test.mjs scripts/tests/storage-agent.test.mjs",
     "test:nexus433-runtime": "node --test scripts/tests/nexus433-runtime.test.mjs",
