@@ -25,7 +25,7 @@
     "lucide-react": "^1.24.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
-    "read-excel-file": "^9.3.1"
+    "read-excel-file": "^9.3.10"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.6.3",
