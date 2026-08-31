@@ -62,7 +62,16 @@ interface GreeBridgeOptions {
   cloud?: EwpeCloudTransport;
   onConnectionUpdate?: (connection: GreeConnectionSecret) => void;
   onStateRecorded?: () => void;
+  unavailableMarkDelayMs?: number;
 }
+
+/**
+ * How long a connection must stay down before the durable heat-pump journal
+ * records it as unavailable. Worker restarts routinely recover within seconds;
+ * journaling each of those blips as an availability gap poisons the
+ * verified-off evidence that passive analytics depend on.
+ */
+const UNAVAILABLE_MARK_DELAY_MS = 3 * 60_000;
 
 interface Worker {
   child: ChildProcess;
@@ -244,6 +253,7 @@ export class GreeBridge {
   readonly #workers = new Map<string, Worker>();
   readonly #cloudWorkers = new Map<string, CloudWorker>();
   readonly #restartTimers = new Map<string, NodeJS.Timeout>();
+  readonly #pendingUnavailableMarks = new Map<string, { timer: NodeJS.Timeout; outageStartIso: string }>();
   readonly #cloud: EwpeCloudTransport;
   #running = false;
 
@@ -275,6 +285,7 @@ export class GreeBridge {
     this.#running = false;
     for (const timer of this.#restartTimers.values()) clearTimeout(timer);
     this.#restartTimers.clear();
+    this.clearPendingUnavailableMarks();
     for (const worker of this.#workers.values()) worker.child.kill();
     this.#workers.clear();
     for (const worker of this.#cloudWorkers.values()) worker.controller.abort();
@@ -374,6 +385,33 @@ export class GreeBridge {
       // The SQLite journal is already durable. A later checkpointed archive
       // pass will retry even if the low-latency wake-up hook fails.
     }
+  }
+
+  private noteConnectionDown(connectionId: string): void {
+    if (this.#pendingUnavailableMarks.has(connectionId)) return;
+    const outageStartIso = new Date().toISOString();
+    const timer = setTimeout(() => {
+      this.#pendingUnavailableMarks.delete(connectionId);
+      const unavailable = this.states.markUnavailable(connectionId, outageStartIso);
+      if (unavailable) {
+        this.notifyStateRecorded();
+        this.bus.publish({ type: "heat-pump", data: structuredClone(unavailable) });
+      }
+    }, this.options.unavailableMarkDelayMs ?? UNAVAILABLE_MARK_DELAY_MS);
+    timer.unref();
+    this.#pendingUnavailableMarks.set(connectionId, { timer, outageStartIso });
+  }
+
+  private noteConnectionUp(connectionId: string): void {
+    const pending = this.#pendingUnavailableMarks.get(connectionId);
+    if (!pending) return;
+    clearTimeout(pending.timer);
+    this.#pendingUnavailableMarks.delete(connectionId);
+  }
+
+  private clearPendingUnavailableMarks(): void {
+    for (const pending of this.#pendingUnavailableMarks.values()) clearTimeout(pending.timer);
+    this.#pendingUnavailableMarks.clear();
   }
 
   private oneShot<T>(
@@ -518,6 +556,7 @@ export class GreeBridge {
     worker.lastPollAt = snapshot.state.observedAt;
     worker.error = null;
     worker.restartDelayMs = 1_000;
+    this.noteConnectionUp(worker.connection.id);
     this.recordInitial(worker.connection, snapshot.state);
     try { this.options.onConnectionUpdate?.({ ...worker.connection }); } catch { /* retry after restart */ }
     this.aggregateStatus();
@@ -549,20 +588,20 @@ export class GreeBridge {
       worker.error = null;
       worker.failures = 0;
       worker.restartDelayMs = 1_000;
+      this.noteConnectionUp(worker.connection.id);
       this.recordInitial(worker.connection, payload);
       this.aggregateStatus();
       return;
     }
     if (message.type === "error") {
       worker.failures += 1;
+      // The outage clock starts at the first failed poll; the durable journal
+      // records unavailability (backdated to that moment) only if no snapshot
+      // interrupts the debounce window.
+      this.noteConnectionDown(worker.connection.id);
       if (worker.failures >= 3) {
         worker.connected = false;
-          worker.error = optionalText(message.message, 500) ?? "Heat-pump polling is unavailable";
-          const unavailable = this.states.markUnavailable(worker.connection.id);
-          if (unavailable) {
-            this.notifyStateRecorded();
-            this.bus.publish({ type: "heat-pump", data: structuredClone(unavailable) });
-          }
+        worker.error = optionalText(message.message, 500) ?? "Heat-pump polling is unavailable";
         this.aggregateStatus();
       }
       return;
@@ -605,13 +644,11 @@ export class GreeBridge {
     worker.closed = true;
     worker.connected = false;
     worker.error = error;
-    const unavailable = this.states.markUnavailable(worker.connection.id);
-    if (unavailable) {
-      this.notifyStateRecorded();
-      this.bus.publish({ type: "heat-pump", data: structuredClone(unavailable) });
-    }
+    const configured = (this.config.greeConnections ?? []).some((item) => item.id === worker.connection.id);
+    if (this.#running && configured) this.noteConnectionDown(worker.connection.id);
+    else this.noteConnectionUp(worker.connection.id);
     this.aggregateStatus();
-    if (!this.#running || !(this.config.greeConnections ?? []).some((item) => item.id === worker.connection.id)) {
+    if (!this.#running || !configured) {
       this.#cloudWorkers.delete(worker.connection.id);
       return;
     }
@@ -631,14 +668,12 @@ export class GreeBridge {
     if (worker.closed || this.#workers.get(worker.connection.id)?.child !== worker.child) return;
     worker.closed = true;
     worker.connected = false;
-      worker.error = error;
-      const unavailable = this.states.markUnavailable(worker.connection.id);
-      if (unavailable) {
-        this.notifyStateRecorded();
-        this.bus.publish({ type: "heat-pump", data: structuredClone(unavailable) });
-      }
+    worker.error = error;
+    const configured = (this.config.greeConnections ?? []).some((item) => item.id === worker.connection.id);
+    if (this.#running && configured) this.noteConnectionDown(worker.connection.id);
+    else this.noteConnectionUp(worker.connection.id);
     this.aggregateStatus();
-    if (!this.#running || !(this.config.greeConnections ?? []).some((item) => item.id === worker.connection.id)) {
+    if (!this.#running || !configured) {
       this.#workers.delete(worker.connection.id);
       return;
     }

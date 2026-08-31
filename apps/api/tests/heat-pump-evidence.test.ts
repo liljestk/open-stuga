@@ -170,6 +170,67 @@ describe("heat-pump passive analytics evidence", () => {
     });
   });
 
+  it("bridges sub-gap unavailability blips bracketed by verified-off evidence", () => {
+    // One ~2-second "unknown" flap per poll cycle, the pattern a
+    // reconnect-per-poll cloud transport journals. Padding every blip used to
+    // exclude the entire window even though the pump was verifiably off.
+    const points: HeatPumpEvidencePoint[] = Array.from({ length: 276 }, (_, index) => index - 35)
+      .flatMap((minute) => [
+        {
+          connectionId: "heat-pump-1",
+          time: Date.parse(FROM) + minute * MINUTE_MS + 30_000,
+          classification: "unknown" as const,
+        },
+        {
+          connectionId: "heat-pump-1",
+          time: Date.parse(FROM) + minute * MINUTE_MS + 32_000,
+          classification: "off" as const,
+        },
+      ]);
+    const window = buildHeatPumpExclusionWindow({
+      from: FROM,
+      to: TO,
+      connectionIds: ["heat-pump-1"],
+      points,
+    });
+    expect(window.summary).toMatchObject({
+      policy: "verified-heat-pump-off-v2",
+      evidenceState: "complete",
+      classifiedPercent: 100,
+      verifiedOffHours: 4,
+      unknownHours: 0,
+      usableHours: 4,
+      excludedHours: 0,
+    });
+    expect(isPassiveHeatPumpTime(window, "2026-08-01T02:00:01.000Z")).toBe(true);
+  });
+
+  it("keeps unknown segments longer than the state gap or beside activity excluded", () => {
+    const longGap = buildHeatPumpExclusionWindow({
+      from: FROM,
+      to: TO,
+      connectionIds: ["heat-pump-1"],
+      // Verified off except a sixteen-minute reporting hole from minute 120;
+      // after the five-minute state-gap extension an eleven-minute stretch
+      // stays unclassified, which is beyond what off evidence may bridge.
+      points: minutePoints(() => "off", (minute) => minute < 120 || minute >= 135),
+    });
+    expect(longGap.summary.evidenceState).toBe("partial");
+    expect(longGap.summary.unknownHours).toBeGreaterThan(0);
+    expect(isPassiveHeatPumpTime(longGap, "2026-08-01T02:03:00.000Z")).toBe(false);
+
+    const besideActivity = buildHeatPumpExclusionWindow({
+      from: FROM,
+      to: TO,
+      connectionIds: ["heat-pump-1"],
+      points: minutePoints((minute) => (
+        minute === 120 ? "unknown" : minute >= 121 && minute < 130 ? "confirmed-active" : "off"
+      )),
+    });
+    expect(besideActivity.summary.unknownHours).toBeGreaterThan(0);
+    expect(isPassiveHeatPumpTime(besideActivity, "2026-08-01T02:00:30.000Z")).toBe(false);
+  });
+
   it("fails the entire window closed when retained state history was truncated", () => {
     const window = buildHeatPumpExclusionWindow({
       from: FROM,

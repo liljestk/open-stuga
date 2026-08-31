@@ -4,6 +4,41 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.41.0 - 2026-08-31
+
+- Keep thermal isolation and moisture response comparisons alive on homes with
+  a cloud-connected Gree/Wilfa heat pump. The EWPE cloud poller previously
+  ended its whole session on a single failed poll and journaled the pump as
+  unavailable during every ~2-second reconnect. Those blips, padded by the
+  verified-off exclusion policy, excluded entire evidence windows, so the
+  nightly comparisons failed with "heat-pump evidence insufficient" every
+  night (on the reference appliance: 19 nights in a row) while the panels
+  showed a weeks-old empty result. The poller now retries transient failures
+  in-session, and the durable journal records unavailability only for outages
+  longer than three minutes, backdated to when the outage began.
+- Treat a sub-five-minute unavailability blip that is bracketed by verified
+  pump-off evidence as pump-off in the passive-analytics evidence policy
+  (`verified-heat-pump-off-v2`). The state-gap rule already trusts "off"
+  across reporting silences of the same length, so a momentary
+  `available: false` report no longer carries more weight than silence. This
+  also makes the existing flap-polluted history usable again without touching
+  the journal.
+- Stop retrying derived-analytics jobs that failed for a deterministic reason
+  (insufficient heat-pump evidence, over-large scope or result). They burned
+  their whole retry budget on identical failures before being left alone.
+- Say why a saved comparison's background update failed. The thermal
+  isolation, moisture response, and home performance panels now explain
+  recognized failure causes — most importantly scarce verified heat-pump-off
+  evidence — instead of only showing a generic failure notice, in English,
+  Finnish, and Swedish.
+
+Upgrade impact: install the update on the appliance. Thermal isolation,
+moisture response, and home performance algorithm versions were bumped, so the
+first nightly run (or a manual Refresh) recomputes each comparison; homes that
+were stuck on "heat-pump evidence insufficient" recover on that first run
+because the new evidence policy reads the existing journal. No configuration
+changes are needed.
+
 ## 0.40.1 - 2026-08-31
 
 - Add an operator tool that diagnoses and repairs the appliance Tailscale

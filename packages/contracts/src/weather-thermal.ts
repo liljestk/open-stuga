@@ -294,7 +294,8 @@ export interface ThermalSimulationResult {
 }
 
 export interface HvacExclusionSummary {
-  policy: "verified-heat-pump-off-v1";
+  /** v2 bridges sub-five-minute unavailability blips bracketed by verified-off evidence; v1 rows predate that and survive in stored artifacts. */
+  policy: "verified-heat-pump-off-v1" | "verified-heat-pump-off-v2";
   evidenceState: "not-present" | "complete" | "partial" | "insufficient";
   heatPumpCount: number;
   stateGapMinutes: 5;

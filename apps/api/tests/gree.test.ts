@@ -3,10 +3,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import request from "supertest";
+import type { GreeDiscoveredDevice } from "@climate-twin/contracts";
 import { createApi, type ApiRuntime } from "../src/app.js";
 import { loadConfig } from "../src/config.js";
+import { ClimateDatabase } from "../src/db.js";
+import type { TelemetryBus } from "../src/events.js";
+import type { EwpeCloudSnapshot, EwpeCloudTransport } from "../src/ewpe-cloud.js";
+import { GreeBridge, type GreeStatePayload } from "../src/gree.js";
 import { HeatPumpStateStore } from "../src/heat-pump-state.js";
 import { readIntegrationSecrets, writeIntegrationSecrets } from "../src/integration-secrets.js";
+import type { RuntimeStatus } from "../src/services.js";
 import type { TimeseriesStore } from "../src/timeseries/store.js";
 
 const MAC = "AABBCCDDEEFF";
@@ -273,6 +279,159 @@ describe("Gree/Wilfa integration", () => {
       tags: expect.arrayContaining(["integration:gree", "equipment:heat-pump", "unplaced"]),
     });
     expect(runtime.database.getSensor(sensorId)?.tags).not.toContain("integration:gree:detached");
+  });
+
+  describe("availability journal debounce", () => {
+    const connection = {
+      id: "gree-aabbccddeeff",
+      houseId: "home-a",
+      transport: "ewpe-cloud" as const,
+      host: "mqtt-eu.gree.com",
+      port: 1984,
+      mac: MAC,
+      key: "cloud-envelope-key",
+      cipherVersion: 1 as const,
+      cloudUsername: "reader@example.com",
+      cloudPassword: "secret",
+    };
+    const device: GreeDiscoveredDevice = {
+      transport: "ewpe-cloud",
+      host: "mqtt-eu.gree.com",
+      port: 1984,
+      mac: MAC,
+      name: "AC3a95",
+      brand: "Wilfa",
+      model: "10001",
+      version: "19.4",
+    };
+
+    function cloudPayload(observedAt: string): GreeStatePayload {
+      return {
+        observedAt,
+        available: true,
+        power: false,
+        selectedMode: "heat",
+        targetTemperatureC: 21,
+        currentTemperatureC: 20.5,
+        currentTemperatureSource: "reported",
+        currentHumidityPercent: null,
+        targetHumidityPercent: null,
+        fanSpeed: "auto",
+        horizontalSwing: null,
+        verticalSwing: null,
+        freshAir: null,
+        anion: null,
+        sleep: null,
+        light: null,
+        quiet: false,
+        turbo: false,
+        xfan: false,
+        steadyHeat: null,
+        powerSave: null,
+        cleanFilter: null,
+        waterFull: null,
+        dehumidifierMode: null,
+        compressorFrequencyHz: 0,
+        diagnostics: {},
+        activity: "off",
+        activityEvidence: "protocol",
+      };
+    }
+
+    function harness() {
+      const database = new ClimateDatabase(":memory:", false);
+      database.createHouse({ id: "home-a", name: "Home A", timezone: "UTC", floors: [] });
+      const states = new HeatPumpStateStore(database);
+      const sessions: Array<{
+        onSnapshot: (snapshot: EwpeCloudSnapshot) => void;
+        reject: (error: unknown) => void;
+      }> = [];
+      const cloud: EwpeCloudTransport = {
+        discover: vi.fn(async () => []),
+        bind: vi.fn(async () => { throw new Error("unused in this test"); }),
+        monitor: vi.fn((_connection, _pollMs, signal, onSnapshot) => new Promise<void>((resolve, reject) => {
+          sessions.push({ onSnapshot, reject });
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        })),
+      };
+      const config = {
+        ...loadConfig({ NODE_ENV: "test", DATABASE_PATH: ":memory:" }),
+        greeConnections: [connection],
+        greePollIntervalMs: 60_000,
+      };
+      const bridge = new GreeBridge(
+        config,
+        { value: {}, changed: vi.fn() } as unknown as RuntimeStatus,
+        states,
+        { publish: vi.fn() } as unknown as TelemetryBus,
+        { cloud, unavailableMarkDelayMs: 5_000 },
+      );
+      return { bridge, states, sessions, close: () => { bridge.stop(); database.close(); } };
+    }
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("journals no availability gap for a session drop that recovers in time", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-08-30T08:00:00.000Z"));
+      const { bridge, states, sessions, close } = harness();
+      bridge.start();
+      await vi.advanceTimersByTimeAsync(0);
+      sessions[0]!.onSnapshot({ device, state: cloudPayload("2026-08-30T08:00:00.000Z") });
+      sessions[0]!.reject(new Error("EWPE live-state response timed out"));
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(sessions).toHaveLength(2);
+      sessions[1]!.onSnapshot({ device, state: cloudPayload("2026-08-30T08:01:15.000Z") });
+      await vi.advanceTimersByTimeAsync(30_000);
+
+      const history = states.history(connection.id);
+      expect(history).toHaveLength(2);
+      expect(history.filter((state) => !state.available)).toHaveLength(0);
+      close();
+    });
+
+    it("journals one gap backdated to the outage start when the drop persists", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-08-30T08:00:00.000Z"));
+      const { bridge, states, sessions, close } = harness();
+      bridge.start();
+      await vi.advanceTimersByTimeAsync(0);
+      sessions[0]!.onSnapshot({ device, state: cloudPayload("2026-08-30T07:59:00.000Z") });
+      sessions[0]!.reject(new Error("EWPE live-state response timed out"));
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(1_000);
+      sessions[1]!.reject(new Error("EWPE live-state response timed out"));
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(10_000);
+
+      const unavailable = states.history(connection.id).filter((state) => !state.available);
+      expect(unavailable).toHaveLength(1);
+      expect(unavailable[0]).toMatchObject({
+        observedAt: "2026-08-30T08:00:00.000Z",
+        activity: "off",
+        activityEvidence: "protocol",
+      });
+      close();
+    });
+
+    it("stop() cancels a pending unavailability mark", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-08-30T08:00:00.000Z"));
+      const { bridge, states, sessions, close } = harness();
+      bridge.start();
+      await vi.advanceTimersByTimeAsync(0);
+      sessions[0]!.onSnapshot({ device, state: cloudPayload("2026-08-30T08:00:00.000Z") });
+      sessions[0]!.reject(new Error("EWPE live-state response timed out"));
+      await vi.advanceTimersByTimeAsync(0);
+      bridge.stop();
+      await vi.advanceTimersByTimeAsync(30_000);
+
+      expect(states.history(connection.id).filter((state) => !state.available)).toHaveLength(0);
+      close();
+    });
   });
 
   it("rejects conflicting Gree identities before writing the protected file", () => {

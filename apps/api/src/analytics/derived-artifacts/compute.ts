@@ -30,8 +30,8 @@ import type { DerivedIdentity, DerivedResult, StoredDerivedJob } from "./types.j
 const BOUNDARY_PADDING_MS = 2 * 3_600_000;
 
 export const DERIVED_ANALYTICS_ALGORITHM_VERSIONS = {
-  "thermal-isolation": "thermal-isolation-v2.0.0",
-  "moisture-response": "moisture-response-v2.0.0",
+  "thermal-isolation": "thermal-isolation-v2.1.0",
+  "moisture-response": "moisture-response-v2.1.0",
   "home-performance": HOME_PERFORMANCE_ALGORITHM_VERSION,
 } as const satisfies Record<DurableDerivedAnalyticsKind, string>;
 

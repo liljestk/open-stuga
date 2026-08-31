@@ -483,7 +483,10 @@ describe("durable derived analytics coordinator", () => {
     "DERIVED_ARTIFACT_TOO_LARGE",
   ])("does not retry deterministic failure %s", async (code) => {
     const db = database(":memory:");
-    const now = new Date("2026-08-08T12:00:00.000Z");
+    // 04:59 local is inside every home's nightly background window, so the
+    // scheduled claim path is exercised: a terminally failed job must not be
+    // reclaimable there just because its retry timestamp is cleared.
+    const now = new Date("2026-08-08T04:59:00.000Z");
     const compute = vi.fn(async () => {
       throw Object.assign(new Error("deterministic failure"), { code });
     });
@@ -508,6 +511,7 @@ describe("durable derived analytics coordinator", () => {
     });
     expect(await coordinator.drainOnce()).toBe(false);
     expect(compute).toHaveBeenCalledTimes(1);
+    expect(coordinator.read(input).job?.attemptCount).toBe(1);
     db.close();
   });
 

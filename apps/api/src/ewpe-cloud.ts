@@ -55,6 +55,18 @@ export interface EwpeCloudSnapshot {
   state: GreeStatePayload;
 }
 
+export interface EwpeMonitorSession<Link> {
+  connect(): Promise<Link>;
+  query(link: Link): Promise<EwpeCloudSnapshot>;
+  close(link: Link): Promise<void>;
+}
+
+export interface EwpeMonitorOptions {
+  pollIntervalMs: number;
+  retryDelayMs?: number;
+  maxConsecutiveFailures?: number;
+}
+
 export interface EwpeCloudTransport {
   discover(username: string, password: string): Promise<GreeDiscoveredDevice[]>;
   bind(username: string, password: string, mac: string): Promise<GreeBindingResult>;
@@ -573,6 +585,66 @@ async function stopClient(client: MqttClient): Promise<void> {
   try { await client.endAsync(true); } catch { /* the socket is already closed */ }
 }
 
+function abortableDelay(delayMs: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal.aborted) {
+      resolve();
+      return;
+    }
+    const onAbort = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, delayMs);
+    timer.unref();
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+/**
+ * Poll one device until aborted, absorbing transient failures in-session.
+ *
+ * The MQTT link never reconnects on its own (`reconnectPeriod: 0`), so a
+ * single dropped socket used to end the whole monitor, and the caller then
+ * journaled a heat-pump availability gap for every ~2-second restart. Instead,
+ * rebuild the link and retry; only a sustained failure streak ends the session.
+ */
+export async function runEwpeMonitorLoop<Link>(
+  session: EwpeMonitorSession<Link>,
+  options: EwpeMonitorOptions,
+  signal: AbortSignal,
+  onSnapshot: (snapshot: EwpeCloudSnapshot) => void,
+): Promise<void> {
+  const retryDelayMs = options.retryDelayMs ?? 5_000;
+  const maxConsecutiveFailures = Math.max(1, options.maxConsecutiveFailures ?? 3);
+  let link = await session.connect();
+  let consecutiveFailures = 0;
+  try {
+    while (!signal.aborted) {
+      try {
+        const snapshot = await session.query(link);
+        if (signal.aborted) break;
+        onSnapshot(snapshot);
+        consecutiveFailures = 0;
+      } catch (error) {
+        if (signal.aborted) break;
+        consecutiveFailures += 1;
+        if (consecutiveFailures >= maxConsecutiveFailures) throw error;
+        await session.close(link);
+        link = await session.connect();
+        await abortableDelay(retryDelayMs, signal);
+        continue;
+      }
+      await abortableDelay(options.pollIntervalMs, signal);
+    }
+  } finally {
+    await session.close(link);
+  }
+}
+
 export class EwpeCloudClient implements EwpeCloudTransport {
   async discover(username: string, password: string): Promise<GreeDiscoveredDevice[]> {
     const session = await login(username, password);
@@ -617,22 +689,23 @@ export class EwpeCloudClient implements EwpeCloudTransport {
     const [devices, addresses] = await Promise.all([inventory(session, signal), brokerAddresses(signal)]);
     const target = devices.find((device) => device.mac === connection.mac);
     if (!target) throw new Error("The heat pump is no longer present in this EWPE account");
-    const { client, broker } = await connectBroker(session, addresses, signal);
-    try {
-      await subscribe(client, target.mac);
-      while (!signal.aborted) {
-        const device = publicDevice(target, broker);
-        const response = await queryState(client, session, target, signal);
-        if (signal.aborted) break;
-        onSnapshot({ device, state: normalizeEwpeState(valuesFromResponse(response), device.version) });
-        await new Promise<void>((resolve) => {
-          const timer = setTimeout(resolve, Math.max(10_000, pollIntervalMs));
-          timer.unref();
-          signal.addEventListener("abort", () => { clearTimeout(timer); resolve(); }, { once: true });
-        });
-      }
-    } finally {
-      await stopClient(client);
-    }
+    await runEwpeMonitorLoop({
+      connect: async () => {
+        const { client, broker } = await connectBroker(session, addresses, signal);
+        try {
+          await subscribe(client, target.mac);
+        } catch (error) {
+          await stopClient(client);
+          throw error;
+        }
+        return { client, broker };
+      },
+      query: async (link: { client: MqttClient; broker: BrokerAddress }) => {
+        const device = publicDevice(target, link.broker);
+        const response = await queryState(link.client, session, target, signal);
+        return { device, state: normalizeEwpeState(valuesFromResponse(response), device.version) };
+      },
+      close: (link: { client: MqttClient; broker: BrokerAddress }) => stopClient(link.client),
+    }, { pollIntervalMs: Math.max(10_000, pollIntervalMs) }, signal, onSnapshot);
   }
 }

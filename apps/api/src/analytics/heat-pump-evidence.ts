@@ -195,7 +195,7 @@ export function buildHeatPumpExclusionWindow(input: {
       toMs,
       passiveIntervals: [{ fromMs, toMs }],
       summary: {
-        policy: "verified-heat-pump-off-v1",
+        policy: "verified-heat-pump-off-v2",
         evidenceState: "not-present",
         heatPumpCount: 0,
         stateGapMinutes: 5,
@@ -264,6 +264,20 @@ export function buildHeatPumpExclusionWindow(input: {
     else classified.push({ fromMs: start, toMs: end, classification });
   }
 
+  // A short unknown segment bracketed by verified-off evidence carries no more
+  // suggestion of compressor activity than reporting silence of the same
+  // length, which the state-gap rule already treats as a continuation of
+  // "off". Without this bridge, a two-second availability flap per poll cycle
+  // padded to thirty-five excluded minutes zeroes out a fully-off window.
+  for (const [index, segment] of classified.entries()) {
+    if (segment.classification === "unknown"
+      && segment.toMs - segment.fromMs <= MAX_STATE_GAP_MS
+      && classified[index - 1]?.classification === "off"
+      && classified[index + 1]?.classification === "off") {
+      segment.classification = "off";
+    }
+  }
+
   const rawInWindow = (classification: EvidenceClass) => mergeIntervals(classified
     .filter((segment) => segment.classification === classification)
     .map((segment) => ({
@@ -297,7 +311,7 @@ export function buildHeatPumpExclusionWindow(input: {
     toMs,
     passiveIntervals,
     summary: {
-      policy: "verified-heat-pump-off-v1",
+      policy: "verified-heat-pump-off-v2",
       evidenceState: !meetsCoverage
         ? "insufficient"
         : excludedMs <= 1_000

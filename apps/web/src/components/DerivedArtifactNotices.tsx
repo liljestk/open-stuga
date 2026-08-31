@@ -39,6 +39,21 @@ function stateCopy(
   return `derived.${status.state}` as TranslationKey;
 }
 
+const FAILURE_REASON_KEYS: Readonly<Partial<Record<string, TranslationKey>>> = {
+  HVAC_EVIDENCE_INSUFFICIENT: "derived.failedReason.hvacEvidence",
+  THERMAL_SCOPE_TOO_LARGE: "derived.failedReason.scope",
+  MOISTURE_SCOPE_TOO_LARGE: "derived.failedReason.scope",
+  HOME_PERFORMANCE_SCOPE_TOO_LARGE: "derived.failedReason.scope",
+  DERIVED_ARTIFACT_TOO_LARGE: "derived.failedReason.artifactSize",
+};
+
+function failureReasonKey(
+  status: DurableDerivedAnalyticsResponse<unknown> | null,
+): TranslationKey | null {
+  if (status?.state !== "failed") return null;
+  return FAILURE_REASON_KEYS[status.job?.errorCode ?? ""] ?? null;
+}
+
 export function DerivedArtifactNotices({
   status,
   hasResult,
@@ -53,9 +68,14 @@ export function DerivedArtifactNotices({
       ? Info
       : CircleDashed;
 
+  const reasonKey = failureReasonKey(status);
+
   return <>
     {status && status.state !== "ready" && <p className="home-performance-notice" role="status">
       <StateIcon size={15} aria-hidden="true" />{t(stateCopy(status, canRefresh))}
+    </p>}
+    {reasonKey && <p className="home-performance-notice" role="status">
+      <Info size={15} aria-hidden="true" />{t(reasonKey)}
     </p>}
     {status?.stale && hasResult && <p className="home-performance-notice" role="status">
       <TriangleAlert size={15} aria-hidden="true" />{t("derived.stale")}
