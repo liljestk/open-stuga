@@ -96,4 +96,4 @@ export type { AssetRecord } from "./db/support/03-sensor-data-gap-row-to-canonic
 export { ClimateDataValidationError } from "./db/support/03-sensor-data-gap-row-to-canonical-json-value.js";
 export type { SensorUpdate } from "./db/support/03-sensor-data-gap-row-to-canonical-json-value.js";
 export { outdoorLocationKey } from "./db/support/06-canonical-observation-patch-time-to-outdoor-location.js";
-export { ClimateDatabaseCore as ClimateDatabase } from "./db/core.js";
+export { ClimateDatabaseCore as ClimateDatabase, ensureSqliteSpillDirectory } from "./db/core.js";

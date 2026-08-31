@@ -128,8 +128,15 @@ describe("TimeseriesStore analytics rollup", () => {
 
     const rollup = pool.queries.find(({ text }) => text.includes("AS requested(sensor_id TEXT, metric TEXT, aggregation TEXT)"))!;
     expect(rollup.values[4]).toBe("7 minutes");
-    expect(rollup.text).toContain("AND coverage.complete");
-    expect(rollup.text).toContain("AND (NOT coverage.complete");
+    // The aggregate serves every bucket it has materialized; raw rows are
+    // read through two plain per-series ranges covering only what lies
+    // outside the aggregate's materialized span. An all-or-nothing coverage
+    // switch here previously re-read the entire window raw whenever the
+    // aggregate lagged at all.
+    expect(rollup.text).toContain("aggregate_bounds AS");
+    expect(rollup.text).not.toContain("coverage.complete");
+    expect(rollup.text).toContain("LEAST($3::TIMESTAMPTZ, COALESCE(bounds.first_bucket, $3::TIMESTAMPTZ))");
+    expect(rollup.text).toContain("COALESCE(bounds.last_bucket + $7::INTERVAL, $3::TIMESTAMPTZ)");
     expect(rollup.text).toContain("TRUE AS coverage_complete");
   });
 });

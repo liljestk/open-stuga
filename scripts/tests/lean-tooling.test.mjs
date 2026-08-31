@@ -448,7 +448,15 @@ test("Pi diagnosis accepts a completed host check with no newer signed target", 
   assert.equal(updater?.status, "pass");
   assert.match(updater?.summary ?? "", /no newer signed target is available/u);
 
+  // Since 0.40.0 stale feed trust metadata pauses host updates with a
+  // warning instead of failing the machine check; application updates never
+  // consult the failing metadata.
   evidence.updater.status = { phase: "failed", errorCode: "TRUST_VERIFICATION_FAILED" };
+  const feedDegraded = diagnoseEvidence(evidence).checks.find((item) => item.id === "UPDATER");
+  assert.equal(feedDegraded?.status, "warning");
+  assert.match(feedDegraded?.summary ?? "", /host updates are paused, application updates are unaffected/u);
+
+  evidence.updater.status = { phase: "rollback-failed", errorCode: null };
   assert.equal(
     diagnoseEvidence(evidence).checks.find((item) => item.id === "UPDATER")?.status,
     "fail",

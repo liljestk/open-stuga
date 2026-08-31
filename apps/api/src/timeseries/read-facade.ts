@@ -241,20 +241,19 @@ export class HybridTelemetryReader {
     const limit = positiveLimit(query.limit, DEFAULT_HISTORY_LIMIT, MAX_HISTORY_LIMIT);
     const cancellation = aborted(query.signal);
     if (cancellation) throw cancellation;
-    const local = this.#local.measurementHistory(
-      query.sensorId,
-      query.metric,
-      query.from,
-      query.to,
-      limit,
-      query.before,
-    );
     return this.#read({
       family: "measurement",
       from: query.from,
       to: query.to,
       limit,
-      local,
+      local: () => this.#local.measurementHistory(
+        query.sensorId,
+        query.metric,
+        query.from,
+        query.to,
+        limit,
+        query.before,
+      ),
       signal: query.signal,
       archiveRead: async () => (await this.#archive!.measurementHistory({ ...query, limit })).map(archivedMeasurement),
       key: measurementKey,
@@ -277,33 +276,35 @@ export class HybridTelemetryReader {
       from: query.from,
       to: query.to,
     });
-    const rawLocal = this.#local.measurementHistoryBucketed(
-      query.sensorId,
-      query.metric,
-      query.from,
-      query.to,
-      query.bucketSeconds,
-      limit,
-      realMode,
-    );
-    // The per-bucket completeness probe is only meaningful when the window as a
-    // whole is incomplete; hoisting the check keeps the common case from
-    // re-parsing two dates for every one of up to 20,000 buckets.
-    const queryToMs = Date.parse(query.to);
-    const local = complete ? rawLocal : rawLocal.filter((sample) => this.#isLocalHistoryComplete({
-      family: "measurement",
-      from: sample.timestamp,
-      to: new Date(Math.min(
-        queryToMs,
-        Date.parse(sample.timestamp) + query.bucketSeconds * 1_000,
-      )).toISOString(),
-    }));
+    const readLocal = () => {
+      const rawLocal = this.#local.measurementHistoryBucketed(
+        query.sensorId,
+        query.metric,
+        query.from,
+        query.to,
+        query.bucketSeconds,
+        limit,
+        realMode,
+      );
+      // The per-bucket completeness probe is only meaningful when the window as a
+      // whole is incomplete; hoisting the check keeps the common case from
+      // re-parsing two dates for every one of up to 20,000 buckets.
+      const queryToMs = Date.parse(query.to);
+      return complete ? rawLocal : rawLocal.filter((sample) => this.#isLocalHistoryComplete({
+        family: "measurement",
+        from: sample.timestamp,
+        to: new Date(Math.min(
+          queryToMs,
+          Date.parse(sample.timestamp) + query.bucketSeconds * 1_000,
+        )).toISOString(),
+      }));
+    };
     return this.#read({
       family: "measurement",
       from: query.from,
       to: query.to,
       limit,
-      local,
+      local: readLocal,
       signal: query.signal,
       archiveRead: async () => {
         if (!this.#archive!.measurementHistoryBucketed) {
@@ -384,27 +385,28 @@ export class HybridTelemetryReader {
       }, [], 0, true, "not-configured");
     }
     if (metrics.length > 5) throw new RangeError("thermal history supports at most 5 metrics");
-    let local: MeasurementSample[];
-    if (metrics.length === 1 && metrics[0] === "temperature" && this.#local.thermalTemperatureHistory) {
-      local = this.#local.thermalTemperatureHistory(
-        query.sensorId,
-        query.from,
-        query.to,
-        bucketMinutes,
-        limitPerMetric,
-      );
-    } else if (metrics.every((metric) => metric === "temperature" || metric === "humidity")
-      && this.#local.thermalClimateHistory) {
-      const requestedMetrics = new Set<string>(metrics);
-      local = this.#local.thermalClimateHistory(
-        query.sensorId,
-        query.from,
-        query.to,
-        bucketMinutes,
-        limitPerMetric,
-      ).filter((sample) => requestedMetrics.has(sample.metric));
-    } else {
-      local = bucketMeasurementSamples(
+    const readLocal = (): MeasurementSample[] => {
+      if (metrics.length === 1 && metrics[0] === "temperature" && this.#local.thermalTemperatureHistory) {
+        return this.#local.thermalTemperatureHistory(
+          query.sensorId,
+          query.from,
+          query.to,
+          bucketMinutes,
+          limitPerMetric,
+        );
+      }
+      if (metrics.every((metric) => metric === "temperature" || metric === "humidity")
+        && this.#local.thermalClimateHistory) {
+        const requestedMetrics = new Set<string>(metrics);
+        return this.#local.thermalClimateHistory(
+          query.sensorId,
+          query.from,
+          query.to,
+          bucketMinutes,
+          limitPerMetric,
+        ).filter((sample) => requestedMetrics.has(sample.metric));
+      }
+      return bucketMeasurementSamples(
         this.#local.measurementWindow(
           [query.sensorId],
           metrics,
@@ -414,13 +416,13 @@ export class HybridTelemetryReader {
         ).filter((sample) => sample.quality !== "stale" && sample.source !== "replay"),
         bucketMinutes * 60,
       );
-    }
+    };
     return this.#read({
       family: "measurement",
       from: query.from,
       to: query.to,
       limit: limitPerMetric * metrics.length,
-      local,
+      local: readLocal,
       signal: query.signal,
       archiveRead: async () => {
         try {
@@ -487,13 +489,12 @@ export class HybridTelemetryReader {
     const metrics = unique(query.metrics);
     const cancellation = aborted(query.signal);
     if (cancellation) throw cancellation;
-    const local = this.#local.measurementWindow(sensorIds, metrics, query.from, query.to, limit);
     return this.#read({
       family: "measurement",
       from: query.from,
       to: query.to,
       limit,
-      local,
+      local: () => this.#local.measurementWindow(sensorIds, metrics, query.from, query.to, limit),
       signal: query.signal,
       archiveRead: async () => {
         if (sensorIds.length === 0 || metrics.length === 0) return [];
@@ -578,13 +579,12 @@ export class HybridTelemetryReader {
   async legacyReadingHistory(query: LegacyReadingHistoryQuery): Promise<HybridTelemetryReadResult<Reading>> {
     const limit = positiveLimit(query.limit, DEFAULT_HISTORY_LIMIT, MAX_HISTORY_LIMIT);
     const sensorIds = unique(query.sensorIds);
-    const local = this.#local.history(sensorIds, query.from, query.to, limit);
     return this.#read({
       family: "legacy-reading",
       from: query.from,
       to: query.to,
       limit,
-      local,
+      local: () => this.#local.history(sensorIds, query.from, query.to, limit),
       signal: query.signal,
       archiveRead: async () => (await this.#archive!.legacyReadingHistory({ ...query, sensorIds, limit })).map(archivedReading),
       key: readingKey,
@@ -596,19 +596,18 @@ export class HybridTelemetryReader {
     query: OutdoorTemperatureHistoryQuery,
   ): Promise<HybridTelemetryReadResult<OutdoorTemperatureSample>> {
     const limit = positiveLimit(query.limit, DEFAULT_HISTORY_LIMIT, MAX_HISTORY_LIMIT);
-    const local = this.#local.outdoorTemperatureHistory(
-      query.houseId,
-      query.locationKey,
-      query.from,
-      query.to,
-      limit,
-    );
     return this.#read({
       family: "outdoor-temperature",
       from: query.from,
       to: query.to,
       limit,
-      local,
+      local: () => this.#local.outdoorTemperatureHistory(
+        query.houseId,
+        query.locationKey,
+        query.from,
+        query.to,
+        limit,
+      ),
       signal: query.signal,
       archiveRead: async () => (await this.#archive!.outdoorTemperatureHistory({ ...query, limit })).map(archivedOutdoor),
       key: outdoorKey,
@@ -620,14 +619,13 @@ export class HybridTelemetryReader {
     query: ElectricityPriceHistoryQuery,
   ): Promise<HybridTelemetryReadResult<PropertyElectricityPricePoint>> {
     const limit = positiveLimit(query.limit, DEFAULT_HISTORY_LIMIT, MAX_HISTORY_LIMIT);
-    const local = (this.#local.listPropertyElectricityPrices?.(query.propertyId, query.from, query.to) ?? [])
-      .map((record) => ({ ...record, source: "sqlite" }));
     const result = await this.#read({
       family: "electricity-price",
       from: query.from,
       to: query.to,
       limit,
-      local,
+      local: () => (this.#local.listPropertyElectricityPrices?.(query.propertyId, query.from, query.to) ?? [])
+        .map((record) => ({ ...record, source: "sqlite" })),
       signal: query.signal,
       archiveRead: async () => this.#archive!.electricityPriceHistory
         ? (await this.#archive!.electricityPriceHistory({ ...query, limit })).map(archivedElectricityPrice)
@@ -647,18 +645,17 @@ export class HybridTelemetryReader {
     const limit = positiveLimit(query.limit, DEFAULT_HISTORY_LIMIT, MAX_HISTORY_LIMIT);
     const cancellation = aborted(query.signal);
     if (cancellation) throw cancellation;
-    const local = this.#local.listOpeningStateObservationHistory?.(
-      query.houseId,
-      query.from,
-      query.to,
-      limit,
-    ) ?? [];
     return this.#read({
       family: "opening-state",
       from: query.from,
       to: query.to,
       limit,
-      local,
+      local: () => this.#local.listOpeningStateObservationHistory?.(
+        query.houseId,
+        query.from,
+        query.to,
+        limit,
+      ) ?? [],
       signal: query.signal,
       archiveRead: async () => {
         if (!this.#archive!.openingStateHistory) throw new Error("Opening-state archive reads are unavailable");
@@ -675,13 +672,12 @@ export class HybridTelemetryReader {
     const limit = positiveLimit(query.limit, 10_000, MAX_HISTORY_LIMIT);
     const cancellation = aborted(query.signal);
     if (cancellation) throw cancellation;
-    const local = this.#local.listOpeningStateObservations?.(query.houseId, limit, query.at) ?? [];
     return this.#read({
       family: "opening-state",
       from: "1970-01-01T00:00:00.000Z",
       to: query.at,
       limit,
-      local,
+      local: () => this.#local.listOpeningStateObservations?.(query.houseId, limit, query.at) ?? [],
       signal: query.signal,
       archiveRead: async () => {
         if (!this.#archive!.openingStateSnapshot) throw new Error("Opening-state archive snapshots are unavailable");
@@ -723,7 +719,7 @@ export class HybridTelemetryReader {
     from: string;
     to: string;
     limit: number;
-    local: T[];
+    local: () => T[];
     signal: AbortSignal | undefined;
     archiveRead: () => Promise<T[]>;
     key: (record: T) => string;
@@ -735,15 +731,30 @@ export class HybridTelemetryReader {
     if (cancellation) throw cancellation;
     const complete = this.#isLocalHistoryComplete({ family: input.family, from: input.from, to: input.to });
     const realMode = this.#local.isRealDataMode();
-    const filteredLocal = realMode ? input.local.filter((record) => !isSyntheticSource(record.source)) : input.local;
-    const localFilteredCount = input.local.length - filteredLocal.length;
+    // The synchronous SQLite read can fail on its own — a wide window sort can
+    // exhaust spill space, or the file can be briefly locked. The archive holds
+    // the same history, so a local failure only ends the request when no
+    // archive read can stand in for it; then the original error propagates
+    // instead of being disguised as an empty result.
+    let local: T[] = [];
+    let localReadError: unknown = null;
+    try {
+      local = input.local();
+    } catch (error) {
+      localReadError = error;
+    }
+    const filteredLocal = realMode ? local.filter((record) => !isSyntheticSource(record.source)) : local;
+    const localFilteredCount = local.length - filteredLocal.length;
+    const localOnlyInput = { limit: input.limit, local, compare: input.compare };
 
     if (!this.#archive) {
-      return this.#localOnly(input, filteredLocal, localFilteredCount, complete, "not-configured");
+      if (localReadError !== null) throw localReadError;
+      return this.#localOnly(localOnlyInput, filteredLocal, localFilteredCount, complete, "not-configured");
     }
     const phase = this.#archivePhase ? this.#safeArchivePhase() : "ready";
     if (phase !== "ready" && phase !== "syncing") {
-      return this.#localOnly(input, filteredLocal, localFilteredCount, complete, "not-ready");
+      if (localReadError !== null) throw localReadError;
+      return this.#localOnly(localOnlyInput, filteredLocal, localFilteredCount, complete, "not-ready");
     }
 
     let archived: T[];
@@ -753,7 +764,8 @@ export class HybridTelemetryReader {
       const afterFailureCancellation = aborted(input.signal);
       if (afterFailureCancellation) throw afterFailureCancellation;
       this.#requestReconciliation();
-      return this.#localOnly(input, filteredLocal, localFilteredCount, complete, "failed");
+      if (localReadError !== null) throw localReadError;
+      return this.#localOnly(localOnlyInput, filteredLocal, localFilteredCount, complete, "failed");
     }
     const afterArchiveCancellation = aborted(input.signal);
     if (afterArchiveCancellation) throw afterArchiveCancellation;
@@ -779,7 +791,7 @@ export class HybridTelemetryReader {
         archiveSource: "timescale",
         archiveState: "merged",
         localHistoryComplete: complete,
-        localRecordCount: input.local.length,
+        localRecordCount: local.length,
         archiveRecordCount: archived.length,
         duplicateRecordCount: duplicates,
         filteredSyntheticRecordCount: localFilteredCount + archiveFilteredCount,

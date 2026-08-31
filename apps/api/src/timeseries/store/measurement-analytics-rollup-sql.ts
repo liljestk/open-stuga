@@ -30,28 +30,16 @@ export function mergeableAnalyticsSql(schema: string, base: MeasurementAnalytics
       SELECT CASE WHEN from_bucket = $2::TIMESTAMPTZ THEN from_bucket ELSE from_bucket + $7::INTERVAL END AS full_from,
         to_bucket AS full_to
       FROM bounds
-    ), raw_interior_bounds AS (
-      SELECT requested.sensor_id, requested.metric,
-        first_sample.observed_at AS first_at, last_sample.observed_at AS last_at
-      FROM requested_series requested
-      CROSS JOIN limits
-      LEFT JOIN LATERAL (
-        SELECT sample.observed_at FROM ${measurements} sample
-        WHERE sample.sensor_id = requested.sensor_id AND sample.metric = requested.metric
-          AND sample.observed_at >= limits.full_from AND sample.observed_at < limits.full_to
-          AND sample.quality = ANY($4::TEXT[])
-          AND (NOT $6::BOOLEAN OR sample.source NOT IN ('mock', 'replay'))
-        ORDER BY sample.observed_at ASC LIMIT 1
-      ) first_sample ON TRUE
-      LEFT JOIN LATERAL (
-        SELECT sample.observed_at FROM ${measurements} sample
-        WHERE sample.sensor_id = requested.sensor_id AND sample.metric = requested.metric
-          AND sample.observed_at >= limits.full_from AND sample.observed_at < limits.full_to
-          AND sample.quality = ANY($4::TEXT[])
-          AND (NOT $6::BOOLEAN OR sample.source NOT IN ('mock', 'replay'))
-        ORDER BY sample.observed_at DESC LIMIT 1
-      ) last_sample ON TRUE
-    ), aggregate_interior_bounds AS (
+    ), aggregate_bounds AS (
+      -- The materialized span of the continuous aggregate inside the window,
+      -- per requested series. Deliberately unfiltered by quality or synthetic
+      -- source: a bucket materialized from rows the caller excludes still
+      -- proves the aggregate covers that time. Timescale refreshes contiguous
+      -- windows, so the aggregate is authoritative between these two buckets
+      -- and raw rows only need to fill what lies outside them. An interior
+      -- invalidation that has not re-materialized yet is served from the stale
+      -- aggregate bucket, exactly as the previous all-or-nothing coverage
+      -- check did.
       SELECT requested.sensor_id, requested.metric,
         first_bucket.bucket_start AS first_bucket, last_bucket.bucket_start AS last_bucket
       FROM requested_series requested
@@ -60,31 +48,14 @@ export function mergeableAnalyticsSql(schema: string, base: MeasurementAnalytics
         SELECT sample.bucket_start FROM ${aggregate} sample
         WHERE sample.sensor_id = requested.sensor_id AND sample.metric = requested.metric
           AND sample.bucket_start >= limits.full_from AND sample.bucket_start < limits.full_to
-          AND sample.quality = ANY($4::TEXT[])
-          AND (NOT $6::BOOLEAN OR sample.source NOT IN ('mock', 'replay'))
         ORDER BY sample.bucket_start ASC LIMIT 1
       ) first_bucket ON TRUE
       LEFT JOIN LATERAL (
         SELECT sample.bucket_start FROM ${aggregate} sample
         WHERE sample.sensor_id = requested.sensor_id AND sample.metric = requested.metric
           AND sample.bucket_start >= limits.full_from AND sample.bucket_start < limits.full_to
-          AND sample.quality = ANY($4::TEXT[])
-          AND (NOT $6::BOOLEAN OR sample.source NOT IN ('mock', 'replay'))
         ORDER BY sample.bucket_start DESC LIMIT 1
       ) last_bucket ON TRUE
-    ), coverage AS (
-      -- Completeness is judged by first/last bucket alignment only, which
-      -- detects the case this exists for: a continuous aggregate lagging the
-      -- newest raw rows. It assumes the aggregate has no interior refresh hole,
-      -- which holds because Timescale refreshes contiguous windows; an interior
-      -- hole would be counted as complete and silently under-report.
-      SELECT raw.sensor_id, raw.metric,
-        raw.first_at IS NULL OR (
-          aggregate.first_bucket <= date_bin($7::INTERVAL, raw.first_at, TIMESTAMPTZ '1970-01-01 00:00:00+00')
-          AND aggregate.last_bucket >= date_bin($7::INTERVAL, raw.last_at, TIMESTAMPTZ '1970-01-01 00:00:00+00')
-        ) AS complete
-      FROM raw_interior_bounds raw
-      JOIN aggregate_interior_bounds aggregate USING (sensor_id, metric)
     ), source_rows AS (
       SELECT sample.sensor_id, sample.metric, sample.bucket_start AS observed_bucket,
         sample.source, sample.quality, sample.canonical_unit,
@@ -93,11 +64,30 @@ export function mergeableAnalyticsSql(schema: string, base: MeasurementAnalytics
       FROM ${aggregate} sample
       JOIN requested_series requested
         ON requested.sensor_id = sample.sensor_id AND requested.metric = sample.metric
-      JOIN coverage
-        ON coverage.sensor_id = sample.sensor_id AND coverage.metric = sample.metric
       CROSS JOIN limits
       WHERE sample.bucket_start >= limits.full_from AND sample.bucket_start < limits.full_to
-        AND coverage.complete
+        AND (NOT $6::BOOLEAN OR sample.source NOT IN ('mock', 'replay'))
+      UNION ALL
+      -- Raw rows cover only what the aggregate has not materialized. That is
+      -- always two contiguous spans per series: everything before the first
+      -- materialized bucket (the partial head bucket, plus the whole window
+      -- when the aggregate has nothing for the series) and everything from the
+      -- end of the last materialized bucket (a refresh policy always lags the
+      -- newest raw rows, and the newest bucket is partial). Keeping each span
+      -- a plain range lets PostgreSQL answer it with a parameterized index
+      -- scan. The previous shape re-read the ENTIRE window raw whenever the
+      -- aggregate lagged at all, which made long ranges scan hundreds of
+      -- thousands of rows and time out on appliance hardware.
+      SELECT sample.sensor_id, sample.metric,
+        date_bin($7::INTERVAL, sample.observed_at, TIMESTAMPTZ '1970-01-01 00:00:00+00'),
+        sample.source, sample.quality, sample.canonical_unit,
+        1::BIGINT, sample.value, sample.value, sample.value,
+        sample.value, sample.observed_at, sample.value, sample.observed_at
+      FROM ${measurements} sample
+      JOIN aggregate_bounds bounds
+        ON bounds.sensor_id = sample.sensor_id AND bounds.metric = sample.metric
+      WHERE sample.observed_at >= $2::TIMESTAMPTZ
+        AND sample.observed_at < LEAST($3::TIMESTAMPTZ, COALESCE(bounds.first_bucket, $3::TIMESTAMPTZ))
         AND (NOT $6::BOOLEAN OR sample.source NOT IN ('mock', 'replay'))
       UNION ALL
       SELECT sample.sensor_id, sample.metric,
@@ -106,14 +96,11 @@ export function mergeableAnalyticsSql(schema: string, base: MeasurementAnalytics
         1::BIGINT, sample.value, sample.value, sample.value,
         sample.value, sample.observed_at, sample.value, sample.observed_at
       FROM ${measurements} sample
-      JOIN requested_series requested
-        ON requested.sensor_id = sample.sensor_id AND requested.metric = sample.metric
-      JOIN coverage
-        ON coverage.sensor_id = sample.sensor_id AND coverage.metric = sample.metric
-      CROSS JOIN limits
-      WHERE sample.observed_at >= $2::TIMESTAMPTZ AND sample.observed_at < $3::TIMESTAMPTZ
-        AND (NOT coverage.complete
-          OR sample.observed_at < limits.full_from OR sample.observed_at >= limits.full_to)
+      JOIN aggregate_bounds bounds
+        ON bounds.sensor_id = sample.sensor_id AND bounds.metric = sample.metric
+      WHERE sample.observed_at >= GREATEST($2::TIMESTAMPTZ,
+          COALESCE(bounds.last_bucket + $7::INTERVAL, $3::TIMESTAMPTZ))
+        AND sample.observed_at < $3::TIMESTAMPTZ
         AND (NOT $6::BOOLEAN OR sample.source NOT IN ('mock', 'replay'))
     ), series_counts AS (
       SELECT requested.sensor_id, requested.metric, requested.aggregation,
@@ -125,7 +112,6 @@ export function mergeableAnalyticsSql(schema: string, base: MeasurementAnalytics
           / GREATEST(1, COALESCE(sum(source.sample_count) FILTER (WHERE source.quality = ANY($4::TEXT[])), 0)))::DOUBLE PRECISION AS cadence_seconds,
         TRUE AS coverage_complete
       FROM requested_series requested
-      JOIN coverage USING (sensor_id, metric)
       LEFT JOIN source_rows source
         ON source.sensor_id = requested.sensor_id AND source.metric = requested.metric
       GROUP BY requested.sensor_id, requested.metric, requested.aggregation

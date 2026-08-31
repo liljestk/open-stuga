@@ -609,6 +609,73 @@ describe("HybridTelemetryReader", () => {
     expect(result.provenance.duplicateRecordCount).toBe(1);
   });
 
+  it("serves the archive when the synchronous local window read itself fails", async () => {
+    // The regression this guards: a 30-day window sort exhausted the hardened
+    // container's SQLite spill space and the raw SQLITE_FULL error ended the
+    // request as a generic 500 even though the archive held the same history.
+    const localFailure = new Error("database or disk is full");
+    const reader = new HybridTelemetryReader({
+      local: localReader({ measurementWindow: vi.fn(() => { throw localFailure; }) }),
+      archive: {
+        ...archiveReader(),
+        measurementWindow: vi.fn(async () => [measurement("2026-07-18T00:10:00.000Z", 21)]),
+      },
+      archivePhase: () => "ready",
+    });
+
+    const result = await reader.measurementWindow({
+      sensorIds: ["sensor-a"],
+      metrics: ["temperature"],
+      from: FROM,
+      to: TO,
+      limit: 100,
+    });
+
+    expect(result.records.map(({ value }) => value)).toEqual([21]);
+    expect(result.provenance.archiveState).toBe("merged");
+    expect(result.provenance.localRecordCount).toBe(0);
+    expect(result.provenance.archiveRecordCount).toBe(1);
+  });
+
+  it("propagates the local read failure when no archive read can stand in", async () => {
+    const localFailure = new Error("database or disk is full");
+    const failingLocal = () => localReader({
+      measurementWindow: vi.fn(() => { throw localFailure; }),
+      outdoorTemperatureHistory: vi.fn(() => { throw localFailure; }),
+    });
+
+    const standalone = new HybridTelemetryReader({ local: failingLocal() });
+    await expect(standalone.measurementWindow({
+      sensorIds: ["sensor-a"],
+      metrics: ["temperature"],
+      from: FROM,
+      to: TO,
+    })).rejects.toBe(localFailure);
+
+    const archiveDown = new HybridTelemetryReader({
+      local: failingLocal(),
+      archive: {
+        ...archiveReader(),
+        measurementWindow: vi.fn(async () => { throw new Error("archive unavailable"); }),
+      },
+      archivePhase: () => "ready",
+    });
+    await expect(archiveDown.measurementWindow({
+      sensorIds: ["sensor-a"],
+      metrics: ["temperature"],
+      from: FROM,
+      to: TO,
+    })).rejects.toBe(localFailure);
+
+    const outdoorFailure = new HybridTelemetryReader({ local: failingLocal() });
+    await expect(outdoorFailure.outdoorTemperatureHistory({
+      houseId: "house-a",
+      locationKey: "location-a",
+      from: FROM,
+      to: TO,
+    })).rejects.toBe(localFailure);
+  });
+
   it("catches up the archive before serving a non-mergeable analytics rollup", async () => {
     let phase = "syncing";
     const reconcile = vi.fn(async () => { phase = "ready"; });

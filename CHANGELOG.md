@@ -4,6 +4,32 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.40.2 - 2026-08-31
+
+- Fix the sensor analytics chart failing with "The request could not be
+  completed" on the 30-day range (and other long ranges) while shorter ranges
+  worked. Three layers contributed and all are fixed:
+  - Long-range analytics now read the pre-computed hourly and daily rollups
+    for every bucket the archive has materialized and top the result up with
+    raw samples only for the newest, not-yet-materialized buckets. Previously
+    a rollup that lagged live ingestion by even one bucket caused the whole
+    window to be re-read from raw samples, which exceeded the database
+    statement timeout on appliance hardware (a 30-day window re-read ~466k
+    rows; the reworked query answers the same window from ~720 rollup buckets
+    per sensor).
+  - SQLite spill files for large sorts now live beside the database on the
+    data volume instead of the container's 32 MiB in-memory /tmp, which a
+    30-day fallback sort overflowed, failing the query with "database or disk
+    is full". An operator-provided SQLITE_TMPDIR is still respected.
+  - A failing local SQLite read no longer aborts a history request that the
+    TimescaleDB archive can answer; the archive result is served and the
+    original error is only raised when no other source exists.
+
+Upgrade impact: install the update on the appliance (or pull new images for a
+Compose install) to pick up the API fix. No schema migration, configuration
+change, or manual action is required; the SQLite spill directory
+(`.sqlite-tmp` beside the database) is created automatically on startup.
+
 ## 0.40.1 - 2026-08-31
 
 - Add an operator tool that diagnoses and repairs the appliance Tailscale
