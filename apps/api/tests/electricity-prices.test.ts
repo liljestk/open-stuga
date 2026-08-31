@@ -222,6 +222,120 @@ describe("electricity price refresh deadlines", () => {
   });
 });
 
+describe("electricity price refresh scheduling", () => {
+  const BASE = "2026-07-17T00:00:00.000Z";
+
+  // Real feeds return the same grid-aligned intervals on every fetch, so
+  // repeated refreshes upsert by start time instead of overlapping.
+  function feedFrom(hours: number): () => Promise<Response> {
+    return async () => new Response(JSON.stringify({
+      prices: Array.from({ length: hours }, (_, index) => ({
+        price: 5.25,
+        startDate: new Date(Date.parse(BASE) + index * 3_600_000).toISOString(),
+        endDate: new Date(Date.parse(BASE) + (index + 1) * 3_600_000).toISOString(),
+      })),
+    }), { status: 200 });
+  }
+
+  it("retries a failed scheduled refresh soon instead of waiting half a day", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(BASE));
+    const database = new ClimateDatabase(":memory:");
+    let calls = 0;
+    const fetcher = vi.fn<typeof fetch>(async () => {
+      calls += 1;
+      if (calls === 1) throw new Error("feed offline");
+      return feedFrom(13)();
+    });
+    const service = new ElectricityPriceService(
+      database,
+      fetcher,
+      12 * 60 * 60_000,
+      { resolver: PUBLIC_RESOLVER },
+    );
+
+    try {
+      service.start();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(fetcher).toHaveBeenCalledOnce();
+
+      await vi.advanceTimersByTimeAsync(29 * 60_000);
+      expect(fetcher).toHaveBeenCalledOnce();
+      await vi.advanceTimersByTimeAsync(60_000 + 100);
+      expect(fetcher).toHaveBeenCalledTimes(2);
+
+      // The stored horizon now reaches past the next scheduled refresh, so
+      // the cadence returns to the configured half-day interval.
+      await vi.advanceTimersByTimeAsync(60 * 60_000);
+      expect(fetcher).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(11 * 60 * 60_000);
+      expect(fetcher).toHaveBeenCalledTimes(3);
+    } finally {
+      service.stop();
+      database.close();
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps refreshing hourly while the stored horizon stays short", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(BASE));
+    const database = new ClimateDatabase(":memory:");
+    const fetcher = vi.fn<typeof fetch>(feedFrom(2));
+    const service = new ElectricityPriceService(
+      database,
+      fetcher,
+      12 * 60 * 60_000,
+      { resolver: PUBLIC_RESOLVER },
+    );
+
+    try {
+      service.start();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(fetcher).toHaveBeenCalledOnce();
+
+      await vi.advanceTimersByTimeAsync(59 * 60_000);
+      expect(fetcher).toHaveBeenCalledOnce();
+      await vi.advanceTimersByTimeAsync(60_000 + 100);
+      expect(fetcher).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(60 * 60_000 + 100);
+      expect(fetcher).toHaveBeenCalledTimes(3);
+    } finally {
+      service.stop();
+      database.close();
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops scheduling once the service is stopped", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(BASE));
+    const database = new ClimateDatabase(":memory:");
+    const fetcher = vi.fn<typeof fetch>(async () => {
+      throw new Error("feed offline");
+    });
+    const service = new ElectricityPriceService(
+      database,
+      fetcher,
+      12 * 60 * 60_000,
+      { resolver: PUBLIC_RESOLVER },
+    );
+
+    try {
+      service.start();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(fetcher).toHaveBeenCalledOnce();
+
+      service.stop();
+      await vi.advanceTimersByTimeAsync(12 * 60 * 60_000);
+      expect(fetcher).toHaveBeenCalledOnce();
+    } finally {
+      database.close();
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe("property electricity prices", () => {
   let runtime: ApiRuntime | null = null;
 
@@ -238,9 +352,29 @@ describe("property electricity prices", () => {
     }] })).toEqual([{
       rawPriceCentsPerKwh: -0.002,
       startAt: "2026-07-17T09:00:00.000Z",
-      endAt: "2026-07-17T09:14:59.999Z",
+      endAt: "2026-07-17T09:15:00.000Z",
     }]);
     expect(() => parseElectricityPricePayload({ prices: [{ price: "1.2" }] })).toThrow(/Invalid/);
+  });
+
+  it("snaps inclusive feed boundaries onto minute edges without touching real offsets", () => {
+    // Pörssisähkö-style inclusive ends ("…:59.999") mean the next minute edge.
+    // Preserved verbatim they cut every hour and quarter, which forces the
+    // cost planner down to per-minute states for every requested day.
+    expect(parseElectricityPricePayload({ prices: [
+      { price: 4, startDate: "2026-07-17T08:59:59.999Z", endDate: "2026-07-17T09:14:59.999Z" },
+      { price: 5, startDate: "2026-07-17T09:15:00.000Z", endDate: "2026-07-17T09:29:59.999Z" },
+      { price: 6, startDate: "2026-07-17T09:30:00.000Z", endDate: "2026-07-17T09:37:30.000Z" },
+    ] })).toEqual([
+      { rawPriceCentsPerKwh: 4, startAt: "2026-07-17T09:00:00.000Z", endAt: "2026-07-17T09:15:00.000Z" },
+      { rawPriceCentsPerKwh: 5, startAt: "2026-07-17T09:15:00.000Z", endAt: "2026-07-17T09:30:00.000Z" },
+      { rawPriceCentsPerKwh: 6, startAt: "2026-07-17T09:30:00.000Z", endAt: "2026-07-17T09:37:30.000Z" },
+    ]);
+    expect(() => parseElectricityPricePayload({ prices: [{
+      price: 4,
+      startDate: "2026-07-17T09:00:00.000Z",
+      endDate: "2026-07-17T09:00:00.500Z",
+    }] })).toThrow(/Invalid/);
   });
 
   it("defaults every property to Pörssisähkö and derives a property-specific margin", async () => {

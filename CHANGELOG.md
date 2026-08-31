@@ -4,6 +4,39 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.40.5 - 2026-08-31
+
+- Fix the electricity page's "Consumption · 24 hours", "Spot price", and
+  "Energy cost" panels going empty. Spot-price feeds encode interval ends a
+  millisecond short of the boundary ("…:14:59.999"), which the cost planner
+  read as every hour and quarter being cut by a price change: it degraded to
+  per-minute rollup states plus raw scans for every requested day, the
+  required rollups never finished materializing, and each summary request fell
+  back to a synchronous full-window SQLite scan that stalled the whole API
+  until the panels timed out. Price interval boundaries within one second of a
+  minute edge are now normalized on ingest, and the planner applies the same
+  snapping to already-stored history, so cost reads use quarter-hour rollups
+  as designed.
+- Degrade energy summaries per source instead of failing them outright: while
+  a source's rollups are still materializing (or analytics capacity is shed),
+  the other sources and the other measurement basis still answer, and the
+  panels fill in on the next poll. The blocking local SQLite substitute now
+  only serves windows up to three days; longer windows report the archive
+  state instead of freezing the event loop.
+- Refresh spot prices resiliently: a failed scheduled fetch retries after 30
+  minutes instead of waiting half a day, and the service keeps retrying hourly
+  while the stored price horizon does not yet cover the next scheduled
+  refresh. The web app's spot-price card now polls every five minutes and
+  keeps the last known price through transient failures instead of staying
+  empty until the page is reopened.
+
+Upgrade impact: application-only release; no schema rewrite, signed host
+update, or factory image is required. Already-archived price history is
+handled by the read-side snapping, so no data migration is needed. After
+updating, the first view of long cost windows may briefly show "usage data
+unavailable" while quarter-hour rollups materialize once in the background;
+subsequent views are fast.
+
 ## 0.40.1 - 2026-08-31
 
 - Add an operator tool that diagnoses and repairs the appliance Tailscale

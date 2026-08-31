@@ -527,7 +527,7 @@ describe("EnergyPage", () => {
     expect(screen.queryByText("216.00 €")).toBeNull();
     expect(screen.queryByRole("heading", { name: "Electricity contract" })).toBeNull();
     expect(screen.queryByLabelText("Retailer")).toBeNull();
-    expect(homeProjection).toHaveBeenCalledWith(house.id);
+    expect(homeProjection).toHaveBeenCalledWith(house.id, undefined, undefined, expect.any(AbortSignal));
     expect(propertyContract).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole("button", { name: "Electricity price" }));
@@ -542,6 +542,57 @@ describe("EnergyPage", () => {
     ));
     const oneYearCall = homeProjection.mock.calls.at(-1)!;
     expect(Date.parse(oneYearCall[2]!) - Date.parse(oneYearCall[1]!)).toBe(365 * 24 * 3_600_000);
+  });
+
+  it("recovers the spot price card by polling after a failed load", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date("2026-07-16T12:00:00.000Z"));
+    const state = createDemoState();
+    const house = state.houses[0]!;
+    const meter: Sensor = {
+      ...state.sensors[0]!,
+      id: "meter",
+      houseId: house.id,
+      name: "Main electricity meter",
+      measurementEntityIds: { power: "sensor.main_power" },
+    };
+    state.sensors = [meter];
+    state.latestMeasurements = {
+      meter: {
+        power: { ...sample(2_000, "2026-07-16T11:59:00.000Z"), metric: "power", canonicalUnit: "W" },
+      },
+    };
+    state.measurementHistory = { meter: { power: [] } };
+    state.measurementForecasts = { meter: {} };
+    vi.spyOn(api, "measurementHistory").mockResolvedValue([]);
+    vi.spyOn(api, "houseEnergySummary").mockImplementation(async (houseId, from, to) => (
+      combinedSummary(houseId, from, to, 8.42)
+    ));
+    const priceRequest = vi.spyOn(api, "houseElectricityPrice")
+      .mockRejectedValueOnce(new Error("price offline"))
+      .mockRejectedValueOnce(new Error("price offline"))
+      .mockResolvedValue({
+        current: {
+          startAt: "2026-07-16T12:00:00.000Z",
+          endAt: "2026-07-16T12:15:00.000Z",
+          effectivePriceCentsPerKwh: 15,
+          effectivePriceEurPerKwh: 0.15,
+          fetchedAt: "2026-07-16T11:55:00.000Z",
+        },
+      });
+
+    const view = render(<I18nProvider><EnergyPage state={state} house={house} units="metric" onLoadSeries={vi.fn()} onOpenAlerts={vi.fn()} /></I18nProvider>);
+    const priceCard = view.container.querySelector<HTMLElement>(".energy-summary-card.electricity_price")!;
+
+    // The initial attempt and its retry both fail: the card degrades to a
+    // placeholder instead of an error and keeps polling in the background.
+    await waitFor(() => expect(priceRequest).toHaveBeenCalled());
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+    expect(priceRequest).toHaveBeenCalledTimes(2);
+    expect(within(priceCard).getByText("—")).not.toBeNull();
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(5 * 60_000); });
+    expect(await within(priceCard).findByText("0.150 €/kWh")).not.toBeNull();
   });
 
   it("combines every electricity sensor and offers single, multiple, and combined charts", async () => {

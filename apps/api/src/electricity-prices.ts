@@ -8,8 +8,12 @@ import {
 import type { ClimateDatabase } from "./db.js";
 
 const DEFAULT_REFRESH_INTERVAL_MS = 12 * 60 * 60_000;
+const FAILURE_RETRY_INTERVAL_MS = 30 * 60_000;
+const NEAR_HORIZON_RETRY_INTERVAL_MS = 60 * 60_000;
 const REQUEST_TIMEOUT_MS = 15_000;
 const MAX_PRICE_POINTS = 500;
+const PRICE_BOUNDARY_GRID_MS = 60_000;
+const PRICE_BOUNDARY_TOLERANCE_MS = 1_000;
 export const MAX_ELECTRICITY_RESPONSE_BYTES = 1_048_576;
 
 export type ElectricityEndpointResolver = (hostname: string) => Promise<readonly string[]>;
@@ -163,6 +167,21 @@ function finitePrice(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) && Math.abs(value) <= 10_000 ? value : null;
 }
 
+/**
+ * Feeds commonly encode inclusive interval boundaries ("…:14:59.999"). The
+ * cost planner and rollup eligibility treat intervals as half-open on exact
+ * minute edges, so a boundary within one second of a minute edge is that edge.
+ */
+function snappedBoundaryMs(value: number): number {
+  const offset = ((value % PRICE_BOUNDARY_GRID_MS) + PRICE_BOUNDARY_GRID_MS) % PRICE_BOUNDARY_GRID_MS;
+  if (offset === 0) return value;
+  if (offset >= PRICE_BOUNDARY_GRID_MS - PRICE_BOUNDARY_TOLERANCE_MS) {
+    return value + (PRICE_BOUNDARY_GRID_MS - offset);
+  }
+  if (offset <= PRICE_BOUNDARY_TOLERANCE_MS) return value - offset;
+  return value;
+}
+
 /** Validates and preserves upstream cents/kWh values without applying contract adjustments. */
 export function parseElectricityPricePayload(payload: unknown): Array<{
   startAt: string;
@@ -180,8 +199,10 @@ export function parseElectricityPricePayload(payload: unknown): Array<{
     }
     const value = candidate as Record<string, unknown>;
     const rawPriceCentsPerKwh = finitePrice(value.price);
-    const startMs = typeof value.startDate === "string" ? Date.parse(value.startDate) : NaN;
-    const endMs = typeof value.endDate === "string" ? Date.parse(value.endDate) : NaN;
+    const parsedStartMs = typeof value.startDate === "string" ? Date.parse(value.startDate) : NaN;
+    const parsedEndMs = typeof value.endDate === "string" ? Date.parse(value.endDate) : NaN;
+    const startMs = Number.isFinite(parsedStartMs) ? snappedBoundaryMs(parsedStartMs) : NaN;
+    const endMs = Number.isFinite(parsedEndMs) ? snappedBoundaryMs(parsedEndMs) : NaN;
     if (rawPriceCentsPerKwh === null || !Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
       throw new ElectricityPriceSourceError(`Invalid electricity price fields at index ${index}`);
     }
@@ -202,6 +223,8 @@ export function parseElectricityPricePayload(payload: unknown): Array<{
 
 export class ElectricityPriceService {
   #timer: NodeJS.Timeout | null = null;
+  #started = false;
+  #generation = 0;
   #inFlight = new Map<string, Promise<PropertyElectricityPricePoint[]>>();
 
   constructor(
@@ -213,21 +236,63 @@ export class ElectricityPriceService {
   ) {}
 
   start(): void {
-    if (this.#timer) return;
-    void this.refreshAll();
-    this.#timer = setInterval(() => void this.refreshAll(), this.refreshIntervalMs);
-    this.#timer.unref();
+    if (this.#started) return;
+    this.#started = true;
+    this.#generation += 1;
+    void this.#runScheduledCycle(this.#generation);
   }
 
   stop(): void {
-    if (this.#timer) clearInterval(this.#timer);
+    this.#started = false;
+    if (this.#timer) clearTimeout(this.#timer);
     this.#timer = null;
   }
 
   async refreshAll(): Promise<void> {
-    await Promise.allSettled(this.database.listPropertyElectricityConfigs()
-      .filter((config) => config.enabled)
-      .map((config) => this.refresh(config.propertyId)));
+    await this.#refreshCycle();
+  }
+
+  async #runScheduledCycle(generation: number): Promise<void> {
+    let delayMs = Math.min(this.refreshIntervalMs, FAILURE_RETRY_INTERVAL_MS);
+    try {
+      delayMs = await this.#refreshCycle();
+    } catch {
+      // #refreshCycle only reads local state outside of settled fetches;
+      // treat an unexpected failure like a fetch failure and retry soon.
+    }
+    // A stop()+start() during the awaited cycle starts a fresh chain; this
+    // stale one must end instead of doubling the schedule forever.
+    if (!this.#started || generation !== this.#generation) return;
+    this.#timer = setTimeout(() => {
+      this.#timer = null;
+      void this.#runScheduledCycle(generation);
+    }, delayMs);
+    this.#timer.unref();
+  }
+
+  /**
+   * Refresh every enabled Property and choose the next attempt from the
+   * outcome. Spot feeds publish roughly a day and a half ahead, so a blindly
+   * fixed 12-hour cadence turns one failed attempt into a same-day coverage
+   * hole: retry failures soon, and keep retrying hourly while the stored
+   * horizon does not yet cover the next scheduled refresh.
+   */
+  async #refreshCycle(): Promise<number> {
+    const enabled = this.database.listPropertyElectricityConfigs()
+      .filter((config) => config.enabled);
+    const outcomes = await Promise.allSettled(
+      enabled.map((config) => this.refresh(config.propertyId)),
+    );
+    if (outcomes.some((outcome) => outcome.status === "rejected")) {
+      return Math.min(this.refreshIntervalMs, FAILURE_RETRY_INTERVAL_MS);
+    }
+    const horizonAt = new Date(Date.now() + this.refreshIntervalMs).toISOString();
+    const nearHorizon = enabled.some((config) => (
+      this.database.getCurrentPropertyElectricityPrice(config.propertyId, horizonAt) === null
+    ));
+    return nearHorizon
+      ? Math.min(this.refreshIntervalMs, NEAR_HORIZON_RETRY_INTERVAL_MS)
+      : this.refreshIntervalMs;
   }
 
   refresh(propertyId: string): Promise<PropertyElectricityPricePoint[]> {

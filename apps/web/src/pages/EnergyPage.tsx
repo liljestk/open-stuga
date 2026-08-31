@@ -18,6 +18,7 @@ import { useI18n } from "../i18n";
 import { formatInTimeZone } from "../dateTime";
 import { api } from "../api";
 import { useHomeEnergySummaryQuery } from "../data/energy/homeEnergySummaryQuery";
+import { useHouseElectricityPriceQuery } from "../data/energy/houseElectricityPriceQuery";
 import { useNow } from "../useNow";
 import type { SeriesLoadState } from "../useClimateData";
 import { ElectricityHistory, ELECTRICITY_METRICS, type ElectricityMetric } from "./ElectricityHistory";
@@ -142,7 +143,6 @@ export function EnergyPage({ state, house = null, propertyId: requestedPropertyI
   const [range, setRange] = useState<TimeRange>(initialLocationState.range);
   const [costInterval, setCostInterval] = useState<CostInterval>(initialLocationState.costInterval);
   const [propertyPrice, setPropertyPrice] = useState<{ config: PropertyElectricityConfig; current: PropertyElectricityPricePoint | null } | null>(null);
-  const [homePrice, setHomePrice] = useState<HomeElectricityPricePoint | null>(null);
   const [priceHistory, setPriceHistory] = useState<HomeElectricityPricePoint[]>([]);
   const [priceHistoryBusy, setPriceHistoryBusy] = useState(false);
   const [priceHistoryError, setPriceHistoryError] = useState(false);
@@ -177,6 +177,8 @@ export function EnergyPage({ state, house = null, propertyId: requestedPropertyI
   const rollingSummaryQuery = useHomeEnergySummaryQuery(
     house?.id ?? "", "month", 30 * 24 * 3_600_000, summariesEnabled, 5 * 60_000,
   );
+  const homePriceQuery = useHouseElectricityPriceQuery(house?.id ?? "", Boolean(house));
+  const homePrice = house ? homePriceQuery.data ?? null : null;
   const dailySummary = dailySummaryQuery.data ?? null;
   const energyCost = energyCostQuery.data ?? null;
   const rollingSummary = rollingSummaryQuery.data ?? null;
@@ -214,23 +216,15 @@ export function EnergyPage({ state, house = null, propertyId: requestedPropertyI
   useEffect(() => {
     const generation = ++priceContextGeneration.current;
     setPropertyPrice(null);
-    setHomePrice(null);
     setPriceHistory([]);
     setPriceHistoryBusy(false);
     setPriceHistoryError(false);
     setPriceDraft(emptyPriceDraft());
     setPriceBusy(false);
     setPriceFeedback(null);
-    if (house) {
-      void api.houseElectricityPrice(house.id).then((result) => {
-        if (priceContextGeneration.current === generation) setHomePrice(result.current);
-      }).catch(() => {
-        if (priceContextGeneration.current === generation) {
-          setPriceFeedback({ kind: "error", text: t("energy.priceLoadError") });
-        }
-      });
-      return;
-    }
+    // Home scope reads the current price through useHouseElectricityPriceQuery,
+    // which retries and refreshes; only the Property contract form loads here.
+    if (house) return;
     if (!propertyId) return;
     void api.propertyElectricity(propertyId).then((result) => {
       if (priceContextGeneration.current !== generation) return;
