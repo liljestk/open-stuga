@@ -4,6 +4,20 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.40.1 - 2026-08-31
+
+- Add an operator tool that diagnoses and repairs the appliance Tailscale
+  connection over SSH. It reports the tailscaled service state, whether
+  /var/lib/tailscale is backed by the persistent shared partition, the
+  operator assignment, and the Tailnet login in one pass, and can complete a
+  recoverable login. It refuses to continue when the service or the persistent
+  mount needs host maintenance rather than reconnecting onto state that will
+  be lost at the next update.
+
+Upgrade impact: developer tooling only. No API, web, contract, or appliance
+image behaviour changes, so no update needs to be installed on a running
+appliance.
+
 ## 0.40.0 - 2026-08-26
 
 - Keep application updates installable while the update feed's trust metadata
