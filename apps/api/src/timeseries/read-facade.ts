@@ -63,6 +63,7 @@ import {
   mapWithConcurrency,
   positiveLimit,
   unique,
+  yieldToEventLoop,
   type HybridArchiveReadState,
   type HybridMeasurementCoverageResult,
   type HybridTelemetryFamily,
@@ -122,6 +123,14 @@ export interface LocalTelemetryReader {
     sensorId: string, from: string, to: string, bucketMinutes?: number, limitPerMetric?: number,
   ): MeasurementSample[];
   measurementWindow(sensorIds: string[], metrics: string[], from: string, to: string, limit?: number): MeasurementSample[];
+  measurementWindowPage?(
+    sensorIds: string[],
+    metrics: string[],
+    from: string,
+    to: string,
+    limit: number,
+    before?: { timestamp: string; id: number } | null,
+  ): { samples: MeasurementSample[]; next: { timestamp: string; id: number } | null };
   history(sensorIds: string[], from: string, to: string, limit?: number): Reading[];
   outdoorTemperatureHistory(
     houseId: string,
@@ -219,6 +228,16 @@ function qualityWeightedThermalBuckets(
     .slice(-limitPerMetric))
     .sort(compareMeasurements);
 }
+
+/**
+ * Rows fetched per synchronous SQLite statement while assembling a large local
+ * window. Sized so one page stays around 100 ms on a Raspberry Pi; the
+ * assembly loop yields between pages.
+ */
+const LOCAL_WINDOW_PAGE_ROWS = 5_000;
+
+/** Records merged or partitioned between event-loop yields in bulk paths. */
+export const BULK_RECORDS_PER_SLICE = 25_000;
 
 export class HybridTelemetryReader {
   readonly #local: LocalTelemetryReader;
@@ -405,13 +424,14 @@ export class HybridTelemetryReader {
       ).filter((sample) => requestedMetrics.has(sample.metric));
     } else {
       local = bucketMeasurementSamples(
-        this.#local.measurementWindow(
+        (await this.#localMeasurementWindow(
           [query.sensorId],
           metrics,
           query.from,
           query.to,
           MAX_WINDOW_LIMIT,
-        ).filter((sample) => sample.quality !== "stale" && sample.source !== "replay"),
+          query.signal,
+        )).filter((sample) => sample.quality !== "stale" && sample.source !== "replay"),
         bucketMinutes * 60,
       );
     }
@@ -487,7 +507,7 @@ export class HybridTelemetryReader {
     const metrics = unique(query.metrics);
     const cancellation = aborted(query.signal);
     if (cancellation) throw cancellation;
-    const local = this.#local.measurementWindow(sensorIds, metrics, query.from, query.to, limit);
+    const local = await this.#localMeasurementWindow(sensorIds, metrics, query.from, query.to, limit, query.signal);
     return this.#read({
       family: "measurement",
       from: query.from,
@@ -718,6 +738,50 @@ export class HybridTelemetryReader {
     });
   }
 
+  /**
+   * Assembles a local window from bounded keyset pages, yielding between
+   * pages, so a quarter-million-row window can no longer monopolize the event
+   * loop for the whole read. Falls back to the one-shot local read for
+   * stores that do not page.
+   */
+  async #localMeasurementWindow(
+    sensorIds: string[],
+    metrics: string[],
+    from: string,
+    to: string,
+    limit: number,
+    signal: AbortSignal | undefined,
+  ): Promise<MeasurementSample[]> {
+    const readPage = this.#local.measurementWindowPage;
+    if (!readPage) return this.#local.measurementWindow(sensorIds, metrics, from, to, limit);
+    const newestFirst: MeasurementSample[] = [];
+    let cursor: { timestamp: string; id: number } | null = null;
+    for (;;) {
+      const page: {
+        samples: MeasurementSample[];
+        next: { timestamp: string; id: number } | null;
+      } = readPage.call(
+        this.#local,
+        sensorIds,
+        metrics,
+        from,
+        to,
+        Math.min(LOCAL_WINDOW_PAGE_ROWS, limit - newestFirst.length),
+        cursor,
+      );
+      for (const sample of page.samples) newestFirst.push(sample);
+      cursor = page.next;
+      if (!cursor || newestFirst.length >= limit) break;
+      await yieldToEventLoop();
+      const cancellation = aborted(signal);
+      if (cancellation) throw cancellation;
+    }
+    // Pages descend from the newest sample, so the reversal reproduces the
+    // one-shot contract: the newest `limit` rows in ascending (timestamp, id)
+    // order.
+    return newestFirst.reverse();
+  }
+
   async #read<T extends { source: string }>(input: {
     family: HybridTelemetryFamily;
     from: string;
@@ -760,13 +824,26 @@ export class HybridTelemetryReader {
     const filteredArchive = realMode ? archived.filter((record) => !isSyntheticSource(record.source)) : archived;
     const archiveFilteredCount = archived.length - filteredArchive.length;
     const merged = new Map<string, T>();
-    for (const record of filteredArchive) merged.set(input.key(record), record);
+    // Large hybrid merges hand the loop back periodically; small reads never
+    // reach the slice boundary and stay fully synchronous.
+    let sliceRemaining = BULK_RECORDS_PER_SLICE;
+    for (const record of filteredArchive) {
+      merged.set(input.key(record), record);
+      if (--sliceRemaining === 0) {
+        sliceRemaining = BULK_RECORDS_PER_SLICE;
+        await yieldToEventLoop();
+      }
+    }
     for (const record of filteredLocal) {
       const key = input.key(record);
       const existing = merged.get(key);
       merged.set(key, existing && input.mergeDuplicate
         ? input.mergeDuplicate(existing, record)
         : record);
+      if (--sliceRemaining === 0) {
+        sliceRemaining = BULK_RECORDS_PER_SLICE;
+        await yieldToEventLoop();
+      }
     }
     const duplicates = filteredArchive.length + filteredLocal.length - merged.size;
     const records = [...merged.values()].sort(input.compare).slice(-input.limit);

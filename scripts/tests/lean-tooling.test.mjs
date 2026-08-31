@@ -449,6 +449,11 @@ test("Pi diagnosis accepts a completed host check with no newer signed target", 
   assert.match(updater?.summary ?? "", /no newer signed target is available/u);
 
   evidence.updater.status = { phase: "failed", errorCode: "TRUST_VERIFICATION_FAILED" };
+  const feedDegraded = diagnoseEvidence(evidence).checks.find((item) => item.id === "UPDATER");
+  assert.equal(feedDegraded?.status, "warning");
+  assert.match(feedDegraded?.summary ?? "", /application updates are unaffected/u);
+
+  evidence.updater.status = { phase: "failed", errorCode: "UPDATE_APPLY_FAILED" };
   assert.equal(
     diagnoseEvidence(evidence).checks.find((item) => item.id === "UPDATER")?.status,
     "fail",

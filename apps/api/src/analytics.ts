@@ -15,6 +15,10 @@ import type {
   QualityFlag,
 } from "@climate-twin/contracts";
 import type { HybridArchiveReadState } from "./timeseries/read-facade.js";
+import { yieldToEventLoop } from "./timeseries/read-support.js";
+
+/** Samples processed between event-loop yields while shaping a response. */
+const SAMPLES_PER_SLICE = 25_000;
 
 const MAX_CUSTOM_RESOLUTION_MINUTES = 1_440;
 
@@ -429,25 +433,30 @@ function rawPoints(samples: readonly MeasurementSample[], rangeSeconds: number):
   }));
 }
 
-function bucketPoints(
+async function bucketPoints(
   samples: readonly MeasurementSample[],
   start: number,
   end: number,
   resolution: BucketResolution,
   aggregation: Exclude<AnalyticsAggregation, "default">,
-): AnalyticsPoint[] {
+): Promise<AnalyticsPoint[]> {
   const bucketMs = analyticsResolutionSeconds(resolution) * 1_000;
   const firstBucket = Math.floor(start / bucketMs) * bucketMs;
   const rangeSeconds = (end - start) / 1_000;
   const cadenceSeconds = analyticsBucketCadenceSeconds(samples.length, rangeSeconds);
   const expectedPerBucket = Math.max(1, bucketMs / 1_000 / cadenceSeconds);
   const byBucket = new Map<number, MeasurementSample[]>();
+  let sliceRemaining = SAMPLES_PER_SLICE;
   for (const sample of samples) {
     const timestamp = Date.parse(sample.timestamp);
     const bucket = Math.floor(timestamp / bucketMs) * bucketMs;
     const values = byBucket.get(bucket) ?? [];
     values.push(sample);
     byBucket.set(bucket, values);
+    if (--sliceRemaining === 0) {
+      sliceRemaining = SAMPLES_PER_SLICE;
+      await yieldToEventLoop();
+    }
   }
   const points: AnalyticsPoint[] = [];
   let previousCounterSample: MeasurementSample | undefined;
@@ -621,7 +630,7 @@ export interface BuildAnalyticsResponseInput {
   generatedAt?: string;
 }
 
-export function buildAnalyticsResponse(input: BuildAnalyticsResponseInput): AnalyticsQueryResponse {
+export async function buildAnalyticsResponse(input: BuildAnalyticsResponseInput): Promise<AnalyticsQueryResponse> {
   const generatedAt = input.generatedAt ?? new Date().toISOString();
   const { resolution, maxPointsPerSeries: maxPoints } = resolveAnalyticsQueryShape({
     request: input.request,
@@ -632,32 +641,40 @@ export function buildAnalyticsResponse(input: BuildAnalyticsResponseInput): Anal
   const rangeSeconds = (end - start) / 1_000;
   const includedQualities = input.request.qualityFilter?.include ?? ["good", "estimated", "stale"];
   const includedQualitySet = new Set(includedQualities);
-  // Analytics ranges are half-open. Filtering here keeps aggregation correct even
-  // when a telemetry backend uses an inclusive upper bound for its read window.
-  const rangeSamples = input.samples.filter((sample) => {
+  const definitions = new Map(input.definitions.map((definition) => [definition.id, definition]));
+  // One yielding pass applies the half-open range (aggregation stays correct
+  // even when a telemetry backend uses an inclusive upper read bound), the
+  // quality filter, and the per-series partition that keeps the series loop
+  // linear in the sample count — without pinning the event loop for a whole
+  // quarter-million-sample window.
+  const samplesBySeries = new Map<string, MeasurementSample[]>();
+  let rangeSampleCount = 0;
+  let includedSampleCount = 0;
+  let sliceRemaining = SAMPLES_PER_SLICE;
+  for (const sample of input.samples) {
+    if (--sliceRemaining === 0) {
+      sliceRemaining = SAMPLES_PER_SLICE;
+      await yieldToEventLoop();
+    }
     const timestamp = Date.parse(sample.timestamp);
-    return timestamp >= start && timestamp < end;
-  });
-  const includedSamples = rangeSamples.filter((sample) => includedQualitySet.has(sample.quality));
-  const excludedSampleCount = rangeSamples.length - includedSamples.length;
+    if (timestamp < start || timestamp >= end) continue;
+    rangeSampleCount += 1;
+    if (!includedQualitySet.has(sample.quality)) continue;
+    includedSampleCount += 1;
+    const key = analyticsSeriesKey(sample.sensorId, sample.metric);
+    const bucket = samplesBySeries.get(key);
+    if (bucket) bucket.push(sample);
+    else samplesBySeries.set(key, [sample]);
+  }
+  const excludedSampleCount = rangeSampleCount - includedSampleCount;
   // Bucketed sizes are bounded by the shared shape guard above. Raw responses
   // are bounded by their own sample count, which is only known here.
-  if (resolution === "raw" && includedSamples.length > MAX_INTERACTIVE_OUTPUT_POINTS) {
+  if (resolution === "raw" && includedSampleCount > MAX_INTERACTIVE_OUTPUT_POINTS) {
     throw new AnalyticsQueryError(
       422,
       "ANALYTICS_QUERY_TOO_LARGE",
       `The interactive response would exceed ${MAX_INTERACTIVE_OUTPUT_POINTS} points; reduce the entity, measurement, or time scope`,
     );
-  }
-  const definitions = new Map(input.definitions.map((definition) => [definition.id, definition]));
-  // Partitioning once keeps the series loop linear in the sample count. Filtering
-  // the whole window per series made a wide query O(series x samples).
-  const samplesBySeries = new Map<string, MeasurementSample[]>();
-  for (const sample of includedSamples) {
-    const key = analyticsSeriesKey(sample.sensorId, sample.metric);
-    const bucket = samplesBySeries.get(key);
-    if (bucket) bucket.push(sample);
-    else samplesBySeries.set(key, [sample]);
   }
   const series: AnalyticsSeries[] = [];
 
@@ -677,7 +694,7 @@ export function buildAnalyticsResponse(input: BuildAnalyticsResponseInput): Anal
       }
       const points = resolution === "raw"
         ? rawPoints(samples, rangeSeconds)
-        : bucketPoints(samples, start, end, resolution, aggregation);
+        : await bucketPoints(samples, start, end, resolution, aggregation);
       const provenance = {
         algorithmKey: resolution === "raw" ? "analytics-raw-series" : "analytics-bucket-rollup",
         algorithmVersion: "1.0.0",

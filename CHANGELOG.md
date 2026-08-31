@@ -4,6 +4,29 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.40.3 - 2026-08-31
+
+- Keep the API responsive while analytics evidence is read. The System page's
+  "API responsiveness" p95 scheduling delay could reach seconds whenever
+  telemetry coverage or large measurement windows were computed, because both
+  ran as single synchronous SQLite statements that grow with retained history —
+  on an appliance with two months of telemetry the coverage scan alone held
+  the event loop for over a minute. Coverage is now two index probes per
+  sensor/metric pair (constant time regardless of retained history), and large
+  measurement windows are read in bounded pages that hand the event loop back
+  between pages.
+- Yield to the event loop while analytics responses are shaped and while
+  hybrid local/archive reads are merged, so nightly Home Performance
+  derivation and wide dashboard queries no longer freeze ingestion, health
+  sampling, and interactive requests for seconds at a time.
+- Align the appliance doctor's regression test with the 0.40.0 behavior that
+  reports feed-scoped host updater faults as warnings; the stale expectation
+  failed the local verification gate on every branch.
+
+Upgrade impact: application-only patch. Existing telemetry, databases,
+configuration, and durable analytics are retained; no schema rewrite, signed
+host update, or factory image is required.
+
 ## 0.40.1 - 2026-08-31
 
 - Add an operator tool that diagnoses and repairs the appliance Tailscale

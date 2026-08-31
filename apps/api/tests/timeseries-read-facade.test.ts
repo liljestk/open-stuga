@@ -609,6 +609,69 @@ describe("HybridTelemetryReader", () => {
     expect(result.provenance.duplicateRecordCount).toBe(1);
   });
 
+  it("assembles the local window from keyset pages when the store can page", async () => {
+    const pages = [
+      {
+        samples: [
+          measurement("2026-07-18T00:30:00.000Z", 3, "api"),
+          measurement("2026-07-18T00:20:00.000Z", 2, "api"),
+        ],
+        next: { timestamp: "2026-07-18T00:20:00.000Z", id: 12 },
+      },
+      { samples: [measurement("2026-07-18T00:10:00.000Z", 1, "api")], next: null },
+    ];
+    const measurementWindowPage = vi.fn(() => pages.shift()!);
+    const measurementWindow = vi.fn(() => []);
+    const reader = new HybridTelemetryReader({
+      local: localReader({ measurementWindow, measurementWindowPage }),
+    });
+
+    const result = await reader.measurementWindow({
+      sensorIds: ["sensor-a"],
+      metrics: ["temperature"],
+      from: FROM,
+      to: TO,
+      limit: 100,
+    });
+
+    expect(measurementWindow).not.toHaveBeenCalled();
+    expect(measurementWindowPage).toHaveBeenCalledTimes(2);
+    expect(measurementWindowPage).toHaveBeenNthCalledWith(1, ["sensor-a"], ["temperature"], FROM, TO, 100, null);
+    expect(measurementWindowPage).toHaveBeenNthCalledWith(
+      2,
+      ["sensor-a"],
+      ["temperature"],
+      FROM,
+      TO,
+      98,
+      { timestamp: "2026-07-18T00:20:00.000Z", id: 12 },
+    );
+    expect(result.records.map((item) => item.value)).toEqual([1, 2, 3]);
+  });
+
+  it("stops paging the local window when the request is aborted", async () => {
+    const controller = new AbortController();
+    const measurementWindowPage = vi.fn(() => {
+      controller.abort(new DOMException("Client disconnected", "AbortError"));
+      return {
+        samples: [measurement("2026-07-18T00:20:00.000Z", 2, "api")],
+        next: { timestamp: "2026-07-18T00:20:00.000Z", id: 7 },
+      };
+    });
+    const reader = new HybridTelemetryReader({
+      local: localReader({ measurementWindowPage }),
+    });
+
+    await expect(reader.measurementWindow({
+      sensorIds: ["sensor-a"],
+      metrics: ["temperature"],
+      from: FROM,
+      to: TO,
+      signal: controller.signal,
+    })).rejects.toMatchObject({ name: "AbortError" });
+    expect(measurementWindowPage).toHaveBeenCalledTimes(1);
+  });
+
   it("catches up the archive before serving a non-mergeable analytics rollup", async () => {
     let phase = "syncing";
     const reconcile = vi.fn(async () => { phase = "ready"; });
