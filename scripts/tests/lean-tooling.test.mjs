@@ -448,7 +448,14 @@ test("Pi diagnosis accepts a completed host check with no newer signed target", 
   assert.equal(updater?.status, "pass");
   assert.match(updater?.summary ?? "", /no newer signed target is available/u);
 
+  // Feed-scoped trust metadata faults degrade to a warning since 0.40.0;
+  // faults that describe the machine itself still fail hard.
   evidence.updater.status = { phase: "failed", errorCode: "TRUST_VERIFICATION_FAILED" };
+  assert.equal(
+    diagnoseEvidence(evidence).checks.find((item) => item.id === "UPDATER")?.status,
+    "warning",
+  );
+  evidence.updater.status = { phase: "failed", errorCode: "INSTALL_FAILED" };
   assert.equal(
     diagnoseEvidence(evidence).checks.find((item) => item.id === "UPDATER")?.status,
     "fail",
