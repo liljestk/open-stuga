@@ -4,6 +4,31 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.40.4 - 2026-08-31
+
+- Show the full requested range in electricity and sensor history charts.
+  Bucketed history reads previously fell back to a raw read capped at the
+  newest 100,000 rows for windows longer than a day, so a plug polled every
+  two seconds showed only about 2.3 days of a 7/30/90-day chart, and the 6h
+  view was cut to its newest hours. Every range is now served as exact UTC
+  buckets over the whole window: local SQLite work is tiled into day-scale
+  statements that yield between chunks, and the TimescaleDB archive aggregates
+  long histories in one query. When a recent archive reconcile pass is proven,
+  SQLite only serves the hot tail instead of rescanning months of rows.
+- Stop blanking the combined electricity chart when sensor coverage differs.
+  Plugs that report on change plus a heartbeat no longer lose chart intervals
+  to bucket phase (their last value is held for up to the same 15 minutes the
+  server-side cost integration uses), and a source with no data in the range
+  is excluded from the combined view with an explanatory note instead of
+  hiding every interval. A note also appears when the server reports that a
+  loaded series was cut short.
+
+Upgrade impact: application-only release. Existing telemetry, configuration,
+and durable analytics are retained; no schema rewrite, signed host update, or
+factory image is required. Long-range charts may take a few seconds longer on
+first load while the archive aggregates a full window, and history responses
+now describe the whole requested range instead of silently ending early.
+
 ## 0.40.1 - 2026-08-31
 
 - Add an operator tool that diagnoses and repairs the appliance Tailscale

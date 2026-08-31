@@ -196,6 +196,8 @@ export const enPart2 = {
   "energy.chartCombinedAverage": "Combined average",
   "energy.chartAria": "{metric} history for {source}",
   "energy.chartCompleteIntervals": "Combined totals are shown only where every selected sensor reported.",
+  "energy.chartSourcesWithoutData": "{count} selected sources have no data in this range and are left out of the combined view.",
+  "energy.chartTruncatedRange": "Some history in this range could not be loaded; the chart may be missing older values.",
   "energy.noSource": "No source configured",
   "energy.sourcesTitle": "Electricity sources",
   "energy.editSources": "Edit sources",

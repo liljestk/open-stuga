@@ -404,6 +404,8 @@ export const svPart2 = {
   "energy.chartCombinedAverage": "Kombinerat medelvärde",
   "energy.chartAria": "{metric}-historik för {source}",
   "energy.chartCompleteIntervals": "Kombinerade totaler visas bara där alla valda sensorer rapporterade.",
+  "energy.chartSourcesWithoutData": "{count} valda källor saknar data för det här intervallet och ingår inte i den kombinerade vyn.",
+  "energy.chartTruncatedRange": "En del av historiken för det här intervallet kunde inte läsas in; äldre värden kan saknas i diagrammet.",
   "energy.noSource": "Ingen källa konfigurerad",
   "energy.sourcesTitle": "Elkällor",
   "energy.editSources": "Redigera källor",

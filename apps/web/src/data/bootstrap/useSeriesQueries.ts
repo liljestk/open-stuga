@@ -56,6 +56,7 @@ export function useSeriesQueries(
             loadedFrom: previous?.loadedFrom ?? null,
             loadedTo: previous?.loadedTo ?? null,
             partial: previous?.partial ?? false,
+            truncated: previous?.truncated ?? false,
           },
         };
       });
@@ -65,7 +66,7 @@ export function useSeriesQueries(
           ...current,
           [seriesKey]: {
             ...(current[seriesKey] ?? {
-              forecastError: null, loadedFrom: null, loadedTo: null, partial: false,
+              forecastError: null, loadedFrom: null, loadedTo: null, partial: false, truncated: false,
             }),
             status: "error",
             error: errorMessage(error, "History data is temporarily unavailable"),
@@ -147,6 +148,7 @@ export function useSeriesQueries(
               loadedTo,
               partial: loaded.history.truncated
                 || (loadedFrom !== null && Date.parse(loadedFrom) > from.getTime() + (loaded.history.bucketSeconds ?? 0) * 1_000),
+              truncated: loaded.history.truncated,
             },
           }));
           return;
@@ -217,6 +219,7 @@ export function useSeriesQueries(
             loadedFrom,
             loadedTo,
             partial: refreshedHistory.length >= limit && loadedFrom !== null && Date.parse(loadedFrom) > from.getTime(),
+            truncated: refreshedHistory.length >= limit && loadedFrom !== null && Date.parse(loadedFrom) > from.getTime(),
           },
         }));
       } finally {

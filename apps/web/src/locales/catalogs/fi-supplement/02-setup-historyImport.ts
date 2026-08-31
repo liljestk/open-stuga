@@ -164,6 +164,8 @@ export const fiSupplementPart2 = {
   "energy.chartCombinedAverage": "Yhdistetty keskiarvo",
   "energy.chartAria": "{metric}-historia: {source}",
   "energy.chartCompleteIntervals": "Yhdistetty kokonaismäärä näytetään vain ajankohdissa, joista kaikki valitut anturit raportoivat.",
+  "energy.chartSourcesWithoutData": "{count} valittua lähdettä ei ole tallentanut arvoja tälle aikavälille, joten ne eivät ole mukana yhdistetyssä näkymässä.",
+  "energy.chartTruncatedRange": "Osaa tämän aikavälin historiasta ei voitu ladata; kaaviosta voi puuttua vanhimpia arvoja.",
   "energy.noSource": "Tietolähdettä ei ole määritetty",
   "energy.sourcesTitle": "Sähkön tietolähteet",
   "energy.editSources": "Muokkaa lähteitä",

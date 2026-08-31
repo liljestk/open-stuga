@@ -68,6 +68,12 @@ export interface SeriesLoadState {
   loadedFrom: string | null;
   loadedTo: string | null;
   partial: boolean;
+  /**
+   * True only when the server reported cutting the response. `partial` also
+   * covers series whose recorded data simply starts inside the window, so it
+   * cannot distinguish a young sensor from dropped coverage.
+   */
+  truncated: boolean;
 }
 
 export interface HistoricalSeriesWindow {
@@ -312,12 +318,16 @@ export function seriesLimit(range: TimeRange): number {
 }
 
 export function seriesBucketSeconds(range: TimeRange): number | undefined {
+  // Every range is bucketed so the server covers the whole window with a
+  // bounded number of samples. A raw 6h read of a 2-second poller holds more
+  // rows than the raw page limit and would silently lose its oldest hours;
+  // 15-second buckets are still finer than anything a 6h chart can render.
+  if (range === "6h") return 15;
   if (range === "24h") return 60;
   if (range === "7d") return 60;
   if (range === "30d") return 5 * 60;
   if (range === "90d") return 15 * 60;
-  if (range === "1y") return 60 * 60;
-  return undefined;
+  return 60 * 60;
 }
 
 export function errorMessage(error: unknown, fallback: string): string {

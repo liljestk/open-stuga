@@ -33,8 +33,13 @@ function apiError(status: number, code: string | null, message: string): Error {
 }
 
 describe("historical series retention", () => {
-  it("requests one-minute server buckets for 24-hour history", () => {
+  it("requests bounded server buckets for every range so responses cover the whole window", () => {
+    expect(seriesBucketSeconds("6h")).toBe(15);
     expect(seriesBucketSeconds("24h")).toBe(60);
+    expect(seriesBucketSeconds("7d")).toBe(60);
+    expect(seriesBucketSeconds("30d")).toBe(300);
+    expect(seriesBucketSeconds("90d")).toBe(900);
+    expect(seriesBucketSeconds("1y")).toBe(3_600);
   });
 
   it("recognizes only explicit compatibility responses for the legacy projection", () => {

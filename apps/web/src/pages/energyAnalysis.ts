@@ -122,6 +122,41 @@ export function electricityUsageSeries(
   return counter.length ? counter : integratedPowerSeries(samplesFor(state, sensorId, "power"), from, to);
 }
 
+/**
+ * Zero-order-hold fill for instantaneous metrics. Integrations write a sample
+ * only on change plus a periodic heartbeat, so a steady load can legitimately
+ * skip chart buckets while it is still being measured. Empty buckets between
+ * samples borrow the last known value, bounded by the same 15-minute hold the
+ * server-side cost integration uses, so heartbeat phase never reads as an
+ * outage — while a genuinely silent sensor still leaves an honest gap.
+ */
+export function holdSeriesForBuckets(
+  points: readonly SeriesPoint[],
+  bucketMs: number,
+  from: number,
+  to: number,
+  holdMs = POWER_HOLD_MS,
+): SeriesPoint[] {
+  if (!points.length) return [...points];
+  const realBuckets = new Set<number>();
+  for (const point of points) realBuckets.add(Math.floor(point.timestamp / bucketMs));
+  const result = [...points];
+  let cursor = 0;
+  const firstBucket = Math.floor(Math.max(points[0]!.timestamp, from) / bucketMs);
+  const lastBucket = Math.floor(Math.min(to, points.at(-1)!.timestamp + holdMs) / bucketMs);
+  for (let bucket = firstBucket; bucket <= lastBucket; bucket += 1) {
+    if (realBuckets.has(bucket)) continue;
+    const bucketStart = bucket * bucketMs;
+    while (cursor + 1 < points.length && points[cursor + 1]!.timestamp < bucketStart) cursor += 1;
+    const last = points[cursor]!;
+    if (last.timestamp >= bucketStart) continue;
+    if (bucketStart - last.timestamp > holdMs) continue;
+    if (bucketStart < from || bucketStart > to) continue;
+    result.push({ timestamp: bucketStart, value: last.value });
+  }
+  return result.sort((left, right) => left.timestamp - right.timestamp);
+}
+
 /** Sum cumulative series at shared bucket boundaries using last-known values. */
 export function aggregateCumulativeSeries(
   series: Array<{ sensorId: string; points: SeriesPoint[] }>,

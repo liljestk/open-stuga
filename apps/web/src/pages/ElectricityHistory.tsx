@@ -22,7 +22,7 @@ import { definitionFor, formatMeasurement, measurementLabel } from "../measureme
 import { useI18n } from "../i18n";
 import { useNow } from "../useNow";
 import { seriesStateKey, type SeriesLoadState } from "../useClimateData";
-import { aggregateCumulativeSeries, electricityUsageSeries } from "./energyAnalysis";
+import { aggregateCumulativeSeries, electricityUsageSeries, holdSeriesForBuckets } from "./energyAnalysis";
 
 export const ELECTRICITY_METRICS = ["power", "energy", "electricity_price"] as const;
 export type ElectricityMetric = typeof ELECTRICITY_METRICS[number];
@@ -164,17 +164,31 @@ export function ElectricityHistory(props: Readonly<ElectricityHistoryProps>) {
       : observedSeries(sensor.id, props.metric, props.state, from),
   })), [activeSensorKey, from, now, props.metric, props.state]);
   const aggregateResult = useMemo(() => {
-    const input = observed.map(({ sensor, points: sensorPoints }) => ({ sensorId: sensor.id, points: sensorPoints }));
+    // Sensors without a single sample in the window cannot contribute and must
+    // not blank the whole combined chart; they are excluded and called out.
+    // Instantaneous metrics get a zero-order-hold fill so change-plus-heartbeat
+    // reporters still cover every bucket their value was valid for.
+    const withData = observed.filter(({ points: sensorPoints }) => sensorPoints.length > 0);
+    const bucketMs = bucketMilliseconds(props.range);
+    const input = withData.map(({ sensor, points: sensorPoints }) => ({
+      sensorId: sensor.id,
+      points: props.metric === "energy" ? sensorPoints : holdSeriesForBuckets(sensorPoints, bucketMs, from, now),
+    }));
     const points = props.metric === "energy"
-      ? aggregateCumulativeSeries(input, bucketMilliseconds(props.range))
+      ? aggregateCumulativeSeries(input, bucketMs)
       : aggregateObservedSeries(
         input,
-        bucketMilliseconds(props.range),
+        bucketMs,
         props.metric === "electricity_price" ? "mean" : "sum",
       );
-    const complete = points.filter((point) => point.sensorCount === activeSensors.length);
-    return { points: complete, partialCount: points.length - complete.length };
-  }, [activeSensors.length, observed, props.metric, props.range]);
+    const complete = points.filter((point) => point.sensorCount === withData.length);
+    return {
+      points: complete,
+      partialCount: points.length - complete.length,
+      reportingCount: withData.length,
+      excludedCount: observed.length - withData.length,
+    };
+  }, [from, now, observed, props.metric, props.range]);
   const aggregate = aggregateResult.points;
   const plottedObserved = mode === "combined" ? [] : observed;
   const plottedAggregate = mode === "combined" ? aggregate : [];
@@ -220,6 +234,7 @@ export function ElectricityHistory(props: Readonly<ElectricityHistoryProps>) {
   const loading = loadStates.some((state) => state.status === "loading")
     || (props.metric === "electricity_price" && props.priceLoading === true);
   const errors = loadStates.filter((state) => state.status === "error");
+  const truncatedSeries = loadStates.some((state) => state.truncated);
   const dataRows = [
     ...(mode === "combined"
       ? aggregate.map((point, index) => ({ id: `combined-${point.timestamp}-${index}`, source: sourceTitle, point }))
@@ -288,7 +303,7 @@ export function ElectricityHistory(props: Readonly<ElectricityHistoryProps>) {
             </div>
           </details>}
           {!propertyOnly && mode === "combined" && <div className="energy-combined-source" aria-labelledby={sourceLabelId}>{metricSensors.length
-            ? t("energy.combinedSources", { count: metricSensors.length, total: metricSensors.length })
+            ? t("energy.combinedSources", { count: aggregateResult.reportingCount, total: metricSensors.length })
             : t("energy.waitingForSource")}</div>}
         </div>
       </div>
@@ -329,6 +344,8 @@ export function ElectricityHistory(props: Readonly<ElectricityHistoryProps>) {
       /> : <div className="empty-state">{loading ? t("chart.loading") : t("common.noData")}</div>}
       {(errors.length > 0 || (props.metric === "electricity_price" && props.priceError)) && <p className="inline-error" role="alert">{t("chart.loadError")}</p>}
       {mode === "combined" && aggregateResult.partialCount > 0 && <p className="chart-capability-note">{t("energy.chartCompleteIntervals")}</p>}
+      {mode === "combined" && !loading && aggregateResult.excludedCount > 0 && aggregateResult.reportingCount > 0 && <p className="chart-capability-note">{t("energy.chartSourcesWithoutData", { count: aggregateResult.excludedCount })}</p>}
+      {truncatedSeries && <p className="chart-capability-note">{t("energy.chartTruncatedRange")}</p>}
       {dataRows.length > 0 && <details className="chart-data-disclosure" open={dataOpen}>
         <summary onClick={(event) => { event.preventDefault(); setDataOpen((current) => !current); }}>{t("common.showDataTable")}</summary>
         {dataOpen && <div className="chart-data-table-wrap" role="region" aria-label={chartLabel} tabIndex={0}>
