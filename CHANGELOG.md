@@ -4,7 +4,7 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
-## 0.41.0 - 2026-08-31
+## 0.41.0 - 2026-09-04
 
 - Keep thermal isolation and moisture response comparisons alive on homes with
   a cloud-connected Gree/Wilfa heat pump. The EWPE cloud poller previously
