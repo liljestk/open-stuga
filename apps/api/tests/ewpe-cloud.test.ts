@@ -1,5 +1,15 @@
-import { describe, expect, it } from "vitest";
-import { buildEwpeRequestBody, normalizeEwpeState } from "../src/ewpe-cloud.js";
+import { getEventListeners } from "node:events";
+import type { MqttClient } from "mqtt";
+import { describe, expect, it, vi } from "vitest";
+import {
+  attachAbortToClient,
+  buildEwpeRequestBody,
+  normalizeEwpeState,
+  runEwpeMonitorLoop,
+  stopClient,
+  type EwpeCloudSnapshot,
+  type EwpeMonitorSession,
+} from "../src/ewpe-cloud.js";
 
 describe("EWPE Smart cloud protocol", () => {
   it("builds the observed deterministic request verification fields", () => {
@@ -114,5 +124,141 @@ describe("EWPE Smart cloud protocol", () => {
       activity: "off",
       activityEvidence: "protocol",
     });
+  });
+});
+
+describe("EWPE monitor loop resilience", () => {
+  const snapshot = { device: { mac: "AABBCCDDEEFF" }, state: { available: true } } as unknown as EwpeCloudSnapshot;
+
+  function harness(queryPlan: Array<"ok" | "fail">, connectPlan: Array<"ok" | "fail"> = []) {
+    let calls = 0;
+    const closed: number[] = [];
+    const session: EwpeMonitorSession<number> = {
+      connect: vi.fn(async () => {
+        calls += 1;
+        if (connectPlan.shift() === "fail") throw new Error("EWPE MQTT connection failed");
+        return calls;
+      }),
+      query: vi.fn(async () => {
+        const step = queryPlan.shift();
+        if (step === "fail") throw new Error("EWPE live-state response timed out");
+        return snapshot;
+      }),
+      close: vi.fn(async (link: number) => { closed.push(link); }),
+    };
+    return { session, closed, links: () => calls };
+  }
+
+  it("rebuilds the link after a transient poll failure instead of ending the session", async () => {
+    const { session, closed } = harness(["ok", "fail", "ok"]);
+    const controller = new AbortController();
+    const snapshots: EwpeCloudSnapshot[] = [];
+    const run = runEwpeMonitorLoop(
+      session,
+      { pollIntervalMs: 5, retryDelayMs: 1 },
+      controller.signal,
+      (received) => {
+        snapshots.push(received);
+        if (snapshots.length === 2) controller.abort();
+      },
+    );
+    await expect(run).resolves.toBeUndefined();
+    expect(snapshots).toHaveLength(2);
+    expect(session.connect).toHaveBeenCalledTimes(2);
+    expect(closed).toEqual([1, 2]);
+  });
+
+  it("ends the session only after a sustained failure streak", async () => {
+    const { session, closed, links } = harness(["fail", "fail", "fail"]);
+    const controller = new AbortController();
+    const onPollFailure = vi.fn();
+    await expect(runEwpeMonitorLoop(
+      session,
+      { pollIntervalMs: 5, retryDelayMs: 1, onPollFailure },
+      controller.signal,
+      () => { throw new Error("no snapshot should arrive"); },
+    )).rejects.toThrow("EWPE live-state response timed out");
+    expect(session.query).toHaveBeenCalledTimes(3);
+    expect(links()).toBe(3);
+    expect(closed).toEqual([1, 2, 3]);
+    expect(onPollFailure).toHaveBeenCalledTimes(3);
+  });
+
+  it("counts a failed reconnect toward the streak instead of ending the session", async () => {
+    const { session, closed } = harness(["fail", "ok"], ["ok", "fail", "ok"]);
+    const controller = new AbortController();
+    const failures: string[] = [];
+    const snapshots: EwpeCloudSnapshot[] = [];
+    await expect(runEwpeMonitorLoop(
+      session,
+      { pollIntervalMs: 5, retryDelayMs: 1, onPollFailure: (error) => { failures.push((error as Error).message); } },
+      controller.signal,
+      (received) => {
+        snapshots.push(received);
+        controller.abort();
+      },
+    )).resolves.toBeUndefined();
+    expect(snapshots).toHaveLength(1);
+    expect(session.connect).toHaveBeenCalledTimes(3);
+    expect(failures).toEqual(["EWPE live-state response timed out", "EWPE MQTT connection failed"]);
+    // The link dropped after the first failure is closed once; the failed
+    // rebuild leaves nothing to close, and the final link closes on abort.
+    expect(closed).toEqual([1, 3]);
+  });
+
+  it("ends the session once reconnects keep failing, without closing a link twice", async () => {
+    const { session, closed } = harness(["fail"], ["ok", "fail", "fail"]);
+    const controller = new AbortController();
+    await expect(runEwpeMonitorLoop(
+      session,
+      { pollIntervalMs: 5, retryDelayMs: 1 },
+      controller.signal,
+      () => { throw new Error("no snapshot should arrive"); },
+    )).rejects.toThrow("EWPE MQTT connection failed");
+    expect(session.connect).toHaveBeenCalledTimes(3);
+    expect(closed).toEqual([1]);
+  });
+
+  it("releases the abort listener when a broker link is stopped", async () => {
+    const controller = new AbortController();
+    const endAsync = vi.fn(async () => undefined);
+    const client = { endAsync } as unknown as MqttClient;
+    attachAbortToClient(client, controller.signal);
+    expect(getEventListeners(controller.signal, "abort")).toHaveLength(1);
+    await stopClient(client);
+    expect(getEventListeners(controller.signal, "abort")).toHaveLength(0);
+    expect(endAsync).toHaveBeenCalledTimes(1);
+    controller.abort();
+    expect(endAsync).toHaveBeenCalledTimes(1);
+  });
+
+  it("a successful poll resets the failure streak", async () => {
+    const { session } = harness(["fail", "ok", "fail", "ok", "fail", "ok"]);
+    const controller = new AbortController();
+    const snapshots: EwpeCloudSnapshot[] = [];
+    await expect(runEwpeMonitorLoop(
+      session,
+      { pollIntervalMs: 1, retryDelayMs: 1 },
+      controller.signal,
+      (received) => {
+        snapshots.push(received);
+        if (snapshots.length === 3) controller.abort();
+      },
+    )).resolves.toBeUndefined();
+    expect(snapshots).toHaveLength(3);
+    expect(session.query).toHaveBeenCalledTimes(6);
+  });
+
+  it("stops promptly and closes the link when aborted between polls", async () => {
+    const { session, closed } = harness(["ok"]);
+    const controller = new AbortController();
+    const run = runEwpeMonitorLoop(
+      session,
+      { pollIntervalMs: 60_000, retryDelayMs: 1 },
+      controller.signal,
+      () => controller.abort(),
+    );
+    await expect(run).resolves.toBeUndefined();
+    expect(closed).toEqual([1]);
   });
 });

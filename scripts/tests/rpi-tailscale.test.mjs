@@ -125,4 +125,3 @@ test("read-only check returns one for repairable login state", async () => {
   assert.equal(output.length, 1);
   assert.equal(JSON.parse(output[0]).healthy, false);
 });
-

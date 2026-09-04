@@ -9,7 +9,7 @@ export const schemasPart05 = {
           additionalProperties: false,
           required: ["policy", "evidenceState", "heatPumpCount", "stateGapMinutes", "paddingBeforeMinutes", "paddingAfterMinutes", "minimumClassifiedPercent", "minimumUsablePercent", "windowHours", "classifiedPercent", "verifiedOffHours", "confirmedActiveHours", "possibleActiveHours", "unknownHours", "usableHours", "excludedHours", "retainedSampleCount", "excludedSampleCount", "truncated"],
           properties: {
-            policy: { const: "verified-heat-pump-off-v1" },
+            policy: { enum: ["verified-heat-pump-off-v1", "verified-heat-pump-off-v2"] },
             evidenceState: { enum: ["not-present", "complete", "partial", "insufficient"] },
             heatPumpCount: { type: "integer", minimum: 0 },
             stateGapMinutes: { const: 5 }, paddingBeforeMinutes: { const: 5 }, paddingAfterMinutes: { const: 30 },

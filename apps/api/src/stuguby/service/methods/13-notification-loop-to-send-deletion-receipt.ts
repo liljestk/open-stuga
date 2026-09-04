@@ -2,6 +2,7 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { existsSync, readFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
+import { abortableDelay } from "../../../abortable-delay.js";
 import type {
   AreaEquipment,
   Floor,
@@ -110,22 +111,6 @@ function streamRetryDelay(failures: number, status?: number): number {
     : exponential;
 }
 
-async function waitForStreamRetry(signal: AbortSignal, delayMs: number): Promise<void> {
-  if (signal.aborted) return;
-  await new Promise<void>((resolve) => {
-    const timer = setTimeout(() => {
-      signal.removeEventListener("abort", abort);
-      resolve();
-    }, delayMs);
-    timer.unref();
-    const abort = (): void => {
-      clearTimeout(timer);
-      resolve();
-    };
-    signal.addEventListener("abort", abort, { once: true });
-  });
-}
-
 registerStugubyServiceMethods({
   async notificationLoop(this: StugubyServiceInternals, stugubyId: string, controller: AbortController): Promise<void> {
       let failures = 0;
@@ -180,7 +165,7 @@ registerStugubyServiceMethods({
           if (connectedAt !== null && Date.now() - connectedAt >= STREAM_STABLE_MS) failures = 0;
           failures += 1;
           const status = failure instanceof StugubyError ? failure.status : undefined;
-          await waitForStreamRetry(controller.signal, streamRetryDelay(failures, status));
+          await abortableDelay(streamRetryDelay(failures, status), controller.signal);
         }
       } finally {
         if (this[stugubyServiceState].streamControllers.get(stugubyId) === controller) this[stugubyServiceState].streamControllers.delete(stugubyId);

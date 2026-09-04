@@ -6,7 +6,7 @@ import type {
 } from "./analytics-common.js";
 import type { HvacExclusionSummary } from "./weather-thermal.js";
 
-export const HOME_PERFORMANCE_ALGORITHM_VERSION = "home-performance-v3.0.0";
+export const HOME_PERFORMANCE_ALGORITHM_VERSION = "home-performance-v3.1.0";
 
 export type HomePerformanceEvidenceState = "ready" | "limited" | "unavailable";
 

@@ -403,13 +403,22 @@ export class HeatPumpStateStore {
     });
   }
 
-  markUnavailable(connectionId: string, errorAt = new Date().toISOString()): HeatPumpState | null {
+  /**
+   * Journal the connection as unavailable from `errorAt`, which may predate
+   * the call when a debounce backdates the outage start. `receivedAt` keeps
+   * meaning the moment this row was written, as it does for every snapshot.
+   */
+  markUnavailable(
+    connectionId: string,
+    errorAt = new Date().toISOString(),
+    receivedAt = new Date().toISOString(),
+  ): HeatPumpState | null {
     const current = this.current().find((state) => state.connectionId === connectionId);
     if (!current || !current.available) return null;
     const unavailable: HeatPumpState = {
       ...current,
       observedAt: errorAt,
-      receivedAt: errorAt,
+      receivedAt,
       available: false,
       activity: current.power === false ? "off" : "unknown",
       activityEvidence: current.power === false ? "protocol" : "unavailable",

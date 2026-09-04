@@ -170,6 +170,103 @@ describe("heat-pump passive analytics evidence", () => {
     });
   });
 
+  it("bridges sub-gap unavailability blips bracketed by verified-off evidence", () => {
+    // One ~2-second "unknown" flap per poll cycle, the pattern a
+    // reconnect-per-poll cloud transport journals. Padding every blip used to
+    // exclude the entire window even though the pump was verifiably off.
+    const points: HeatPumpEvidencePoint[] = Array.from({ length: 276 }, (_, index) => index - 35)
+      .flatMap((minute) => [
+        {
+          connectionId: "heat-pump-1",
+          time: Date.parse(FROM) + minute * MINUTE_MS + 30_000,
+          classification: "unknown" as const,
+        },
+        {
+          connectionId: "heat-pump-1",
+          time: Date.parse(FROM) + minute * MINUTE_MS + 32_000,
+          classification: "off" as const,
+        },
+      ]);
+    const window = buildHeatPumpExclusionWindow({
+      from: FROM,
+      to: TO,
+      connectionIds: ["heat-pump-1"],
+      points,
+    });
+    expect(window.summary).toMatchObject({
+      policy: "verified-heat-pump-off-v2",
+      evidenceState: "complete",
+      classifiedPercent: 100,
+      verifiedOffHours: 4,
+      unknownHours: 0,
+      usableHours: 4,
+      excludedHours: 0,
+    });
+    expect(isPassiveHeatPumpTime(window, "2026-08-01T02:00:01.000Z")).toBe(true);
+  });
+
+  it("keeps unknown segments longer than the state gap or beside activity excluded", () => {
+    const longGap = buildHeatPumpExclusionWindow({
+      from: FROM,
+      to: TO,
+      connectionIds: ["heat-pump-1"],
+      // Verified off except a sixteen-minute reporting hole from minute 120;
+      // after the five-minute state-gap extension an eleven-minute stretch
+      // stays unclassified, which is beyond what off evidence may bridge.
+      points: minutePoints(() => "off", (minute) => minute < 120 || minute >= 135),
+    });
+    expect(longGap.summary.evidenceState).toBe("partial");
+    expect(longGap.summary.unknownHours).toBeGreaterThan(0);
+    expect(isPassiveHeatPumpTime(longGap, "2026-08-01T02:03:00.000Z")).toBe(false);
+
+    const besideActivity = buildHeatPumpExclusionWindow({
+      from: FROM,
+      to: TO,
+      connectionIds: ["heat-pump-1"],
+      points: minutePoints((minute) => (
+        minute === 120 ? "unknown" : minute >= 121 && minute < 130 ? "confirmed-active" : "off"
+      )),
+    });
+    expect(besideActivity.summary.unknownHours).toBeGreaterThan(0);
+    expect(isPassiveHeatPumpTime(besideActivity, "2026-08-01T02:00:30.000Z")).toBe(false);
+  });
+
+  it("never trusts reporting silence beyond the state gap, even between off reports", () => {
+    // Off reports at minutes 119 and 128 with nothing journaled between them:
+    // the first report's five-minute reach ends at minute 124 and the rest of
+    // the silence stays unclassified, exactly as the state-gap rule intends.
+    const window = buildHeatPumpExclusionWindow({
+      from: FROM,
+      to: TO,
+      connectionIds: ["heat-pump-1"],
+      points: minutePoints(() => "off", (minute) => minute < 120 || minute >= 128),
+    });
+    expect(window.summary.evidenceState).toBe("partial");
+    expect(window.summary.unknownHours).toBeCloseTo(4 / 60, 2);
+    expect(isPassiveHeatPumpTime(window, "2026-08-01T02:05:00.000Z")).toBe(false);
+  });
+
+  it("bridges an unavailability blip only when its off reports are at most one state gap apart", () => {
+    const build = (nextOffMinute: number) => buildHeatPumpExclusionWindow({
+      from: FROM,
+      to: TO,
+      connectionIds: ["heat-pump-1"],
+      points: minutePoints(
+        (minute) => (minute === 120 ? "unknown" : "off"),
+        (minute) => minute <= 120 || minute >= nextOffMinute,
+      ),
+    });
+    // Off at 119, unavailable at 120, off again at 124: silence of the same
+    // length would have been trusted, so the blip is too.
+    expect(build(124).summary).toMatchObject({ evidenceState: "complete", unknownHours: 0 });
+    expect(isPassiveHeatPumpTime(build(124), "2026-08-01T02:02:00.000Z")).toBe(true);
+    // Off again only at 125, six minutes after the previous off report: the
+    // stretch beyond that report's reach stays unclassified and excluded.
+    expect(build(125).summary.evidenceState).toBe("partial");
+    expect(build(125).summary.unknownHours).toBeGreaterThan(0);
+    expect(isPassiveHeatPumpTime(build(125), "2026-08-01T02:02:00.000Z")).toBe(false);
+  });
+
   it("fails the entire window closed when retained state history was truncated", () => {
     const window = buildHeatPumpExclusionWindow({
       from: FROM,
