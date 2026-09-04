@@ -20,6 +20,15 @@ const TERMINAL_FAILURE_CODES = new Set([
   "DERIVED_ARTIFACT_TOO_LARGE",
 ]);
 
+// A failed job is claimable only through a scheduled retry. Terminal failures
+// clear next_attempt_at, so treating NULL as "retry now" would burn the whole
+// attempt budget on deterministic failures. Binds the current time twice.
+const CLAIMABLE_JOB_SQL = `(
+  (status = 'pending' AND (next_attempt_at IS NULL OR next_attempt_at <= ?))
+  OR (status = 'failed' AND attempt_count < 3
+    AND next_attempt_at IS NOT NULL AND next_attempt_at <= ?)
+)`;
+
 interface ArtifactRow {
   id: number;
   identity_key: string;
@@ -242,17 +251,9 @@ export class DerivedAnalyticsStore {
 
   claimable(now: string, limit = 64, dataMode = this.#activeDataMode()): StoredDerivedJob[] {
     const safeLimit = Math.min(256, Math.max(1, Math.trunc(limit)));
-    // A failed job is claimable only through a scheduled retry. Terminal
-    // failures clear next_attempt_at, so treating NULL as "retry now" would
-    // burn the whole attempt budget on deterministic failures.
     const rows = this.#db.prepare(`
       SELECT * FROM derived_analytics_jobs
-      WHERE data_mode = ?
-        AND (
-          (status = 'pending' AND (next_attempt_at IS NULL OR next_attempt_at <= ?))
-          OR (status = 'failed' AND attempt_count < 3
-            AND next_attempt_at IS NOT NULL AND next_attempt_at <= ?)
-        )
+      WHERE data_mode = ? AND ${CLAIMABLE_JOB_SQL}
       ORDER BY requested_at ASC, identity_key ASC
       LIMIT ?
     `).all(dataMode, now, now, safeLimit) as unknown as JobRow[];
@@ -269,12 +270,7 @@ export class DerivedAnalyticsStore {
       this.#assertActiveDataMode(dataMode);
       const row = this.#db.prepare(`
         SELECT * FROM derived_analytics_jobs
-        WHERE identity_key = ? AND data_mode = ?
-          AND (
-            (status = 'pending' AND (next_attempt_at IS NULL OR next_attempt_at <= ?))
-            OR (status = 'failed' AND attempt_count < 3
-              AND next_attempt_at IS NOT NULL AND next_attempt_at <= ?)
-          )
+        WHERE identity_key = ? AND data_mode = ? AND ${CLAIMABLE_JOB_SQL}
       `).get(identityKey, dataMode, now, now) as unknown as JobRow | undefined;
       if (!row) {
         this.#db.exec("COMMIT");

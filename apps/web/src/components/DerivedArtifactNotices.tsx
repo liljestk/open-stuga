@@ -39,19 +39,22 @@ function stateCopy(
   return `derived.${status.state}` as TranslationKey;
 }
 
-const FAILURE_REASON_KEYS: Readonly<Partial<Record<string, TranslationKey>>> = {
-  HVAC_EVIDENCE_INSUFFICIENT: "derived.failedReason.hvacEvidence",
-  THERMAL_SCOPE_TOO_LARGE: "derived.failedReason.scope",
-  MOISTURE_SCOPE_TOO_LARGE: "derived.failedReason.scope",
-  HOME_PERFORMANCE_SCOPE_TOO_LARGE: "derived.failedReason.scope",
-  DERIVED_ARTIFACT_TOO_LARGE: "derived.failedReason.artifactSize",
-};
+// A Map rather than an object literal: the code is a server-stored string, and
+// an object lookup would also find Object.prototype members ("constructor").
+const FAILURE_REASON_KEYS: ReadonlyMap<string, TranslationKey> = new Map<string, TranslationKey>([
+  ["HVAC_EVIDENCE_INSUFFICIENT", "derived.failedReason.hvacEvidence"],
+  ["THERMAL_SCOPE_TOO_LARGE", "isolation.errorScopeHelp"],
+  ["MOISTURE_SCOPE_TOO_LARGE", "moisture.errorScopeHelp"],
+  ["HOME_PERFORMANCE_SCOPE_TOO_LARGE", "derived.failedReason.homePerformanceScope"],
+  ["DERIVED_ARTIFACT_TOO_LARGE", "derived.failedReason.artifactSize"],
+]);
 
 function failureReasonKey(
   status: DurableDerivedAnalyticsResponse<unknown> | null,
 ): TranslationKey | null {
   if (status?.state !== "failed") return null;
-  return FAILURE_REASON_KEYS[status.job?.errorCode ?? ""] ?? null;
+  const code = status.job?.errorCode;
+  return code ? FAILURE_REASON_KEYS.get(code) ?? null : null;
 }
 
 export function DerivedArtifactNotices({

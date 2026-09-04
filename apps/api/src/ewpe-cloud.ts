@@ -6,6 +6,7 @@ import {
 } from "node:crypto";
 import { connectAsync, type MqttClient } from "mqtt";
 import type { GreeDiscoveredDevice, HeatPumpDiagnostics, HeatPumpMode } from "@climate-twin/contracts";
+import { abortableDelay } from "./abortable-delay.js";
 import type { GreeBindingResult, GreeStatePayload } from "./gree.js";
 import type { GreeConnectionSecret } from "./integration-secrets.js";
 
@@ -64,7 +65,8 @@ export interface EwpeMonitorSession<Link> {
 export interface EwpeMonitorOptions {
   pollIntervalMs: number;
   retryDelayMs?: number;
-  maxConsecutiveFailures?: number;
+  /** Called for every failed poll or reconnect, including the one that ends the session. */
+  onPollFailure?: (error: unknown) => void;
 }
 
 export interface EwpeCloudTransport {
@@ -75,6 +77,7 @@ export interface EwpeCloudTransport {
     pollIntervalMs: number,
     signal: AbortSignal,
     onSnapshot: (snapshot: EwpeCloudSnapshot) => void,
+    onPollFailure?: (error: unknown) => void,
   ): Promise<void>;
 }
 
@@ -373,6 +376,20 @@ function publicDevice(device: InventoryDevice, broker: BrokerAddress): GreeDisco
   };
 }
 
+const clientAbortHandlers = new WeakMap<MqttClient, { signal: AbortSignal; onAbort: () => void }>();
+
+/**
+ * End the client as soon as the signal aborts. The signal outlives the client
+ * (one per monitor session, many links per session), so stopClient removes
+ * the handler again; otherwise every reconnect would leak a listener that
+ * keeps the ended client reachable for the rest of the session.
+ */
+export function attachAbortToClient(client: MqttClient, signal: AbortSignal): void {
+  const onAbort = () => { void client.endAsync(true); };
+  signal.addEventListener("abort", onAbort, { once: true });
+  clientAbortHandlers.set(client, { signal, onAbort });
+}
+
 async function connectBroker(
   session: CloudSession,
   addresses: BrokerAddress[],
@@ -393,7 +410,7 @@ async function connectBroker(
         reconnectPeriod: 0,
         rejectUnauthorized: true,
       });
-      if (signal) signal.addEventListener("abort", () => { void client.endAsync(true); }, { once: true });
+      if (signal) attachAbortToClient(client, signal);
       return { client, broker };
     } catch (error) {
       lastError = error;
@@ -581,28 +598,17 @@ export function normalizeEwpeState(
   };
 }
 
-async function stopClient(client: MqttClient): Promise<void> {
+export async function stopClient(client: MqttClient): Promise<void> {
+  const abortHandler = clientAbortHandlers.get(client);
+  if (abortHandler) {
+    abortHandler.signal.removeEventListener("abort", abortHandler.onAbort);
+    clientAbortHandlers.delete(client);
+  }
   try { await client.endAsync(true); } catch { /* the socket is already closed */ }
 }
 
-function abortableDelay(delayMs: number, signal: AbortSignal): Promise<void> {
-  return new Promise((resolve) => {
-    if (signal.aborted) {
-      resolve();
-      return;
-    }
-    const onAbort = () => {
-      clearTimeout(timer);
-      resolve();
-    };
-    const timer = setTimeout(() => {
-      signal.removeEventListener("abort", onAbort);
-      resolve();
-    }, delayMs);
-    timer.unref();
-    signal.addEventListener("abort", onAbort, { once: true });
-  });
-}
+const MAX_CONSECUTIVE_POLL_FAILURES = 3;
+const DEFAULT_RETRY_DELAY_MS = 5_000;
 
 /**
  * Poll one device until aborted, absorbing transient failures in-session.
@@ -610,7 +616,8 @@ function abortableDelay(delayMs: number, signal: AbortSignal): Promise<void> {
  * The MQTT link never reconnects on its own (`reconnectPeriod: 0`), so a
  * single dropped socket used to end the whole monitor, and the caller then
  * journaled a heat-pump availability gap for every ~2-second restart. Instead,
- * rebuild the link and retry; only a sustained failure streak ends the session.
+ * drop the link and rebuild it on the next attempt; a failed rebuild counts
+ * toward the same streak, and only a sustained streak ends the session.
  */
 export async function runEwpeMonitorLoop<Link>(
   session: EwpeMonitorSession<Link>,
@@ -618,13 +625,13 @@ export async function runEwpeMonitorLoop<Link>(
   signal: AbortSignal,
   onSnapshot: (snapshot: EwpeCloudSnapshot) => void,
 ): Promise<void> {
-  const retryDelayMs = options.retryDelayMs ?? 5_000;
-  const maxConsecutiveFailures = Math.max(1, options.maxConsecutiveFailures ?? 3);
-  let link = await session.connect();
+  const retryDelayMs = options.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS;
+  let link: Link | null = await session.connect();
   let consecutiveFailures = 0;
   try {
     while (!signal.aborted) {
       try {
+        link ??= await session.connect();
         const snapshot = await session.query(link);
         if (signal.aborted) break;
         onSnapshot(snapshot);
@@ -632,16 +639,20 @@ export async function runEwpeMonitorLoop<Link>(
       } catch (error) {
         if (signal.aborted) break;
         consecutiveFailures += 1;
-        if (consecutiveFailures >= maxConsecutiveFailures) throw error;
-        await session.close(link);
-        link = await session.connect();
+        options.onPollFailure?.(error);
+        if (consecutiveFailures >= MAX_CONSECUTIVE_POLL_FAILURES) throw error;
+        if (link !== null) {
+          const stale = link;
+          link = null;
+          await session.close(stale);
+        }
         await abortableDelay(retryDelayMs, signal);
         continue;
       }
       await abortableDelay(options.pollIntervalMs, signal);
     }
   } finally {
-    await session.close(link);
+    if (link !== null) await session.close(link);
   }
 }
 
@@ -681,6 +692,7 @@ export class EwpeCloudClient implements EwpeCloudTransport {
     pollIntervalMs: number,
     signal: AbortSignal,
     onSnapshot: (snapshot: EwpeCloudSnapshot) => void,
+    onPollFailure?: (error: unknown) => void,
   ): Promise<void> {
     if (!connection.cloudUsername || !connection.cloudPassword) {
       throw new Error("EWPE cloud credentials are unavailable");
@@ -706,6 +718,9 @@ export class EwpeCloudClient implements EwpeCloudTransport {
         return { device, state: normalizeEwpeState(valuesFromResponse(response), device.version) };
       },
       close: (link: { client: MqttClient; broker: BrokerAddress }) => stopClient(link.client),
-    }, { pollIntervalMs: Math.max(10_000, pollIntervalMs) }, signal, onSnapshot);
+    }, {
+      pollIntervalMs: Math.max(10_000, pollIntervalMs),
+      ...(onPollFailure ? { onPollFailure } : {}),
+    }, signal, onSnapshot);
   }
 }

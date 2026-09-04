@@ -338,19 +338,24 @@ describe("Gree/Wilfa integration", () => {
       };
     }
 
+    // Torn down in afterEach so a failing assertion cannot leak the bridge,
+    // its timers, or the open database into later tests.
+    let active: { close: () => void } | null = null;
+
     function harness() {
       const database = new ClimateDatabase(":memory:", false);
       database.createHouse({ id: "home-a", name: "Home A", timezone: "UTC", floors: [] });
       const states = new HeatPumpStateStore(database);
       const sessions: Array<{
         onSnapshot: (snapshot: EwpeCloudSnapshot) => void;
+        onPollFailure: (error: unknown) => void;
         reject: (error: unknown) => void;
       }> = [];
       const cloud: EwpeCloudTransport = {
         discover: vi.fn(async () => []),
         bind: vi.fn(async () => { throw new Error("unused in this test"); }),
-        monitor: vi.fn((_connection, _pollMs, signal, onSnapshot) => new Promise<void>((resolve, reject) => {
-          sessions.push({ onSnapshot, reject });
+        monitor: vi.fn((_connection, _pollMs, signal, onSnapshot, onPollFailure) => new Promise<void>((resolve, reject) => {
+          sessions.push({ onSnapshot, onPollFailure: onPollFailure ?? (() => undefined), reject });
           signal.addEventListener("abort", () => resolve(), { once: true });
         })),
       };
@@ -359,24 +364,28 @@ describe("Gree/Wilfa integration", () => {
         greeConnections: [connection],
         greePollIntervalMs: 60_000,
       };
+      const status = { value: {}, changed: vi.fn() } as unknown as RuntimeStatus;
       const bridge = new GreeBridge(
         config,
-        { value: {}, changed: vi.fn() } as unknown as RuntimeStatus,
+        status,
         states,
         { publish: vi.fn() } as unknown as TelemetryBus,
         { cloud, unavailableMarkDelayMs: 5_000 },
       );
-      return { bridge, states, sessions, close: () => { bridge.stop(); database.close(); } };
+      active = { close: () => { bridge.stop(); database.close(); } };
+      return { bridge, states, sessions, status };
     }
 
     afterEach(() => {
+      active?.close();
+      active = null;
       vi.useRealTimers();
     });
 
     it("journals no availability gap for a session drop that recovers in time", async () => {
       vi.useFakeTimers();
       vi.setSystemTime(new Date("2026-08-30T08:00:00.000Z"));
-      const { bridge, states, sessions, close } = harness();
+      const { bridge, states, sessions } = harness();
       bridge.start();
       await vi.advanceTimersByTimeAsync(0);
       sessions[0]!.onSnapshot({ device, state: cloudPayload("2026-08-30T08:00:00.000Z") });
@@ -390,13 +399,12 @@ describe("Gree/Wilfa integration", () => {
       const history = states.history(connection.id);
       expect(history).toHaveLength(2);
       expect(history.filter((state) => !state.available)).toHaveLength(0);
-      close();
     });
 
     it("journals one gap backdated to the outage start when the drop persists", async () => {
       vi.useFakeTimers();
       vi.setSystemTime(new Date("2026-08-30T08:00:00.000Z"));
-      const { bridge, states, sessions, close } = harness();
+      const { bridge, states, sessions } = harness();
       bridge.start();
       await vi.advanceTimersByTimeAsync(0);
       sessions[0]!.onSnapshot({ device, state: cloudPayload("2026-08-30T07:59:00.000Z") });
@@ -409,18 +417,69 @@ describe("Gree/Wilfa integration", () => {
 
       const unavailable = states.history(connection.id).filter((state) => !state.available);
       expect(unavailable).toHaveLength(1);
+      // observedAt is the backdated outage start; receivedAt stays the moment
+      // the row was written, as for every other journal row.
       expect(unavailable[0]).toMatchObject({
         observedAt: "2026-08-30T08:00:00.000Z",
+        receivedAt: "2026-08-30T08:00:05.000Z",
         activity: "off",
         activityEvidence: "protocol",
       });
-      close();
+    });
+
+    it("starts the cloud outage clock at the first failed poll, not when the session gives up", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-08-30T08:00:00.000Z"));
+      const { bridge, states, sessions, status } = harness();
+      bridge.start();
+      await vi.advanceTimersByTimeAsync(0);
+      sessions[0]!.onSnapshot({ device, state: cloudPayload("2026-08-30T08:00:00.000Z") });
+      await vi.advanceTimersByTimeAsync(30_000);
+      sessions[0]!.onPollFailure(new Error("EWPE live-state response timed out"));
+      // In-session retries leave the runtime status untouched; it reports the
+      // failure once the session gives up, as the local transport does after
+      // three failed polls.
+      expect(status.value.gree?.connections[0]).toMatchObject({ connected: true, error: null });
+      await vi.advanceTimersByTimeAsync(2_000);
+      sessions[0]!.reject(new Error("EWPE live-state response timed out"));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(status.value.gree?.connections[0]).toMatchObject({
+        connected: false,
+        error: "EWPE cloud polling is unavailable",
+      });
+      await vi.advanceTimersByTimeAsync(10_000);
+
+      const unavailable = states.history(connection.id).filter((state) => !state.available);
+      expect(unavailable).toHaveLength(1);
+      expect(unavailable[0]!.observedAt).toBe("2026-08-30T08:00:30.000Z");
+    });
+
+    it("carries a pending unavailability mark across a configuration refresh", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-08-30T08:00:00.000Z"));
+      const { bridge, states, sessions } = harness();
+      bridge.start();
+      await vi.advanceTimersByTimeAsync(0);
+      sessions[0]!.onSnapshot({ device, state: cloudPayload("2026-08-30T07:59:00.000Z") });
+      sessions[0]!.reject(new Error("EWPE live-state response timed out"));
+      await vi.advanceTimersByTimeAsync(2_000);
+      bridge.refreshConfiguration();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(sessions).toHaveLength(3);
+      await vi.advanceTimersByTimeAsync(10_000);
+
+      const unavailable = states.history(connection.id).filter((state) => !state.available);
+      expect(unavailable).toHaveLength(1);
+      expect(unavailable[0]).toMatchObject({
+        observedAt: "2026-08-30T08:00:00.000Z",
+        receivedAt: "2026-08-30T08:00:05.000Z",
+      });
     });
 
     it("stop() cancels a pending unavailability mark", async () => {
       vi.useFakeTimers();
       vi.setSystemTime(new Date("2026-08-30T08:00:00.000Z"));
-      const { bridge, states, sessions, close } = harness();
+      const { bridge, states, sessions } = harness();
       bridge.start();
       await vi.advanceTimersByTimeAsync(0);
       sessions[0]!.onSnapshot({ device, state: cloudPayload("2026-08-30T08:00:00.000Z") });
@@ -430,7 +489,6 @@ describe("Gree/Wilfa integration", () => {
       await vi.advanceTimersByTimeAsync(30_000);
 
       expect(states.history(connection.id).filter((state) => !state.available)).toHaveLength(0);
-      close();
     });
   });
 

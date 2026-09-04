@@ -94,6 +94,9 @@ interface CloudWorker {
   restartDelayMs: number;
 }
 
+/** The fields the shared close policy touches on either transport's worker. */
+type ClosedWorker = Pick<Worker, "connection" | "closed" | "connected" | "error" | "restartDelayMs">;
+
 function normalizedMac(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const normalized = value.replace(/[:-]/g, "").trim().toUpperCase();
@@ -253,7 +256,11 @@ export class GreeBridge {
   readonly #workers = new Map<string, Worker>();
   readonly #cloudWorkers = new Map<string, CloudWorker>();
   readonly #restartTimers = new Map<string, NodeJS.Timeout>();
-  readonly #pendingUnavailableMarks = new Map<string, { timer: NodeJS.Timeout; outageStartIso: string }>();
+  readonly #pendingUnavailableMarks = new Map<string, {
+    timer: NodeJS.Timeout;
+    outageStartIso: string;
+    dueAtMs: number;
+  }>();
   readonly #cloud: EwpeCloudTransport;
   #running = false;
 
@@ -295,8 +302,22 @@ export class GreeBridge {
 
   refreshConfiguration(): void {
     const running = this.#running;
+    // An outage that began before a configuration change does not end with
+    // it: connections that stay configured keep their pending mark, with the
+    // original outage start and the remaining debounce, across the restart.
+    const carried = [...this.#pendingUnavailableMarks].map(([id, pending]) => ({
+      id,
+      outageStartIso: pending.outageStartIso,
+      dueAtMs: pending.dueAtMs,
+    }));
     this.stop();
-    if (running) this.start();
+    if (!running) return;
+    const configured = new Set((this.config.greeConnections ?? []).map((item) => item.id));
+    for (const pending of carried) {
+      if (!configured.has(pending.id)) continue;
+      this.armUnavailableMark(pending.id, pending.outageStartIso, Math.max(0, pending.dueAtMs - Date.now()));
+    }
+    this.start();
   }
 
   async discoverSources(houseId?: string): Promise<GreeDiscoveredDevice[]> {
@@ -389,7 +410,14 @@ export class GreeBridge {
 
   private noteConnectionDown(connectionId: string): void {
     if (this.#pendingUnavailableMarks.has(connectionId)) return;
-    const outageStartIso = new Date().toISOString();
+    this.armUnavailableMark(
+      connectionId,
+      new Date().toISOString(),
+      this.options.unavailableMarkDelayMs ?? UNAVAILABLE_MARK_DELAY_MS,
+    );
+  }
+
+  private armUnavailableMark(connectionId: string, outageStartIso: string, delayMs: number): void {
     const timer = setTimeout(() => {
       this.#pendingUnavailableMarks.delete(connectionId);
       const unavailable = this.states.markUnavailable(connectionId, outageStartIso);
@@ -397,9 +425,9 @@ export class GreeBridge {
         this.notifyStateRecorded();
         this.bus.publish({ type: "heat-pump", data: structuredClone(unavailable) });
       }
-    }, this.options.unavailableMarkDelayMs ?? UNAVAILABLE_MARK_DELAY_MS);
+    }, delayMs);
     timer.unref();
-    this.#pendingUnavailableMarks.set(connectionId, { timer, outageStartIso });
+    this.#pendingUnavailableMarks.set(connectionId, { timer, outageStartIso, dueAtMs: Date.now() + delayMs });
   }
 
   private noteConnectionUp(connectionId: string): void {
@@ -533,6 +561,7 @@ export class GreeBridge {
       this.config.greePollIntervalMs ?? 60_000,
       worker.controller.signal,
       (snapshot) => this.handleCloudSnapshot(worker, snapshot),
+      () => this.handleCloudPollFailure(worker),
     ).then(() => {
       if (!worker.controller.signal.aborted) this.cloudWorkerClosed(worker, "EWPE cloud connection stopped");
     }).catch(() => {
@@ -560,6 +589,14 @@ export class GreeBridge {
     this.recordInitial(worker.connection, snapshot.state);
     try { this.options.onConnectionUpdate?.({ ...worker.connection }); } catch { /* retry after restart */ }
     this.aggregateStatus();
+  }
+
+  private handleCloudPollFailure(worker: CloudWorker): void {
+    if (worker.closed || this.#cloudWorkers.get(worker.connection.id) !== worker) return;
+    // As for the local transport, the outage clock starts at the first failed
+    // poll while the session keeps retrying; the runtime status flips only
+    // once the session gives up.
+    this.noteConnectionDown(worker.connection.id);
   }
 
   private handleWorkerLine(worker: Worker, line: string): void {
@@ -641,50 +678,51 @@ export class GreeBridge {
 
   private cloudWorkerClosed(worker: CloudWorker, error: string): void {
     if (worker.closed || this.#cloudWorkers.get(worker.connection.id) !== worker) return;
-    worker.closed = true;
-    worker.connected = false;
-    worker.error = error;
-    const configured = (this.config.greeConnections ?? []).some((item) => item.id === worker.connection.id);
-    if (this.#running && configured) this.noteConnectionDown(worker.connection.id);
-    else this.noteConnectionUp(worker.connection.id);
-    this.aggregateStatus();
-    if (!this.#running || !configured) {
+    if (!this.settleClosedWorker(worker, error)) {
       this.#cloudWorkers.delete(worker.connection.id);
       return;
     }
-    const delay = worker.restartDelayMs;
-    const nextDelay = Math.min(60_000, delay * 2);
-    const timer = setTimeout(() => {
-      this.#restartTimers.delete(worker.connection.id);
-      const latest = (this.config.greeConnections ?? []).find((item) => item.id === worker.connection.id);
+    this.scheduleWorkerRestart(worker, () => {
       if (this.#cloudWorkers.get(worker.connection.id) === worker) this.#cloudWorkers.delete(worker.connection.id);
-      if (this.#running && latest) this.startWorker(latest, nextDelay);
-    }, delay);
-    timer.unref();
-    this.#restartTimers.set(worker.connection.id, timer);
+    });
   }
 
   private workerClosed(worker: Worker, error: string): void {
     if (worker.closed || this.#workers.get(worker.connection.id)?.child !== worker.child) return;
+    if (!this.settleClosedWorker(worker, error)) {
+      this.#workers.delete(worker.connection.id);
+      return;
+    }
+    this.scheduleWorkerRestart(worker, () => {
+      if (this.#workers.get(worker.connection.id)?.child === worker.child) this.#workers.delete(worker.connection.id);
+    });
+  }
+
+  /**
+   * The close policy shared by both transports. A connection that stays
+   * configured while the bridge runs keeps (or starts) its outage clock and is
+   * restarted with backoff; any other close cancels a pending mark and drops
+   * the worker. Returns whether the worker should be restarted.
+   */
+  private settleClosedWorker(worker: ClosedWorker, error: string): boolean {
     worker.closed = true;
     worker.connected = false;
     worker.error = error;
     const configured = (this.config.greeConnections ?? []).some((item) => item.id === worker.connection.id);
-    if (this.#running && configured) this.noteConnectionDown(worker.connection.id);
+    const restart = this.#running && configured;
+    if (restart) this.noteConnectionDown(worker.connection.id);
     else this.noteConnectionUp(worker.connection.id);
     this.aggregateStatus();
-    if (!this.#running || !configured) {
-      this.#workers.delete(worker.connection.id);
-      return;
-    }
+    return restart;
+  }
+
+  private scheduleWorkerRestart(worker: ClosedWorker, release: () => void): void {
     const delay = worker.restartDelayMs;
     const nextDelay = Math.min(60_000, delay * 2);
     const timer = setTimeout(() => {
       this.#restartTimers.delete(worker.connection.id);
       const latest = (this.config.greeConnections ?? []).find((item) => item.id === worker.connection.id);
-      if (this.#workers.get(worker.connection.id)?.child === worker.child) {
-        this.#workers.delete(worker.connection.id);
-      }
+      release();
       if (this.#running && latest) this.startWorker(latest, nextDelay);
     }, delay);
     timer.unref();

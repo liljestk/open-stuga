@@ -6,7 +6,7 @@ export const enPart6 = {
   "derived.failed": "The background update failed. The last successful result is still available.",
   "derived.failedNoResult": "The background analysis failed before a result could be saved.",
   "derived.failedReason.hvacEvidence": "Verified heat-pump-off time was too scarce in this period, so the passive analysis was skipped. It runs again automatically as steadier heat-pump reporting is recorded.",
-  "derived.failedReason.scope": "This comparison supports at most 64 climate sensors per Home.",
+  "derived.failedReason.homePerformanceScope": "Home performance supports at most 80 enabled sensors per Home, and its evidence and result must fit the server's size limits. Disabling sensors the comparison does not need usually resolves this.",
   "derived.failedReason.artifactSize": "The result was too large to store. Fewer sensors or rooms usually resolves this.",
   "derived.idle": "No saved analysis yet. Refresh to queue it.",
   "derived.idleReadOnly": "No saved analysis is available yet. A home owner can queue it.",

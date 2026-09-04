@@ -14,15 +14,20 @@ All notable Stugu releases are recorded here.
   nightly comparisons failed with "heat-pump evidence insufficient" every
   night (on the reference appliance: 19 nights in a row) while the panels
   showed a weeks-old empty result. The poller now retries transient failures
-  in-session, and the durable journal records unavailability only for outages
-  longer than three minutes, backdated to when the outage began.
-- Treat a sub-five-minute unavailability blip that is bracketed by verified
-  pump-off evidence as pump-off in the passive-analytics evidence policy
-  (`verified-heat-pump-off-v2`). The state-gap rule already trusts "off"
-  across reporting silences of the same length, so a momentary
-  `available: false` report no longer carries more weight than silence. This
-  also makes the existing flap-polluted history usable again without touching
-  the journal.
+  in-session (a failed reconnect counts toward the same streak instead of
+  ending the session), and the durable journal records unavailability only
+  for outages longer than three minutes, backdated to the first failed poll.
+  While the poller retries, the integration status keeps showing the pump as
+  connected; it reports the failure once the session gives up, about a minute
+  into an outage, as the local transport already did after three failed polls.
+- Give an unavailability report no more weight than reporting silence in the
+  passive-analytics evidence policy (`verified-heat-pump-off-v2`). The
+  state-gap rule already trusts a verified pump-off report for up to five
+  minutes of silence, so an `available: false` blip between two pump-off
+  reports at most five minutes apart no longer breaks the pump-off evidence.
+  Silence beyond a report's five-minute reach stays unclassified as before.
+  This also makes the existing flap-polluted history usable again without
+  touching the journal.
 - Stop retrying derived-analytics jobs that failed for a deterministic reason
   (insufficient heat-pump evidence, over-large scope or result). They burned
   their whole retry budget on identical failures before being left alone.

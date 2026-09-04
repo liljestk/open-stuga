@@ -133,6 +133,40 @@ function complement(
   return result;
 }
 
+/**
+ * Drop unavailability reports that carry no more suggestion of compressor
+ * activity than reporting silence would. The state-gap rule trusts an "off"
+ * report for MAX_STATE_GAP_MS of silence, so "unknown" reports sitting between
+ * two "off" reports no further apart than that are removed, and the earlier
+ * report's reach continues exactly as if the blip had been silence. Silence
+ * itself is never bridged: "off" reports further apart than the gap still
+ * leave the stretch beyond the first report's reach unclassified. Without
+ * this, a two-second availability flap per poll cycle, padded to thirty-five
+ * excluded minutes, zeroed out a fully-off window.
+ */
+function withoutBridgedUnavailabilityBlips(
+  points: readonly HeatPumpEvidencePoint[],
+): HeatPumpEvidencePoint[] {
+  const result: HeatPumpEvidencePoint[] = [];
+  for (let index = 0; index < points.length; index += 1) {
+    const point = points[index]!;
+    if (point.classification !== "unknown") {
+      result.push(point);
+      continue;
+    }
+    let end = index;
+    while (end < points.length && points[end]!.classification === "unknown") end += 1;
+    const previous = points[index - 1];
+    const next = points[end];
+    const bridged = previous?.classification === "off"
+      && next?.classification === "off"
+      && next.time - previous.time <= MAX_STATE_GAP_MS;
+    if (!bridged) result.push(...points.slice(index, end));
+    index = end - 1;
+  }
+  return result;
+}
+
 function pointClassSegments(
   points: readonly HeatPumpEvidencePoint[],
   fromMs: number,
@@ -229,7 +263,7 @@ export function buildHeatPumpExclusionWindow(input: {
   const segments = new Map([...byConnection].map(([id, points]) => [
     id,
     pointClassSegments(
-      points.sort((left, right) => left.time - right.time),
+      withoutBridgedUnavailabilityBlips(points.sort((left, right) => left.time - right.time)),
       expandedFrom,
       expandedTo,
     ),
@@ -262,20 +296,6 @@ export function buildHeatPumpExclusionWindow(input: {
     const previous = classified.at(-1);
     if (previous?.classification === classification && previous.toMs === start) previous.toMs = end;
     else classified.push({ fromMs: start, toMs: end, classification });
-  }
-
-  // A short unknown segment bracketed by verified-off evidence carries no more
-  // suggestion of compressor activity than reporting silence of the same
-  // length, which the state-gap rule already treats as a continuation of
-  // "off". Without this bridge, a two-second availability flap per poll cycle
-  // padded to thirty-five excluded minutes zeroes out a fully-off window.
-  for (const [index, segment] of classified.entries()) {
-    if (segment.classification === "unknown"
-      && segment.toMs - segment.fromMs <= MAX_STATE_GAP_MS
-      && classified[index - 1]?.classification === "off"
-      && classified[index + 1]?.classification === "off") {
-      segment.classification = "off";
-    }
   }
 
   const rawInWindow = (classification: EvidenceClass) => mergeIntervals(classified

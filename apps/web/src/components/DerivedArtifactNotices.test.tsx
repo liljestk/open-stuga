@@ -74,12 +74,31 @@ describe("DerivedArtifactNotices", () => {
     expect(screen.getByText(/Verified heat-pump-off time was too scarce/)).toBeInTheDocument();
 
     view.rerender(<I18nProvider><DerivedArtifactNotices
-      status={durable("failed", true, "SOMETHING_UNEXPECTED")}
+      status={durable("failed", true, "THERMAL_SCOPE_TOO_LARGE")}
       hasResult
       canRefresh
     /></I18nProvider>);
-    expect(screen.queryByText(/Verified heat-pump-off time/)).toBeNull();
-    expect(screen.getByRole("status")).toHaveTextContent("last successful result is still available");
+    expect(screen.getByText(/supports up to 64 temperature sensors/)).toBeInTheDocument();
+
+    view.rerender(<I18nProvider><DerivedArtifactNotices
+      status={durable("failed", true, "HOME_PERFORMANCE_SCOPE_TOO_LARGE")}
+      hasResult
+      canRefresh
+    /></I18nProvider>);
+    expect(screen.getByText(/at most 80 enabled sensors/)).toBeInTheDocument();
+    expect(screen.queryByText(/64/)).toBeNull();
+
+    // Unknown codes, including Object.prototype member names a plain object
+    // lookup would have matched, render no reason notice at all.
+    for (const code of ["SOMETHING_UNEXPECTED", "constructor", "__proto__"]) {
+      view.rerender(<I18nProvider><DerivedArtifactNotices
+        status={durable("failed", true, code)}
+        hasResult
+        canRefresh
+      /></I18nProvider>);
+      expect(screen.getAllByRole("status")).toHaveLength(1);
+      expect(screen.getByRole("status")).toHaveTextContent("last successful result is still available");
+    }
 
     view.rerender(<I18nProvider><DerivedArtifactNotices
       status={durable("refreshing", true)}
