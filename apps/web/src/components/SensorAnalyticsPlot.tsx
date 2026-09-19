@@ -1,4 +1,4 @@
-import { useId, useMemo, useState, type FocusEvent, type KeyboardEvent, type PointerEvent } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent, type PointerEvent } from "react";
 import type { MeasurementDefinition, UnitSystem } from "@climate-twin/contracts";
 import { splitSeriesAtGaps, type DisplayDataGap } from "../chartGaps";
 import { formatInTimeZone } from "../dateTime";
@@ -33,6 +33,7 @@ export interface SensorAnalyticsPlotData {
 
 interface SensorAnalyticsPlotProps {
   data: SensorAnalyticsPlotData;
+  fitContainer?: boolean;
   definition: MeasurementDefinition;
   units: UnitSystem;
   range: TimeRange;
@@ -75,7 +76,7 @@ interface HoverDatum {
   origin: "pointer" | "keyboard";
 }
 
-const width = 1_100;
+const defaultWidth = 1_100;
 const height = 300;
 const margin = { top: 24, right: 28, bottom: 38, left: 62 };
 const tooltipWidth = 218;
@@ -162,11 +163,27 @@ export function SensorAnalyticsPlot(props: Readonly<SensorAnalyticsPlotProps>) {
   const gapPatternId = `${clipId}-missing-pattern`;
   const hintId = `${clipId}-interaction-hint`;
   const [hover, setHover] = useState<HoverDatum | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [containerWidth, setContainerWidth] = useState(defaultWidth);
+  const width = props.fitContainer ? containerWidth : defaultWidth;
+  useEffect(() => {
+    const element = containerRef.current;
+    if (!props.fitContainer || !element || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry && entry.contentRect.width > 0) {
+        setContainerWidth(Math.max(240, Math.round(entry.contentRect.width)));
+        setHover(null);
+      }
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [props.fitContainer]);
   const plotWidth = width - margin.left - margin.right;
   const plotHeight = height - margin.top - margin.bottom;
   const x = (timestamp: number) => margin.left + (timestamp - props.from) / Math.max(props.timeMax - props.from, 1) * plotWidth;
   const y = (value: number) => margin.top + (props.domain.max - value) / Math.max(props.domain.max - props.domain.min, Number.EPSILON) * plotHeight;
-  const xTicks = Array.from({ length: 5 }, (_, index) => props.from + (props.timeMax - props.from) * index / 4);
+  const tickCount = width < 480 ? 2 : width < 760 ? 3 : 5;
+  const xTicks = Array.from({ length: tickCount }, (_, index) => props.from + (props.timeMax - props.from) * index / (tickCount - 1));
   const yTicks = Array.from({ length: 4 }, (_, index) => props.domain.max - (props.domain.max - props.domain.min) * index / 3);
   const hoverSeries = useMemo<HoverSeries[]>(() => [
     ...props.data.observed.flatMap(({ sensor, points }, index) => points.length > 0 ? [{
@@ -314,13 +331,14 @@ export function SensorAnalyticsPlot(props: Readonly<SensorAnalyticsPlotProps>) {
     : "";
   const tooltipValue = hover ? formatMeasurement(hover.value, props.definition, props.units) : "";
   const tooltipX = hover
-    ? (hover.x > width - margin.right - tooltipWidth - 18 ? hover.x - tooltipWidth - 14 : hover.x + 14)
+    ? Math.max(4, Math.min(width - tooltipWidth - 4, hover.x > width - margin.right - tooltipWidth - 18 ? hover.x - tooltipWidth - 14 : hover.x + 14))
     : 0;
   const tooltipY = hover
     ? (hover.y > margin.top + tooltipHeight + 18 ? hover.y - tooltipHeight - 12 : hover.y + 12)
     : 0;
 
   return <div
+    ref={containerRef}
     className="sensor-analytics-chart-wrap"
     role="region"
     aria-label={props.chartLabel}
@@ -351,8 +369,8 @@ export function SensorAnalyticsPlot(props: Readonly<SensorAnalyticsPlotProps>) {
       </defs>
       <g className="chart-grid" aria-hidden="true">{yTicks.map((tick, index) => <line key={`${tick}-${index}`} x1={margin.left} x2={width - margin.right} y1={y(tick)} y2={y(tick)} />)}</g>
       <g className="chart-axis" aria-hidden="true">
-        {yTicks.map((tick, index) => <text key={`${tick}-${index}`} x={margin.left - 10} y={y(tick) + 4} textAnchor="end">{toDisplayValue(tick, props.definition, props.units).toFixed(props.definition.precision)}</text>)}
-        {xTicks.map((tick, index) => <text key={tick} x={x(tick)} y={height - 10} textAnchor={index === 0 ? "start" : index === xTicks.length - 1 ? "end" : "middle"}>{formatInTimeZone(tick, locale, props.timeZone, tickDateOptions(props.range))}</text>)}
+        {yTicks.map((tick, index) => <text key={`${tick}-${index}`} x={margin.left - 10} y={y(tick) + 4} textAnchor="end">{props.fitContainer ? new Intl.NumberFormat(locale, { maximumFractionDigits: Math.abs(props.domain.max - props.domain.min) >= 10 ? 1 : props.definition.precision }).format(toDisplayValue(tick, props.definition, props.units)) : toDisplayValue(tick, props.definition, props.units).toFixed(props.definition.precision)}</text>)}
+        {xTicks.map((tick, index) => <text key={tick} x={x(tick)} y={height - 10} textAnchor={index === 0 ? "start" : index === xTicks.length - 1 ? "end" : "middle"}>{formatInTimeZone(tick, locale, props.timeZone, (props.fitContainer && props.range === "7d") ? { month: "short", day: "numeric" } : (props.fitContainer && props.range === "1y") ? { month: "short", year: "2-digit" } : tickDateOptions(props.range))}</text>)}
         <text x="7" y="16">{displayUnit(props.definition, props.units)}</text>
       </g>
       <g clipPath={`url(#${clipId})`} aria-hidden="true">

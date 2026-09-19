@@ -95,6 +95,7 @@ export function useSensorActions(
             loadedFrom: previous?.loadedFrom ?? null,
             loadedTo: previous?.loadedTo ?? null,
             partial: previous?.partial ?? false,
+            truncated: previous?.truncated ?? false,
           },
         };
       });
@@ -105,7 +106,7 @@ export function useSensorActions(
           ...current,
           [seriesKey]: {
             ...(current[seriesKey] ?? {
-              forecastError: null, loadedFrom: null, loadedTo: null, partial: false,
+              forecastError: null, loadedFrom: null, loadedTo: null, partial: false, truncated: false,
             }),
             status: "error",
             error: errorMessage(error, "History data is temporarily unavailable"),
@@ -188,6 +189,7 @@ export function useSensorActions(
             loadedFrom,
             loadedTo,
             partial: history.truncated,
+            truncated: history.truncated,
           },
         }));
         return history;

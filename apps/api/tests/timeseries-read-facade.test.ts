@@ -390,6 +390,76 @@ describe("HybridTelemetryReader", () => {
     });
   });
 
+  it("bounds local bucketed reads to the hot tail when the archive is fresh", async () => {
+    const now = Date.parse("2026-08-31T12:00:00.000Z");
+    const from = new Date(now - 7 * 86_400_000).toISOString();
+    const to = new Date(now).toISOString();
+    const localBuckets = vi.fn(() => []);
+    const archiveBuckets = vi.fn(async () => [measurement(new Date(now - 3 * 86_400_000).toISOString(), 21)]);
+    const reader = new HybridTelemetryReader({
+      local: localReader({ measurementHistoryBucketed: localBuckets }),
+      archive: archiveReader({ measurementHistoryBucketed: archiveBuckets }),
+      archivePhase: () => "syncing",
+      archiveLastSuccessAt: () => new Date(now - 60_000).toISOString(),
+      now: () => now,
+    });
+
+    const result = await reader.measurementHistoryBucketed({
+      sensorId: "sensor-a", metric: "temperature", from, to, bucketSeconds: 3_600,
+    });
+
+    expect(localBuckets).toHaveBeenCalledOnce();
+    expect(localBuckets.mock.calls[0]![2]).toBe(new Date(now - 86_400_000).toISOString());
+    expect(localBuckets.mock.calls[0]![3]).toBe(to);
+    expect(result.records.map((record) => record.value)).toEqual([21]);
+  });
+
+  it("reads the full window in day-scale chunks when no recent archive pass is proven", async () => {
+    const now = Date.parse("2026-08-31T12:00:00.000Z");
+    const from = new Date(now - 3 * 86_400_000).toISOString();
+    const to = new Date(now).toISOString();
+    const localBuckets = vi.fn(() => []);
+    const reader = new HybridTelemetryReader({
+      local: localReader({ measurementHistoryBucketed: localBuckets }),
+      archive: archiveReader({ measurementHistoryBucketed: vi.fn(async () => []) }),
+      archivePhase: () => "syncing",
+      archiveLastSuccessAt: () => new Date(now - 3_600_000).toISOString(),
+      now: () => now,
+    });
+
+    await reader.measurementHistoryBucketed({
+      sensorId: "sensor-a", metric: "temperature", from, to, bucketSeconds: 3_600,
+    });
+
+    // Newest chunk first with the inclusive bound; older chunks end
+    // exclusively on the shared edge and the oldest reaches the window start.
+    expect(localBuckets).toHaveBeenCalledTimes(3);
+    expect(localBuckets.mock.calls[0]![2]).toBe(new Date(now - 86_400_000).toISOString());
+    expect(localBuckets.mock.calls[0]![3]).toBe(to);
+    expect(localBuckets.mock.calls[0]).toHaveLength(7);
+    expect(localBuckets.mock.calls[1]![3]).toBe(new Date(now - 86_400_000).toISOString());
+    expect(localBuckets.mock.calls[1]![7]).toBe(true);
+    expect(localBuckets.mock.calls[2]![2]).toBe(from);
+  });
+
+  it("stops chunked local reads once enough newest buckets are collected", async () => {
+    const now = Date.parse("2026-08-31T00:00:00.000Z");
+    const from = new Date(now - 3 * 86_400_000).toISOString();
+    const to = new Date(now).toISOString();
+    const localBuckets = vi.fn((...args: unknown[]) => {
+      const chunkFrom = Date.parse(args[2] as string);
+      return [measurement(new Date(chunkFrom).toISOString(), 20), measurement(new Date(chunkFrom + 3_600_000).toISOString(), 21)];
+    });
+    const reader = new HybridTelemetryReader({ local: localReader({ measurementHistoryBucketed: localBuckets }) });
+
+    const result = await reader.measurementHistoryBucketed({
+      sensorId: "sensor-a", metric: "temperature", from, to, bucketSeconds: 3_600, limit: 2,
+    });
+
+    expect(localBuckets).toHaveBeenCalledOnce();
+    expect(result.records).toHaveLength(2);
+  });
+
   it("falls back to complete local buckets when the archive aggregate fails", async () => {
     const localBuckets = vi.fn(() => [measurement(FROM, 12)]);
     const archiveBuckets = vi.fn(async () => { throw new Error("archive aggregate unavailable"); });

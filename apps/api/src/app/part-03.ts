@@ -289,6 +289,7 @@ export function configureApiPart03(context: ReturnType<typeof configureApiPart02
         const archive = telemetryArchive?.status();
         return archive?.caughtUp ? "ready" : archive?.phase;
       },
+      archiveLastSuccessAt: () => telemetryArchive?.status().lastSuccessAt,
       reconcile: () => telemetryArchive?.reconcileNow(),
       localHistoryComplete: telemetryArchive === null || config.retentionDays === 0
         ? true

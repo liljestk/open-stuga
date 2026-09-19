@@ -6,6 +6,7 @@ import {
   buildConsumerInsights,
   buildEnergyProjection,
   electricityUsageSeries,
+  holdSeriesForBuckets,
 } from "./energyAnalysis";
 
 function sample(sensorId: string, metric: "energy" | "power", value: number, timestamp: string): MeasurementSample {
@@ -63,6 +64,49 @@ function summary(consumptionKwh: number, from: string, to: string, costs: HomeEn
     calculatedAt: to,
   };
 }
+
+describe("holdSeriesForBuckets", () => {
+  const MINUTE = 60_000;
+  const base = Date.parse("2026-08-01T00:00:00.000Z");
+
+  it("fills only sample-free buckets and only while the hold lasts", () => {
+    const points = [
+      { timestamp: base + 1 * MINUTE, value: 100 },
+      { timestamp: base + 11 * MINUTE, value: 120 },
+      { timestamp: base + 60 * MINUTE, value: 140 },
+    ];
+    const held = holdSeriesForBuckets(points, 5 * MINUTE, base, base + 90 * MINUTE, 15 * MINUTE);
+
+    // The 00:05 bucket is empty but inside the 15-minute hold of the 00:01
+    // sample; buckets past 11 + 15 minutes stay honest gaps until 01:00.
+    expect(held).toEqual([
+      { timestamp: base + 1 * MINUTE, value: 100 },
+      { timestamp: base + 5 * MINUTE, value: 100 },
+      { timestamp: base + 11 * MINUTE, value: 120 },
+      { timestamp: base + 15 * MINUTE, value: 120 },
+      { timestamp: base + 20 * MINUTE, value: 120 },
+      { timestamp: base + 25 * MINUTE, value: 120 },
+      { timestamp: base + 60 * MINUTE, value: 140 },
+      { timestamp: base + 65 * MINUTE, value: 140 },
+      { timestamp: base + 70 * MINUTE, value: 140 },
+      { timestamp: base + 75 * MINUTE, value: 140 },
+    ]);
+  });
+
+  it("never fills before the first sample or outside the window", () => {
+    const points = [{ timestamp: base + 30 * MINUTE, value: 50 }];
+    const held = holdSeriesForBuckets(points, 5 * MINUTE, base + 32 * MINUTE, base + 38 * MINUTE, 15 * MINUTE);
+
+    expect(held).toEqual([
+      { timestamp: base + 30 * MINUTE, value: 50 },
+      { timestamp: base + 35 * MINUTE, value: 50 },
+    ]);
+  });
+
+  it("returns an empty copy for an empty series", () => {
+    expect(holdSeriesForBuckets([], 5 * MINUTE, base, base + 60 * MINUTE)).toEqual([]);
+  });
+});
 
 describe("energy analysis", () => {
   it("turns resetting counters into interval consumption and combines their running totals", () => {

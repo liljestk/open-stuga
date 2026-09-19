@@ -162,6 +162,7 @@ import {
   bucketMeasurementSamples,
   IncompleteTelemetryHistoryError,
 } from "../timeseries/read-facade.js";
+import { RollupsMaterializingError } from "../timeseries/read-support.js";
 import { TelemetryRetentionWorker } from "../timeseries/retention-worker.js";
 import {
   AnalyticsQueryError,
@@ -343,6 +344,11 @@ export function configureApiPart27(context: ReturnType<typeof configureApiPart26
         return;
       }
       if (error instanceof IncompleteTelemetryHistoryError) {
+        response.status(503).json({ error: { code: error.code, message: error.message } });
+        return;
+      }
+      if (error instanceof RollupsMaterializingError) {
+        response.setHeader("retry-after", String(error.retryAfterSeconds));
         response.status(503).json({ error: { code: error.code, message: error.message } });
         return;
       }

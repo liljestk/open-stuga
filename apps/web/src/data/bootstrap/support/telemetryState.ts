@@ -68,6 +68,12 @@ export interface SeriesLoadState {
   loadedFrom: string | null;
   loadedTo: string | null;
   partial: boolean;
+  /**
+   * True only when the server reported cutting the response. `partial` also
+   * covers series whose recorded data simply starts inside the window, so it
+   * cannot distinguish a young sensor from dropped coverage.
+   */
+  truncated: boolean;
 }
 
 export interface HistoricalSeriesWindow {
@@ -311,13 +317,19 @@ export function seriesLimit(range: TimeRange): number {
   return MAX_SERIES_SAMPLES;
 }
 
-export function seriesBucketSeconds(range: TimeRange): number | undefined {
+export function seriesBucketSeconds(range: TimeRange, metric?: string): number | undefined {
+  // Every range is bucketed so the server covers the whole window with a
+  // bounded number of samples. A raw 6h read of a 2-second poller holds more
+  // rows than the raw page limit and would silently lose its oldest hours;
+  // 15-second buckets are still finer than anything a 6h chart can render.
+  if (range === "6h") return 15;
   if (range === "24h") return 60;
   if (range === "7d") return 60;
   if (range === "30d") return 5 * 60;
   if (range === "90d") return 15 * 60;
-  if (range === "1y") return 60 * 60;
-  return undefined;
+  // Power-derived energy holds a value for at most 15 minutes. Coarser
+  // samples would undercount even continuous yearly histories.
+  return metric === "power" ? 15 * 60 : 60 * 60;
 }
 
 export function errorMessage(error: unknown, fallback: string): string {
@@ -350,10 +362,13 @@ export async function canonicalSeries(
   forecastSupported: boolean,
   signal?: AbortSignal,
 ) {
-  const bucketSeconds = seriesBucketSeconds(range);
+  const bucketSeconds = seriesBucketSeconds(range, metric);
+  // Counter deltas and held power need a predecessor at the left edge.
+  const historyFrom = metric === "energy" || metric === "power"
+    ? new Date(Date.parse(from) - 15 * 60_000).toISOString() : from;
   const historyRequest = signal
-    ? api.measurementHistoryPage(sensorId, metric, from, to, seriesLimit(range), bucketSeconds, signal)
-    : api.measurementHistoryPage(sensorId, metric, from, to, seriesLimit(range), bucketSeconds);
+    ? api.measurementHistoryPage(sensorId, metric, historyFrom, to, seriesLimit(range), bucketSeconds, signal)
+    : api.measurementHistoryPage(sensorId, metric, historyFrom, to, seriesLimit(range), bucketSeconds);
   const [history, forecast] = await Promise.all([
     historyRequest,
     forecastSupported

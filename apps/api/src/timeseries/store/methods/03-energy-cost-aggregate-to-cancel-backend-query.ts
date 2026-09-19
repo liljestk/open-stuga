@@ -44,6 +44,7 @@ import type {
   TelemetryStoreOptions,
   TelemetryTableStorage,
 } from "../../types.js";
+import { RollupsMaterializingError } from "../../read-support.js";
 import { EnergyCostAggregateRow, ExtensionRow, HealthRow, QUERY_TAG_PREFIX, SqlValue, StorageRow, TimescaleStorageRow, abortError, describeError, timeoutValue, timestamp } from "../support/01-default-schema-to-measurement-bucket-from-row.js";
 import { registerTimeseriesStoreMethods, timeseriesStoreState, type TimeseriesStoreInternals } from "../core.js";
 import {
@@ -143,7 +144,7 @@ async function orderedCostAggregate(
   );
   const row = result.rows[0];
   if (!row || row.coverage_complete !== true) {
-    throw new Error("Telemetry cost rollups are still materializing the requested history");
+    throw new RollupsMaterializingError();
   }
   return {
     deltaCount: Number(row.delta_count ?? 0),

@@ -1,8 +1,9 @@
 import type { MeasurementSample, Reading } from "@climate-twin/contracts";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { api } from "../../../api";
 
 import { replaceLegacySeriesWindow, replaceMeasurementSeriesWindow } from "./bootstrapState";
-import { isLegacySeriesCompatibilityError, MAX_SERIES_SAMPLES, seriesBucketSeconds } from "./telemetryState";
+import { canonicalSeries, isLegacySeriesCompatibilityError, MAX_SERIES_SAMPLES, seriesBucketSeconds } from "./telemetryState";
 
 function sample(timestamp: string, value: number): MeasurementSample {
   return {
@@ -33,8 +34,34 @@ function apiError(status: number, code: string | null, message: string): Error {
 }
 
 describe("historical series retention", () => {
-  it("requests one-minute server buckets for 24-hour history", () => {
+  it("loads a predecessor for electricity integration without extending other metrics", async () => {
+    const from = "2026-09-01T00:00:00.000Z";
+    const to = "2026-09-02T00:00:00.000Z";
+    const request = vi.spyOn(api, "measurementHistoryPage").mockResolvedValue({
+      samples: [], from, to, bucketSeconds: 60, truncated: false, nextCursor: null,
+    });
+    try {
+      for (const metric of ["power", "energy", "temperature"]) {
+        await canonicalSeries("sensor-1", metric, "24h", from, to, false);
+        expect(request).toHaveBeenLastCalledWith(
+          "sensor-1", metric,
+          metric === "temperature" ? from : "2026-08-31T23:45:00.000Z",
+          to, 20_000, 60,
+        );
+      }
+    } finally {
+      request.mockRestore();
+    }
+  });
+
+  it("requests bounded server buckets for every range so responses cover the whole window", () => {
+    expect(seriesBucketSeconds("6h")).toBe(15);
     expect(seriesBucketSeconds("24h")).toBe(60);
+    expect(seriesBucketSeconds("7d")).toBe(60);
+    expect(seriesBucketSeconds("30d")).toBe(300);
+    expect(seriesBucketSeconds("90d")).toBe(900);
+    expect(seriesBucketSeconds("1y")).toBe(3_600);
+    expect(seriesBucketSeconds("1y", "power")).toBe(900);
   });
 
   it("recognizes only explicit compatibility responses for the legacy projection", () => {
