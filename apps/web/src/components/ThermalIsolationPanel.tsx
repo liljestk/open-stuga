@@ -54,6 +54,14 @@ function scoreLabel(entry: ThermalIsolationEntry, locale: string): string {
   return entry.score === null ? "—" : new Intl.NumberFormat(locale, { maximumFractionDigits: 0 }).format(entry.score);
 }
 
+function evidenceReason(entry: ThermalIsolationEntry): TranslationKey {
+  if (entry.warnings.includes("NO_TEMPERATURE_SENSOR")) return "isolation.reason.noSensor";
+  if (entry.warnings.includes("MODEL_NOT_IDENTIFIABLE")) return "isolation.reason.model";
+  if (entry.warnings.includes("CALIBRATION_WINDOW_TOO_SHORT")) return "isolation.reason.shortWindow";
+  if (entry.warnings.includes("INSUFFICIENT_OVERLAP")) return "isolation.reason.overlap";
+  return "isolation.reason.unknown";
+}
+
 function InsightCard({
   insight,
   entries,
@@ -140,7 +148,7 @@ export function ThermalIsolationPanel({ house, units, dataMode, embedded = false
   const houseEntry = result?.entries.find((entry) => entry.scope.type === "house") ?? null;
   const sensorEntries = result?.entries.filter((entry) => entry.scope.type === "sensor") ?? [];
   const entryById = useMemo(() => new Map(result?.entries.map((entry) => [entry.scope.id, entry]) ?? []), [result]);
-  const noRecordedEvidence = Boolean(houseEntry && houseEntry.score === null);
+  const noScore = Boolean(houseEntry && houseEntry.score === null);
   const demoEstimate = Boolean(dataMode === "demo" && houseEntry && houseEntry.score !== null);
   const technicalError = [
     errorStatus === null ? null : `HTTP ${errorStatus}`,
@@ -170,8 +178,21 @@ export function ThermalIsolationPanel({ house, units, dataMode, embedded = false
     <DerivedArtifactNotices status={status} hasResult={Boolean(result)} canRefresh={canRefresh} />
     {error && <div className="isolation-error" role="alert"><TriangleAlert size={18} aria-hidden="true" /><div><strong>{t(errorMessage.title)}</strong><p>{t(errorMessage.help)}</p>{technicalError && <details><summary>{t("bootstrap.technicalDetails")}</summary><code>{technicalError}</code></details>}</div></div>}
     {demoEstimate && <div className="isolation-evidence-state demo" role="status"><ShieldCheck size={18} aria-hidden="true" /><div><strong>{t("isolation.demoEvidence")}</strong><p>{t("isolation.demoEvidenceHelp")}</p></div></div>}
-    {noRecordedEvidence && <div className="isolation-evidence-state empty" role="status"><Thermometer size={18} aria-hidden="true" /><div><strong>{t("isolation.noRecordedData")}</strong><p>{t("isolation.noRecordedDataHelp")}</p></div></div>}
-    {houseEntry && !noRecordedEvidence && <>
+    {noScore && <div className="isolation-evidence-state empty" role="status"><Thermometer size={18} aria-hidden="true" /><div><strong>{t("isolation.noRecordedData")}</strong><p>{t("isolation.noRecordedDataHelp")}</p></div></div>}
+    {noScore && result && houseEntry && <details className="isolation-sensor-details">
+      <summary>{t("isolation.sensorDetails", { count: sensorEntries.length })}</summary>
+      <div className="isolation-unavailable-evidence">
+      <p>{t("isolation.evidenceRange", {
+        from: new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short", timeZone: house.timezone }).format(new Date(result.from)),
+        to: new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short", timeZone: house.timezone }).format(new Date(result.to)),
+      })}</p>
+      {sensorEntries.length > 0 ? <ul>{sensorEntries.map((entry) => <li key={entry.scope.id}>
+        <strong>{entry.scope.label}</strong><p>{t("isolation.usableHours", { hours: numeric(entry.quality.durationHours, locale, 1) })}</p>
+        {entry.score === null && <p>{t(evidenceReason(entry))}</p>}
+      </li>)}</ul> : <p>{t(evidenceReason(houseEntry))}</p>}
+      </div>
+    </details>}
+    {houseEntry && !noScore && <>
       <div className="isolation-house-summary">
         <article className={`isolation-score-card ${houseEntry.rating ?? "unavailable"}`}>
           <div className="isolation-score-icon"><Home size={19} aria-hidden="true" /></div>
@@ -199,6 +220,6 @@ export function ThermalIsolationPanel({ house, units, dataMode, embedded = false
 
       <p className="isolation-method-note">{t("isolation.methodNote")}</p>
     </>}
-    {!loading && !error && !houseEntry && <p className="analytics-no-gaps">{t("isolation.collectingHelp")}</p>}
+    {!loading && !error && !houseEntry && !status && <p className="analytics-no-gaps">{t("isolation.collectingHelp")}</p>}
   </section>;
 }

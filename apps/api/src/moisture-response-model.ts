@@ -1,6 +1,7 @@
 import type { MeasurementSample, OutdoorTemperatureSample, ThermalCalibrationStatus } from "@climate-twin/contracts";
 import { saturationVaporPressureOverWaterHpa } from "@climate-twin/spatial-layers";
 import { mean, median, range, round } from "./thermal-math.js";
+import { isTransitionWithinPassiveIntervals, type PassiveInterval } from "./analytics/heat-pump-evidence.js";
 
 const HOUR_MS = 3_600_000;
 const MIN_INTERVAL_HOURS = 5 / 60;
@@ -209,7 +210,7 @@ function align(
   });
 }
 
-function transitionsFrom(points: AlignedMoisturePoint[]): MoistureTransition[] {
+function transitionsFrom(points: AlignedMoisturePoint[], passiveIntervals?: readonly PassiveInterval[]): MoistureTransition[] {
   const transitions: MoistureTransition[] = [];
   for (let index = 1; index < points.length; index += 1) {
     const previous = points[index - 1];
@@ -217,6 +218,7 @@ function transitionsFrom(points: AlignedMoisturePoint[]): MoistureTransition[] {
     if (!previous || !current) continue;
     const dtHours = (current.time - previous.time) / HOUR_MS;
     if (dtHours < MIN_INTERVAL_HOURS || dtHours > MAX_INTERVAL_HOURS) continue;
+    if (!isTransitionWithinPassiveIntervals(passiveIntervals, previous.time, current.time)) continue;
     transitions.push({
       fromTime: previous.time,
       toTime: current.time,
@@ -364,11 +366,12 @@ export function calibrateMoistureResponse(
   indoorSamples: MeasurementSample[],
   outdoorSamples: OutdoorTemperatureSample[],
   preparedOutdoor?: PreparedOutdoorMoistureBoundary,
+  passiveIntervals?: readonly PassiveInterval[],
 ): MoistureCalibration {
   const indoor = indoorPoints(indoorSamples);
   const outdoor = preparedOutdoor ?? prepareOutdoorMoistureBoundary(outdoorSamples);
   const allAligned = align(indoor, outdoor);
-  const transitions = longestSegment(transitionsFrom(allAligned));
+  const transitions = longestSegment(transitionsFrom(allAligned, passiveIntervals));
   const firstUsedTime = transitions[0]?.fromTime;
   const lastUsedTime = transitions.at(-1)?.toTime;
   const aligned = firstUsedTime === undefined || lastUsedTime === undefined

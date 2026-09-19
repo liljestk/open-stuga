@@ -74,7 +74,7 @@ export async function homeMoistureResponse(
   const filtered = filterHeatPumpAffectedSampleMap(new Map(sensors.map((sensor, index) => [
     sensor.id,
     indoorReads[index]!.records,
-  ])), heatPumpWindow);
+  ])), heatPumpWindow, 5 * 60_000);
   return runMoistureResponseAsync({
     house,
     sensors,
@@ -83,5 +83,6 @@ export async function homeMoistureResponse(
     from,
     to,
     hvacExclusion: filtered.summary,
+    ...(heatPumpWindow.summary.evidenceState === "not-present" ? {} : { passiveIntervals: heatPumpWindow.passiveIntervals }),
   });
 }

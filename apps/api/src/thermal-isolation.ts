@@ -20,6 +20,7 @@ import {
 } from "./thermal-simulation.js";
 import { SYSTEM_VERSION } from "./version.js";
 import { HEAT_PUMP_SENSOR_TAG } from "./heat-pump-measurements.js";
+import type { PassiveInterval } from "./analytics/heat-pump-evidence.js";
 
 const DAY_HOURS = 24;
 const CALIBRATION_BUCKET_MS = 5 * 60_000;
@@ -34,6 +35,7 @@ export interface ThermalIsolationInput {
   to: string;
   generatedAt?: string;
   hvacExclusion?: HvacExclusionSummary;
+  passiveIntervals?: readonly PassiveInterval[];
 }
 
 interface RoomGroup {
@@ -155,6 +157,7 @@ function sensorEntry(
     horizonHours: 0,
     ...(input.generatedAt ? { generatedAt: input.generatedAt } : {}),
     ...(input.hvacExclusion ? { hvacExclusion: input.hvacExclusion } : {}),
+    ...(input.passiveIntervals ? { passiveIntervals: input.passiveIntervals } : {}),
   }, preparedOutdoor).calibration;
   return sensorEntryFromCalibration(input, sensor, parentId, calibration);
 }
@@ -217,6 +220,7 @@ async function sensorEntryAsync(
     horizonHours: 0,
     ...(input.generatedAt ? { generatedAt: input.generatedAt } : {}),
     ...(input.hvacExclusion ? { hvacExclusion: input.hvacExclusion } : {}),
+    ...(input.passiveIntervals ? { passiveIntervals: input.passiveIntervals } : {}),
   }, preparedOutdoor, signal ? { signal } : {})).calibration;
   return sensorEntryFromCalibration(input, sensor, parentId, calibration);
 }

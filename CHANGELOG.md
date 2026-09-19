@@ -2,6 +2,13 @@
 
 All notable Stugu releases are recorded here.
 
+## 0.41.1
+
+- Keep thermal and moisture fits within uninterrupted passive periods; excluded heat-pump operation can no longer be joined back into a fit across a short gap.
+- Exclude five-minute climate averages that overlap heat-pump exclusion boundaries.
+- Explain unavailable thermal scores with the evidence period, usable continuous hours and sensor-specific reasons instead of implying that recordings are missing.
+- Upgrade impact: no database migration. Previous thermal and moisture artifacts become stale and refresh with the corrected calculation on the normal schedule or an explicit refresh. Some previously reported scores may become unavailable when their evidence crossed excluded pump operation.
+
 ## Unreleased
 
 ## 0.41.0 - 2026-09-04

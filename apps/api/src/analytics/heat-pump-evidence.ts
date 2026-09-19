@@ -413,11 +413,37 @@ export function isTimeWithinPassiveIntervals(
     || intervals.some((interval) => time >= interval.fromMs && time < interval.toMs);
 }
 
+/** Both endpoints must belong to the same uninterrupted passive interval. */
+export function isTransitionWithinPassiveIntervals(
+  intervals: readonly PassiveInterval[] | undefined,
+  fromMs: number,
+  toMs: number,
+): boolean {
+  return intervals === undefined || intervals.some((interval) => (
+    fromMs >= interval.fromMs && toMs < interval.toMs
+  ));
+}
+
+function isPassiveSample(
+  window: HeatPumpExclusionWindow,
+  sample: MeasurementSample,
+  bucketMs: number,
+): boolean {
+  if (bucketMs === 0) return isPassiveHeatPumpTime(window, sample.timestamp);
+  const start = Date.parse(sample.timestamp);
+  // A bucket timestamp describes its start, not every observation it contains.
+  return Number.isFinite(start) && (window.summary.evidenceState === "not-present"
+    || window.passiveIntervals.some((interval) => (
+      start >= interval.fromMs && start < interval.toMs && start + bucketMs <= interval.toMs
+    )));
+}
+
 export function filterHeatPumpAffectedSamples(
   samples: readonly MeasurementSample[],
   window: HeatPumpExclusionWindow,
+  bucketMs = 0,
 ): { samples: MeasurementSample[]; summary: HvacExclusionSummary } {
-  const retained = samples.filter((sample) => isPassiveHeatPumpTime(window, sample.timestamp));
+  const retained = samples.filter((sample) => isPassiveSample(window, sample, bucketMs));
   return {
     samples: retained,
     summary: {
@@ -431,12 +457,13 @@ export function filterHeatPumpAffectedSamples(
 export function filterHeatPumpAffectedSampleMap(
   samplesBySensor: ReadonlyMap<string, MeasurementSample[]>,
   window: HeatPumpExclusionWindow,
+  bucketMs = 0,
 ): { samplesBySensor: Map<string, MeasurementSample[]>; summary: HvacExclusionSummary } {
   const result = new Map<string, MeasurementSample[]>();
   let retained = 0;
   let total = 0;
   for (const [sensorId, samples] of samplesBySensor) {
-    const filtered = samples.filter((sample) => isPassiveHeatPumpTime(window, sample.timestamp));
+    const filtered = samples.filter((sample) => isPassiveSample(window, sample, bucketMs));
     result.set(sensorId, filtered);
     retained += filtered.length;
     total += samples.length;
