@@ -44,6 +44,26 @@ function requestReconciliation(reconcile: (() => void | Promise<void>) | undefin
   }
 }
 
+async function waitForReconciliation(reconcile: () => void | Promise<void>, signal?: AbortSignal): Promise<void> {
+  if (!signal) return reconcile();
+  await new Promise<void>((resolve, reject) => {
+    const onAbort = () => {
+      signal.removeEventListener("abort", onAbort);
+      reject(aborted(signal));
+    };
+    if (signal.aborted) return onAbort();
+    signal.addEventListener("abort", onAbort, { once: true });
+    // The shared archive operation continues; only this caller stops waiting.
+    void Promise.resolve().then(reconcile).then(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, (error: unknown) => {
+      signal.removeEventListener("abort", onAbort);
+      reject(error);
+    });
+  });
+}
+
 /**
  * Derived aggregates cannot be merged with an overlapping SQLite tail without
  * double counting. Catch up first and then use the archive as the sole source.
@@ -63,7 +83,7 @@ export async function readMeasurementAnalyticsRollup(
   let phase = safePhase(options.archivePhase);
   if (phase === "syncing" && options.reconcile) {
     try {
-      await options.reconcile();
+      await waitForReconciliation(options.reconcile, query.signal);
     } catch {
       // The phase and archive read below decide whether history is complete.
     }

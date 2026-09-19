@@ -636,6 +636,31 @@ describe("HybridTelemetryReader", () => {
     expect(result).toEqual({ result: { series: [] }, archiveState: "merged" });
   });
 
+  it("releases a cancelled analytics read while shared archive reconciliation is still running", async () => {
+    let finish!: () => void;
+    const reconcile = vi.fn(() => new Promise<void>((resolve) => { finish = resolve; }));
+    const measurementAnalyticsRollup = vi.fn(async () => ({ series: [] }));
+    const reader = new HybridTelemetryReader({
+      local: localReader(), archive: { ...archiveReader(), measurementAnalyticsRollup },
+      archivePhase: () => "syncing", reconcile, localHistoryComplete: false,
+    });
+    const controller = new AbortController();
+    const pending = reader.measurementAnalyticsRollup({
+      series: [{ sensorId: "sensor-a", metric: "temperature", aggregation: "mean" }],
+      from: FROM, to: TO, resolution: "1h", qualities: ["good"], signal: controller.signal,
+    });
+    await Promise.resolve();
+    const reason = new Error("request cancelled");
+    const rejected = expect(pending).rejects.toBe(reason);
+    controller.abort(reason);
+    try {
+      await rejected;
+      expect(measurementAnalyticsRollup).not.toHaveBeenCalled();
+    } finally {
+      finish();
+    }
+  });
+
   it("uses raw archive samples when thermal rollups briefly lag live ingestion", async () => {
     const reconcile = vi.fn(async () => undefined);
     const thermalMeasurementHistory = vi.fn(async () => {

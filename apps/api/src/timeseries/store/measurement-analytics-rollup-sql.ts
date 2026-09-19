@@ -30,27 +30,6 @@ export function mergeableAnalyticsSql(schema: string, base: MeasurementAnalytics
       SELECT CASE WHEN from_bucket = $2::TIMESTAMPTZ THEN from_bucket ELSE from_bucket + $7::INTERVAL END AS full_from,
         to_bucket AS full_to
       FROM bounds
-    ), raw_interior_bounds AS (
-      SELECT requested.sensor_id, requested.metric,
-        first_sample.observed_at AS first_at, last_sample.observed_at AS last_at
-      FROM requested_series requested
-      CROSS JOIN limits
-      LEFT JOIN LATERAL (
-        SELECT sample.observed_at FROM ${measurements} sample
-        WHERE sample.sensor_id = requested.sensor_id AND sample.metric = requested.metric
-          AND sample.observed_at >= limits.full_from AND sample.observed_at < limits.full_to
-          AND sample.quality = ANY($4::TEXT[])
-          AND (NOT $6::BOOLEAN OR sample.source NOT IN ('mock', 'replay'))
-        ORDER BY sample.observed_at ASC LIMIT 1
-      ) first_sample ON TRUE
-      LEFT JOIN LATERAL (
-        SELECT sample.observed_at FROM ${measurements} sample
-        WHERE sample.sensor_id = requested.sensor_id AND sample.metric = requested.metric
-          AND sample.observed_at >= limits.full_from AND sample.observed_at < limits.full_to
-          AND sample.quality = ANY($4::TEXT[])
-          AND (NOT $6::BOOLEAN OR sample.source NOT IN ('mock', 'replay'))
-        ORDER BY sample.observed_at DESC LIMIT 1
-      ) last_sample ON TRUE
     ), aggregate_interior_bounds AS (
       SELECT requested.sensor_id, requested.metric,
         first_bucket.bucket_start AS first_bucket, last_bucket.bucket_start AS last_bucket
@@ -73,18 +52,23 @@ export function mergeableAnalyticsSql(schema: string, base: MeasurementAnalytics
         ORDER BY sample.bucket_start DESC LIMIT 1
       ) last_bucket ON TRUE
     ), coverage AS (
-      -- Completeness is judged by first/last bucket alignment only, which
-      -- detects the case this exists for: a continuous aggregate lagging the
-      -- newest raw rows. It assumes the aggregate has no interior refresh hole,
-      -- which holds because Timescale refreshes contiguous windows; an interior
-      -- hole would be counted as complete and silently under-report.
-      SELECT raw.sensor_id, raw.metric,
-        raw.first_at IS NULL OR (
-          aggregate.first_bucket <= date_bin($7::INTERVAL, raw.first_at, TIMESTAMPTZ '1970-01-01 00:00:00+00')
-          AND aggregate.last_bucket >= date_bin($7::INTERVAL, raw.last_at, TIMESTAMPTZ '1970-01-01 00:00:00+00')
-        ) AS complete
-      FROM raw_interior_bounds raw
-      JOIN aggregate_interior_bounds aggregate USING (sensor_id, metric)
+      -- Read the materialized interior and only scan raw observations outside
+      -- it. A lagging final bucket must not turn seven cached days into a full
+      -- raw scan. Keep the newest aggregate bucket in the raw tail, because it
+      -- may have been materialized before its last observation arrived.
+      -- As before, this relies on contiguous aggregate refresh windows.
+      SELECT aggregate.sensor_id, aggregate.metric,
+        aggregate.first_bucket AS cached_from,
+        aggregate.last_bucket AS cached_to
+      FROM aggregate_interior_bounds aggregate
+    ), raw_windows AS (
+      -- Separate ranges let the raw index seek to each uncached boundary.
+      SELECT sensor_id, metric, $2::TIMESTAMPTZ AS raw_from,
+        LEAST($3::TIMESTAMPTZ, COALESCE(cached_from, $3::TIMESTAMPTZ)) AS raw_to
+      FROM coverage
+      UNION ALL
+      SELECT sensor_id, metric, GREATEST($2::TIMESTAMPTZ, cached_to), $3::TIMESTAMPTZ
+      FROM coverage WHERE cached_to IS NOT NULL
     ), source_rows AS (
       SELECT sample.sensor_id, sample.metric, sample.bucket_start AS observed_bucket,
         sample.source, sample.quality, sample.canonical_unit,
@@ -97,7 +81,7 @@ export function mergeableAnalyticsSql(schema: string, base: MeasurementAnalytics
         ON coverage.sensor_id = sample.sensor_id AND coverage.metric = sample.metric
       CROSS JOIN limits
       WHERE sample.bucket_start >= limits.full_from AND sample.bucket_start < limits.full_to
-        AND coverage.complete
+        AND sample.bucket_start >= coverage.cached_from AND sample.bucket_start < coverage.cached_to
         AND (NOT $6::BOOLEAN OR sample.source NOT IN ('mock', 'replay'))
       UNION ALL
       SELECT sample.sensor_id, sample.metric,
@@ -105,15 +89,11 @@ export function mergeableAnalyticsSql(schema: string, base: MeasurementAnalytics
         sample.source, sample.quality, sample.canonical_unit,
         1::BIGINT, sample.value, sample.value, sample.value,
         sample.value, sample.observed_at, sample.value, sample.observed_at
-      FROM ${measurements} sample
-      JOIN requested_series requested
-        ON requested.sensor_id = sample.sensor_id AND requested.metric = sample.metric
-      JOIN coverage
-        ON coverage.sensor_id = sample.sensor_id AND coverage.metric = sample.metric
-      CROSS JOIN limits
-      WHERE sample.observed_at >= $2::TIMESTAMPTZ AND sample.observed_at < $3::TIMESTAMPTZ
-        AND (NOT coverage.complete
-          OR sample.observed_at < limits.full_from OR sample.observed_at >= limits.full_to)
+      FROM raw_windows boundary
+      JOIN ${measurements} sample
+        ON sample.sensor_id = boundary.sensor_id AND sample.metric = boundary.metric
+          AND sample.observed_at >= boundary.raw_from AND sample.observed_at < boundary.raw_to
+      WHERE boundary.raw_from < boundary.raw_to
         AND (NOT $6::BOOLEAN OR sample.source NOT IN ('mock', 'replay'))
     ), series_counts AS (
       SELECT requested.sensor_id, requested.metric, requested.aggregation,
@@ -394,7 +374,7 @@ export function orderedAnalyticsSql(schema: string): string {
         ORDER BY aggregate.bucket_start DESC LIMIT 1
       ) last_bucket ON TRUE
     ), count_coverage AS (
-      SELECT raw.sensor_id, raw.metric, raw.first_at IS NULL OR (
+      SELECT aggregate.sensor_id, aggregate.metric, raw.first_at IS NULL OR (
         aggregate.first_bucket <= date_bin(INTERVAL '1 hour', raw.first_at, TIMESTAMPTZ '1970-01-01 00:00:00+00')
         AND aggregate.last_bucket >= date_bin(INTERVAL '1 hour', raw.last_at, TIMESTAMPTZ '1970-01-01 00:00:00+00')
       ) AS complete
