@@ -256,6 +256,16 @@ Basic process sampling showed active CPU/disk work and ample free persistent
 storage, so it was left uninterrupted. A slow verified backup is not itself a
 stall. Do not kill it because an earlier backup happened to be faster.
 
+As of 0.41.3, application and unified-workflow backups use the same bounded
+24-hour allowance as storage-move backups. Other container commands retain
+their 45-minute limit. Older agents can time out while the backup container
+continues running; that leaves a deliberately blocking `termination-uncertain`
+journal. Do not retry, remove the journal, or replace services until the backup
+has stopped and its result, unchanged prior release, and idle mutation state
+have been independently established. Preserve the failure evidence during
+operator recovery. A newer release cannot fix the already-running old agent
+until its updater image has been safely bootstrapped under operator control.
+
 Before the known-good commit, an ordinary failure restores the previous release
 environment and starts the prior services. If a Docker mutation times out or
 cannot be proven quiescent, the agent deliberately blocks automatic rollback

@@ -2,6 +2,11 @@
 
 All notable Stugu releases are recorded here.
 
+## 0.41.3 — 2026-09-21
+
+- Give verified update backups the existing 24-hour storage-backup allowance. Large SQLite integrity checks no longer inherit the 45-minute container-command timeout. Other command deadlines and uncertain-mutation recovery protections remain unchanged.
+- Migration impact: none; application and Compose contracts are unchanged.
+
 ## 0.41.2
 
 - Permit application-only releases when the sole appliance warning is unavailable signed host-feed metadata, with structured proof that no host journal or recovery is pending. Keep host trust checks and all other health gates intact.

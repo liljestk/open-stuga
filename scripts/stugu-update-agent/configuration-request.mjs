@@ -55,6 +55,9 @@ export const POLL_MS = 5_000;
 export const HEARTBEAT_MS = 30_000;
 
 export const UPDATE_TIMEOUT_MS = 45 * 60_000;
+// Recovery snapshots and integrity checks can exceed an hour on appliance disks.
+// Keep the existing storage-backup budget separate from container mutations.
+export const BACKUP_TIMEOUT_MS = 24 * 60 * 60_000;
 
 export function optional(value) {
   const normalized = value?.trim();

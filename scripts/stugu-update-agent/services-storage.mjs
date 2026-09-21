@@ -10,6 +10,7 @@ import {
 import { basename, join, relative, resolve } from "node:path";
 
 import {
+  BACKUP_TIMEOUT_MS,
   bounded,
   compose,
   readJson,
@@ -454,14 +455,14 @@ async function helper(
 async function verifiedPreMoveBackup(config, composeCommand) {
   const output = await composeCommand(config, [
     "--profile", "maintenance", "run", "--rm", "--no-deps", "stugu-backup",
-  ], 24 * 60 * 60_000);
+  ], BACKUP_TIMEOUT_MS);
   const match = /Verified backup created:\s+(\/app\/backups\/[A-Za-z0-9._-]+)/u.exec(output);
   if (!match) throw new Error("Verified backup did not report its recovery-set path");
   await composeCommand(config, [
     "--profile", "maintenance", "run", "--rm", "--no-deps",
     "--entrypoint", "node", "stugu-backup",
     "/app/scripts/stugu-restore-drill.mjs", match[1],
-  ], 24 * 60 * 60_000);
+  ], BACKUP_TIMEOUT_MS);
   return basename(match[1]);
 }
 
