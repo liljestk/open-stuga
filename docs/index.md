@@ -67,6 +67,9 @@ Start here:
    maintenance windows, Docker/Desktop installation, health checks, and rollback.
 26. [Host system monitoring](host-system-monitoring.md) — CPU, memory, storage,
    temperature, uptime, built-in strain alerts, and Prometheus scraping.
+27. [Raspberry Pi system-update recovery](system-update-recovery.md) —
+   fail-closed diagnosis and recovery for unsupported updater safety states,
+   blocked application-only OTA, and stale recorded-release evidence.
 
 Reference configuration:
 

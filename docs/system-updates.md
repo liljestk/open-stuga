@@ -219,6 +219,11 @@ was not reliable on the supported USB bridge. See the
 
 ## Recovery
 
+For a Raspberry Pi that reports an **unsupported safety state**, hides an
+application-only update, or finishes with a stale recorded release, follow the
+[fail-closed system-update recovery runbook](system-update-recovery.md). Prove
+the exact native state first; the UI message alone never authorizes a bypass.
+
 The latest application, host, and parent-workflow state is visible in the UI.
 Its bounded projections live under `data/update-operations`; the privileged
 native journal remains private to the host updater. Before changing a host or

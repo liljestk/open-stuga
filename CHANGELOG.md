@@ -4,6 +4,8 @@ All notable Stugu releases are recorded here.
 
 ## 0.41.1
 
+- Keep the API responsive while reading large analytics windows, use the data volume for SQLite spill files, and serve archived history when a local read fails.
+- Include the Raspberry Pi application-update recovery runbook and update application dependencies and build tooling.
 - Restore electricity totals when archived calculations are catching up, and avoid expensive long-window fallback scans that can stall the appliance. Normalize quarter-hour price boundaries so cost calculations use the intended history summaries.
 - Load electricity charts across the full selected range, preserve the selected meter when changing metrics, and exclude submeters from a whole-Home chart.
 - Show unavailable and incomplete consumption explicitly with a retry action, keep current prices refreshed, and make mobile chart range controls readable.

@@ -18,6 +18,9 @@ original `climate-twin` identifier.
 - Hosted GitHub Actions CI is **paused** while the repo is private.
   `npm run verify:local -- --full` runs the authoritative local CI once and
   produces the reusable receipt (see `docs/local-ci.md`).
+- For Raspberry Pi updater diagnosis and recovery—including an **unsupported
+  safety state** or blocked application-only OTA—follow the
+  [system-update recovery runbook](docs/system-update-recovery.md).
 
 ## Layout
 
