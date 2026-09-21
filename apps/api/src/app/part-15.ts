@@ -316,7 +316,7 @@ export function configureApiPart15(context: ReturnType<typeof configureApiPart14
             to,
             configuredHeatPumpConnectionIds(context.config.greeConnections, house.id),
           );
-          const filtered = filterHeatPumpAffectedSamples(indoorRead.records, heatPumpWindow);
+          const filtered = filterHeatPumpAffectedSamples(indoorRead.records, heatPumpWindow, 5 * 60_000);
           return runThermalSimulationAsync({
             houseId: house.id,
             sensorId: sensor.id,
@@ -328,6 +328,7 @@ export function configureApiPart15(context: ReturnType<typeof configureApiPart14
             horizonHours,
             scenarioOutdoorTemperatureC,
             hvacExclusion: filtered.summary,
+            ...(heatPumpWindow.summary.evidenceState === "not-present" ? {} : { passiveIntervals: heatPumpWindow.passiveIntervals }),
           }, undefined, { signal: abortController.signal });
         }, abortController.signal);
         if (abortController.signal.aborted) return;
@@ -414,7 +415,7 @@ export function configureApiPart15(context: ReturnType<typeof configureApiPart14
               to,
               configuredHeatPumpConnectionIds(context.config.greeConnections, house.id),
             );
-            const filtered = filterHeatPumpAffectedSampleMap(indoorSamplesBySensor, heatPumpWindow);
+            const filtered = filterHeatPumpAffectedSampleMap(indoorSamplesBySensor, heatPumpWindow, 5 * 60_000);
             return runThermalIsolationIsolated({
               house,
               sensors,
@@ -423,6 +424,7 @@ export function configureApiPart15(context: ReturnType<typeof configureApiPart14
               from,
               to,
               hvacExclusion: filtered.summary,
+              ...(heatPumpWindow.summary.evidenceState === "not-present" ? {} : { passiveIntervals: heatPumpWindow.passiveIntervals }),
             }, abortController.signal);
           }, abortController.signal);
         if (abortController.signal.aborted) return;
@@ -507,7 +509,7 @@ export function configureApiPart15(context: ReturnType<typeof configureApiPart14
             to,
             configuredHeatPumpConnectionIds(context.config.greeConnections, house.id),
           );
-          const filtered = filterHeatPumpAffectedSampleMap(indoorSamplesBySensor, heatPumpWindow);
+          const filtered = filterHeatPumpAffectedSampleMap(indoorSamplesBySensor, heatPumpWindow, 5 * 60_000);
           return runMoistureResponseIsolated({
             house,
             sensors,
@@ -516,6 +518,7 @@ export function configureApiPart15(context: ReturnType<typeof configureApiPart14
             from,
             to,
             hvacExclusion: filtered.summary,
+            ...(heatPumpWindow.summary.evidenceState === "not-present" ? {} : { passiveIntervals: heatPumpWindow.passiveIntervals }),
           }, abortController.signal);
         }, abortController.signal);
         if (abortController.signal.aborted) return;

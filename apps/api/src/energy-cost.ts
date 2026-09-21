@@ -11,6 +11,8 @@ import {
   HybridTelemetryReader,
   IncompleteTelemetryHistoryError,
 } from "./timeseries/read-facade.js";
+import { RollupsMaterializingError } from "./timeseries/read-support.js";
+import { AnalyticsCapacityError } from "./analytics/work-limiter.js";
 import type { EnergyCostAggregateRecord } from "./timeseries/types.js";
 
 const MEASUREMENT_EDGE_TOLERANCE_MS = 5 * 60_000;
@@ -57,6 +59,12 @@ interface BasisCalculation {
   estimated: boolean;
 }
 
+function temporarilyUnavailable(error: unknown): boolean {
+  return error instanceof RollupsMaterializingError
+    || error instanceof AnalyticsCapacityError
+    || error instanceof IncompleteTelemetryHistoryError;
+}
+
 export class EnergyCostService {
   constructor(
     private readonly telemetryReader: HybridTelemetryReader,
@@ -72,10 +80,30 @@ export class EnergyCostService {
     to: string;
     signal?: AbortSignal;
   }): Promise<HomeEnergyCost> {
-    const energy = await this.calculateBasis(input, "energy_counter");
-    if (energy.measurementComplete && !energy.estimated) return energy.cost;
+    // One basis being temporarily unavailable (rollups materializing, load
+    // shed, archive gap) must not take down the other: the fallback basis is
+    // often already serveable, and attempting it also enqueues its own rollup
+    // variants so both families converge in the same catch-up round.
+    let energy: BasisCalculation | null = null;
+    let unavailable: unknown = null;
+    try {
+      energy = await this.calculateBasis(input, "energy_counter");
+    } catch (error) {
+      if (!temporarilyUnavailable(error)) throw error;
+      unavailable = error;
+    }
+    if (energy?.measurementComplete && !energy.estimated) return energy.cost;
 
-    const power = await this.calculateBasis(input, "integrated_power");
+    let power: BasisCalculation | null = null;
+    try {
+      power = await this.calculateBasis(input, "integrated_power");
+    } catch (error) {
+      if (!temporarilyUnavailable(error)) throw error;
+      unavailable ??= error;
+    }
+    if (!energy && !power) throw unavailable;
+    if (!power) return energy!.cost;
+    if (!energy) return power.cost;
     if (energy.measurementComplete && energy.estimated && power.measurementComplete) return power.cost;
     if (energy.measurementComplete) return energy.cost;
     if (power.measurementComplete) return power.cost;

@@ -31,6 +31,23 @@ describe("SensorAnalyticsChart", () => {
     ], bucket, "sum")).toEqual([expect.objectContaining({ value: 32, sensorCount: 2 })]);
   });
 
+  it.each([true, false])("does not infer gaps from unavailable history (loading=%s)", (loading) => {
+    const state = createDemoState();
+    const house = state.houses[0]!;
+    const sensors = state.sensors.filter((sensor) => sensor.houseId === house.id && sensor.enabled).slice(0, 1);
+    const { container } = render(<I18nProvider><SensorAnalyticsChart
+      houseId={house.id} dataMode="demo" sensors={sensors} history={state.measurementHistory}
+      forecasts={{}} latestMeasurements={state.latestMeasurements} definitions={state.measurementDefinitions}
+      metric="temperature" units="metric" range="24h" timeZone={house.timezone} selectedSensorIds={null}
+      weatherObservationsVisible={false} weatherForecastVisible={false} analyticsSeries={null} loading={loading}
+      onMetric={vi.fn()} onRange={vi.fn()} onSensors={vi.fn()}
+      onWeatherObservationsVisible={vi.fn()} onWeatherForecastVisible={vi.fn()}
+    /></I18nProvider>);
+    expect(screen.queryByText(/Missing data in/)).toBeNull();
+    expect(container.querySelector(".sensor-data-gap-region")).toBeNull();
+    expect(Boolean(screen.queryByText("Loading sensor data…"))).toBe(loading);
+  });
+
   it("renders every sensor together with aggregate and prediction series", async () => {
     const user = userEvent.setup();
     const state = createDemoState();

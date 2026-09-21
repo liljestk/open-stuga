@@ -25,6 +25,9 @@ export const queryKeys = {
   homeEnergySummary: (houseId: string, intervalId: string, durationMs: number) => (
     ["house", houseId, "energy-summary", intervalId, durationMs] as const
   ),
+  houseElectricityPrice: (houseId: string) => (
+    ["house", houseId, "electricity-price"] as const
+  ),
   connectedDevices: (houseId: string) => (
     ["connected-devices", houseId] as const
   ),

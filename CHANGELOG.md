@@ -2,6 +2,25 @@
 
 All notable Stugu releases are recorded here.
 
+## 0.41.1
+
+- Correct electricity forecast descriptions for assistive technology.
+
+- Keep the API responsive while reading large analytics windows, use the data volume for SQLite spill files, and serve archived history when a local read fails.
+- Include the Raspberry Pi application-update recovery runbook and update application dependencies and build tooling.
+- Restore electricity totals when archived calculations are catching up, and avoid expensive long-window fallback scans that can stall the appliance. Normalize quarter-hour price boundaries so cost calculations use the intended history summaries.
+- Load electricity charts across the full selected range, preserve the selected meter when changing metrics, and exclude submeters from a whole-Home chart.
+- Show unavailable and incomplete consumption explicitly with a retry action, keep current prices refreshed, and make mobile chart range controls readable.
+
+Upgrade impact: No configuration or database migration is required. Existing stored prices are handled on read; archived calculations may briefly show partial data while summaries finish rebuilding.
+- Keep thermal and moisture fits within uninterrupted passive periods; excluded heat-pump operation can no longer be joined back into a fit across a short gap.
+- Exclude five-minute climate averages that overlap heat-pump exclusion boundaries.
+- Explain unavailable thermal scores with the evidence period, usable continuous hours and sensor-specific reasons instead of implying that recordings are missing.
+- Reuse materialized climate history while reading only uncached boundaries and the newest bucket from raw observations.
+- Keep stale source-outage records from hiding recorded data, load full history for gap checks, and show loading while history is pending.
+- Process sensor reconnections even if another history scan fails, and cancel requests promptly while archive synchronization continues.
+- Upgrade impact: no database migration. Previous thermal and moisture artifacts become stale and refresh with the corrected calculation on the normal schedule or an explicit refresh. Some previously reported scores may become unavailable when their evidence crossed excluded pump operation.
+
 ## Unreleased
 
 ## 0.41.0 - 2026-09-04

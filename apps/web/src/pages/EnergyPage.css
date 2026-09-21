@@ -616,3 +616,18 @@
 
   .energy-optimizer-content { padding: 14px; }
 }
+
+@media (max-width: 680px) {
+  .energy-history-chart .chart-heading .segmented {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    width: 100%;
+  }
+  .energy-history-chart .chart-heading .segmented button {
+    min-width: 0;
+    min-height: 40px;
+    white-space: normal;
+  }
+}
+
+.energy-history-chart .sensor-analytics-chart { min-width: 0; }

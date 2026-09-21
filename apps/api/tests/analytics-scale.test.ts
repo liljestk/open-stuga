@@ -52,8 +52,8 @@ function denseSamples(count: number, sensorId = "sensor-1"): MeasurementSample[]
 describe("analytics bucket extents", () => {
   // `Math.min(...values)` exceeded the engine argument limit once a bucket held
   // more samples than the stack allows, turning a valid query into a 500.
-  it("aggregates a bucket holding far more samples than a spread call accepts", () => {
-    const response = buildAnalyticsResponse({
+  it("aggregates a bucket holding far more samples than a spread call accepts", async () => {
+    const response = await buildAnalyticsResponse({
       request: request({ aggregation: "min" }),
       samples: denseSamples(200_000),
       definitions: [definition],

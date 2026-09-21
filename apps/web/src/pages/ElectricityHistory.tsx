@@ -22,7 +22,8 @@ import { definitionFor, formatMeasurement, measurementLabel } from "../measureme
 import { useI18n } from "../i18n";
 import { useNow } from "../useNow";
 import { seriesStateKey, type SeriesLoadState } from "../useClimateData";
-import { aggregateCumulativeSeries, electricityUsageSeries } from "./energyAnalysis";
+import { sensorsForHomeTotal } from "./energyTelemetry";
+import { aggregateCumulativeSeries, electricityUsageSeries, holdSeriesForBuckets } from "./energyAnalysis";
 
 export const ELECTRICITY_METRICS = ["power", "energy", "electricity_price"] as const;
 export type ElectricityMetric = typeof ELECTRICITY_METRICS[number];
@@ -55,8 +56,9 @@ function supportsMetric(state: ClimateState, sensor: Sensor, metric: Electricity
     || (metric === "energy" && supportsDirectMetric(state, sensor, "power"));
 }
 
-function loadedMetric(state: ClimateState, sensor: Sensor, metric: ElectricityMetric): ElectricityMetric {
-  return metric === "energy" && !supportsDirectMetric(state, sensor, "energy") ? "power" : metric;
+function loadedMetrics(state: ClimateState, sensor: Sensor, metric: ElectricityMetric): ElectricityMetric[] {
+  if (metric !== "energy") return [metric];
+  return (["power", "energy"] as const).filter((candidate) => supportsDirectMetric(state, sensor, candidate));
 }
 
 function bucketMilliseconds(range: TimeRange): number {
@@ -132,10 +134,10 @@ export function ElectricityHistory(props: Readonly<ElectricityHistoryProps>) {
     ? metricSensors
     : metricSensors.filter((sensor) => multipleSensorIds.includes(sensor.id));
   const activeSensors = mode === "single" ? (singleSensor ? [singleSensor] : [])
-    : mode === "multiple" ? multipleSensors : metricSensors;
+    : mode === "multiple" ? multipleSensors : props.metric === "electricity_price" ? metricSensors : sensorsForHomeTotal(metricSensors);
   const activeSensorKey = activeSensors.map((sensor) => sensor.id).join("\u0000");
   const activeLoadKey = activeSensors.map((sensor) => (
-    `${sensor.id}:${loadedMetric(props.state, sensor, props.metric)}`
+    `${sensor.id}:${loadedMetrics(props.state, sensor, props.metric).join(",")}`
   )).join("\u0000");
   const from = now - timeRangeHours(props.range) * 3_600_000;
   const propertyPrices = useMemo(
@@ -147,13 +149,10 @@ export function ElectricityHistory(props: Readonly<ElectricityHistoryProps>) {
   const propertyOnly = metricSensors.length === 0 && propertyPrices.length > 0;
 
   useEffect(() => {
-    setSingleSensorId("");
-    setMultipleSensorIds(null);
-  }, [props.metric]);
-
-  useEffect(() => {
     activeSensors.forEach((sensor) => {
-      props.onLoadSeries?.(sensor.id, loadedMetric(props.state, sensor, props.metric), props.range, false);
+      for (const candidate of loadedMetrics(props.state, sensor, props.metric)) {
+        props.onLoadSeries?.(sensor.id, candidate, props.range, false);
+      }
     });
   }, [activeLoadKey, props.metric, props.onLoadSeries, props.range]);
 
@@ -164,17 +163,31 @@ export function ElectricityHistory(props: Readonly<ElectricityHistoryProps>) {
       : observedSeries(sensor.id, props.metric, props.state, from),
   })), [activeSensorKey, from, now, props.metric, props.state]);
   const aggregateResult = useMemo(() => {
-    const input = observed.map(({ sensor, points: sensorPoints }) => ({ sensorId: sensor.id, points: sensorPoints }));
+    // Sensors without a single sample in the window cannot contribute and must
+    // not blank the whole combined chart; they are excluded and called out.
+    // Instantaneous metrics get a zero-order-hold fill so change-plus-heartbeat
+    // reporters still cover every bucket their value was valid for.
+    const withData = observed.filter(({ points: sensorPoints }) => sensorPoints.length > 0);
+    const bucketMs = bucketMilliseconds(props.range);
+    const input = withData.map(({ sensor, points: sensorPoints }) => ({
+      sensorId: sensor.id,
+      points: props.metric === "energy" ? sensorPoints : holdSeriesForBuckets(sensorPoints, bucketMs, from, now),
+    }));
     const points = props.metric === "energy"
-      ? aggregateCumulativeSeries(input, bucketMilliseconds(props.range))
+      ? aggregateCumulativeSeries(input, bucketMs)
       : aggregateObservedSeries(
         input,
-        bucketMilliseconds(props.range),
+        bucketMs,
         props.metric === "electricity_price" ? "mean" : "sum",
       );
-    const complete = points.filter((point) => point.sensorCount === activeSensors.length);
-    return { points: complete, partialCount: points.length - complete.length };
-  }, [activeSensors.length, observed, props.metric, props.range]);
+    const complete = points.filter((point) => point.sensorCount === withData.length);
+    return {
+      points: complete,
+      partialCount: points.length - complete.length,
+      reportingCount: withData.length,
+      excludedCount: observed.length - withData.length,
+    };
+  }, [from, now, observed, props.metric, props.range]);
   const aggregate = aggregateResult.points;
   const plottedObserved = mode === "combined" ? [] : observed;
   const plottedAggregate = mode === "combined" ? aggregate : [];
@@ -213,13 +226,14 @@ export function ElectricityHistory(props: Readonly<ElectricityHistoryProps>) {
     outdoorForecast: [],
     electricityPrice: propertyPrices,
   };
-  const loadStates = activeSensors.flatMap((sensor) => {
-    const state = props.seriesStates?.[seriesStateKey(sensor.id, loadedMetric(props.state, sensor, props.metric))];
+  const loadStates = activeSensors.flatMap((sensor) => loadedMetrics(props.state, sensor, props.metric).flatMap((candidate) => {
+    const state = props.seriesStates?.[seriesStateKey(sensor.id, candidate)];
     return state ? [state] : [];
-  });
+  }));
   const loading = loadStates.some((state) => state.status === "loading")
     || (props.metric === "electricity_price" && props.priceLoading === true);
   const errors = loadStates.filter((state) => state.status === "error");
+  const truncatedSeries = loadStates.some((state) => state.truncated);
   const dataRows = [
     ...(mode === "combined"
       ? aggregate.map((point, index) => ({ id: `combined-${point.timestamp}-${index}`, source: sourceTitle, point }))
@@ -288,7 +302,7 @@ export function ElectricityHistory(props: Readonly<ElectricityHistoryProps>) {
             </div>
           </details>}
           {!propertyOnly && mode === "combined" && <div className="energy-combined-source" aria-labelledby={sourceLabelId}>{metricSensors.length
-            ? t("energy.combinedSources", { count: metricSensors.length, total: metricSensors.length })
+            ? t("energy.combinedSources", { count: aggregateResult.reportingCount, total: activeSensors.length })
             : t("energy.waitingForSource")}</div>}
         </div>
       </div>
@@ -308,6 +322,7 @@ export function ElectricityHistory(props: Readonly<ElectricityHistoryProps>) {
         {propertyPrices.length > 0 && <span><i className="sensor-series-swatch electricity-price" aria-hidden="true" />{t("sensors.analyticsPropertyPrice")}</span>}
       </div>
       {domain ? <SensorAnalyticsPlot
+        fitContainer
         data={plotData}
         definition={definition}
         units={props.units}
@@ -327,8 +342,12 @@ export function ElectricityHistory(props: Readonly<ElectricityHistoryProps>) {
         aggregateLabel={sourceTitle}
         predictionLabel={t("chart.predicted")}
       /> : <div className="empty-state">{loading ? t("chart.loading") : t("common.noData")}</div>}
+      {loading && domain && <p className="chart-capability-note" role="status">{t("chart.loading")}</p>}
+      {props.metric === "energy" && <p className="chart-capability-note">{t("energy.chartCumulativeHint")}</p>}
       {(errors.length > 0 || (props.metric === "electricity_price" && props.priceError)) && <p className="inline-error" role="alert">{t("chart.loadError")}</p>}
       {mode === "combined" && aggregateResult.partialCount > 0 && <p className="chart-capability-note">{t("energy.chartCompleteIntervals")}</p>}
+      {mode === "combined" && !loading && aggregateResult.excludedCount > 0 && aggregateResult.reportingCount > 0 && <p className="chart-capability-note">{t("energy.chartSourcesWithoutData", { count: aggregateResult.excludedCount })}</p>}
+      {truncatedSeries && <p className="chart-capability-note">{t("energy.chartTruncatedRange")}</p>}
       {dataRows.length > 0 && <details className="chart-data-disclosure" open={dataOpen}>
         <summary onClick={(event) => { event.preventDefault(); setDataOpen((current) => !current); }}>{t("common.showDataTable")}</summary>
         {dataOpen && <div className="chart-data-table-wrap" role="region" aria-label={chartLabel} tabIndex={0}>

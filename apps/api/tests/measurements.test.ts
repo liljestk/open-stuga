@@ -99,7 +99,12 @@ describe("registry-driven measurements API", () => {
         else query.signal?.addEventListener("abort", abort, { once: true });
       });
     });
-    const telemetryReader = { measurementHistory } as unknown as HybridTelemetryReader;
+    // Raw and long bucketed reads share one capture; the long-window bucket
+    // path now stays bucketed end to end instead of falling back to raw rows.
+    const telemetryReader = {
+      measurementHistory,
+      measurementHistoryBucketed: measurementHistory,
+    } as unknown as HybridTelemetryReader;
     runtime = createApi({
       config: { ...config, timeseriesPoolMax: 1 },
       telemetryReader,
@@ -536,14 +541,47 @@ describe("registry-driven measurements API", () => {
     }).expect(200);
     expect(oversized.body).toMatchObject({ bucketSeconds: 60, truncated: false });
     expect(oversized.body.samples).toHaveLength(2);
-    expect(bucketedRead).not.toHaveBeenCalled();
-    expect(rawRead).toHaveBeenCalledOnce();
-    expect(rawRead).toHaveBeenCalledWith(
-      "sensor-01", "co2", new Date(base).toISOString(), oversizedTo, 100_000, undefined,
+    // Windows past a day stay on the exact bucket path, tiled into day-scale
+    // statements: the newest chunk keeps the inclusive upper bound while older
+    // chunks end exclusively on the shared chunk edge.
+    expect(rawRead).not.toHaveBeenCalled();
+    expect(bucketedRead).toHaveBeenCalledTimes(2);
+    expect(bucketedRead).toHaveBeenNthCalledWith(
+      1, "sensor-01", "co2", new Date(base + 24 * 3_600_000).toISOString(), oversizedTo, 60, 20_001, true,
+    );
+    expect(bucketedRead).toHaveBeenNthCalledWith(
+      2, "sensor-01", "co2", new Date(base).toISOString(), new Date(base + 24 * 3_600_000).toISOString(), 60, 20_001, true, true,
     );
     await request(runtime.app).get("/api/v2/measurements/history").query({
       sensorId: "sensor-01", metric: "co2", bucketSeconds: 0,
     }).expect(400);
+  });
+
+  it("serves the full requested window for multi-day bucketed reads", async () => {
+    const base = Date.parse("2026-07-10T00:00:00.000Z");
+    const spanHours = 60;
+    runtime.database.insertMeasurementSamples(Array.from({ length: spanHours }, (_, hour) => ({
+      sensorId: "sensor-01",
+      metric: "co2",
+      value: 500 + hour,
+      canonicalUnit: "ppm",
+      timestamp: new Date(base + hour * 3_600_000 + 30_000).toISOString(),
+      source: "home-assistant" as const,
+      quality: "good" as const,
+    })));
+
+    const from = new Date(base).toISOString();
+    const to = new Date(base + spanHours * 3_600_000).toISOString();
+    const history = await request(runtime.app).get("/api/v2/measurements/history").query({
+      sensorId: "sensor-01", metric: "co2", from, to, bucketSeconds: 3_600,
+    }).expect(200);
+
+    expect(history.body.truncated).toBe(false);
+    expect(history.body.samples).toHaveLength(spanHours);
+    expect(history.body.samples[0]).toMatchObject({ timestamp: from, value: 500 });
+    expect(history.body.samples.at(-1)).toMatchObject({ value: 500 + spanHours - 1 });
+    const timestamps = history.body.samples.map((sample: { timestamp: string }) => sample.timestamp);
+    expect(new Set(timestamps).size).toBe(spanHours);
   });
 
   it("takes aggregate provenance from the chronologically latest row, not insertion order", () => {

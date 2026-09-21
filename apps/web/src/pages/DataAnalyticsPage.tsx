@@ -16,7 +16,7 @@ import type {
 } from "@climate-twin/contracts";
 import { ANALYTICS_TIME_RANGES, timeRangeHours, type ClimateState, type TimeRange } from "../domain";
 import { api } from "../api";
-import { SensorAnalyticsChart } from "../components/SensorAnalyticsChart";
+import { observedSeries, SensorAnalyticsChart } from "../components/SensorAnalyticsChart";
 import { DailyAnalyticsFindings } from "../components/DailyAnalyticsFindings";
 import { HomePerformancePanel } from "../components/HomePerformancePanel";
 import { OpeningAnalyticsPanel } from "../components/OpeningAnalyticsPanel";
@@ -312,7 +312,7 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
   const sensorRecoveryErrors = [...new Set([historyError, analyticsError]
     .filter((detail): detail is string => Boolean(detail)))];
   const auxiliaryHistoryVisible = sensorsOpen || continuityOpen;
-  const analyticsNeeded = sensorsOpen || evidenceOpen;
+  const analyticsNeeded = sensorsOpen || evidenceOpen || continuityOpen;
   const analyticsDataMode = props.dataMode === "real" ? "live" : "demo";
   const forecastCacheScope = [props.dataMode, props.house.id, refreshRevision, selectedSensorKey].join("\u0001");
   const analyticsBatchIdentity = [
@@ -577,17 +577,12 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
   const thresholdMs = chartGapThresholdMs(range);
   const visibleSensorGaps = useMemo(() => selectedSensors.flatMap((sensor) => {
     if (!sensor.enabled) return [];
-    const points = (props.state.measurementHistory[sensor.id]?.[metric] ?? [])
-      .flatMap((sample) => {
-        const timestamp = Date.parse(sample.timestamp);
-        return sample.quality === "stale" || !Number.isFinite(timestamp) || timestamp < fromMs
-          ? []
-          : [{ timestamp }];
-      })
-      .sort((left, right) => left.timestamp - right.timestamp);
+    if (!analytics) return [];
+    const points = observedSeries(sensor.id, metric, props.state.measurementHistory,
+      props.state.latestMeasurements, fromMs, analytics.series, analytics.resolvedRange.end);
     return detectSeriesGaps(points, thresholdMs, { startedAt: fromMs, endedAt: now })
       .map((gap) => ({ sensor, gap }));
-  }), [fromMs, metric, now, props.state.measurementHistory, selectedSensors, thresholdMs]);
+  }), [analytics, fromMs, metric, now, props.state.measurementHistory, props.state.latestMeasurements, selectedSensors, thresholdMs]);
   const visibleOutdoorGaps = useMemo(() => detectSeriesGaps(
     outdoorHistory.flatMap((sample) => {
       const timestamp = Date.parse(sample.timestamp);
@@ -601,24 +596,27 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
   const continuityRows = useMemo<ContinuityRow[]>(() => {
     const durable = sensorGaps.flatMap((gap) => {
       if (gap.metric !== metric) return [];
-      const startedAt = Date.parse(gap.startedAt);
-      const endedAt = Date.parse(gap.endedAt ?? new Date(now).toISOString());
+      const startedAt = Math.max(fromMs, Date.parse(gap.startedAt));
+      const endedAt = Math.min(now, Date.parse(gap.endedAt ?? new Date(now).toISOString()));
       const sensor = selectedSensors.find((candidate) => candidate.id === gap.sensorId);
-      if (!sensor || !Number.isFinite(startedAt) || !Number.isFinite(endedAt) || endedAt < fromMs) return [];
-      return [{
-        id: `sensor-gap-${gap.id}`,
+      if (!sensor || !Number.isFinite(startedAt) || !Number.isFinite(endedAt) || endedAt <= startedAt) return [];
+      const intervals = gap.recoveryState === "complete" ? [{ startedAt, endedAt }]
+        : visibleSensorGaps.filter((hole) => hole.sensor.id === gap.sensorId
+          && hole.gap.startedAt < endedAt && hole.gap.endedAt > startedAt)
+          .map((hole) => ({ startedAt: Math.max(startedAt, hole.gap.startedAt), endedAt: Math.min(endedAt, hole.gap.endedAt) }));
+      return intervals.map((interval, index) => ({
+        id: `sensor-gap-${gap.id}-${index}`,
         source: sensor.name,
         metric: selectedDefinition ? measurementLabel(selectedDefinition, locale) : gap.metric,
-        startedAt,
-        endedAt,
-        state: gap.recoveryState,
+        ...interval,
+        state: gap.recoveryState === "open" && interval.endedAt < now ? "visible" as const : gap.recoveryState,
         recoveredPoints: gap.recoveredPoints,
         detail: gap.recoveryError,
-      }];
+      }));
     });
     const visibleSensors = visibleSensorGaps.flatMap(({ sensor, gap }, index) => {
       const recorded = sensorGaps.some((candidate) => {
-        if (candidate.sensorId !== sensor.id || candidate.metric !== metric) return false;
+        if (candidate.sensorId !== sensor.id || candidate.metric !== metric || candidate.recoveryState === "complete") return false;
         const candidateStart = Date.parse(candidate.startedAt);
         const candidateEnd = Date.parse(candidate.endedAt ?? new Date(now).toISOString());
         return Number.isFinite(candidateStart) && Number.isFinite(candidateEnd)
@@ -859,16 +857,16 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
           <summary>
             <span className="analytics-tool-icon"><Database size={18} aria-hidden="true" /></span>
             <span className="analytics-tool-copy"><strong id="analytics-continuity-title">{t("analytics.continuityTitle")}</strong><small>{t("analytics.continuityDescription")}</small></span>
-            {historyLoaded && historyIdentity.current === `${props.house.id}\u0000${range}` && <span className={`analytics-gap-count ${historyError || visibleGapCount > 0 ? "warning" : "healthy"}`}><TriangleAlert size={14} aria-hidden="true" />{historyError ? t("analytics.continuityStale") : t("analytics.visibleGapCount", { count: visibleGapCount })}</span>}
+            {historyLoaded && (analytics || analyticsError) && historyIdentity.current === `${props.house.id}\u0000${range}` && <span className={`analytics-gap-count ${historyError || analyticsError || visibleGapCount > 0 ? "warning" : "healthy"}`}><TriangleAlert size={14} aria-hidden="true" />{historyError || analyticsError ? t("analytics.continuityStale") : t("analytics.visibleGapCount", { count: visibleGapCount })}</span>}
             <ChevronDown className="analytics-tool-chevron" size={18} aria-hidden="true" />
           </summary>
           <section className="analytics-continuity-panel analytics-tool-content" aria-labelledby="analytics-continuity-title">
-        {historyError && !sensorsOpen && <p className="inline-error" role="alert"><span>{t("chart.loadError")}</span><br /><span>{historyError}</span></p>}
+        {sensorRecoveryErrors.length > 0 && !sensorsOpen && <p className="inline-error" role="alert"><span>{t("chart.loadError")}</span><br /><span>{sensorRecoveryErrors.join(" · ")}</span></p>}
         {showTpLinkImportHelp && <aside className="analytics-gap-import-help">
           <FileSpreadsheet size={17} aria-hidden="true" />
           <p><strong>{t("analytics.tpLinkImportTitle")}</strong>{t("analytics.tpLinkImportHelp")}</p>
         </aside>}
-        {continuityRows.length > 0 ? <details className="analytics-gap-details"><summary>{t("analytics.showGapDetails", { count: continuityRows.length })}</summary><div className="analytics-gap-table-wrap" role="region" aria-label={t("analytics.continuityTitle")} tabIndex={0}><table className="analytics-gap-table">
+        {!analytics && analyticsLoading ? <p className="analytics-no-gaps" role="status">{t("sensors.loadingData")}</p> : continuityRows.length > 0 ? <details className="analytics-gap-details"><summary>{t("analytics.showGapDetails", { count: continuityRows.length })}</summary><div className="analytics-gap-table-wrap" role="region" aria-label={t("analytics.continuityTitle")} tabIndex={0}><table className="analytics-gap-table">
           <thead><tr><th scope="col">{t("analytics.series")}</th><th scope="col">{t("sensors.analyticsMetric")}</th><th scope="col">{t("analytics.interval")}</th><th scope="col">{t("analytics.duration")}</th><th scope="col">{t("analytics.recovery")}</th></tr></thead>
           <tbody>{continuityRows.map((row) => <tr key={row.id}>
             <td>{row.source === t("decision.outdoor") && <CloudSun size={13} aria-hidden="true" />}{row.source}</td>
@@ -877,7 +875,7 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
             <td>{durationLabel(row.endedAt - row.startedAt, locale)}</td>
             <td><span className={`analytics-recovery-state ${row.state}`}>{t(`analytics.recovery_${row.state}`)}</span>{row.recoveredPoints > 0 && <small>{t("analytics.recoveredPoints", { count: row.recoveredPoints })}</small>}{row.detail && <small>{row.detail}</small>}</td>
           </tr>)}</tbody>
-        </table></div></details> : <p className="analytics-no-gaps">{t("analytics.noRecordedGaps")}</p>}
+        </table></div></details> : (analytics || selectedSensors.length === 0) && !loading && !analyticsError && !historyError ? <p className="analytics-no-gaps">{t("analytics.noRecordedGaps")}</p> : null}
           </section>
         </details>
       </div>

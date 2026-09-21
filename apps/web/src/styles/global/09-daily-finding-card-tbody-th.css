@@ -124,6 +124,14 @@
 
 .isolation-sensor-details[open] > summary { background: var(--panel-soft); }
 
+.isolation-unavailable-evidence { padding: 16px 18px; }
+
+.isolation-unavailable-evidence p { max-width: 70ch; margin: 0 0 12px; }
+
+.isolation-unavailable-evidence ul { margin: 0; padding-left: 20px; }
+
+.isolation-unavailable-evidence li + li { margin-top: 16px; }
+
 .isolation-method-note { margin: 0; padding: 11px 18px; color: var(--muted); background: var(--panel-soft); font-size: 10px; line-height: 1.5; }
 
 .analytics-page-heading { align-items: center; }

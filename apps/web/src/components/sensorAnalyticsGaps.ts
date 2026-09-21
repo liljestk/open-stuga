@@ -45,13 +45,19 @@ export function deriveSensorAnalyticsGapStatus(input: SensorAnalyticsGapInput): 
       || endedAt <= input.from || startedAt >= input.to) return [];
     const clippedStart = Math.max(input.from, startedAt);
     const clippedEnd = Math.min(input.to, endedAt);
-    return [{ ...gap, startedAt: clippedStart, endedAt: clippedEnd, durationMs: clippedEnd - clippedStart }];
+    // Source-outage records can outlive the outage or be filled by another
+    // source. Use them to explain observed holes, never to hide real readings.
+    return visible.filter((hole) => hole.sensorId === gap.sensorId
+      && hole.startedAt < clippedEnd && hole.endedAt > clippedStart).map((hole) => ({
+        ...gap,
+        startedAt: Math.max(clippedStart, hole.startedAt),
+        endedAt: Math.min(clippedEnd, hole.endedAt),
+      }));
   });
   const missingSeriesCount = new Set([
     ...visible.map((gap) => gap.sensorId),
-    ...durable.map((gap) => gap.sensorId),
   ]).size;
-  const statusKey: GapStatusKey = durable.some((gap) => gap.recoveryState === "open")
+  const statusKey: GapStatusKey = durable.some((gap) => gap.recoveryState === "open" && gap.endedAt === input.to)
     ? "analytics.gapSourceOffline"
     : durable.some((gap) => gap.recoveryState === "running" || gap.recoveryState === "pending")
       ? "analytics.gapRecoveryActive"
@@ -64,7 +70,7 @@ export function deriveSensorAnalyticsGapStatus(input: SensorAnalyticsGapInput): 
             : "analytics.gapRecoveryChecking";
   return {
     missingSeriesCount,
-    missingIntervals: mergeDisplayDataGaps([...visible, ...durable]),
+    missingIntervals: mergeDisplayDataGaps(visible),
     statusKey,
   };
 }

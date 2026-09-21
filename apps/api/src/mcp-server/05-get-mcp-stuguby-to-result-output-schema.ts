@@ -448,7 +448,7 @@ export async function thermalIsolation(
       const filtered = filterHeatPumpAffectedSampleMap(new Map(sensors.map((sensor, index) => [
         sensor.id,
         indoor[index]!.records,
-      ])), heatPumpWindow);
+      ])), heatPumpWindow, 5 * 60_000);
       return runThermalIsolationAsync({
         house,
         sensors,
@@ -457,6 +457,7 @@ export async function thermalIsolation(
         from,
         to,
         hvacExclusion: filtered.summary,
+        ...(heatPumpWindow.summary.evidenceState === "not-present" ? {} : { passiveIntervals: heatPumpWindow.passiveIntervals }),
       }, completionSignal ? { signal: completionSignal } : {});
     },
   });

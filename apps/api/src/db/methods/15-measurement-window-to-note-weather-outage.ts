@@ -132,29 +132,68 @@ registerDatabaseMethods({
         .all(...visibleSensorIds, ...metrics, from, to, limit) as unknown as MeasurementSampleRow[];
       return rows.map(measurementSampleFromRow);
     },
-  measurementCoverage(sensorIds: string[], metrics: string[]): MeasurementCoverageRecord[] {
+  /**
+     * One descending page of `measurementWindow`. The (timestamp, id) cursor is
+     * a total order over immutable rows, so a caller can assemble a large
+     * window from bounded statements — yielding between pages — instead of one
+     * synchronous statement that blocks the event loop for the whole window.
+     */
+  measurementWindowPage(
+      sensorIds: string[],
+      metrics: string[],
+      from: string,
+      to: string,
+      limit: number,
+      before: { timestamp: string; id: number } | null = null,
+    ): { samples: MeasurementSample[]; next: { timestamp: string; id: number } | null } {
       const visibleSensorIds = sensorIds.filter((id) => Boolean(this.getSensor(id)));
-      if (visibleSensorIds.length === 0 || metrics.length === 0) return [];
+      if (visibleSensorIds.length === 0 || metrics.length === 0) return { samples: [], next: null };
+      if (!Number.isInteger(limit) || limit < 1 || limit > 250_000) {
+        throw new ClimateDataValidationError(400, "INVALID_LIMIT", "Measurement window limit must be an integer from 1 to 250000");
+      }
       const sensorPlaceholders = visibleSensorIds.map(() => "?").join(",");
       const metricPlaceholders = metrics.map(() => "?").join(",");
-      const rows = this.db.prepare(`SELECT sensor_id, metric,
-          MIN(timestamp) AS coverage_start, MAX(timestamp) AS coverage_end
+      const cursorClause = before ? "AND (timestamp < ? OR (timestamp = ? AND id < ?))" : "";
+      const cursorParameters = before ? [before.timestamp, before.timestamp, before.id] : [];
+      const rows = this.db.prepare(`SELECT id, sensor_id, metric, value, canonical_unit, timestamp, source, quality
         FROM measurement_samples
         WHERE sensor_id IN (${sensorPlaceholders}) AND metric IN (${metricPlaceholders})
-        GROUP BY sensor_id, metric
-        ORDER BY sensor_id, metric`)
-        .all(...visibleSensorIds, ...metrics) as Array<{
-          sensor_id: string;
-          metric: string;
-          coverage_start: string;
-          coverage_end: string;
-        }>;
-      return rows.map((row) => ({
-        sensorId: row.sensor_id,
-        metric: row.metric,
-        start: row.coverage_start,
-        end: row.coverage_end,
-      }));
+          AND timestamp >= ? AND timestamp <= ? ${cursorClause}
+        ORDER BY timestamp DESC, id DESC LIMIT ?`)
+        .all(...visibleSensorIds, ...metrics, from, to, ...cursorParameters, limit + 1) as unknown as (MeasurementSampleRow & { id: number })[];
+      const hasMore = rows.length > limit;
+      const page = rows.slice(0, limit);
+      const last = page.at(-1);
+      return {
+        samples: page.map(measurementSampleFromRow),
+        next: hasMore && last ? { timestamp: last.timestamp, id: last.id } : null,
+      };
+    },
+  measurementCoverage(sensorIds: string[], metrics: string[]): MeasurementCoverageRecord[] {
+      const visibleSensorIds = [...new Set(sensorIds)].filter((id) => Boolean(this.getSensor(id))).sort();
+      const requestedMetrics = [...new Set(metrics)].sort();
+      if (visibleSensorIds.length === 0 || requestedMetrics.length === 0) return [];
+      // A MIN/MAX GROUP BY over the requested pairs walks every matching index
+      // entry, so its runtime grows with retained history and the statement
+      // blocks the event loop for the whole scan. Probing each boundary
+      // separately keeps every statement a single covering-index descent, so
+      // the call stays O(pairs) regardless of how much telemetry is retained.
+      const earliest = this.db.prepare(
+        "SELECT MIN(timestamp) AS boundary FROM measurement_samples WHERE sensor_id = ? AND metric = ?",
+      );
+      const latest = this.db.prepare(
+        "SELECT MAX(timestamp) AS boundary FROM measurement_samples WHERE sensor_id = ? AND metric = ?",
+      );
+      const records: MeasurementCoverageRecord[] = [];
+      for (const sensorId of visibleSensorIds) {
+        for (const metric of requestedMetrics) {
+          const start = (earliest.get(sensorId, metric) as { boundary: string | null }).boundary;
+          if (start === null) continue;
+          const end = (latest.get(sensorId, metric) as { boundary: string | null }).boundary;
+          records.push({ sensorId, metric, start, end: end ?? start });
+        }
+      }
+      return records;
     },
   measurementHistoryBucketed(
       sensorId: string,
@@ -164,14 +203,17 @@ registerDatabaseMethods({
       bucketSeconds: number,
       limit = 20_000,
       excludeSynthetic = false,
+      toExclusive = false,
     ): MeasurementSample[] {
       if (!this.getSensor(sensorId)) return [];
       const sourceFilter = excludeSynthetic ? "AND source NOT IN ('mock', 'replay')" : "";
+      // An exclusive upper bound lets chunked callers tile a long window into
+      // adjacent statements without counting a boundary row twice.
       const rows = this.db.prepare(`WITH source_rows AS (
           SELECT id, timestamp, source,
             CAST(CAST(strftime('%s', timestamp) AS INTEGER) / ? AS INTEGER) * ? AS bucket_epoch, value
           FROM measurement_samples
-          WHERE sensor_id = ? AND metric = ? AND timestamp >= ? AND timestamp <= ?
+          WHERE sensor_id = ? AND metric = ? AND timestamp >= ? AND timestamp ${toExclusive ? "<" : "<="} ?
             ${sourceFilter}
         ), recent_buckets AS (
           SELECT bucket_epoch, AVG(value) AS value, COUNT(*) AS sample_count,

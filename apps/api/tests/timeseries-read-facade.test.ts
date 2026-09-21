@@ -390,6 +390,76 @@ describe("HybridTelemetryReader", () => {
     });
   });
 
+  it("bounds local bucketed reads to the hot tail when the archive is fresh", async () => {
+    const now = Date.parse("2026-08-31T12:00:00.000Z");
+    const from = new Date(now - 7 * 86_400_000).toISOString();
+    const to = new Date(now).toISOString();
+    const localBuckets = vi.fn(() => []);
+    const archiveBuckets = vi.fn(async () => [measurement(new Date(now - 3 * 86_400_000).toISOString(), 21)]);
+    const reader = new HybridTelemetryReader({
+      local: localReader({ measurementHistoryBucketed: localBuckets }),
+      archive: archiveReader({ measurementHistoryBucketed: archiveBuckets }),
+      archivePhase: () => "syncing",
+      archiveLastSuccessAt: () => new Date(now - 60_000).toISOString(),
+      now: () => now,
+    });
+
+    const result = await reader.measurementHistoryBucketed({
+      sensorId: "sensor-a", metric: "temperature", from, to, bucketSeconds: 3_600,
+    });
+
+    expect(localBuckets).toHaveBeenCalledOnce();
+    expect(localBuckets.mock.calls[0]![2]).toBe(new Date(now - 86_400_000).toISOString());
+    expect(localBuckets.mock.calls[0]![3]).toBe(to);
+    expect(result.records.map((record) => record.value)).toEqual([21]);
+  });
+
+  it("reads the full window in day-scale chunks when no recent archive pass is proven", async () => {
+    const now = Date.parse("2026-08-31T12:00:00.000Z");
+    const from = new Date(now - 3 * 86_400_000).toISOString();
+    const to = new Date(now).toISOString();
+    const localBuckets = vi.fn(() => []);
+    const reader = new HybridTelemetryReader({
+      local: localReader({ measurementHistoryBucketed: localBuckets }),
+      archive: archiveReader({ measurementHistoryBucketed: vi.fn(async () => []) }),
+      archivePhase: () => "syncing",
+      archiveLastSuccessAt: () => new Date(now - 3_600_000).toISOString(),
+      now: () => now,
+    });
+
+    await reader.measurementHistoryBucketed({
+      sensorId: "sensor-a", metric: "temperature", from, to, bucketSeconds: 3_600,
+    });
+
+    // Newest chunk first with the inclusive bound; older chunks end
+    // exclusively on the shared edge and the oldest reaches the window start.
+    expect(localBuckets).toHaveBeenCalledTimes(3);
+    expect(localBuckets.mock.calls[0]![2]).toBe(new Date(now - 86_400_000).toISOString());
+    expect(localBuckets.mock.calls[0]![3]).toBe(to);
+    expect(localBuckets.mock.calls[0]).toHaveLength(7);
+    expect(localBuckets.mock.calls[1]![3]).toBe(new Date(now - 86_400_000).toISOString());
+    expect(localBuckets.mock.calls[1]![7]).toBe(true);
+    expect(localBuckets.mock.calls[2]![2]).toBe(from);
+  });
+
+  it("stops chunked local reads once enough newest buckets are collected", async () => {
+    const now = Date.parse("2026-08-31T00:00:00.000Z");
+    const from = new Date(now - 3 * 86_400_000).toISOString();
+    const to = new Date(now).toISOString();
+    const localBuckets = vi.fn((...args: unknown[]) => {
+      const chunkFrom = Date.parse(args[2] as string);
+      return [measurement(new Date(chunkFrom).toISOString(), 20), measurement(new Date(chunkFrom + 3_600_000).toISOString(), 21)];
+    });
+    const reader = new HybridTelemetryReader({ local: localReader({ measurementHistoryBucketed: localBuckets }) });
+
+    const result = await reader.measurementHistoryBucketed({
+      sensorId: "sensor-a", metric: "temperature", from, to, bucketSeconds: 3_600, limit: 2,
+    });
+
+    expect(localBuckets).toHaveBeenCalledOnce();
+    expect(result.records).toHaveLength(2);
+  });
+
   it("falls back to complete local buckets when the archive aggregate fails", async () => {
     const localBuckets = vi.fn(() => [measurement(FROM, 12)]);
     const archiveBuckets = vi.fn(async () => { throw new Error("archive aggregate unavailable"); });
@@ -609,6 +679,136 @@ describe("HybridTelemetryReader", () => {
     expect(result.provenance.duplicateRecordCount).toBe(1);
   });
 
+  it("serves the archive when the synchronous local window read itself fails", async () => {
+    // The regression this guards: a 30-day window sort exhausted the hardened
+    // container's SQLite spill space and the raw SQLITE_FULL error ended the
+    // request as a generic 500 even though the archive held the same history.
+    const localFailure = new Error("database or disk is full");
+    const reader = new HybridTelemetryReader({
+      local: localReader({ measurementWindow: vi.fn(() => { throw localFailure; }) }),
+      archive: {
+        ...archiveReader(),
+        measurementWindow: vi.fn(async () => [measurement("2026-07-18T00:10:00.000Z", 21)]),
+      },
+      archivePhase: () => "ready",
+    });
+
+    const result = await reader.measurementWindow({
+      sensorIds: ["sensor-a"],
+      metrics: ["temperature"],
+      from: FROM,
+      to: TO,
+      limit: 100,
+    });
+
+    expect(result.records.map(({ value }) => value)).toEqual([21]);
+    expect(result.provenance.archiveState).toBe("merged");
+    expect(result.provenance.localRecordCount).toBe(0);
+    expect(result.provenance.archiveRecordCount).toBe(1);
+  });
+
+  it("propagates the local read failure when no archive read can stand in", async () => {
+    const localFailure = new Error("database or disk is full");
+    const failingLocal = () => localReader({
+      measurementWindow: vi.fn(() => { throw localFailure; }),
+      outdoorTemperatureHistory: vi.fn(() => { throw localFailure; }),
+    });
+
+    const standalone = new HybridTelemetryReader({ local: failingLocal() });
+    await expect(standalone.measurementWindow({
+      sensorIds: ["sensor-a"],
+      metrics: ["temperature"],
+      from: FROM,
+      to: TO,
+    })).rejects.toBe(localFailure);
+
+    const archiveDown = new HybridTelemetryReader({
+      local: failingLocal(),
+      archive: {
+        ...archiveReader(),
+        measurementWindow: vi.fn(async () => { throw new Error("archive unavailable"); }),
+      },
+      archivePhase: () => "ready",
+    });
+    await expect(archiveDown.measurementWindow({
+      sensorIds: ["sensor-a"],
+      metrics: ["temperature"],
+      from: FROM,
+      to: TO,
+    })).rejects.toBe(localFailure);
+
+    const outdoorFailure = new HybridTelemetryReader({ local: failingLocal() });
+    await expect(outdoorFailure.outdoorTemperatureHistory({
+      houseId: "house-a",
+      locationKey: "location-a",
+      from: FROM,
+      to: TO,
+    })).rejects.toBe(localFailure);
+  });
+
+  it("assembles the local window from keyset pages when the store can page", async () => {
+    const pages = [
+      {
+        samples: [
+          measurement("2026-07-18T00:30:00.000Z", 3, "api"),
+          measurement("2026-07-18T00:20:00.000Z", 2, "api"),
+        ],
+        next: { timestamp: "2026-07-18T00:20:00.000Z", id: 12 },
+      },
+      { samples: [measurement("2026-07-18T00:10:00.000Z", 1, "api")], next: null },
+    ];
+    const measurementWindowPage = vi.fn(() => pages.shift()!);
+    const measurementWindow = vi.fn(() => []);
+    const reader = new HybridTelemetryReader({
+      local: localReader({ measurementWindow, measurementWindowPage }),
+    });
+
+    const result = await reader.measurementWindow({
+      sensorIds: ["sensor-a"],
+      metrics: ["temperature"],
+      from: FROM,
+      to: TO,
+      limit: 100,
+    });
+
+    expect(measurementWindow).not.toHaveBeenCalled();
+    expect(measurementWindowPage).toHaveBeenCalledTimes(2);
+    expect(measurementWindowPage).toHaveBeenNthCalledWith(1, ["sensor-a"], ["temperature"], FROM, TO, 100, null);
+    expect(measurementWindowPage).toHaveBeenNthCalledWith(
+      2,
+      ["sensor-a"],
+      ["temperature"],
+      FROM,
+      TO,
+      98,
+      { timestamp: "2026-07-18T00:20:00.000Z", id: 12 },
+    );
+    expect(result.records.map((item) => item.value)).toEqual([1, 2, 3]);
+  });
+
+  it("stops paging the local window when the request is aborted", async () => {
+    const controller = new AbortController();
+    const measurementWindowPage = vi.fn(() => {
+      controller.abort(new DOMException("Client disconnected", "AbortError"));
+      return {
+        samples: [measurement("2026-07-18T00:20:00.000Z", 2, "api")],
+        next: { timestamp: "2026-07-18T00:20:00.000Z", id: 7 },
+      };
+    });
+    const reader = new HybridTelemetryReader({
+      local: localReader({ measurementWindowPage }),
+    });
+
+    await expect(reader.measurementWindow({
+      sensorIds: ["sensor-a"],
+      metrics: ["temperature"],
+      from: FROM,
+      to: TO,
+      signal: controller.signal,
+    })).rejects.toMatchObject({ name: "AbortError" });
+    expect(measurementWindowPage).toHaveBeenCalledTimes(1);
+  });
+
   it("catches up the archive before serving a non-mergeable analytics rollup", async () => {
     let phase = "syncing";
     const reconcile = vi.fn(async () => { phase = "ready"; });
@@ -634,6 +834,31 @@ describe("HybridTelemetryReader", () => {
       excludeSynthetic: true,
     }));
     expect(result).toEqual({ result: { series: [] }, archiveState: "merged" });
+  });
+
+  it("releases a cancelled analytics read while shared archive reconciliation is still running", async () => {
+    let finish!: () => void;
+    const reconcile = vi.fn(() => new Promise<void>((resolve) => { finish = resolve; }));
+    const measurementAnalyticsRollup = vi.fn(async () => ({ series: [] }));
+    const reader = new HybridTelemetryReader({
+      local: localReader(), archive: { ...archiveReader(), measurementAnalyticsRollup },
+      archivePhase: () => "syncing", reconcile, localHistoryComplete: false,
+    });
+    const controller = new AbortController();
+    const pending = reader.measurementAnalyticsRollup({
+      series: [{ sensorId: "sensor-a", metric: "temperature", aggregation: "mean" }],
+      from: FROM, to: TO, resolution: "1h", qualities: ["good"], signal: controller.signal,
+    });
+    await Promise.resolve();
+    const reason = new Error("request cancelled");
+    const rejected = expect(pending).rejects.toBe(reason);
+    controller.abort(reason);
+    try {
+      await rejected;
+      expect(measurementAnalyticsRollup).not.toHaveBeenCalled();
+    } finally {
+      finish();
+    }
   });
 
   it("uses raw archive samples when thermal rollups briefly lag live ingestion", async () => {

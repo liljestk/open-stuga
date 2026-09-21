@@ -77,6 +77,20 @@ export class IncompleteTelemetryHistoryError extends Error {
   }
 }
 
+/**
+ * The exact ordered rollups a cost read depends on are enqueued but not yet
+ * rebuilt. The data will exist shortly without any caller-side action, so this
+ * is a retryable state rather than an archive fault.
+ */
+export class RollupsMaterializingError extends Error {
+  readonly code = "TELEMETRY_ROLLUPS_MATERIALIZING";
+  readonly retryAfterSeconds = 5;
+
+  constructor() {
+    super("Telemetry cost rollups are still materializing the requested history");
+  }
+}
+
 export function positiveLimit(value: number | undefined, fallback: number, maximum: number): number {
   const resolved = value ?? fallback;
   if (!Number.isInteger(resolved) || resolved < 1 || resolved > maximum) {
@@ -114,4 +128,13 @@ export async function mapWithConcurrency<T, R>(
 export function aborted(signal: AbortSignal | undefined): Error | null {
   if (!signal?.aborted) return null;
   return signal.reason instanceof Error ? signal.reason : new Error("Telemetry read aborted");
+}
+
+/**
+ * Hands the event loop back between bounded slices of synchronous work, so
+ * ingestion, health sampling, and interactive requests keep running while a
+ * large read or merge is assembled.
+ */
+export async function yieldToEventLoop(): Promise<void> {
+  await new Promise<void>((resolve) => setImmediate(resolve));
 }

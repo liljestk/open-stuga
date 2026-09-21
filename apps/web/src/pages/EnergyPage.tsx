@@ -18,10 +18,12 @@ import { useI18n } from "../i18n";
 import { formatInTimeZone } from "../dateTime";
 import { api } from "../api";
 import { useHomeEnergySummaryQuery } from "../data/energy/homeEnergySummaryQuery";
+import { useHouseElectricityPriceQuery } from "../data/energy/houseElectricityPriceQuery";
 import { useNow } from "../useNow";
 import type { SeriesLoadState } from "../useClimateData";
 import { ElectricityHistory, ELECTRICITY_METRICS, type ElectricityMetric } from "./ElectricityHistory";
 import { EnergyPlanningPanel } from "./EnergyPlanningPanel";
+import { energySummaryState } from "./energySummaryState";
 import { PropertyEnergyOverview } from "./PropertyEnergyOverview";
 import {
   freshElectricitySample,
@@ -142,7 +144,6 @@ export function EnergyPage({ state, house = null, propertyId: requestedPropertyI
   const [range, setRange] = useState<TimeRange>(initialLocationState.range);
   const [costInterval, setCostInterval] = useState<CostInterval>(initialLocationState.costInterval);
   const [propertyPrice, setPropertyPrice] = useState<{ config: PropertyElectricityConfig; current: PropertyElectricityPricePoint | null } | null>(null);
-  const [homePrice, setHomePrice] = useState<HomeElectricityPricePoint | null>(null);
   const [priceHistory, setPriceHistory] = useState<HomeElectricityPricePoint[]>([]);
   const [priceHistoryBusy, setPriceHistoryBusy] = useState(false);
   const [priceHistoryError, setPriceHistoryError] = useState(false);
@@ -177,6 +178,8 @@ export function EnergyPage({ state, house = null, propertyId: requestedPropertyI
   const rollingSummaryQuery = useHomeEnergySummaryQuery(
     house?.id ?? "", "month", 30 * 24 * 3_600_000, summariesEnabled, 5 * 60_000,
   );
+  const homePriceQuery = useHouseElectricityPriceQuery(house?.id ?? "", Boolean(house));
+  const homePrice = house ? homePriceQuery.data ?? null : null;
   const dailySummary = dailySummaryQuery.data ?? null;
   const energyCost = energyCostQuery.data ?? null;
   const rollingSummary = rollingSummaryQuery.data ?? null;
@@ -214,23 +217,15 @@ export function EnergyPage({ state, house = null, propertyId: requestedPropertyI
   useEffect(() => {
     const generation = ++priceContextGeneration.current;
     setPropertyPrice(null);
-    setHomePrice(null);
     setPriceHistory([]);
     setPriceHistoryBusy(false);
     setPriceHistoryError(false);
     setPriceDraft(emptyPriceDraft());
     setPriceBusy(false);
     setPriceFeedback(null);
-    if (house) {
-      void api.houseElectricityPrice(house.id).then((result) => {
-        if (priceContextGeneration.current === generation) setHomePrice(result.current);
-      }).catch(() => {
-        if (priceContextGeneration.current === generation) {
-          setPriceFeedback({ kind: "error", text: t("energy.priceLoadError") });
-        }
-      });
-      return;
-    }
+    // Home scope reads the current price through useHouseElectricityPriceQuery,
+    // which retries and refreshes; only the Property contract form loads here.
+    if (house) return;
     if (!propertyId) return;
     void api.propertyElectricity(propertyId).then((result) => {
       if (priceContextGeneration.current !== generation) return;
@@ -308,16 +303,18 @@ export function EnergyPage({ state, house = null, propertyId: requestedPropertyI
       ? sensors[0]!.name
       : t("energy.combinedSources", { count: reporting, total: sensors.length });
   const powerSourceLabel = combinedSourceLabel(powerSensors, powerSources.length);
-  const energySourceLabel = combinedSourceLabel(
-    totalElectricitySensors,
-    dailySummary?.sourceCount ?? 0,
-  );
+  const dailyState = energySummaryState(dailySummary, dailySummaryQuery.isPending, dailySummaryQuery.isError);
+  const energySourceLabel = dailyState === "loading" ? t("energy.costLoading")
+    : dailyState === "unavailable" ? t("energy.summaryUnavailable")
+    : dailyState === "empty" ? t("energy.costUsageUnavailable")
+    : `${combinedSourceLabel(totalElectricitySensors, dailySummary?.sourceCount ?? 0)}${dailyState === "partial" ? ` · ${t("energy.propertyPartial")}` : ""}`;
   const priceSourceLabel = homePrice?.effectivePriceEurPerKwh !== undefined && homePrice?.effectivePriceEurPerKwh !== null
     ? t("energy.propertyPriceForHome")
     : sources.electricity_price?.sensor.name ?? t("energy.waitingForSource");
   const energyCostBasis = (() => {
     if (energyCostBusy) return t("energy.costLoading");
-    if (energyCostError || !energyCost || energyCost.totalSources === 0 || energyCost.consumptionKwh === null) {
+    if (energyCostError || (energyCost?.failedSourceCount ?? 0) > 0) return t("energy.summaryUnavailable");
+    if (!energyCost || energyCost.totalSources === 0 || energyCost.consumptionKwh === null) {
       return t("energy.costUsageUnavailable");
     }
     if (energyCost.costEur === null) {
@@ -478,6 +475,10 @@ export function EnergyPage({ state, house = null, propertyId: requestedPropertyI
           <small className="energy-cost-basis">{energyCostBasis}</small>
         </article>
       </section>
+
+      {(dailyState === "unavailable" || energyCostError || (energyCost?.failedSourceCount ?? 0) > 0) && <p className="energy-waiting" role="status">
+        {t("energy.summaryUnavailable")} <button type="button" className="secondary-button" onClick={() => { void dailySummaryQuery.refetch(); void energyCostQuery.refetch(); }}>{t("common.retry")}</button>
+      </p>}
 
       {!anyData && electricitySensors.length > 0 && <p className="energy-waiting" role="status"><TriangleAlert size={17} aria-hidden="true" />{t("energy.waitingForReadings")}</p>}
 

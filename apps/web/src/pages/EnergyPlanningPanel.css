@@ -49,6 +49,11 @@
   letter-spacing: -0.03em;
 }
 
+.energy-outlook-values dd.energy-outlook-detail {
+  font: inherit;
+  letter-spacing: normal;
+}
+
 .energy-outlook-values small {
   color: var(--muted);
   font-size: 0.72rem;

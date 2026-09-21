@@ -118,7 +118,7 @@ function valueExtent(values: readonly number[]): number | null {
   return maximum - minimum;
 }
 
-function observedSeries(
+export function observedSeries(
   sensorId: string,
   metric: Metric,
   history: MeasurementHistory,
@@ -362,7 +362,9 @@ export function SensorAnalyticsChart(props: Readonly<SensorAnalyticsChartProps>)
   const finalPrediction = data.aggregateForecast.at(-1) ?? (activeSensors.length === 0 && latestWeatherForecast ? {
     ...latestWeatherForecast, low: latestWeatherForecast.value, high: latestWeatherForecast.value, sensorCount: 1,
   } : undefined);
-  const { missingSeriesCount, missingIntervals, statusKey: gapStatusKey } = deriveSensorAnalyticsGapStatus({
+  const historyUnavailable = props.analyticsSeries === null;
+  const waitingForHistory = Boolean(props.loading && historyUnavailable);
+  const gapStatus = deriveSensorAnalyticsGapStatus({
     observed: data.observed.filter((series) => series.sensor.enabled),
     durable: props.sensorGaps ?? [],
     activeSensorIds: activeSensors.filter((sensor) => sensor.enabled).map((sensor) => sensor.id),
@@ -371,6 +373,9 @@ export function SensorAnalyticsChart(props: Readonly<SensorAnalyticsChartProps>)
     to: now,
     thresholdMs: gapThresholdMs,
   });
+  const { statusKey: gapStatusKey } = gapStatus;
+  const missingSeriesCount = historyUnavailable ? 0 : gapStatus.missingSeriesCount;
+  const missingIntervals = historyUnavailable ? [] : gapStatus.missingIntervals;
   const gapNoticeKey = [props.houseId, definition.id, props.range, sensorIds, gapStatusKey, missingSeriesCount, missingIntervals.length].join(":");
   const reportingSensors = data.observed.filter((series) => series.points.length > 0).length;
   const observedValues = activeSensors.length > 0
@@ -604,6 +609,7 @@ export function SensorAnalyticsChart(props: Readonly<SensorAnalyticsChartProps>)
         <div><span><BrainCircuit size={14} aria-hidden="true" />{predictionLabel}</span><strong>{finalPrediction ? formatMeasurement(finalPrediction.value, definition, props.units) : "—"}</strong><small>{finalPrediction ? formatInTimeZone(finalPrediction.timestamp, locale, props.timeZone, { weekday: "short", hour: "2-digit", minute: "2-digit" }) : t("sensors.analyticsNoPrediction")}</small></div>
       </div>
 
+      {waitingForHistory && <output className="analytics-query-status" aria-live="polite">{t("sensors.loadingData")}</output>}
       {missingSeriesCount > 0 && <SensorAnalyticsGapNotice
         key={gapNoticeKey}
         title={t("analytics.missingSeriesStatus", { count: missingSeriesCount })}

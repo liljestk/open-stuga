@@ -1,6 +1,6 @@
 {
   "name": "climate-twin",
-  "version": "0.41.0",
+  "version": "0.41.1",
   "private": true,
   "license": "MIT",
   "description": "A local-first digital twin for extensible whole-home environmental telemetry.",
@@ -73,7 +73,7 @@
   "overrides": {
     "@types/node": "22.13.14",
     "@hono/node-server": "2.0.11",
-    "fast-uri": "3.1.4"
+    "fast-uri": "3.1.7"
   },
   "devDependencies": {
     "@types/node": "22.13.14",
@@ -81,6 +81,6 @@
     "concurrently": "^9.2.1",
     "typescript": "^5.8.3",
     "vite": "8.1.5",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.11"
   }
 }
