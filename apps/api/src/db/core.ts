@@ -1,5 +1,5 @@
 import { mkdirSync } from "node:fs";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { DEFAULT_ELECTRICITY_PRICE_ENDPOINT, fixedPlanElementOpeningState } from "@climate-twin/contracts";
@@ -108,6 +108,29 @@ export interface DatabaseInternals {
   immediateTransaction<T>(operation: () => T): T;
 }
 
+/**
+ * Points SQLite's spill files (temp B-trees for large ORDER BY/GROUP BY and
+ * index builds) at a directory on the same volume as the database. The
+ * hardened containers run with a read-only root filesystem where the only
+ * writable fallback in SQLite's built-in search order is a 32 MiB /tmp tmpfs,
+ * and a sort that outgrows it fails the whole statement with SQLITE_FULL
+ * ("database or disk is full"). SQLite verifies the directory is writable and
+ * silently falls back to its built-in order when it is not, so pointing at a
+ * directory that cannot be created (for example a read-only data mount) keeps
+ * today's behavior. An operator-provided SQLITE_TMPDIR always wins, and the
+ * Windows VFS ignores the variable entirely.
+ */
+export function ensureSqliteSpillDirectory(databasePath: string): void {
+  if (databasePath === ":memory:" || process.env.SQLITE_TMPDIR) return;
+  const spillDirectory = join(dirname(databasePath), ".sqlite-tmp");
+  try {
+    mkdirSync(spillDirectory, { recursive: true });
+  } catch {
+    return;
+  }
+  process.env.SQLITE_TMPDIR = spillDirectory;
+}
+
 export type DatabaseMethodSet = RegisteredMethodSet<DatabaseInternals>;
 
 export interface ClimateDatabaseCore {
@@ -124,11 +147,14 @@ export class ClimateDatabaseCore {
   constructor(path: string, seed = true, options: { readOnly?: boolean } = {}) {
       if (options.readOnly) {
         if (path === ":memory:") throw new Error("A read-only ClimateDatabase requires an existing database file");
+        // Read-only connections still create spill files for large sorts.
+        ensureSqliteSpillDirectory(path);
         this.db = new DatabaseSync(path, { readOnly: true });
         this.db.exec("PRAGMA query_only = ON; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
         return;
       }
       if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
+      ensureSqliteSpillDirectory(path);
       this.db = new DatabaseSync(path);
       this.db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
       this.migrateEquipmentPlacementTable();
