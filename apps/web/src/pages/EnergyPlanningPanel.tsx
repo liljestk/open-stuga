@@ -48,11 +48,11 @@ export function EnergyPlanningPanel(props: Readonly<EnergyPlanningPanelProps>) {
     </div>
     {projection && <>
       <dl className="energy-outlook-values">
-        <div><dt>{t("energy.outlook.next30Days")}</dt><dd>{t("energy.outlook.energyValue", { value: number.format(projection.next30DaysKwh) })}</dd><small>{t("energy.outlook.range", { low: number.format(projection.lowKwh), high: number.format(projection.highKwh), unit: energyUnit })}</small></div>
-        <div><dt>{t("energy.outlook.estimatedCost")}</dt><dd>{projection.estimatedCostEur === null ? "—" : currency.format(projection.estimatedCostEur)}</dd><small>{projection.lowCostEur === null || projection.highCostEur === null
+        <div><dt>{t("energy.outlook.next30Days")}</dt><dd>{t("energy.outlook.energyValue", { value: number.format(projection.next30DaysKwh) })}</dd><dd className="energy-outlook-detail"><small>{t("energy.outlook.range", { low: number.format(projection.lowKwh), high: number.format(projection.highKwh), unit: energyUnit })}</small></dd></div>
+        <div><dt>{t("energy.outlook.estimatedCost")}</dt><dd>{projection.estimatedCostEur === null ? "—" : currency.format(projection.estimatedCostEur)}</dd><dd className="energy-outlook-detail"><small>{projection.lowCostEur === null || projection.highCostEur === null
           ? t("energy.outlook.priceMissing")
-          : t("energy.outlook.range", { low: currency.format(projection.lowCostEur), high: currency.format(projection.highCostEur), unit: "" })}</small></div>
-        <div><dt>{t("energy.outlook.dailyPace")}</dt><dd>{t("energy.outlook.energyValue", { value: number.format(projection.dailyKwh) })}</dd><small>{observedPeriod}</small></div>
+          : t("energy.outlook.range", { low: currency.format(projection.lowCostEur), high: currency.format(projection.highCostEur), unit: "" })}</small></dd></div>
+        <div><dt>{t("energy.outlook.dailyPace")}</dt><dd>{t("energy.outlook.energyValue", { value: number.format(projection.dailyKwh) })}</dd><dd className="energy-outlook-detail"><small>{observedPeriod}</small></dd></div>
       </dl>
       <p className="energy-outlook-method"><Activity size={16} aria-hidden="true" />{t("energy.outlook.method")}</p>
     </>}

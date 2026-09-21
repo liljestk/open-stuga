@@ -4,6 +4,8 @@ All notable Stugu releases are recorded here.
 
 ## 0.41.1
 
+- Correct electricity forecast descriptions for assistive technology.
+
 - Keep the API responsive while reading large analytics windows, use the data volume for SQLite spill files, and serve archived history when a local read fails.
 - Include the Raspberry Pi application-update recovery runbook and update application dependencies and build tooling.
 - Restore electricity totals when archived calculations are catching up, and avoid expensive long-window fallback scans that can stall the appliance. Normalize quarter-hour price boundaries so cost calculations use the intended history summaries.
