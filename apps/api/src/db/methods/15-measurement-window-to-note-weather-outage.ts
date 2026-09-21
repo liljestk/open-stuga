@@ -164,14 +164,17 @@ registerDatabaseMethods({
       bucketSeconds: number,
       limit = 20_000,
       excludeSynthetic = false,
+      toExclusive = false,
     ): MeasurementSample[] {
       if (!this.getSensor(sensorId)) return [];
       const sourceFilter = excludeSynthetic ? "AND source NOT IN ('mock', 'replay')" : "";
+      // An exclusive upper bound lets chunked callers tile a long window into
+      // adjacent statements without counting a boundary row twice.
       const rows = this.db.prepare(`WITH source_rows AS (
           SELECT id, timestamp, source,
             CAST(CAST(strftime('%s', timestamp) AS INTEGER) / ? AS INTEGER) * ? AS bucket_epoch, value
           FROM measurement_samples
-          WHERE sensor_id = ? AND metric = ? AND timestamp >= ? AND timestamp <= ?
+          WHERE sensor_id = ? AND metric = ? AND timestamp >= ? AND timestamp ${toExclusive ? "<" : "<="} ?
             ${sourceFilter}
         ), recent_buckets AS (
           SELECT bucket_epoch, AVG(value) AS value, COUNT(*) AS sample_count,

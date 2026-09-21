@@ -11,7 +11,7 @@ type CostMetric = "energy" | "power";
  */
 function costPlanningCtes(schema: string): string {
   const prices = qualifiedName(schema, "electricity_price_samples");
-  return `latest_prices AS (
+  return `latest_prices_raw AS (
       (SELECT DISTINCT ON (starts_at)
         starts_at, ends_at, raw_price_cents_per_kwh, margin_cents_per_kwh
       FROM ${prices}
@@ -25,6 +25,19 @@ function costPlanningCtes(schema: string): string {
       WHERE property_id = $4 AND starts_at < $2::TIMESTAMPTZ
         AND (NOT $5::BOOLEAN OR source NOT IN ('mock', 'replay'))
       ORDER BY starts_at DESC, ingested_at DESC, source DESC LIMIT 1)
+    ), latest_prices AS (
+      -- Feeds encode inclusive interval ends ("…:14:59.999"). An end within
+      -- one second of a minute edge means that edge, so snap it there;
+      -- otherwise every hour and quarter counts as cut by a price boundary
+      -- and the whole plan degrades to per-minute states plus raw scans.
+      SELECT starts_at,
+        CASE WHEN date_bin(INTERVAL '1 minute', ends_at + INTERVAL '1 second',
+            TIMESTAMPTZ '1970-01-01 00:00:00+00') > ends_at
+          THEN date_bin(INTERVAL '1 minute', ends_at + INTERVAL '1 second',
+            TIMESTAMPTZ '1970-01-01 00:00:00+00')
+          ELSE ends_at END AS ends_at,
+        raw_price_cents_per_kwh, margin_cents_per_kwh
+      FROM latest_prices_raw
     ), price_intervals AS (
       SELECT starts_at,
         LEAST(ends_at, COALESCE(lead(starts_at) OVER (ORDER BY starts_at), ends_at)) AS ends_at,

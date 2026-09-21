@@ -2,6 +2,14 @@
 
 All notable Stugu releases are recorded here.
 
+## 0.41.1
+
+- Restore electricity totals when archived calculations are catching up, and avoid expensive long-window fallback scans that can stall the appliance. Normalize quarter-hour price boundaries so cost calculations use the intended history summaries.
+- Load electricity charts across the full selected range, preserve the selected meter when changing metrics, and exclude submeters from a whole-Home chart.
+- Show unavailable and incomplete consumption explicitly with a retry action, keep current prices refreshed, and make mobile chart range controls readable.
+
+Upgrade impact: No configuration or database migration is required. Existing stored prices are handled on read; archived calculations may briefly show partial data while summaries finish rebuilding.
+
 ## Unreleased
 
 ## 0.41.0 - 2026-09-04

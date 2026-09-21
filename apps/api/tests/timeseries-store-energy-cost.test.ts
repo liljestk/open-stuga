@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { RollupsMaterializingError } from "../src/timeseries/read-support.js";
 import { FakePool, FROM, TO, queryResult, storeFor } from "./timeseries-store-test-support.js";
 
 describe("TimeseriesStore power-cost aggregation", () => {
@@ -46,6 +47,8 @@ describe("TimeseriesStore power-cost aggregation", () => {
     expect(query.text).not.toContain("metric = 'power'");
     expect(query.text).toContain("source NOT IN ('mock', 'replay')");
     expect(query.text).toContain("SELECT DISTINCT ON (starts_at)");
+    expect(query.text).toContain("latest_prices_raw");
+    expect(query.text).toContain("ends_at + INTERVAL '1 second'");
     expect(query.text).toContain("previous_last_at + INTERVAL '15 minutes'");
     expect(query.text).toContain("measurement_ordered_rollups");
     expect(query.text).toContain("kwh_per_ms * window_duration_ms");
@@ -117,5 +120,32 @@ describe("TimeseriesStore power-cost aggregation", () => {
 
     await expect(Promise.all(pending)).resolves.toHaveLength(3);
     expect(maximumActiveRequirements).toBe(2);
+  });
+
+  it("surfaces incomplete rollup coverage as the typed materializing error", async () => {
+    const pool = new FakePool(({ text }) => (
+      text.includes("rollup.metric = $6::TEXT")
+        ? queryResult([{
+          coverage_complete: false,
+          delta_count: "0",
+          consumption_kwh: 0,
+          priced_consumption_kwh: 0,
+          cost_eur: 0,
+          total_duration_ms: 0,
+          priced_duration_ms: 0,
+          maximum_interval_duration_ms: 0,
+          coverage_from: null,
+          coverage_until: null,
+        }])
+        : queryResult()
+    ));
+    const store = storeFor(pool);
+
+    await expect(store.energyCostAggregate({
+      sensorId: "meter-1",
+      propertyId: "property-1",
+      from: FROM,
+      to: TO,
+    })).rejects.toBeInstanceOf(RollupsMaterializingError);
   });
 });

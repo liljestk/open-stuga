@@ -7,6 +7,7 @@ import { definitionFor, formatMeasurement } from "../measurements";
 import { useI18n } from "../i18n";
 import { homeEnergySummaryQueryOptions } from "../data/energy/homeEnergySummaryQuery";
 import { queryClient } from "../data/queryClient";
+import { energySummaryState } from "./energySummaryState";
 import { ELECTRICITY_METRICS } from "./ElectricityHistory";
 import {
   freshSourcesForMetric,
@@ -143,12 +144,13 @@ export function PropertyEnergyOverview({ state, propertyId, propertyName, units,
           const share = totalConsumption !== null && totalConsumption > 0 && consumption !== null
             ? Math.max(0, Math.min(100, consumption / totalConsumption * 100))
             : 0;
+          const summaryState = energySummaryState(summary, row.query?.isPending ?? false, row.query?.isError ?? false);
           const status = !row.hasUsageSource
             ? t("energy.propertyNoSource")
-            : row.query?.isPending
+            : summaryState === "loading"
               ? t("energy.propertyCalculating")
-              : row.query?.isError
-                ? t("energy.propertyUnavailable")
+              : summaryState === "unavailable"
+                ? t("energy.summaryUnavailable")
                 : !summary || consumption === null
                   ? t("common.noData")
                   : summary.complete
@@ -160,6 +162,7 @@ export function PropertyEnergyOverview({ state, propertyId, propertyName, units,
               <div><h4>{row.name}</h4><span>{status}</span></div>
               <strong>{formatEnergy(consumption)}</strong>
             </div>
+            {row.hasUsageSource && summaryState === "unavailable" && <button type="button" className="secondary-button" onClick={() => { void row.query?.refetch(); }}>{t("common.retry")}</button>}
             <span className="property-energy-share" aria-hidden="true"><i style={{ "--property-energy-share": `${share}%` } as CSSProperties} /></span>
             <dl>
               <div><dt>{t("energy.currentPower")}</dt><dd>{formatPower(row.currentPower)}</dd></div>

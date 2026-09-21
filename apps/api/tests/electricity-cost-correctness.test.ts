@@ -10,6 +10,7 @@ import { EnergyCostService } from "../src/energy-cost.js";
 import { parseElectricityPricePayload } from "../src/electricity-prices.js";
 import { loadConfig } from "../src/config.js";
 import type { HybridTelemetryReader } from "../src/timeseries/read-facade.js";
+import { RollupsMaterializingError } from "../src/timeseries/read-support.js";
 
 const FROM = "2026-07-17T00:00:00.000Z";
 const TO = "2026-07-17T01:00:00.000Z";
@@ -200,6 +201,111 @@ describe("electricity cost correctness", () => {
       sourceCount: 2,
       totalSources: 2,
       failedSourceCount: 0,
+      complete: false,
+    });
+  });
+
+  it("keeps serving the power basis while energy-counter rollups are still materializing", async () => {
+    const reader = {
+      energyCostAggregate: vi.fn(async () => {
+        throw new RollupsMaterializingError();
+      }),
+      powerCostAggregate: vi.fn(async () => ({
+        deltaCount: 4,
+        consumptionKwh: 1,
+        pricedConsumptionKwh: 1,
+        costEur: 0.1,
+        totalDurationMs: 3_600_000,
+        pricedDurationMs: 3_600_000,
+        maximumIntervalDurationMs: 900_000,
+        coverageFrom: FROM,
+        coverageUntil: TO,
+        archiveState: "archived" as const,
+      })),
+    } as unknown as HybridTelemetryReader;
+    const service = new EnergyCostService(reader);
+
+    await expect(service.calculate({
+      houseId: "house-main",
+      propertyId: "property-main",
+      sensorId: "meter",
+      from: FROM,
+      to: TO,
+    })).resolves.toMatchObject({
+      measurementBasis: "integrated_power",
+      consumptionKwh: 1,
+      costEur: 0.1,
+    });
+  });
+
+  it("propagates the materializing state only when no basis can answer", async () => {
+    const reader = {
+      energyCostAggregate: vi.fn(async () => {
+        throw new RollupsMaterializingError();
+      }),
+      powerCostAggregate: vi.fn(async () => {
+        throw new RollupsMaterializingError();
+      }),
+    } as unknown as HybridTelemetryReader;
+    const service = new EnergyCostService(reader);
+
+    await expect(service.calculate({
+      houseId: "house-main",
+      propertyId: "property-main",
+      sensorId: "meter",
+      from: FROM,
+      to: TO,
+    })).rejects.toBeInstanceOf(RollupsMaterializingError);
+    expect(reader.powerCostAggregate).toHaveBeenCalledOnce();
+  });
+
+  it("degrades a combined summary per source while one source's rollups materialize", async () => {
+    const pricedAggregate = {
+      deltaCount: 4,
+      consumptionKwh: 1,
+      pricedConsumptionKwh: 1,
+      costEur: 0.1,
+      totalDurationMs: 3_600_000,
+      pricedDurationMs: 3_600_000,
+      maximumIntervalDurationMs: 900_000,
+      coverageFrom: FROM,
+      coverageUntil: TO,
+      archiveState: "archived" as const,
+    };
+    const reader = {
+      measurementCoverage: vi.fn(async () => ({
+        archiveState: "merged",
+        complete: true,
+        records: ["meter-a", "meter-b"].map((sensorId) => ({
+          sensorId,
+          metric: "energy",
+          start: FROM,
+          end: TO,
+        })),
+      })),
+      energyCostAggregate: vi.fn(async ({ sensorId }: { sensorId: string }) => {
+        if (sensorId === "meter-a") throw new RollupsMaterializingError();
+        return pricedAggregate;
+      }),
+      powerCostAggregate: vi.fn(async ({ sensorId }: { sensorId: string }) => {
+        if (sensorId === "meter-a") throw new RollupsMaterializingError();
+        return { ...pricedAggregate, deltaCount: 0, consumptionKwh: 0, pricedConsumptionKwh: 0, costEur: 0, totalDurationMs: 0, pricedDurationMs: 0 };
+      }),
+    } as unknown as HybridTelemetryReader;
+    const service = new EnergyCostService(reader);
+
+    await expect(service.summarize({
+      houseId: "house-main",
+      propertyId: "property-main",
+      sensorIds: ["meter-a", "meter-b"],
+      from: FROM,
+      to: TO,
+    })).resolves.toMatchObject({
+      consumptionKwh: 1,
+      costEur: 0.1,
+      sourceCount: 1,
+      totalSources: 2,
+      failedSourceCount: 1,
       complete: false,
     });
   });
