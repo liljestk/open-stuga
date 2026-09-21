@@ -29,6 +29,8 @@ import {
 } from "../stugu-update-agent.mjs";
 import { activeServices } from "../stugu-update-agent/services-cloudflare.mjs";
 import {
+  BACKUP_TIMEOUT_MS,
+  UPDATE_TIMEOUT_MS,
   releaseEnvironment as requestReleaseEnvironment,
   releaseEnvironmentOwnership,
   writeTextAtomic,
@@ -1056,9 +1058,11 @@ test("agent publishes a durable step-by-step activity trail", async (t) => {
   writeFileSync(config.factoryReleaseEnvFile, releaseEnvironment("0.5.0"), "utf8");
   writeFileSync(requestPath, JSON.stringify(updateRequest()), "utf8");
   let versionChecks = 0;
+  const commandTimeouts = [];
 
   await applyRequest(config, requestPath, {
-    compose: async (_config, args) => {
+    compose: async (_config, args, timeoutMs) => {
+      commandTimeouts.push({ args, timeoutMs });
       if (args[0] === "ps") return "api\nweb\nstugu-backup-scheduler";
       if (args[0] === "exec") {
         versionChecks += 1;
@@ -1069,6 +1073,13 @@ test("agent publishes a durable step-by-step activity trail", async (t) => {
   });
 
   const status = JSON.parse(readFileSync(join(operationsDirectory, "status.json"), "utf8"));
+  assert.equal(BACKUP_TIMEOUT_MS, 24 * 60 * 60_000);
+  assert.equal(UPDATE_TIMEOUT_MS, 45 * 60_000);
+  assert.equal(commandTimeouts.find(({ args }) => args.includes("stugu-backup")).timeoutMs, BACKUP_TIMEOUT_MS);
+  const containerMutations = commandTimeouts.filter(({ args }) => ["pull", "up"].includes(args[0]));
+  assert.equal(containerMutations.length, 2);
+  assert.ok(containerMutations.every(({ timeoutMs }) => timeoutMs === undefined));
+  assert.equal(commandTimeouts.filter(({ timeoutMs }) => timeoutMs === BACKUP_TIMEOUT_MS).length, 1);
   assert.equal(status.phase, "complete");
   assert.equal(status.updatedAt, status.phaseStartedAt);
   assert.deepEqual(

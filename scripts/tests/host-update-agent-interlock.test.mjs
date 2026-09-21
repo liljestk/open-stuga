@@ -281,7 +281,14 @@ test("verified backup completes under the shared lease and host staging starts o
   assert.equal(pending.path, fixture.requestPath);
   const lock = acquireLock(fixture.config);
   assert.ok(lock);
-  await prepareSystemWorkflow(fixture.config, pending, { compose: fixture.compose });
+  const backupTimeouts = [];
+  await prepareSystemWorkflow(fixture.config, pending, {
+    compose: async (config, args, timeoutMs) => {
+      if (args.includes("stugu-backup")) backupTimeouts.push(timeoutMs);
+      return fixture.compose(config, args, timeoutMs);
+    },
+  });
+  assert.deepEqual(backupTimeouts, [24 * 60 * 60_000]);
   assert.equal(readSystemWorkflowJournal(fixture.config).phase, "backup-complete");
   assert.equal(existsSync(fixture.requestPath), false);
   assert.equal(readdirSync(fixture.paths.bridgeRequests).length, 0);

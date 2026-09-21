@@ -10,6 +10,7 @@ import {
 import { join } from "node:path";
 
 import {
+  BACKUP_TIMEOUT_MS,
   bounded,
   compose,
   currentReleaseEnvironment,
@@ -657,6 +658,7 @@ export async function prepareSystemWorkflow(config, pending, dependencies = {}) 
     const output = await composeCommand(
       config,
       ["--profile", "maintenance", "run", "--rm", "--no-deps", "stugu-backup"],
+      BACKUP_TIMEOUT_MS,
     );
     const backupReceipt = parseBackupReceipt(output);
     journal = transition(

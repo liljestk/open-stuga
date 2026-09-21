@@ -34,7 +34,7 @@ import {
 
 import { revokeAccessToken } from ".././cloudflare-oauth.mjs";
 
-import { AGENT_VERSION, COMPOSE_CONTRACT, HEARTBEAT_MS, POLL_MS, RELEASE_MANIFEST_SCHEMA, UPDATE_AGENT_CONTRACT, UPDATE_REQUEST_SCHEMA, bounded, compose, currentReleaseEnvironment, operation, readAgentConfig, readJson, readReleaseEnvironment, releaseEnvironment, removeFileDurable, runCommand, validatedReleaseEnvironment, validatedRequest, writeJson, writeReleaseEnvironmentAtomic, writeTextDurableAtomic } from "./configuration-request.mjs";
+import { AGENT_VERSION, BACKUP_TIMEOUT_MS, COMPOSE_CONTRACT, HEARTBEAT_MS, POLL_MS, RELEASE_MANIFEST_SCHEMA, UPDATE_AGENT_CONTRACT, UPDATE_REQUEST_SCHEMA, bounded, compose, currentReleaseEnvironment, operation, readAgentConfig, readJson, readReleaseEnvironment, releaseEnvironment, removeFileDurable, runCommand, validatedReleaseEnvironment, validatedRequest, writeJson, writeReleaseEnvironmentAtomic, writeTextDurableAtomic } from "./configuration-request.mjs";
 
 import { activeServices, applyCloudflareSetupRequest, exactApiVersion, restoreReleaseEnvironment } from "./services-cloudflare.mjs";
 import { applySourceProfileRequest } from "./services-source-profiles.mjs";
@@ -312,11 +312,11 @@ export async function applyRequest(config, requestPath, dependencies = {}) {
       new Date().toISOString(),
     );
   };
-  const runComposeMutation = async (args, mutation, safePhase) => {
+  const runComposeMutation = async (args, mutation, safePhase, timeoutMs) => {
     transitionJournal("mutation-active", mutation);
     let result;
     try {
-      result = await composeCommand(config, args);
+      result = await composeCommand(config, args, timeoutMs);
     } catch (error) {
       // Killing the Compose CLI cannot prove that an in-flight Docker daemon
       // mutation has quiesced, so every mutation timeout requires manual
@@ -464,6 +464,7 @@ export async function applyRequest(config, requestPath, dependencies = {}) {
       ["--profile", "maintenance", "run", "--rm", "--no-deps", "stugu-backup"],
       "backup",
       "prepared",
+      BACKUP_TIMEOUT_MS,
     );
 
     releaseMutationStarted = true;
