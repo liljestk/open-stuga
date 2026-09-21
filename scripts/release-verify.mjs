@@ -18,7 +18,6 @@ import {
 import {
   RELEASE_DOCTOR_RECEIPT_MAX_AGE_MS,
   validateCompatibilityProof,
-  validateDoctorReceipt,
   validateLocalVerificationReceipt,
   validateReleaseVerificationReceipt,
   validateVisualAcceptanceReceipt,
@@ -47,6 +46,7 @@ import {
   parseVisualViewport,
 } from "./tooling/visual-evidence.mjs";
 import { findMatchingFullReceipt } from "./verify-local.mjs";
+import { validateApplicationReleaseTarget } from "./tooling/application-release-target.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -503,13 +503,15 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
   }
   const selectorSha256 = targetSelectorSha256(options.target);
   try {
-    target = validateDoctorReceipt(readInput(targetPath, "Raspberry Pi doctor receipt"), {
+    target = validateApplicationReleaseTarget(readInput(targetPath, "Raspberry Pi doctor receipt"), {
       selectorSha256,
-      requireHealthy: true,
       maximumAgeMs: RELEASE_DOCTOR_RECEIPT_MAX_AGE_MS,
       now: Date.now(),
     });
     targetReceiptSha256 = verifyReceiptChecksum(targetPath, "Raspberry Pi doctor receipt").sha256;
+    if (target.result === "attention") {
+      console.log("[release:verify] Application-only target accepted; signed host updates remain paused by a feed warning.");
+    }
   } catch (error) {
     throw failure(
       "RELEASE_VERIFY_TARGET",

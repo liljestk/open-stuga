@@ -71,10 +71,19 @@ npm run release:verify -- \
 
 The verifier requires the exact clean-worktree full-CI receipt; validates the
 artifact manifest and host compatibility proof; checks the visual evidence and
-screenshot hashes; checks the healthy target identity; and anonymously inspects
+screenshot hashes; checks the target identity and application-release readiness; and anonymously inspects
 each digest-addressed image index plus both AMD64 and ARM64 manifests,
 descriptor closure, and source-commit provenance. It never builds, reruns CI,
 publishes, or connects to the appliance.
+
+Every appliance health check must pass, except a single `UPDATER` warning for
+`TRUST_VERIFICATION_FAILED` or `METADATA_FETCH_FAILED`. That exception requires
+a fresh doctor receipt with structured evidence of an available host updater,
+failed feed check, no host journal, and no pending rollback or recovery. Older
+warning receipts without this evidence are rejected. The doctor continues to
+report `attention`, and signed host updates remain blocked. This exception
+applies only to the container application publisher, never host publication,
+staging, activation, or signature verification.
 
 After separate authorization to publish, consume its receipt:
 

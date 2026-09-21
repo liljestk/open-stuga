@@ -18,6 +18,7 @@ import {
   parseArguments as parseReleaseVerification,
 } from "../release-verify.mjs";
 import { affectedTestPlan } from "../tooling/affected-tests.mjs";
+import { validateApplicationReleaseTarget } from "../tooling/application-release-target.mjs";
 import {
   releaseBodySha256,
   unexpectedGitHubAssets,
@@ -355,6 +356,53 @@ test("Pi diagnosis is stable, concise, and target-bound", () => {
     "ssh: Connection refused from [REDACTED IP]",
   );
   assert.equal(sanitizeSshLogLine("debug: identity file C:\\Users\\person\\.ssh\\id_ed25519", "stderr"), null);
+});
+
+test("application release accepts only an isolated idle host-feed warning", () => {
+  const makeReceipt = (evidence) => {
+    const diagnosis = diagnoseEvidence(evidence);
+    return {
+      schema: "stugu-rpi-doctor/v1", ...diagnosis, mode: "default",
+      collectedAt: evidence.collectedAt, durationMs: evidence.durationMs,
+      target: { selectorSha256: hex("a"), sshHostKeyFingerprint: `SHA256:${"A".repeat(30)}` },
+      identity: evidence.identity, evidenceSha256: cacheKey(evidence),
+    };
+  };
+  const healthy = makeReceipt(healthyEvidence());
+  assert.equal(validateApplicationReleaseTarget(healthy), healthy);
+  for (const errorCode of ["TRUST_VERIFICATION_FAILED", "METADATA_FETCH_FAILED"]) {
+    const evidence = healthyEvidence();
+    evidence.updater.status = { phase: "failed", errorCode };
+    const receipt = makeReceipt(evidence);
+    assert.equal(receipt.result, "attention");
+    assert.equal(validateApplicationReleaseTarget(receipt), receipt);
+    assert.throws(() => validateDoctorReceipt(receipt, { requireHealthy: true }), /healthy target/u);
+    assert.throws(() => validateApplicationReleaseTarget(receipt, { selectorSha256: hex("f") }), /target does not match/u);
+    assert.throws(() => validateApplicationReleaseTarget(receipt, {
+      maximumAgeMs: RELEASE_DOCTOR_RECEIPT_MAX_AGE_MS, now: "2026-08-09T10:16:00Z",
+    }), /stale/u);
+    // Human-readable text and old receipts cannot supply the exception.
+    const old = structuredClone(receipt);
+    old.summary.updater = { phase: "failed" };
+    assert.throws(() => validateApplicationReleaseTarget(old), /idle host-feed warning/u);
+    for (const change of [
+      (e) => { e.updater.available = false; },
+      (e) => { e.updater.status.phase = "installing"; },
+      (e) => { e.updater.status.phase = "recovery-needed"; },
+      (e) => { e.updater.status.errorCode = "SIGNATURE_INVALID"; },
+      (e) => { e.updater.status.journalPhase = "staged"; },
+      (e) => { e.updater.status.journalPhase = "returned"; },
+      (e) => { e.updater.status.rollbackReason = "health-failed"; },
+      (e) => { e.updater.status.rollbackError = "restore-failed"; },
+      (e) => { e.health.telemetryArchive.caughtUp = false; },
+      (e) => { e.docker.containers[0].health = "unhealthy"; },
+      (e) => { e.versions.release.version = "1.2.2"; },
+    ]) {
+      const unsafe = structuredClone(evidence);
+      change(unsafe);
+      assert.throws(() => validateApplicationReleaseTarget(makeReceipt(unsafe)), /idle host-feed warning/u);
+    }
+  }
 });
 
 test("Pi diagnosis accepts the appliance oneshot service and successful init containers", () => {
