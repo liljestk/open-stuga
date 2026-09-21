@@ -142,6 +142,7 @@ describe("DataAnalyticsPage", () => {
   it("defers auxiliary history until sensor analytics or continuity is opened", async () => {
     const state = createDemoState();
     const house = state.houses[0]!;
+    const analyticsQuery = vi.spyOn(api, "analyticsQuery").mockResolvedValue(analyticsResponseFor(house, state.sensors.filter((sensor) => sensor.houseId === house.id && sensor.enabled)));
     const outdoor = vi.spyOn(api, "outdoorTemperatureHistory").mockResolvedValue({
       samples: [], from: "", to: "", truncated: false,
     });
@@ -168,11 +169,43 @@ describe("DataAnalyticsPage", () => {
     await waitFor(() => expect(outdoor).toHaveBeenCalledOnce());
     expect(gaps).toHaveBeenCalledOnce();
     expect(prices).toHaveBeenCalledOnce();
+    expect(analyticsQuery).toHaveBeenCalledOnce();
+  });
+
+  it("waits for full history before judging gaps and ignores stale outage records over recorded data", async () => {
+    const { state, house, sensors } = stateWithTemperatureSensors(1);
+    window.history.replaceState(null, "", "/?weather=none");
+    const response = analyticsResponseFor(house, sensors);
+    response.series[0]!.points = Array.from({ length: 289 }, (_, index) => ({
+      ...response.series[0]!.points[0]!,
+      timestamp: new Date(Date.now() - (288 - index) * 300_000).toISOString(),
+    }));
+    const pending = deferred<AnalyticsQueryResponse>();
+    vi.spyOn(api, "analyticsQuery").mockReturnValue(pending.promise);
+    vi.spyOn(api, "outdoorTemperatureHistory").mockResolvedValue({ samples: [], from: "", to: "", truncated: false });
+    vi.spyOn(api, "houseElectricityPrice").mockResolvedValue({ current: null, prices: [] });
+    vi.spyOn(api, "sensorDataGaps").mockResolvedValue([{
+      id: 999, sensorId: sensors[0]!.id, metric: "temperature", source: "tp-link",
+      startedAt: new Date(Date.now() - 30 * 86400_000).toISOString(), endedAt: null,
+      recoveryState: "open", recoveredPoints: 0, attemptCount: 0, recoveryError: null,
+      detectedAt: new Date().toISOString(), recoverableUntil: null, recoveryCompleteness: "unknown",
+      lastAttemptAt: null, nextAttemptAt: null,
+    }]);
+    const user = userEvent.setup();
+    const { container } = render(<I18nProvider><DataAnalyticsPage state={state} house={house}
+      units="metric" dataMode="demo" onLoadSeries={vi.fn()} /></I18nProvider>);
+    await user.click(screen.getByText("Gaps and recovery").closest("summary")!);
+    expect(container.querySelector(".analytics-gap-count")).toBeNull();
+    expect(screen.queryByText("No gaps are visible or recorded in this time range.")).toBeNull();
+    await act(async () => pending.resolve(response));
+    expect(await screen.findByText("0 visible gaps")).toBeVisible();
+    expect(screen.getByText("No gaps are visible or recorded in this time range.")).toBeVisible();
   });
 
   it("keeps last received continuity data visibly stale after a failed refresh and collapse", async () => {
     const state = createDemoState();
     const house = state.houses[0]!;
+    const analyticsQuery = vi.spyOn(api, "analyticsQuery").mockResolvedValue(analyticsResponseFor(house, state.sensors.filter((sensor) => sensor.houseId === house.id && sensor.enabled)));
     vi.spyOn(api, "outdoorTemperatureHistory").mockResolvedValue({ samples: [], from: "", to: "", truncated: false });
     const gaps = vi.spyOn(api, "sensorDataGaps").mockResolvedValue([]);
     vi.spyOn(api, "houseElectricityPrice").mockResolvedValue({ current: null, prices: [] });

@@ -147,7 +147,7 @@ export async function thermalSimulation(
         to,
         configuredHeatPumpConnectionIds(config.greeConnections, house.id),
       );
-      const filtered = filterHeatPumpAffectedSamples(indoor[0]!.records, heatPumpWindow);
+      const filtered = filterHeatPumpAffectedSamples(indoor[0]!.records, heatPumpWindow, 5 * 60_000);
       return runThermalSimulationAsync({
         houseId,
         sensorId: sensor.id,
@@ -159,6 +159,7 @@ export async function thermalSimulation(
         horizonHours,
         scenarioOutdoorTemperatureC,
         hvacExclusion: filtered.summary,
+        ...(heatPumpWindow.summary.evidenceState === "not-present" ? {} : { passiveIntervals: heatPumpWindow.passiveIntervals }),
       }, undefined, completionSignal ? { signal: completionSignal } : {});
     },
   });

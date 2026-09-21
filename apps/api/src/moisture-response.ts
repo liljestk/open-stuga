@@ -17,6 +17,7 @@ import {
 } from "./moisture-response-model.js";
 import { isThermalIsolationTemperatureSensor } from "./thermal-isolation.js";
 import { median, round } from "./thermal-math.js";
+import type { PassiveInterval } from "./analytics/heat-pump-evidence.js";
 import { SYSTEM_VERSION } from "./version.js";
 
 const TP_LINK_CLIMATE_MODEL_PATTERN = /\bT3(?:10|15)\b/i;
@@ -30,6 +31,7 @@ export interface MoistureResponseInput {
   to: string;
   generatedAt?: string;
   hvacExclusion?: HvacExclusionSummary;
+  passiveIntervals?: readonly PassiveInterval[];
 }
 
 interface RoomGroup {
@@ -106,6 +108,7 @@ function sensorEntry(
     input.indoorSamplesBySensor.get(sensor.id) ?? [],
     input.outdoorSamples,
     outdoor,
+    input.passiveIntervals,
   );
   return {
     scope: {

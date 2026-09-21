@@ -177,6 +177,7 @@ export class SensorGapRecoveryCoordinator {
   }
 
   async #scanAndRecover(now: Date): Promise<void> {
+    const available: SensorMetricAvailability[] = [];
     for (const adapter of this.#adapters.values()) {
       let availability: SensorMetricAvailability[];
       try {
@@ -186,9 +187,20 @@ export class SensorGapRecoveryCoordinator {
       }
       for (const item of availability) {
         this.#observe(item);
-        if (item.available) await this.#discoverHistoricalGaps(item, now);
+        if (item.available) available.push(item);
       }
     }
+    // Record every reconnect before archive reads: one failing historical
+    // query must not leave unrelated live sensors permanently marked offline.
+    let discoveryFailed = false;
+    for (const item of available) {
+      try {
+        await this.#discoverHistoricalGaps(item, now);
+      } catch {
+        discoveryFailed = true;
+      }
+    }
+    if (discoveryFailed) console.warn(JSON.stringify({ event: "sensor_gap_discovery_failed" }));
     await this.#recoverQueued(now);
   }
 

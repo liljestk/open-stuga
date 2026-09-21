@@ -34,6 +34,37 @@ describe("sensor data-gap recovery", () => {
     temporaryDirectory = null;
   });
 
+  it("closes every live sensor gap and runs recovery when one archive scan fails", async () => {
+    runtime = createApi({ config: config(), startBackground: false });
+    const from = "2026-07-01T00:00:00.000Z";
+    const to = "2026-07-01T01:00:00.000Z";
+    for (const metric of ["temperature", "humidity"]) {
+      runtime.database.noteSensorDataGap("sensor-01", metric, "tp-link", from, from);
+    }
+    const recoverHistory = vi.fn(async () => ({ state: "not-supported" as const, samples: [], error: null }));
+    const coordinator = new SensorGapRecoveryCoordinator(runtime.database, runtime.measurements, [{
+      source: "tp-link",
+      availability: () => ["temperature", "humidity"].map((metric) => ({
+        sensorId: "sensor-01", metric, source: "tp-link" as const, available: true, observedAt: to,
+      })),
+      recoverHistory,
+    }], {
+      telemetryReader: {
+        measurementSampleGaps: vi.fn().mockRejectedValueOnce(new Error("archive unavailable")).mockResolvedValue([]),
+      } as unknown as HybridTelemetryReader,
+    });
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      await coordinator.runOnce(new Date(to));
+      const gaps = runtime.database.listSensorDataGaps("sensor-01");
+      expect(gaps).toHaveLength(2);
+      expect(gaps.every((gap) => gap.endedAt === to && gap.recoveryState === "not-supported")).toBe(true);
+      expect(recoverHistory).toHaveBeenCalledTimes(2);
+    } finally {
+      warning.mockRestore();
+    }
+  });
+
   it("applies the selected Home scope before the data-gap limit", async () => {
     runtime = createApi({ config: config(), startBackground: false });
     const mainHouse = runtime.database.getHouse("house-main")!;

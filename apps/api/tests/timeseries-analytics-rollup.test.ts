@@ -128,8 +128,8 @@ describe("TimeseriesStore analytics rollup", () => {
 
     const rollup = pool.queries.find(({ text }) => text.includes("AS requested(sensor_id TEXT, metric TEXT, aggregation TEXT)"))!;
     expect(rollup.values[4]).toBe("7 minutes");
-    expect(rollup.text).toContain("AND coverage.complete");
-    expect(rollup.text).toContain("AND (NOT coverage.complete");
+    expect(rollup.text).toContain("sample.bucket_start >= coverage.cached_from AND sample.bucket_start < coverage.cached_to");
+    expect(rollup.text).toContain("sample.observed_at >= boundary.raw_from AND sample.observed_at < boundary.raw_to");
     expect(rollup.text).toContain("TRUE AS coverage_complete");
   });
 });

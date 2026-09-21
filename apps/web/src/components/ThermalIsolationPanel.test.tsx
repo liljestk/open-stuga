@@ -167,9 +167,23 @@ describe("ThermalIsolationPanel", () => {
     render(<I18nProvider><ThermalIsolationPanel house={house} units="metric" dataMode="real" /></I18nProvider>);
 
     const status = screen.getByRole("status");
-    expect(status).toHaveTextContent("Not enough recorded temperature evidence yet");
-    expect(status).toHaveTextContent("Demo estimates are never substituted for a real Home");
+    expect(status).toHaveTextContent("No thermal comparison is available yet");
+    expect(status).toHaveTextContent("Open sensor evidence below");
     expect(screen.queryByText("Whole-Home isolation score")).toBeNull();
+  });
+
+  it("explains a short usable segment without claiming there are no recordings", () => {
+    const limited = result();
+    limited.entries[0]!.score = null;
+    const evidence = limited.entries.find((entry) => entry.scope.type === "sensor")!;
+    evidence.score = null;
+    evidence.warnings = ["CALIBRATION_WINDOW_TOO_SHORT", "REQUIRES_24_HOURS"];
+    evidence.quality.durationHours = 17.5;
+    mocks.result = limited;
+    render(<I18nProvider><ThermalIsolationPanel house={createDemoState().houses[0]!} units="metric" dataMode="real" /></I18nProvider>);
+    expect(screen.getByText("Usable continuous evidence: 17.5 h")).toBeInTheDocument();
+    expect(screen.getByText(/Gaps and excluded heat-pump periods can split/)).toBeInTheDocument();
+    expect(screen.getByText(/Evidence period:/)).toBeInTheDocument();
   });
 
   it("labels a simulated result as a demo estimate", () => {

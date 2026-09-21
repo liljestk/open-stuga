@@ -10,6 +10,7 @@ import type {
 } from "@climate-twin/contracts";
 import { mean, median, percentile, range, round } from "./thermal-math.js";
 import { SYSTEM_VERSION } from "./version.js";
+import { isTransitionWithinPassiveIntervals, type PassiveInterval } from "./analytics/heat-pump-evidence.js";
 
 const HOUR_MS = 3_600_000;
 const CALIBRATION_INTERVAL_MS = 5 * 60_000;
@@ -72,6 +73,7 @@ export interface ThermalSimulationInput {
   scenarioOutdoorTemperatureC?: number | null;
   generatedAt?: string;
   hvacExclusion?: HvacExclusionSummary;
+  passiveIntervals?: readonly PassiveInterval[];
 }
 
 function thermalStep(indoorC: number, outdoorC: number, dtHours: number, tauHours: number, liftC: number): number {
@@ -200,7 +202,7 @@ function align(indoor: IndoorPoint[], outdoor: PreparedThermalOutdoorBoundary): 
   });
 }
 
-function transitionsFrom(points: AlignedPoint[]): Transition[] {
+function transitionsFrom(points: AlignedPoint[], passiveIntervals?: readonly PassiveInterval[]): Transition[] {
   const transitions: Transition[] = [];
   for (let index = 1; index < points.length; index += 1) {
     const previous = points[index - 1];
@@ -208,6 +210,7 @@ function transitionsFrom(points: AlignedPoint[]): Transition[] {
     if (!previous || !current) continue;
     const dtHours = (current.time - previous.time) / HOUR_MS;
     if (dtHours < MIN_INTERVAL_HOURS || dtHours > MAX_INTERVAL_HOURS) continue;
+    if (!isTransitionWithinPassiveIntervals(passiveIntervals, previous.time, current.time)) continue;
     transitions.push({
       fromTime: previous.time,
       toTime: current.time,
@@ -678,7 +681,7 @@ function prepareThermalSimulationRun(
   const indoor = indoorPoints(input.indoorSamples);
   const outdoor = preparedOutdoor ?? prepareThermalOutdoorBoundary(input.outdoorSamples);
   const allAligned = align(indoor, outdoor);
-  const transitions = longestTransitionSegment(transitionsFrom(allAligned));
+  const transitions = longestTransitionSegment(transitionsFrom(allAligned, input.passiveIntervals));
   const firstUsedTime = transitions[0]?.fromTime;
   const lastUsedTime = transitions.at(-1)?.toTime;
   const aligned = firstUsedTime === undefined || lastUsedTime === undefined
