@@ -317,7 +317,13 @@ export function diagnoseEvidence(evidence) {
       },
       queues: databaseAvailable ? queues : null,
       integrations: integrationSummary,
-      updater: { phase: updaterPhase },
+      updater: {
+        available: updater.available === true,
+        phase: updaterPhase,
+        errorCode: updaterErrorCode,
+        journalPhase: updater.status?.journalPhase ?? null,
+        recoveryPending: Boolean(updater.status?.rollbackReason || updater.status?.rollbackError),
+      },
     },
   };
 }

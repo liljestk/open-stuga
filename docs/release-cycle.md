@@ -284,7 +284,7 @@ Preserve required receipts in the ceremony store; never add raw output to Git.
 
 ## 6. Audit and publish the draft
 
-Create the `DESIGN.md` visual-acceptance receipt and collect a healthy,
+Create the `DESIGN.md` visual-acceptance receipt and collect a fresh,
 target-bound appliance receipt without changing the appliance:
 
 ```powershell
@@ -301,29 +301,29 @@ manifest, anonymous AMD64/ARM64 image descriptor closure and source provenance,
 compatibility proof, visual evidence, and target identity. It never rebuilds,
 reruns CI, publishes, or reconnects to the appliance.
 
-### Expired feed TUF metadata blocks an unrelated application release
+### Application readiness and signed host-feed expiry
 
-`release:verify` validates the doctor receipt with `requireHealthy: true`, so a
-single failed appliance check stops promotion even when the failure has nothing
-to do with the release being published. The most likely such failure is expired
-TUF metadata on the public feed: the signed host updater refuses stale trust
-metadata and reports
+Application releases replace containers and do not consult TUF. `release:verify`
+therefore accepts a healthy doctor receipt, or a receipt whose **only** non-pass
+check is an `UPDATER` warning for `TRUST_VERIFICATION_FAILED` or
+`METADATA_FETCH_FAILED`. The latter requires structured evidence of an available
+updater in failed-feed-check state, no host journal, and no rollback/recovery
+indicator. All other warnings and failures remain blocking. Receipts still bind
+the exact target, SSH host key, freshness, identity, and checksum; missing or
+older structured evidence is a stop. The doctor retains its honest `attention`
+result and the verifier prints the continuing host warning.
 
-```
-phase: failed   errorCode: TRUST_VERIFICATION_FAILED
-```
+This is an application-only policy. It grants no signed host publication,
+staging, activation, trust override, or health-state rewrite. Runtime update
+interlocks and the verified backup remain mandatory when installing.
 
-which the doctor surfaces as `UPDATER`. Note the doctor deliberately treats
-`phase: failed` with `errorCode: UPDATE_NOT_FOUND` as a pass — that is the
-benign "no newer signed target" case. Any other error code is a real fault.
-
-An application-only release does not use the TUF path at all; containers are
-pulled from GHCR. The expiry therefore blocks the ceremony rather than the
-update. Refreshing timestamp metadata is a signing operation in the separately
-controlled TUF repository and requires a key that is deliberately absent from a
-release machine, so it cannot be resolved from the release checkout — check
-`stuguctl host-update status` early, before building a release, so an expiry is
-found before the artifacts are built rather than at the promotion gate.
+Signed metadata expires to bound how long an obsolete feed can be replayed.
+Installing application containers does not renew it. The online feed workflow
+refreshes snapshot and timestamp roles; only the separately controlled offline
+targets/root ceremony can renew those roles. For expired targets, keep host
+updates paused, renew targets through the offline signer, then publish snapshot
+and timestamp in order and independently verify the chain. Never change the
+Pi clock, edit signed metadata, clear journals, or disable expiry checks.
 
 A drafted release is invisible to appliances. The update agent enumerates
 published feed releases and skips anything still marked draft, so a release

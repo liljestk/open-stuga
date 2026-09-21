@@ -2,6 +2,13 @@
 
 All notable Stugu releases are recorded here.
 
+## 0.41.2
+
+- Permit application-only releases when the sole appliance warning is unavailable signed host-feed metadata, with structured proof that no host journal or recovery is pending. Keep host trust checks and all other health gates intact.
+- Preserve the host-feed warning in doctor receipts and explain the separate metadata renewal requirement.
+
+Upgrade impact: no database migration, host update, or change to updater/Compose contracts.
+
 ## 0.41.1
 
 - Correct electricity forecast descriptions for assistive technology.
