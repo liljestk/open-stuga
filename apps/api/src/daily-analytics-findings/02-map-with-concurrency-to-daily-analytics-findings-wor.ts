@@ -305,15 +305,15 @@ export class DailyAnalyticsFindingsWorker {
     };
   }
 
-  #aggregateSamples(
+  async #aggregateSamples(
     samples: MeasurementSample[],
     sensor: Pick<Sensor, "id" | "name">,
     definition: MeasurementDefinition,
     dataMode: DataMode,
     period: PeerPeriod,
     archiveState: HybridArchiveReadState,
-  ): PeriodValue | null {
-    const response = buildAnalyticsResponse({
+  ): Promise<PeriodValue | null> {
+    const response = await buildAnalyticsResponse({
       request: this.#measurementRequest(sensor, definition, dataMode, period),
       samples,
       definitions: [definition],

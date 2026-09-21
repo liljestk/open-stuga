@@ -105,6 +105,16 @@ import "../core.js";
 declare module "../core.js" {
   interface DatabaseInternals {
     measurementWindow(sensorIds: string[], metrics: string[], from: string, to: string, limit?: number): MeasurementSample[];
+    measurementWindowPage(sensorIds: string[], metrics: string[], from: string, to: string, limit: number, before?: {
+            timestamp: string;
+            id: number;
+        } | null): {
+        samples: MeasurementSample[];
+        next: {
+            timestamp: string;
+            id: number;
+        } | null;
+    };
     measurementCoverage(sensorIds: string[], metrics: string[]): MeasurementCoverageRecord[];
     measurementHistoryBucketed(sensorId: string, metric: string, from: string, to: string, bucketSeconds: number, limit?: number, excludeSynthetic?: boolean, toExclusive?: boolean): MeasurementSample[];
     measurementHistoryBucketedMulti(sensorIds: string[], metrics: string[], from: string, to: string, bucketSeconds: number, limitPerSeries?: number): MeasurementSample[];
@@ -128,6 +138,16 @@ declare module "../core.js" {
 
   interface ClimateDatabaseCore {
     measurementWindow(sensorIds: string[], metrics: string[], from: string, to: string, limit?: number): MeasurementSample[];
+    measurementWindowPage(sensorIds: string[], metrics: string[], from: string, to: string, limit: number, before?: {
+            timestamp: string;
+            id: number;
+        } | null): {
+        samples: MeasurementSample[];
+        next: {
+            timestamp: string;
+            id: number;
+        } | null;
+    };
     measurementCoverage(sensorIds: string[], metrics: string[]): MeasurementCoverageRecord[];
     measurementHistoryBucketed(sensorId: string, metric: string, from: string, to: string, bucketSeconds: number, limit?: number, excludeSynthetic?: boolean, toExclusive?: boolean): MeasurementSample[];
     measurementHistoryBucketedMulti(sensorIds: string[], metrics: string[], from: string, to: string, bucketSeconds: number, limitPerSeries?: number): MeasurementSample[];

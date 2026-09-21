@@ -129,3 +129,12 @@ export function aborted(signal: AbortSignal | undefined): Error | null {
   if (!signal?.aborted) return null;
   return signal.reason instanceof Error ? signal.reason : new Error("Telemetry read aborted");
 }
+
+/**
+ * Hands the event loop back between bounded slices of synchronous work, so
+ * ingestion, health sampling, and interactive requests keep running while a
+ * large read or merge is assembled.
+ */
+export async function yieldToEventLoop(): Promise<void> {
+  await new Promise<void>((resolve) => setImmediate(resolve));
+}

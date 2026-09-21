@@ -63,6 +63,7 @@ import {
   mapWithConcurrency,
   positiveLimit,
   unique,
+  yieldToEventLoop,
   type HybridArchiveReadState,
   type HybridMeasurementCoverageResult,
   type HybridTelemetryFamily,
@@ -123,6 +124,14 @@ export interface LocalTelemetryReader {
     sensorId: string, from: string, to: string, bucketMinutes?: number, limitPerMetric?: number,
   ): MeasurementSample[];
   measurementWindow(sensorIds: string[], metrics: string[], from: string, to: string, limit?: number): MeasurementSample[];
+  measurementWindowPage?(
+    sensorIds: string[],
+    metrics: string[],
+    from: string,
+    to: string,
+    limit: number,
+    before?: { timestamp: string; id: number } | null,
+  ): { samples: MeasurementSample[]; next: { timestamp: string; id: number } | null };
   history(sensorIds: string[], from: string, to: string, limit?: number): Reading[];
   outdoorTemperatureHistory(
     houseId: string,
@@ -246,6 +255,16 @@ function qualityWeightedThermalBuckets(
     .slice(-limitPerMetric))
     .sort(compareMeasurements);
 }
+
+/**
+ * Rows fetched per synchronous SQLite statement while assembling a large local
+ * window. Sized so one page stays around 100 ms on a Raspberry Pi; the
+ * assembly loop yields between pages.
+ */
+const LOCAL_WINDOW_PAGE_ROWS = 5_000;
+
+/** Records merged or partitioned between event-loop yields in bulk paths. */
+export const BULK_RECORDS_PER_SLICE = 25_000;
 
 export class HybridTelemetryReader {
   readonly #local: LocalTelemetryReader;
@@ -378,7 +397,7 @@ export class HybridTelemetryReader {
     const hotTailStart = Math.floor((now - LOCAL_HOT_TAIL_MS) / (query.bucketSeconds * 1_000)) * query.bucketSeconds * 1_000;
     const local = await readLocal(archiveFresh ? Math.max(fromMs, hotTailStart) : fromMs);
     const filteredArchive = realMode ? archived.filter((record) => !isSyntheticSource(record.source)) : archived;
-    const result = this.#mergeRecords({ limit, key, compare: compareMeasurements }, {
+    const result = await this.#mergeRecords({ limit, key, compare: compareMeasurements }, {
       complete,
       localTotal: local.length,
       archivedTotal: archived.length,
@@ -520,7 +539,7 @@ export class HybridTelemetryReader {
       }, [], 0, true, "not-configured");
     }
     if (metrics.length > 5) throw new RangeError("thermal history supports at most 5 metrics");
-    const readLocal = (): MeasurementSample[] => {
+    const readLocal = async (): Promise<MeasurementSample[]> => {
       if (metrics.length === 1 && metrics[0] === "temperature" && this.#local.thermalTemperatureHistory) {
         return this.#local.thermalTemperatureHistory(
           query.sensorId,
@@ -542,13 +561,14 @@ export class HybridTelemetryReader {
         ).filter((sample) => requestedMetrics.has(sample.metric));
       }
       return bucketMeasurementSamples(
-        this.#local.measurementWindow(
+        (await this.#localMeasurementWindow(
           [query.sensorId],
           metrics,
           query.from,
           query.to,
           MAX_WINDOW_LIMIT,
-        ).filter((sample) => sample.quality !== "stale" && sample.source !== "replay"),
+          query.signal,
+        )).filter((sample) => sample.quality !== "stale" && sample.source !== "replay"),
         bucketMinutes * 60,
       );
     };
@@ -629,7 +649,7 @@ export class HybridTelemetryReader {
       from: query.from,
       to: query.to,
       limit,
-      local: () => this.#local.measurementWindow(sensorIds, metrics, query.from, query.to, limit),
+      local: () => this.#localMeasurementWindow(sensorIds, metrics, query.from, query.to, limit, query.signal),
       signal: query.signal,
       archiveRead: async () => {
         if (sensorIds.length === 0 || metrics.length === 0) return [];
@@ -849,12 +869,56 @@ export class HybridTelemetryReader {
     });
   }
 
+  /**
+   * Assembles a local window from bounded keyset pages, yielding between
+   * pages, so a quarter-million-row window can no longer monopolize the event
+   * loop for the whole read. Falls back to the one-shot local read for
+   * stores that do not page.
+   */
+  async #localMeasurementWindow(
+    sensorIds: string[],
+    metrics: string[],
+    from: string,
+    to: string,
+    limit: number,
+    signal: AbortSignal | undefined,
+  ): Promise<MeasurementSample[]> {
+    const readPage = this.#local.measurementWindowPage;
+    if (!readPage) return this.#local.measurementWindow(sensorIds, metrics, from, to, limit);
+    const newestFirst: MeasurementSample[] = [];
+    let cursor: { timestamp: string; id: number } | null = null;
+    for (;;) {
+      const page: {
+        samples: MeasurementSample[];
+        next: { timestamp: string; id: number } | null;
+      } = readPage.call(
+        this.#local,
+        sensorIds,
+        metrics,
+        from,
+        to,
+        Math.min(LOCAL_WINDOW_PAGE_ROWS, limit - newestFirst.length),
+        cursor,
+      );
+      for (const sample of page.samples) newestFirst.push(sample);
+      cursor = page.next;
+      if (!cursor || newestFirst.length >= limit) break;
+      await yieldToEventLoop();
+      const cancellation = aborted(signal);
+      if (cancellation) throw cancellation;
+    }
+    // Pages descend from the newest sample, so the reversal reproduces the
+    // one-shot contract: the newest `limit` rows in ascending (timestamp, id)
+    // order.
+    return newestFirst.reverse();
+  }
+
   async #read<T extends { source: string }>(input: {
     family: HybridTelemetryFamily;
     from: string;
     to: string;
     limit: number;
-    local: () => T[];
+    local: () => T[] | Promise<T[]>;
     signal: AbortSignal | undefined;
     archiveRead: () => Promise<T[]>;
     key: (record: T) => string;
@@ -874,7 +938,7 @@ export class HybridTelemetryReader {
     let local: T[] = [];
     let localReadError: unknown = null;
     try {
-      local = input.local();
+      local = await input.local();
     } catch (error) {
       localReadError = error;
     }
@@ -905,9 +969,9 @@ export class HybridTelemetryReader {
     const afterArchiveCancellation = aborted(input.signal);
     if (afterArchiveCancellation) throw afterArchiveCancellation;
     const filteredArchive = realMode ? archived.filter((record) => !isSyntheticSource(record.source)) : archived;
-    const result = this.#mergeRecords(input, {
+    const result = await this.#mergeRecords(input, {
       complete,
-      localTotal: input.local.length,
+      localTotal: local.length,
       archivedTotal: archived.length,
       filteredLocal,
       filteredArchive,
@@ -917,7 +981,7 @@ export class HybridTelemetryReader {
     return result;
   }
 
-  #mergeRecords<T extends { source: string }>(input: {
+  async #mergeRecords<T extends { source: string }>(input: {
     limit: number;
     key: (record: T) => string;
     compare: (left: T, right: T) => number;
@@ -929,15 +993,26 @@ export class HybridTelemetryReader {
     archivedTotal: number;
     filteredLocal: T[];
     filteredArchive: T[];
-  }): HybridTelemetryReadResult<T> {
+  }): Promise<HybridTelemetryReadResult<T>> {
     const merged = new Map<string, T>();
-    for (const record of context.filteredArchive) merged.set(input.key(record), record);
+    let sliceRemaining = BULK_RECORDS_PER_SLICE;
+    for (const record of context.filteredArchive) {
+      merged.set(input.key(record), record);
+      if (--sliceRemaining === 0) {
+        sliceRemaining = BULK_RECORDS_PER_SLICE;
+        await yieldToEventLoop();
+      }
+    }
     for (const record of context.filteredLocal) {
       const key = input.key(record);
       const existing = merged.get(key);
       merged.set(key, existing && input.mergeDuplicate
         ? input.mergeDuplicate(existing, record)
         : record);
+      if (--sliceRemaining === 0) {
+        sliceRemaining = BULK_RECORDS_PER_SLICE;
+        await yieldToEventLoop();
+      }
     }
     const duplicates = context.filteredArchive.length + context.filteredLocal.length - merged.size;
     const records = [...merged.values()].sort(input.compare).slice(-input.limit);
