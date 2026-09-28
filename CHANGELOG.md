@@ -2,6 +2,13 @@
 
 All notable Stugu releases are recorded here.
 
+## 0.41.4
+
+- Update the bug-report relay tooling and its HTTP dependency with upstream security fixes.
+- Restore type generation in fresh checkouts by creating the ignored output directory before Wrangler runs.
+
+Upgrade impact: no database migration, configuration change, or host update is required.
+
 ## 0.41.3 — 2026-09-21
 
 - Give verified update backups the existing 24-hour storage-backup allowance. Large SQLite integrity checks no longer inherit the 45-minute container-command timeout. Other command deadlines and uncertain-mutation recovery protections remain unchanged.
