@@ -246,12 +246,12 @@ export function collectionPagePath(path: string, offset: number): string {
   return `${path}${path.includes("?") ? "&" : "?"}limit=${COLLECTION_PAGE_SIZE}&offset=${offset}`;
 }
 
-export async function completeCollection<T extends { id: string }>(path: string, keys: string[]): Promise<T[]> {
+export async function completeCollection<T extends { id: string }>(path: string, keys: string[], options?: Pick<ApiRequestInit, "schedulingClass">): Promise<T[]> {
   const result: T[] = [];
   const seenIds = new Set<string>();
   let offset = 0;
   while (true) {
-    const page = list<T>(await request<unknown>(collectionPagePath(path, offset)), keys);
+    const page = list<T>(await request<unknown>(collectionPagePath(path, offset), options), keys);
     let added = 0;
     for (const item of page) {
       if (typeof item.id !== "string" || !item.id) {

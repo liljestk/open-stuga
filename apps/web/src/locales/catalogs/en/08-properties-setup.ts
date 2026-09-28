@@ -307,6 +307,7 @@ export const enPart8 = {
   "energy.optimizer.propertyScope": "Property scope · {property}",
   "energy.optimizer.readOnly": "Read-only",
   "energy.optimizer.description": "Recommendations combine the Property price source with observed consumption and power. They never control equipment.",
+  "energy.optimizer.loading": "Finding suitable price windows…",
   "energy.optimizer.unavailable": "Optimization is temporarily unavailable; existing energy data remains unaffected.",
   "energy.optimizer.priceComparison": "{price} c/kWh · {percent}% {comparison} average",
   "energy.optimizer.below": "below",

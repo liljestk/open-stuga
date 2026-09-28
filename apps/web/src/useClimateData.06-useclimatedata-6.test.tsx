@@ -385,8 +385,8 @@ describe("useClimateData", () => {
     await act(async () => { housesRequest.resolve([fixture.firstHouse, fixture.secondHouse]); });
     await waitFor(() => expect(result.current.loading).toBe(false));
 
-    expect(mocks.observations).toHaveBeenCalledWith(fixture.secondHouse.id);
-    expect(mocks.observations).not.toHaveBeenCalledWith(fixture.firstHouse.id);
+    expect(mocks.observations).toHaveBeenCalledWith(fixture.secondHouse.id, "optional");
+    expect(mocks.observations).not.toHaveBeenCalledWith(fixture.firstHouse.id, "optional");
     expect(result.current.state.observations).toEqual([fixture.secondObservation]);
   });
 

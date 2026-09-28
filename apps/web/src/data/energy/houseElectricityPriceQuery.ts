@@ -3,20 +3,25 @@ import type { HomeElectricityPricePoint } from "@climate-twin/contracts";
 import { api } from "../../api";
 import { queryClient } from "../queryClient";
 import { queryKeys } from "../queryKeys";
+import { useCancelInactiveQuery } from "../useCancelInactiveQuery";
 
-// Spot prices change on quarter-hour boundaries at most; refreshing every five
-// minutes keeps the card current without adding load. On a refetch failure the
-// query keeps serving the last projection instead of emptying the card.
-const HOUSE_PRICE_REFRESH_MS = 5 * 60_000;
+// Poll cheaply once a minute; callers validate the returned interval before
+// presenting it as current. Cached data remains available during recovery.
+const HOUSE_PRICE_REFRESH_MS = 60_000;
 
 export function useHouseElectricityPriceQuery(houseId: string, enabled: boolean) {
-  return useQuery({
-    queryKey: queryKeys.houseElectricityPrice(houseId),
+  const queryKey = queryKeys.houseElectricityPrice(houseId);
+  const queryEnabled = Boolean(houseId) && enabled;
+  const query = useQuery({
+    queryKey,
     queryFn: async ({ signal }: { signal: AbortSignal }): Promise<HomeElectricityPricePoint | null> => (
       (await api.houseElectricityPrice(houseId, undefined, undefined, signal)).current
     ),
-    enabled: Boolean(houseId) && enabled,
+    enabled: queryEnabled,
     staleTime: HOUSE_PRICE_REFRESH_MS,
+    refetchOnWindowFocus: true,
     refetchInterval: enabled ? HOUSE_PRICE_REFRESH_MS : false,
   }, queryClient);
+  useCancelInactiveQuery(queryKey, queryEnabled);
+  return query;
 }

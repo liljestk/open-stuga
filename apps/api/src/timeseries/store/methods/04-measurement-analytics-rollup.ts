@@ -63,6 +63,7 @@ interface MeasurementAnalyticsRow extends QueryResultRow {
   cadence_seconds: string | number;
   bucket_start: string | Date | null;
   rollup_value: number | null;
+  consumption_kwh?: number | null;
   minimum: number | null;
   maximum: number | null;
   bucket_sample_count: string | number | null;
@@ -97,6 +98,12 @@ async function executeRollup(
   if (series.length === 0) return [];
   const mask = qualityMask(query.qualities);
   const sourceScope = query.excludeSynthetic === true ? "real" : "all";
+  // Power integration may hold a sample for at most 15 minutes. Keeping the
+  // stored state no wider than that makes its internal integral exact even
+  // when the requested display buckets span a day.
+  const orderedSeconds = series.some((item) => item.metric === "power")
+    ? Math.min(900, orderedBucketSeconds(query.resolution)) as 60 | 900
+    : orderedBucketSeconds(query.resolution);
   if (ordered) {
     await store.enqueueMeasurementOrderedRollups(
       series,
@@ -104,7 +111,7 @@ async function executeRollup(
       query.to,
       mask,
       sourceScope,
-      orderedBucketSeconds(query.resolution),
+      orderedSeconds,
       query,
     );
   }
@@ -124,7 +131,7 @@ async function executeRollup(
     targetInterval,
     query.excludeSynthetic === true,
     seventhParameter,
-    ...(ordered ? [orderedBucketSeconds(query.resolution)] : []),
+    ...(ordered ? [orderedSeconds] : []),
   ], query);
 
   if (result.rows.some((row) => row.coverage_complete === false)) {
@@ -141,12 +148,14 @@ async function executeRollup(
     record.sampleCount = finiteNumber(row.included_sample_count);
     record.excludedSampleCount = finiteNumber(row.excluded_sample_count);
     record.cadenceSeconds = Math.max(1, finiteNumber(row.cadence_seconds, 60));
-    if (row.bucket_start === null || row.minimum === null || row.maximum === null) continue;
+    if (row.bucket_start === null) continue;
+    if ((row.minimum === null || row.maximum === null) && row.consumption_kwh === undefined) continue;
     record.buckets.push({
       bucketStart: timestamp(row.bucket_start),
       value: row.rollup_value === null ? null : finiteNumber(row.rollup_value),
-      minimum: finiteNumber(row.minimum),
-      maximum: finiteNumber(row.maximum),
+      ...(row.consumption_kwh !== undefined ? { consumptionKwh: row.consumption_kwh } : {}),
+      minimum: row.minimum === null ? null : finiteNumber(row.minimum),
+      maximum: row.maximum === null ? null : finiteNumber(row.maximum),
       sampleCount: finiteNumber(row.bucket_sample_count),
       estimatedSampleCount: finiteNumber(row.estimated_sample_count),
       staleSampleCount: finiteNumber(row.stale_sample_count),

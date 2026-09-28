@@ -1,4 +1,6 @@
 import type {
+  AnalyticsQueryResponse,
+  AnalyticsSeries,
   HomeEnergyCost,
   HomeEnergySummary,
   MeasurementSample,
@@ -12,6 +14,45 @@ const DAY_MS = 24 * HOUR_MS;
 const POWER_HOLD_MS = 15 * 60_000;
 const COVERAGE_EDGE_TOLERANCE_MS = 5 * 60_000;
 const MIN_HISTORICAL_PRICE_COVERAGE_PERCENT = 80;
+
+/** Only server integrals are safe to accumulate after history downsampling. */
+export function consumptionHistorySeries(
+  responses: readonly AnalyticsQueryResponse[], sensorId: string,
+): { points: SeriesPoint[]; partial: boolean } {
+  const candidates = responses.flatMap((response) => response.series
+    .filter((series) => series.entityId === sensorId)
+    .map((series) => ({ response, series })));
+  const usable = (series: AnalyticsSeries) => series.points.some((point) => (
+    point.consumptionKwh !== undefined && point.consumptionKwh !== null && Number.isFinite(point.consumptionKwh)
+  ));
+  const selected = candidates.find(({ series }) => series.measurementId === "energy" && series.summary.count >= 2 && usable(series))
+    ?? candidates.find(({ series }) => series.measurementId === "power" && usable(series));
+  if (!selected) return { points: [], partial: candidates.some(({ series }) => series.summary.count > 0 || series.points.some((point) => point.consumptionKwh === null)) };
+  const { response, series } = selected;
+  const bucketMs = series.resolution === "1d" ? 86_400_000 : series.resolution === "1h" ? 3_600_000
+    : Number(series.resolution.slice(0, -1)) * 60_000;
+  if (!Number.isFinite(bucketMs) || bucketMs <= 0) return { points: [], partial: true };
+  const from = Date.parse(response.resolvedRange.start);
+  const to = Date.parse(response.resolvedRange.end);
+  let total = 0;
+  let partial = response.warnings.some((warning) => warning.code === "ARCHIVE_DEGRADED");
+  const points: SeriesPoint[] = [];
+  for (const point of series.points) {
+    const value = point.consumptionKwh;
+    if (value == null || !Number.isFinite(value) || value < 0) {
+      // Empty display buckets and deliberately excluded source qualities are
+      // not failed/truncated requests. Missing integral metadata on an actual
+      // observation, however, must never fall back to an averaged value.
+      if (value === null || point.sampleCount > 0) partial = true;
+      continue;
+    }
+    const at = Date.parse(point.timestamp);
+    if (!points.length) points.push({ timestamp: Math.max(from, at), value: 0 });
+    total += value;
+    points.push({ timestamp: Math.min(to, at + bucketMs), value: total });
+  }
+  return { points, partial };
+}
 
 interface DailyRate {
   kwh: number;
@@ -31,17 +72,11 @@ export interface EnergyProjection {
   priceBasis: "historical" | "current" | "unavailable";
 }
 
-export type LoadPattern = "steady" | "cycling" | "short_peaks" | "variable" | "unknown";
-
 export interface EnergyConsumerInsight {
   sensor: Sensor;
   consumptionKwh: number;
   sharePercent: number;
   measurementBasis: HomeEnergyCost["measurementBasis"];
-  averagePowerWatts: number | null;
-  peakPowerWatts: number | null;
-  activePercent: number | null;
-  pattern: LoadPattern;
 }
 
 function finiteTimestamp(value: string): number | null {
@@ -307,47 +342,9 @@ export function buildEnergyProjection(
   };
 }
 
-function powerProfile(state: ClimateState, sensorId: string): Omit<EnergyConsumerInsight,
-  "sensor" | "consumptionKwh" | "sharePercent" | "measurementBasis"> {
-  const samples = samplesFor(state, sensorId, "power");
-  if (samples.length < 3) {
-    return { averagePowerWatts: null, peakPowerWatts: null, activePercent: null, pattern: "unknown" };
-  }
-  let coveredMs = 0;
-  let weightedWatts = 0;
-  const values = samples.map((sample) => sample.value).sort((left, right) => left - right);
-  const peak = values.at(-1) ?? 0;
-  const activeThreshold = Math.max(3, peak * 0.05);
-  let activeMs = 0;
-  for (let index = 0; index < samples.length - 1; index += 1) {
-    const sample = samples[index]!;
-    const start = Date.parse(sample.timestamp);
-    const end = Math.min(Date.parse(samples[index + 1]!.timestamp), start + POWER_HOLD_MS);
-    if (end <= start) continue;
-    const duration = end - start;
-    coveredMs += duration;
-    weightedWatts += sample.value * duration;
-    if (sample.value >= activeThreshold) activeMs += duration;
-  }
-  if (coveredMs < 30 * 60_000) {
-    return { averagePowerWatts: null, peakPowerWatts: peak, activePercent: null, pattern: "unknown" };
-  }
-  const average = weightedWatts / coveredMs;
-  const activePercent = activeMs / coveredMs * 100;
-  const pattern: LoadPattern = activePercent <= 30 && peak >= Math.max(50, average * 2.5)
-    ? "short_peaks"
-    : activePercent >= 80 && peak <= Math.max(20, average * 2)
-      ? "steady"
-      : activePercent >= 15 && activePercent < 80
-        ? "cycling"
-        : "variable";
-  return { averagePowerWatts: average, peakPowerWatts: peak, activePercent, pattern };
-}
-
 export function buildConsumerInsights(
   summary: HomeEnergySummary | null,
   sensors: readonly Sensor[],
-  state: ClimateState,
 ): EnergyConsumerInsight[] {
   if (!summary) return [];
   const byId = new Map(sensors.map((sensor) => [sensor.id, sensor]));
@@ -358,6 +355,5 @@ export function buildConsumerInsights(
     consumptionKwh: cost.consumptionKwh ?? 0,
     sharePercent: total > 0 ? (cost.consumptionKwh ?? 0) / total * 100 : 0,
     measurementBasis: cost.measurementBasis,
-    ...powerProfile(state, cost.sensorId),
   })).sort((left, right) => right.consumptionKwh - left.consumptionKwh || left.sensor.name.localeCompare(right.sensor.name));
 }

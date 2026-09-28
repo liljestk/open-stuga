@@ -272,7 +272,7 @@ describe("useClimateData", () => {
     await waitFor(() => expect(result.current.state.maintenanceTasks).toContainEqual(areaTask));
 
     expect(mocks.maintenanceTasks).toHaveBeenCalledWith();
-    expect(mocks.maintenanceTasks).toHaveBeenCalledWith({ houseId: visibleHouse.id });
+    expect(mocks.maintenanceTasks).toHaveBeenCalledWith({ houseId: visibleHouse.id }, "optional");
   });
 
   it("does not treat guest-forbidden administrative bootstrap resources as a service outage", async () => {

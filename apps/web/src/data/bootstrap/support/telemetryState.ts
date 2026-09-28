@@ -62,6 +62,8 @@ export type SeriesLoadStatus = "idle" | "loading" | "ready" | "error";
 export interface SeriesLoadState {
   status: SeriesLoadStatus;
   error: string | null;
+  /** HTTP status when the history request failed with a structured API error. */
+  errorStatus?: number | null;
   forecastError: string | null;
   requestedFrom: string;
   requestedTo: string;
@@ -336,6 +338,11 @@ export function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message.trim() ? error.message : fallback;
 }
 
+export function apiErrorStatus(error: unknown): number | null {
+  if (!(error instanceof Error) || error.name !== "ApiRequestError" || !("status" in error)) return null;
+  return typeof error.status === "number" && Number.isInteger(error.status)
+    && error.status >= 100 && error.status <= 599 ? error.status : null;
+}
 export function isLegacySeriesCompatibilityError(error: unknown): boolean {
   if (!(error instanceof Error) || error.name !== "ApiRequestError") return false;
   const apiError = error as Error & { status?: unknown; code?: unknown };

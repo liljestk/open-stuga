@@ -582,13 +582,27 @@ registerTimeseriesStoreMethods({
     },
   async measurementCoverage(this: TimeseriesStoreInternals, query: MeasurementCoverageQuery): Promise<MeasurementCoverageRecord[]> {
       if (query.sensorIds.length === 0 || query.metrics.length === 0) return [];
+      // Energy summaries need the two boundaries, not an aggregate over every
+      // retained sample. Separate ordered probes use the existing series/time
+      // index and stop at the first qualifying row in each direction.
+      const sourceFilter = query.excludeSynthetic ? "AND source NOT IN ('mock', 'replay')" : "";
       const result = await this.__query<MeasurementCoverageRow>(`SELECT sensor_id, metric,
-          MIN(observed_at) AS coverage_start, MAX(observed_at) AS coverage_end
-        FROM ${qualifiedName(this.schema, "measurement_samples")}
-        WHERE sensor_id = ANY($1::TEXT[]) AND metric = ANY($2::TEXT[])
-          ${query.excludeSynthetic ? "AND source NOT IN ('mock', 'replay')" : ""}
-        GROUP BY sensor_id, metric
-        ORDER BY sensor_id, metric`, [[...query.sensorIds], [...query.metrics]], query);
+          first_sample.observed_at AS coverage_start, last_sample.observed_at AS coverage_end
+        FROM unnest($1::TEXT[]) AS sensors(sensor_id)
+        CROSS JOIN unnest($2::TEXT[]) AS metrics(metric)
+        CROSS JOIN LATERAL (
+          SELECT observed_at FROM ${qualifiedName(this.schema, "measurement_samples")} sample
+          WHERE sample.sensor_id = sensors.sensor_id AND sample.metric = metrics.metric
+            ${sourceFilter}
+          ORDER BY observed_at ASC LIMIT 1
+        ) first_sample
+        CROSS JOIN LATERAL (
+          SELECT observed_at FROM ${qualifiedName(this.schema, "measurement_samples")} sample
+          WHERE sample.sensor_id = sensors.sensor_id AND sample.metric = metrics.metric
+            ${sourceFilter}
+          ORDER BY observed_at DESC LIMIT 1
+        ) last_sample
+        ORDER BY sensor_id, metric`, [[...new Set(query.sensorIds)], [...new Set(query.metrics)]], query);
       return result.rows.map((row) => ({
         sensorId: row.sensor_id,
         metric: row.metric,

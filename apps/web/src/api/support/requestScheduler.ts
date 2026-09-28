@@ -7,7 +7,11 @@ export const MAX_CONCURRENT_API_REQUESTS = 3;
 // history reads are filling the bounded read queue.
 export const MAX_CONCURRENT_API_READ_REQUESTS = MAX_CONCURRENT_API_REQUESTS - 1;
 
-export type ApiRequestSchedulingClass = "background" | "interactive";
+// Optional bootstrap resources may be slow; leave a read slot for the view
+// the user is looking at, without borrowing the session/mutation reserve.
+export const MAX_CONCURRENT_API_OPTIONAL_READ_REQUESTS = 1;
+export type ApiRequestSchedulingClass = "optional" | "background" | "interactive";
+export type ApiReadSchedulingClass = Exclude<ApiRequestSchedulingClass, "interactive">;
 
 export type ApiRequestInit = RequestInit & {
   schedulingClass?: ApiRequestSchedulingClass;
@@ -23,6 +27,7 @@ type ApiRequestWaiter = {
 
 let activeApiRequestCount = 0;
 let activeApiReadRequestCount = 0;
+let activeOptionalReadRequestCount = 0;
 const apiRequestWaiters: ApiRequestWaiter[] = [];
 
 function abortReason(signal: AbortSignal): unknown {
@@ -31,10 +36,13 @@ function abortReason(signal: AbortSignal): unknown {
 
 function drainApiRequestWaiters(): void {
   while (activeApiRequestCount < MAX_CONCURRENT_API_REQUESTS && apiRequestWaiters.length > 0) {
-    const waiterIndex = apiRequestWaiters.findIndex((candidate) => (
-      candidate.schedulingClass === "interactive"
-      || activeApiReadRequestCount < MAX_CONCURRENT_API_READ_REQUESTS
-    ));
+    const eligible = (candidate: ApiRequestWaiter) => candidate.schedulingClass === "interactive"
+      || (activeApiReadRequestCount < MAX_CONCURRENT_API_READ_REQUESTS
+        && (candidate.schedulingClass !== "optional"
+          || activeOptionalReadRequestCount < MAX_CONCURRENT_API_OPTIONAL_READ_REQUESTS));
+    // Preserve FIFO among eligible requests. The optional cap lets visible
+    // reads skip a blocked optional wave without starving that wave forever.
+    const waiterIndex = apiRequestWaiters.findIndex(eligible);
     if (waiterIndex < 0) return;
     const waiter = apiRequestWaiters.splice(waiterIndex, 1)[0]!;
     waiter.signal.removeEventListener("abort", waiter.abort);
@@ -43,13 +51,15 @@ function drainApiRequestWaiters(): void {
       continue;
     }
     activeApiRequestCount += 1;
-    if (waiter.schedulingClass === "background") activeApiReadRequestCount += 1;
+    if (waiter.schedulingClass !== "interactive") activeApiReadRequestCount += 1;
+    if (waiter.schedulingClass === "optional") activeOptionalReadRequestCount += 1;
     let released = false;
     waiter.resolve(() => {
       if (released) return;
       released = true;
       activeApiRequestCount -= 1;
-      if (waiter.schedulingClass === "background") activeApiReadRequestCount -= 1;
+      if (waiter.schedulingClass !== "interactive") activeApiReadRequestCount -= 1;
+      if (waiter.schedulingClass === "optional") activeOptionalReadRequestCount -= 1;
       drainApiRequestWaiters();
     });
   }

@@ -1,3 +1,4 @@
+import type { ApiReadSchedulingClass } from "./support/requestScheduler";
 import type {
   ActionPlaybook,
   ActionRun,
@@ -161,7 +162,7 @@ export const apiPart03 = {
       const response = await request<AlertRule | { rule: AlertRule }>(`/alert-rules/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(patch) });
       return "rule" in response ? response.rule : response;
     },
-  alerts: async () => list<AlertEvent>(await request<unknown>("/alerts"), ["alerts", "events", "data"]),
+  alerts: async (schedulingClass: ApiReadSchedulingClass = "background") => list<AlertEvent>(await request<unknown>("/alerts", { schedulingClass }), ["alerts", "events", "data"]),
   acknowledgeAlert: (id: string) => request<AlertEvent>(`/alerts/${encodeURIComponent(id)}/acknowledge`, { method: "POST" }),
   notificationDeliveries: async (options: { subjectKind?: string; subjectId?: string; deadLettersOnly?: boolean; limit?: number } = {}) => {
       const query = new URLSearchParams();
@@ -192,26 +193,26 @@ export const apiPart03 = {
   startActionRun: async (input: ActionRunStartInput) => entity(await request<ActionRun | { run: ActionRun }>("/action-runs", { method: "POST", body: JSON.stringify(input) }), "run"),
   completeActionRun: async (id: string) => entity(await request<ActionRun | { run: ActionRun }>(`/action-runs/${encodeURIComponent(id)}/complete`, { method: "POST" }), "run"),
   cancelActionRun: async (id: string, note?: string) => entity(await request<ActionRun | { run: ActionRun }>(`/action-runs/${encodeURIComponent(id)}/cancel`, { method: "POST", body: JSON.stringify({ note: note ?? null }) }), "run"),
-  observations: async (houseId: string) => list<ManualObservation>(await request<unknown>(`/observations?houseId=${encodeURIComponent(houseId)}`), ["observations", "data"]),
+  observations: async (houseId: string, schedulingClass: ApiReadSchedulingClass = "background") => list<ManualObservation>(await request<unknown>(`/observations?houseId=${encodeURIComponent(houseId)}`, { schedulingClass }), ["observations", "data"]),
   createObservation: async (observation: ManualObservationInput) => observationResponse(await request<ManualObservation | { observation: ManualObservation }>("/observations", { method: "POST", body: JSON.stringify(observation) })),
   updateObservation: async (id: string, patch: ManualObservationPatch) => observationResponse(await request<ManualObservation | { observation: ManualObservation }>(`/observations/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(patch) })),
   observationRevisions: async (id: string) => list<ObservationRevision>(await request<unknown>(`/observations/${encodeURIComponent(id)}/revisions`), ["revisions", "data"]),
-  maintenanceTasks: async (filters: MaintenanceTaskFilters = {}) => {
+  maintenanceTasks: async (filters: MaintenanceTaskFilters = {}, schedulingClass: ApiReadSchedulingClass = "background") => {
       const query = new URLSearchParams();
       if (filters.propertyId) query.set("propertyId", filters.propertyId);
       if (filters.houseId) query.set("houseId", filters.houseId);
       if (filters.areaId) query.set("areaId", filters.areaId);
       if (filters.equipmentId) query.set("equipmentId", filters.equipmentId);
       const suffix = query.size ? `?${query.toString()}` : "";
-      return completeCollection<MaintenanceTask>(`/maintenance-tasks${suffix}`, ["maintenanceTasks", "data"]);
+      return completeCollection<MaintenanceTask>(`/maintenance-tasks${suffix}`, ["maintenanceTasks", "data"], { schedulingClass });
     },
   createMaintenanceTask: (input: MaintenanceTaskInput) => request<MaintenanceTask>("/maintenance-tasks", { method: "POST", body: JSON.stringify(input) }),
   maintenanceTask: (id: string) => request<MaintenanceTask>(`/maintenance-tasks/${encodeURIComponent(id)}`),
   updateMaintenanceTask: (id: string, patch: MaintenanceTaskPatch) => request<MaintenanceTask>(`/maintenance-tasks/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(patch) }),
   maintenanceTaskRevisions: async (id: string) => list<MaintenanceTaskRevision>(await request<unknown>(`/maintenance-tasks/${encodeURIComponent(id)}/revisions`), ["revisions", "data"]),
   deleteMaintenanceTask: (id: string) => request<void>(`/maintenance-tasks/${encodeURIComponent(id)}`, { method: "DELETE" }),
-  staticParameters: async (houseId: string) => list<StaticParameter>(await request<unknown>(`/static-parameters?houseId=${encodeURIComponent(houseId)}`), ["parameters", "staticParameters", "data"]),
-  energyOptimization: async (propertyId: string, windowHours = 2) => entity(await request<EnergyOptimizationReport | { report: EnergyOptimizationReport }>(`/properties/${encodeURIComponent(propertyId)}/energy-optimization?windowHours=${encodeURIComponent(windowHours)}`), "report"),
+  staticParameters: async (houseId: string, schedulingClass: ApiReadSchedulingClass = "background") => list<StaticParameter>(await request<unknown>(`/static-parameters?houseId=${encodeURIComponent(houseId)}`, { schedulingClass }), ["parameters", "staticParameters", "data"]),
+  energyOptimization: async (propertyId: string, windowHours = 2, signal?: AbortSignal) => entity(await request<EnergyOptimizationReport | { report: EnergyOptimizationReport }>(`/properties/${encodeURIComponent(propertyId)}/energy-optimization?windowHours=${encodeURIComponent(windowHours)}`, signal ? { signal } : {}), "report"),
   setupDoctor: async () => entity(await request<SetupDoctorReport | { report: SetupDoctorReport }>("/setup/doctor"), "report"),
   dataExportPreview: async (privacyLevel: DataExportPrivacyLevel, includeTelemetry: boolean) => entity(await request<DataExportPreview | { preview: DataExportPreview }>(`/data-export/preview?privacyLevel=${encodeURIComponent(privacyLevel)}&includeTelemetry=${includeTelemetry}`), "preview"),
   dataExportUrl: (privacyLevel: DataExportPrivacyLevel, includeTelemetry: boolean) => `${API_BASE}/data-export?privacyLevel=${encodeURIComponent(privacyLevel)}&includeTelemetry=${includeTelemetry}`,
@@ -448,9 +449,9 @@ export const apiPart03 = {
         ["gaps", "data"],
       );
     },
-  scenarios: async () => list<MockScenario>(await request<unknown>("/mock/scenarios"), ["scenarios", "data"]),
+  scenarios: async (schedulingClass: ApiReadSchedulingClass = "background") => list<MockScenario>(await request<unknown>("/mock/scenarios", { schedulingClass }), ["scenarios", "data"]),
   runScenario: (scenarioId: MockScenario["id"]) => request<{ ok: boolean }>("/mock/scenario", { method: "POST", body: JSON.stringify({ scenarioId }) }),
-  measurementDefinitions: async () => (await requestV2<{ definitions: MeasurementDefinition[] }>("/measurement-definitions")).definitions,
+  measurementDefinitions: async (schedulingClass: ApiReadSchedulingClass = "background") => (await requestV2<{ definitions: MeasurementDefinition[] }>("/measurement-definitions", { schedulingClass })).definitions,
   analyticsFindings: (houseId: string, signal?: AbortSignal) => requestV2<DailyAnalyticsFindingsResponse>(
       `/analytics/findings?houseId=${encodeURIComponent(houseId)}`,
       signal ? { signal } : undefined,

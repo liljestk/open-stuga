@@ -55,7 +55,7 @@ export type AggregationSemantic =
   | "custom";
 
 /** Product release version. Pre-1.0 minor releases may contain breaking changes. */
-export const SYSTEM_VERSION = "0.41.4" as const;
+export const SYSTEM_VERSION = "0.41.5" as const;
 
 export interface MeasurementDefinition {
   id: Metric;
@@ -195,6 +195,8 @@ export interface AnalyticsProvenance {
 export interface AnalyticsPoint {
   timestamp: string;
   value: number | null;
+  /** Energy used in this bucket, computed before aggregation; null means incomplete evidence. */
+  consumptionKwh?: number | null;
   minimum: number | null;
   maximum: number | null;
   sampleCount: number;

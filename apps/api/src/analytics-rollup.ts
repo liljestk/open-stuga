@@ -84,6 +84,7 @@ function rollupPoints(
     points.push({
       timestamp: new Date(timestamp).toISOString(),
       value: bucket?.value ?? null,
+      ...(bucket?.consumptionKwh !== undefined ? { consumptionKwh: bucket.consumptionKwh } : {}),
       minimum: bucket?.minimum ?? null,
       maximum: bucket?.maximum ?? null,
       sampleCount: bucket?.sampleCount ?? 0,

@@ -1,10 +1,11 @@
-import type { HomeEnergyCost, HomeEnergySummary, MeasurementSample, Sensor } from "@climate-twin/contracts";
+import type { AnalyticsQueryResponse, HomeEnergyCost, HomeEnergySummary, MeasurementSample, Sensor } from "@climate-twin/contracts";
 import { describe, expect, it } from "vitest";
 import { createDemoState } from "../domain";
 import {
   aggregateCumulativeSeries,
   buildConsumerInsights,
   buildEnergyProjection,
+  consumptionHistorySeries,
   electricityUsageSeries,
   holdSeriesForBuckets,
 } from "./energyAnalysis";
@@ -109,6 +110,33 @@ describe("holdSeriesForBuckets", () => {
 });
 
 describe("energy analysis", () => {
+  it("plots server consumption rather than differencing averaged resetting counters", () => {
+    const response = { resolvedRange: { start: "2026-07-01T00:00:00Z", end: "2026-07-01T00:06:00Z" },
+      warnings: [{ code: "QUALITY_FILTER_EXCLUDED" }], series: [{ entityId: "plug", measurementId: "energy", resolution: "2m",
+        summary: { count: 6 }, points: [100.5, 51, 1.5].map((value, index) => ({
+          timestamp: new Date(Date.parse("2026-07-01T00:00:00Z") + index * 120_000).toISOString(),
+          value, consumptionKwh: [1, 1, 2][index], sampleCount: 2,
+        })) }] } as unknown as AnalyticsQueryResponse;
+    const result = consumptionHistorySeries([response], "plug");
+    expect(result.points.at(-1)?.value).toBe(4);
+    expect(result.partial).toBe(false);
+    for (const point of response.series[0]!.points) delete point.consumptionKwh;
+    expect(consumptionHistorySeries([response], "plug")).toEqual({ points: [], partial: true });
+  });
+  it("marks unavailable signed-power holds partial even when the display bucket has no observation", () => {
+    const response = { resolvedRange: { start: "2026-07-01T00:00:00Z", end: "2026-07-01T00:15:00Z" },
+      warnings: [], series: [{ entityId: "plug", measurementId: "power", resolution: "5m",
+        summary: { count: 1 }, points: [
+          { timestamp: "2026-07-01T00:00:00Z", consumptionKwh: 0.1, sampleCount: 1 },
+          { timestamp: "2026-07-01T00:05:00Z", consumptionKwh: null, sampleCount: 0 },
+        ] }] } as unknown as AnalyticsQueryResponse;
+    const result = consumptionHistorySeries([response], "plug");
+    expect(result.partial).toBe(true);
+    expect(result.points.at(-1)?.value).toBe(0.1);
+    response.series[0]!.points[0]!.consumptionKwh = null;
+    expect(consumptionHistorySeries([response], "plug")).toEqual({ points: [], partial: true });
+  });
+
   it("turns resetting counters into interval consumption and combines their running totals", () => {
     const state = createDemoState();
     state.measurementHistory = {
@@ -197,36 +225,20 @@ describe("energy analysis", () => {
     expect(buildEnergyProjection(null, partial, 0.2)?.confidence).toBe("low");
   });
 
-  it("ranks cumulative consumers and separates short peaks from cycling loads", () => {
+  it("ranks consumers from the measured summary without chart-history evidence", () => {
     const state = createDemoState();
     const base = state.sensors[0]!;
     const heater: Sensor = { ...base, id: "heater", name: "Water heater" };
     const fridge: Sensor = { ...base, id: "fridge", name: "Fridge" };
-    state.measurementHistory = {
-      heater: { power: [
-        sample("heater", "power", 0, "2026-07-10T00:00:00.000Z"),
-        sample("heater", "power", 2_000, "2026-07-10T00:30:00.000Z"),
-        sample("heater", "power", 0, "2026-07-10T00:35:00.000Z"),
-        sample("heater", "power", 0, "2026-07-10T01:00:00.000Z"),
-      ] },
-      fridge: { power: [
-        sample("fridge", "power", 90, "2026-07-10T00:00:00.000Z"),
-        sample("fridge", "power", 0, "2026-07-10T00:15:00.000Z"),
-        sample("fridge", "power", 90, "2026-07-10T00:30:00.000Z"),
-        sample("fridge", "power", 0, "2026-07-10T00:45:00.000Z"),
-      ] },
-    };
-    state.latestMeasurements = {};
     const from = "2026-07-01T00:00:00.000Z";
     const to = "2026-07-11T00:00:00.000Z";
     const insights = buildConsumerInsights(
       summary(15, from, to, [contribution("heater", 10, from, to), contribution("fridge", 5, from, to)]),
       [heater, fridge],
-      state,
     );
     expect(insights.map((item) => item.sensor.id)).toEqual(["heater", "fridge"]);
     expect(insights[0]?.sharePercent).toBeCloseTo(66.67, 1);
-    expect(insights[0]?.pattern).toBe("short_peaks");
-    expect(insights[1]?.pattern).toBe("cycling");
+    expect(insights[0]?.consumptionKwh).toBe(10);
+    expect(insights[1]?.consumptionKwh).toBe(5);
   });
 });

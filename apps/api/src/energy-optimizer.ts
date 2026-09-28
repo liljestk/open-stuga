@@ -7,44 +7,56 @@ import type {
 import type { ClimateDatabase } from "./db.js";
 import { EnergyCostService } from "./energy-cost.js";
 import { HybridTelemetryReader } from "./timeseries/read-facade.js";
+import { OPTIMIZER_POWER_HOLD_MS, propertyPowerProfile } from "./energy-optimizer-power.js";
 
-function percentile(values: readonly number[], fraction: number): number | null {
-  if (values.length === 0) return null;
-  const sorted = [...values].sort((left, right) => left - right);
-  const index = Math.max(0, Math.min(sorted.length - 1, Math.round((sorted.length - 1) * fraction)));
-  return sorted[index] ?? null;
+const POWER_SAMPLE_LIMIT = 200_000;
+
+function durationWeightedPrice(prices: readonly PropertyElectricityPricePoint[]): number | null {
+  const duration = prices.reduce((sum, price) => sum + Date.parse(price.endAt) - Date.parse(price.startAt), 0);
+  return duration > 0 ? prices.reduce((sum, price) => sum
+    + price.effectivePriceCentsPerKwh * (Date.parse(price.endAt) - Date.parse(price.startAt)), 0) / duration : null;
 }
 
 function rankedWindows(
   prices: PropertyElectricityPricePoint[],
   hours: number,
 ): EnergyOptimizationWindow[] {
-  if (prices.length === 0) return [];
-  const average = prices.reduce((sum, price) => sum + price.effectivePriceCentsPerKwh, 0) / prices.length;
-  const candidates: Array<EnergyOptimizationWindow & { indexes: number[] }> = [];
+  const average = durationWeightedPrice(prices);
+  if (average === null) return [];
+  const candidates: EnergyOptimizationWindow[] = [];
   for (let start = 0; start < prices.length; start += 1) {
     const first = prices[start]!;
-    const desiredEnd = Date.parse(first.startAt) + hours * 3_600_000;
-    const members = prices.slice(start).filter((price) => Date.parse(price.startAt) < desiredEnd);
-    if (members.length === 0 || Date.parse(members.at(-1)!.endAt) < desiredEnd) continue;
-    const value = members.reduce((sum, price) => sum + price.effectivePriceCentsPerKwh, 0) / members.length;
+    const from = Date.parse(first.startAt);
+    const desiredEnd = from + hours * 3_600_000;
+    let cursor = from;
+    let weightedPrice = 0;
+    for (let index = start; index < prices.length && cursor < desiredEnd; index += 1) {
+      const price = prices[index]!;
+      // A missing or overlapping interval cannot establish a usable window.
+      if (Date.parse(price.startAt) !== cursor) break;
+      const end = Math.min(desiredEnd, Date.parse(price.endAt));
+      weightedPrice += price.effectivePriceCentsPerKwh * (end - cursor);
+      cursor = end;
+    }
+    if (cursor !== desiredEnd) continue;
+    const value = weightedPrice / (desiredEnd - from);
     candidates.push({
       startAt: first.startAt,
       endAt: new Date(desiredEnd).toISOString(),
       averagePriceCentsPerKwh: Number(value.toFixed(3)),
       relativeToAveragePercent: average === 0 ? 0 : Number(((value - average) / Math.abs(average) * 100).toFixed(1)),
-      rank: value <= average * 0.7 ? "best" : value <= average ? "good" : "expensive",
-      indexes: members.map((member) => prices.indexOf(member)),
+      rank: value < average && value <= average - Math.abs(average) * 0.3
+        ? "best" : value <= average ? "good" : "expensive",
     });
   }
-  const selected: typeof candidates = [];
+  const selected: EnergyOptimizationWindow[] = [];
   for (const candidate of candidates.sort((left, right) => left.averagePriceCentsPerKwh - right.averagePriceCentsPerKwh)) {
-    if (selected.some((existing) => existing.indexes.some((index) => candidate.indexes.includes(index)))) continue;
+    if (selected.some((existing) => Date.parse(existing.startAt) < Date.parse(candidate.endAt)
+      && Date.parse(candidate.startAt) < Date.parse(existing.endAt))) continue;
     selected.push(candidate);
     if (selected.length === 3) break;
   }
-  return selected.sort((left, right) => Date.parse(left.startAt) - Date.parse(right.startAt))
-    .map(({ indexes: _indexes, ...window }) => window);
+  return selected.sort((left, right) => Date.parse(left.startAt) - Date.parse(right.startAt));
 }
 
 export class EnergyOptimizer {
@@ -88,10 +100,10 @@ export class EnergyOptimizer {
         }).then((result) => result.records),
         reader.measurementWindow({
           sensorIds: sensors.map((sensor) => sensor.id),
-          metrics: ["power", "energy"],
-          from,
+          metrics: ["power"],
+          from: new Date(Date.parse(from) - OPTIMIZER_POWER_HOLD_MS).toISOString(),
           to: now.toISOString(),
-          limit: 200_000,
+          limit: POWER_SAMPLE_LIMIT,
           ...(signal ? { signal } : {}),
         }).then((result) => result.records),
         Promise.allSettled(houses.map((house) => costService.summarize({
@@ -103,18 +115,18 @@ export class EnergyOptimizer {
           ...(signal ? { signal } : {}),
         }))),
       ]);
-    const futurePrices = prices.filter((price) => Date.parse(price.endAt) > now.getTime());
-    const averagePrice = futurePrices.length
-      ? futurePrices.reduce((sum, price) => sum + price.effectivePriceCentsPerKwh, 0) / futurePrices.length
+    const futurePrices = prices.filter((price) => Number.isFinite(price.effectivePriceCentsPerKwh)
+      && Number.isFinite(Date.parse(price.startAt)) && Number.isFinite(Date.parse(price.endAt))
+      && Date.parse(price.endAt) > Math.max(now.getTime(), Date.parse(price.startAt)))
+      .map((price) => ({ ...price, startAt: new Date(Math.max(now.getTime(), Date.parse(price.startAt))).toISOString() }))
+      .sort((left, right) => left.startAt.localeCompare(right.startAt));
+    const averagePrice = durationWeightedPrice(futurePrices);
+    const current = futurePrices.find((price) => Date.parse(price.startAt) === now.getTime()) ?? null;
+    const futureDuration = futurePrices.reduce((sum, price) => sum + Date.parse(price.endAt) - Date.parse(price.startAt), 0);
+    const percentileRank = current && futureDuration > 0
+      ? futurePrices.filter((price) => price.effectivePriceCentsPerKwh <= current.effectivePriceCentsPerKwh)
+        .reduce((sum, price) => sum + Date.parse(price.endAt) - Date.parse(price.startAt), 0) / futureDuration * 100
       : null;
-    const current = prices.find((price) => Date.parse(price.startAt) <= now.getTime() && Date.parse(price.endAt) > now.getTime()) ?? null;
-    const percentileRank = current && futurePrices.length
-      ? futurePrices.filter((price) => price.effectivePriceCentsPerKwh <= current.effectivePriceCentsPerKwh).length / futurePrices.length * 100
-      : null;
-    const powerSamples = measurements.filter((sample) => sample.metric === "power")
-      .filter((sample) => sample.quality !== "stale");
-    const energySamples = measurements.filter((sample) => sample.metric === "energy")
-      .filter((sample) => sample.quality !== "stale");
     const costSummaries = costResults.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
     const reportedConsumption = costSummaries
       .map((summary) => summary.consumptionKwh)
@@ -124,9 +136,10 @@ export class EnergyOptimizer {
       .filter((value): value is number => value !== null);
     const consumption = reportedConsumption.reduce((total, value) => total + value, 0);
     const historicalCost = reportedCosts.reduce((total, value) => total + value, 0);
-    const powerValues = powerSamples.map((sample) => sample.value).filter(Number.isFinite);
-    const baseline = percentile(powerValues, 0.1);
-    const peak = percentile(powerValues, 0.95);
+    // A point-limited suffix cannot establish the daily Property profile.
+    const { baseline, peak } = measurements.length >= POWER_SAMPLE_LIMIT
+      ? { baseline: null, peak: null }
+      : propertyPowerProfile(sensors, measurements, Date.parse(from), now.getTime());
     const windows = rankedWindows(futurePrices, hours);
     const insights: EnergyOptimizationInsight[] = [];
     if (current && percentileRank !== null && percentileRank <= 25) {
@@ -166,6 +179,7 @@ export class EnergyOptimizer {
         "Price windows use available property price data; taxes and grid tariffs may not be represented.",
         "Daily consumption and cost use matching historical usage and price intervals.",
         "Savings estimates require representative energy and power measurements.",
+        "Power estimates use simultaneous readings from selected Home meters; stale, missing and submeter-only intervals are excluded.",
       ],
     };
   }

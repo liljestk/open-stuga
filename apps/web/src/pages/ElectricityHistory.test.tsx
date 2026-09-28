@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import { useState } from "react";
 import userEvent from "@testing-library/user-event";
 import type { MeasurementSample, Sensor } from "@climate-twin/contracts";
@@ -77,6 +77,51 @@ function renderHistory(
 }
 
 describe("ElectricityHistory combined coverage", () => {
+  it.each(["single", "multiple", "combined"])("describes the visible property price in %s view", (view) => {
+    const state = createDemoState();
+    const now = Date.now();
+    window.history.replaceState(null, "", `/electricity?view=${view}`);
+    render(<I18nProvider><ElectricityHistory state={state} sensors={[]} metric="electricity_price"
+      onMetric={vi.fn()} units="metric" range="24h" onRange={vi.fn()} timeZone="UTC"
+      electricityPrices={[{ startAt: new Date(now - HOUR).toISOString(), endAt: new Date(now).toISOString(),
+        effectivePriceCentsPerKwh: 12.5, effectivePriceEurPerKwh: 0.125, fetchedAt: new Date(now).toISOString() }]} /></I18nProvider>);
+    const chart = screen.getByRole("img");
+    const summary = document.getElementById(chart.getAttribute("aria-describedby")!);
+    expect(summary).toHaveTextContent("Property electricity price");
+    expect(summary).not.toHaveTextContent("No data yet");
+    expect(summary).toHaveTextContent("0.125");
+  });
+  it("restores view and source selection from copied URLs and Back/Forward", async () => {
+    const user = userEvent.setup();
+    const state = createDemoState();
+    const sensors = [powerSensor(state.sensors[0]!, "first", "Kitchen"), powerSensor(state.sensors[0]!, "second", "Heater")];
+    window.history.replaceState(null, "", "/electricity?range=7d&view=single&source=second");
+    renderHistory(sensors, {});
+    expect(screen.getByRole("combobox", { name: "Data source" })).toHaveValue("second");
+    await user.click(screen.getByRole("button", { name: "Multiple" }));
+    expect(new URLSearchParams(window.location.search).get("view")).toBe("multiple");
+    expect(new URLSearchParams(window.location.search).get("range")).toBe("7d");
+    act(() => {
+      window.history.replaceState(null, "", "/electricity?range=7d&view=single&source=first");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    expect(screen.getByRole("combobox", { name: "Data source" })).toHaveValue("first");
+    await user.selectOptions(screen.getByRole("combobox", { name: "Data source" }), "second");
+    expect(new URLSearchParams(window.location.search).get("source")).toBe("second");
+  });
+
+  it("retries a failed selected history query", async () => {
+    const user = userEvent.setup();
+    const state = createDemoState();
+    const sensor = powerSensor(state.sensors[0]!, "meter", "Heater");
+    const load = vi.fn();
+    render(<I18nProvider><ElectricityHistory state={state} sensors={[sensor]} metric="power"
+      onMetric={vi.fn()} units="metric" range="7d" onRange={vi.fn()} timeZone="UTC" onLoadSeries={load}
+      seriesStates={{ [seriesStateKey(sensor.id, "power")]: readyState({ status: "error", error: "unavailable" }) }} /></I18nProvider>);
+    load.mockClear();
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+    expect(load).toHaveBeenCalledWith(sensor.id, "power", "7d", false);
+  });
   it("preserves the chosen meter when switching between power and energy", async () => {
     const user = userEvent.setup();
     const state = createDemoState();
