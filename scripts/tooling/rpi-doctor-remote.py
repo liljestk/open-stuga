@@ -87,9 +87,12 @@ def run(
             "stdout": "",
             "stderr": type(error).__name__,
             "probe": probe(
-                "timeout" if isinstance(error, subprocess.TimeoutExpired)
-                else "not-found" if isinstance(error, FileNotFoundError)
-                else "permission-denied" if isinstance(error, PermissionError)
+                "timeout"
+                if isinstance(error, subprocess.TimeoutExpired)
+                else "not-found"
+                if isinstance(error, FileNotFoundError)
+                else "permission-denied"
+                if isinstance(error, PermissionError)
                 else "failed"
             ),
         }
@@ -430,7 +433,11 @@ def database_snapshot(deep: bool) -> dict[str, Any]:
     name, lookup = api_container_lookup()
     probes = {"databaseLookup": lookup}
     if not name:
-        return {"available": False, "reason": "api-container-unavailable", "probes": probes}
+        return {
+            "available": False,
+            "reason": "api-container-unavailable",
+            "probes": probes,
+        }
     arguments = ["docker", "exec", name, "node", "-e", DATABASE_SCRIPT]
     if deep:
         arguments.extend(["--", "--deep"])
@@ -475,7 +482,10 @@ def updater_snapshot() -> dict[str, Any]:
     }
     return {
         "available": hardware["ok"] and status["ok"],
-        "probes": {"updaterHardware": hardware["probe"], "updaterStatus": status["probe"]},
+        "probes": {
+            "updaterHardware": hardware["probe"],
+            "updaterStatus": status["probe"],
+        },
         "hardwareFingerprint": fingerprint
         if re.fullmatch(r"sha256:[0-9a-f]{64}", fingerprint)
         else None,
@@ -539,7 +549,11 @@ def api_logs_snapshot() -> dict[str, Any]:
     name, lookup = api_container_lookup()
     probes = {"apiLogsLookup": lookup}
     if not name:
-        return {"available": False, "reason": "api-container-unavailable", "probes": probes}
+        return {
+            "available": False,
+            "reason": "api-container-unavailable",
+            "probes": probes,
+        }
     result = run(
         ["docker", "logs", "--since=15m", f"--tail={API_LOG_LIMIT}", name],
         timeout=4.0,
