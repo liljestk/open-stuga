@@ -408,7 +408,7 @@ export const svPart2 = {
   "energy.chartCompleteIntervals": "Kombinerade totaler visas bara där alla valda sensorer rapporterade.",
   "energy.chartSourcesWithoutData": "{count} valda källor saknar data för det här intervallet och ingår inte i den kombinerade vyn.",
   "energy.chartTruncatedRange": "En del av historiken för det här intervallet kunde inte läsas in; äldre värden kan saknas i diagrammet.",
-  "energy.chartConsumptionIncomplete": "En del av förbrukningen kunde inte beräknas. Nettoeffekt med både positiva och negativa värden visar inte den positiva förbrukningen; se Effekt för ursprungliga mätvärden.",
+  "energy.chartConsumptionIncomplete": "En del av förbrukningen kunde inte beräknas tillförlitligt. Endast intervall med användbara mätvärden ingår.",
   "energy.noSource": "Ingen källa konfigurerad",
   "energy.sourcesTitle": "Elkällor",
   "energy.editSources": "Redigera källor",

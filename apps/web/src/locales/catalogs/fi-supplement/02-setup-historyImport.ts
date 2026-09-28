@@ -168,7 +168,7 @@ export const fiSupplementPart2 = {
   "energy.chartCompleteIntervals": "Yhdistetty kokonaismäärä näytetään vain ajankohdissa, joista kaikki valitut anturit raportoivat.",
   "energy.chartSourcesWithoutData": "{count} valittua lähdettä ei ole tallentanut arvoja tälle aikavälille, joten ne eivät ole mukana yhdistetyssä näkymässä.",
   "energy.chartTruncatedRange": "Osaa tämän aikavälin historiasta ei voitu ladata; kaaviosta voi puuttua vanhimpia arvoja.",
-  "energy.chartConsumptionIncomplete": "Osaa kulutuksesta ei voitu laskea. Etumerkillisistä nettoteholukemista ei voida päätellä positiivista kulutusta; alkuperäiset lukemat näkyvät Teho-näkymässä.",
+  "energy.chartConsumptionIncomplete": "Osaa kulutuksesta ei voitu laskea luotettavasti. Mukana ovat vain jaksot, joiden lukemat soveltuvat laskentaan.",
   "energy.noSource": "Tietolähdettä ei ole määritetty",
   "energy.sourcesTitle": "Sähkön tietolähteet",
   "energy.editSources": "Muokkaa lähteitä",

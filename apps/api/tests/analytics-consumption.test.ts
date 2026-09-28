@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { analyticsConsumptionBuckets } from "../src/analytics-consumption.js";
 import { buildBaseSchemaSql } from "../src/timeseries/schema.js";
 import { orderedAnalyticsSql } from "../src/timeseries/store/measurement-analytics-rollup-sql.js";
+import { compareMeasurements } from "../src/timeseries/read-records.js";
 
 const day = "2026-09-01T00:00:00.000Z";
 const base = Date.parse(day);
@@ -36,6 +37,77 @@ describe("consumption before history aggregation", () => {
     expect(buckets.has(base + 30 * 60_000)).toBe(false);
     expect(buckets.get(base + 65 * 60_000)).toBeCloseTo(5 / 60);
   });
+
+  it("does not choose a source by array order when simultaneous power values conflict", () => {
+    const rows = samples("power", [[0, 1000], [0, 2000], [15, 0]]);
+    rows[1] = { ...rows[1]!, source: "api" };
+    const expected = [[base, null], [base + 5 * 60_000, null], [base + 10 * 60_000, null],
+      [base + 15 * 60_000, 0], [base + 20 * 60_000, 0], [base + 25 * 60_000, 0]];
+    for (const input of [rows, [...rows].reverse(), [...rows, rows[0]!]]) {
+      expect([...analyticsConsumptionBuckets(input, "power", 5 * 60_000, base + 30 * 60_000)])
+        .toEqual(expected);
+    }
+    const identical = rows.map((row) => row.timestamp === day ? { ...row, value: 2000 } : row);
+    expect([...analyticsConsumptionBuckets(identical, "power", 30 * 60_000, base + 30 * 60_000).values()])
+      .toEqual([0.5]);
+    const unlabeled = rows.map(({ source: _source, ...row }) => row) as MeasurementSample[];
+    expect([...analyticsConsumptionBuckets(unlabeled, "power", 5 * 60_000, base + 30 * 60_000)])
+      .toEqual(expected);
+  });
+
+  it("withholds counter increments on both sides of an ambiguous anchor and then recovers", () => {
+    for (const conflicting of [[101, 102], [0, 10]]) {
+      const rows = samples("energy", [[0, 100], [10, conflicting[0]!], [10, conflicting[1]!], [20, 103], [30, 104]]);
+      rows[2] = { ...rows[2]!, source: "api" };
+      for (const input of [rows, [...rows].reverse()]) {
+        expect([...analyticsConsumptionBuckets(input, "energy", 10 * 60_000, base + 40 * 60_000)])
+          .toEqual([[base, 0], [base + 10 * 60_000, null], [base + 20 * 60_000, null], [base + 30 * 60_000, 1]]);
+      }
+    }
+    expect([...analyticsConsumptionBuckets(samples("energy", [[0, 100], [0, 100], [10, 101]]), "energy", 10 * 60_000, base + 20 * 60_000)])
+      .toEqual([[base, 0], [base + 10 * 60_000, 1]]);
+  });
+
+  it("uses authoritative ingestion order in archive states while raw conflicts stay unavailable", async () => {
+    const db = new PGlite();
+    try {
+      for (const sql of buildBaseSchemaSql("telemetry")) await db.exec(sql);
+      await db.exec(`CREATE TABLE telemetry.measurement_analytics_v2_1h (
+        sensor_id text, metric text, bucket_start timestamptz, source text, quality text, sample_count bigint);
+        INSERT INTO telemetry.measurement_samples
+          (sensor_id,metric,observed_at,source,quality,canonical_unit,value,ingested_at) VALUES
+          ('meter','power','2026-09-01T00:00:00Z','tp-link','good','W',1000,'2026-09-01T00:00:01Z'),
+          ('meter','power','2026-09-01T00:00:00Z','api','good','W',2000,'2026-09-01T00:00:02Z'),
+          ('meter','power','2026-09-01T00:15:00Z','tp-link','good','W',0,'2026-09-01T00:15:01Z');`);
+      const query = orderedAnalyticsSql("telemetry");
+      const args = [JSON.stringify([{ sensor_id: "meter", metric: "power", aggregation: "time_weighted_mean" }]),
+        day, new Date(base + 30 * 60_000).toISOString(), ["good", "estimated"], "30 minutes", true, 3, 900];
+      const edgeSql = query.replaceAll("clock_timestamp()", "TIMESTAMPTZ '2026-09-01T12:00:00Z'");
+      const edge = (await db.query<{ consumption_kwh: number }>(edgeSql, args)).rows;
+      expect(edge.map((row) => row.consumption_kwh)).toEqual([0.5]);
+      const statesSql = edgeSql.slice(0, edgeSql.indexOf("), states AS ("))
+        + ") SELECT * FROM edge_and_current_states WHERE $5::interval IS NOT NULL AND $7::integer IS NOT NULL";
+      for (const state of (await db.query<Record<string, unknown>>(statesSql, args)).rows) {
+        const record = { ...state, algorithm_version: 2, day_start: day, bucket_seconds: 900,
+          quality_mask: 3, source_scope: "real", generation: 1 };
+        const keys = Object.keys(record);
+        await db.query(`INSERT INTO telemetry.measurement_ordered_rollups (${keys.join(",")})
+          VALUES (${keys.map((_, index) => `$${index + 1}`).join(",")})`, Object.values(record));
+      }
+      await db.exec(`INSERT INTO telemetry.measurement_ordered_rollup_generations
+        (sensor_id,metric,day_start,current_seq,synced_seq) VALUES ('meter','power','2026-09-01T00:00:00Z',1,1);
+        INSERT INTO telemetry.measurement_ordered_rollup_dirty
+        (sensor_id,metric,day_start,bucket_seconds,quality_mask,source_scope,current_seq,clean_seq)
+        VALUES ('meter','power','2026-09-01T00:00:00Z',900,3,'real',1,1);
+        TRUNCATE telemetry.measurement_samples;`);
+      const cached = (await db.query<{ consumption_kwh: number }>(query, args)).rows;
+      expect(cached.map((row) => row.consumption_kwh)).toEqual([0.5]);
+      const rows = samples("power", [[0, 1000], [0, 2000], [15, 0]]);
+      rows[1] = { ...rows[1]!, source: "api" };
+      expect([...analyticsConsumptionBuckets(rows.sort(compareMeasurements), "power", 30 * 60_000, base + 30 * 60_000).values()])
+        .toEqual([null]);
+    } finally { await db.close(); }
+  }, 30_000);
 
   it("matches PostgreSQL ordered states to raw consumption, including cached resets and sparse power", async () => {
     const db = new PGlite();

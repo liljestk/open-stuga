@@ -200,7 +200,7 @@ export const enPart2 = {
   "energy.chartCompleteIntervals": "Combined totals are shown only where every selected sensor reported.",
   "energy.chartSourcesWithoutData": "{count} selected sources have no data in this range and are left out of the combined view.",
   "energy.chartTruncatedRange": "Some history in this range could not be loaded; the chart may be missing older values.",
-  "energy.chartConsumptionIncomplete": "Some consumption could not be calculated. Signed net-power readings do not establish positive consumption; view Power for the original readings.",
+  "energy.chartConsumptionIncomplete": "Some consumption could not be calculated reliably. Only intervals with usable readings are included.",
   "energy.noSource": "No source configured",
   "energy.sourcesTitle": "Electricity sources",
   "energy.editSources": "Edit sources",

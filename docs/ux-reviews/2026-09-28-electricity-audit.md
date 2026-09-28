@@ -36,6 +36,8 @@ Source audit covered Power / Interval use / Electricity price; Single / Multiple
 | E17 | P2 | Fixed | HTTP 403 from current-price and History requests is described as a transient loading failure | Render localized permission-denied text from structured status; preserve validated status through regular and historical raw-series loaders. The real-loader rendered regression also verifies a generic retry clears the permission message |
 | E18 | P1 | Fixed | Eight delayed optional hydration reads can occupy both read slots and prevent visible electricity metrics from dispatching | Limit optional active and portfolio hydration to one slot within the unchanged two-read/three-total cap; preserve FIFO progress, pagination, cancellation and mutation capacity. Real API/scheduler regression fails before the fix; 119 tests across 12 files pass after it |
 
+| E19 | P2 | Fixed | Different sources at the same observation time produce different raw and SQL consumption (0.25 versus 0.5 kWh in the final review fixture) | Raw samples lack ingestion ordering, so conflicting timestamps now explicitly withhold affected consumption instead of choosing by source name or array order. Identical duplicates remain usable and later supported intervals recover; archived states retain their authoritative latest-ingestion rule |
+
 ## Focused implementation verification
 
 These are completed focused runs, not a replacement for canonical verification or visual acceptance. Counts describe their recorded runs; later combined runs may overlap these files.
@@ -49,6 +51,7 @@ These are completed focused runs, not a replacement for canonical verification o
 - Analytics: 25 tests passed across API `timeseries-analytics-rollup.test.ts` (4), `analytics-consumption.test.ts` (4) and `analytics.test.ts` (17). These include signed-power raw and cached SQL execution in PGlite, held-bucket null metadata, and preservation of null extrema.
 - Coverage and cost: 14 tests passed across API `timeseries-coverage-performance.test.ts`, `measurement-window-coverage.test.ts` and `electricity-cost-correctness.test.ts`. The 100,000-row production-SQL comparison checks the historical aggregate against indexed first/last probes and covers real/synthetic modes, missing pairs, duplicate pairs and single-series boundaries.
 - Empty and denied states: 36 rendered tests passed across `EnergyPage.empty-and-denied.test.tsx` (5), `EnergyPage.test.tsx`, `ElectricityHistory.test.tsx` and `EnergyPage.refresh.test.tsx`. The new tests cover price-only empty Home usage, Home/Property current-price denial, price History error propagation and consumption History denial; the empty-state assertion failed before the enabled-state guard.
+- Ambiguous simultaneous readings: 32 API tests across four files and API typecheck passed. The original raw/SQL discrepancy now yields explicit raw unavailability with both direct and cached SQL at 0.5 kWh; reversed order, repeated duplicates, absent source labels, identical values and later counter recovery are covered. The two helper regressions failed before the fix. The generalized partial-data explanation passed 23 web tests across three files plus web typecheck/build, including a rendered positive-counter case.
 - Final combined E17/E18 web typecheck and the 0.41.5 production build passed. Sixty tests across six affected files passed after raw-power permission propagation; the real-loader rendered regression failed before the fix and passed afterward.
 
 ## Visual and deployment acceptance
@@ -79,7 +82,8 @@ The synthetic populated Home and Property screens were inspected at viewport ove
 | Energy chart, multiple sources, 1440/320 dark | `home-chart-1440-dark.jpg`, `home-energy-chart-320-dark.jpg` | Labels, distinct line patterns, units, ranges and source controls readable |
 | Keyboard chart inspection, 1440 light | `home-chart-keyboard-1440-light.jpg` | Arrow-key value/tooltip and focus visible; exact-data table expands |
 | Property-only price chart, Single/Multiple/Combined | `home-price-single-1440-light.jpg` | Chart and accessible summary both report the Property price |
-| Signed-power partial consumption, 1440 light / 320 dark | `signed-power-limitation-1440-light.jpg`, `signed-power-320-dark.jpg` | Explicit limitation and original Power alternative visible; no claim of complete usage |
+| Signed-power partial consumption, 1440 light / 320 dark | `signed-power-limitation-1440-light.jpg`, `signed-power-320-dark.jpg` | Explicit limitation visible; no claim of complete usage. Final copy covers unsupported and ambiguous stored readings |
+| Final generalized partial-consumption explanation, 1440 light and 320 light/dark | `partial-consumption-final-1440-light.jpg`, `partial-consumption-final-320-{light,dark}.jpg` | Readable explanation of incomplete usable intervals; final API source and production web build inspected |
 | Empty history, 320 dark | `empty-history-320-dark.jpg` | No-data state and scope remain clear |
 | Empty meters, 1440 light | `empty-meters-fixed-1440-light.jpg` | Setup action and empty usage; corrected endless calculating state |
 | History failure and retry, 320 dark | `history-error-retry-320-dark.jpg`, `history-recovered-320-dark.jpg` | Recovery restores the selected sources/range in context |

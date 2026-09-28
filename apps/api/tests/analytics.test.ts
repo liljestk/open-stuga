@@ -76,6 +76,20 @@ describe("analytics query API", () => {
     expect(points[1]?.consumptionKwh).toBeCloseTo(5 / 60);
   });
 
+  it("returns explicit unavailable consumption for conflicting simultaneous SQLite sources", async () => {
+    runtime.database.insertMeasurementSamples([
+      { sensorId: "sensor-01", metric: "power", value: 1000, canonicalUnit: "W", timestamp: "2026-07-19T10:00:00.000Z", source: "tp-link", quality: "good" },
+      { sensorId: "sensor-01", metric: "power", value: 2000, canonicalUnit: "W", timestamp: "2026-07-19T10:00:00.000Z", source: "api", quality: "good" },
+      { sensorId: "sensor-01", metric: "power", value: 0, canonicalUnit: "W", timestamp: "2026-07-19T10:15:00.000Z", source: "tp-link", quality: "good" },
+    ]);
+    const response = await request(runtime.app).post("/api/v2/analytics/query").send(query({
+      measurementIds: ["power"], resolution: "5m", aggregation: "time_weighted_mean",
+      range: { start: "2026-07-19T10:00:00.000Z", end: "2026-07-19T10:30:00.000Z", timezone: "UTC" },
+    })).expect(200);
+    expect(response.body.series[0].points.map((point: { consumptionKwh: number | null }) => point.consumptionKwh))
+      .toEqual([null, null, null, 0, 0, 0]);
+  });
+
   it("returns bounded coverage-aware series, robust summaries, and provenance", async () => {
     const response = await request(runtime.app).post("/api/v2/analytics/query").send(query()).expect(200);
 
