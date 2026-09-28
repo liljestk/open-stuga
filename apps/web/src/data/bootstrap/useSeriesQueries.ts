@@ -3,6 +3,7 @@ import { type TimeRange, timeRangeHours } from "../../domain";
 import {
   MAX_SERIES_SAMPLES,
   canonicalSeries,
+  apiErrorStatus,
   errorMessage,
   isLegacySeriesCompatibilityError,
   legacySeries,
@@ -70,6 +71,7 @@ export function useSeriesQueries(
             }),
             status: "error",
             error: errorMessage(error, "History data is temporarily unavailable"),
+            errorStatus: apiErrorStatus(error),
             requestedFrom,
             requestedTo,
           },

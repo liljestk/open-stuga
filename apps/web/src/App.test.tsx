@@ -623,7 +623,7 @@ describe("Stugu app", () => {
 
     expect(await findPageHeading("Electricity")).toBeTruthy();
     expect(screen.getByRole("link", { name: "Electricity" })).toBeTruthy();
-    await waitFor(() => expect(propertyElectricity).toHaveBeenCalledWith(property.id));
+    await waitFor(() => expect(propertyElectricity).toHaveBeenCalledWith(property.id, expect.any(AbortSignal)));
     propertyElectricity.mockRestore();
   });
 

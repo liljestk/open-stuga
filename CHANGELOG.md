@@ -2,6 +2,18 @@
 
 All notable Stugu releases are recorded here.
 
+## 0.41.5
+
+- Keep optional background reads from delaying Home and Property startup or visible electricity metrics, while preserving bounded request concurrency and save capacity.
+- Find electricity-history coverage with indexed boundary lookups so Home summaries do not aggregate every archived sample before calculating usage.
+- Calculate electricity charts from ordered consumption so meter resets and power-reporting gaps cannot inflate usage.
+- Refresh current electricity prices and history, remove expired prices, and preserve unsaved contract edits during refresh.
+- Restore chart views and meter selections through copied links and browser navigation, with retry and automatic recovery after history failures.
+- Load the advisory optimizer on demand, calculate simultaneous Property power without double-counting submeters, and recommend only continuously priced periods.
+- Keep summary controls readable on small screens, distinguish empty and permission-denied data, and remove consumption claims based on incidental chart history.
+
+Upgrade impact: no database migration, configuration change, or host update is required. Application and Compose update contracts are unchanged.
+
 ## 0.41.4
 
 - Update the bug-report relay tooling and its HTTP dependency with upstream security fixes.

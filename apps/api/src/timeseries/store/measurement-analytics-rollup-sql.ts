@@ -402,6 +402,7 @@ export function orderedAnalyticsSql(schema: string): string {
         date_bin($5::INTERVAL, states.bucket_start, TIMESTAMPTZ '1970-01-01 00:00:00+00') AS target_bucket,
         lag(states.last_at) OVER sequence AS previous_last_at,
         lag(states.last_value) OVER sequence AS previous_last_value,
+        lead(states.first_at) OVER sequence AS next_first_at,
         lag(date_bin($5::INTERVAL, states.bucket_start, TIMESTAMPTZ '1970-01-01 00:00:00+00')) OVER sequence AS previous_target_bucket,
         row_number() OVER (
           PARTITION BY states.sensor_id, states.metric,
@@ -409,7 +410,7 @@ export function orderedAnalyticsSql(schema: string): string {
           ORDER BY states.bucket_start DESC
         ) AS reverse_bucket_row
       FROM states WINDOW sequence AS (PARTITION BY sensor_id, metric ORDER BY bucket_start)
-    ), bucket_aggregates AS (
+    ), observed_bucket_aggregates AS (
       SELECT sequenced.sensor_id, sequenced.metric, sequenced.target_bucket AS bucket_start,
         sum(sequenced.sample_count)::BIGINT AS bucket_sample_count,
         sum(sequenced.sum_value)::DOUBLE PRECISION AS sum_value,
@@ -443,6 +444,53 @@ export function orderedAnalyticsSql(schema: string): string {
           ELSE 0 END)::DOUBLE PRECISION AS weighted_seconds
       FROM sequenced JOIN series_counts counts USING (sensor_id, metric)
       GROUP BY sequenced.sensor_id, sequenced.metric, sequenced.target_bucket
+    ), consumption_parts AS (
+      -- Counter increments are retained before any averaging, including resets
+      -- within a stored bucket. Power uses <=15-minute states and a bounded
+      -- last-value hold; its tails are split across display bucket boundaries.
+      SELECT sensor_id, metric, target_bucket AS bucket_start,
+        CASE WHEN metric = 'energy' THEN internal_counter_consumption + CASE
+          WHEN previous_last_value IS NULL THEN 0
+          WHEN first_value >= previous_last_value THEN first_value - previous_last_value
+          ELSE GREATEST(0, first_value) END
+          WHEN minimum < 0 THEN NULL
+          ELSE weighted_value_seconds / 3600000.0 END AS consumption_kwh
+      FROM sequenced WHERE metric IN ('energy', 'power')
+      UNION ALL
+      SELECT state.sensor_id, state.metric, bucket.bucket_start,
+        CASE WHEN state.last_value < 0 THEN NULL ELSE state.last_value * EXTRACT(EPOCH FROM (
+          LEAST(hold.end_at, bucket.bucket_start + $5::INTERVAL)
+          - GREATEST(state.last_at, bucket.bucket_start)
+        )) / 3600000.0 END
+      FROM sequenced state
+      CROSS JOIN LATERAL (SELECT LEAST(
+        COALESCE(state.next_first_at, $3::TIMESTAMPTZ),
+        $3::TIMESTAMPTZ, state.last_at + INTERVAL '15 minutes'
+      ) AS end_at) hold
+      CROSS JOIN LATERAL generate_series(
+        date_bin($5::INTERVAL, state.last_at, TIMESTAMPTZ '1970-01-01 00:00:00+00'),
+        date_bin($5::INTERVAL, hold.end_at - INTERVAL '1 microsecond',
+          TIMESTAMPTZ '1970-01-01 00:00:00+00'), $5::INTERVAL
+      ) AS bucket(bucket_start)
+      WHERE state.metric = 'power' AND hold.end_at > state.last_at
+    ), consumption_buckets AS (
+      SELECT sensor_id, metric, bucket_start,
+        -- A signed stored integral cannot recover positive-only usage. Do not
+        -- silently sum its remaining positive parts into a plausible total.
+        CASE WHEN bool_or(consumption_kwh IS NULL) THEN NULL
+          ELSE sum(consumption_kwh) END::DOUBLE PRECISION AS consumption_kwh
+      FROM consumption_parts GROUP BY sensor_id, metric, bucket_start
+    ), bucket_aggregates AS (
+      SELECT COALESCE(observed.sensor_id, consumption.sensor_id) AS sensor_id,
+        COALESCE(observed.metric, consumption.metric) AS metric,
+        COALESCE(observed.bucket_start, consumption.bucket_start) AS bucket_start,
+        observed.bucket_sample_count, observed.sum_value, observed.minimum,
+        observed.maximum, observed.last_value, observed.delta_value,
+        observed.counter_reset_count, observed.estimated_sample_count,
+        observed.stale_sample_count, observed.weighted_value_seconds,
+        observed.weighted_seconds, consumption.consumption_kwh
+      FROM observed_bucket_aggregates observed
+      FULL JOIN consumption_buckets consumption USING (sensor_id, metric, bucket_start)
     )
     SELECT counts.sensor_id, counts.metric, counts.canonical_unit,
       counts.canonical_unit = counts.canonical_unit_max AS unit_consistent,
@@ -459,7 +507,8 @@ export function orderedAnalyticsSql(schema: string): string {
         WHEN 'max' THEN buckets.maximum
       END::DOUBLE PRECISION AS rollup_value,
       buckets.minimum, buckets.maximum, buckets.bucket_sample_count,
-      buckets.estimated_sample_count, buckets.stale_sample_count, buckets.counter_reset_count
+      buckets.estimated_sample_count, buckets.stale_sample_count, buckets.counter_reset_count,
+      buckets.consumption_kwh
     FROM series_counts counts
     LEFT JOIN bucket_aggregates buckets USING (sensor_id, metric)
     ORDER BY counts.sensor_id, counts.metric, buckets.bucket_start`;

@@ -164,6 +164,8 @@ describe("EnergyPage", () => {
   });
 
   it("summarizes a working Property contract and keeps its editor closed", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date("2026-07-17T10:30:00.000Z"));
     const user = userEvent.setup();
     const state = createDemoState();
     const propertyId = state.properties[0]!.id;
@@ -202,7 +204,7 @@ describe("EnergyPage", () => {
     expect(editor.open).toBe(false);
     await user.click(editor.querySelector("summary")!);
     expect(editor.open).toBe(true);
-    expect(screen.getByRole("button", { name: "Save and refresh" })).not.toBeNull();
+    expect(await screen.findByRole("button", { name: "Save and refresh" })).not.toBeNull();
   });
 
   it("keeps the property contract observational for Guests", async () => {
@@ -259,7 +261,7 @@ describe("EnergyPage", () => {
     /></I18nProvider>);
 
     expect(await screen.findByRole("heading", { name: "Electricity contract" })).not.toBeNull();
-    expect(screen.getByRole("button", { name: "Save and refresh" })).not.toBeNull();
+    expect(await screen.findByRole("button", { name: "Save and refresh" })).not.toBeNull();
     expect(screen.queryByRole("heading", { name: "Connect electricity data" })).toBeNull();
     expect(screen.queryByRole("heading", { name: "Electricity history" })).toBeNull();
   });
@@ -346,6 +348,13 @@ describe("EnergyPage", () => {
       const duration = Date.parse(to) - Date.parse(from);
       return combinedSummary(houseId, from, to, duration <= 3_600_000 ? 0.19 : 8.42);
     });
+    const historyRequest = vi.spyOn(api, "analyticsQuery").mockImplementation(async (input) => ({
+      apiVersion: "1.0", requestId: input.requestId, dataMode: input.dataMode,
+      resolvedRange: input.range, resolution: input.resolution === "auto" ? "5m" : input.resolution,
+      series: [], summaries: [], provenance: [], warnings: [], generatedAt: input.range.end,
+      quality: { coverage: 0, seriesCount: 0, sampleCount: 0, excludedSampleCount: 0, includedQualities: ["good"], lowCoverageSeries: 0 },
+      cache: { hit: false, keyVersion: "analytics-query-v1" },
+    }));
 
     render(<I18nProvider><EnergyPage state={state} house={house} units="metric" onLoadSeries={onLoadSeries} onOpenSensors={onOpenSensors} onOpenAlerts={onOpenAlerts} /></I18nProvider>);
 
@@ -365,7 +374,13 @@ describe("EnergyPage", () => {
 
     await user.click(screen.getByRole("button", { name: "Energy used" }));
     await user.click(screen.getByRole("button", { name: "6 hours" }));
-    await waitFor(() => expect(onLoadSeries).toHaveBeenLastCalledWith("meter", "energy", "6h", false));
+    await waitFor(() => expect(historyRequest).toHaveBeenCalledWith(expect.objectContaining({
+      scope: { kind: "house", id: house.id, entityIds: ["meter"] },
+      measurementIds: ["energy"], resolution: "5m", aggregation: "delta",
+    }), expect.any(AbortSignal)));
+    const energyHistoryCall = historyRequest.mock.calls.filter(([input]) => input.measurementIds[0] === "energy").at(-1)![0];
+    expect(Date.parse(energyHistoryCall.range.end) - Date.parse(energyHistoryCall.range.start)).toBe(6 * 3_600_000);
+    expect(onLoadSeries.mock.calls.some(([, metric]) => metric === "energy")).toBe(false);
     expect(screen.getByText("5.00 kWh")).not.toBeNull();
 
     await user.click(screen.getByRole("button", { name: "Manage alerts" }));
@@ -435,6 +450,8 @@ describe("EnergyPage", () => {
   });
 
   it("shows a cumulative 30-day estimate when usage exists but historical prices do not", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date("2026-07-16T11:59:00.000Z"));
     const user = userEvent.setup();
     const state = createDemoState();
     const house = state.houses[0]!;
@@ -511,7 +528,7 @@ describe("EnergyPage", () => {
     const propertyContract = vi.spyOn(api, "propertyElectricity");
     const projectedPrice = {
       startAt: "2026-07-16T11:00:00.000Z",
-      endAt: "2026-07-16T12:00:00.000Z",
+      endAt: "2026-07-16T13:00:00.000Z",
       effectivePriceCentsPerKwh: 15,
       effectivePriceEurPerKwh: 0.15,
       fetchedAt: "2026-07-16T11:55:00.000Z",
@@ -742,7 +759,7 @@ describe("EnergyPage", () => {
     expect(within(energyCard).getByText("—")).not.toBeNull();
     await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
     expect(within(energyCard).getByText(/Usage could not be fully calculated/)).not.toBeNull();
-    expect(screen.getByRole("button", { name: "Try again" })).not.toBeNull();
+    expect(screen.getAllByRole("button", { name: "Try again" }).length).toBeGreaterThan(0);
     expect(within(energyCard).queryByText("3.00 kWh")).toBeNull();
   });
 

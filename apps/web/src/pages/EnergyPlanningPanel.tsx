@@ -1,38 +1,20 @@
-import { Activity, BarChart3, Calculator, Lightbulb } from "lucide-react";
+import { Activity, BarChart3, Calculator } from "lucide-react";
 import type { HomeEnergySummary, Sensor } from "@climate-twin/contracts";
-import type { ClimateState } from "../domain";
 import { useI18n } from "../i18n";
-import { buildConsumerInsights, buildEnergyProjection, type LoadPattern } from "./energyAnalysis";
+import { buildConsumerInsights, buildEnergyProjection } from "./energyAnalysis";
 import "./EnergyPlanningPanel.css";
 
 interface EnergyPlanningPanelProps {
-  state: ClimateState;
   sensors: Sensor[];
   recentSummary: HomeEnergySummary | null;
   rollingSummary: HomeEnergySummary | null;
   currentPriceEurPerKwh: number | null;
 }
 
-const patternKeys = {
-  steady: "energy.consumer.pattern.steady",
-  cycling: "energy.consumer.pattern.cycling",
-  short_peaks: "energy.consumer.pattern.short_peaks",
-  variable: "energy.consumer.pattern.variable",
-  unknown: "energy.consumer.pattern.unknown",
-} as const satisfies Record<LoadPattern, string>;
-
-const tipKeys = {
-  steady: "energy.consumer.tip.steady",
-  cycling: "energy.consumer.tip.cycling",
-  short_peaks: "energy.consumer.tip.short_peaks",
-  variable: "energy.consumer.tip.variable",
-  unknown: "energy.consumer.tip.unknown",
-} as const satisfies Record<LoadPattern, string>;
-
 export function EnergyPlanningPanel(props: Readonly<EnergyPlanningPanelProps>) {
   const { locale, t } = useI18n();
   const projection = buildEnergyProjection(props.recentSummary, props.rollingSummary, props.currentPriceEurPerKwh);
-  const consumers = buildConsumerInsights(props.rollingSummary, props.sensors, props.state).slice(0, 5);
+  const consumers = buildConsumerInsights(props.rollingSummary, props.sensors).slice(0, 5);
   const number = new Intl.NumberFormat(locale, { maximumFractionDigits: 1 });
   const currency = new Intl.NumberFormat(locale, { style: "currency", currency: "EUR", maximumFractionDigits: 2 });
   const energyUnit = t("energy.unit.kwh");
@@ -62,14 +44,6 @@ export function EnergyPlanningPanel(props: Readonly<EnergyPlanningPanelProps>) {
       <ol>{consumers.map((consumer) => <li key={consumer.sensor.id}>
         <div className="energy-consumer-name"><strong>{consumer.sensor.name}</strong><span>{t("energy.consumer.usage", { usage: number.format(consumer.consumptionKwh), share: number.format(consumer.sharePercent) })}</span></div>
         <span className="energy-consumer-bar" aria-hidden="true"><i style={{ width: `${Math.max(2, consumer.sharePercent)}%` }} /></span>
-        <div className="energy-consumer-profile">
-          <span className={`status-badge ${consumer.pattern}`}>{t(patternKeys[consumer.pattern])}</span>
-          {consumer.averagePowerWatts !== null && <small>{t("energy.consumer.powerProfile", {
-            average: number.format(consumer.averagePowerWatts),
-            peak: number.format(consumer.peakPowerWatts ?? consumer.averagePowerWatts),
-          })}</small>}
-        </div>
-        <p><Lightbulb size={15} aria-hidden="true" />{t(tipKeys[consumer.pattern])}</p>
       </li>)}</ol>
       <p className="energy-consumer-note">{t("energy.consumer.scopeNote")}</p>
     </div>}

@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
 import { parseArguments as parseVerification } from "../verify-local.mjs";
 import {
@@ -790,4 +792,131 @@ test("canonical release and doctor paths do not hide expensive or mutating work"
 test("the documented development command starts tsx in watch mode", () => {
   const apiPackage = JSON.parse(readFileSync(new URL("../../apps/api/package.json", import.meta.url), "utf8"));
   assert.match(apiPackage.scripts.dev, /tsx watch --env-file-if-exists=\.env apps\/api\/src\/index\.ts/u);
+});
+
+
+test("Pi diagnostic receipts keep only bounded probe and API log classifications", () => {
+  const evidence = healthyEvidence();
+  evidence.deep = true;
+  evidence.health = { available: false, probe: { outcome: "timeout", durationMs: 2501, httpStatus: null, message: "private token" } };
+  evidence.logs = { available: true, priorities: { "3": 2 } };
+  evidence.apiLogs = { available: true, records: 800, capped: true, categories: { "sqlite-lock": 2, "private token": 9 }, raw: "secret log" };
+  evidence.docker.probes = {
+    dockerList: { outcome: "success", durationMs: 85, exitCode: 0, stdout: "secret log" },
+    dockerInspect: { outcome: "permission-denied", durationMs: 51, exitCode: 1, stderr: "private token" },
+    dockerStats: { outcome: "timeout", durationMs: 4001, exitCode: null },
+    "private token": { outcome: "success" },
+  };
+  evidence.docker.inspectAvailable = false;
+  evidence.updater.probes = { updaterHardware: { outcome: "not-found", durationMs: 12, exitCode: 127 } };
+  evidence.logs.probes = { journal: { outcome: "private token", durationMs: 1 } };
+  const diagnosis = diagnoseEvidence(evidence);
+  assert.deepEqual(diagnosis.summary.healthProbe, { outcome: "timeout", durationMs: 2501, httpStatus: null });
+  assert.deepEqual(diagnosis.summary.apiLogs, {
+    available: true, windowMinutes: 15, records: 160, capped: true, categories: { "sqlite-lock": 2 },
+  });
+  assert.match(diagnosis.checks.find((item) => item.id === "HEALTH").summary, /timeout, 2501 ms, HTTP unavailable/u);
+  assert.deepEqual(diagnosis.summary.commandProbes, {
+    dockerList: { outcome: "success", durationMs: 85, exitCode: 0 },
+    dockerInspect: { outcome: "permission-denied", durationMs: 51, exitCode: 1 },
+    dockerStats: { outcome: "timeout", durationMs: 4001, exitCode: null },
+    updaterHardware: { outcome: "not-found", durationMs: 12, exitCode: 127 },
+  });
+  assert.equal(diagnosis.checks.find((item) => item.id === "CONTAINERS").status, "fail");
+  assert.doesNotMatch(JSON.stringify(diagnosis), /private token|secret log/u);
+});
+
+test("Pi remote collector classifies health failures and logs without retaining raw content", () => {
+  const collector = new URL("../tooling/rpi-doctor-remote.py", import.meta.url);
+  const program = String.raw`
+import io
+import json
+import runpy
+import subprocess
+import urllib.error
+from unittest.mock import patch
+import sys
+module = runpy.run_path(sys.argv[1])
+health = module["health_snapshot"]
+secret = "private-token-and-hostname"
+command = module["run"]
+for status, stderr, outcome in [
+    (0, secret, "success"),
+    (1, "sudo: a password is required " + secret, "permission-denied"),
+    (1, "permission denied " + secret, "permission-denied"),
+    (127, secret, "not-found"),
+    (1, secret, "failed"),
+]:
+    completed = subprocess.CompletedProcess(["private-command"], status, secret, stderr)
+    with patch("subprocess.run", return_value=completed):
+        result = command(["private-command"])
+        assert result["probe"]["outcome"] == outcome
+        assert result["probe"]["exitCode"] == status
+        assert result["probe"]["durationMs"] >= 0
+        assert secret not in json.dumps(result["probe"])
+for error, outcome in [
+    (subprocess.TimeoutExpired("private-command", 3), "timeout"),
+    (FileNotFoundError(secret), "not-found"),
+    (PermissionError(secret), "permission-denied"),
+    (OSError(secret), "failed"),
+]:
+    with patch("subprocess.run", side_effect=error):
+        result = command(["private-command"])
+        assert result["probe"]["outcome"] == outcome
+        assert result["probe"]["exitCode"] is None
+        assert secret not in json.dumps(result)
+def response(body, status=200):
+    result = io.BytesIO(body)
+    result.status = status
+    return result
+with patch("urllib.request.urlopen", return_value=response(b'{"status":"ok","database":"ready","private":"secret"}')):
+    result = health()
+    assert result["probe"]["outcome"] == "success"
+    assert result["probe"]["httpStatus"] == 200
+    assert result["available"] is True and "private" not in result
+for error in [TimeoutError(secret), urllib.error.URLError(TimeoutError(secret))]:
+    with patch("urllib.request.urlopen", side_effect=error):
+        result = health()
+        assert result["probe"]["outcome"] == "timeout"
+        assert result["probe"]["durationMs"] >= 0
+        assert secret not in json.dumps(result)
+with patch("urllib.request.urlopen", side_effect=urllib.error.URLError(ConnectionRefusedError(secret))):
+    assert health()["probe"]["outcome"] == "connection-error"
+error = urllib.error.HTTPError("http://private", 503, secret, {}, io.BytesIO(b'{"status":"degraded","database":"ready"}'))
+with patch("urllib.request.urlopen", side_effect=error):
+    result = health()
+    assert result["available"] is True and result["status"] == "degraded"
+    assert result["probe"]["httpStatus"] == 503 and result["probe"]["outcome"] == "http-error"
+with patch("urllib.request.urlopen", return_value=response(b"<html>")):
+    assert health()["probe"]["outcome"] == "invalid-response"
+summary = module["summarize_api_logs"]("SQLITE_BUSY " + secret + "\nheap out of memory /private/path\nstatement timeout token=secret\nError: " + secret)
+assert summary["categories"] == {"sqlite-lock": 1, "memory": 1, "database-timeout": 1, "other-error": 1}
+assert secret not in json.dumps(summary) and "/private" not in json.dumps(summary)
+assert module["summarize_api_logs"]("SQLITE_BUSY\n" * 200)["records"] == 160
+assert module["summarize_api_logs"]("SQLITE_BUSY\n" * 200)["capped"] is True
+snapshot = module["api_logs_snapshot"]
+commands = []
+def fake_run(arguments, timeout=3):
+    commands.append((arguments, timeout))
+    return {"ok": True, "stdout": "", "stderr": "SQLITE_BUSY " + secret, "probe": {"outcome": "success", "durationMs": 1, "exitCode": 0}}
+with patch.dict(snapshot.__globals__, {"api_container_lookup": lambda: ("api-fixture", {"outcome": "success", "durationMs": 1, "exitCode": 0}), "run": fake_run}):
+    result = snapshot()
+    assert result["categories"] == {"sqlite-lock": 1}
+    assert commands == [(["docker", "logs", "--since=15m", "--tail=160", "api-fixture"], 4.0)]
+    assert secret not in json.dumps(result)
+    assert result["probes"]["apiLogsRead"]["outcome"] == "success"
+    assert result["probes"]["apiLogsLookup"]["outcome"] == "success"
+lookup_failure = {"outcome": "timeout", "durationMs": 3001, "exitCode": None}
+with patch.dict(snapshot.__globals__, {"api_container_lookup": lambda: ("", lookup_failure)}):
+    result = snapshot()
+    assert result["available"] is False and result["probes"]["apiLogsLookup"] == lookup_failure
+    result = module["database_snapshot"](False)
+    assert result["available"] is False and result["probes"]["databaseLookup"] == lookup_failure
+print("collector classifications passed")
+`;
+  const result = spawnSync("python", ["-B", "-", fileURLToPath(collector)], {
+    input: program, encoding: "utf8", windowsHide: true, timeout: 10_000,
+  });
+  assert.equal(result.status, 0, result.stderr || result.error?.message);
+  assert.match(result.stdout, /collector classifications passed/u);
 });

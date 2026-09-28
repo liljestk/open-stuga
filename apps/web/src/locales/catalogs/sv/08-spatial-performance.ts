@@ -150,6 +150,7 @@ export const svPart8 = {
   "energy.optimizer.propertyScope": "Fastighetsnivå · {property}",
   "energy.optimizer.readOnly": "Skrivskyddad",
   "energy.optimizer.description": "Rekommendationerna kombinerar fastighetens priskälla med observerad förbrukning och effekt. De styr aldrig utrustning.",
+  "energy.optimizer.loading": "Söker lämpliga prisperioder…",
   "energy.optimizer.unavailable": "Optimeringen är tillfälligt otillgänglig; befintliga energidata påverkas inte.",
   "energy.optimizer.priceComparison": "{price} öre/kWh · {percent} % {comparison} genomsnittet",
   "energy.optimizer.below": "under",

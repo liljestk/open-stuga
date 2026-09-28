@@ -68,6 +68,7 @@ export const fiSupplementPart5 = {
   "energy.optimizer.propertyScope": "Kiinteistötaso · {property}",
   "energy.optimizer.readOnly": "Vain luku",
   "energy.optimizer.description": "Suositukset yhdistävät kiinteistön hintalähteen havaittuun kulutukseen ja tehoon. Ne eivät koskaan ohjaa laitteita.",
+  "energy.optimizer.loading": "Etsitään sopivia hintajaksoja…",
   "energy.optimizer.unavailable": "Optimointi ei ole tilapäisesti käytettävissä; nykyiset energiatiedot säilyvät ennallaan.",
   "energy.optimizer.priceComparison": "{price} snt/kWh · {percent} % {comparison} keskiarvon",
   "energy.optimizer.below": "alle",

@@ -35,6 +35,17 @@ def digest(value: str) -> str:
 def run(
     arguments: list[str], timeout: float = 3.0, input_text: str | None = None
 ) -> dict[str, Any]:
+    started = time.monotonic()
+
+    def probe(outcome: str, status: int | None = None) -> dict[str, Any]:
+        # Only fixed classifications survive the collector; command text and
+        # stderr can contain host paths, configuration, or application data.
+        return {
+            "outcome": outcome,
+            "durationMs": round((time.monotonic() - started) * 1000),
+            "exitCode": status,
+        }
+
     try:
         completed = subprocess.run(
             arguments,
@@ -50,11 +61,24 @@ def run(
         )
         stdout = completed.stdout[:MAX_OUTPUT]
         stderr = completed.stderr[:MAX_OUTPUT]
+        outcome = "success" if completed.returncode == 0 else "failed"
+        if completed.returncode != 0:
+            if re.search(
+                r"permission denied|operation not permitted|a password is required|"
+                r"no tty present|not allowed to execute|not in the sudoers|"
+                r"a terminal is required",
+                stderr,
+                flags=re.IGNORECASE,
+            ):
+                outcome = "permission-denied"
+            elif completed.returncode == 127:
+                outcome = "not-found"
         return {
             "ok": completed.returncode == 0,
             "status": completed.returncode,
             "stdout": stdout,
             "stderr": stderr,
+            "probe": probe(outcome, completed.returncode),
         }
     except (OSError, subprocess.TimeoutExpired) as error:
         return {
@@ -62,6 +86,12 @@ def run(
             "status": None,
             "stdout": "",
             "stderr": type(error).__name__,
+            "probe": probe(
+                "timeout" if isinstance(error, subprocess.TimeoutExpired)
+                else "not-found" if isinstance(error, FileNotFoundError)
+                else "permission-denied" if isinstance(error, PermissionError)
+                else "failed"
+            ),
         }
 
 
@@ -158,7 +188,7 @@ def service_snapshot() -> dict[str, Any]:
             "ActiveEnterTimestampMonotonic",
         },
     )
-    return {"available": result["ok"], **values}
+    return {"available": result["ok"], "probes": {"service": result["probe"]}, **values}
 
 
 def docker_snapshot() -> dict[str, Any]:
@@ -174,8 +204,9 @@ def docker_snapshot() -> dict[str, Any]:
         ],
         timeout=3.5,
     )
+    probes = {"dockerList": listed["probe"]}
     if not listed["ok"]:
-        return {"available": False, "containers": [], "stats": []}
+        return {"available": False, "containers": [], "stats": [], "probes": probes}
     containers: list[dict[str, Any]] = []
     names: list[str] = []
     for line in listed["stdout"].splitlines()[:40]:
@@ -205,6 +236,7 @@ def docker_snapshot() -> dict[str, Any]:
             ],
             timeout=3.5,
         )
+        probes["dockerInspect"] = values["probe"]
         for line in values["stdout"].splitlines()[:40]:
             fields = line.split("\t")
             if len(fields) == 6:
@@ -235,6 +267,7 @@ def docker_snapshot() -> dict[str, Any]:
             ],
             timeout=4.0,
         )
+        probes["dockerStats"] = sampled["probe"]
         for line in sampled["stdout"].splitlines()[:40]:
             fields = line.split("\t")
             if len(fields) == 3:
@@ -250,19 +283,42 @@ def docker_snapshot() -> dict[str, Any]:
         "inspectAvailable": not names or values["ok"],
         "containers": containers,
         "stats": stats,
+        "probes": probes,
     }
 
 
 def health_snapshot() -> dict[str, Any]:
+    started = time.monotonic()
+    http_status: int | None = None
+
+    def result(outcome: str, available: bool = False, **values: Any) -> dict[str, Any]:
+        return {
+            "available": available,
+            **values,
+            "probe": {
+                "outcome": outcome,
+                "durationMs": round((time.monotonic() - started) * 1000),
+                "httpStatus": http_status,
+            },
+        }
+
     request = urllib.request.Request(
         "http://127.0.0.1:8080/api/v1/health", headers={"Accept": "application/json"}
     )
     try:
-        with urllib.request.urlopen(request, timeout=2.5) as response:
-            body = response.read(MAX_OUTPUT)
+        try:
+            response = urllib.request.urlopen(request, timeout=2.5)
+        except urllib.error.HTTPError as error:
+            # A degraded 503 can still contain useful, allowlisted health data.
+            response = error
+        with response:
+            http_status = response.status
+            body = response.read(MAX_OUTPUT + 1)
+            if len(body) > MAX_OUTPUT:
+                return result("invalid-response")
             value = json.loads(body)
             if not isinstance(value, dict):
-                raise ValueError("health body is not an object")
+                return result("invalid-response")
             allowed = {
                 "status",
                 "systemVersion",
@@ -276,12 +332,21 @@ def health_snapshot() -> dict[str, Any]:
                 "eventLoopLagMs",
                 "uptimeSeconds",
             }
-            return {
-                "available": True,
+            return result(
+                "success" if 200 <= http_status < 300 else "http-error",
+                True,
                 **{key: value[key] for key in allowed if key in value},
-            }
-    except (OSError, ValueError, json.JSONDecodeError, urllib.error.HTTPError) as error:
-        return {"available": False, "error": type(error).__name__}
+            )
+    except (OSError, ValueError, urllib.error.URLError) as error:
+        reason = error.reason if isinstance(error, urllib.error.URLError) else error
+        outcome = (
+            "timeout"
+            if isinstance(reason, TimeoutError)
+            else "invalid-response"
+            if isinstance(error, ValueError)
+            else "connection-error"
+        )
+        return result(outcome)
 
 
 DATABASE_SCRIPT = r"""
@@ -340,7 +405,7 @@ db.close();
 """
 
 
-def database_snapshot(deep: bool) -> dict[str, Any]:
+def api_container_lookup() -> tuple[str, dict[str, Any]]:
     container = run(
         [
             "docker",
@@ -358,21 +423,28 @@ def database_snapshot(deep: bool) -> dict[str, Any]:
         if container["ok"] and container["stdout"].strip()
         else ""
     )
+    return name, container["probe"]
+
+
+def database_snapshot(deep: bool) -> dict[str, Any]:
+    name, lookup = api_container_lookup()
+    probes = {"databaseLookup": lookup}
     if not name:
-        return {"available": False, "reason": "api-container-unavailable"}
+        return {"available": False, "reason": "api-container-unavailable", "probes": probes}
     arguments = ["docker", "exec", name, "node", "-e", DATABASE_SCRIPT]
     if deep:
         arguments.extend(["--", "--deep"])
     result = run(arguments, timeout=12.0 if deep else 3.5)
+    probes["databaseQuery"] = result["probe"]
     try:
         value = json.loads(result["stdout"])
         return (
-            value
+            {**value, "probes": probes}
             if result["ok"] and isinstance(value, dict)
-            else {"available": False, "reason": "query-failed"}
+            else {"available": False, "reason": "query-failed", "probes": probes}
         )
     except json.JSONDecodeError:
-        return {"available": False, "reason": "query-failed"}
+        return {"available": False, "reason": "query-failed", "probes": probes}
 
 
 def updater_snapshot() -> dict[str, Any]:
@@ -403,6 +475,7 @@ def updater_snapshot() -> dict[str, Any]:
     }
     return {
         "available": hardware["ok"] and status["ok"],
+        "probes": {"updaterHardware": hardware["probe"], "updaterStatus": status["probe"]},
         "hardwareFingerprint": fingerprint
         if re.fullmatch(r"sha256:[0-9a-f]{64}", fingerprint)
         else None,
@@ -422,6 +495,61 @@ def versions_snapshot() -> dict[str, Any]:
         "host": host if SAFE_VERSION.fullmatch(host) else None,
         "release": release,
     }
+
+
+API_LOG_LIMIT = 160
+API_LOG_PATTERNS = {
+    "sqlite-lock": r"\bSQLITE_(?:BUSY|LOCKED)\b|database (?:is |table is )?locked",
+    "storage-io": r"\b(?:SQLITE_IOERR|SQLITE_FULL|ENOSPC|EROFS)\b|disk I/O error|no space left|read-only file system",
+    "memory": r"heap out of memory|allocation failed|\b(?:ENOMEM|OOM)\b|out of memory",
+    "database-timeout": r"statement timeout|query (?:read )?timeout|connection (?:acquisition )?timeout",
+    "connection": r"\b(?:ECONNREFUSED|ECONNRESET|EHOSTUNREACH)\b|connection terminated|too many clients|remaining connection slots",
+    "analytics-capacity": r"ANALYTICS_BUSY|AnalyticsCapacityError|analytics capacity is temporarily full",
+    "archive": r"telemetry.archive.*(?:unavailable|failed)|(?:initialize|reconciliation).*(?:archive|TimescaleDB)",
+    "runtime": r"(?:Type|Range|Reference|Syntax)Error:|uncaught|unhandled",
+}
+
+
+def summarize_api_logs(raw: str) -> dict[str, Any]:
+    """Reduce transient log text to fixed categories; no raw content survives."""
+    lines = [line for line in raw[:MAX_OUTPUT].splitlines() if line.strip()][
+        :API_LOG_LIMIT
+    ]
+    categories: dict[str, int] = {}
+    for line in lines:
+        matches = [
+            category
+            for category, pattern in API_LOG_PATTERNS.items()
+            if re.search(pattern, line, flags=re.IGNORECASE)
+        ]
+        if not matches and re.search(
+            r"\b(?:error|fatal|failed|failure)\b", line, flags=re.IGNORECASE
+        ):
+            matches = ["other-error"]
+        for category in matches:
+            categories[category] = categories.get(category, 0) + 1
+    return {
+        "records": len(lines),
+        "categories": categories,
+        "capped": len(raw) >= MAX_OUTPUT or len(lines) >= API_LOG_LIMIT,
+    }
+
+
+def api_logs_snapshot() -> dict[str, Any]:
+    name, lookup = api_container_lookup()
+    probes = {"apiLogsLookup": lookup}
+    if not name:
+        return {"available": False, "reason": "api-container-unavailable", "probes": probes}
+    result = run(
+        ["docker", "logs", "--since=15m", f"--tail={API_LOG_LIMIT}", name],
+        timeout=4.0,
+    )
+    probes["apiLogsRead"] = result["probe"]
+    if not result["ok"]:
+        return {"available": False, "reason": "log-read-unavailable", "probes": probes}
+    # Docker places application stderr in its own stderr even on success.
+    summary = summarize_api_logs(result["stdout"] + "\n" + result["stderr"])
+    return {"available": True, "windowMinutes": 15, "probes": probes, **summary}
 
 
 def logs_snapshot() -> dict[str, Any]:
@@ -449,6 +577,7 @@ def logs_snapshot() -> dict[str, Any]:
             message_hashes.append(digest(str(item.get("MESSAGE", "")))[:16])
     return {
         "available": result["ok"],
+        "probes": {"journal": result["probe"]},
         "priorities": priorities,
         "errorMessageHashes": message_hashes[:20],
     }
@@ -488,6 +617,7 @@ def main() -> None:
     }
     if options.deep:
         tasks["logs"] = logs_snapshot
+        tasks["apiLogs"] = api_logs_snapshot
     results: dict[str, Any] = {}
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(tasks)) as executor:
         pending = {name: executor.submit(function) for name, function in tasks.items()}

@@ -49,6 +49,33 @@ describe("analytics query API", () => {
 
   afterEach(async () => { await runtime.close(); });
 
+  it("returns consumption from raw SQLite counters before downsampling across a reset", async () => {
+    runtime.database.insertMeasurementSamples([100, 101, 102, 0, 1, 2].map((value, index) => ({
+      sensorId: "sensor-01", metric: "energy", value, canonicalUnit: "kWh",
+      timestamp: new Date(Date.parse("2026-07-19T10:00:00.000Z") + index * 60_000).toISOString(),
+      source: "api", quality: "good" as const,
+    })));
+    const response = await request(runtime.app).post("/api/v2/analytics/query").send(query({
+      measurementIds: ["energy"], resolution: "2m", aggregation: "delta",
+      range: { start: "2026-07-19T10:00:00.000Z", end: "2026-07-19T10:06:00.000Z", timezone: "UTC" },
+    })).expect(200);
+    expect(response.body.series[0].points.map((point: { consumptionKwh: number }) => point.consumptionKwh)).toEqual([1, 1, 2]);
+  });
+
+  it("returns bounded power consumption across empty SQLite display buckets", async () => {
+    runtime.database.insertMeasurementSamples([
+      { sensorId: "sensor-01", metric: "power", value: 1000, canonicalUnit: "W", timestamp: "2026-07-19T10:04:00.000Z", source: "api", quality: "good" },
+      { sensorId: "sensor-01", metric: "power", value: 0, canonicalUnit: "W", timestamp: "2026-07-19T11:04:00.000Z", source: "api", quality: "good" },
+    ]);
+    const response = await request(runtime.app).post("/api/v2/analytics/query").send(query({
+      measurementIds: ["power"], resolution: "5m", aggregation: "time_weighted_mean",
+      range: { start: "2026-07-19T10:00:00.000Z", end: "2026-07-19T11:30:00.000Z", timezone: "UTC" },
+    })).expect(200);
+    const points = response.body.series[0].points as Array<{ consumptionKwh?: number }>;
+    expect(points.reduce((sum, point) => sum + (point.consumptionKwh ?? 0), 0)).toBeCloseTo(0.25);
+    expect(points[1]?.consumptionKwh).toBeCloseTo(5 / 60);
+  });
+
   it("returns bounded coverage-aware series, robust summaries, and provenance", async () => {
     const response = await request(runtime.app).post("/api/v2/analytics/query").send(query()).expect(200);
 

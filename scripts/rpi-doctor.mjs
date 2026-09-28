@@ -86,11 +86,80 @@ function check(id, status, summary) {
   return { id, status, summary: String(summary).slice(0, 500) };
 }
 
+const HEALTH_PROBE_OUTCOMES = new Set([
+  "success", "http-error", "timeout", "connection-error", "invalid-response",
+]);
+const API_LOG_CATEGORIES = [
+  "sqlite-lock", "storage-io", "memory", "database-timeout", "connection",
+  "analytics-capacity", "archive", "runtime", "other-error",
+];
+const COMMAND_PROBE_OUTCOMES = new Set([
+  "success", "timeout", "permission-denied", "not-found", "failed",
+]);
+const COMMAND_PROBE_SOURCES = {
+  service: ["service"],
+  docker: ["dockerList", "dockerInspect", "dockerStats"],
+  database: ["databaseLookup", "databaseQuery"],
+  updater: ["updaterHardware", "updaterStatus"],
+  apiLogs: ["apiLogsLookup", "apiLogsRead"],
+  logs: ["journal"],
+};
+
+function commandProbeSummaries(evidence) {
+  return Object.fromEntries(Object.entries(COMMAND_PROBE_SOURCES).flatMap(([source, names]) => (
+    names.flatMap((name) => {
+      const value = evidence[source]?.probes?.[name];
+      if (!value || !COMMAND_PROBE_OUTCOMES.has(value.outcome)) return [];
+      const durationMs = value.durationMs == null ? -1 : number(value.durationMs, -1);
+      const exitCode = value.exitCode == null ? -999 : number(value.exitCode, -999);
+      return [[name, {
+        outcome: value.outcome,
+        durationMs: durationMs >= 0 ? Math.round(Math.min(30_000, durationMs)) : null,
+        exitCode: Number.isInteger(exitCode) && exitCode >= -255 && exitCode <= 255 ? exitCode : null,
+      }]];
+    })
+  )));
+}
+
+function healthProbeSummary(value) {
+  if (!value || !HEALTH_PROBE_OUTCOMES.has(value.outcome)) return null;
+  const durationMs = number(value.durationMs, -1);
+  const httpStatus = number(value.httpStatus, -1);
+  return {
+    outcome: value.outcome,
+    durationMs: durationMs >= 0 ? Math.round(Math.min(30_000, durationMs)) : null,
+    httpStatus: Number.isInteger(httpStatus) && httpStatus >= 100 && httpStatus <= 599 ? httpStatus : null,
+  };
+}
+
+function apiLogSummary(value) {
+  if (!value) return null;
+  return {
+    available: value.available === true,
+    windowMinutes: 15,
+    records: Math.max(0, Math.min(160, Math.floor(number(value.records)))),
+    capped: value.capped === true,
+    categories: Object.fromEntries(API_LOG_CATEGORIES.flatMap((category) => {
+      const count = Math.max(0, Math.min(160, Math.floor(number(value.categories?.[category]))));
+      return count > 0 ? [[category, count]] : [];
+    })),
+  };
+}
+
 export function diagnoseEvidence(evidence) {
   if (!evidence || evidence.schema !== "stugu-rpi-doctor-evidence/v1") {
     throw new Error("remote evidence schema is invalid");
   }
   const checks = [];
+  const commandProbes = commandProbeSummaries(evidence);
+  const failedProbes = (...names) => {
+    const failures = names.flatMap((name) => {
+      const probe = commandProbes[name];
+      return probe && probe.outcome !== "success"
+        ? [`${name}: ${probe.outcome}, ${probe.durationMs ?? "?"} ms`] : [];
+    });
+    return failures.length ? ` Probe ${failures.join("; ")}.` : "";
+  };
   const identity = evidence.identity ?? {};
   const identityValid = /^[0-9a-f]{64}$/u.test(identity.machineIdSha256 ?? "")
     && /^[0-9a-f]{64}$/u.test(identity.hostnameSha256 ?? "")
@@ -111,16 +180,21 @@ export function diagnoseEvidence(evidence) {
     serviceHealthy ? "pass" : "fail",
     service.available
       ? `stugu.service is ${service.ActiveState ?? "unknown"}/${service.SubState ?? "unknown"}; ${number(service.NRestarts)} restart(s).`
-      : "stugu.service state is unavailable.",
+      : `stugu.service state is unavailable.${failedProbes("service")}`,
   ));
 
   const health = evidence.health ?? {};
+  const healthProbe = healthProbeSummary(health.probe);
+  const apiLogs = apiLogSummary(evidence.apiLogs);
+  const probeDescription = healthProbe
+    ? ` Probe ${healthProbe.outcome}, ${healthProbe.durationMs ?? "?"} ms, HTTP ${healthProbe.httpStatus ?? "unavailable"}.`
+    : "";
   checks.push(check(
     "HEALTH",
     health.available && health.status === "ok" && health.database === "ready" ? "pass" : "fail",
     health.available
-      ? `API health is ${health.status ?? "unknown"}; database is ${health.database ?? "unknown"}.`
-      : "The local unauthenticated API health endpoint is unavailable.",
+      ? `API health is ${health.status ?? "unknown"}; database is ${health.database ?? "unknown"}.${probeDescription}`
+      : `The local unauthenticated API health endpoint is unavailable.${probeDescription}`,
   ));
 
   const containers = Array.isArray(evidence.docker?.containers) ? evidence.docker.containers : [];
@@ -132,13 +206,14 @@ export function diagnoseEvidence(evidence) {
   const unhealthy = containers.filter((item) => item.health === "unhealthy");
   const restarts = containers.reduce((sum, item) => sum + number(item.restartCount), 0);
   const containerStatus = !evidence.docker?.available || containers.length === 0
+    || evidence.docker?.inspectAvailable === false
     || unhealthy.length > 0 || unexpectedlyStopped.length > 0
     ? "fail"
     : restarts > 5 ? "warning" : "pass";
   checks.push(check(
     "CONTAINERS",
     containerStatus,
-    `${containers.length} container(s); ${unexpectedlyStopped.length} unexpectedly stopped, ${completed.length} completed one-shot, ${unhealthy.length} unhealthy, ${restarts} restart(s).`,
+    `${containers.length} container(s); ${unexpectedlyStopped.length} unexpectedly stopped, ${completed.length} completed one-shot, ${unhealthy.length} unhealthy, ${restarts} restart(s).${failedProbes("dockerList", "dockerInspect", "dockerStats")}`,
   ));
 
   const system = evidence.system ?? {};
@@ -187,7 +262,7 @@ export function diagnoseEvidence(evidence) {
   checks.push(check(
     "ARCHIVE_DATABASE",
     archiveFailed ? "fail" : !databaseAvailable || archiveWarning ? "warning" : "pass",
-    `Archive ${archive.phase ?? "unknown"}, caught up ${archive.caughtUp ?? "unknown"}; bounded database status ${databaseAvailable ? "available" : "unavailable"}.`,
+    `Archive ${archive.phase ?? "unknown"}, caught up ${archive.caughtUp ?? "unknown"}; bounded database status ${databaseAvailable ? "available" : "unavailable"}.${failedProbes("databaseLookup", "databaseQuery")}`,
   ));
 
   const queues = evidence.database?.queues ?? {};
@@ -232,7 +307,7 @@ export function diagnoseEvidence(evidence) {
       ? "fail"
       : feedDegraded || activeUpdaterPhases.has(updaterPhase) ? "warning" : "pass",
     !updater.available
-      ? "Host updater/controller state is unavailable."
+      ? `Host updater/controller state is unavailable.${failedProbes("updaterHardware", "updaterStatus")}`
       : noSignedUpdateAvailable
         ? "Host updater checked successfully; no newer signed target is available."
         : feedDegraded
@@ -263,10 +338,11 @@ export function diagnoseEvidence(evidence) {
     ));
     checks.push(check(
       "LOGS",
-      evidence.logs?.available ? "pass" : "warning",
-      evidence.logs?.available
-        ? `${Object.values(evidence.logs.priorities ?? {}).reduce((sum, value) => sum + number(value), 0)} bounded service log record(s) summarized.`
-        : "Bounded service log summary is unavailable.",
+      evidence.logs?.available && (!apiLogs || apiLogs.available) ? "pass" : "warning",
+      (evidence.logs?.available
+        ? `${Object.values(evidence.logs.priorities ?? {}).reduce((sum, value) => sum + number(value), 0)} bounded service log record(s) summarized.${apiLogs
+          ? ` API log ${apiLogs.available ? `${apiLogs.records} record(s), ${Object.keys(apiLogs.categories).length} error category(s)` : "unavailable"}.` : ""}`
+        : "Bounded service log summary is unavailable.") + failedProbes("journal", "apiLogsLookup", "apiLogsRead"),
     ));
   }
 
@@ -289,6 +365,9 @@ export function diagnoseEvidence(evidence) {
     result,
     checks,
     summary: {
+      healthProbe,
+      commandProbes,
+      ...(evidence.deep ? { apiLogs } : {}),
       versions: { host: versions.host ?? null, application: applicationVersion, recordedRelease: recordedVersion },
       containers: {
         total: containers.length,

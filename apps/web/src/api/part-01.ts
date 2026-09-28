@@ -327,11 +327,11 @@ export const apiPart01 = {
       body: JSON.stringify(patch),
     }), "property"),
   deleteProperty: (id: string) => request<void>(`/properties/${encodeURIComponent(id)}`, { method: "DELETE" }),
-  propertyElectricity: (propertyId: string) => request<{
+  propertyElectricity: (propertyId: string, signal?: AbortSignal) => request<{
       config: PropertyElectricityConfig;
       current: PropertyElectricityPricePoint | null;
       prices: PropertyElectricityPricePoint[];
-    }>(`/properties/${encodeURIComponent(propertyId)}/electricity`),
+    }>(`/properties/${encodeURIComponent(propertyId)}/electricity`, signal ? { signal } : {}),
   houseElectricityPrice: (houseId: string, from?: string, to?: string, signal?: AbortSignal) => request<{
       current: HomeElectricityPricePoint | null;
       prices?: HomeElectricityPricePoint[];

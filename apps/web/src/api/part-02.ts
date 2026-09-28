@@ -1,3 +1,4 @@
+import type { ApiReadSchedulingClass } from "./support/requestScheduler";
 import type {
   ActionPlaybook,
   ActionRun,
@@ -284,10 +285,10 @@ export const apiPart02 = {
       const response = await request<OpeningStateObservation | { observation: OpeningStateObservation }>(`/houses/${encodeURIComponent(houseId)}/opening-states`, { method: "POST", body: JSON.stringify(observation) });
       return "observation" in response ? response.observation : response;
     },
-  sensors: async (houseId?: string) => list<Sensor>(await request<unknown>(
-      houseId === undefined ? "/sensors" : `/sensors?houseId=${encodeURIComponent(houseId)}`,
+  sensors: async (houseId?: string, schedulingClass: ApiReadSchedulingClass = "background") => list<Sensor>(await request<unknown>(
+      houseId === undefined ? "/sensors" : `/sensors?houseId=${encodeURIComponent(houseId)}`, { schedulingClass },
     ), ["sensors", "data"]),
-  snapshot: async (houseId: string) => list<SensorSnapshot>(await request<unknown>(`/snapshot?houseId=${encodeURIComponent(houseId)}`), ["snapshot", "sensors", "data"]),
+  snapshot: async (houseId: string, schedulingClass: ApiReadSchedulingClass = "background") => list<SensorSnapshot>(await request<unknown>(`/snapshot?houseId=${encodeURIComponent(houseId)}`, { schedulingClass }), ["snapshot", "sensors", "data"]),
   readings: async (sensorId: string, from: string, to: string, limit = 500, signal?: AbortSignal) => list<Reading>(
       await request<unknown>(`/readings?sensorId=${encodeURIComponent(sensorId)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&limit=${limit}`, signal ? { signal } : undefined),
       ["readings", "data"],
@@ -338,6 +339,6 @@ export const apiPart02 = {
       method: "POST",
       body: JSON.stringify({ houseId, mappings }),
     }),
-  alertRules: async () => list<AlertRule>(await request<unknown>("/alert-rules"), ["rules", "alertRules", "data"]),
+  alertRules: async (schedulingClass: ApiReadSchedulingClass = "background") => list<AlertRule>(await request<unknown>("/alert-rules", { schedulingClass }), ["rules", "alertRules", "data"]),
   createAlertRule: (rule: Omit<AlertRule, "id">) => request<AlertRule>("/alert-rules", { method: "POST", body: JSON.stringify(rule) }),
 };

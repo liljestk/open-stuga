@@ -181,8 +181,9 @@ export interface MeasurementAnalyticsRollupQuery extends QueryControl {
 export interface MeasurementAnalyticsBucketRecord {
   bucketStart: string;
   value: number | null;
-  minimum: number;
-  maximum: number;
+  consumptionKwh?: number | null;
+  minimum: number | null;
+  maximum: number | null;
   sampleCount: number;
   estimatedSampleCount: number;
   staleSampleCount: number;

@@ -3,22 +3,21 @@ import { BellRing, Bolt, ChevronDown, CircleGauge, Clock3, Euro, Lightbulb, Radi
 import {
   DEFAULT_ELECTRICITY_PRICE_ENDPOINT,
   type ElectricityContractType,
-  type EnergyOptimizationReport,
+  type DataMode,
   type House,
-  type HomeElectricityPricePoint,
   type Metric,
-  type PropertyElectricityConfig,
-  type PropertyElectricityPricePoint,
   type Sensor,
   type UnitSystem,
 } from "@climate-twin/contracts";
-import { ANALYTICS_TIME_RANGES, timeRangeHours, type ClimateState, type TimeRange } from "../domain";
+import { ANALYTICS_TIME_RANGES, type ClimateState, type TimeRange } from "../domain";
 import { definitionFor, formatMeasurement, measurementLabel } from "../measurements";
 import { useI18n } from "../i18n";
 import { formatInTimeZone } from "../dateTime";
-import { api } from "../api";
+import { api, ApiRequestError } from "../api";
 import { useHomeEnergySummaryQuery } from "../data/energy/homeEnergySummaryQuery";
 import { useHouseElectricityPriceQuery } from "../data/energy/houseElectricityPriceQuery";
+import { currentElectricityPrice, propertyElectricityKey, useEnergyOptimizationQuery, usePriceHistoryQuery, usePropertyElectricityQuery } from "../data/energy/electricityQueries";
+import { queryClient } from "../data/queryClient";
 import { useNow } from "../useNow";
 import type { SeriesLoadState } from "../useClimateData";
 import { ElectricityHistory, ELECTRICITY_METRICS, type ElectricityMetric } from "./ElectricityHistory";
@@ -93,6 +92,7 @@ function writeEnergyStateToLocation(state: EnergyLocationState, mode: "push" | "
 
 interface EnergyPageProps {
   state: ClimateState;
+  dataMode?: DataMode;
   /** Optional Home context for meter/consumption detail. */
   house?: House | null;
   /** Canonical Property owner of the contract and price source. */
@@ -134,7 +134,7 @@ function formatCost(value: number): string {
   return `${value.toFixed(decimals)} €`;
 }
 
-export function EnergyPage({ state, house = null, propertyId: requestedPropertyId, units, onLoadSeries, onOpenSensors, onOpenAlerts, seriesStates, readOnly = false, localAuthority = true }: EnergyPageProps) {
+export function EnergyPage({ state, dataMode = "live", house = null, propertyId: requestedPropertyId, units, onLoadSeries, onOpenSensors, onOpenAlerts, seriesStates, readOnly = false, localAuthority = true }: EnergyPageProps) {
   const { locale, t } = useI18n();
   const propertyId = requestedPropertyId ?? house?.propertyId ?? state.properties[0]?.id ?? "";
   const property = state.properties.find((candidate) => candidate.id === propertyId);
@@ -143,15 +143,11 @@ export function EnergyPage({ state, house = null, propertyId: requestedPropertyI
   const [metric, setMetric] = useState<ElectricityMetric>(initialLocationState.metric);
   const [range, setRange] = useState<TimeRange>(initialLocationState.range);
   const [costInterval, setCostInterval] = useState<CostInterval>(initialLocationState.costInterval);
-  const [propertyPrice, setPropertyPrice] = useState<{ config: PropertyElectricityConfig; current: PropertyElectricityPricePoint | null } | null>(null);
-  const [priceHistory, setPriceHistory] = useState<HomeElectricityPricePoint[]>([]);
-  const [priceHistoryBusy, setPriceHistoryBusy] = useState(false);
-  const [priceHistoryError, setPriceHistoryError] = useState(false);
   const [priceDraft, setPriceDraft] = useState<ElectricityPriceDraft>(emptyPriceDraft);
   const [priceBusy, setPriceBusy] = useState(false);
   const [priceFeedback, setPriceFeedback] = useState<{ kind: "success" | "error"; text: string } | null>(null);
-  const [optimization, setOptimization] = useState<EnergyOptimizationReport | null>(null);
-  const [optimizationError, setOptimizationError] = useState(false);
+  const [optimizationOpen, setOptimizationOpen] = useState(false);
+  const draftInitialized = useRef(false);
   const priceContextGeneration = useRef(0);
   const now = useNow();
   const selectedCostInterval = COST_INTERVALS.find((candidate) => candidate.id === costInterval) ?? COST_INTERVALS[3];
@@ -179,7 +175,22 @@ export function EnergyPage({ state, house = null, propertyId: requestedPropertyI
     house?.id ?? "", "month", 30 * 24 * 3_600_000, summariesEnabled, 5 * 60_000,
   );
   const homePriceQuery = useHouseElectricityPriceQuery(house?.id ?? "", Boolean(house));
-  const homePrice = house ? homePriceQuery.data ?? null : null;
+  const homePrice = house ? currentElectricityPrice(homePriceQuery.data, now) : null;
+  const propertyPriceQuery = usePropertyElectricityQuery(propertyId, !house && !priceBusy);
+  const propertyPrice = house ? null : propertyPriceQuery.data ?? null;
+  const currentPropertyPrice = currentElectricityPrice(propertyPrice?.current, now);
+  const priceHistoryQuery = usePriceHistoryQuery(house?.id ?? "", range, Boolean(house) && metric === "electricity_price");
+  const priceHistory = priceHistoryQuery.data ?? [];
+  const priceHistoryBusy = priceHistoryQuery.isFetching;
+  const priceHistoryError = priceHistoryQuery.isError;
+  const optimizationQuery = useEnergyOptimizationQuery(propertyId, optimizationOpen);
+  const optimization = optimizationQuery.isError ? null : optimizationQuery.data ?? null;
+  const optimizationError = optimizationQuery.isError;
+  const priceUnavailable = house
+    ? homePriceQuery.isError || Boolean(homePriceQuery.data && !homePrice)
+    : propertyPriceQuery.isError || Boolean(propertyPrice?.current && !currentPropertyPrice);
+  const priceRequestError = house ? homePriceQuery.error : propertyPriceQuery.error;
+  const priceAccessDenied = priceRequestError instanceof ApiRequestError && priceRequestError.status === 403;
   const dailySummary = dailySummaryQuery.data ?? null;
   const energyCost = energyCostQuery.data ?? null;
   const rollingSummary = rollingSummaryQuery.data ?? null;
@@ -215,77 +226,28 @@ export function EnergyPage({ state, house = null, propertyId: requestedPropertyI
   };
 
   useEffect(() => {
-    const generation = ++priceContextGeneration.current;
-    setPropertyPrice(null);
-    setPriceHistory([]);
-    setPriceHistoryBusy(false);
-    setPriceHistoryError(false);
+    ++priceContextGeneration.current;
+    draftInitialized.current = false;
     setPriceDraft(emptyPriceDraft());
     setPriceBusy(false);
     setPriceFeedback(null);
-    // Home scope reads the current price through useHouseElectricityPriceQuery,
-    // which retries and refreshes; only the Property contract form loads here.
-    if (house) return;
-    if (!propertyId) return;
-    void api.propertyElectricity(propertyId).then((result) => {
-      if (priceContextGeneration.current !== generation) return;
-      setPropertyPrice({ config: result.config, current: result.current });
-      setPriceDraft({
-        enabled: result.config.enabled,
-        contractType: result.config.contractType,
-        margin: String(result.config.marginCentsPerKwh),
-        retailer: result.config.retailer ?? "",
-        contractName: result.config.contractName ?? "",
-        monthlyFee: result.config.monthlyFeeEur === null ? "" : String(result.config.monthlyFeeEur),
-        endpointUrl: result.config.endpointUrl,
-      });
-    }).catch(() => {
-      if (priceContextGeneration.current === generation) {
-        setPriceFeedback({ kind: "error", text: t("energy.priceLoadError") });
-      }
-    });
+    setOptimizationOpen(false);
   }, [house?.id, propertyId]);
 
   useEffect(() => {
-    setPriceHistory([]);
-    setPriceHistoryError(false);
-    if (!house || metric !== "electricity_price") {
-      setPriceHistoryBusy(false);
-      return;
-    }
-    const controller = new AbortController();
-    const to = new Date();
-    const from = new Date(to.getTime() - timeRangeHours(range) * 3_600_000);
-    setPriceHistoryBusy(true);
-    void api.houseElectricityPrice(
-      house.id,
-      from.toISOString(),
-      to.toISOString(),
-      controller.signal,
-    ).then((result) => {
-      if (!controller.signal.aborted) {
-        setPriceHistory(result.prices ?? (result.current ? [result.current] : []));
-      }
-    }).catch(() => {
-      if (!controller.signal.aborted) setPriceHistoryError(true);
-    }).finally(() => {
-      if (!controller.signal.aborted) setPriceHistoryBusy(false);
+    if (!propertyPrice || draftInitialized.current) return;
+    draftInitialized.current = true;
+    const { config } = propertyPrice;
+    setPriceDraft({
+      enabled: config.enabled,
+      contractType: config.contractType,
+      margin: String(config.marginCentsPerKwh),
+      retailer: config.retailer ?? "",
+      contractName: config.contractName ?? "",
+      monthlyFee: config.monthlyFeeEur === null ? "" : String(config.monthlyFeeEur),
+      endpointUrl: config.endpointUrl,
     });
-    return () => controller.abort();
-  }, [house?.id, metric, range]);
-
-  useEffect(() => {
-    let active = true;
-    setOptimization(null);
-    setOptimizationError(false);
-    if (!propertyId) return () => { active = false; };
-    void api.energyOptimization(propertyId, 2).then((report) => {
-      if (active) setOptimization(report);
-    }).catch(() => {
-      if (active) setOptimizationError(true);
-    });
-    return () => { active = false; };
-  }, [propertyId]);
+  }, [propertyPrice]);
 
   const used24Hours = dailySummary?.consumptionKwh ?? null;
   const powerSources = freshSourcesForMetric(state, powerSensors, "power", now);
@@ -294,8 +256,8 @@ export function EnergyPage({ state, house = null, propertyId: requestedPropertyI
     : null;
   const telemetryPriceSample = freshElectricitySample(sources.electricity_price?.sample, "electricity_price", now);
   const effectivePrice = house
-    ? homePrice?.effectivePriceEurPerKwh ?? telemetryPriceSample?.value ?? null
-    : propertyPrice?.current?.effectivePriceEurPerKwh ?? telemetryPriceSample?.value ?? null;
+    ? homePrice?.effectivePriceEurPerKwh ?? (homePriceQuery.data ? null : telemetryPriceSample?.value ?? null)
+    : currentPropertyPrice?.effectivePriceEurPerKwh ?? telemetryPriceSample?.value ?? null;
   const anyData = combinedPower !== null || used24Hours !== null || effectivePrice !== null;
   const combinedSourceLabel = (sensors: Sensor[], reporting: number) => !sensors.length
     ? t("energy.waitingForSource")
@@ -303,7 +265,7 @@ export function EnergyPage({ state, house = null, propertyId: requestedPropertyI
       ? sensors[0]!.name
       : t("energy.combinedSources", { count: reporting, total: sensors.length });
   const powerSourceLabel = combinedSourceLabel(powerSensors, powerSources.length);
-  const dailyState = energySummaryState(dailySummary, dailySummaryQuery.isPending, dailySummaryQuery.isError);
+  const dailyState = energySummaryState(dailySummary, dailySummaryQuery.isPending && summariesEnabled, dailySummaryQuery.isError);
   const energySourceLabel = dailyState === "loading" ? t("energy.costLoading")
     : dailyState === "unavailable" ? t("energy.summaryUnavailable")
     : dailyState === "empty" ? t("energy.costUsageUnavailable")
@@ -372,6 +334,7 @@ export function EnergyPage({ state, house = null, propertyId: requestedPropertyI
     setPriceFeedback(null);
     try {
       if (!targetPropertyId) return;
+      await queryClient.cancelQueries({ queryKey: propertyElectricityKey(targetPropertyId) });
       const saved = await api.configurePropertyElectricity(targetPropertyId, {
         provider: priceDraft.endpointUrl === DEFAULT_ELECTRICITY_PRICE_ENDPOINT ? "porssisahko" : "custom",
         endpointUrl: priceDraft.endpointUrl,
@@ -384,9 +347,9 @@ export function EnergyPage({ state, house = null, propertyId: requestedPropertyI
       });
       const result = priceDraft.enabled
         ? await api.refreshPropertyElectricity(targetPropertyId)
-        : { config: saved.config, current: null };
+        : { config: saved.config, current: null, prices: [] };
       if (priceContextGeneration.current !== generation) return;
-      setPropertyPrice({ config: result.config, current: result.current });
+      queryClient.setQueryData(propertyElectricityKey(targetPropertyId), result);
       setPriceFeedback({ kind: "success", text: t("energy.priceUpdated") });
     } catch {
       if (priceContextGeneration.current === generation) {
@@ -429,12 +392,13 @@ export function EnergyPage({ state, house = null, propertyId: requestedPropertyI
       {!house && <section className="panel energy-price-config" aria-labelledby="energy-price-config-heading">
         <div className="panel-header"><div><span className="eyebrow">{t("energy.priceSource")}</span><h2 id="energy-price-config-heading">{t("energy.contractTitle")}</h2></div></div>
         <p>{t("energy.contractDescription")}</p>
-        {propertyPrice?.current && <p><strong>{t("energy.priceSummary", {
-          effective: propertyPrice.current.effectivePriceCentsPerKwh.toFixed(3),
-          raw: propertyPrice.current.rawPriceCentsPerKwh.toFixed(3),
-          provider: propertyPrice.config.provider === "porssisahko" ? "Pörssisähkö.net" : t("energy.priceApi"),
+        {currentPropertyPrice && <p><strong>{t("energy.priceSummary", {
+          effective: currentPropertyPrice.effectivePriceCentsPerKwh.toFixed(3),
+          raw: currentPropertyPrice.rawPriceCentsPerKwh.toFixed(3),
+          provider: propertyPrice?.config.provider === "porssisahko" ? "Pörssisähkö.net" : t("energy.priceApi"),
         })}</strong></p>}
-        {!readOnly && <details className="energy-contract-editor" open={!propertyPrice?.current}>
+        {propertyPriceQuery.isPending && <p role="status">{t("energy.priceLoading")}</p>}
+        {!readOnly && propertyPrice && <details className="energy-contract-editor" open={!propertyPrice?.current}>
           <summary><span>{t(propertyPrice?.current ? "energy.editContract" : "energy.contractTitle")}</span><ChevronDown size={16} aria-hidden="true" /></summary>
           <form onSubmit={savePriceConfiguration} className="energy-source-controls">
             <label className="field"><span>{t("energy.contractType")}</span><select value={priceDraft.contractType} onChange={(event) => setPriceDraft((current) => ({ ...current, contractType: event.target.value as ElectricityContractType }))}><option value="spot">{t("energy.contractType.spot")}</option><option value="fixed">{t("energy.contractType.fixed")}</option><option value="other">{t("energy.contractType.other")}</option></select></label>
@@ -449,6 +413,10 @@ export function EnergyPage({ state, house = null, propertyId: requestedPropertyI
         </details>}
         {priceFeedback && <p role={priceFeedback.kind === "error" ? "alert" : "status"}>{priceFeedback.text}</p>}
       </section>}
+
+      {priceUnavailable && <p className="energy-waiting" role="status">
+        {t(priceAccessDenied ? "energy.accessDenied" : "energy.priceLoadError")} <button type="button" className="secondary-button" onClick={() => { void (house ? homePriceQuery.refetch() : propertyPriceQuery.refetch()); }}>{t("common.retry")}</button>
+      </p>}
 
       {house && !electricitySensors.length && <section className="panel energy-onboarding" aria-labelledby="energy-onboarding-heading">
         <span className="energy-onboarding-icon" aria-hidden="true"><RadioTower size={26} /></span>
@@ -483,7 +451,6 @@ export function EnergyPage({ state, house = null, propertyId: requestedPropertyI
       {!anyData && electricitySensors.length > 0 && <p className="energy-waiting" role="status"><TriangleAlert size={17} aria-hidden="true" />{t("energy.waitingForReadings")}</p>}
 
       <EnergyPlanningPanel
-        state={state}
         sensors={electricitySensors}
         recentSummary={dailySummary}
         rollingSummary={rollingSummary}
@@ -492,6 +459,7 @@ export function EnergyPage({ state, house = null, propertyId: requestedPropertyI
 
       <ElectricityHistory
         state={state}
+        dataMode={dataMode}
         sensors={electricitySensors}
         metric={metric}
         onMetric={selectMetric}
@@ -502,6 +470,8 @@ export function EnergyPage({ state, house = null, propertyId: requestedPropertyI
         electricityPrices={priceHistory}
         priceLoading={priceHistoryBusy}
         priceError={priceHistoryError}
+        priceAccessDenied={priceHistoryQuery.error instanceof ApiRequestError && priceHistoryQuery.error.status === 403}
+        onPriceRetry={() => { void priceHistoryQuery.refetch(); }}
         {...(onLoadSeries ? { onLoadSeries } : {})}
         {...(seriesStates ? { seriesStates } : {})}
       />
@@ -524,7 +494,7 @@ export function EnergyPage({ state, house = null, propertyId: requestedPropertyI
       </details>
       </>}
 
-      <details className="panel energy-optimizer" aria-labelledby="energy-optimizer-heading">
+      <details className="panel energy-optimizer" aria-labelledby="energy-optimizer-heading" open={optimizationOpen} onToggle={(event) => setOptimizationOpen(event.currentTarget.open)}>
         <summary>
           <span><span className="eyebrow"><Lightbulb size={14} aria-hidden="true" />{t("energy.optimizer.eyebrow")}</span><strong id="energy-optimizer-heading" role="heading" aria-level={2}>{t("energy.optimizer.title")}</strong><small>{optimization?.suggestedWindows[0] ? formatOptimizationWindow(optimization.suggestedWindows[0].startAt, optimization.suggestedWindows[0].endAt, locale, house?.timezone) : t("energy.optimizer.description")}</small></span>
           <span className="energy-optimizer-badges"><span className="status-badge energy-optimizer-scope">{t("energy.optimizer.propertyScope", { property: property?.name ?? propertyId })}</span><span className="status-badge">{t("energy.optimizer.readOnly")}</span></span>
@@ -532,7 +502,8 @@ export function EnergyPage({ state, house = null, propertyId: requestedPropertyI
         </summary>
         <div className="energy-optimizer-content">
           <p>{t("energy.optimizer.description")}</p>
-          {optimizationError && <p className="energy-waiting" role="status"><TriangleAlert size={17} aria-hidden="true" /> {t("energy.optimizer.unavailable")}</p>}
+          {optimizationQuery.isFetching && <p role="status">{t("energy.optimizer.loading")}</p>}
+          {optimizationError && <p className="energy-waiting" role="status"><TriangleAlert size={17} aria-hidden="true" /> {t("energy.optimizer.unavailable")} <button type="button" className="secondary-button" onClick={() => { void optimizationQuery.refetch(); }}>{t("common.retry")}</button></p>}
           {optimization && <>
             <div className="energy-optimizer-windows">{optimization.suggestedWindows.slice(0, 3).map((window) => <article key={window.startAt} className={window.rank}><Clock3 size={18} aria-hidden="true" /><span><strong>{formatOptimizationWindow(window.startAt, window.endAt, locale, house?.timezone)}</strong><small>{t("energy.optimizer.priceComparison", { price: window.averagePriceCentsPerKwh.toFixed(2), percent: Math.abs(window.relativeToAveragePercent).toFixed(0), comparison: window.relativeToAveragePercent <= 0 ? t("energy.optimizer.below") : t("energy.optimizer.above") })}</small></span></article>)}</div>
             <dl className="energy-optimizer-baseline"><div><dt>{t("energy.optimizer.consumption24h")}</dt><dd>{optimization.recentDailyConsumptionKwh === null ? t("energy.optimizer.notEnoughData") : `${optimization.recentDailyConsumptionKwh.toFixed(2)} kWh`}</dd></div><div><dt>{t("energy.optimizer.baseload")}</dt><dd>{optimization.baselinePowerWatts === null ? t("energy.optimizer.notEnoughData") : `${optimization.baselinePowerWatts.toFixed(0)} W`}</dd></div><div><dt>{t("energy.optimizer.peak")}</dt><dd>{optimization.peakPowerWatts === null ? t("energy.optimizer.notEnoughData") : `${optimization.peakPowerWatts.toFixed(0)} W`}</dd></div></dl>

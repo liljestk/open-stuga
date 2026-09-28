@@ -1,7 +1,9 @@
 import { useEffect, useId, useMemo, useState } from "react";
 import { ChevronDown } from "lucide-react";
+import { ApiRequestError } from "../api";
 import type {
   HomeElectricityPricePoint,
+  DataMode,
   MeasurementSample,
   Metric,
   Sensor,
@@ -23,11 +25,12 @@ import { useI18n } from "../i18n";
 import { useNow } from "../useNow";
 import { seriesStateKey, type SeriesLoadState } from "../useClimateData";
 import { sensorsForHomeTotal } from "./energyTelemetry";
-import { aggregateCumulativeSeries, electricityUsageSeries, holdSeriesForBuckets } from "./energyAnalysis";
+import { aggregateCumulativeSeries, consumptionHistorySeries, holdSeriesForBuckets } from "./energyAnalysis";
+import { useElectricityHistoryQuery } from "../data/energy/electricityHistoryQuery";
+import { electricityHistoryLocation, writeElectricityHistoryLocation, type ElectricityChartMode } from "./electricityHistoryLocation";
 
 export const ELECTRICITY_METRICS = ["power", "energy", "electricity_price"] as const;
 export type ElectricityMetric = typeof ELECTRICITY_METRICS[number];
-type ChartMode = "single" | "multiple" | "combined";
 
 interface ElectricityHistoryProps {
   state: ClimateState;
@@ -41,6 +44,9 @@ interface ElectricityHistoryProps {
   electricityPrices?: HomeElectricityPricePoint[];
   priceLoading?: boolean;
   priceError?: boolean;
+  priceAccessDenied?: boolean;
+  onPriceRetry?: () => void;
+  dataMode?: DataMode;
   onLoadSeries?: (sensorId: string, metric: Metric, range: TimeRange, forecastSupported?: boolean) => void;
   seriesStates?: Record<string, SeriesLoadState>;
 }
@@ -58,7 +64,9 @@ function supportsMetric(state: ClimateState, sensor: Sensor, metric: Electricity
 
 function loadedMetrics(state: ClimateState, sensor: Sensor, metric: ElectricityMetric): ElectricityMetric[] {
   if (metric !== "energy") return [metric];
-  return (["power", "energy"] as const).filter((candidate) => supportsDirectMetric(state, sensor, candidate));
+  // Consumption has a separate integral query. Generic history is averaged
+  // and must never be interpreted as resetting counters or held power.
+  return [];
 }
 
 function bucketMilliseconds(range: TimeRange): number {
@@ -120,9 +128,12 @@ export function ElectricityHistory(props: Readonly<ElectricityHistoryProps>) {
   const now = useNow();
   const summaryId = useId();
   const sourceLabelId = `${summaryId}-source`;
-  const [mode, setMode] = useState<ChartMode>("combined");
-  const [singleSensorId, setSingleSensorId] = useState("");
-  const [multipleSensorIds, setMultipleSensorIds] = useState<string[] | null>(null);
+  const [location, setLocation] = useState(electricityHistoryLocation);
+  const { mode, source: singleSensorId, sources: multipleSensorIds } = location;
+  const selectLocation = (next: typeof location) => { setLocation(next); writeElectricityHistoryLocation(next); };
+  const setMode = (next: ElectricityChartMode) => selectLocation({ ...location, mode: next });
+  const setSingleSensorId = (next: string) => selectLocation({ ...location, source: next });
+  const setMultipleSensorIds = (next: string[] | null) => selectLocation({ ...location, sources: next });
   const [dataOpen, setDataOpen] = useState(false);
   const definition = definitionFor(props.state.measurementDefinitions, props.metric);
   const metricSensors = useMemo(
@@ -139,6 +150,21 @@ export function ElectricityHistory(props: Readonly<ElectricityHistoryProps>) {
   const activeLoadKey = activeSensors.map((sensor) => (
     `${sensor.id}:${loadedMetrics(props.state, sensor, props.metric).join(",")}`
   )).join("\u0000");
+  const houseId = props.sensors[0]?.houseId ?? "";
+  const consumptionQuery = useElectricityHistoryQuery(houseId, activeSensors.map((sensor) => ({
+    id: sensor.id,
+    energy: supportsDirectMetric(props.state, sensor, "energy"),
+    power: supportsDirectMetric(props.state, sensor, "power"),
+  })), props.range, props.timeZone, props.dataMode ?? "live", props.metric === "energy");
+  useEffect(() => {
+    const pathname = window.location.pathname;
+    const restore = () => {
+      if (window.location.pathname === pathname) setLocation(electricityHistoryLocation());
+    };
+    restore();
+    window.addEventListener("popstate", restore);
+    return () => window.removeEventListener("popstate", restore);
+  }, [houseId]);
   const from = now - timeRangeHours(props.range) * 3_600_000;
   const propertyPrices = useMemo(
     () => props.metric === "electricity_price"
@@ -156,12 +182,14 @@ export function ElectricityHistory(props: Readonly<ElectricityHistoryProps>) {
     });
   }, [activeLoadKey, props.metric, props.onLoadSeries, props.range]);
 
+  const consumption = useMemo(() => new Map(activeSensors.map((sensor) => [sensor.id,
+    consumptionHistorySeries(consumptionQuery.data ?? [], sensor.id)])), [activeSensorKey, consumptionQuery.data]);
   const observed = useMemo(() => activeSensors.map((sensor) => ({
     sensor,
     points: props.metric === "energy"
-      ? electricityUsageSeries(props.state, sensor.id, from, now)
+      ? consumption.get(sensor.id)?.points ?? []
       : observedSeries(sensor.id, props.metric, props.state, from),
-  })), [activeSensorKey, from, now, props.metric, props.state]);
+  })), [activeSensorKey, consumption, from, now, props.metric, props.state]);
   const aggregateResult = useMemo(() => {
     // Sensors without a single sample in the window cannot contribute and must
     // not blank the whole combined chart; they are excluded and called out.
@@ -206,7 +234,9 @@ export function ElectricityHistory(props: Readonly<ElectricityHistoryProps>) {
       ? singleSensor?.name ?? t("energy.noSource")
       : t("sensors.analyticsSelectedSources", { count: activeSensors.length });
   const chartLabel = t("energy.chartAria", { metric: metricLabel, source: sourceTitle });
-  const latestSummaries = mode === "combined"
+  const latestSummaries = propertyOnly && propertyPrices.at(-1)
+    ? [`${sourceTitle}: ${formatMeasurement(propertyPrices.at(-1)!.value, definition, props.units)}`]
+    : mode === "combined"
     ? aggregate.at(-1)
       ? [`${sourceTitle}: ${formatMeasurement(aggregate.at(-1)!.value, definition, props.units)}`]
       : propertyPrices.at(-1)
@@ -231,9 +261,21 @@ export function ElectricityHistory(props: Readonly<ElectricityHistoryProps>) {
     return state ? [state] : [];
   }));
   const loading = loadStates.some((state) => state.status === "loading")
+    || (props.metric === "energy" && consumptionQuery.isFetching)
     || (props.metric === "electricity_price" && props.priceLoading === true);
   const errors = loadStates.filter((state) => state.status === "error");
   const truncatedSeries = loadStates.some((state) => state.truncated);
+  const partialConsumption = props.metric === "energy" && [...consumption.values()].some((series) => series.partial);
+  const failed = errors.length > 0 || (props.metric === "electricity_price" && props.priceError)
+    || (props.metric === "energy" && consumptionQuery.isError);
+  const accessDenied = (props.metric === "electricity_price" && props.priceAccessDenied)
+    || (props.metric === "energy" && consumptionQuery.error instanceof ApiRequestError && consumptionQuery.error.status === 403)
+    || errors.some((state) => state.errorStatus === 403);
+  const retry = () => {
+    if (props.metric === "energy") void consumptionQuery.refetch();
+    else activeSensors.forEach((sensor) => props.onLoadSeries?.(sensor.id, props.metric, props.range, false));
+    if (props.metric === "electricity_price" && props.priceError) props.onPriceRetry?.();
+  };
   const dataRows = [
     ...(mode === "combined"
       ? aggregate.map((point, index) => ({ id: `combined-${point.timestamp}-${index}`, source: sourceTitle, point }))
@@ -282,7 +324,7 @@ export function ElectricityHistory(props: Readonly<ElectricityHistoryProps>) {
           <span id={sourceLabelId}>{t("energy.dataSource")}</span>
           {propertyOnly && <div className="energy-combined-source" aria-labelledby={sourceLabelId}>{t("sensors.analyticsPropertyPrice")}</div>}
           {!propertyOnly && mode === "single" && <select aria-labelledby={sourceLabelId} value={singleSensor?.id ?? ""} disabled={!metricSensors.length} onChange={(event) => setSingleSensorId(event.target.value)}>
-            <option value="">{t("energy.noSource")}</option>
+            {!metricSensors.length && <option value="">{t("energy.noSource")}</option>}
             {metricSensors.map((sensor) => <option key={sensor.id} value={sensor.id}>{sensor.name}</option>)}
           </select>}
           {!propertyOnly && mode === "multiple" && <details className="sensor-series-picker">
@@ -344,10 +386,11 @@ export function ElectricityHistory(props: Readonly<ElectricityHistoryProps>) {
       /> : <div className="empty-state">{loading ? t("chart.loading") : t("common.noData")}</div>}
       {loading && domain && <p className="chart-capability-note" role="status">{t("chart.loading")}</p>}
       {props.metric === "energy" && <p className="chart-capability-note">{t("energy.chartCumulativeHint")}</p>}
-      {(errors.length > 0 || (props.metric === "electricity_price" && props.priceError)) && <p className="inline-error" role="alert">{t("chart.loadError")}</p>}
+      {failed && <div className="inline-error" role="alert"><p>{t(accessDenied ? "energy.accessDenied" : "chart.loadError")}</p><button type="button" className="button secondary" disabled={loading} onClick={retry}>{t("common.retry")}</button></div>}
       {mode === "combined" && aggregateResult.partialCount > 0 && <p className="chart-capability-note">{t("energy.chartCompleteIntervals")}</p>}
       {mode === "combined" && !loading && aggregateResult.excludedCount > 0 && aggregateResult.reportingCount > 0 && <p className="chart-capability-note">{t("energy.chartSourcesWithoutData", { count: aggregateResult.excludedCount })}</p>}
       {truncatedSeries && <p className="chart-capability-note">{t("energy.chartTruncatedRange")}</p>}
+      {partialConsumption && <p className="chart-capability-note">{t("energy.chartConsumptionIncomplete")}</p>}
       {dataRows.length > 0 && <details className="chart-data-disclosure" open={dataOpen}>
         <summary onClick={(event) => { event.preventDefault(); setDataOpen((current) => !current); }}>{t("common.showDataTable")}</summary>
         {dataOpen && <div className="chart-data-table-wrap" role="region" aria-label={chartLabel} tabIndex={0}>

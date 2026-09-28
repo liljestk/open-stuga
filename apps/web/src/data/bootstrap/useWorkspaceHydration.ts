@@ -90,22 +90,6 @@ export function useWorkspaceHydration(
       try {
         if (streamReady) await streamReady;
         if (!isCurrentLoad()) return;
-        const measurementSnapshot = optionalResource("measurement-snapshot", api.measurementSnapshot(houseId));
-        const observationsRequest = optionalResource("observations", api.observations(houseId));
-        const maintenanceRequest = optionalResource("maintenance", api.maintenanceTasks({ houseId }));
-        const staticParametersRequest = optionalResource("static-parameters", api.staticParameters(houseId));
-        const definitionsRequest = includeGlobalData
-          ? optionalResource("measurement-definitions", api.measurementDefinitions())
-          : Promise.resolve(null);
-        const alertRulesRequest = includeGlobalData
-          ? optionalResource("alert-rules", api.alertRules())
-          : Promise.resolve(null);
-        const alertsRequest = includeGlobalData
-          ? optionalResource("alerts", api.alerts())
-          : Promise.resolve(null);
-        const scenariosRequest = includeGlobalData && includeAdministrativeData
-          ? optionalResource("scenarios", api.scenarios())
-          : Promise.resolve(null);
         const integrationRequest = includeGlobalData && includeAdministrativeData
           ? api.integrations()
           : Promise.resolve(null);
@@ -128,6 +112,25 @@ export function useWorkspaceHydration(
         }
         const sensors = snapshot.length ? sensorsFromSnapshots(snapshot) : await api.sensors(houseId);
         if (!isCurrentLoad()) return;
+        // Finish core reads, including an empty-snapshot inventory fallback,
+        // before optional reads occupy the bounded HTTP request queue. A slow
+        // auxiliary endpoint must not keep the entire application loading.
+        const measurementSnapshot = optionalResource("measurement-snapshot", api.measurementSnapshot(houseId, "optional"));
+        const observationsRequest = optionalResource("observations", api.observations(houseId, "optional"));
+        const maintenanceRequest = optionalResource("maintenance", api.maintenanceTasks({ houseId }, "optional"));
+        const staticParametersRequest = optionalResource("static-parameters", api.staticParameters(houseId, "optional"));
+        const definitionsRequest = includeGlobalData
+          ? optionalResource("measurement-definitions", api.measurementDefinitions("optional"))
+          : Promise.resolve(null);
+        const alertRulesRequest = includeGlobalData
+          ? optionalResource("alert-rules", api.alertRules("optional"))
+          : Promise.resolve(null);
+        const alertsRequest = includeGlobalData
+          ? optionalResource("alerts", api.alerts("optional"))
+          : Promise.resolve(null);
+        const scenariosRequest = includeGlobalData && includeAdministrativeData
+          ? optionalResource("scenarios", api.scenarios("optional"))
+          : Promise.resolve(null);
         setState((current) => {
           if (!isCurrentLoad()) return current;
           const definitions = enabledDefinitions(current.measurementDefinitions);
@@ -280,11 +283,11 @@ export function useWorkspaceHydration(
       const telemetryVersion = (houseTelemetryVersions.current.get(houseId) ?? 0) + 1;
       houseTelemetryVersions.current.set(houseId, telemetryVersion);
       try {
-        const measurementSnapshot = api.measurementSnapshot(houseId).catch(() => null);
-        const [snapshot, generic] = await Promise.all([api.snapshot(houseId), measurementSnapshot]);
+        const measurementSnapshot = api.measurementSnapshot(houseId, "optional").catch(() => null);
+        const [snapshot, generic] = await Promise.all([api.snapshot(houseId, "optional"), measurementSnapshot]);
         if (activeHouseId.current === houseId
           || houseTelemetryVersions.current.get(houseId) !== telemetryVersion) return;
-        const sensors = snapshot.length ? sensorsFromSnapshots(snapshot) : await api.sensors(houseId);
+        const sensors = snapshot.length ? sensorsFromSnapshots(snapshot) : await api.sensors(houseId, "optional");
         if (activeHouseId.current === houseId
           || houseTelemetryVersions.current.get(houseId) !== telemetryVersion) return;
         setState((current) => {

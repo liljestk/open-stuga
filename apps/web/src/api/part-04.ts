@@ -1,3 +1,4 @@
+import type { ApiReadSchedulingClass } from "./support/requestScheduler";
 import type {
   ActionPlaybook,
   ActionRun,
@@ -166,8 +167,8 @@ const measurementHistoryPageRequest = async (
   };
 
 export const apiPart04 = {
-  measurementSnapshot: async (houseId: string) => (await requestV2<{ snapshot: { sensorId: string; measurements: Record<string, MeasurementSample> }[] }>(
-      `/measurements/snapshot?houseId=${encodeURIComponent(houseId)}`,
+  measurementSnapshot: async (houseId: string, schedulingClass: ApiReadSchedulingClass = "background") => (await requestV2<{ snapshot: { sensorId: string; measurements: Record<string, MeasurementSample> }[] }>(
+      `/measurements/snapshot?houseId=${encodeURIComponent(houseId)}`, { schedulingClass },
     )).snapshot,
   measurementHistoryPage: measurementHistoryPageRequest,
   measurementHistory: async (sensorId: string, metric: string, from: string, to: string, limit = 500, signal?: AbortSignal) => (

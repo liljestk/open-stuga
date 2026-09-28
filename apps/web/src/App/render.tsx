@@ -270,6 +270,7 @@ export function renderApp(context: ReturnType<typeof useAppPart03>) {
         <div><span className="eyebrow">{t("properties.guestReadOnly")}</span><h1 id="property-electricity-access-title">{t("properties.adminOnlyTitle")}</h1><p>{t("properties.adminOnlyBody")}</p></div>
         <button type="button" className="primary-button" onClick={() => navigate("properties", null, true, window.location.pathname, property.id)}>{t("bootstrap.propertyForHome")}</button>
       </section> : <Suspense fallback={routeLoading}><EnergyPage
+        dataMode={climate.dataMode === "demo" ? "demo" : "live"}
         state={state}
         house={contextualHouse}
         propertyId={property.id}

@@ -15,6 +15,7 @@ function queryResult(rows: QueryResultRow[]): QueryResult<QueryResultRow> {
 }
 
 class RollupPool {
+  constructor(private readonly overrides: QueryResultRow = {}) {}
   readonly queries: CapturedQuery[] = [];
   readonly on = vi.fn(() => this);
   readonly off = vi.fn(() => this);
@@ -49,6 +50,7 @@ class RollupPool {
       estimated_sample_count: "2",
       stale_sample_count: "0",
       counter_reset_count: "0",
+      ...this.overrides,
     }] : []);
   }
 }
@@ -98,7 +100,7 @@ describe("TimeseriesStore analytics rollup", () => {
       "1 hour",
       true,
       3,
-      3_600,
+      900,
     ]);
     expect(rollup.text).toContain("measurement_ordered_rollups");
     expect(rollup.text).toContain("measurement_ordered_rollup_generations");
@@ -112,6 +114,19 @@ describe("TimeseriesStore analytics rollup", () => {
     expect(rollup.text).toContain("counts.cadence_seconds * 1.5");
     expect(rollup.text).toContain("ORDER BY sample.observed_at ASC LIMIT 1");
     expect(rollup.text).not.toMatch(/LIMIT \$\d/u);
+  });
+
+  it.each([0.05, null])("retains empty-bucket extrema as null with consumption %s", async (consumption) => {
+    const pool = new RollupPool({ rollup_value: null, minimum: null, maximum: null,
+      bucket_sample_count: 0, consumption_kwh: consumption });
+    const store = new TimeseriesStore({ pool: pool as unknown as Pool, statementTimeoutMs: 0 });
+    const result = await store.measurementAnalyticsRollup({
+      series: [{ sensorId: "meter-1", metric: "power", aggregation: "time_weighted_mean" }],
+      from: FROM, to: TO, resolution: "5m", qualities: ["good", "estimated"],
+    });
+    expect(result.series[0]!.buckets).toEqual([expect.objectContaining({
+      value: null, minimum: null, maximum: null, sampleCount: 0, consumptionKwh: consumption,
+    })]);
   });
 
   it("passes a validated custom minute interval to PostgreSQL", async () => {

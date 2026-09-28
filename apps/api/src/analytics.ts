@@ -1,3 +1,4 @@
+import { analyticsConsumptionBuckets } from "./analytics-consumption.js";
 import type {
   AggregationSemantic,
   AnalyticsAggregation,
@@ -459,6 +460,7 @@ async function bucketPoints(
     }
   }
   const points: AnalyticsPoint[] = [];
+  const consumption = analyticsConsumptionBuckets(samples, samples[0]?.metric ?? "", bucketMs, end);
   let previousCounterSample: MeasurementSample | undefined;
   for (let timestamp = firstBucket; timestamp < end; timestamp += bucketMs) {
     const values = byBucket.get(timestamp) ?? [];
@@ -472,6 +474,7 @@ async function bucketPoints(
     points.push({
       timestamp: new Date(timestamp).toISOString(),
       value: aggregated.value,
+      ...(consumption.has(timestamp) ? { consumptionKwh: consumption.get(timestamp) ?? null } : {}),
       minimum: minimumOf(values.map((sample) => sample.value)),
       maximum: maximumOf(values.map((sample) => sample.value)),
       sampleCount: values.length,
