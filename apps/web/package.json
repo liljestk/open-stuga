@@ -22,7 +22,7 @@
     "@vitejs/plugin-react": "^6.0.4",
     "fflate": "^0.8.3",
     "leaflet": "^1.9.4",
-    "lucide-react": "^1.24.0",
+    "lucide-react": "^1.48.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "read-excel-file": "^9.3.10"
