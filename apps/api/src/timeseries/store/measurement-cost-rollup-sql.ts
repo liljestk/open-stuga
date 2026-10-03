@@ -1,4 +1,5 @@
 import { qualifiedName } from "../schema.js";
+import { measurementSeriesBoundsSql } from "./measurement-series-bounds-sql.js";
 import { MEASUREMENT_ORDERED_ROLLUP_VERSION } from "./methods/measurement-ordered-rollups.js";
 
 type CostMetric = "energy" | "power";
@@ -11,7 +12,13 @@ type CostMetric = "energy" | "power";
  */
 function costPlanningCtes(schema: string): string {
   const prices = qualifiedName(schema, "electricity_price_samples");
-  return `latest_prices_raw AS (
+  return `requested_series AS (
+      SELECT $1::TEXT AS sensor_id, $6::TEXT AS metric
+    ), measurement_bounds AS (${measurementSeriesBoundsSql(schema, {
+      requested: "requested_series", until: "$3::TIMESTAMPTZ",
+      qualities: "ARRAY['good', 'estimated']::TEXT[]", excludeSynthetic: "$5::BOOLEAN",
+    })}
+    ), latest_prices_raw AS (
       (SELECT DISTINCT ON (starts_at)
         starts_at, ends_at, raw_price_cents_per_kwh, margin_cents_per_kwh
       FROM ${prices}
@@ -188,22 +195,41 @@ function costPlanningCtes(schema: string): string {
           WHERE range.range_start < minute.unit_start + INTERVAL '1 minute'
             AND range.range_end > minute.unit_start
         )
-    ), selected_units AS (
+    ), candidate_units AS (
       SELECT unit_start, 3600::INTEGER AS bucket_seconds FROM hour_units
       UNION ALL SELECT unit_start, 900::INTEGER FROM quarter_units
       UNION ALL SELECT unit_start, 60::INTEGER FROM minute_units
+    ), selected_units AS (
+      SELECT unit.* FROM candidate_units unit CROSS JOIN measurement_bounds bounds
+      WHERE bounds.first_at IS NOT NULL AND bounds.last_at IS NOT NULL
+        AND unit.unit_start + make_interval(secs => unit.bucket_seconds) > bounds.first_at
+        AND unit.unit_start <= bounds.last_at
+          + CASE WHEN $6::TEXT = 'power' THEN INTERVAL '15 minutes' ELSE INTERVAL '0' END
     )`;
 }
 
 /** Returns only the UTC day/resolution variants this exact price timeline needs. */
 export function measurementCostRollupRequirementsSql(schema: string): string {
-  return `WITH ${costPlanningCtes(schema)}
-    SELECT date_bin(INTERVAL '1 day', unit_start,
+  const dirty = qualifiedName(schema, "measurement_ordered_rollup_dirty");
+  const generations = qualifiedName(schema, "measurement_ordered_rollup_generations");
+  return `WITH ${costPlanningCtes(schema)}, required_variants AS (
+      SELECT date_bin(INTERVAL '1 day', unit_start,
         TIMESTAMPTZ '1970-01-01 00:00:00+00') AS day_start,
-      bucket_seconds
-    FROM selected_units
-    WHERE $1::TEXT IS NOT NULL
-    GROUP BY 1, 2
+        bucket_seconds
+      FROM selected_units GROUP BY 1, 2
+    )
+    SELECT required.day_start, required.bucket_seconds,
+      (dirty.sensor_id IS NOT NULL AND generation.sensor_id IS NOT NULL
+        AND GREATEST(dirty.current_seq, generation.current_seq) = dirty.clean_seq) AS ready
+    FROM required_variants required
+    LEFT JOIN ${dirty} dirty
+      ON dirty.sensor_id = $1 AND dirty.metric = $6::TEXT
+      AND dirty.day_start = required.day_start AND dirty.bucket_seconds = required.bucket_seconds
+      AND dirty.quality_mask = 3
+      AND dirty.source_scope = CASE WHEN $5::BOOLEAN THEN 'real' ELSE 'all' END
+    LEFT JOIN ${generations} generation
+      ON generation.sensor_id = dirty.sensor_id AND generation.metric = dirty.metric
+      AND generation.day_start = required.day_start
     ORDER BY bucket_seconds DESC, day_start`;
 }
 

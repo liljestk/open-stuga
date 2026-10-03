@@ -2,6 +2,15 @@
 
 All notable Stugu releases are recorded here.
 
+## 0.41.7
+
+- Prepare electricity history only across each meter's recorded range. Long periods no longer schedule a full year of empty history before a newly connected meter can answer.
+- Keep unfinished ordered history retryable without falling back to expensive raw reads or requesting unrelated archive catch-up. Cost reads skip the full pricing calculation while their required summaries are still preparing.
+- Automatically refresh preparing usage and cost views, keep their selections, and explain the loading state. Cancel cost requests when their view becomes inactive.
+- Preserve internal counter gaps, the 15-minute power hold, quality/source filters and partial coverage of the originally requested period.
+
+Upgrade impact: no database migration, configuration change, Compose contract change or host update is required. Existing readings and pending history work are retained; preparation may continue after installation.
+
 ## 0.41.6
 
 - Reduce the time spent calculating Home and Property electricity costs as stored price history grows. Local calculations now seek only prices overlapping each measured interval instead of scanning the complete price history for every reading.

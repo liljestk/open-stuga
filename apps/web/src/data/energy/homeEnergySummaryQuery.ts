@@ -2,6 +2,8 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "../../api";
 import { queryClient } from "../queryClient";
 import { queryKeys } from "../queryKeys";
+import { historyRefreshInterval } from "./historyPreparation";
+import { useCancelInactiveQuery } from "../useCancelInactiveQuery";
 
 export function homeEnergySummaryQueryOptions(
   houseId: string,
@@ -21,7 +23,7 @@ export function homeEnergySummaryQueryOptions(
     },
     enabled: Boolean(houseId) && enabled,
     staleTime: refreshMs,
-    refetchInterval: enabled ? refreshMs : false,
+    refetchInterval: historyRefreshInterval(enabled, refreshMs),
   } as const;
 }
 
@@ -32,7 +34,10 @@ export function useHomeEnergySummaryQuery(
   enabled: boolean,
   refreshMs: number,
 ) {
-  return useQuery(homeEnergySummaryQueryOptions(
+  const options = homeEnergySummaryQueryOptions(
     houseId, intervalId, durationMs, enabled, refreshMs,
-  ), queryClient);
+  );
+  const query = useQuery(options, queryClient);
+  useCancelInactiveQuery(options.queryKey, options.enabled);
+  return query;
 }

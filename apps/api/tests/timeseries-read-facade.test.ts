@@ -6,6 +6,8 @@ import type {
   Reading,
 } from "@climate-twin/contracts";
 import { describe, expect, it, vi } from "vitest";
+import { AnalyticsCapacityError } from "../src/analytics/work-limiter.js";
+import { RollupsMaterializingError } from "../src/timeseries/read-support.js";
 import {
   HybridTelemetryReader,
   IncompleteTelemetryHistoryError,
@@ -860,6 +862,29 @@ describe("HybridTelemetryReader", () => {
       finish();
     }
   });
+
+  it.each([new RollupsMaterializingError(), new AnalyticsCapacityError()])(
+    "preserves retryable analytics preparation without waking archive reconciliation (%s)",
+    async (preparing) => {
+      const reconcile = vi.fn();
+      const measurementWindow = vi.fn();
+      const reader = new HybridTelemetryReader({
+        local: localReader(),
+        archive: {
+          ...archiveReader(), measurementWindow,
+          measurementAnalyticsRollup: vi.fn(async () => { throw preparing; }),
+        },
+        archivePhase: () => "ready", reconcile, localHistoryComplete: false,
+      });
+
+      await expect(reader.measurementAnalyticsRollup({
+        series: [{ sensorId: "meter-a", metric: "energy", aggregation: "delta" }],
+        from: FROM, to: TO, resolution: "1d", qualities: ["good"],
+      })).rejects.toBe(preparing);
+      expect(reconcile).not.toHaveBeenCalled();
+      expect(measurementWindow).not.toHaveBeenCalled();
+    },
+  );
 
   it("uses raw archive samples when thermal rollups briefly lag live ingestion", async () => {
     const reconcile = vi.fn(async () => undefined);

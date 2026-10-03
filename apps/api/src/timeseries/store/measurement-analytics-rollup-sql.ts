@@ -1,4 +1,5 @@
 import { measurementAnalyticsAggregateName, qualifiedName, type MeasurementAnalyticsBaseBucket } from "../schema.js";
+import { measurementSeriesBoundsSql } from "./measurement-series-bounds-sql.js";
 import { MEASUREMENT_ORDERED_ROLLUP_VERSION } from "./methods/measurement-ordered-rollups.js";
 
 /**
@@ -188,22 +189,32 @@ export function orderedAnalyticsSql(schema: string): string {
         LEAST(to_bucket, date_bin(INTERVAL '1 day', clock_timestamp(),
           TIMESTAMPTZ '1970-01-01 00:00:00+00')) AS full_to
       FROM hour_bounds
+    ), measurement_bounds AS (${measurementSeriesBoundsSql(schema, {
+      requested: "requested_series", until: "$3::TIMESTAMPTZ",
+      qualities: "$4::TEXT[]", excludeSynthetic: "$6::BOOLEAN",
+    })}
+    ), history_limits AS (
+      SELECT bounds.sensor_id, bounds.metric,
+        GREATEST(ordered_limits.full_from, bounds.first_at) AS history_from,
+        LEAST(ordered_limits.full_to,
+          bounds.last_at + CASE WHEN bounds.metric = 'power' THEN INTERVAL '15 minutes' ELSE INTERVAL '0' END
+            + INTERVAL '1 microsecond',
+          date_bin(INTERVAL '1 day', clock_timestamp(),
+            TIMESTAMPTZ '1970-01-01 00:00:00+00')) AS history_to
+      FROM measurement_bounds bounds
+      CROSS JOIN ordered_limits
+      WHERE bounds.first_at IS NOT NULL AND bounds.last_at IS NOT NULL
     ), required_days AS (
       SELECT requested.sensor_id, requested.metric, generated.day_start
-      FROM requested_series requested
-      CROSS JOIN ordered_limits
+      FROM history_limits requested
       CROSS JOIN LATERAL generate_series(
-        date_bin(INTERVAL '1 day', ordered_limits.full_from,
+        date_bin(INTERVAL '1 day', requested.history_from,
           TIMESTAMPTZ '1970-01-01 00:00:00+00'),
-        date_bin(INTERVAL '1 day', LEAST(ordered_limits.full_to,
-          date_bin(INTERVAL '1 day', clock_timestamp(),
-            TIMESTAMPTZ '1970-01-01 00:00:00+00')) - INTERVAL '1 microsecond',
+        date_bin(INTERVAL '1 day', requested.history_to - INTERVAL '1 microsecond',
           TIMESTAMPTZ '1970-01-01 00:00:00+00'),
         INTERVAL '1 day'
       ) AS generated(day_start)
-      WHERE ordered_limits.full_from < LEAST(ordered_limits.full_to,
-        date_bin(INTERVAL '1 day', clock_timestamp(),
-          TIMESTAMPTZ '1970-01-01 00:00:00+00'))
+      WHERE requested.history_from < requested.history_to
     ), pending AS (
       SELECT requested.sensor_id, requested.metric,
         count(*) FILTER (WHERE required.day_start IS NOT NULL AND (

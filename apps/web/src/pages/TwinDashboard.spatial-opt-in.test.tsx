@@ -216,6 +216,8 @@ describe("TwinDashboard spatial research opt-in", () => {
     fireEvent.click(await screen.findByText("Environmental layer lab", { selector: "strong" }));
     await waitFor(() => specialistRequests(requests).forEach((request) => expect(request).toHaveBeenCalledOnce()));
 
+    // Calls start before the loaded state installs its visibility listener.
+    await screen.findByRole("button", { name: "Stop analysis" });
     requests.inference.mockImplementationOnce((_houseId, signal) => {
       revalidationSignal = signal;
       return rejectOnAbort(signal!);

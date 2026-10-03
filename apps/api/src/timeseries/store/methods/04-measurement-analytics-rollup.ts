@@ -1,4 +1,5 @@
 import type { QueryResultRow } from "pg";
+import { RollupsMaterializingError } from "../../read-support.js";
 import { MEASUREMENT_ANALYTICS_BUCKETS, type MeasurementAnalyticsBaseBucket } from "../../schema.js";
 import type {
   MeasurementAnalyticsAggregation,
@@ -135,6 +136,7 @@ async function executeRollup(
   ], query);
 
   if (result.rows.some((row) => row.coverage_complete === false)) {
+    if (ordered) throw new RollupsMaterializingError();
     throw new Error("Telemetry rollups are still materializing the requested history");
   }
   if (result.rows.some((row) => row.unit_consistent === false)) {

@@ -15,6 +15,7 @@ import { useI18n } from "../i18n";
 import { formatInTimeZone } from "../dateTime";
 import { api, ApiRequestError } from "../api";
 import { useHomeEnergySummaryQuery } from "../data/energy/homeEnergySummaryQuery";
+import { historyIsPreparing } from "../data/energy/historyPreparation";
 import { useHouseElectricityPriceQuery } from "../data/energy/houseElectricityPriceQuery";
 import { currentElectricityPrice, propertyElectricityKey, useEnergyOptimizationQuery, usePriceHistoryQuery, usePropertyElectricityQuery } from "../data/energy/electricityQueries";
 import { queryClient } from "../data/queryClient";
@@ -194,8 +195,12 @@ export function EnergyPage({ state, dataMode = "live", house = null, propertyId:
   const dailySummary = dailySummaryQuery.data ?? null;
   const energyCost = energyCostQuery.data ?? null;
   const rollingSummary = rollingSummaryQuery.data ?? null;
-  const energyCostBusy = energyCostQuery.isPending && summariesEnabled;
-  const energyCostError = energyCostQuery.isError;
+  const dailyPreparing = historyIsPreparing(dailySummaryQuery.error);
+  const costPreparing = historyIsPreparing(energyCostQuery.error);
+  const energyCostBusy = summariesEnabled && (energyCostQuery.isPending || costPreparing);
+  const energyCostError = energyCostQuery.isError && !costPreparing;
+  const summariesPreparing = summariesEnabled
+    && (dailySummaryQuery.isPending || energyCostQuery.isPending || dailyPreparing || costPreparing);
 
   useEffect(() => {
     const expectedPathname = window.location.pathname;
@@ -265,7 +270,9 @@ export function EnergyPage({ state, dataMode = "live", house = null, propertyId:
       ? sensors[0]!.name
       : t("energy.combinedSources", { count: reporting, total: sensors.length });
   const powerSourceLabel = combinedSourceLabel(powerSensors, powerSources.length);
-  const dailyState = energySummaryState(dailySummary, dailySummaryQuery.isPending && summariesEnabled, dailySummaryQuery.isError);
+  const dailyState = energySummaryState(dailySummary,
+    (dailySummaryQuery.isPending || dailyPreparing) && summariesEnabled,
+    dailySummaryQuery.isError && !dailyPreparing);
   const energySourceLabel = dailyState === "loading" ? t("energy.costLoading")
     : dailyState === "unavailable" ? t("energy.summaryUnavailable")
     : dailyState === "empty" ? t("energy.costUsageUnavailable")
@@ -444,6 +451,7 @@ export function EnergyPage({ state, dataMode = "live", house = null, propertyId:
         </article>
       </section>
 
+      {summariesPreparing && <p className="energy-waiting" role="status">{t("energy.costLoading")}</p>}
       {(dailyState === "unavailable" || energyCostError || (energyCost?.failedSourceCount ?? 0) > 0) && <p className="energy-waiting" role="status">
         {t("energy.summaryUnavailable")} <button type="button" className="secondary-button" onClick={() => { void dailySummaryQuery.refetch(); void energyCostQuery.refetch(); }}>{t("common.retry")}</button>
       </p>}

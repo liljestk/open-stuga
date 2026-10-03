@@ -5,6 +5,7 @@ import { createClientUuid } from "../../clientUuid";
 import { timeRangeHours, type TimeRange } from "../../domain";
 import { queryClient } from "../queryClient";
 import { useCancelInactiveQuery } from "../useCancelInactiveQuery";
+import { historyRefreshInterval } from "./historyPreparation";
 
 export interface ElectricityHistorySource { id: string; energy: boolean; power: boolean }
 
@@ -50,7 +51,7 @@ export function electricityHistoryQueryOptions(
     enabled: enabled && Boolean(houseId) && ordered.length > 0,
     staleTime: refreshMs,
     refetchOnWindowFocus: true,
-    refetchInterval: enabled ? refreshMs : false,
+    refetchInterval: historyRefreshInterval(enabled, refreshMs),
   } as const;
 }
 

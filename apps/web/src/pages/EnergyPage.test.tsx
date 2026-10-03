@@ -4,7 +4,7 @@ import type { HomeEnergyCost, HomeEnergySummary, MeasurementSample, Sensor } fro
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createDemoState } from "../domain";
 import { I18nProvider } from "../i18n";
-import { api } from "../api";
+import { api, ApiRequestError } from "../api";
 import { queryClient } from "../data/queryClient";
 import { EnergyPage } from "./EnergyPage";
 
@@ -761,6 +761,38 @@ describe("EnergyPage", () => {
     expect(within(energyCard).getByText(/Usage could not be fully calculated/)).not.toBeNull();
     expect(screen.getAllByRole("button", { name: "Try again" }).length).toBeGreaterThan(0);
     expect(within(energyCard).queryByText("3.00 kWh")).toBeNull();
+  });
+
+  it("automatically recovers an annual cost that is preparing without calling it unavailable", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date("2026-07-16T12:00:00.000Z"));
+    const state = createDemoState();
+    const house = state.houses[0]!;
+    const meter = { ...state.sensors[0]!, id: "meter", houseId: house.id,
+      name: "Main meter", measurementEntityIds: { energy: "sensor.main_energy" } };
+    state.sensors = [meter];
+    state.latestMeasurements = { meter: { energy: sample(12, "2026-07-16T11:59:00.000Z") } };
+    state.measurementHistory = {};
+    let ready = false;
+    const request = vi.spyOn(api, "houseEnergySummary").mockImplementation(async (id, from, to) => {
+      if (!ready) throw new ApiRequestError(503, "TELEMETRY_ROLLUPS_MATERIALIZING", "Preparing history");
+      return combinedSummary(id, from, to, 1);
+    });
+    vi.spyOn(api, "houseElectricityPrice").mockResolvedValue({ current: null, prices: [] });
+    window.history.replaceState(null, "", `/properties/${house.propertyId}/homes/${house.id}/electricity?cost=year`);
+    render(<I18nProvider><EnergyPage state={state} house={house} units="metric" onLoadSeries={vi.fn()} onOpenAlerts={vi.fn()} /></I18nProvider>);
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+    const card = document.querySelector<HTMLElement>(".running_cost")!;
+    expect(within(card).getByText("Calculating from stored history…")).not.toBeNull();
+    expect(screen.queryByText(/Usage could not be fully calculated/)).toBeNull();
+    expect(screen.getByRole("combobox", { name: "Running cost interval" })).toHaveValue("year");
+    const count = request.mock.calls.length;
+    ready = true;
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_100); });
+    await waitFor(() => expect(within(card).getByText("1.00 €")).not.toBeNull());
+    expect(request.mock.calls.length).toBeGreaterThan(count);
+    expect(screen.getByRole("combobox", { name: "Running cost interval" })).toHaveValue("year");
   });
 
   it("uses a fresh electricity source when a newer candidate is marked stale", () => {

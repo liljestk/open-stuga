@@ -6,6 +6,7 @@ import type { ClimateState } from "../domain";
 import { definitionFor, formatMeasurement } from "../measurements";
 import { useI18n } from "../i18n";
 import { homeEnergySummaryQueryOptions } from "../data/energy/homeEnergySummaryQuery";
+import { historyIsPreparing } from "../data/energy/historyPreparation";
 import { queryClient } from "../data/queryClient";
 import { energySummaryState } from "./energySummaryState";
 import { ELECTRICITY_METRICS } from "./ElectricityHistory";
@@ -144,7 +145,8 @@ export function PropertyEnergyOverview({ state, propertyId, propertyName, units,
           const share = totalConsumption !== null && totalConsumption > 0 && consumption !== null
             ? Math.max(0, Math.min(100, consumption / totalConsumption * 100))
             : 0;
-          const summaryState = energySummaryState(summary, row.query?.isPending ?? false, row.query?.isError ?? false);
+          const summaryState = historyIsPreparing(row.query?.error) ? "loading"
+            : energySummaryState(summary, row.query?.isPending ?? false, row.query?.isError ?? false);
           const status = !row.hasUsageSource
             ? t("energy.propertyNoSource")
             : summaryState === "loading"
@@ -159,7 +161,7 @@ export function PropertyEnergyOverview({ state, propertyId, propertyName, units,
           return <article className="property-energy-home" key={row.houseId}>
             <div className="property-energy-home-heading">
               <span className="property-energy-home-icon" aria-hidden="true"><HouseIcon size={18} /></span>
-              <div><h4>{row.name}</h4><span>{status}</span></div>
+              <div><h4>{row.name}</h4><span role="status">{status}</span></div>
               <strong>{formatEnergy(consumption)}</strong>
             </div>
             {row.hasUsageSource && summaryState === "unavailable" && <button type="button" className="secondary-button" onClick={() => { void row.query?.refetch(); }}>{t("common.retry")}</button>}

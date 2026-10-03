@@ -259,6 +259,28 @@ describe("electricity cost correctness", () => {
     expect(reader.powerCostAggregate).toHaveBeenCalledOnce();
   });
 
+  it("keeps an entirely preparing summary retryable instead of returning a failed empty result", async () => {
+    const preparing = new RollupsMaterializingError();
+    const reader = {
+      measurementCoverage: vi.fn(async () => ({
+        archiveState: "merged",
+        complete: true,
+        records: ["meter-a", "meter-b"].map((sensorId) => ({
+          sensorId, metric: "energy", start: FROM, end: TO,
+        })),
+      })),
+      energyCostAggregate: vi.fn(async () => { throw preparing; }),
+      powerCostAggregate: vi.fn(async () => { throw preparing; }),
+    } as unknown as HybridTelemetryReader;
+
+    await expect(new EnergyCostService(reader).summarize({
+      houseId: "house-main", propertyId: "property-main",
+      sensorIds: ["meter-a", "meter-b"], from: FROM, to: TO,
+    })).rejects.toBe(preparing);
+    expect(reader.energyCostAggregate).toHaveBeenCalledTimes(2);
+    expect(reader.powerCostAggregate).toHaveBeenCalledTimes(2);
+  });
+
   it("degrades a combined summary per source while one source's rollups materialize", async () => {
     const pricedAggregate = {
       deltaCount: 4,
