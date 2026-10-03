@@ -42,8 +42,6 @@ Source audit covered Power / Interval use / Electricity price; Single / Multiple
 | E21 | P2 | Fixed in follow-up candidate 0.41.6; live acceptance pending | The indexed candidate still processed local cost calculations synchronously. A synthetic 72-hour window with 259,201 one-second readings and 46,000 price periods took 2.4 seconds for counter cost and 4.0 seconds for power cost on the development machine | File-backed calculations now run in one read-only worker with bounded admission, a deadline and cancellation. Regressions exercise dense committed SQLite history while the main event loop remains responsive, archive fallback, subsequent writes, cancellation and shutdown. The existing 72-hour hybrid fallback limit remains. Appliance latency still requires deployed verification |
 | E22 | P2 | Fixed in follow-up candidate 0.41.6; live acceptance pending | A same-window synthetic 24-hour API comparison returned 25.651584 kWh in the Home summary and 25.432717 kWh across chart consumption integrals. The raw analytics read began at the requested start and omitted the preceding anchor; the summary included a prorated opening interval | Indexed predecessor and exact-end reads now contribute to consumption only. Raw and cached archive regressions cover partial opening buckets, range-end observations, resets and unchanged observation counts; stale/synthetic anchors are excluded and simultaneous raw conflicts remain unavailable. The same-basis synthetic summary and chart now agree within summary rounding. A summary using a different measurement basis remains a separate estimate |
 
-## October 3 deployment follow-up
-
 ## October 3: compressed-history query follow-up
 
 Stable 0.41.7 was published and installed through the normal verified-backup
@@ -62,6 +60,8 @@ These are measured query improvements and correctness checks, not a blanket
 live UI, reliability, accessibility or deployment pass. The 0.41.7 one-time
 visual exception is not transferred to this candidate. All release and live
 acceptance evidence remains outside Git.
+
+## October 3 deployment follow-up
 
 The later 0.41.6 follow-up also isolates dense local cost work and aligns raw
 and archived consumption at range boundaries. The development fast gate passed
