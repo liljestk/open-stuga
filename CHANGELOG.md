@@ -2,6 +2,14 @@
 
 All notable Stugu releases are recorded here.
 
+## 0.41.10
+
+- Load compressed electricity history and annual costs within each meter's selected time windows, reading each required cost day once.
+- Preserve consumption, price changes, missing prices and partial coverage with the faster reads.
+- Bound expired Pi database diagnostic checks inside their container and align private workspace dependencies for clean release builds.
+
+Upgrade impact: includes the 0.41.8 and 0.41.9 candidate fixes. No database migration, configuration change, Compose contract change or host update is required. Existing readings and backups are retained.
+
 ## 0.41.9
 
 - Correct private workspace dependency versions so the electricity fixes build and install from a fresh checkout. Check all workspace dependency pins and their lockfile entries before preparing a release.
