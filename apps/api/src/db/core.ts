@@ -101,9 +101,12 @@ import {
   type RegisteredMethodSet,
 } from "../method-registry.js";
 import { CORE_SCHEMA_SQL } from "./migrations/core-schema.js";
+import { LocalCostIsolate } from "../timeseries/local-cost-isolate.js";
 
 export interface DatabaseInternals {
   readonly db: DatabaseSync;
+  closeCostReader(): void;
+  costAggregateAsync(metric: "energy" | "power", query: EnergyCostAggregateQuery): Promise<EnergyCostAggregateRecord>;
   transaction<T>(operation: () => T): T;
   immediateTransaction<T>(operation: () => T): T;
 }
@@ -143,8 +146,11 @@ export interface ClimateDatabaseCore {
 
 export class ClimateDatabaseCore {
   readonly db: DatabaseSync;
+  readonly #databasePath: string;
+  #costReader: LocalCostIsolate | null = null;
   #transactionDepth = 0;
   constructor(path: string, seed = true, options: { readOnly?: boolean } = {}) {
+      this.#databasePath = path;
       if (options.readOnly) {
         if (path === ":memory:") throw new Error("A read-only ClimateDatabase requires an existing database file");
         // Read-only connections still create spill files for large sorts.
@@ -175,6 +181,19 @@ export class ClimateDatabaseCore {
     }
   transaction<T>(operation: () => T): T {
       return this.immediateTransaction(operation);
+    }
+  async costAggregateAsync(metric: "energy" | "power", query: EnergyCostAggregateQuery): Promise<EnergyCostAggregateRecord> {
+      // In-memory fixtures cannot share a connection with a worker. Appliance
+      // and standalone deployments use the file-backed, cancellable reader.
+      if (this.#databasePath === ":memory:") {
+        query.signal?.throwIfAborted();
+        return metric === "energy" ? this.energyCostAggregate(query) : this.powerCostAggregate(query);
+      }
+      this.#costReader ??= new LocalCostIsolate(this.#databasePath);
+      return this.#costReader.read(metric, query);
+    }
+  closeCostReader(): void {
+      this.#costReader?.close();
     }
   private immediateTransaction<T>(operation: () => T): T {
       if (this.#transactionDepth > 0) return operation();

@@ -10,17 +10,15 @@ type CostAggregateQuery = EnergyCostAggregateQuery | PowerCostAggregateQuery;
 type CostAggregateMetric = "energy" | "power";
 
 /**
- * The local engine runs one synchronous SQLite statement that blocks the Node
- * event loop for the whole scan. In hybrid deployments it therefore only
- * substitutes for the archive on windows it can serve in milliseconds; longer
- * windows surface the archive state so callers degrade per-source and retry
- * once the archive answers again.
+ * Keep the archive fallback bounded even when SQLite runs in its read-only
+ * worker. Longer windows surface archive state and retry after reconciliation.
  */
 export const LOCAL_COST_FALLBACK_MAX_WINDOW_MS = 72 * 3_600_000;
 
 interface LocalCostAggregateReader {
   energyCostAggregate?(query: EnergyCostAggregateQuery): EnergyCostAggregateRecord;
   powerCostAggregate?(query: PowerCostAggregateQuery): EnergyCostAggregateRecord;
+  costAggregateAsync?(metric: CostAggregateMetric, query: CostAggregateQuery): Promise<EnergyCostAggregateRecord>;
 }
 
 interface ArchiveCostAggregateReader {
@@ -44,16 +42,19 @@ export async function readCostAggregate(input: {
 }): Promise<EnergyCostAggregateRecord> {
   const cancellation = aborted(input.query.signal);
   if (cancellation) throw cancellation;
-  const localRead = input.metric === "energy"
+  const synchronousRead = input.metric === "energy"
     ? input.local.energyCostAggregate
     : input.local.powerCostAggregate;
+  const localRead = input.local.costAggregateAsync
+    ? () => input.local.costAggregateAsync!(input.metric, input.query)
+    : synchronousRead ? () => synchronousRead.call(input.local, input.query) : undefined;
   const archiveRead = input.metric === "energy"
     ? input.archive?.energyCostAggregate
     : input.archive?.powerCostAggregate;
   if (!input.archive || !archiveRead) {
     if (!input.localHistoryComplete) throw new IncompleteTelemetryHistoryError("not-configured");
     if (!localRead) throw new Error(`Local ${input.metric}-cost aggregation is unavailable`);
-    return { ...localRead.call(input.local, input.query), archiveState: "local-only" };
+    return { ...await localRead(), archiveState: "local-only" };
   }
   const localFallbackReady = input.localHistoryComplete
     && localRead !== undefined
@@ -66,7 +67,7 @@ export async function readCostAggregate(input: {
     if (!localFallbackReady) {
       throw new IncompleteTelemetryHistoryError("not-ready");
     }
-    return { ...localRead!.call(input.local, input.query), archiveState: "pending" };
+    return { ...await localRead!(), archiveState: "pending" };
   }
   try {
     return {
@@ -82,7 +83,7 @@ export async function readCostAggregate(input: {
       || error instanceof AnalyticsCapacityError;
     if (!retryable) input.requestReconciliation();
     if (localFallbackReady) {
-      return { ...localRead!.call(input.local, input.query), archiveState: "pending" };
+      return { ...await localRead!(), archiveState: "pending" };
     }
     if (retryable) throw error;
     throw new IncompleteTelemetryHistoryError("failed");

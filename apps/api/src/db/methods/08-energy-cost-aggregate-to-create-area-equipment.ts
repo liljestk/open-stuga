@@ -101,6 +101,7 @@ import { ClimateDataValidationError } from "../support/03-sensor-data-gap-row-to
 import { areaEquipmentFromRow, houseFromRow, propertyAreaFromRow } from "../support/04-canonical-json-value-to-action-playbook-from-row.js";
 import { outdoorLocationKey } from "../support/06-canonical-observation-patch-time-to-outdoor-location.js";
 import { registerDatabaseMethods } from "../core.js";
+import { SQLITE_EFFECTIVE_PRICE_END, sqlitePriceOverlapSql } from "../support/electricity-price-overlap.js";
 
 registerDatabaseMethods({
   /**
@@ -146,22 +147,12 @@ registerDatabaseMethods({
               / full_duration_ms AS window_delta_kwh,
             (julianday(current_at) - julianday(window_start)) * 86400000.0 AS window_duration_ms
           FROM deltas
-        ), price_intervals AS (
-          SELECT price.*,
-            MIN(price.end_at, COALESCE(
-              LEAD(price.start_at) OVER (ORDER BY price.start_at),
-              price.end_at
-            )) AS effective_end_at
-          FROM electricity_price_points AS price
-          WHERE price.property_id = ?
         ), priced AS (
           SELECT normalized.*,
             price.raw_price_cents_per_kwh, price.margin_cents_per_kwh,
-            (julianday(MIN(normalized.current_at, price.effective_end_at))
+            (julianday(MIN(normalized.current_at, ${SQLITE_EFFECTIVE_PRICE_END}))
               - julianday(MAX(normalized.window_start, price.start_at))) * 86400000.0 AS overlap_ms
-          FROM normalized JOIN price_intervals AS price
-            ON price.start_at < normalized.current_at
-            AND price.effective_end_at > normalized.window_start
+          ${sqlitePriceOverlapSql("energy")}
         ), allocations AS (
           SELECT overlap_ms,
             base_delta_kwh * overlap_ms / full_duration_ms AS allocated_kwh,
@@ -180,7 +171,7 @@ registerDatabaseMethods({
           (SELECT MAX(current_at) FROM normalized) AS coverage_until`)
         .get(query.sensorId, query.from, query.excludeSynthetic ? 1 : 0,
           query.sensorId, query.from, query.to, query.excludeSynthetic ? 1 : 0,
-          query.from, query.from, query.from, query.propertyId) as unknown as EnergyCostAggregateRow;
+          query.from, query.from, query.from, query.propertyId, query.propertyId) as unknown as EnergyCostAggregateRow;
       return {
         deltaCount: Number(row.delta_count ?? 0),
         consumptionKwh: Number(row.consumption_kwh ?? 0),
@@ -231,29 +222,21 @@ registerDatabaseMethods({
           WHERE power_watts >= 0 AND power_watts < 1.0e308 AND power_watts = power_watts
         ), normalized AS (
           SELECT *,
+            strftime('%Y-%m-%dT%H:%M:%fZ', window_start_jd) AS window_start_at,
+            strftime('%Y-%m-%dT%H:%M:%fZ', window_end_jd) AS window_end_at,
             (window_end_jd - window_start_jd) * 86400000.0 AS window_duration_ms,
             power_watts * (window_end_jd - window_start_jd) * 86400000.0 / 3600000000.0
               AS window_energy_kwh
           FROM candidates
           WHERE window_end_jd > window_start_jd
-        ), price_intervals AS (
-          SELECT price.*,
-            MIN(price.end_at, COALESCE(
-              LEAD(price.start_at) OVER (ORDER BY price.start_at),
-              price.end_at
-            )) AS effective_end_at
-          FROM electricity_price_points AS price
-          WHERE price.property_id = ?
         ), priced AS (
           SELECT normalized.*,
             price.raw_price_cents_per_kwh, price.margin_cents_per_kwh,
             (
-              MIN(normalized.window_end_jd, julianday(price.effective_end_at))
+              MIN(normalized.window_end_jd, julianday(${SQLITE_EFFECTIVE_PRICE_END}))
               - MAX(normalized.window_start_jd, julianday(price.start_at))
             ) * 86400000.0 AS overlap_ms
-          FROM normalized JOIN price_intervals AS price
-            ON julianday(price.start_at) < normalized.window_end_jd
-            AND julianday(price.effective_end_at) > normalized.window_start_jd
+          ${sqlitePriceOverlapSql("power")}
         ), allocations AS (
           SELECT overlap_ms,
             window_energy_kwh * overlap_ms / window_duration_ms AS allocated_kwh,
@@ -274,7 +257,7 @@ registerDatabaseMethods({
           query.sensorId, query.from, query.excludeSynthetic ? 1 : 0,
           query.sensorId, query.from, query.to, query.excludeSynthetic ? 1 : 0,
           query.from, query.to, query.to,
-          query.propertyId,
+          query.propertyId, query.propertyId,
         ) as unknown as EnergyCostAggregateRow;
       return {
         deltaCount: Number(row.delta_count ?? 0),

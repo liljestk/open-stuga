@@ -3,6 +3,7 @@ import type { MeasurementSample } from "@climate-twin/contracts";
 /** Bucket consumption from ordered observations, never from averaged counters. */
 export function analyticsConsumptionBuckets(
   samples: readonly MeasurementSample[], metric: string, bucketMs: number, end: number,
+  start = -Infinity,
 ): Map<number, number | null> {
   const result = new Map<number, number | null>();
   if (metric !== "energy" && metric !== "power") return result;
@@ -26,15 +27,20 @@ export function analyticsConsumptionBuckets(
     const current = ordered[index]!;
     const at = current.at;
     if (metric === "energy") {
+      if (at < start || at > end) continue;
       const previous = ordered[index - 1];
-      const delta = current.value === null || previous?.value === null ? null
+      const fullDelta = current.value === null || previous?.value === null ? null
         : previous ? current.value >= previous.value ? current.value - previous.value : current.value : 0;
-      add(Math.floor(at / bucketMs) * bucketMs, delta);
+      const fraction = previous ? (at - Math.max(start, previous.at)) / (at - previous.at) : 1;
+      const delta = fullDelta === null ? null : fullDelta * Math.max(0, fraction);
+      // An observation exactly at the exclusive end closes the final interval
+      // but does not become an ordinary sample in the following chart bucket.
+      add(Math.floor(Math.min(at, end - 1) / bucketMs) * bucketMs, delta);
     } else {
       const until = Math.min(end, at + 15 * 60_000,
         ordered[index + 1]?.at ?? end);
-      for (let bucket = Math.floor(at / bucketMs) * bucketMs; bucket < until; bucket += bucketMs) {
-        const duration = Math.min(until, bucket + bucketMs) - Math.max(at, bucket);
+      for (let bucket = Math.floor(Math.max(at, start) / bucketMs) * bucketMs; bucket < until; bucket += bucketMs) {
+        const duration = Math.min(until, bucket + bucketMs) - Math.max(at, start, bucket);
         if (duration > 0) add(bucket, current.value === null || current.value < 0 ? null : current.value * duration / 3_600_000_000);
       }
     }

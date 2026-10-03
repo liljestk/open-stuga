@@ -13,6 +13,7 @@ import {
   planAnalyticsRollup,
 } from "../../analytics-rollup.js";
 import type { HybridTelemetryReader } from "../../timeseries/read-facade.js";
+import { mapWithConcurrency } from "../../timeseries/read-support.js";
 
 const DEFAULT_SOURCE_POINT_LIMIT = 250_000;
 
@@ -53,6 +54,17 @@ export async function executeAnalyticsQuery(
     }
   }
   const sourcePointLimit = input.sourcePointLimit ?? DEFAULT_SOURCE_POINT_LIMIT;
+  const boundaryReads = input.request.resolution === "raw" ? [] : await mapWithConcurrency(
+    input.sensors.flatMap((sensor) => input.definitions.flatMap((definition) =>
+      definition.id === "energy" || definition.id === "power" ? [{ sensor, metric: definition.id }] : [])),
+    4,
+    async ({ sensor, metric }) => input.telemetryReader.measurementBoundarySamples({
+      sensorId: sensor.id, metric: metric as "energy" | "power",
+      from: input.request.range.start, to: input.request.range.end,
+      qualities: input.request.qualityFilter?.include ?? ["good", "estimated", "stale"],
+      ...(input.signal ? { signal: input.signal } : {}),
+    }),
+  );
   const read = await input.telemetryReader.measurementWindow({
     sensorIds: input.sensors.map((sensor) => sensor.id),
     metrics: input.definitions.map((definition) => definition.id),
@@ -71,9 +83,12 @@ export async function executeAnalyticsQuery(
   return buildAnalyticsResponse({
     request: input.request,
     samples: read.records,
+    consumptionBoundarySamples: boundaryReads.flatMap((boundary) => boundary?.records ?? []),
     definitions: [...input.definitions],
     entities,
-    archiveState: read.provenance.archiveState,
+    archiveState: boundaryReads.some((boundary) => boundary?.provenance.archiveState === "failed") ? "failed"
+      : boundaryReads.some((boundary) => boundary?.provenance.archiveState === "not-ready") ? "not-ready"
+      : read.provenance.archiveState,
     generatedAt: input.generatedAt,
   });
 }

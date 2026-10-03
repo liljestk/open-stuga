@@ -2,6 +2,15 @@
 
 All notable Stugu releases are recorded here.
 
+## 0.41.6
+
+- Reduce the time spent calculating Home and Property electricity costs as stored price history grows. Local calculations now seek only prices overlapping each measured interval instead of scanning the complete price history for every reading.
+- Preserve counter resets, bounded power holds, price gaps, and clipping of legacy overlapping prices with the faster queries.
+- Run file-backed local cost calculations in a bounded, read-only worker so dense history cannot stall the API. Cancel disconnected requests and stop scans that exceed their deadline.
+- Include the preceding measurement and exact range-end counter observation when calculating chart consumption. Rolling windows now retain the same supported opening and closing intervals as the electricity summary, including in archived history.
+
+Upgrade impact: no database migration, configuration change, or host update is required. Application and Compose update contracts are unchanged.
+
 ## 0.41.5
 
 - Keep optional background reads from delaying Home and Property startup or visible electricity metrics, while preserving bounded request concurrency and save capacity.

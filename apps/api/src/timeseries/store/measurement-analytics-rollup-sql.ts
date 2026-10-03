@@ -444,18 +444,82 @@ export function orderedAnalyticsSql(schema: string): string {
           ELSE 0 END)::DOUBLE PRECISION AS weighted_seconds
       FROM sequenced JOIN series_counts counts USING (sensor_id, metric)
       GROUP BY sequenced.sensor_id, sequenced.metric, sequenced.target_bucket
+    ), consumption_boundaries AS (
+      -- Index seeks provide consumption anchors without adding out-of-range
+      -- observations to sample counts, extrema or ordinary rollup values.
+      SELECT requested.sensor_id, requested.metric,
+        opening.observed_at AS opening_at, opening.value AS opening_value,
+        closing.value AS closing_value,
+        COALESCE(last_state.last_at, opening.observed_at) AS closing_previous_at,
+        COALESCE(last_state.last_value, opening.value) AS closing_previous_value,
+        (SELECT min(first_at) FROM states
+          WHERE states.sensor_id = requested.sensor_id AND states.metric = requested.metric) AS first_at
+      FROM requested_series requested
+      LEFT JOIN LATERAL (
+        SELECT observed_at, value FROM ${measurements} sample
+        WHERE sample.sensor_id = requested.sensor_id AND sample.metric = requested.metric
+          AND sample.observed_at < $2::TIMESTAMPTZ AND sample.quality = ANY($4::TEXT[])
+          AND (NOT $6::BOOLEAN OR sample.source NOT IN ('mock','replay'))
+        ORDER BY observed_at DESC, ingested_at DESC, source DESC LIMIT 1
+      ) opening ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT value FROM ${measurements} sample
+        WHERE requested.metric = 'energy' AND sample.sensor_id = requested.sensor_id
+          AND sample.metric = requested.metric AND sample.observed_at = $3::TIMESTAMPTZ
+          AND sample.quality = ANY($4::TEXT[])
+          AND (NOT $6::BOOLEAN OR sample.source NOT IN ('mock','replay'))
+        ORDER BY ingested_at DESC, source DESC LIMIT 1
+      ) closing ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT last_at, last_value FROM states
+        WHERE states.sensor_id = requested.sensor_id AND states.metric = requested.metric
+        ORDER BY last_at DESC LIMIT 1
+      ) last_state ON TRUE
+      WHERE requested.metric IN ('energy','power')
+    ), consumption_sequenced AS (
+      SELECT sequenced.*,
+        COALESCE(previous_last_at, boundary.opening_at) AS consumption_previous_at,
+        COALESCE(previous_last_value, boundary.opening_value) AS consumption_previous_value
+      FROM sequenced JOIN consumption_boundaries boundary USING (sensor_id,metric)
     ), consumption_parts AS (
       -- Counter increments are retained before any averaging, including resets
       -- within a stored bucket. Power uses <=15-minute states and a bounded
       -- last-value hold; its tails are split across display bucket boundaries.
       SELECT sensor_id, metric, target_bucket AS bucket_start,
         CASE WHEN metric = 'energy' THEN internal_counter_consumption + CASE
-          WHEN previous_last_value IS NULL THEN 0
-          WHEN first_value >= previous_last_value THEN first_value - previous_last_value
-          ELSE GREATEST(0, first_value) END
+          WHEN consumption_previous_value IS NULL THEN 0
+          WHEN first_value >= consumption_previous_value THEN first_value - consumption_previous_value
+          ELSE GREATEST(0, first_value) END * COALESCE(
+            EXTRACT(EPOCH FROM (first_at - GREATEST(consumption_previous_at, $2::TIMESTAMPTZ)))
+              / NULLIF(EXTRACT(EPOCH FROM (first_at - consumption_previous_at)), 0), 0)
           WHEN minimum < 0 THEN NULL
           ELSE weighted_value_seconds / 3600000.0 END AS consumption_kwh
-      FROM sequenced WHERE metric IN ('energy', 'power')
+      FROM consumption_sequenced WHERE metric IN ('energy', 'power')
+      UNION ALL
+      SELECT sensor_id, metric,
+        date_bin($5::INTERVAL, $3::TIMESTAMPTZ - INTERVAL '1 microsecond', TIMESTAMPTZ '1970-01-01 00:00:00+00'),
+        CASE WHEN closing_value >= closing_previous_value THEN closing_value - closing_previous_value
+          ELSE closing_value END * EXTRACT(EPOCH FROM (
+            $3::TIMESTAMPTZ - GREATEST(closing_previous_at, $2::TIMESTAMPTZ)
+          )) / EXTRACT(EPOCH FROM ($3::TIMESTAMPTZ - closing_previous_at))
+      FROM consumption_boundaries WHERE metric = 'energy'
+        AND closing_value >= 0 AND closing_previous_value >= 0 AND closing_previous_at < $3::TIMESTAMPTZ
+      UNION ALL
+      SELECT boundary.sensor_id, boundary.metric, bucket.bucket_start,
+        CASE WHEN opening_value < 0 THEN NULL ELSE opening_value * EXTRACT(EPOCH FROM (
+          LEAST(hold.end_at, bucket.bucket_start + $5::INTERVAL)
+            - GREATEST($2::TIMESTAMPTZ, bucket.bucket_start)
+        )) / 3600000.0 END
+      FROM consumption_boundaries boundary
+      CROSS JOIN LATERAL (SELECT LEAST(COALESCE(first_at, $3::TIMESTAMPTZ),
+        $3::TIMESTAMPTZ, opening_at + INTERVAL '15 minutes') AS end_at) hold
+      CROSS JOIN LATERAL generate_series(
+        date_bin($5::INTERVAL, $2::TIMESTAMPTZ, TIMESTAMPTZ '1970-01-01 00:00:00+00'),
+        date_bin($5::INTERVAL, hold.end_at - INTERVAL '1 microsecond',
+          TIMESTAMPTZ '1970-01-01 00:00:00+00'), $5::INTERVAL
+      ) AS bucket(bucket_start)
+      WHERE boundary.metric = 'power' AND boundary.opening_at IS NOT NULL
+        AND hold.end_at > $2::TIMESTAMPTZ
       UNION ALL
       SELECT state.sensor_id, state.metric, bucket.bucket_start,
         CASE WHEN state.last_value < 0 THEN NULL ELSE state.last_value * EXTRACT(EPOCH FROM (
