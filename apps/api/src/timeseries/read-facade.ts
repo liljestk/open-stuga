@@ -20,6 +20,7 @@ import type {
   MeasurementGapRecord,
   MeasurementHistoryBucketedQuery,
   MeasurementHistoryQuery,
+  MeasurementBoundaryQuery,
   MeasurementSampleRecord,
   MeasurementWindowQuery,
   OpeningStateHistoryQuery,
@@ -89,6 +90,7 @@ export type { MeasurementWindowQuery } from "./types.js";
 /** The synchronous, crash-safe SQLite reads needed by the facade. */
 export interface LocalTelemetryReader {
   isRealDataMode(): boolean;
+  measurementBoundarySamples?(query: MeasurementBoundaryQuery): MeasurementSample[];
   measurementCoverage?(sensorIds: string[], metrics: string[]): MeasurementCoverageRecord[];
   measurementSampleGaps?(
     sensorId: string,
@@ -149,10 +151,12 @@ export interface LocalTelemetryReader {
   ): OpeningStateObservation[];
   energyCostAggregate?(query: EnergyCostAggregateQuery): EnergyCostAggregateRecord;
   powerCostAggregate?(query: PowerCostAggregateQuery): EnergyCostAggregateRecord;
+  costAggregateAsync?(metric: "energy" | "power", query: EnergyCostAggregateQuery): Promise<EnergyCostAggregateRecord>;
 }
 
 /** Structural archive methods used by the hybrid reader. */
 export interface ArchiveTelemetryReader {
+  measurementBoundarySamples?(query: MeasurementBoundaryQuery): Promise<MeasurementSampleRecord[]>;
   measurementCoverage?(query: MeasurementCoverageQuery): Promise<MeasurementCoverageRecord[]>;
   measurementSampleGaps?(query: MeasurementGapQuery): Promise<MeasurementGapRecord[]>;
   measurementHistory(query: MeasurementHistoryQuery): Promise<MeasurementSampleRecord[]>;
@@ -308,6 +312,21 @@ export class HybridTelemetryReader {
       archiveRead: async () => (await this.#archive!.measurementHistory({ ...query, limit })).map(archivedMeasurement),
       key: measurementKey,
       compare: compareMeasurements,
+    });
+  }
+
+  async measurementBoundarySamples(query: MeasurementBoundaryQuery): Promise<HybridTelemetryReadResult<MeasurementSample> | null> {
+    if (!this.#local.measurementBoundarySamples && !this.#archive?.measurementBoundarySamples) return null;
+    const scoped = { ...query, excludeSynthetic: this.#local.isRealDataMode() };
+    return this.#read({
+      family: "measurement", from: query.from, to: query.to, limit: MAX_HISTORY_LIMIT,
+      local: () => this.#local.measurementBoundarySamples?.(scoped) ?? [],
+      signal: query.signal,
+      archiveRead: async () => {
+        if (!this.#archive?.measurementBoundarySamples) throw new Error("Archive boundary reads unavailable");
+        return (await this.#archive.measurementBoundarySamples(scoped)).map(archivedMeasurement);
+      },
+      key: measurementKey, compare: compareMeasurements,
     });
   }
 

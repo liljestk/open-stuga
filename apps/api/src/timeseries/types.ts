@@ -99,6 +99,15 @@ export interface EnergyCostAggregateQuery extends QueryControl {
   excludeSynthetic?: boolean;
 }
 
+export interface MeasurementBoundaryQuery extends QueryControl {
+  sensorId: string;
+  metric: "energy" | "power";
+  from: string;
+  to: string;
+  qualities: string[];
+  excludeSynthetic?: boolean;
+}
+
 export type PowerCostAggregateQuery = EnergyCostAggregateQuery;
 
 export interface EnergyCostAggregateRecord {

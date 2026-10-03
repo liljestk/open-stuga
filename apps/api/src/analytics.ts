@@ -440,6 +440,7 @@ async function bucketPoints(
   end: number,
   resolution: BucketResolution,
   aggregation: Exclude<AnalyticsAggregation, "default">,
+  consumptionSamples: readonly MeasurementSample[] = samples,
 ): Promise<AnalyticsPoint[]> {
   const bucketMs = analyticsResolutionSeconds(resolution) * 1_000;
   const firstBucket = Math.floor(start / bucketMs) * bucketMs;
@@ -460,7 +461,7 @@ async function bucketPoints(
     }
   }
   const points: AnalyticsPoint[] = [];
-  const consumption = analyticsConsumptionBuckets(samples, samples[0]?.metric ?? "", bucketMs, end);
+  const consumption = analyticsConsumptionBuckets(consumptionSamples, consumptionSamples[0]?.metric ?? "", bucketMs, end, start);
   let previousCounterSample: MeasurementSample | undefined;
   for (let timestamp = firstBucket; timestamp < end; timestamp += bucketMs) {
     const values = byBucket.get(timestamp) ?? [];
@@ -627,6 +628,8 @@ export function analyticsSeriesKey(sensorId: string, measurementId: string): str
 export interface BuildAnalyticsResponseInput {
   request: AnalyticsQueryRequest;
   samples: MeasurementSample[];
+  /** Range anchors affect consumption only, never half-open observation statistics. */
+  consumptionBoundarySamples?: MeasurementSample[];
   definitions: MeasurementDefinition[];
   entities: Array<{ id: string; label: string }>;
   archiveState: HybridArchiveReadState;
@@ -670,6 +673,14 @@ export async function buildAnalyticsResponse(input: BuildAnalyticsResponseInput)
     else samplesBySeries.set(key, [sample]);
   }
   const excludedSampleCount = rangeSampleCount - includedSampleCount;
+  const boundariesBySeries = new Map<string, MeasurementSample[]>();
+  for (const sample of input.consumptionBoundarySamples ?? []) {
+    if (!includedQualitySet.has(sample.quality)) continue;
+    const key = analyticsSeriesKey(sample.sensorId, sample.metric);
+    const group = boundariesBySeries.get(key) ?? [];
+    group.push(sample);
+    boundariesBySeries.set(key, group);
+  }
   // Bucketed sizes are bounded by the shared shape guard above. Raw responses
   // are bounded by their own sample count, which is only known here.
   if (resolution === "raw" && includedSampleCount > MAX_INTERACTIVE_OUTPUT_POINTS) {
@@ -697,7 +708,8 @@ export async function buildAnalyticsResponse(input: BuildAnalyticsResponseInput)
       }
       const points = resolution === "raw"
         ? rawPoints(samples, rangeSeconds)
-        : await bucketPoints(samples, start, end, resolution, aggregation);
+        : await bucketPoints(samples, start, end, resolution, aggregation,
+          [...samples, ...(boundariesBySeries.get(analyticsSeriesKey(entity.id, measurementId)) ?? [])]);
       const provenance = {
         algorithmKey: resolution === "raw" ? "analytics-raw-series" : "analytics-bucket-rollup",
         algorithmVersion: "1.0.0",

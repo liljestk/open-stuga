@@ -49,6 +49,31 @@ describe("analytics query API", () => {
 
   afterEach(async () => { await runtime.close(); });
 
+  it.each(["energy", "power"] as const)("matches %s summary consumption at both range boundaries without counting anchors as observations", async (metric) => {
+    const start = "2026-07-19T10:05:00.000Z";
+    const end = "2026-07-19T10:35:00.000Z";
+    const values = metric === "energy" ? [100, 102, 0.5, 1.5] : [1000, 2000, 0, 0];
+    runtime.database.insertMeasurementSamples([0, 10, 20, 35].map((minute, index) => ({
+      sensorId: "sensor-01", metric, value: values[index]!, canonicalUnit: metric === "energy" ? "kWh" : "W",
+      timestamp: new Date(Date.parse("2026-07-19T10:00:00.000Z") + minute * 60_000).toISOString(),
+      source: "api", quality: "good" as const,
+    })));
+    const aggregateQuery = { sensorId: "sensor-01", propertyId: "property-main", from: start, to: end };
+    const summary = metric === "energy" ? runtime.database.energyCostAggregate(aggregateQuery)
+      : runtime.database.powerCostAggregate(aggregateQuery);
+    const response = await request(runtime.app).post("/api/v2/analytics/query").send(query({
+      measurementIds: [metric], resolution: "15m", aggregation: "default",
+      qualityFilter: { include: ["good", "estimated"] },
+      range: { start, end, timezone: "UTC" },
+    })).expect(200);
+    const series = response.body.series[0];
+    expect(series.points.reduce((sum: number, point: { consumptionKwh?: number }) => sum + (point.consumptionKwh ?? 0), 0))
+      .toBeCloseTo(summary.consumptionKwh, 5);
+    expect(series.summary.count).toBe(2);
+    expect(response.body.quality.sampleCount).toBe(2);
+    expect(series.points.reduce((sum: number, point: { sampleCount: number }) => sum + point.sampleCount, 0)).toBe(2);
+  });
+
   it("returns consumption from raw SQLite counters before downsampling across a reset", async () => {
     runtime.database.insertMeasurementSamples([100, 101, 102, 0, 1, 2].map((value, index) => ({
       sensorId: "sensor-01", metric: "energy", value, canonicalUnit: "kWh",

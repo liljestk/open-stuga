@@ -239,6 +239,7 @@ registerDatabaseMethods({
       });
     },
   close(): void {
+      this.closeCostReader();
       // Make file-backed shutdown deterministic on Windows as well as POSIX.
       // Schema-rebuild migrations can otherwise leave a WAL checkpoint pending
       // briefly after DatabaseSync.close(), which prevents immediate backup or
