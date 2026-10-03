@@ -243,9 +243,23 @@ export function orderedAnalyticsSql(schema: string): string {
         rollup.maximum_internal_interval_seconds,
         rollup.estimated_sample_count, rollup.stale_sample_count,
         rollup.canonical_unit_min, rollup.canonical_unit_max
-      FROM ${rollups} rollup
-      JOIN requested_series requested
-        ON requested.sensor_id = rollup.sensor_id AND requested.metric = rollup.metric
+      FROM requested_series requested
+      CROSS JOIN ordered_limits
+      -- OFFSET 0 keeps each series/range read parameterized so compressed
+      -- chunks can be pruned before joining generation metadata.
+      CROSS JOIN LATERAL (
+        SELECT rollup.* FROM ${rollups} rollup
+        WHERE rollup.sensor_id = requested.sensor_id AND rollup.metric = requested.metric
+          AND rollup.algorithm_version = ${MEASUREMENT_ORDERED_ROLLUP_VERSION}
+          AND rollup.quality_mask = $7::SMALLINT
+          AND rollup.source_scope = CASE WHEN $6::BOOLEAN THEN 'real' ELSE 'all' END
+          AND rollup.bucket_seconds = $8::INTEGER
+          AND rollup.bucket_start >= ordered_limits.full_from
+          AND rollup.bucket_start < ordered_limits.full_to
+          AND rollup.day_start < date_bin(INTERVAL '1 day', clock_timestamp(),
+            TIMESTAMPTZ '1970-01-01 00:00:00+00')
+        OFFSET 0
+      ) rollup
       JOIN ${dirty} dirty
         ON dirty.sensor_id = rollup.sensor_id AND dirty.metric = rollup.metric
         AND dirty.day_start = rollup.day_start
@@ -257,31 +271,38 @@ export function orderedAnalyticsSql(schema: string): string {
         AND generation.day_start = dirty.day_start
         AND GREATEST(dirty.current_seq, generation.current_seq) = dirty.clean_seq
         AND rollup.generation = GREATEST(dirty.current_seq, generation.current_seq)
-      CROSS JOIN ordered_limits
-      WHERE rollup.algorithm_version = ${MEASUREMENT_ORDERED_ROLLUP_VERSION}
-        AND rollup.quality_mask = $7::SMALLINT
-        AND rollup.source_scope = CASE WHEN $6::BOOLEAN THEN 'real' ELSE 'all' END
-        AND rollup.bucket_seconds = $8::INTEGER
-        AND rollup.bucket_start >= ordered_limits.full_from
-        AND rollup.bucket_start < ordered_limits.full_to
-        AND rollup.day_start < date_bin(INTERVAL '1 day', clock_timestamp(),
-          TIMESTAMPTZ '1970-01-01 00:00:00+00')
+    ), edge_and_current_ranges AS (
+      -- Disjoint windows keep the raw read limited to the two partial buckets
+      -- and the active day. An OR over the complete history prevents Timescale
+      -- from pruning historical chunks before applying the boundary filter.
+      SELECT $2::TIMESTAMPTZ AS raw_from,
+        LEAST(ordered_limits.full_from, ordered_limits.full_to, $3::TIMESTAMPTZ) AS raw_to
+      FROM ordered_limits
+      UNION ALL
+      SELECT GREATEST(ordered_limits.full_from, $2::TIMESTAMPTZ,
+          date_bin(INTERVAL '1 day', clock_timestamp(),
+            TIMESTAMPTZ '1970-01-01 00:00:00+00')),
+        LEAST(ordered_limits.full_to, $3::TIMESTAMPTZ)
+      FROM ordered_limits
+      UNION ALL
+      SELECT GREATEST(ordered_limits.full_to, $2::TIMESTAMPTZ), $3::TIMESTAMPTZ
+      FROM ordered_limits
     ), edge_and_current_bucketed AS (
       SELECT sample.*,
         date_bin(make_interval(secs => $8::INTEGER), sample.observed_at,
           TIMESTAMPTZ '1970-01-01 00:00:00+00') AS bucket_start
-      FROM ${measurements} sample
-      JOIN requested_series requested
-        ON requested.sensor_id = sample.sensor_id AND requested.metric = sample.metric
-      CROSS JOIN ordered_limits
-      WHERE sample.observed_at >= $2::TIMESTAMPTZ
-        AND sample.observed_at < $3::TIMESTAMPTZ
-        AND (sample.observed_at < ordered_limits.full_from
-          OR sample.observed_at >= ordered_limits.full_to
-          OR sample.observed_at >= date_bin(INTERVAL '1 day', clock_timestamp(),
-            TIMESTAMPTZ '1970-01-01 00:00:00+00'))
-        AND sample.quality = ANY($4::TEXT[])
-        AND (NOT $6::BOOLEAN OR sample.source NOT IN ('mock', 'replay'))
+      FROM edge_and_current_ranges boundary
+      CROSS JOIN requested_series requested
+      CROSS JOIN LATERAL (
+        SELECT sample.* FROM ${measurements} sample
+        WHERE sample.sensor_id = requested.sensor_id AND sample.metric = requested.metric
+          AND sample.observed_at >= boundary.raw_from AND sample.observed_at < boundary.raw_to
+          AND sample.quality = ANY($4::TEXT[])
+          AND (NOT $6::BOOLEAN OR sample.source NOT IN ('mock', 'replay'))
+        -- Preserve the parameterized boundary read when PostgreSQL plans joins.
+        OFFSET 0
+      ) sample
+      WHERE boundary.raw_from < boundary.raw_to
     ), edge_and_current_deduplicated AS (
       SELECT DISTINCT ON (sensor_id, metric, observed_at) *
       FROM edge_and_current_bucketed
@@ -319,6 +340,13 @@ export function orderedAnalyticsSql(schema: string): string {
       FROM edge_and_current_ordered GROUP BY sensor_id, metric, bucket_start
     ), states AS (
       SELECT * FROM closed_states UNION ALL SELECT * FROM edge_and_current_states
+    ), hour_count_ranges AS (
+      SELECT $2::TIMESTAMPTZ AS raw_from,
+        LEAST(hour_limits.full_from, hour_limits.full_to, $3::TIMESTAMPTZ) AS raw_to
+      FROM hour_limits
+      UNION ALL
+      SELECT GREATEST(hour_limits.full_to, $2::TIMESTAMPTZ), $3::TIMESTAMPTZ
+      FROM hour_limits
     ), aggregate_all_counts AS (
       SELECT aggregate.sensor_id, aggregate.metric, sum(aggregate.sample_count)::BIGINT AS sample_count
       FROM ${countAggregate} aggregate
@@ -332,15 +360,17 @@ export function orderedAnalyticsSql(schema: string): string {
       GROUP BY aggregate.sensor_id, aggregate.metric
       UNION ALL
       SELECT sample.sensor_id, sample.metric, count(*)::BIGINT
-      FROM ${measurements} sample
-      JOIN requested_series requested
-        ON requested.sensor_id = sample.sensor_id AND requested.metric = sample.metric
-      CROSS JOIN hour_limits
-      WHERE sample.observed_at >= $2::TIMESTAMPTZ
-        AND sample.observed_at < $3::TIMESTAMPTZ
-        AND (sample.observed_at < hour_limits.full_from OR sample.observed_at >= hour_limits.full_to)
-        AND sample.quality IN ('good', 'estimated', 'stale')
-        AND (NOT $6::BOOLEAN OR sample.source NOT IN ('mock', 'replay'))
+      FROM hour_count_ranges boundary
+      CROSS JOIN requested_series requested
+      CROSS JOIN LATERAL (
+        SELECT sample.* FROM ${measurements} sample
+        WHERE sample.sensor_id = requested.sensor_id AND sample.metric = requested.metric
+          AND sample.observed_at >= boundary.raw_from AND sample.observed_at < boundary.raw_to
+          AND sample.quality IN ('good', 'estimated', 'stale')
+          AND (NOT $6::BOOLEAN OR sample.source NOT IN ('mock', 'replay'))
+        OFFSET 0
+      ) sample
+      WHERE boundary.raw_from < boundary.raw_to
       GROUP BY sample.sensor_id, sample.metric
     ), raw_count_bounds AS (
       SELECT requested.sensor_id, requested.metric,

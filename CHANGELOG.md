@@ -2,6 +2,14 @@
 
 All notable Stugu releases are recorded here.
 
+## 0.41.8
+
+- Load long electricity history and annual costs more efficiently on Raspberry Pi installations with compressed history. Keep reads within each meter's selected time windows and read each required cost day once.
+- Preserve exact consumption and pricing through partial periods, meter resets, bounded power holds, changing prices and missing price intervals.
+- Stop expired Pi database diagnostic checks inside their container so they cannot continue scanning after the diagnostic command has ended.
+
+Upgrade impact: no database migration, configuration change, Compose contract change or host update is required. Existing readings and backups are retained.
+
 ## 0.41.7
 
 - Prepare electricity history only across each meter's recorded range. Long periods no longer schedule a full year of empty history before a newly connected meter can answer.

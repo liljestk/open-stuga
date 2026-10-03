@@ -42,6 +42,25 @@ Source audit covered Power / Interval use / Electricity price; Single / Multiple
 | E21 | P2 | Fixed in follow-up candidate 0.41.6; live acceptance pending | The indexed candidate still processed local cost calculations synchronously. A synthetic 72-hour window with 259,201 one-second readings and 46,000 price periods took 2.4 seconds for counter cost and 4.0 seconds for power cost on the development machine | File-backed calculations now run in one read-only worker with bounded admission, a deadline and cancellation. Regressions exercise dense committed SQLite history while the main event loop remains responsive, archive fallback, subsequent writes, cancellation and shutdown. The existing 72-hour hybrid fallback limit remains. Appliance latency still requires deployed verification |
 | E22 | P2 | Fixed in follow-up candidate 0.41.6; live acceptance pending | A same-window synthetic 24-hour API comparison returned 25.651584 kWh in the Home summary and 25.432717 kWh across chart consumption integrals. The raw analytics read began at the requested start and omitted the preceding anchor; the summary included a prorated opening interval | Indexed predecessor and exact-end reads now contribute to consumption only. Raw and cached archive regressions cover partial opening buckets, range-end observations, resets and unchanged observation counts; stale/synthetic anchors are excluded and simultaneous raw conflicts remain unavailable. The same-basis synthetic summary and chart now agree within summary rounding. A summary using a different measurement basis remains a separate estimate |
 
+## October 3: compressed-history query follow-up
+
+Stable 0.41.7 was published and installed through the normal verified-backup
+updater. The running and recorded version matched; the canonical post-install
+doctor recorded ten passing checks, one known host-feed warning and no failure.
+Annual cost and 90-day combined energy still failed intermittently. E1 remains
+open until the completed live metric/view/range matrix and latency checks pass.
+
+| ID | Priority | Status | Evidence and correction |
+| --- | --- | --- | --- |
+| E25 | P1 | Implemented in 0.41.8; deployment acceptance pending | On the Pi, the deployed ordered-history SQL exceeded a four-second bounded read. Separate disjoint raw windows and parameterized cached-series reads avoid joining across unrelated compressed chunks. The candidate one-meter read completed in approximately two seconds; five meters completed in approximately six seconds. Private identifiers and measurements were not returned by these diagnostic probes. |
+| E26 | P1 | Implemented in 0.41.8; deployment acceptance pending | The deployed annual power-cost SQL exceeded the same four-second read deadline. Read each required day/resolution once, attach its prices afterward, and preserve parameterized raw-boundary reads. The candidate one-meter calculation completed in approximately 1.7 seconds. A two-month PostgreSQL regression compares raw and cached counter/power cost, minute/quarter/hour price edges, an off-minute change, a missing price hour and partial query boundaries. |
+| E27 | P2 | Implemented in 0.41.8 | The outer doctor deadline can stop the Docker CLI while its synchronous SQLite child continues scanning. An independent deadline inside the container now bounds both normal and deep database checks. The command-contract regression and a real runtime timeout check verify this boundary. |
+
+These are measured query improvements and correctness checks, not a blanket
+live UI, reliability, accessibility or deployment pass. The 0.41.7 one-time
+visual exception is not transferred to this candidate. All release and live
+acceptance evidence remains outside Git.
+
 ## October 3 deployment follow-up
 
 The later 0.41.6 follow-up also isolates dense local cost work and aligns raw

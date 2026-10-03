@@ -912,6 +912,16 @@ with patch.dict(snapshot.__globals__, {"api_container_lookup": lambda: ("", look
     assert result["available"] is False and result["probes"]["apiLogsLookup"] == lookup_failure
     result = module["database_snapshot"](False)
     assert result["available"] is False and result["probes"]["databaseLookup"] == lookup_failure
+for deep, inside, outside in [(False, "2.5s", 3.5), (True, "10s", 12.0)]:
+    def database_run(arguments, timeout=3):
+        assert arguments[:6] == ["docker", "exec", "api-fixture", "timeout", "--signal=KILL", inside]
+        assert arguments[6:8] == ["node", "-e"]
+        assert arguments[8] == module["DATABASE_SCRIPT"]
+        assert arguments[9:] == (["--", "--deep"] if deep else [])
+        assert timeout == outside
+        return {"ok": True, "stdout": '{"available":true}', "probe": {"outcome": "success", "durationMs": 1, "exitCode": 0}}
+    with patch.dict(snapshot.__globals__, {"api_container_lookup": lambda: ("api-fixture", {"outcome": "success", "durationMs": 1, "exitCode": 0}), "run": database_run}):
+        assert module["database_snapshot"](deep)["available"] is True
 print("collector classifications passed")
 `;
   const result = spawnSync("python", ["-B", "-", fileURLToPath(collector)], {
