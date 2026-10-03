@@ -67,6 +67,11 @@ corrected candidate is 0.41.9 and includes these electricity fixes. Version
 verification now checks private pins in every workspace and their lockfile
 entries. Live acceptance is still pending deployment.
 
+The 0.41.9 full gate caught formatting of the diagnostic argument list before
+artifact preparation. Its tags remain immutable and no release was published.
+The final candidate is 0.41.10, with identical diagnostic deadlines and SQL
+behavior. Full verification and live deployment acceptance remain required.
+
 ## October 3 deployment follow-up
 
 The later 0.41.6 follow-up also isolates dense local cost work and aligns raw
