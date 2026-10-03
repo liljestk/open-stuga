@@ -44,6 +44,25 @@ Source audit covered Power / Interval use / Electricity price; Single / Multiple
 
 ## October 3 deployment follow-up
 
+## October 3: compressed-history query follow-up
+
+Stable 0.41.7 was published and installed through the normal verified-backup
+updater. The running and recorded version matched; the canonical post-install
+doctor recorded ten passing checks, one known host-feed warning and no failure.
+Annual cost and 90-day combined energy still failed intermittently. E1 remains
+open until the completed live metric/view/range matrix and latency checks pass.
+
+| ID | Priority | Status | Evidence and correction |
+| --- | --- | --- | --- |
+| E25 | P1 | Implemented in 0.41.8; deployment acceptance pending | On the Pi, the deployed ordered-history SQL exceeded a four-second bounded read. Separate disjoint raw windows and parameterized cached-series reads avoid joining across unrelated compressed chunks. The candidate one-meter read completed in approximately two seconds; five meters completed in approximately six seconds. Private identifiers and measurements were not returned by these diagnostic probes. |
+| E26 | P1 | Implemented in 0.41.8; deployment acceptance pending | The deployed annual power-cost SQL exceeded the same four-second read deadline. Read each required day/resolution once, attach its prices afterward, and preserve parameterized raw-boundary reads. The candidate one-meter calculation completed in approximately 1.7 seconds. A two-month PostgreSQL regression compares raw and cached counter/power cost, minute/quarter/hour price edges, an off-minute change, a missing price hour and partial query boundaries. |
+| E27 | P2 | Implemented in 0.41.8 | The outer doctor deadline can stop the Docker CLI while its synchronous SQLite child continues scanning. An independent deadline inside the container now bounds both normal and deep database checks. The command-contract regression and a real runtime timeout check verify this boundary. |
+
+These are measured query improvements and correctness checks, not a blanket
+live UI, reliability, accessibility or deployment pass. The 0.41.7 one-time
+visual exception is not transferred to this candidate. All release and live
+acceptance evidence remains outside Git.
+
 The later 0.41.6 follow-up also isolates dense local cost work and aligns raw
 and archived consumption at range boundaries. The development fast gate passed
 after these changes, and the production API build and focused regressions

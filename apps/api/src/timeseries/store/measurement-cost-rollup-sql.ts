@@ -306,23 +306,33 @@ export function measurementCostRollupSql(schema: string, metric: CostMetric): st
         rollup.internal_counter_consumption, rollup.weighted_value_seconds,
         rollup.weighted_seconds, rollup.maximum_internal_interval_seconds,
         unit.price_cents_per_kwh
-      FROM priced_units unit
-      JOIN ${rollups} rollup
-        ON rollup.sensor_id = $1 AND rollup.metric = $6::TEXT
-        AND rollup.bucket_start = unit.unit_start AND rollup.bucket_seconds = unit.bucket_seconds
-        AND rollup.day_start = unit.day_start
-        AND rollup.quality_mask = 3
-        AND rollup.source_scope = CASE WHEN $5::BOOLEAN THEN 'real' ELSE 'all' END
-        AND rollup.algorithm_version = ${MEASUREMENT_ORDERED_ROLLUP_VERSION}
+      -- Read each day/resolution once, then attach its price units. Looking up
+      -- one compressed row for every hour repeatedly decodes the same batch.
+      FROM required_variants required
       JOIN ${dirty} dirty
-        ON dirty.sensor_id = rollup.sensor_id AND dirty.metric = rollup.metric
-        AND dirty.day_start = unit.day_start AND dirty.bucket_seconds = unit.bucket_seconds
-        AND dirty.quality_mask = rollup.quality_mask AND dirty.source_scope = rollup.source_scope
+        ON dirty.sensor_id = $1 AND dirty.metric = $6::TEXT
+        AND dirty.day_start = required.day_start AND dirty.bucket_seconds = required.bucket_seconds
+        AND dirty.quality_mask = 3
+        AND dirty.source_scope = CASE WHEN $5::BOOLEAN THEN 'real' ELSE 'all' END
       JOIN ${generations} generation
         ON generation.sensor_id = dirty.sensor_id AND generation.metric = dirty.metric
-        AND generation.day_start = unit.day_start
+        AND generation.day_start = required.day_start
         AND GREATEST(dirty.current_seq, generation.current_seq) = dirty.clean_seq
-        AND rollup.generation = GREATEST(dirty.current_seq, generation.current_seq)
+      CROSS JOIN LATERAL (
+        SELECT rollup.* FROM ${rollups} rollup
+        WHERE rollup.sensor_id = $1 AND rollup.metric = $6::TEXT
+          AND rollup.bucket_seconds = required.bucket_seconds
+          AND rollup.day_start = required.day_start
+          AND rollup.bucket_start >= GREATEST(required.day_start, $2::TIMESTAMPTZ)
+          AND rollup.bucket_start < LEAST(required.day_start + INTERVAL '1 day', $3::TIMESTAMPTZ)
+          AND rollup.quality_mask = 3
+          AND rollup.source_scope = CASE WHEN $5::BOOLEAN THEN 'real' ELSE 'all' END
+          AND rollup.algorithm_version = ${MEASUREMENT_ORDERED_ROLLUP_VERSION}
+          AND rollup.generation = GREATEST(dirty.current_seq, generation.current_seq)
+        OFFSET 0
+      ) rollup
+      JOIN priced_units unit ON unit.unit_start = rollup.bucket_start
+        AND unit.bucket_seconds = rollup.bucket_seconds AND unit.day_start = rollup.day_start
     ), raw_candidates AS (
       SELECT sample.*
       FROM raw_ranges range
@@ -333,7 +343,9 @@ export function measurementCostRollupSql(schema: string, metric: CostMetric): st
           AND sample.observed_at <= $3::TIMESTAMPTZ
           AND sample.quality IN ('good', 'estimated')
           AND (NOT $5::BOOLEAN OR sample.source NOT IN ('mock', 'replay'))
+        OFFSET 0
       ) sample
+      WHERE range.range_start < range.range_end
       UNION ALL
       (SELECT sample.* FROM ${measurements} sample
       WHERE sample.sensor_id = $1 AND sample.metric = $6::TEXT

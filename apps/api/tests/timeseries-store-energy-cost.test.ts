@@ -61,8 +61,8 @@ describe("TimeseriesStore power-cost aggregation", () => {
     expect(query.text).toContain("JOIN price_hour_slices price USING (hour_start)");
     expect(query.text).toContain("priced_units AS MATERIALIZED");
     expect(query.text).toContain("unit.unit_start + make_interval");
-    expect(query.text).toContain("dirty.day_start = unit.day_start");
-    expect(query.text).toContain("generation.day_start = unit.day_start");
+    expect(query.text).toContain("dirty.day_start = required.day_start");
+    expect(query.text).toContain("generation.day_start = required.day_start");
     expect(query.text).toContain("sample.observed_at < $2::TIMESTAMPTZ");
     expect(query.text).not.toContain("price_slices");
     const enqueues = pool.queries.filter(({ text }) => text.includes("measurement_ordered_rollup_dirty")

@@ -438,7 +438,10 @@ def database_snapshot(deep: bool) -> dict[str, Any]:
             "reason": "api-container-unavailable",
             "probes": probes,
         }
-    arguments = ["docker", "exec", name, "node", "-e", DATABASE_SCRIPT]
+    # Killing the Docker CLI alone leaves its synchronous database child alive.
+    # Enforce the deadline inside the container as well as in this collector.
+    arguments = ["docker", "exec", name, "timeout", "--signal=KILL",
+                 "10s" if deep else "2.5s", "node", "-e", DATABASE_SCRIPT]
     if deep:
         arguments.extend(["--", "--deep"])
     result = run(arguments, timeout=12.0 if deep else 3.5)
