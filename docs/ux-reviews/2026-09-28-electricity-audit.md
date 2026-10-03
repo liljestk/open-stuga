@@ -72,6 +72,51 @@ Current evidence uses the `corrected-*` filenames in the outside-Git `electricit
 
 Separately authorized backup cleanup removed 27 older appliance backup copies, retaining seven recent scheduled copies and two pre-update copies. The retained manifests, sidecars, recorded verification statuses and file sizes were checked before and after removal; this was not a new full-content integrity scan. Free space rose from approximately 27 GB to 144 GB. The detailed plan, exact removed names, hashes and post-cleanup inventory remain outside Git. Backup retention settings were not changed.
 
+## October 3: 0.41.6 installed and next preparation fixes
+
+Stable 0.41.6 was published and installed through the supported backed-up
+application updater. The final post-install doctor matched the running and
+recorded version, with ten passing checks, one permitted host-feed warning and
+no failures. The host remains 0.35.7. Exact release, target, backup and diagnostic
+receipts remain outside Git. The human explicitly approved a one-time 0.41.6
+manual visual/accessibility exception; that exception is not reused for a
+later release.
+
+The live Home showed current power, daily use, projection and hour/day cost.
+Week/month cost recovered, but annual cost and 90-day/year consumption still
+failed. Property totals, contract disclosure, optimizer and all Property price
+views worked after a transient bootstrap timeout. A ten-minute health sample
+had three timeouts among 589 requests; a later ten-minute workflow sample had
+zero failures among 596 requests (52.2 ms median, 259.8 ms p95). These samples
+do not establish complete API or electricity acceptance. E1 remains open and
+the full live metric/view/range matrix is not yet complete.
+
+| ID | Priority | Status | Evidence and correction |
+| --- | --- | --- | --- |
+| E23 | P1 | Fixed in candidate 0.41.7; deployed verification pending | Production PostgreSQL cost/history preparation requests 365 daily variants for a meter with only two recorded days, and also prepares a year for an empty meter. Indexed scoped first/last probes bound preparation to recorded history, retaining internal gaps, exact end anchors and the power hold. Real PostgreSQL regressions verify two requested days and zero work for empty history. Known unfinished cost preparation returns before the full pricing join. |
+| E24 | P1 | Fixed in candidate 0.41.7; deployed verification pending | Ordered history preparation throws a generic error, so the hybrid reader requests archive reconciliation and falls back to raw history. Preserve the existing typed retryable preparation/capacity errors; generic thermal failures keep their prior fallback. Regression tests verify no extra reconciliation for preparation. This mechanism is not proof of the sole live failure cause. |
+| E25 | P2 | Fixed in candidate 0.41.7; visual acceptance blocked | An entirely preparing Home summary becomes an HTTP success with no contributions and failed sources, while annual views wait fifteen minutes before refreshing. Preserve the preparation response, refresh only active explicitly preparing queries every five seconds, explain loading, retain selections and cancel inactive cost requests. A rendered annual-cost regression verifies automatic recovery; ordinary failure/permission errors keep their recovery behavior. |
+
+No telemetry, price data, pending work or archive coverage has been deleted or
+rewritten. The requested period and partial-history semantics are unchanged.
+No schema or host update is required. The finished 0.41.7 production web build
+was inspected in the real Home and Property routes with synthetic 35-day
+history at 320, 768 and 1440 CSS px, in light and dark CSS branches. Preparing
+states explain calculation without presenting missing values as zero or an
+ordinary failure. Both routes recovered automatically when the fixture's
+preparation response ended; the Home retained its annual cost and history
+selections. Populated totals, chart, units and partial-history labels were
+readable at all inspected widths. Original JPEG evidence is outside Git in
+the 0.41.7 operator visual-inspection directory: `preparing-final-*`,
+`property-preparing-*`, `home-recovered-*` and `property-recovered-*`.
+
+Overall DESIGN acceptance remains **BLOCKED**. These inspections do not
+complete the unavailable native screen-reader, browser zoom, forced-colour,
+reduced-motion and colour-vision checks, or the verifier's original PNG
+evidence requirement. The 0.41.6 operator exception is not a passing 0.41.7
+visual receipt. Canonical verification will be recorded against the frozen
+source; deployed annual history and cost remain unverified until installation.
+
 ## Focused implementation verification
 
 These are completed focused runs, not a replacement for canonical verification or visual acceptance. Counts describe their recorded runs; later combined runs may overlap these files.

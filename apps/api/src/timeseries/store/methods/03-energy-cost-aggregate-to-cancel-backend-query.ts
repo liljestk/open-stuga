@@ -55,6 +55,7 @@ import {
 interface CostRollupRequirementRow extends QueryResultRow {
   day_start: string | Date;
   bucket_seconds: string | number;
+  ready: boolean;
 }
 
 function postgresErrorCode(error: unknown): string | null {
@@ -110,7 +111,7 @@ async function orderedCostAggregate(
   ];
   const requirements = await store.__query<CostRollupRequirementRow>(
     measurementCostRollupRequirementsSql(store.schema),
-    parameters,
+    [...parameters, metric],
     query,
   );
   const byBucket = new Map<60 | 900 | 3600, string[]>();
@@ -137,6 +138,8 @@ async function orderedCostAggregate(
       days,
     );
   }
+  // Do not run the full pricing join just to discover known unfinished work.
+  if (requirements.rows.some((row) => row.ready === false)) throw new RollupsMaterializingError();
   const result = await store.__query<EnergyCostAggregateRow>(
     measurementCostRollupSql(store.schema, metric),
     [...parameters, metric],

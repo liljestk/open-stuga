@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { QueryResultRow } from "pg";
 import { qualifiedName } from "../../schema.js";
+import { measurementSeriesBoundsSql } from "../measurement-series-bounds-sql.js";
 import type {
   MeasurementAnalyticsSeriesQuery,
   MeasurementOrderedRollupWorkResult,
@@ -46,19 +47,32 @@ registerTimeseriesStoreMethods({
     const result = await this.__query(`WITH requested AS (
         SELECT DISTINCT sensor_id, metric
         FROM jsonb_to_recordset($1::JSONB) AS item(sensor_id TEXT, metric TEXT)
+      ), measurement_bounds AS (${measurementSeriesBoundsSql(this.schema, {
+        requested: "requested", until: "$3::TIMESTAMPTZ",
+        qualities: "ARRAY[CASE WHEN ($4::INTEGER & 1) <> 0 THEN 'good' END, CASE WHEN ($4::INTEGER & 2) <> 0 THEN 'estimated' END, CASE WHEN ($4::INTEGER & 4) <> 0 THEN 'stale' END]::TEXT[]",
+        excludeSynthetic: "($5::TEXT = 'real')",
+      })}
+      ), history_limits AS (
+        SELECT *, GREATEST($2::TIMESTAMPTZ, first_at) AS history_from,
+          LEAST($3::TIMESTAMPTZ,
+            last_at + CASE WHEN metric = 'power' THEN INTERVAL '15 minutes' ELSE INTERVAL '0' END
+              + INTERVAL '1 microsecond',
+            date_bin(INTERVAL '1 day', clock_timestamp(),
+              TIMESTAMPTZ '1970-01-01 00:00:00+00')) AS history_to
+        FROM measurement_bounds WHERE first_at IS NOT NULL AND last_at IS NOT NULL
       ), days AS (
         SELECT DISTINCT requested.sensor_id, requested.metric, selected_day.day_start
-        FROM requested
+        FROM history_limits requested
         CROSS JOIN LATERAL (
           SELECT generated.day_start
           FROM generate_series(
-            date_bin(INTERVAL '1 day', $2::TIMESTAMPTZ,
+            date_bin(INTERVAL '1 day', requested.history_from,
               TIMESTAMPTZ '1970-01-01 00:00:00+00'),
-            date_bin(INTERVAL '1 day', $3::TIMESTAMPTZ - INTERVAL '1 microsecond',
+            date_bin(INTERVAL '1 day', requested.history_to - INTERVAL '1 microsecond',
               TIMESTAMPTZ '1970-01-01 00:00:00+00'),
             INTERVAL '24 hours'
           ) AS generated(day_start)
-          WHERE $7::TIMESTAMPTZ[] IS NULL
+          WHERE $7::TIMESTAMPTZ[] IS NULL AND requested.history_from < requested.history_to
           UNION ALL
           SELECT date_bin(INTERVAL '1 day', explicit_day,
             TIMESTAMPTZ '1970-01-01 00:00:00+00')

@@ -1,7 +1,7 @@
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import type { HomeEnergySummary, MeasurementSample, Sensor } from "@climate-twin/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { api } from "../api";
+import { api, ApiRequestError } from "../api";
 import { queryClient } from "../data/queryClient";
 import { createDemoState } from "../domain";
 import { I18nProvider } from "../i18n";
@@ -66,6 +66,7 @@ function summary(houseId: string, sensorId: string, consumptionKwh: number, cost
 describe("PropertyEnergyOverview", () => {
   afterEach(() => {
     queryClient.clear();
+    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
@@ -117,6 +118,30 @@ describe("PropertyEnergyOverview", () => {
     expect(screen.getByRole("heading", { name: "Pine House" })).not.toBeNull();
     expect(screen.getByRole("heading", { name: "Sauna" })).not.toBeNull();
     expect(request).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps preparing Home usage retryable within the Property overview", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const state = createDemoState();
+    const home = state.houses[0]!;
+    const meter = { ...state.sensors[0]!, id: "meter", houseId: home.id,
+      measurementEntityIds: { power: "sensor.main_power" } };
+    state.houses = [home];
+    state.sensors = [meter];
+    let ready = false;
+    vi.spyOn(api, "houseEnergySummary").mockImplementation(async () => {
+      if (!ready) throw new ApiRequestError(503, "TELEMETRY_ROLLUPS_MATERIALIZING", "Preparing");
+      return summary(home.id, meter.id, 6, 1.2);
+    });
+    render(<I18nProvider><PropertyEnergyOverview state={state} propertyId={home.propertyId}
+      propertyName="Forest Property" units="metric" now={NOW} /></I18nProvider>);
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+    expect(screen.getByText("Calculating usage")).not.toBeNull();
+    expect(screen.queryByText(/Usage could not be fully calculated/)).toBeNull();
+    ready = true;
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_100); });
+    expect(await screen.findAllByText("6.00 kWh")).toHaveLength(2);
+    expect(screen.queryByText("Calculating usage")).toBeNull();
   });
 
   it("keeps the contract useful before the Property has a Home", () => {

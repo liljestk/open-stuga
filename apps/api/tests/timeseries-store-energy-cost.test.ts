@@ -122,6 +122,18 @@ describe("TimeseriesStore power-cost aggregation", () => {
     expect(maximumActiveRequirements).toBe(2);
   });
 
+  it("queues known unfinished days without starting the full price calculation", async () => {
+    const pool = new FakePool(({ text }) => text.includes("ORDER BY bucket_seconds DESC, day_start")
+      ? queryResult([{ day_start: new Date(FROM), bucket_seconds: 3_600, ready: false }])
+      : queryResult());
+    await expect(storeFor(pool).energyCostAggregate({
+      sensorId: "meter-1", propertyId: "property-1", from: FROM, to: TO,
+    })).rejects.toBeInstanceOf(RollupsMaterializingError);
+    expect(pool.queries.some(({ text }) => text.includes("INSERT INTO")
+      && text.includes("measurement_ordered_rollup_dirty"))).toBe(true);
+    expect(pool.queries.some(({ text }) => text.includes("priced_units AS MATERIALIZED"))).toBe(false);
+  });
+
   it("surfaces incomplete rollup coverage as the typed materializing error", async () => {
     const pool = new FakePool(({ text }) => (
       text.includes("rollup.metric = $6::TEXT")

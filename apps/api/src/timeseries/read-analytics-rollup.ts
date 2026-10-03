@@ -4,8 +4,10 @@ import type {
 } from "./types.js";
 import {
   aborted,
+  RollupsMaterializingError,
   type HybridArchiveReadState,
 } from "./read-support.js";
+import { AnalyticsCapacityError } from "../analytics/work-limiter.js";
 
 interface AnalyticsRollupArchive {
   measurementAnalyticsRollup?(
@@ -106,6 +108,7 @@ export async function readMeasurementAnalyticsRollup(
   } catch (error) {
     const afterFailureCancellation = aborted(query.signal);
     if (afterFailureCancellation) throw afterFailureCancellation;
+    if (error instanceof RollupsMaterializingError || error instanceof AnalyticsCapacityError) throw error;
     requestReconciliation(options.reconcile);
     // A continuous aggregate can briefly lag newly archived raw samples.
     // Fall through to the raw archive instead of turning that lag into a 503.

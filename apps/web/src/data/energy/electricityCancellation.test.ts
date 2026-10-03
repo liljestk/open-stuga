@@ -7,11 +7,13 @@ import { queryClient } from "../queryClient";
 import { useElectricityHistoryQuery } from "./electricityHistoryQuery";
 import { useEnergyOptimizationQuery, usePriceHistoryQuery, usePropertyElectricityQuery } from "./electricityQueries";
 import { useHouseElectricityPriceQuery } from "./houseElectricityPriceQuery";
+import { useHomeEnergySummaryQuery } from "./homeEnergySummaryQuery";
 
 afterEach(() => { cleanup(); queryClient.clear(); vi.restoreAllMocks(); });
 
 const sources = [{ id: "meter", energy: true, power: false }];
 const hooks = [
+  ["cost summary", (enabled: boolean) => useHomeEnergySummaryQuery("home", "year", 365 * 86_400_000, enabled, 900_000)],
   ["consumption", (enabled: boolean) => useElectricityHistoryQuery("home", sources, "1y", "UTC", "live", enabled)],
   ["price history", (enabled: boolean) => usePriceHistoryQuery("home", "24h", enabled)],
   ["optimization", (enabled: boolean) => useEnergyOptimizationQuery("property", enabled)],
@@ -29,6 +31,7 @@ function pendingRequests(): AbortSignal[] {
   };
   vi.spyOn(api, "analyticsQuery").mockImplementation((_input, signal) => pending(signal));
   vi.spyOn(api, "houseElectricityPrice").mockImplementation((_id, _from, _to, signal) => pending(signal));
+  vi.spyOn(api, "houseEnergySummary").mockImplementation((_id, _from, _to, signal) => pending(signal));
   vi.spyOn(api, "propertyElectricity").mockImplementation((_id, signal) => pending(signal));
   vi.spyOn(api, "energyOptimization").mockImplementation((_id, _hours, signal) => pending(signal));
   return signals;

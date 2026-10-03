@@ -22,7 +22,7 @@ describe("consumption history queries", () => {
       expect(input.requestId).toMatch(/^electricity-/);
       expect(passedSignal).toBe(signal);
     }
-    expect(options.refetchInterval).toBe(300_000);
+    expect(options.refetchInterval({ state: { error: null } })).toBe(300_000);
     expect(options.refetchOnWindowFocus).toBe(true);
   });
 

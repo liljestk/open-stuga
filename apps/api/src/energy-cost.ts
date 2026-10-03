@@ -171,6 +171,13 @@ export class EnergyCostService {
         ? input.signal.reason
         : new DOMException("The operation was aborted", "AbortError");
     }
+    // A whole summary still preparing has no usable contribution to display.
+    // Preserve the retryable API response instead of caching an empty failure.
+    const preparationFailures = settled.filter((result) => result.status === "rejected");
+    if (settled.length > 0 && preparationFailures.length === settled.length
+      && preparationFailures.every((result) => result.reason instanceof RollupsMaterializingError)) {
+      throw preparationFailures[0]!.reason;
+    }
     const contributions = settled.flatMap((result) => (
       result.status === "fulfilled" ? [result.value] : []
     ));

@@ -27,6 +27,7 @@ import { seriesStateKey, type SeriesLoadState } from "../useClimateData";
 import { sensorsForHomeTotal } from "./energyTelemetry";
 import { aggregateCumulativeSeries, consumptionHistorySeries, holdSeriesForBuckets } from "./energyAnalysis";
 import { useElectricityHistoryQuery } from "../data/energy/electricityHistoryQuery";
+import { historyIsPreparing } from "../data/energy/historyPreparation";
 import { electricityHistoryLocation, writeElectricityHistoryLocation, type ElectricityChartMode } from "./electricityHistoryLocation";
 
 export const ELECTRICITY_METRICS = ["power", "energy", "electricity_price"] as const;
@@ -260,14 +261,15 @@ export function ElectricityHistory(props: Readonly<ElectricityHistoryProps>) {
     const state = props.seriesStates?.[seriesStateKey(sensor.id, candidate)];
     return state ? [state] : [];
   }));
-  const loading = loadStates.some((state) => state.status === "loading")
+  const preparing = props.metric === "energy" && historyIsPreparing(consumptionQuery.error);
+  const loading = preparing || loadStates.some((state) => state.status === "loading")
     || (props.metric === "energy" && consumptionQuery.isFetching)
     || (props.metric === "electricity_price" && props.priceLoading === true);
   const errors = loadStates.filter((state) => state.status === "error");
   const truncatedSeries = loadStates.some((state) => state.truncated);
   const partialConsumption = props.metric === "energy" && [...consumption.values()].some((series) => series.partial);
   const failed = errors.length > 0 || (props.metric === "electricity_price" && props.priceError)
-    || (props.metric === "energy" && consumptionQuery.isError);
+    || (props.metric === "energy" && consumptionQuery.isError && !preparing);
   const accessDenied = (props.metric === "electricity_price" && props.priceAccessDenied)
     || (props.metric === "energy" && consumptionQuery.error instanceof ApiRequestError && consumptionQuery.error.status === 403)
     || errors.some((state) => state.errorStatus === 403);
@@ -383,7 +385,7 @@ export function ElectricityHistory(props: Readonly<ElectricityHistoryProps>) {
         forecastGapThresholdMs={gapThresholdMs}
         aggregateLabel={sourceTitle}
         predictionLabel={t("chart.predicted")}
-      /> : <div className="empty-state">{loading ? t("chart.loading") : t("common.noData")}</div>}
+      /> : <div className="empty-state" role={loading ? "status" : undefined}>{loading ? t("chart.loading") : t("common.noData")}</div>}
       {loading && domain && <p className="chart-capability-note" role="status">{t("chart.loading")}</p>}
       {props.metric === "energy" && <p className="chart-capability-note">{t("energy.chartCumulativeHint")}</p>}
       {failed && <div className="inline-error" role="alert"><p>{t(accessDenied ? "energy.accessDenied" : "chart.loadError")}</p><button type="button" className="button secondary" disabled={loading} onClick={retry}>{t("common.retry")}</button></div>}

@@ -78,7 +78,7 @@ export class IncompleteTelemetryHistoryError extends Error {
 }
 
 /**
- * The exact ordered rollups a cost read depends on are enqueued but not yet
+ * The exact ordered rollups a history or cost read depends on are enqueued but not yet
  * rebuilt. The data will exist shortly without any caller-side action, so this
  * is a retryable state rather than an archive fault.
  */
@@ -87,7 +87,7 @@ export class RollupsMaterializingError extends Error {
   readonly retryAfterSeconds = 5;
 
   constructor() {
-    super("Telemetry cost rollups are still materializing the requested history");
+    super("Telemetry rollups are still materializing the requested history");
   }
 }
 
