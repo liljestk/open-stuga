@@ -61,6 +61,12 @@ live UI, reliability, accessibility or deployment pass. The 0.41.7 one-time
 visual exception is not transferred to this candidate. All release and live
 acceptance evidence remains outside Git.
 
+Fresh-checkout installation caught inconsistent private dependency pins in
+the relay manifest and lockfile before 0.41.8 was tagged or published. The
+corrected candidate is 0.41.9 and includes these electricity fixes. Version
+verification now checks private pins in every workspace and their lockfile
+entries. Live acceptance is still pending deployment.
+
 ## October 3 deployment follow-up
 
 The later 0.41.6 follow-up also isolates dense local cost work and aligns raw

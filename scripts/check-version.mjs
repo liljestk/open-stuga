@@ -27,9 +27,16 @@ const webContractsVersion = json("apps/web/package.json").dependencies?.["@clima
 if (webContractsVersion !== expected) {
   mismatches.push(`apps/web/package.json @climate-twin/contracts: ${webContractsVersion ?? "missing"}`);
 }
-for (const [name, version] of Object.entries(json("apps/web/package.json").dependencies ?? {})) {
-  if (name.startsWith("@climate-twin/") && version !== expected) {
-    mismatches.push(`apps/web/package.json ${name}: ${version}`);
+const dependencyGroups = ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"];
+for (const path of workspaceManifests) {
+  const manifest = json(path);
+  for (const group of dependencyGroups) {
+    for (const [name, version] of Object.entries(manifest[group] ?? {})) {
+      if (name.startsWith("@climate-twin/") && version !== expected
+        && (path === "apps/web/package.json" || version !== "*")) {
+        mismatches.push(`${path} ${name}: ${version}`);
+      }
+    }
   }
 }
 const contractsSource = readFileSync(resolve(root, "packages/contracts/src/measurement-analytics.ts"), "utf8");
@@ -72,14 +79,19 @@ if (lock.version !== expected || lock.packages?.[""]?.version !== expected) {
   mismatches.push(`package-lock.json: ${lock.version ?? "missing"}`);
 }
 for (const path of workspaceManifests) {
-  const lockVersion = lock.packages?.[path.replace("/package.json", "")]?.version;
+  const locked = lock.packages?.[path.replace("/package.json", "")];
+  const lockVersion = locked?.version;
   if (lockVersion !== expected) mismatches.push(`package-lock.json ${path}: ${lockVersion ?? "missing"}`);
+  const manifest = json(path);
+  for (const group of dependencyGroups) {
+    for (const [name, version] of Object.entries(manifest[group] ?? {})) {
+      if (name.startsWith("@climate-twin/") && locked?.[group]?.[name] !== version) {
+        mismatches.push(`package-lock.json ${path} ${name}: ${locked?.[group]?.[name] ?? "missing"} (expected ${version})`);
+      }
+    }
+  }
 }
-const lockedWebContractsVersion = lock.packages?.["apps/web"]?.dependencies?.["@climate-twin/contracts"];
-if (lockedWebContractsVersion !== expected) {
-  mismatches.push(`package-lock.json apps/web @climate-twin/contracts: ${lockedWebContractsVersion ?? "missing"}`);
-}
-for (const dependency of ["@climate-twin/spatial-layers", "@climate-twin/stuguby-protocol"]) {
+for (const dependency of ["@climate-twin/contracts", "@climate-twin/spatial-layers", "@climate-twin/stuguby-protocol"]) {
   const version = lock.packages?.["apps/web"]?.dependencies?.[dependency];
   if (version !== expected) mismatches.push(`package-lock.json apps/web ${dependency}: ${version ?? "missing"}`);
 }

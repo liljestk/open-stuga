@@ -2,6 +2,12 @@
 
 All notable Stugu releases are recorded here.
 
+## 0.41.9
+
+- Correct private workspace dependency versions so the electricity fixes build and install from a fresh checkout. Check all workspace dependency pins and their lockfile entries before preparing a release.
+
+Upgrade impact: includes the 0.41.8 electricity history, cost and diagnostic fixes. No database migration, configuration change, Compose contract change or host update is required. Existing readings and backups are retained.
+
 ## 0.41.8
 
 - Load long electricity history and annual costs more efficiently on Raspberry Pi installations with compressed history. Keep reads within each meter's selected time windows and read each required cost day once.
