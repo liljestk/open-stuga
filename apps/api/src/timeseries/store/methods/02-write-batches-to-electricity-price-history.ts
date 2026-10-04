@@ -374,7 +374,7 @@ registerTimeseriesStoreMethods({
       const measurements = qualifiedName(this.schema, "measurement_samples");
       const syntheticFilter = query.excludeSynthetic ? "AND source NOT IN ('mock', 'replay')" : "";
       const result = await this.__query<MeasurementRow>(`WITH source_rows AS (
-          SELECT value, source, observed_at,
+          SELECT value, observed_at,
             date_bin(make_interval(secs => $5::INT), observed_at, TIMESTAMPTZ '1970-01-01 00:00:00+00') AS bucket_start
           FROM ${measurements}
           WHERE sensor_id = $1 AND metric = $2
@@ -382,30 +382,33 @@ registerTimeseriesStoreMethods({
             ${syntheticFilter}
         ), recent_buckets AS (
           SELECT bucket_start, AVG(value)::DOUBLE PRECISION AS value,
-            COUNT(*) AS sample_count, COUNT(DISTINCT source) AS source_count,
+            COUNT(*) AS sample_count,
             MAX(observed_at) AS latest_at
           FROM source_rows
           GROUP BY bucket_start
           ORDER BY bucket_start DESC
           LIMIT $6
+        ), latest_rows AS (
+          -- Read provenance once for the returned timestamps. Per-bucket
+          -- lookups repeatedly decompress the same historical chunks.
+          SELECT DISTINCT ON (observed_at) observed_at, canonical_unit,
+            source, quality, metadata
+          FROM ${measurements}
+          WHERE sensor_id = $1 AND metric = $2
+            AND observed_at >= $3::TIMESTAMPTZ AND observed_at <= $4::TIMESTAMPTZ
+            AND observed_at IN (SELECT latest_at FROM recent_buckets)
+            ${syntheticFilter}
+          ORDER BY observed_at DESC, source DESC
         )
         SELECT $1::TEXT AS sensor_id, $2::TEXT AS metric, bucket.value,
           latest.canonical_unit, bucket.bucket_start AS observed_at, latest.source,
-          CASE WHEN bucket.sample_count > 1 OR bucket.source_count > 1
+          -- Distinct sources already imply multiple samples. Counting them
+          -- would force a sort over the dense input instead of bucket hashing.
+          CASE WHEN bucket.sample_count > 1
             THEN 'estimated' ELSE latest.quality END AS quality,
           latest.metadata
         FROM recent_buckets bucket
-        -- Keep JSON payloads out of the full-history grouping and sort. Only
-        -- the last sample in each returned bucket needs its provenance.
-        CROSS JOIN LATERAL (
-          SELECT canonical_unit, source, quality, metadata
-          FROM ${measurements}
-          WHERE sensor_id = $1 AND metric = $2
-            AND observed_at = bucket.latest_at
-            ${syntheticFilter}
-          ORDER BY source DESC
-          LIMIT 1
-        ) latest
+        JOIN latest_rows latest ON latest.observed_at = bucket.latest_at
         ORDER BY bucket.bucket_start ASC`, [
         query.sensorId,
         query.metric,
