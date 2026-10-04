@@ -2,6 +2,12 @@
 
 All notable Stugu releases are recorded here.
 
+## 0.41.11
+
+- Long power-history queries keep metadata out of full-history sorts and retrieve provenance only for returned buckets.
+- Archive maintenance continues through a failed first startup and resumes ordered energy-history preparation after recovery. Closed-day replacement reads only its time partition.
+- Upgrade impact: application-only update; existing measurements, bucket averages, cost arithmetic, configuration and host-update trust remain compatible.
+
 ## 0.41.10
 
 - Load compressed electricity history and annual costs within each meter's selected time windows, reading each required cost day once.

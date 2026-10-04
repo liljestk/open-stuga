@@ -281,7 +281,7 @@ export function configureApiPart03(context: ReturnType<typeof configureApiPart02
   const telemetryRetention = telemetryArchive && config.retentionDays > 0
       ? new TelemetryRetentionWorker(context.database, telemetryArchive, config.retentionDays)
       : null;
-  const telemetryOrderedRollups = timeseries ? new TelemetryOrderedRollupWorker(timeseries) : null;
+  const telemetryOrderedRollups = timeseries ? new TelemetryOrderedRollupWorker(timeseries, { ready: () => ["syncing", "ready"].includes(telemetryArchive!.status().phase) }) : null;
   const telemetryReader = context.options.telemetryReader ?? new HybridTelemetryReader({
       local: context.database,
       archive: timeseries,

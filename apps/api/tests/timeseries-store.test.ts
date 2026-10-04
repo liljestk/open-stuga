@@ -497,7 +497,7 @@ describe("TimeseriesStore", () => {
   });
 
   it("aggregates generic history buckets in one bounded database query", async () => {
-    const pool = new FakePool(({ text }) => text.includes("WITH source_rows AS MATERIALIZED")
+    const pool = new FakePool(({ text }) => text.includes("recent_buckets AS")
       ? queryResult([{
         sensor_id: "sensor-1",
         metric: "temperature",
@@ -529,7 +529,7 @@ describe("TimeseriesStore", () => {
       }),
     ]);
 
-    const queries = pool.queries.filter(({ text }) => text.includes("WITH source_rows AS MATERIALIZED"));
+    const queries = pool.queries.filter(({ text }) => text.includes("recent_buckets AS"));
     expect(queries).toHaveLength(1);
     expect(queries[0]!.values).toEqual(["sensor-1", "temperature", FROM, TO, 900, 3]);
     expect(queries[0]!.text).toContain("AVG(value)::DOUBLE PRECISION");

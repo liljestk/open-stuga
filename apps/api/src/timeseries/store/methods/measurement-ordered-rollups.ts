@@ -288,9 +288,13 @@ registerTimeseriesStoreMethods({
         await client.query("COMMIT");
         return { processed: true, sensorId, metric, dayStart, bucketSeconds, qualityMask, sourceScope, generatedRows, stale: true };
       }
+      // day_start is bookkeeping; bucket_start is the hypertable partition
+      // key. Bound it too so replacing one day never opens unrelated chunks.
       await client.query(`DELETE FROM ${qualifiedName(this.schema, "measurement_ordered_rollups")}
         WHERE algorithm_version = $1 AND sensor_id = $2 AND metric = $3
           AND day_start = $4::TIMESTAMPTZ AND bucket_seconds = $5::INTEGER
+          AND bucket_start >= $4::TIMESTAMPTZ
+          AND bucket_start < $4::TIMESTAMPTZ + INTERVAL '24 hours'
           AND quality_mask = $6::SMALLINT AND source_scope = $7`, [
         MEASUREMENT_ORDERED_ROLLUP_VERSION, sensorId, metric, dayStart, bucketSeconds, qualityMask, sourceScope,
       ]);

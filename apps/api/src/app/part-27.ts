@@ -1,6 +1,7 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { existsSync } from "node:fs";
 import { isIP } from "node:net";
+import { startArchiveMaintenance } from "../timeseries/archive-maintenance.js";
 import { dirname, join } from "node:path";
 import express, { type NextFunction, type Request, type Response } from "express";
 import { DEFAULT_ELECTRICITY_PRICE_ENDPOINT, MAX_OBSERVATION_RESOLUTION_NOTE_LENGTH, hasLocalHouseAuthority, resolvePlanElementOpeningState } from "@climate-twin/contracts";
@@ -430,7 +431,7 @@ export function configureApiPart27(context: ReturnType<typeof configureApiPart26
   const initialRuntimeReady: Promise<void> = Promise.resolve();
   Object.assign(context, { runtimeReady: initialRuntimeReady });
   if (context.options.startBackground && context.telemetryArchive) {
-      const starting = context.telemetryArchive.start();
+      const starting = startArchiveMaintenance(context.telemetryArchive, context.telemetryOrderedRollups, context.telemetryRetention);
       deferred.runtimeReady = config.timeseriesRequired
         ? starting
         : starting.catch(() => {
@@ -438,10 +439,7 @@ export function configureApiPart27(context: ReturnType<typeof configureApiPart26
           // configuration because it contains a database credential.
           console.error("[telemetry-archive] Optional TimescaleDB archive is unavailable; SQLite buffering continues");
         });
-      void deferred.runtimeReady.then(() => {
-        context.telemetryRetention?.start();
-        context.telemetryOrderedRollups?.start();
-      }).catch(() => undefined);
+      void deferred.runtimeReady.catch(() => undefined);
     }
   const extended = Object.assign(context, {  });
   return extended as typeof extended & { runtimeReady: Promise<void> };
