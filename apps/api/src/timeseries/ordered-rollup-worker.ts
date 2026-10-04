@@ -12,6 +12,7 @@ export class TelemetryOrderedRollupWorker {
   readonly #busyIntervalMs: number;
   readonly #retryIntervalMs: number;
   readonly #batchSize: number;
+  readonly #ready: () => boolean;
   #timer: NodeJS.Timeout | null = null;
   #running: Promise<boolean> | null = null;
   #stopping = false;
@@ -21,12 +22,14 @@ export class TelemetryOrderedRollupWorker {
     busyIntervalMs?: number;
     retryIntervalMs?: number;
     batchSize?: number;
+    ready?: () => boolean;
   } = {}) {
     this.#store = store;
     this.#idleIntervalMs = Math.max(250, options.idleIntervalMs ?? DEFAULT_IDLE_INTERVAL_MS);
     this.#busyIntervalMs = Math.max(25, options.busyIntervalMs ?? DEFAULT_BUSY_INTERVAL_MS);
     this.#retryIntervalMs = Math.max(1_000, options.retryIntervalMs ?? DEFAULT_RETRY_INTERVAL_MS);
     this.#batchSize = Math.max(1, Math.min(32, options.batchSize ?? DEFAULT_BATCH_SIZE));
+    this.#ready = options.ready ?? (() => true);
   }
 
   start(): void {
@@ -70,6 +73,7 @@ export class TelemetryOrderedRollupWorker {
   }
 
   async #cycle(): Promise<boolean> {
+    if (!this.#ready()) return false;
     for (let index = 0; index < this.#batchSize && !this.#stopping; index += 1) {
       const result = await this.#store.rebuildNextMeasurementOrderedRollup({ timeoutMs: 15_000 });
       if (!result.processed) return false;

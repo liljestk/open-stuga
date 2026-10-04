@@ -373,8 +373,8 @@ registerTimeseriesStoreMethods({
       }
       const measurements = qualifiedName(this.schema, "measurement_samples");
       const syntheticFilter = query.excludeSynthetic ? "AND source NOT IN ('mock', 'replay')" : "";
-      const result = await this.__query<MeasurementRow>(`WITH source_rows AS MATERIALIZED (
-          SELECT value, canonical_unit, observed_at, source, quality, metadata,
+      const result = await this.__query<MeasurementRow>(`WITH source_rows AS (
+          SELECT value, source, observed_at,
             date_bin(make_interval(secs => $5::INT), observed_at, TIMESTAMPTZ '1970-01-01 00:00:00+00') AS bucket_start
           FROM ${measurements}
           WHERE sensor_id = $1 AND metric = $2
@@ -382,17 +382,12 @@ registerTimeseriesStoreMethods({
             ${syntheticFilter}
         ), recent_buckets AS (
           SELECT bucket_start, AVG(value)::DOUBLE PRECISION AS value,
-            COUNT(*) AS sample_count, COUNT(DISTINCT source) AS source_count
+            COUNT(*) AS sample_count, COUNT(DISTINCT source) AS source_count,
+            MAX(observed_at) AS latest_at
           FROM source_rows
           GROUP BY bucket_start
           ORDER BY bucket_start DESC
           LIMIT $6
-        ), latest_rows AS (
-          SELECT DISTINCT ON (sample.bucket_start) sample.bucket_start,
-            sample.canonical_unit, sample.source, sample.quality, sample.metadata
-          FROM source_rows sample
-          JOIN recent_buckets bucket USING (bucket_start)
-          ORDER BY sample.bucket_start ASC, sample.observed_at DESC, sample.source DESC
         )
         SELECT $1::TEXT AS sensor_id, $2::TEXT AS metric, bucket.value,
           latest.canonical_unit, bucket.bucket_start AS observed_at, latest.source,
@@ -400,7 +395,17 @@ registerTimeseriesStoreMethods({
             THEN 'estimated' ELSE latest.quality END AS quality,
           latest.metadata
         FROM recent_buckets bucket
-        JOIN latest_rows latest USING (bucket_start)
+        -- Keep JSON payloads out of the full-history grouping and sort. Only
+        -- the last sample in each returned bucket needs its provenance.
+        CROSS JOIN LATERAL (
+          SELECT canonical_unit, source, quality, metadata
+          FROM ${measurements}
+          WHERE sensor_id = $1 AND metric = $2
+            AND observed_at = bucket.latest_at
+            ${syntheticFilter}
+          ORDER BY source DESC
+          LIMIT 1
+        ) latest
         ORDER BY bucket.bucket_start ASC`, [
         query.sensorId,
         query.metric,
