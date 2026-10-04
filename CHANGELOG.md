@@ -2,6 +2,12 @@
 
 All notable Stugu releases are recorded here.
 
+## 0.41.13
+
+- Keep the API responsive during local chart-history reads by sharing the bounded read-only SQLite worker with electricity costs.
+- Resolve local bucket provenance through indexed latest-sample lookups instead of sorting every raw observation. Preserve averages, source ties, units, quality, limits and inclusive or exclusive bounds.
+- Upgrade impact: application-only update; no database migration, API, configuration, Compose or host-trust change. Existing history and verified backups are retained.
+
 ## 0.41.12
 
 - Load long power-history charts faster by avoiding full-history source sorts and repeated decompression for each bucket.

@@ -210,35 +210,33 @@ registerDatabaseMethods({
       // An exclusive upper bound lets chunked callers tile a long window into
       // adjacent statements without counting a boundary row twice.
       const rows = this.db.prepare(`WITH source_rows AS (
-          SELECT id, timestamp, source,
+          SELECT timestamp,
             CAST(CAST(strftime('%s', timestamp) AS INTEGER) / ? AS INTEGER) * ? AS bucket_epoch, value
           FROM measurement_samples
           WHERE sensor_id = ? AND metric = ? AND timestamp >= ? AND timestamp ${toExclusive ? "<" : "<="} ?
             ${sourceFilter}
         ), recent_buckets AS (
           SELECT bucket_epoch, AVG(value) AS value, COUNT(*) AS sample_count,
-            COUNT(DISTINCT source) AS source_count
+            MAX(timestamp) AS latest_at
           FROM source_rows WHERE bucket_epoch IS NOT NULL
           GROUP BY bucket_epoch ORDER BY bucket_epoch DESC LIMIT ?
-        ), chronological_rows AS (
-          SELECT source_rows.id, source_rows.bucket_epoch,
-            ROW_NUMBER() OVER (PARTITION BY bucket_epoch ORDER BY timestamp DESC, source DESC, id DESC) AS position
-          FROM source_rows JOIN recent_buckets USING (bucket_epoch)
-          WHERE bucket_epoch IS NOT NULL
         )
         SELECT recent_buckets.bucket_epoch, recent_buckets.value, recent_buckets.sample_count,
-          recent_buckets.source_count,
           latest.canonical_unit, latest.source, latest.quality
         FROM recent_buckets
-        JOIN chronological_rows ON chronological_rows.bucket_epoch = recent_buckets.bucket_epoch
-          AND chronological_rows.position = 1
-        JOIN measurement_samples AS latest ON latest.id = chronological_rows.id
+        -- Resolve only the returned buckets' provenance through the existing
+        -- sensor/metric/timestamp index, without ranking every dense sample.
+        JOIN measurement_samples AS latest ON latest.id = (
+          SELECT id FROM measurement_samples
+          WHERE sensor_id = ? AND metric = ? AND timestamp = recent_buckets.latest_at
+            ${sourceFilter}
+          ORDER BY source DESC, id DESC LIMIT 1
+        )
         ORDER BY recent_buckets.bucket_epoch ASC`)
-        .all(bucketSeconds, bucketSeconds, sensorId, metric, from, to, limit) as Array<{
+        .all(bucketSeconds, bucketSeconds, sensorId, metric, from, to, limit, sensorId, metric) as Array<{
           bucket_epoch: number;
           value: number;
           sample_count: number;
-          source_count: number;
           canonical_unit: string;
           source: MeasurementSample["source"];
           quality: MeasurementSample["quality"];
@@ -250,7 +248,7 @@ registerDatabaseMethods({
         canonicalUnit: row.canonical_unit,
         timestamp: new Date(row.bucket_epoch * 1_000).toISOString(),
         source: row.source,
-        quality: row.sample_count > 1 || row.source_count > 1 ? "estimated" : row.quality,
+        quality: row.sample_count > 1 ? "estimated" : row.quality,
       }));
     },
   measurementHistoryBucketedMulti(

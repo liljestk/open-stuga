@@ -87,9 +87,10 @@ export type {
 export type { HybridMeasurementAnalyticsRollupResult } from "./read-analytics-rollup.js";
 export type { MeasurementWindowQuery } from "./types.js";
 
-/** The synchronous, crash-safe SQLite reads needed by the facade. */
+/** The local SQLite reads needed by the facade, with optional worker isolation. */
 export interface LocalTelemetryReader {
   isRealDataMode(): boolean;
+  measurementHistoryBucketedAsync?(query: MeasurementHistoryBucketedQuery & { toExclusive?: boolean }): Promise<MeasurementSample[]>;
   measurementBoundarySamples?(query: MeasurementBoundaryQuery): MeasurementSample[];
   measurementCoverage?(sensorIds: string[], metrics: string[]): MeasurementCoverageRecord[];
   measurementSampleGaps?(
@@ -195,10 +196,9 @@ export interface HybridTelemetryReaderOptions {
 }
 
 /**
- * node:sqlite runs one statement to completion without observing signals, so
- * long bucketed windows are tiled into day-scale statements that yield to the
- * event loop between chunks. A chunk is the largest whole-bucket multiple that
- * fits in a day, keeping every statement no heavier than the 24-hour hot path.
+ * node:sqlite runs one statement to completion without observing signals.
+ * File-backed SQLite runs bucket reads in its bounded worker. Compatibility
+ * readers still tile windows into day-scale statements and yield between them.
  */
 const LOCAL_BUCKET_CHUNK_SECONDS = 86_400;
 
@@ -466,7 +466,15 @@ export class HybridTelemetryReader {
       const chunkFrom = new Date(Math.max(input.fromMs, chunkStartMs)).toISOString();
       const needed = input.limit - collected.length;
       const isNewestChunk = index === chunkStarts.length - 1;
-      const rows = isNewestChunk
+      const rows = this.#local.measurementHistoryBucketedAsync
+        ? await this.#local.measurementHistoryBucketedAsync({
+          sensorId: input.sensorId, metric: input.metric, from: chunkFrom,
+          to: isNewestChunk ? input.to : new Date(chunkStartMs + chunkMs).toISOString(),
+          bucketSeconds: input.bucketSeconds, limit: needed,
+          excludeSynthetic: input.excludeSynthetic, toExclusive: !isNewestChunk,
+          ...(input.signal ? { signal: input.signal } : {}),
+        })
+        : isNewestChunk
         ? this.#local.measurementHistoryBucketed(
           input.sensorId,
           input.metric,
