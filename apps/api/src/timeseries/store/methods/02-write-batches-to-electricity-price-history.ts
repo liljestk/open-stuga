@@ -373,6 +373,10 @@ registerTimeseriesStoreMethods({
       }
       const measurements = qualifiedName(this.schema, "measurement_samples");
       const syntheticFilter = query.excludeSynthetic ? "AND source NOT IN ('mock', 'replay')" : "";
+      // Chart DTOs do not expose metadata. Avoid decompressing that wide column
+      // for every historical row just to discard the returned latest payloads.
+      const metadataColumn = query.includeMetadata === false ? "" : ", metadata";
+      const metadataResult = query.includeMetadata === false ? "'{}'::JSONB AS metadata" : "latest.metadata";
       const result = await this.__query<MeasurementRow>(`WITH source_rows AS (
           SELECT value, observed_at,
             date_bin(make_interval(secs => $5::INT), observed_at, TIMESTAMPTZ '1970-01-01 00:00:00+00') AS bucket_start
@@ -392,7 +396,7 @@ registerTimeseriesStoreMethods({
           -- Read provenance once for the returned timestamps. Per-bucket
           -- lookups repeatedly decompress the same historical chunks.
           SELECT DISTINCT ON (observed_at) observed_at, canonical_unit,
-            source, quality, metadata
+            source, quality${metadataColumn}
           FROM ${measurements}
           WHERE sensor_id = $1 AND metric = $2
             AND observed_at >= $3::TIMESTAMPTZ AND observed_at <= $4::TIMESTAMPTZ
@@ -406,7 +410,7 @@ registerTimeseriesStoreMethods({
           -- would force a sort over the dense input instead of bucket hashing.
           CASE WHEN bucket.sample_count > 1
             THEN 'estimated' ELSE latest.quality END AS quality,
-          latest.metadata
+          ${metadataResult}
         FROM recent_buckets bucket
         JOIN latest_rows latest ON latest.observed_at = bucket.latest_at
         ORDER BY bucket.bucket_start ASC`, [

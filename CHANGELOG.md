@@ -2,6 +2,11 @@
 
 All notable Stugu releases are recorded here.
 
+## 0.41.14
+
+- Reduce long chart-history archive reads by skipping compressed metadata fields that are absent from the chart response. Preserve bucket averages, timestamps, latest-source ties, quality and units; full archive reads still retain metadata.
+- Upgrade impact: application-only update; no database migration, public API, configuration, Compose or host-trust change. Existing history and verified backups are retained.
+
 ## 0.41.13
 
 - Keep the API responsive during local chart-history reads by sharing the bounded read-only SQLite worker with electricity costs.
