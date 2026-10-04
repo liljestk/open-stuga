@@ -49,6 +49,29 @@ describe("bounded generic bucket provenance", () => {
       sensorId: "meter", metric: "power", timestamp: (row.at as Date).toISOString(),
       value: row.value, canonicalUnit: row.unit, source: row.source, quality: row.quality, metadata: row.metadata,
     })));
+    const samplesOnly = await store.measurementHistoryBucketed({
+      sensorId: "meter", metric: "power", from, to, bucketSeconds: seconds, limit,
+      excludeSynthetic: real, includeMetadata: false,
+    });
+    expect(samplesOnly).toEqual(actual.map(sample => ({ ...sample, metadata: {} })));
+  });
+
+  it("never reads the compressed metadata column for sample-only projections", async () => {
+    await store.measurementHistoryBucketed({
+      sensorId: "meter", metric: "power", from: "2026-09-01", to: "2026-09-02",
+      bucketSeconds: 900, limit: 3, excludeSynthetic: true, includeMetadata: false,
+    });
+    const query = pool.queries.findLast(item => item.text.includes("recent_buckets AS"))!;
+    const explain = (await db.query<Record<string, unknown>>(
+      `EXPLAIN (VERBOSE, FORMAT JSON) ${query.text}`, query.values,
+    )).rows[0]!["QUERY PLAN"] as Array<{ Plan: Record<string, unknown> }>;
+    const visit = (node: Record<string, unknown>): void => {
+      if (String(node["Node Type"]).includes("Scan")) {
+        expect(String(node.Output)).not.toMatch(/(?:measurement_samples|latest_rows)\.metadata/);
+      }
+      for (const child of (node.Plans ?? []) as Array<Record<string, unknown>>) visit(child);
+    };
+    visit(explain[0]!.Plan);
   });
 
   it("keeps wide metadata out of sorts over the dense historical input", async () => {

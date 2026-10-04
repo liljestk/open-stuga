@@ -375,6 +375,7 @@ describe("HybridTelemetryReader", () => {
     expect(archiveBuckets).toHaveBeenCalledOnce();
     expect(archiveBuckets).toHaveBeenCalledWith(expect.objectContaining({
       sensorId: "sensor-a", metric: "temperature", bucketSeconds: 60, limit: 2, excludeSynthetic: false,
+      includeMetadata: false,
     }));
     expect(localRaw).not.toHaveBeenCalled();
     expect(archiveRaw).not.toHaveBeenCalled();

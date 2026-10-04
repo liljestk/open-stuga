@@ -392,6 +392,7 @@ export class HybridTelemetryReader {
         ...query,
         limit,
         excludeSynthetic: realMode,
+        includeMetadata: false,
       })).map(archivedMeasurement);
     } catch {
       const afterFailureCancellation = aborted(query.signal);

@@ -235,6 +235,8 @@ export interface MeasurementHistoryBucketedQuery extends QueryControl {
   limit?: number;
   /** Real-data mode must remove synthetic rows before calculating bucket values. */
   excludeSynthetic?: boolean;
+  /** Internal sample projections can skip decoding metadata; full archive reads retain it by default. */
+  includeMetadata?: boolean;
 }
 
 /** A bounded database-side search for adjacent good samples separated by a real hole. */
