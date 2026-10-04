@@ -187,6 +187,7 @@ import { AREA_EQUIPMENT_STATUSES, AuthAbuseLimiter, HttpError, LOCAL_CSRF_COOKIE
 import type { ApiRuntime, AuthAttemptBucket, AuthAttemptLimit, BoundedSseWriter, CreateApiOptions, IntegrationDraftTestResult, LocalRequestPrincipal } from "./support/index.js";
 import { configureApiPart26 } from "./part-26.js";
 import { AnalyticsCapacityError } from "../analytics/work-limiter.js";
+import { LocalTelemetryTimeoutError } from "../timeseries/local-cost-isolate.js";
 
 type DeferredContext = {
   runtimeReady: Promise<void>;
@@ -339,6 +340,11 @@ export function configureApiPart27(context: ReturnType<typeof configureApiPart26
   context.app.use(`${context.prefix}`, (_request, _response, next) => next(new HttpError(404, "NOT_FOUND", "API endpoint not found")));
   context.app.use(`${context.v2Prefix}`, (_request, _response, next) => next(new HttpError(404, "NOT_FOUND", "API endpoint not found")));
   context.app.use((error: unknown, _request: Request, response: Response, _next: NextFunction) => {
+      if (error instanceof LocalTelemetryTimeoutError) {
+        response.setHeader("retry-after", "1");
+        response.status(503).json({ error: { code: error.code, message: error.message } });
+        return;
+      }
       if (error instanceof AnalyticsCapacityError) {
         response.setHeader("retry-after", String(error.retryAfterSeconds));
         response.status(503).json({ error: { code: error.code, message: error.message } });

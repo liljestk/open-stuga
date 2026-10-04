@@ -14,12 +14,12 @@ export class SetupDoctor {
     private readonly archive: TelemetryArchiveWorker | null,
   ) {}
 
-  report(now = new Date()): SetupDoctorReport {
+  async report(now = new Date(), signal?: AbortSignal): Promise<SetupDoctorReport> {
     const checks: SetupDoctorCheck[] = [];
-    const integrity = this.database.db.prepare("PRAGMA quick_check").all() as Array<{ quick_check: string }>;
-    const foreignKeys = this.database.db.prepare("PRAGMA foreign_key_check").all();
-    checks.push({ id: "sqlite-integrity", category: "storage", status: integrity.every((row) => row.quick_check === "ok") && foreignKeys.length === 0 ? "pass" : "fail",
-      title: "Control database integrity", detail: foreignKeys.length === 0 ? "SQLite integrity and foreign-key checks pass." : `${foreignKeys.length} foreign-key issue(s) need repair.`, action: foreignKeys.length ? "Restore from a verified backup or inspect the integrity runbook." : null });
+    const integrity = await this.database.integrityAsync(signal);
+    const integrityOk = integrity.integrityOk && integrity.foreignKeyIssues === 0;
+    checks.push({ id: "sqlite-integrity", category: "storage", status: integrityOk ? "pass" : "fail",
+      title: "Control database integrity", detail: integrityOk ? "SQLite integrity and foreign-key checks pass." : `${integrity.foreignKeyIssues} foreign-key issue(s); SQLite integrity ${integrity.integrityOk ? "passes" : "failed"}.`, action: integrityOk ? null : "Restore from a verified backup or inspect the integrity runbook." });
     const archive = this.archive?.status();
     checks.push({ id: "timescale-archive", category: "telemetry", status: !this.config.timeseriesEnabled ? "not-applicable" : archive?.phase === "ready" && archive.caughtUp ? "pass" : "warning",
       title: "Long-term telemetry archive", detail: !this.config.timeseriesEnabled ? "TimescaleDB is disabled." : archive?.caughtUp ? "TimescaleDB is ready and caught up." : `Archive state: ${archive?.phase ?? "starting"}.`,

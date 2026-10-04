@@ -16,18 +16,7 @@ import type {
 } from "@climate-twin/contracts";
 import type { AppConfig } from "./config.js";
 import type { ClimateDatabase } from "./db.js";
-
-const EXPORT_TABLES = [
-  "properties", "houses", "property_areas", "area_equipment", "property_notes", "sensors",
-  "measurement_definitions", "alert_rules", "alert_events", "observations", "maintenance_tasks",
-  "action_playbooks", "action_runs", "property_electricity_configs", "electricity_price_points",
-  "measurement_samples", "readings", "outdoor_temperature_samples", "heat_pump_state_history",
-] as const;
-
-const TELEMETRY_EXPORT_TABLES = [
-  "measurement_samples", "readings", "outdoor_temperature_samples",
-  "electricity_price_points", "heat_pump_state_history",
-] as const;
+import { EXPORT_TABLES, TELEMETRY_EXPORT_TABLES } from "./db/inspection.js";
 
 interface BackupWorkerState extends BackupOperationStatus {
   version: 1;
@@ -42,14 +31,6 @@ function atomicJson(path: string, value: unknown): void {
   const temporary = `${path}.${process.pid}.${Date.now()}.tmp`;
   writeFileSync(temporary, `${JSON.stringify(value, null, 2)}\n`, { encoding: "utf8", flag: "wx", mode: 0o600 });
   renameSync(temporary, path);
-}
-
-function tableCount(database: ClimateDatabase, table: string): number {
-  try {
-    return Number((database.db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get() as { count: number }).count);
-  } catch {
-    return 0;
-  }
 }
 
 function latestManifestAt(directory: string | undefined): string | null {
@@ -74,15 +55,14 @@ export class DataOperationsService {
     this.#backupDirectory = config.backupDirectory;
   }
 
-  preview(privacyLevel: DataExportPrivacyLevel, includesTelemetry: boolean): DataExportPreview {
-    const counts: Record<string, number> = {};
-    for (const table of EXPORT_TABLES) {
-      if (!includesTelemetry && TELEMETRY_EXPORT_TABLES.includes(table as (typeof TELEMETRY_EXPORT_TABLES)[number])) continue;
-      if (privacyLevel === "structure" && ["property_notes", "alert_events", "observations", "maintenance_tasks", "action_runs"].includes(table)) continue;
-      counts[table] = tableCount(this.database, table);
-    }
+  async preview(privacyLevel: DataExportPrivacyLevel, includesTelemetry: boolean, signal?: AbortSignal): Promise<DataExportPreview> {
+    const tables = EXPORT_TABLES.filter(table => {
+      if (!includesTelemetry && TELEMETRY_EXPORT_TABLES.includes(table as (typeof TELEMETRY_EXPORT_TABLES)[number])) return false;
+      return privacyLevel !== "structure" || !["property_notes", "alert_events", "observations", "maintenance_tasks", "action_runs"].includes(table);
+    });
+    const counts = await this.database.exportTableCountsAsync(tables, signal);
     const estimatedTelemetryRows = TELEMETRY_EXPORT_TABLES
-      .reduce((total, table) => total + tableCount(this.database, table), 0);
+      .reduce((total, table) => total + (counts[table] ?? 0), 0);
     const sensitiveCategories = ["property and building layout", "sensor names and placement"];
     if (privacyLevel !== "structure") sensitiveCategories.push("maintenance, observations, and alert history");
     if (includesTelemetry) sensitiveCategories.push("timestamped environmental, energy, and equipment-state telemetry");

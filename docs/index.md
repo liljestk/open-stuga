@@ -30,7 +30,8 @@ Start here:
    evidence capture, and a Property-owned work plan with verification history.
 11. [API, MCP, and integrations](integrations.md) — v1 compatibility and v2
    measurement REST/SSE examples, MCP tools, Home Assistant alert webhook, and
-   DayOps/OpenWearable adapter guidance.
+   DayOps/OpenWearable adapter guidance. The [API testing catalogue](testing/api-endpoint-combinations.md)
+   lists endpoint combinations, input cases, and workflows.
 12. [Apple Notes bridge and Telegram alerts](apple-notes-telegram.md) — guided
    bot/chat pairing, per-rule Telegram delivery, revocable Home-scoped iOS
    Shortcut grants, maintenance capture, and dated Notes snapshots.

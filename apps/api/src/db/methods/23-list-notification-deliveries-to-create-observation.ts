@@ -1,4 +1,5 @@
 import { mkdirSync } from "node:fs";
+import { validateActionPlaybook } from "../action-playbook-validation.js";
 import { dirname } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
@@ -180,6 +181,7 @@ registerDatabaseMethods({
       return row ? actionPlaybookFromRow(row) : null;
     },
   saveActionPlaybook(input: ActionPlaybookInput): ActionPlaybook {
+      validateActionPlaybook(input);
       if (!this.getMeasurementDefinition(input.metric)) {
         throw new ClimateDataValidationError(404, "UNKNOWN_METRIC", `Unknown measurement metric: ${input.metric}`);
       }
@@ -213,6 +215,7 @@ registerDatabaseMethods({
         verificationWindowSeconds: patch.verificationWindowSeconds ?? current.verificationWindowSeconds,
         enabled: patch.enabled ?? current.enabled,
       };
+      validateActionPlaybook(next);
       if (!this.getMeasurementDefinition(next.metric)) {
         throw new ClimateDataValidationError(404, "UNKNOWN_METRIC", `Unknown measurement metric: ${next.metric}`);
       }

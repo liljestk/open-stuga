@@ -150,7 +150,7 @@ export function DeveloperPage({ canManageSystem = false }: { canManageSystem?: b
 
   return (
     <>
-      <header className="page-heading"><div><span className="eyebrow"><Braces size={14} aria-hidden="true" />{t("developer.contractsEyebrow")}</span><h1>{t("developer.title")}</h1><p>{t("developer.description")}</p></div></header>
+      <header className="page-heading developer-heading"><div><span className="eyebrow"><Braces size={14} aria-hidden="true" />{t("developer.contractsEyebrow")}</span><h1>{t("developer.title")}</h1><p>{t("developer.description")}</p></div></header>
       <div className="developer-grid">
         <section className="panel developer-card" aria-labelledby="api-title">
           <div className="developer-icon api" aria-hidden="true"><ServerCog size={23} /></div>

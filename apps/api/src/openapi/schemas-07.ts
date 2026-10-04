@@ -258,20 +258,21 @@ export const schemasPart07 = {
           type: "object", additionalProperties: false,
           required: ["id", "name", "description", "instructions", "metric", "goal", "minimumImprovement", "targetValue", "waitSeconds", "verificationWindowSeconds", "enabled", "builtIn", "createdAt", "updatedAt"],
           properties: {
-            id: { type: "string" }, name: { type: "string", maxLength: 160 }, description: { type: "string", maxLength: 2_000 }, instructions: { type: "array", minItems: 1, maxItems: 20, items: { type: "string", maxLength: 500 } }, metric: { type: "string" }, goal: { enum: ["decrease", "increase", "below", "above"] }, minimumImprovement: { type: "number" }, targetValue: { type: ["number", "null"] }, waitSeconds: { type: "number", minimum: 0 }, verificationWindowSeconds: { type: "number", minimum: 0 }, enabled: { type: "boolean" }, builtIn: { type: "boolean", readOnly: true }, createdAt: { type: "string", format: "date-time", readOnly: true }, updatedAt: { type: "string", format: "date-time", readOnly: true },
+            id: { type: "string" }, name: { type: "string", maxLength: 160 }, description: { type: "string", maxLength: 2_000 }, instructions: { type: "array", minItems: 1, maxItems: 20, items: { type: "string", maxLength: 500 } }, metric: { type: "string" }, goal: { enum: ["decrease", "increase", "below", "above"] }, minimumImprovement: { type: "number", minimum: 0 }, targetValue: { type: ["number", "null"] }, waitSeconds: { type: "number", minimum: 0, maximum: 604_800 }, verificationWindowSeconds: { type: "number", minimum: 60, maximum: 2_592_000 }, enabled: { type: "boolean" }, builtIn: { type: "boolean", readOnly: true }, createdAt: { type: "string", format: "date-time", readOnly: true }, updatedAt: { type: "string", format: "date-time", readOnly: true },
           },
         },
   ActionPlaybookInput: {
+          allOf: [{ if: { required: ["goal"], properties: { goal: { enum: ["below", "above"] } } }, then: { required: ["targetValue"], properties: { targetValue: { type: "number" } } } }],
           type: "object", additionalProperties: false,
           required: ["name", "description", "instructions", "metric", "goal", "minimumImprovement", "waitSeconds", "verificationWindowSeconds"],
           properties: {
-            id: { type: "string" }, name: { type: "string", minLength: 1, maxLength: 160 }, description: { type: "string", minLength: 1, maxLength: 2_000 }, instructions: { type: "array", minItems: 1, maxItems: 20, items: { type: "string", minLength: 1, maxLength: 500 } }, metric: { type: "string", minLength: 1 }, goal: { enum: ["decrease", "increase", "below", "above"] }, minimumImprovement: { type: "number" }, targetValue: { type: ["number", "null"] }, waitSeconds: { type: "number", minimum: 0 }, verificationWindowSeconds: { type: "number", minimum: 0 }, enabled: { type: "boolean" },
+            id: { type: "string" }, name: { type: "string", minLength: 1, maxLength: 160 }, description: { type: "string", minLength: 1, maxLength: 2_000 }, instructions: { type: "array", minItems: 1, maxItems: 20, items: { type: "string", minLength: 1, maxLength: 500 } }, metric: { type: "string", minLength: 1 }, goal: { enum: ["decrease", "increase", "below", "above"] }, minimumImprovement: { type: "number", minimum: 0 }, targetValue: { type: ["number", "null"] }, waitSeconds: { type: "number", minimum: 0, maximum: 604_800 }, verificationWindowSeconds: { type: "number", minimum: 60, maximum: 2_592_000 }, enabled: { type: "boolean" },
           },
         },
   ActionPlaybookPatch: {
           type: "object", additionalProperties: false,
           properties: {
-            id: { type: "string" }, name: { type: "string", minLength: 1, maxLength: 160 }, description: { type: "string", minLength: 1, maxLength: 2_000 }, instructions: { type: "array", minItems: 1, maxItems: 20, items: { type: "string", minLength: 1, maxLength: 500 } }, metric: { type: "string", minLength: 1 }, goal: { enum: ["decrease", "increase", "below", "above"] }, minimumImprovement: { type: "number" }, targetValue: { type: ["number", "null"] }, waitSeconds: { type: "number", minimum: 0 }, verificationWindowSeconds: { type: "number", minimum: 0 }, enabled: { type: "boolean" },
+            id: { type: "string" }, name: { type: "string", minLength: 1, maxLength: 160 }, description: { type: "string", minLength: 1, maxLength: 2_000 }, instructions: { type: "array", minItems: 1, maxItems: 20, items: { type: "string", minLength: 1, maxLength: 500 } }, metric: { type: "string", minLength: 1 }, goal: { enum: ["decrease", "increase", "below", "above"] }, minimumImprovement: { type: "number", minimum: 0 }, targetValue: { type: ["number", "null"] }, waitSeconds: { type: "number", minimum: 0, maximum: 604_800 }, verificationWindowSeconds: { type: "number", minimum: 60, maximum: 2_592_000 }, enabled: { type: "boolean" },
           },
         },
   ActionRun: {

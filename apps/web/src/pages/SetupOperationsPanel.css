@@ -1,4 +1,10 @@
 .setup-operations-grid { min-width: 0; max-width: 100%; display: grid; gap: 18px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.developer-heading > div { min-width: 0; }
+@media (max-width: 680px) {
+  .developer-heading .eyebrow { display: block; }
+  .developer-heading .eyebrow svg { margin-inline-end: 6px; vertical-align: middle; }
+}
+.setup-doctor-panel .panel-header { flex-wrap: wrap; }
 .setup-operations-grid .bulk-mapping-panel { min-width: 0; max-width: 100%; grid-column: 1 / -1; }
 .setup-operations-grid .nas-export-setup-panel { min-width: 0; max-width: 100%; grid-column: 1 / -1; scroll-margin-top: 18px; }
 .nas-setup-state { display: inline-flex; align-items: center; gap: 5px; padding: 6px 9px; border-radius: 999px; color: var(--red); background: color-mix(in srgb, var(--red) 12%, transparent); font-size: .78rem; font-weight: 700; }

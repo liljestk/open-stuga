@@ -1,0 +1,290 @@
+[
+  {
+    "id": "WF01", "name": "Owner setup and session lifecycle",
+    "requires": "Fresh isolated installation; synthetic local account",
+    "steps": ["v1:health", "v1:localSession", "v1:setupLocalOwner", "v1:localSession", "v1:logoutLocalMember", "v1:loginLocalMember", "v1:localSession"],
+    "assertions": ["Setup is possible only before the first Owner exists", "Session cookies and CSRF tokens follow the authenticated session", "Logout invalidates the previous session"],
+    "negativeCases": ["Repeated setup", "Incorrect password", "Disabled account", "Expired cookie", "Untrusted origin", "Authentication rate limit"]
+  },
+  {
+    "id": "WF02", "name": "Invitation and immediate access revocation",
+    "requires": "Owner session and two Properties with Homes",
+    "steps": ["v1:inviteLocalWorkspaceMember", "v1:registerLocalInvitation", "v1:listLocalWorkspaceMembers", "v1:updateLocalWorkspaceMemberAccess", "v1:getProperty", "v1:getHouse", "v1:removeLocalWorkspaceMember", "v1:getHouse", "v1:listSecurityAuditEvents"],
+    "assertions": ["Execute the grant reads as the invited account", "Property, Home and area grants restrict all nested references", "Removing access takes effect on an existing cookie"],
+    "negativeCases": ["Used or invalid invitation", "Guest write", "Member attempts workspace administration", "Remove or demote the last Owner", "Guest requests audit history"]
+  },
+  {
+    "id": "WF03", "name": "Property without a Home",
+    "requires": "Owner session; no Home attached to the new Property",
+    "steps": ["v1:createProperty", "v1:listProperties", "v1:getProperty", "v1:updateProperty", "v1:createPropertyArea", "v1:createAreaEquipment", "v1:createPropertyNote", "v1:createMaintenanceTask", "v1:getPropertyInventory", "v1:listPropertyNotes", "v1:listMaintenanceTasks"],
+    "assertions": ["Property-owned records work without a Home", "All saved records retain the Property owner", "Filters return only the selected Property"],
+    "negativeCases": ["Blank propertyId", "Area from another Property", "Equipment from another Property", "Missing Property and Home on maintenance creation"]
+  },
+  {
+    "id": "WF04", "name": "Home layout and sensor lifecycle",
+    "requires": "Property with two Homes; synthetic layouts and sensor IDs",
+    "steps": ["v1:createHouse", "v1:getHouse", "v1:replaceHouseLayout", "v1:replaceFloor", "v1:createSensor", "v1:listSensors", "v1:getSensor", "v1:replaceSensorFields", "v1:updateSensor", "v1:getSensorLabel", "v1:deleteSensor", "v1:getSensor"],
+    "assertions": ["Capture created Home and sensor IDs for later requests", "Stable roomId relationships survive room label changes", "A deleted sensor is absent from active lists"],
+    "negativeCases": ["Missing floor", "Room belonging to another floor", "Cross-Home placement", "Duplicate identifier", "Out-of-plan coordinates"]
+  },
+  {
+    "id": "WF05", "name": "Hide Home and preserve Property history",
+    "requires": "Home with readings, sensors, a connection, Property notes, equipment and maintenance",
+    "steps": ["v1:deleteHouse", "v1:listHouses", "v1:getHouse", "v1:createSensor", "v1:ingestReadings", "v2:ingestMeasurements", "v1:listPropertyNotes", "v1:listAreaEquipment", "v1:listMaintenanceTasks", "v1:updateMaintenanceTask"],
+    "assertions": ["Reads and new writes to the hidden Home fail closed", "Property-owned records remain editable and retain their hidden Home reference", "Archived credentials never attach to another Home"],
+    "negativeCases": ["Reusing a hidden Home ID", "Moving a retired connection", "Indirect access through analytics, streams or nested IDs"]
+  },
+  {
+    "id": "WF06", "name": "Area equipment attachments and links",
+    "requires": "Property and area; harmless synthetic document/image bytes",
+    "steps": ["v1:createPropertyArea", "v1:getPropertyArea", "v1:updatePropertyArea", "v1:createAreaEquipment", "v1:getAreaEquipment", "v1:updateAreaEquipment", "v1:uploadEquipmentAttachment", "v1:listEquipmentAttachments", "v1:downloadEquipmentAttachment", "v1:createEquipmentLink", "v1:listEquipmentLinks", "v1:updateEquipmentLink", "v1:deleteEquipmentLink", "v1:deleteEquipmentAttachment", "v1:deleteAreaEquipment", "v1:deletePropertyArea"],
+    "assertions": ["Nested attachment/link IDs cannot be substituted between equipment records", "Downloads preserve content and safe response headers", "Deletion has the documented effect on dependent records"],
+    "negativeCases": ["Unsupported MIME type", "Corrupt or oversized base64", "Unsafe URL", "Cross-Property targets"]
+  },
+  {
+    "id": "WF07", "name": "Property notes and optimistic observations",
+    "requires": "Property, Home, floor and optional sensor",
+    "steps": ["v1:createPropertyNote", "v1:getPropertyNote", "v1:updatePropertyNote", "v1:listPropertyNotes", "v1:createObservation", "v1:listObservations", "v1:updateObservation", "v1:listObservationRevisions", "v1:updateObservation", "v1:deleteObservation", "v1:deletePropertyNote"],
+    "assertions": ["Use the latest baseRevision for each edit", "Resolve/reopen timestamps are server-owned", "Stale edits do not change the record or its revision"],
+    "negativeCases": ["Resolution without required note", "Injected resolvedAt", "Invalid exact/date-only/date-range combinations", "Reversed validFrom/validTo", "Cross-Home sensor"]
+  },
+  {
+    "id": "WF08", "name": "Maintenance planning through verification",
+    "requires": "Property-owned task and optional Home observation evidence",
+    "steps": ["v1:createMaintenanceTask", "v1:getMaintenanceTask", "v1:updateMaintenanceTask", "v1:updateMaintenanceTask", "v1:updateMaintenanceTask", "v1:listMaintenanceTaskRevisions", "v1:listMaintenanceTasks", "v1:deleteMaintenanceTask"],
+    "assertions": ["Exercise planned, in-progress, completed and verified using successive current revisions", "Completion requires completionNote; verification requires verificationNote", "Completion and verification times are assigned by the server"],
+    "negativeCases": ["Stale baseRevision", "Predictive task with dueBy", "Verify before completion", "Remove Home without clearing floor/evidence", "Reassign outside immutable Property"]
+  },
+  {
+    "id": "WF09", "name": "Legacy readings and compatibility aliases",
+    "requires": "Home and sensor; fixed synthetic time window",
+    "subscribeBeforeSteps": ["v1:streamTelemetry", "v1:streamTelemetryCompatibility"],
+    "steps": ["v1:ingestReadings", "v1:latestReadings", "v1:queryReadingsCompatibility", "v1:queryHistory", "v1:forecast", "v1:listSensorSnapshots", "v1:listSnapshotCompatibility"],
+    "assertions": ["Repeat for single reading, array and readings wrapper", "Compare canonical and compatibility projections", "Stream events contain only visible scope"],
+    "negativeCases": ["Unknown or hidden sensor", "Mixed valid/invalid batch", "Duplicate timestamp", "Out-of-order reading", "Reversed time range", "Wrong ingest credential"]
+  },
+  {
+    "id": "WF10", "name": "Measurement registry and sparse ingestion",
+    "requires": "Home and sensor; fake custom measurement definition",
+    "subscribeBeforeSteps": ["v2:streamMeasurements"],
+    "steps": ["v2:createMeasurementDefinition", "v2:listMeasurementDefinitions", "v2:ingestMeasurements", "v2:importHistoricalMeasurements", "v2:measurementSnapshot", "v2:measurementHistory", "v2:sensorMeasurementPage", "v2:forecastMeasurement", "v2:updateMeasurementDefinition", "v2:disableMeasurementDefinition"],
+    "assertions": ["Repeat each documented ingestion wrapper", "Sparse samples preserve per-metric units, quality, source and event time", "Test each definition kind and its supported aggregations/forecast behavior"],
+    "negativeCases": ["Reserved definition ID", "Unknown metric", "Invalid unit conversion", "Disabled metric", "Non-finite value", "Duplicate source/event lineage", "Oversized batch"]
+  },
+  {
+    "id": "WF11", "name": "Analytics coverage and query combinations",
+    "requires": "Home with synthetic good, estimated and stale measurements",
+    "steps": ["v2:analyticsCoverage", "v2:queryAnalytics", "v2:measurementHistory"],
+    "assertions": ["Cross live/demo, measurement kind, aggregation, resolution, quality filter and range", "Compare bounded raw and rollup output against seeded data", "Read-only POSTs work with the documented Guest grant"],
+    "negativeCases": ["Unsupported kind/aggregation", "Invalid timezone", "Overlong range", "Too many metrics/entities/points", "Wrong Home in nested scope", "Disabled measurement"]
+  },
+  {
+    "id": "WF12", "name": "Calendar comparison and opening activity",
+    "requires": "Synthetic multi-year readings and opening-state observations",
+    "steps": ["v1:recordOpeningState", "v1:getOpeningStates", "v2:openingActivity", "v2:compareCalendarPeriods"],
+    "assertions": ["Cross day/week/month/year/decade with both data modes and supported aggregations", "Check month/year boundaries, leap day and DST", "Opening summaries preserve provenance and incomplete evidence"],
+    "negativeCases": ["Incompatible period keys", "More than two selected periods", "Invalid anchor", "Cross-Home element ID", "Missing measurement", "Unsupported aggregation"]
+  },
+  {
+    "id": "WF13", "name": "Derived analytics cache and monitoring",
+    "requires": "Synthetic fresh, gapped and insufficient-evidence Homes; fake compute executor",
+    "steps": ["v2:homePerformance", "v2:refreshHomePerformance", "v2:homePerformance", "v2:cachedThermalIsolation", "v2:refreshCachedThermalIsolation", "v2:cachedThermalIsolation", "v2:cachedMoistureResponse", "v2:refreshCachedMoistureResponse", "v2:cachedMoistureResponse", "v2:dailyAnalyticsFindings", "v2:listHomeMonitoring", "v2:getHomeMonitoring"],
+    "assertions": ["Cross both data modes and every documented windowDays choice", "Cached reads do not silently trigger expensive fresh calculations", "Pending, stale, failed and unsupported evidence remain explicit"],
+    "negativeCases": ["Wrong cache scope", "Concurrent refresh", "Worker failure", "Hidden Home", "Insufficient observations"]
+  },
+  {
+    "id": "WF14", "name": "Weather inheritance and thermal calculations",
+    "requires": "Property weather location and optional Home override; fake weather provider",
+    "steps": ["v1:updateProperty", "v1:updateHouse", "v1:getHouseWeather", "v2:outdoorTemperatureHistory", "v1:runThermalSimulation", "v1:compareThermalIsolation", "v1:compareMoistureResponse"],
+    "assertions": ["Home inherits Property location until an override is configured", "Fresh/stale/unavailable snapshots preserve provenance", "Historical weather and simulation use the requested Home and range"],
+    "negativeCases": ["No location", "Provider timeout", "Malformed provider response", "Location changed while fetch is pending", "Insufficient calibration data"]
+  },
+  {
+    "id": "WF15", "name": "Property electricity and Home consumption",
+    "requires": "Property with Homes/meters; fake public price source",
+    "steps": ["v1:configurePropertyElectricity", "v1:refreshPropertyElectricity", "v1:getPropertyElectricity", "v1:getHouseElectricityPrice", "v1:getHouseEnergyCost", "v1:getHouseEnergySummary", "v1:getPropertyEnergyOptimization"],
+    "assertions": ["Contract ownership stays on the Property", "Home price response contains only its allowed projection", "Costs match independently seeded meter/price intervals"],
+    "negativeCases": ["Private network or credential-bearing price URL", "Missing meter", "Counter reset", "Partial price coverage", "Cross-Property Home"]
+  },
+  {
+    "id": "WF16", "name": "Alert rules events and delivery retries",
+    "requires": "Synthetic sensor and fake Telegram/APNs/webhook transports",
+    "subscribeBeforeSteps": ["v1:streamTelemetry"],
+    "steps": ["v1:createAlertRule", "v1:listAlertRules", "v1:updateAlertRule", "v1:ingestReadings", "v1:listAlertEvents", "v1:listAlertsCompatibility", "v1:acknowledgeAlert", "v1:acknowledgeAlertCompatibility", "v1:listNotificationDeliveries", "v1:retryNotificationDelivery", "v1:deleteAlertRule"],
+    "assertions": ["Exercise trigger, acknowledge, resolve and duplicate-evidence states", "Delivery attempts and retry history remain scoped", "Aliases reflect the same underlying alert"],
+    "negativeCases": ["Wrong sensor", "Invalid metric/operator/duration", "Unconfigured delivery", "Repeated acknowledge", "Retry in ineligible state", "Revoked grant"]
+  },
+  {
+    "id": "WF17", "name": "Action playbooks and runs",
+    "requires": "Home sensor and optional alert event",
+    "steps": ["v1:createActionPlaybook", "v1:listActionPlaybooks", "v1:updateActionPlaybook", "v1:listAlertActionPlaybooks", "v1:startActionRun", "v1:listActionRuns", "v1:completeActionRun", "v1:startActionRun", "v1:cancelActionRun"],
+    "assertions": ["Completion and cancellation produce the documented terminal states", "Evidence and alert references belong to the run's Home"],
+    "negativeCases": ["Complete cancelled run", "Cancel completed run", "Repeated terminal action", "Missing playbook", "Cross-Home alert or sensor"]
+  },
+  {
+    "id": "WF18", "name": "Apple notification registration ownership",
+    "requires": "Synthetic local account/device ID and fake APNs transport",
+    "steps": ["v1:saveIOSNotificationRegistration", "v1:getIOSNotificationRegistration", "v1:saveIOSNotificationRegistration", "v1:deleteIOSNotificationRegistration", "v1:getIOSNotificationRegistration"],
+    "assertions": ["Self-service Guest exceptions preserve device/account ownership", "Subscriptions include only granted Homes", "Revocation and provider-invalid tokens stop delivery"],
+    "negativeCases": ["Another account's device ID", "Invalid token/environment", "Ungranted subscription", "Invalid privacy preference"]
+  },
+  {
+    "id": "WF19", "name": "Discovery jobs and sensor mapping",
+    "requires": "Fake discovery and integration clients; Home with unmapped sensors",
+    "subscribeBeforeSteps": ["v1:streamIntegrationDiscovery"],
+    "steps": ["v1:discoverIntegrations", "v1:startIntegrationDiscovery", "v1:latestIntegrationDiscovery", "v1:getIntegrationDiscovery", "v1:bulkUpdateSensorMappings", "v1:runSetupDoctor", "v1:integrationStatus", "v1:listSensorDataGaps"],
+    "assertions": ["Poll and stream agree on job progress/results", "Bulk mappings retain Home ownership", "Partial discovery does not invent healthy connections"],
+    "negativeCases": ["Concurrent discovery", "Timeout", "Unknown job", "Mixed valid/invalid mapping", "Map entity from another Home"]
+  },
+  {
+    "id": "WF20", "name": "Home Assistant connection lifecycle",
+    "requires": "Two Homes and fake Home Assistant service; temporary secrets file",
+    "steps": ["v1:testHomeAssistantDraft", "v1:configureHomeAssistant", "v1:homeAssistantSetup", "v1:homeAssistantStatusTest", "v1:moveHouseHomeAssistant", "v1:integrationStatus", "v1:disconnectHouseHomeAssistant"],
+    "assertions": ["Draft testing does not persist configuration", "Secrets never appear in setup/status responses", "Moving/disconnecting preserves the documented Home and credential lifecycle"],
+    "negativeCases": ["Bad endpoint or token", "Interrupted save", "Hidden source/target Home", "Environment override", "Concurrent configuration"]
+  },
+  {
+    "id": "WF21", "name": "TP-Link connection and credential reuse",
+    "requires": "Two Homes and fake TP-Link hubs/sockets; temporary secrets file",
+    "steps": ["v1:testTpLinkDraft", "v1:configureTpLink", "v1:tpLinkSetup", "v1:tpLinkStatusTest", "v1:listTpLinkDevices", "v1:moveTpLinkConnection", "v1:integrationStatus", "v1:disconnectTpLinkConnection"],
+    "assertions": ["Cross fresh username/password and saved credentialSourceConnectionId branches", "Each connection belongs to one Home", "Returned setup/device data excludes stored secrets"],
+    "negativeCases": ["Both credential branches", "Neither branch", "Wrong source connection", "Hidden Home", "Unsupported device", "Authentication or LAN timeout"]
+  },
+  {
+    "id": "WF22", "name": "Tapo history worker queue",
+    "requires": "Fake Tapo exporter/mailbox, synthetic history, scoped worker token",
+    "steps": ["v1:createTapoHistoryExportCanary", "v1:listTapoHistoryExportJobs", "v1:claimTapoHistoryExportJob", "v1:heartbeatTapoHistoryExportJob", "v1:updateTapoHistoryExportJobStatus", "v1:createTapoHistoryBackfill", "v1:listTapoHistoryExportJobs", "v1:retryTapoHistoryExportJob", "v1:cancelTapoHistoryExportJob", "v2:measurementHistory"],
+    "assertions": ["Approved canary gates eligible backfill", "Only the claiming worker may heartbeat/update its job", "Imported history preserves immutable lineage"],
+    "negativeCases": ["Stale canary", "Concurrent claim", "Lost lease", "Wrong token", "Corrupt export", "Repeat import", "Invalid terminal transition"]
+  },
+  {
+    "id": "WF23", "name": "Telegram pairing and test delivery",
+    "requires": "Fake Telegram client and synthetic bot/chat identifiers",
+    "steps": ["v1:discoverTelegramChat", "v1:configureTelegram", "v1:telegramSetup", "v1:testTelegram", "v1:integrationStatus", "v1:disconnectTelegram"],
+    "assertions": ["Only the configured Workspace destination receives a test", "Bot credentials and raw private chat identifiers are redacted from public status"],
+    "negativeCases": ["Bad token", "No discoverable chat", "Provider rate limit", "Timeout", "Environment-owned configuration"]
+  },
+  {
+    "id": "WF24", "name": "Apple Notes grant capture and deduplication",
+    "requires": "Home and temporary protected grants store",
+    "steps": ["v1:createAppleNotesGrant", "v1:listAppleNotesGrants", "v1:appleNotesSetup", "v1:captureAppleNotesMaintenance", "v1:captureAppleNotesMaintenance", "v1:appleNotesSnapshot", "v1:revokeAppleNotesGrant", "v1:appleNotesSnapshot"],
+    "assertions": ["The bearer is returned only once", "Identical operationId/payload deduplicates as documented", "Revocation denies subsequent requests"],
+    "negativeCases": ["Same operationId with different payload", "Wrong Home", "Hidden Home", "General browser cookie used as grant", "Grant used on unrelated route"]
+  },
+  {
+    "id": "WF25", "name": "Gree local and cloud heat pump placement",
+    "requires": "Fake Gree LAN/cloud transports and Home layout",
+    "steps": ["v1:discoverGree", "v1:configureGree", "v1:discoverGreeCloud", "v1:configureGreeCloud", "v1:listHeatPumpStates", "v1:placeHeatPump", "v1:getHeatPumpStateHistory", "v1:disconnectGree"],
+    "assertions": ["Repeat for local and cloud connections", "Placement belongs to the selected Home/floor", "History preserves source and freshness"],
+    "negativeCases": ["Unsupported model", "Wrong LAN/cloud credentials", "Cross-Home placement", "Hidden Home", "Provider timeout"]
+  },
+  {
+    "id": "WF26", "name": "Tuya device configuration and control",
+    "requires": "Fake Tuya LAN client and explicitly controllable simulated device",
+    "steps": ["v1:discoverTuyaLanDevices", "v1:configureTuyaLanDevice", "v1:listConnectedDevices", "v1:placeConnectedDevice", "v1:commandConnectedDevice", "v1:disconnectTuyaLanDevice"],
+    "assertions": ["Only advertised device capabilities accept commands", "Placement and control preserve Home scope", "Use simulated actuators for every command"],
+    "negativeCases": ["Wrong local key", "Unsupported command", "Invalid command value", "Unknown connection", "Cross-Home placement"]
+  },
+  {
+    "id": "WF27", "name": "Nexus433 candidate binding and recovery",
+    "requires": "Fake MQTT receiver, synthetic candidate and Home sensor",
+    "steps": ["v1:getNexus433Status", "v1:configureNexus433", "v1:listNexus433Candidates", "v1:bindNexus433Candidate", "v1:listNexus433Bindings", "v1:reconnectNexus433Sensor", "v1:listSensorDataGaps"],
+    "assertions": ["Candidate binding is explicit and scoped", "Reconnect cannot silently change sensor identity", "Stale receiver state remains visible"],
+    "negativeCases": ["Feature disabled", "Unknown candidate", "Already bound candidate", "Hidden Home", "Receiver unavailable"]
+  },
+  {
+    "id": "WF28", "name": "Tracking enrollment evidence and map stream",
+    "requires": "Tracking enabled; synthetic endpoint, observer, equipment and clock",
+    "subscribeBeforeSteps": ["v1:streamTrackingUpdates"],
+    "steps": ["v1:getTrackingCapabilities", "v1:getTrackingProfileManifest", "v1:assessTrackingCompatibility", "v1:updateTrackingSettings", "v1:enrollTrackingEndpoint", "v1:getTrackingEndpoint", "v1:updateTrackingEndpointStatus", "v1:bindTrackingEndpoint", "v1:registerTrackingObserver", "v1:updateTrackingObserver", "v1:getTrackingResolutionManifest", "v1:heartbeatTrackingObserver", "v1:positionTrackingObserver", "v1:ingestTrackingEvidence", "v1:getTrackingMapSnapshot", "v1:getTrackedEquipmentPosition", "v1:getTrackedEquipmentPositionHistory", "v1:getTrackedEquipmentEvidence", "v1:getTrackingFindDescriptor", "v1:setManualEquipmentTrackingPosition", "v1:unbindTrackingEndpoint"],
+    "assertions": ["Position estimates include freshness and uncertainty", "Observer credentials are route- and installation-scoped", "Map events are ordered and scoped"],
+    "negativeCases": ["Every relevant feature flag disabled", "Observer from another Property", "Duplicate evidence", "Stale observation", "Replay", "Wrong parent IDs", "Invalid manual coordinate/zone branch"]
+  },
+  {
+    "id": "WF29", "name": "Equipment borrowing and explicit presence",
+    "requires": "Property, equipment and granted synthetic member",
+    "steps": ["v1:borrowEquipment", "v1:listEquipmentLoans", "v1:returnEquipment", "v1:sharePropertyMemberLocation", "v1:listPropertyMemberLocations", "v1:stopPropertyMemberLocation", "v1:listPropertyMemberLocations"],
+    "assertions": ["Borrow/return records preserve member and Property scope", "Presence is explicit, current and accuracy-labelled", "Stopping or expiring presence removes the current location"],
+    "negativeCases": ["Concurrent borrow", "Repeated return", "Another member's loan", "Expired presence", "Ungrant during presence"]
+  },
+  {
+    "id": "WF30", "name": "Spatial layer configuration and inference",
+    "requires": "Fake optional inference engine, synthetic frames/zones and Home sensors",
+    "subscribeBeforeSteps": ["v1:streamSpatialLayerSnapshots"],
+    "steps": ["v1:listSpatialLayerEngines", "v1:updateHouseSpatialLayerConfig", "v1:getHouseSpatialLayerConfig", "v1:createHouseSpatialBindings", "v1:createHouseSpatialCalibrations", "v1:createHouseSpatialCalibrationSessions", "v1:createHouseSpatialContextEvents", "v1:createHouseSpatialLayerGroundTruth", "v1:startHouseSpatialInferenceSession", "v1:getHouseSpatialInferenceSession", "v1:getHouseSpatialLayersCurrent", "v1:getHouseSpatialLayersHistory", "v1:getHouseSpatialLayerHealth", "v1:stopHouseSpatialInferenceSession", "v1:updatePropertySpatialLayerConfig", "v1:createPropertySpatialLayerGroundTruth", "v1:getPropertySpatialLayersCurrent", "v1:getPropertySpatialLayersHistory", "v1:getPropertySpatialLayerHealth"],
+    "assertions": ["Cross enabled/disabled engine, local scope, mode and layer choices", "Bindings/calibrations have valid related frames and zones", "Optional inference cannot mutate core climate state"],
+    "negativeCases": ["Unknown engine", "Wrong frame/zone", "Stale calibration", "Superseded snapshot", "Executor failure", "Concurrent session start"]
+  },
+  {
+    "id": "WF31", "name": "Stuguby collaboration and grant revocation",
+    "requires": "Two isolated fake nodes/coordinator and synthetic shared Property/Home",
+    "steps": ["v1:configureStugubyCoordinator", "v1:createStuguby", "v1:createStugubyInvitation", "v1:joinStuguby", "v1:getStuguby", "v1:getStugubySharedProperty", "v1:updateStugubySharedProperty", "v1:createStugubyShareGrant", "v1:getLocalStugubyPublicationCatalog", "v1:syncStuguby", "v1:queryStugubyRemoteTelemetry", "v1:updateStugubyShareGrant", "v1:republishStugubyGrant", "v1:revokeStugubyShareGrant", "v1:queryStugubyRemoteTelemetry", "v1:disconnectStugubyProperty"],
+    "assertions": ["Default remote Home projection is read-only", "Grant changes apply to telemetry, layout and blobs", "Detach purges the remote cache using the documented receipt workflow"],
+    "negativeCases": ["Invitation reuse", "Offline coordinator", "Invalid grant", "Revoked member", "Revision conflict", "Credential/control data included in publication"]
+  },
+  {
+    "id": "WF32", "name": "Stuguby signed protocol replay and blobs",
+    "requires": "Fake node identities generated only in test fixtures; simulated peer transport",
+    "subscribeBeforeSteps": ["v1:streamStugubyAvailability"],
+    "steps": ["v1:acceptStugubyNodeJoin", "v1:publishStugubyEvents", "v1:pullStugubyEvents", "v1:uploadStugubyBlob", "v1:downloadStugubyBlob", "v1:forwardStugubyPropertyUpdate", "v1:applyStugubyPropertyCommand", "v1:applyStugubyHomeCommand", "v1:acknowledgeStugubyDeletion"],
+    "assertions": ["Sign the exact method/path/body and required protocol headers", "Replay request IDs and stale timestamps are rejected", "Digest, access and deletion receipts protect blobs"],
+    "negativeCases": ["Invalid signature", "Missing signed header", "Wrong protocol/media type", "Altered body", "Duplicate event", "Wrong digest", "Revoked node"]
+  },
+  {
+    "id": "WF33", "name": "Exports schedules and backup requests",
+    "requires": "Synthetic Home data, fake NAS/export/backup agents and temporary output directory",
+    "steps": ["v1:previewDataExport", "v1:exportData", "v1:createScheduledDataExport", "v1:listScheduledDataExports", "v1:updateScheduledDataExport", "v1:runScheduledDataExport", "v1:deleteScheduledDataExport", "v1:getBackupStatus", "v1:requestBackup"],
+    "assertions": ["Cross documented formats, privacy levels, scopes and schedule choices", "Preview agrees with exported scope", "Exports remain Home-owned and destinations installation-owned"],
+    "negativeCases": ["Unavailable NAS", "Unsafe destination/path", "Invalid recurrence", "Hidden Home", "Duplicate run", "Backup agent failure"]
+  },
+  {
+    "id": "WF34", "name": "Demo and replay isolation",
+    "requires": "Synthetic historical readings and controllable clock",
+    "steps": ["v1:listMockScenarios", "v1:selectMockScenario", "v1:selectMockScenarioCompatibility", "v1:generateMockTick", "v1:startReplay", "v1:replayStatus", "v1:stopReplay", "v2:measurementSnapshot"],
+    "assertions": ["Cross every advertised scenario and supported replay speed/range", "Demo/replay never overwrite live source evidence", "Stopping replay restores the documented mode"],
+    "negativeCases": ["Unknown scenario", "Invalid replay speed", "Empty/reversed range", "Repeated start/stop", "Mode switch during computation"]
+  },
+  {
+    "id": "WF35", "name": "System updates with simulated host agent",
+    "requires": "Injected fake release feed/update agent; never a real appliance",
+    "subscribeBeforeSteps": ["v1:streamSystemUpdateStatus"],
+    "steps": ["v1:getSystemUpdateStatus", "v1:checkSystemUpdates", "v1:updateSystemUpdateSettings", "v1:requestSystemUpdateOperation", "v1:getSystemUpdateStatus", "v1:installLatestSystemUpdate"],
+    "assertions": ["Cross every documented action branch and allowed channel", "Expected revision, generation, digest and confirmation are enforced", "Simulate unsupported safety state, staged/active workflow, failure and recovery"],
+    "negativeCases": ["Stale expectedRevision", "Wrong generation/digest", "Missing activation confirmation", "Concurrent operation", "Unsupported host", "Untrusted feed"]
+  },
+  {
+    "id": "WF36", "name": "Storage and host monitoring",
+    "requires": "Fake host/storage services; no real mount or migration",
+    "steps": ["v1:getHostSystemHealth", "v1:getHostSystemPrometheusMetrics", "v1:exportSystemErrorLogs", "v1:getSystemStorageStatus", "v1:updateSystemStorage", "v1:getSystemStorageStatus"],
+    "assertions": ["Owner/Admin guards protect administrative output", "The configured ingest credential grants only its metrics exception", "Unsupported or missing host evidence remains explicit"],
+    "negativeCases": ["Guest/member administration", "Wrong metrics credential", "Unsafe mount path", "Low space", "Agent unavailable", "Malformed agent result"]
+  },
+  {
+    "id": "WF37", "name": "MCP runtime and HTTP transport",
+    "requires": "Fake/local isolated MCP runtime and synthetic bearer",
+    "steps": ["v1:getLocalMcpRuntimeStatus", "v1:startLocalMcpRuntime", "v1:useLocalMcpOverHttp", "v1:useLocalMcpOverHttp", "v1:stopLocalMcpRuntime", "v1:useLocalMcpOverHttp"],
+    "assertions": ["Exercise JSON-RPC initialization, notification, tool list and permitted tool calls", "A stopped/restarted runtime invalidates old access credentials", "Browser-origin transport requests are denied"],
+    "negativeCases": ["Wrong bearer", "Browser origin", "GET/PUT/DELETE transport", "Malformed JSON-RPC", "Unsupported tool", "Runtime failure"]
+  },
+  {
+    "id": "WF38", "name": "Cloudflare setup callback and one-time claim",
+    "requires": "Fake OAuth/cloud provisioning service and synthetic one-time state",
+    "steps": ["v1:getCloudflareSetupStatus", "v1:startCloudflareSetup", "v1:completeCloudflareSetupOAuth", "v1:claimCloudflareSetupCredentials", "v1:getCloudflareSetupStatus"],
+    "assertions": ["Callback state and claim are single-use and expire", "Operator credentials stay outside source and public responses", "All provisioning effects use mocks"],
+    "negativeCases": ["Wrong/expired state", "Callback replay", "Repeated claim", "Untrusted redirect", "Provider failure"]
+  },
+  {
+    "id": "WF39", "name": "Bug report configuration relay and failure recovery",
+    "requires": "Fake relay and GitHub transport; synthetic report only",
+    "steps": ["v1:configureBugReportRelay", "v1:getBugReportRelay", "v1:submitBugReport", "relay:submitReport", "v1:clearBugReportRelay", "v1:submitBugReport"],
+    "assertions": ["Use relay:submitReport as the downstream leg or as an independent relay test, not a duplicate real submission", "Application response omits private repository/issue URLs", "The shared token is never returned by configuration reads"],
+    "negativeCases": ["Stale/future submittedAt beyond ten minutes", "Wrong relay bearer", "Report above 32 KiB", "Unknown/nested diagnostic fields", "Rate limit", "GitHub timeout/malformed response", "Guest self-service and missing CSRF"]
+  },
+  {
+    "id": "WF40", "name": "Static parameters assets and Apple RoomPlan",
+    "requires": "Home and floor; synthetic parameter, asset and RoomPlan export",
+    "steps": ["v1:upsertStaticParameter", "v1:listStaticParameters", "v1:saveStaticParameterCompatibility", "v1:listStaticParametersCompatibility", "v1:deleteStaticParameter", "v1:uploadAsset", "v1:listAssets", "v1:downloadAsset", "v1:importAppleRoomPlanFloor", "v1:getHouse", "v1:deleteAsset"],
+    "assertions": ["Canonical and compatibility parameter routes share the documented state", "Asset media and references remain safe and scoped", "RoomPlan import preserves stable layout relationships"],
+    "negativeCases": ["Unknown parameter kind", "Wrong scope", "Unsupported asset MIME", "Malformed RoomPlan", "Cross-Home floor ID", "Missing referenced asset"]
+  }
+]

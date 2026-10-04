@@ -1,4 +1,4 @@
-import { MAX_OBSERVATION_RESOLUTION_NOTE_LENGTH } from "@climate-twin/contracts";
+import { MAX_OBSERVATION_RESOLUTION_NOTE_LENGTH, SECURITY_AUDIT_EVENT_TYPES, SECURITY_AUDIT_SUBJECT_TYPES } from "@climate-twin/contracts";
 import { STUGBY_MEDIA_TYPE } from "@climate-twin/stuguby-protocol";
 import { spatialJsonResponse, spatialRequestBody } from "./part-01.js";
 
@@ -419,16 +419,11 @@ export const localAuthSchemas = {
     required: ["id", "eventType", "outcome", "actorUserId", "actorRole", "subjectType", "subjectId", "details", "createdAt"],
     properties: {
       id: { type: "string", format: "uuid" },
-      eventType: { enum: [
-        "auth.owner.created", "auth.invitation.accepted", "auth.login", "auth.logout",
-        "membership.invitation.created", "membership.grants.replaced", "membership.revoked",
-        "integration.credentials.configured", "integration.credentials.rotated", "integration.credentials.revoked",
-        "integration.grant.issued", "integration.grant.revoked",
-      ] },
+      eventType: { enum: SECURITY_AUDIT_EVENT_TYPES },
       outcome: { enum: ["succeeded", "denied"] },
       actorUserId: { type: ["string", "null"] },
       actorRole: { enum: ["owner", "admin", "member", "guest", "service", null] },
-      subjectType: { enum: ["account", "workspace-member", "integration", "integration-grant"] },
+      subjectType: { enum: SECURITY_AUDIT_SUBJECT_TYPES },
       subjectId: { type: "string", minLength: 1, maxLength: 512 },
       details: {
         type: "object", maxProperties: 32,

@@ -107,23 +107,16 @@ export interface TenantInvitationCreated {
 
 export type SecurityAuditOutcome = "succeeded" | "denied";
 
-export type SecurityAuditEventType =
-  | "auth.owner.created"
-  | "auth.invitation.accepted"
-  | "auth.login"
-  | "auth.logout"
-  | "membership.invitation.created"
-  | "membership.grants.replaced"
-  | "membership.revoked"
-  | "integration.credentials.configured"
-  | "integration.credentials.rotated"
-  | "integration.credentials.revoked"
-  | "integration.grant.issued"
-  | "integration.grant.revoked"
-  | "system.update.settings.changed"
-  | "system.update.requested"
-  | "system.storage.change.requested"
-  | "cloudflare.setup.started";
+export const SECURITY_AUDIT_EVENT_TYPES = [
+  "auth.owner.created", "auth.invitation.accepted", "auth.login", "auth.logout",
+  "membership.invitation.created", "membership.grants.replaced", "membership.revoked",
+  "integration.credentials.configured", "integration.credentials.rotated", "integration.credentials.revoked",
+  "integration.grant.issued", "integration.grant.revoked",
+  "system.update.settings.changed", "system.update.requested",
+  "system.storage.change.requested", "cloudflare.setup.started",
+] as const;
+
+export type SecurityAuditEventType = (typeof SECURITY_AUDIT_EVENT_TYPES)[number];
 
 /**
  * Every subject an audit event may describe. The security audit table constrains

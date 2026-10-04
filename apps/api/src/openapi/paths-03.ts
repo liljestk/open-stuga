@@ -71,7 +71,7 @@ export const pathsPart03 = {
   "/action-playbooks/{id}": {
         patch: {
           tags: ["Alerts"], operationId: "updateActionPlaybook", parameters: [{ $ref: "#/components/parameters/Id" }], requestBody: jsonRequestBody({ $ref: "#/components/schemas/ActionPlaybookPatch" }),
-          responses: { "200": jsonResponse("Updated action playbook.", { type: "object", additionalProperties: false, required: ["playbook"], properties: { playbook: { $ref: "#/components/schemas/ActionPlaybook" } } }), "404": { $ref: "#/components/responses/NotFound" } },
+          responses: { "200": jsonResponse("Updated action playbook.", { type: "object", additionalProperties: false, required: ["playbook"], properties: { playbook: { $ref: "#/components/schemas/ActionPlaybook" } } }), "400": { description: "Invalid playbook or invalid merged update" }, "404": { $ref: "#/components/responses/NotFound" } },
         },
       },
   "/alerts/{id}/action-playbooks": {

@@ -215,11 +215,11 @@ export const schemasPart10 = {
     },
   },
   HomeMonitoringCollectionResponse: {
+    unevaluatedProperties: false,
     allOf: [
       { $ref: "#/components/schemas/HomeMonitoringEnvelope" },
       {
         type: "object",
-        additionalProperties: false,
         required: ["houses"],
         properties: {
           houses: {
@@ -231,11 +231,11 @@ export const schemasPart10 = {
     ],
   },
   HomeMonitoringDetailResponse: {
+    unevaluatedProperties: false,
     allOf: [
       { $ref: "#/components/schemas/HomeMonitoringEnvelope" },
       {
         type: "object",
-        additionalProperties: false,
         required: [
           "house", "sensorCoverage", "insights", "advisoryCode", "fallbackAdvisory",
         ],

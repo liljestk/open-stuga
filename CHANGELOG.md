@@ -2,6 +2,16 @@
 
 All notable Stugu releases are recorded here.
 
+## 0.41.15
+
+- Keep export previews, sensor measurement pages and setup integrity checks responsive on large local databases. Excluded telemetry is no longer counted, and heavy reads run in a bounded, cancellable worker.
+- Avoid repeated full-window telemetry sorts in energy optimization and direct climate analyses. Repeated optimization reads share a short, scope-specific cache that expires or clears after configuration changes.
+- Integrate local power costs in one ordered pass while preserving price changes, overlapping-price clipping, stale-data exclusion and duration coverage. The optimizer skips climate-only sensors when reading power history.
+- Reject invalid playbook timing, improvement and target values with a clear client error before saving, including partial updates.
+- Align OpenAPI with sharing metadata, dimensionless measurements, security events and derived monitoring evidence.
+- Add a reproducible endpoint testing catalogue with ordered pairs, query variants, input boundaries and fixture workflows. Keep the API and diagnostics headings readable on narrow screens.
+- Upgrade impact: application-only update; an additional sensor-history index is created automatically on first startup and may lengthen that startup on large databases. Existing telemetry, configuration and backups are retained. Host trust and Compose contracts are unchanged.
+
 ## 0.41.14
 
 - Reduce long chart-history archive reads by skipping compressed metadata fields that are absent from the chart response. Preserve bucket averages, timestamps, latest-source ties, quality and units; full archive reads still retain metadata.
