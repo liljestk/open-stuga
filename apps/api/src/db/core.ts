@@ -102,11 +102,13 @@ import {
 } from "../method-registry.js";
 import { CORE_SCHEMA_SQL } from "./migrations/core-schema.js";
 import { LocalCostIsolate } from "../timeseries/local-cost-isolate.js";
+import type { LocalBucketQuery } from "../timeseries/local-cost-worker.js";
 
 export interface DatabaseInternals {
   readonly db: DatabaseSync;
   closeCostReader(): void;
   costAggregateAsync(metric: "energy" | "power", query: EnergyCostAggregateQuery): Promise<EnergyCostAggregateRecord>;
+  measurementHistoryBucketedAsync(query: LocalBucketQuery): Promise<MeasurementSample[]>;
   transaction<T>(operation: () => T): T;
   immediateTransaction<T>(operation: () => T): T;
 }
@@ -194,6 +196,19 @@ export class ClimateDatabaseCore {
     }
   closeCostReader(): void {
       this.#costReader?.close();
+    }
+  async measurementHistoryBucketedAsync(query: LocalBucketQuery): Promise<MeasurementSample[]> {
+      query.signal?.throwIfAborted();
+      if (this.#databasePath === ":memory:") {
+        if (!query.toExclusive) {
+          return this.measurementHistoryBucketed(query.sensorId, query.metric, query.from, query.to,
+            query.bucketSeconds, query.limit, query.excludeSynthetic);
+        }
+        return this.measurementHistoryBucketed(query.sensorId, query.metric, query.from, query.to,
+          query.bucketSeconds, query.limit, query.excludeSynthetic, query.toExclusive);
+      }
+      this.#costReader ??= new LocalCostIsolate(this.#databasePath);
+      return this.#costReader.readBuckets(query);
     }
   private immediateTransaction<T>(operation: () => T): T {
       if (this.#transactionDepth > 0) return operation();

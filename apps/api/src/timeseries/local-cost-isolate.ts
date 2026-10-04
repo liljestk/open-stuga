@@ -1,14 +1,15 @@
 import { Worker } from "node:worker_threads";
 import { fileURLToPath } from "node:url";
+import type { MeasurementSample } from "@climate-twin/contracts";
 import { AnalyticsWorkLimiter } from "../analytics/work-limiter.js";
 import type { EnergyCostAggregateQuery, EnergyCostAggregateRecord } from "./types.js";
-import type { LocalCostWorkerRequest } from "./local-cost-worker.js";
+import type { LocalBucketQuery, LocalCostWorkerOperation, LocalCostWorkerRequest } from "./local-cost-worker.js";
 
-type Reply = { id: number; ok: true; result: EnergyCostAggregateRecord } | { id: number; ok: false };
+type Reply = { id: number; ok: true; result: EnergyCostAggregateRecord | MeasurementSample[] } | { id: number; ok: false };
 const sourceRuntime = fileURLToPath(import.meta.url).endsWith(".ts");
 const workerUrl = new URL(sourceRuntime ? "./local-cost-worker.ts" : "./local-cost-worker.js", import.meta.url);
 
-/** One bounded read-only SQLite worker per database; health and ingestion stay responsive. */
+/** Cost and history scans share one bounded read-only worker per database. */
 export class LocalCostIsolate {
   readonly #limiter = new AnalyticsWorkLimiter({ maxConcurrent: 1, maxQueued: 8 });
   readonly #shutdown = new AbortController();
@@ -18,9 +19,20 @@ export class LocalCostIsolate {
   constructor(readonly databasePath: string, readonly timeoutMs = 15_000) {}
 
   read(metric: "energy" | "power", query: EnergyCostAggregateQuery): Promise<EnergyCostAggregateRecord> {
-    const signal = query.signal
-      ? AbortSignal.any([query.signal, this.#shutdown.signal]) : this.#shutdown.signal;
-    return this.#limiter.run("sqlite-cost", () => this.#read(metric, query, signal), signal);
+    const { signal, ...serializableQuery } = query;
+    return this.#run<EnergyCostAggregateRecord>({ metric, query: serializableQuery }, signal);
+  }
+
+  readBuckets(query: LocalBucketQuery): Promise<MeasurementSample[]> {
+    const { signal, ...serializableQuery } = query;
+    return this.#run<MeasurementSample[]>({ metric: "buckets", query: serializableQuery }, signal);
+  }
+
+  #run<Result>(operation: LocalCostWorkerOperation, callerSignal?: AbortSignal): Promise<Result> {
+    const signal = callerSignal
+      ? AbortSignal.any([callerSignal, this.#shutdown.signal]) : this.#shutdown.signal;
+    return this.#limiter.run(operation.metric === "buckets" ? "sqlite-history" : "sqlite-cost",
+      () => this.#read<Result>(operation, signal), signal);
   }
 
   close(): void {
@@ -30,12 +42,12 @@ export class LocalCostIsolate {
     if (worker) void worker.terminate();
   }
 
-  #read(metric: "energy" | "power", query: EnergyCostAggregateQuery, signal: AbortSignal): Promise<EnergyCostAggregateRecord> {
+  #read<Result>(operation: LocalCostWorkerOperation, signal: AbortSignal): Promise<Result> {
     signal.throwIfAborted();
     const worker = this.#worker ??= this.#createWorker();
     worker.ref();
-    const { signal: _signal, ...serializableQuery } = query;
-    const request: LocalCostWorkerRequest = { id: ++this.#nextId, metric, query: serializableQuery };
+    const request: LocalCostWorkerRequest = { ...operation, id: ++this.#nextId };
+    const history = operation.metric === "buckets";
     return new Promise((resolve, reject) => {
       let settled = false;
       const cleanup = () => {
@@ -53,8 +65,9 @@ export class LocalCostIsolate {
         // Do not start the next queued scan until this one has really stopped.
         void worker.terminate().then(() => reject(error), () => reject(error));
       };
-      const onAbort = () => fail(signal.reason ?? new DOMException("Cost query cancelled", "AbortError"));
-      const onError = () => fail(Object.assign(new Error("Local cost calculation failed"), { code: "LOCAL_COST_FAILED" }));
+      const onAbort = () => fail(signal.reason ?? new DOMException("Local query cancelled", "AbortError"));
+      const onError = () => fail(Object.assign(new Error(history ? "Local history read failed" : "Local cost calculation failed"),
+        { code: history ? "LOCAL_HISTORY_FAILED" : "LOCAL_COST_FAILED" }));
       const onExit = () => onError();
       const onMessage = (reply: Reply) => {
         if (reply.id !== request.id || settled) return;
@@ -62,10 +75,10 @@ export class LocalCostIsolate {
         settled = true;
         cleanup();
         worker.unref();
-        resolve(reply.result);
+        resolve(reply.result as Result);
       };
-      const timer = setTimeout(() => fail(Object.assign(new Error("Local cost calculation timed out"), {
-        code: "LOCAL_COST_TIMEOUT",
+      const timer = setTimeout(() => fail(Object.assign(new Error(history ? "Local history read timed out" : "Local cost calculation timed out"), {
+        code: history ? "LOCAL_HISTORY_TIMEOUT" : "LOCAL_COST_TIMEOUT",
       })), this.timeoutMs);
       worker.on("message", onMessage);
       worker.once("error", onError);
