@@ -1,3 +1,4 @@
+import { withResponseSignal } from "./response-signal.js";
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { existsSync } from "node:fs";
 import { isIP } from "node:net";
@@ -198,7 +199,7 @@ export function configureApiPart20(context: ReturnType<typeof configureApiPart19
         throw new HttpError(409, "ARCHIVE_EXPORT_REQUIRES_BACKUP", "A raw telemetry JSON export is unavailable after SQLite hot retention; use a verified backup, which includes both SQLite and TimescaleDB");
       }
       const generatedAt = new Date().toISOString();
-      const preview = context.dataOperations.preview(privacyLevel, includeTelemetry);
+      const preview = await withResponseSignal(response, signal => context.dataOperations.preview(privacyLevel, includeTelemetry, signal));
       const controlPlane = context.dataOperations.bundle(privacyLevel);
       context.dataOperations.audit("export.started", { privacyLevel, includeTelemetry });
       response.status(200);
@@ -252,8 +253,9 @@ export function configureApiPart20(context: ReturnType<typeof configureApiPart19
   context.app.post(`${context.prefix}/backups`, requireWorkspaceAdmin, (_request, response) => {
       response.status(202).json({ backup: context.dataOperations.requestBackup() });
     });
-  context.app.get(`${context.prefix}/setup/doctor`, requireWorkspaceAdmin, (_request, response) => {
-      response.json({ report: context.setupDoctor.report() });
+  context.app.get(`${context.prefix}/setup/doctor`, requireWorkspaceAdmin, async (_request, response) => {
+      const report = await withResponseSignal(response, signal => context.setupDoctor.report(new Date(), signal));
+      response.json({ report });
     });
   context.app.get(`${context.prefix}/sensors/:id/label`, (request, response) => {
       const sensorId = request.params.id as string;

@@ -4,6 +4,7 @@ import type {
   OutdoorTemperatureSample,
   PropertyElectricityPricePoint,
   Reading,
+  Sensor,
 } from "@climate-twin/contracts";
 import type {
   EnergyCostAggregateQuery,
@@ -73,6 +74,7 @@ import {
 } from "./read-support.js";
 import { readMeasurementAnalyticsRollup, type HybridMeasurementAnalyticsRollupResult } from "./read-analytics-rollup.js";
 import { readCostAggregate } from "./read-energy-cost.js";
+import { readPowerProfile, type LocalPowerProfileQuery, type PowerProfile } from "./read-power-profile.js";
 
 export { bucketLegacyReadings, bucketMeasurementSamples };
 export { IncompleteTelemetryHistoryError, isLocalTelemetryHistoryComplete } from "./read-support.js";
@@ -90,6 +92,9 @@ export type { MeasurementWindowQuery } from "./types.js";
 /** The local SQLite reads needed by the facade, with optional worker isolation. */
 export interface LocalTelemetryReader {
   isRealDataMode(): boolean;
+  measurementWindowAsync?(query: MeasurementWindowQuery): Promise<MeasurementSample[]>;
+  optimizerPowerProfileAsync?(query: LocalPowerProfileQuery): Promise<PowerProfile>;
+  thermalMeasurementHistoryAsync?(query: ThermalMeasurementHistoryQuery): Promise<MeasurementSample[]>;
   measurementHistoryBucketedAsync?(query: MeasurementHistoryBucketedQuery & { toExclusive?: boolean }): Promise<MeasurementSample[]>;
   measurementBoundarySamples?(query: MeasurementBoundaryQuery): MeasurementSample[];
   measurementCoverage?(sensorIds: string[], metrics: string[]): MeasurementCoverageRecord[];
@@ -568,6 +573,12 @@ export class HybridTelemetryReader {
     }
     if (metrics.length > 5) throw new RangeError("thermal history supports at most 5 metrics");
     const readLocal = async (): Promise<MeasurementSample[]> => {
+      if (metrics.every(metric => metric === "temperature" || metric === "humidity")
+        && this.#local.thermalMeasurementHistoryAsync) {
+        return this.#local.thermalMeasurementHistoryAsync({
+          ...query, metrics, bucketMinutes, limitPerMetric,
+        });
+      }
       if (metrics.length === 1 && metrics[0] === "temperature" && this.#local.thermalTemperatureHistory) {
         return this.#local.thermalTemperatureHistory(
           query.sensorId,
@@ -886,6 +897,13 @@ export class HybridTelemetryReader {
   async powerCostAggregate(query: PowerCostAggregateQuery): Promise<EnergyCostAggregateRecord> {
     return this.#costAggregate("power", query);
   }
+  async optimizerPowerProfile(sensors: readonly Sensor[], query: MeasurementWindowQuery, profileFrom: string): Promise<PowerProfile> {
+    query = { ...query, sensorIds: unique(query.sensorIds.filter(Boolean)), metrics: ["power"],
+      limit: positiveLimit(query.limit, DEFAULT_WINDOW_LIMIT, MAX_WINDOW_LIMIT) };
+    return readPowerProfile({ local: this.#local, localOnly: !this.#archive,
+      localComplete: this.#isLocalHistoryComplete({ family: "measurement", from: query.from, to: query.to }),
+      sensors, query, profileFrom, readWindow: () => this.measurementWindow(query) });
+  }
 
   #costAggregate(metric: "energy" | "power", query: EnergyCostAggregateQuery): Promise<EnergyCostAggregateRecord> {
     const scopedQuery = { ...query, excludeSynthetic: this.#local.isRealDataMode() };
@@ -911,6 +929,9 @@ export class HybridTelemetryReader {
     limit: number,
     signal: AbortSignal | undefined,
   ): Promise<MeasurementSample[]> {
+    if (this.#local.measurementWindowAsync) {
+      return this.#local.measurementWindowAsync({ sensorIds, metrics, from, to, limit, ...(signal ? { signal } : {}) });
+    }
     const readPage = this.#local.measurementWindowPage;
     if (!readPage) return this.#local.measurementWindow(sensorIds, metrics, from, to, limit);
     const newestFirst: MeasurementSample[] = [];

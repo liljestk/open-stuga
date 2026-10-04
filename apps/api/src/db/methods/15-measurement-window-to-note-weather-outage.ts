@@ -153,8 +153,8 @@ registerDatabaseMethods({
       }
       const sensorPlaceholders = visibleSensorIds.map(() => "?").join(",");
       const metricPlaceholders = metrics.map(() => "?").join(",");
-      const cursorClause = before ? "AND (timestamp < ? OR (timestamp = ? AND id < ?))" : "";
-      const cursorParameters = before ? [before.timestamp, before.timestamp, before.id] : [];
+      const cursorClause = before ? "AND (timestamp, id) < (?, ?)" : "";
+      const cursorParameters = before ? [before.timestamp, before.id] : [];
       const rows = this.db.prepare(`SELECT id, sensor_id, metric, value, canonical_unit, timestamp, source, quality
         FROM measurement_samples
         WHERE sensor_id IN (${sensorPlaceholders}) AND metric IN (${metricPlaceholders})
@@ -331,9 +331,9 @@ registerDatabaseMethods({
       nextCursor: string | null;
     } {
       if (!this.getSensor(sensorId)) return { samples: [], nextCursor: null };
-      const cursorClause = before ? "AND (timestamp < ? OR (timestamp = ? AND id < ?))" : "";
+      const cursorClause = before ? "AND (timestamp, id) < (?, ?)" : "";
       const parameters = before
-        ? [sensorId, before.timestamp, before.timestamp, before.id, limit + 1]
+        ? [sensorId, before.timestamp, before.id, limit + 1]
         : [sensorId, limit + 1];
       const rows = this.db.prepare(`SELECT id, sensor_id, metric, value, canonical_unit, timestamp, source, quality
         FROM measurement_samples WHERE sensor_id = ? ${cursorClause}

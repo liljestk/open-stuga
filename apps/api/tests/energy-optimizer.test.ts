@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { ClimateDatabase } from "../src/db.js";
 import { EnergyOptimizer } from "../src/energy-optimizer.js";
 import { propertyPowerProfile } from "../src/energy-optimizer-power.js";
-import type { HybridTelemetryReader } from "../src/timeseries/read-facade.js";
+import { HybridTelemetryReader, type LocalTelemetryReader } from "../src/timeseries/read-facade.js";
 
 const FROM = Date.parse("2026-09-01T12:00:00Z");
 const MINUTE = 60_000;
@@ -32,11 +32,13 @@ function optimizer(prices: PropertyElectricityPricePoint[], sensors: Sensor[] = 
     getSensor: (id: string) => sensors.find((item) => item.id === id),
   } as unknown as ClimateDatabase;
   const measurementWindow = vi.fn(async () => ({ records: samples }));
-  const reader = {
+  const reader = Object.assign(new HybridTelemetryReader({ local: {
+    isRealDataMode: () => false,
+  } as LocalTelemetryReader }), {
     electricityPriceHistory: async () => ({ records: prices }),
     measurementWindow,
     measurementCoverage: async () => ({ complete: true, records: [] }),
-  } as unknown as HybridTelemetryReader;
+  });
   return { service: new EnergyOptimizer(database, reader), measurementWindow };
 }
 

@@ -1,3 +1,4 @@
+import { withResponseSignal } from "./response-signal.js";
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { existsSync } from "node:fs";
 import { isIP } from "node:net";
@@ -256,7 +257,7 @@ export function configureApiPart11(context: ReturnType<typeof configureApiPart10
         : null;
       response.json({ samples, from, to, bucketSeconds, truncated, nextCursor });
     });
-  context.app.get(`${context.v2Prefix}/sensors/:id/measurements`, (request, response) => {
+  context.app.get(`${context.v2Prefix}/sensors/:id/measurements`, async (request, response) => {
       if (!context.database.getSensor(request.params.id) || !context.visibility(response).sensor(request.params.id)) {
         throw new HttpError(404, "UNKNOWN_SENSOR", "Sensor not found");
       }
@@ -272,7 +273,10 @@ export function configureApiPart11(context: ReturnType<typeof configureApiPart10
           throw new HttpError(400, "INVALID_CURSOR", "cursor is invalid");
         }
       }
-      response.json(context.database.sensorMeasurementPage(request.params.id, before, limit));
+      const page = await withResponseSignal(response, signal => context.database.sensorMeasurementPageAsync({
+        sensorId: request.params.id, before, limit, signal,
+      }));
+      response.json(page);
     });
   context.app.get(`${context.v2Prefix}/measurements/forecast`, async (request, response) => {
       if (typeof request.query.sensorId !== "string") throw new HttpError(400, "INVALID_FIELD", "sensorId is required");

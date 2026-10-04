@@ -1,4 +1,4 @@
-import { MAX_OBSERVATION_RESOLUTION_NOTE_LENGTH } from "@climate-twin/contracts";
+import { MAX_OBSERVATION_RESOLUTION_NOTE_LENGTH, SECURITY_AUDIT_EVENT_TYPES, SECURITY_AUDIT_SUBJECT_TYPES } from "@climate-twin/contracts";
 import { STUGBY_MEDIA_TYPE } from "@climate-twin/stuguby-protocol";
 import { spatialJsonResponse, spatialRequestBody } from "./part-01.js";
 
@@ -412,23 +412,22 @@ export const localAuthSchemas = {
   },
   TenantInvitationCreated: {
     type: "object", additionalProperties: false, required: ["invitation", "registrationToken", "activationPath", "expiresAt"],
-    properties: { invitation: { $ref: "#/components/schemas/TenantMemberSummary" }, registrationToken: { type: "string", readOnly: true }, activationPath: { type: "string", description: "Client-side fragment path; the token is never placed in an HTTP query string." }, expiresAt: { type: "string", format: "date-time" } },
+    properties: { invitation: { $ref: "#/components/schemas/TenantMemberSummary" }, registrationToken: { type: "string", readOnly: true }, activationPath: { type: "string", description: "Client-side fragment path; the token is never placed in an HTTP query string." }, expiresAt: { type: "string", format: "date-time" }, cloudflareAccess: { $ref: "#/components/schemas/CloudflareAccessSyncSummary" } },
+  },
+  CloudflareAccessSyncSummary: {
+    type: "object", additionalProperties: false, required: ["status", "lastSyncedAt"],
+    properties: { status: { enum: ["disabled", "pending", "synced"] }, lastSyncedAt: { type: ["string", "null"], format: "date-time" } },
   },
   SecurityAuditEvent: {
     type: "object", additionalProperties: false,
     required: ["id", "eventType", "outcome", "actorUserId", "actorRole", "subjectType", "subjectId", "details", "createdAt"],
     properties: {
       id: { type: "string", format: "uuid" },
-      eventType: { enum: [
-        "auth.owner.created", "auth.invitation.accepted", "auth.login", "auth.logout",
-        "membership.invitation.created", "membership.grants.replaced", "membership.revoked",
-        "integration.credentials.configured", "integration.credentials.rotated", "integration.credentials.revoked",
-        "integration.grant.issued", "integration.grant.revoked",
-      ] },
+      eventType: { enum: SECURITY_AUDIT_EVENT_TYPES },
       outcome: { enum: ["succeeded", "denied"] },
       actorUserId: { type: ["string", "null"] },
       actorRole: { enum: ["owner", "admin", "member", "guest", "service", null] },
-      subjectType: { enum: ["account", "workspace-member", "integration", "integration-grant"] },
+      subjectType: { enum: SECURITY_AUDIT_SUBJECT_TYPES },
       subjectId: { type: "string", minLength: 1, maxLength: 512 },
       details: {
         type: "object", maxProperties: 32,

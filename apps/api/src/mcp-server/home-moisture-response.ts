@@ -1,4 +1,6 @@
 import { outdoorLocationKey } from "../db.js";
+import { mapWithConcurrency } from "../timeseries/read-support.js";
+import { MCP_THERMAL_HISTORY_READ_CONCURRENCY } from "./thermal-work.js";
 import { mcpThermalDateRange, requireMcpHouse } from "../mcp-validation.js";
 import {
   isMoistureResponseSensor,
@@ -46,7 +48,7 @@ export async function homeMoistureResponse(
   }
 
   const boundaryPaddingMs = 2 * 3_600_000;
-  const [outdoorRead, ...indoorReads] = await Promise.all([
+  const [outdoorRead, indoorReads] = await Promise.all([
     telemetryReader.outdoorTemperatureHistory({
       houseId: house.id,
       locationKey: outdoorLocationKey(house.location),
@@ -54,7 +56,7 @@ export async function homeMoistureResponse(
       to: new Date(Date.parse(to) + boundaryPaddingMs).toISOString(),
       limit: 50_000,
     }),
-    ...sensors.map((sensor) => telemetryReader.thermalMeasurementHistory({
+    mapWithConcurrency(sensors, MCP_THERMAL_HISTORY_READ_CONCURRENCY, (sensor) => telemetryReader.thermalMeasurementHistory({
       sensorId: sensor.id,
       metrics: ["temperature", "humidity"],
       from,

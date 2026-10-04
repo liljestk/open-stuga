@@ -2,12 +2,23 @@ import { Worker } from "node:worker_threads";
 import { fileURLToPath } from "node:url";
 import type { MeasurementSample } from "@climate-twin/contracts";
 import { AnalyticsWorkLimiter } from "../analytics/work-limiter.js";
-import type { EnergyCostAggregateQuery, EnergyCostAggregateRecord } from "./types.js";
-import type { LocalBucketQuery, LocalCostWorkerOperation, LocalCostWorkerRequest } from "./local-cost-worker.js";
+import type { EnergyCostAggregateQuery, EnergyCostAggregateRecord, MeasurementWindowQuery, ThermalMeasurementHistoryQuery } from "./types.js";
+import type { LocalBucketQuery, LocalSensorPageQuery, LocalCostWorkerOperation, LocalCostWorkerRequest } from "./local-cost-worker.js";
+import type { ExportTable, DatabaseIntegrityResult } from "../db/inspection.js";
+import type { LocalPowerProfileQuery, PowerProfile } from "./read-power-profile.js";
 
-type Reply = { id: number; ok: true; result: EnergyCostAggregateRecord | MeasurementSample[] } | { id: number; ok: false };
+type Reply = { id: number; ok: true; result: unknown } | { id: number; ok: false };
 const sourceRuntime = fileURLToPath(import.meta.url).endsWith(".ts");
 const workerUrl = new URL(sourceRuntime ? "./local-cost-worker.ts" : "./local-cost-worker.js", import.meta.url);
+
+export class LocalTelemetryTimeoutError extends Error {
+  readonly code: "LOCAL_HISTORY_TIMEOUT" | "LOCAL_COST_TIMEOUT";
+  constructor(history: boolean) {
+    super(history ? "Local history read timed out" : "Local cost calculation timed out");
+    this.name = "LocalTelemetryTimeoutError";
+    this.code = history ? "LOCAL_HISTORY_TIMEOUT" : "LOCAL_COST_TIMEOUT";
+  }
+}
 
 /** Cost and history scans share one bounded read-only worker per database. */
 export class LocalCostIsolate {
@@ -28,10 +39,37 @@ export class LocalCostIsolate {
     return this.#run<MeasurementSample[]>({ metric: "buckets", query: serializableQuery }, signal);
   }
 
+  readSensorPage(query: LocalSensorPageQuery): Promise<{ samples: MeasurementSample[]; nextCursor: string | null }> {
+    const { signal, ...serializableQuery } = query;
+    return this.#run({ metric: "sensor-page", query: serializableQuery }, signal);
+  }
+
+  readExportCounts(tables: readonly ExportTable[], signal?: AbortSignal): Promise<Record<string, number>> {
+    return this.#run({ metric: "export-counts", query: { tables } }, signal);
+  }
+
+  readIntegrity(signal?: AbortSignal): Promise<DatabaseIntegrityResult> {
+    return this.#run({ metric: "integrity", query: {} }, signal);
+  }
+
+  readWindow(query: MeasurementWindowQuery): Promise<MeasurementSample[]> {
+    const { signal, ...serializableQuery } = query;
+    return this.#run({ metric: "window", query: serializableQuery }, signal);
+  }
+  readPowerProfile(query: LocalPowerProfileQuery): Promise<PowerProfile> {
+    const { signal, ...serializableQuery } = query;
+    return this.#run({ metric: "power-profile", query: serializableQuery }, signal);
+  }
+
+  readThermal(query: ThermalMeasurementHistoryQuery): Promise<MeasurementSample[]> {
+    const { signal, ...serializableQuery } = query;
+    return this.#run({ metric: "thermal", query: serializableQuery }, signal);
+  }
+
   #run<Result>(operation: LocalCostWorkerOperation, callerSignal?: AbortSignal): Promise<Result> {
     const signal = callerSignal
       ? AbortSignal.any([callerSignal, this.#shutdown.signal]) : this.#shutdown.signal;
-    return this.#limiter.run(operation.metric === "buckets" ? "sqlite-history" : "sqlite-cost",
+    return this.#limiter.run(`sqlite-${operation.metric}`,
       () => this.#read<Result>(operation, signal), signal);
   }
 
@@ -47,7 +85,7 @@ export class LocalCostIsolate {
     const worker = this.#worker ??= this.#createWorker();
     worker.ref();
     const request: LocalCostWorkerRequest = { ...operation, id: ++this.#nextId };
-    const history = operation.metric === "buckets";
+    const history = operation.metric !== "energy" && operation.metric !== "power";
     return new Promise((resolve, reject) => {
       let settled = false;
       const cleanup = () => {
@@ -77,9 +115,7 @@ export class LocalCostIsolate {
         worker.unref();
         resolve(reply.result as Result);
       };
-      const timer = setTimeout(() => fail(Object.assign(new Error(history ? "Local history read timed out" : "Local cost calculation timed out"), {
-        code: history ? "LOCAL_HISTORY_TIMEOUT" : "LOCAL_COST_TIMEOUT",
-      })), this.timeoutMs);
+      const timer = setTimeout(() => fail(new LocalTelemetryTimeoutError(history)), this.timeoutMs);
       worker.on("message", onMessage);
       worker.once("error", onError);
       worker.once("exit", onExit);

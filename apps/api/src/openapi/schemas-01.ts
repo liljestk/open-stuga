@@ -24,9 +24,9 @@ export const schemasPart01 = {
           properties: {
             id: { type: "string", pattern: "^[a-z][a-z0-9]*(?:[-_][a-z0-9]+)*$", maxLength: 64 },
             labels: { type: "object", minProperties: 1, additionalProperties: { type: "string", minLength: 1 } },
-            unit: { type: "string", minLength: 1 },
+            unit: { type: "string", description: "Empty for dimensionless built-in measurements." },
             dimension: { type: "string", minLength: 1 },
-            allowedUnits: { type: "array", minItems: 1, maxItems: 50, uniqueItems: true, items: { type: "string", minLength: 1 } },
+            allowedUnits: { type: "array", minItems: 1, maxItems: 50, uniqueItems: true, items: { type: "string" } },
             kind: { enum: ["gauge", "rate", "increment", "cumulative_counter", "binary_state", "categorical_state"] },
             defaultAggregation: { enum: ["mean", "sum", "delta", "last", "time_weighted_mean", "duration", "custom"] },
             genericHistoryEnabled: { type: "boolean" }, genericStatsEnabled: { type: "boolean" },
@@ -198,13 +198,15 @@ export const schemasPart01 = {
         },
   DerivedAnalyticsProvenance: {
           type: "object", additionalProperties: false,
-          required: ["algorithmKey", "algorithmVersion", "evaluatedAt", "sourceIds", "archiveState"],
+          required: ["algorithmKey", "algorithmVersion", "evaluatedAt", "sourceIds"],
           properties: {
             algorithmKey: { type: "string" },
             algorithmVersion: { type: "string" },
             evaluatedAt: { type: "string", format: "date-time" },
             sourceIds: { type: "array", uniqueItems: true, items: { type: "string" } },
             archiveState: { enum: ["not-configured", "not-ready", "merged", "failed"] },
+            truthClass: { const: "derived" },
+            archiveStates: { type: "array", items: { type: "string" } },
           },
         },
   OpeningActivityRequest: {

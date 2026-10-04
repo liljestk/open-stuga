@@ -102,6 +102,7 @@ import { areaEquipmentFromRow, houseFromRow, propertyAreaFromRow } from "../supp
 import { outdoorLocationKey } from "../support/06-canonical-observation-patch-time-to-outdoor-location.js";
 import { registerDatabaseMethods } from "../core.js";
 import { SQLITE_EFFECTIVE_PRICE_END, sqlitePriceOverlapSql } from "../support/electricity-price-overlap.js";
+import { localPowerCostAggregate } from "../local-power-cost.js";
 
 registerDatabaseMethods({
   /**
@@ -111,12 +112,12 @@ registerDatabaseMethods({
      */
   energyCostAggregate(query: EnergyCostAggregateQuery): EnergyCostAggregateRecord {
       const row = this.db.prepare(`WITH boundary_sample AS (
-          SELECT id, timestamp, value FROM measurement_samples
+          SELECT id, timestamp, value FROM measurement_samples INDEXED BY idx_measurement_samples_sensor_metric_time
           WHERE sensor_id = ? AND metric = 'energy' AND quality <> 'stale' AND timestamp < ?
             AND (? = 0 OR source NOT IN ('mock', 'replay'))
           ORDER BY timestamp DESC, id DESC LIMIT 1
         ), window_samples AS (
-          SELECT id, timestamp, value FROM measurement_samples
+          SELECT id, timestamp, value FROM measurement_samples INDEXED BY idx_measurement_samples_sensor_metric_time
           WHERE sensor_id = ? AND metric = 'energy' AND quality <> 'stale'
             AND timestamp >= ? AND timestamp <= ?
             AND (? = 0 OR source NOT IN ('mock', 'replay'))
@@ -190,86 +191,7 @@ registerDatabaseMethods({
    * consumption across a long telemetry gap.
    */
   powerCostAggregate(query: PowerCostAggregateQuery): EnergyCostAggregateRecord {
-      const row = this.db.prepare(`WITH boundary_sample AS (
-          SELECT id, timestamp, value FROM measurement_samples
-          WHERE sensor_id = ? AND metric = 'power' AND quality <> 'stale' AND timestamp <= ?
-            AND (? = 0 OR source NOT IN ('mock', 'replay'))
-          ORDER BY timestamp DESC, id DESC LIMIT 1
-        ), window_samples AS (
-          SELECT id, timestamp, value FROM measurement_samples
-          WHERE sensor_id = ? AND metric = 'power' AND quality <> 'stale'
-            AND timestamp > ? AND timestamp <= ?
-            AND (? = 0 OR source NOT IN ('mock', 'replay'))
-        ), deduplicated AS (
-          SELECT timestamp, value FROM (
-            SELECT id, timestamp, value,
-              ROW_NUMBER() OVER (PARTITION BY timestamp ORDER BY id DESC) AS sample_rank
-            FROM (SELECT * FROM boundary_sample UNION ALL SELECT * FROM window_samples)
-          ) WHERE sample_rank = 1
-        ), ordered AS (
-          SELECT timestamp AS sample_at, value AS power_watts,
-            LEAD(timestamp) OVER (ORDER BY timestamp) AS next_at
-          FROM deduplicated
-        ), candidates AS (
-          SELECT power_watts,
-            MAX(julianday(sample_at), julianday(?)) AS window_start_jd,
-            MIN(
-              COALESCE(julianday(next_at), julianday(?)),
-              julianday(?),
-              julianday(sample_at) + 15.0 / 1440.0
-            ) AS window_end_jd
-          FROM ordered
-          WHERE power_watts >= 0 AND power_watts < 1.0e308 AND power_watts = power_watts
-        ), normalized AS (
-          SELECT *,
-            strftime('%Y-%m-%dT%H:%M:%fZ', window_start_jd) AS window_start_at,
-            strftime('%Y-%m-%dT%H:%M:%fZ', window_end_jd) AS window_end_at,
-            (window_end_jd - window_start_jd) * 86400000.0 AS window_duration_ms,
-            power_watts * (window_end_jd - window_start_jd) * 86400000.0 / 3600000000.0
-              AS window_energy_kwh
-          FROM candidates
-          WHERE window_end_jd > window_start_jd
-        ), priced AS (
-          SELECT normalized.*,
-            price.raw_price_cents_per_kwh, price.margin_cents_per_kwh,
-            (
-              MIN(normalized.window_end_jd, julianday(${SQLITE_EFFECTIVE_PRICE_END}))
-              - MAX(normalized.window_start_jd, julianday(price.start_at))
-            ) * 86400000.0 AS overlap_ms
-          ${sqlitePriceOverlapSql("power")}
-        ), allocations AS (
-          SELECT overlap_ms,
-            window_energy_kwh * overlap_ms / window_duration_ms AS allocated_kwh,
-            raw_price_cents_per_kwh + margin_cents_per_kwh AS effective_price_cents_per_kwh
-          FROM priced WHERE overlap_ms > 0
-        )
-        SELECT
-          (SELECT COUNT(*) FROM normalized) AS delta_count,
-          (SELECT COALESCE(SUM(window_energy_kwh), 0) FROM normalized) AS consumption_kwh,
-          (SELECT COALESCE(SUM(allocated_kwh), 0) FROM allocations) AS priced_consumption_kwh,
-          (SELECT COALESCE(SUM(allocated_kwh * effective_price_cents_per_kwh / 100.0), 0) FROM allocations) AS cost_eur,
-          (SELECT COALESCE(SUM(window_duration_ms), 0) FROM normalized) AS total_duration_ms,
-          (SELECT COALESCE(SUM(overlap_ms), 0) FROM allocations) AS priced_duration_ms,
-          (SELECT COALESCE(MAX(window_duration_ms), 0) FROM normalized) AS maximum_interval_duration_ms,
-          (SELECT strftime('%Y-%m-%dT%H:%M:%fZ', MIN(window_start_jd)) FROM normalized) AS coverage_from,
-          (SELECT strftime('%Y-%m-%dT%H:%M:%fZ', MAX(window_end_jd)) FROM normalized) AS coverage_until`)
-        .get(
-          query.sensorId, query.from, query.excludeSynthetic ? 1 : 0,
-          query.sensorId, query.from, query.to, query.excludeSynthetic ? 1 : 0,
-          query.from, query.to, query.to,
-          query.propertyId, query.propertyId,
-        ) as unknown as EnergyCostAggregateRow;
-      return {
-        deltaCount: Number(row.delta_count ?? 0),
-        consumptionKwh: Number(row.consumption_kwh ?? 0),
-        pricedConsumptionKwh: Number(row.priced_consumption_kwh ?? 0),
-        costEur: Number(row.cost_eur ?? 0),
-        totalDurationMs: Number(row.total_duration_ms ?? 0),
-        pricedDurationMs: Number(row.priced_duration_ms ?? 0),
-        maximumIntervalDurationMs: Number(row.maximum_interval_duration_ms ?? 0),
-        coverageFrom: row.coverage_from,
-        coverageUntil: row.coverage_until,
-      };
+      return localPowerCostAggregate(this, query);
     },
   updateProperty(id: string, patch: PropertyPatch): Property | null {
       return this.immediateTransaction(() => {

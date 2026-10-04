@@ -5,8 +5,35 @@ const PROPERTY = "property-main";
 const SENSOR = "sensor-01";
 const QUARTER_HOUR = 900_000;
 
+it("integrates a dense power stream with exact durations and changing prices", () => {
+  const database = new ClimateDatabase(":memory:");
+  try {
+    database.db.exec("DELETE FROM measurement_samples; DELETE FROM electricity_price_points");
+    const start = Date.parse("2026-01-02T00:00:00.123Z");
+    const from = new Date(start).toISOString(), to = new Date(start + 12_500_000).toISOString();
+    const middle = new Date(start + 6_250_000).toISOString();
+    const insert = database.db.prepare(`INSERT INTO measurement_samples
+      (sensor_id,metric,value,canonical_unit,timestamp,source,quality) VALUES (?, 'power',100,'W',?,'api','good')`);
+    const price = database.db.prepare(`INSERT INTO electricity_price_points
+      (property_id,start_at,end_at,raw_price_cents_per_kwh,margin_cents_per_kwh,fetched_at) VALUES (?,?,?,?,0,?)`);
+    database.transaction(() => {
+      for (let index = 0; index < 50_000; index++) insert.run(SENSOR, new Date(start + index * 250).toISOString());
+      price.run(PROPERTY, from, middle, 10, from); price.run(PROPERTY, middle, to, 20, from);
+    });
+    const result = database.powerCostAggregate({ sensorId: SENSOR, propertyId: PROPERTY, from, to });
+    expect(result.deltaCount).toBe(50_000);
+    expect(result.totalDurationMs).toBe(12_500_000);
+    expect(result.pricedDurationMs).toBe(12_500_000);
+    expect(result.maximumIntervalDurationMs).toBe(250);
+    expect(result.coverageFrom).toBe(from); expect(result.coverageUntil).toBe(to);
+    expect(result.consumptionKwh).toBeCloseTo(100 * 12_500_000 / 3_600_000_000, 9);
+    expect(result.pricedConsumptionKwh).toBeCloseTo(result.consumptionKwh, 9);
+    expect(result.costEur).toBeCloseTo(result.consumptionKwh * 0.15, 9);
+  } finally { database.close(); }
+});
+
 describe.each(["energyCostAggregate", "powerCostAggregate"] as const)("%s SQLite price lookup", (method) => {
-  it("uses a bounded indexed price seek for each interval with extensive earlier prices", () => {
+  it("uses bounded indexed price seeks with extensive earlier prices", () => {
     const database = new ClimateDatabase(":memory:");
     try {
       const base = Date.parse("2025-01-01T00:00:00.000Z");
@@ -32,9 +59,9 @@ describe.each(["energyCostAggregate", "powerCostAggregate"] as const)("%s SQLite
       database.db.exec("COMMIT");
 
       const prepare = database.db.prepare.bind(database.db);
-      let querySql = "";
+      const queries: string[] = [];
       const capture = vi.spyOn(database.db, "prepare").mockImplementation((sql) => {
-        querySql = sql;
+        queries.push(sql);
         return prepare(sql);
       });
       const result = database[method]({ sensorId: SENSOR, propertyId: PROPERTY, from, to });
@@ -43,11 +70,20 @@ describe.each(["energyCostAggregate", "powerCostAggregate"] as const)("%s SQLite
       expect(result.consumptionKwh).toBeCloseTo(1, 5);
       expect(result.pricedConsumptionKwh).toBeCloseTo(1, 5);
       expect(result.costEur).toBeCloseTo(0.1, 6);
+      const querySql = queries.find(sql => /\b(?:FROM|JOIN) electricity_price_points AS price/.test(sql))!;
+      expect(querySql).toBeDefined();
       const plan = database.db.prepare(`EXPLAIN QUERY PLAN ${querySql}`)
         .all(...Array(querySql.match(/\?/g)?.length ?? 0).fill(null))
         .map((row) => String(row.detail)).join("\n");
       expect(plan).toMatch(/SEARCH price USING (?:COVERING )?INDEX .+\(property_id=\? AND start_at>\? AND start_at<\?\)/);
       expect(plan).not.toMatch(/SCAN price\b/);
+      if (method === "energyCostAggregate") {
+        // The sensor-only pagination index must not make an empty energy
+        // series scan all power samples before its fallback can run.
+        const measurementSeeks = plan.split("\n").filter(line => /SEARCH measurement_samples/.test(line));
+        expect(measurementSeeks).toHaveLength(2);
+        expect(measurementSeeks.every(line => /sensor_id=\? AND metric=\?/.test(line))).toBe(true);
+      }
     } finally {
       database.close();
     }

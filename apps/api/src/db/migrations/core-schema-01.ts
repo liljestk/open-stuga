@@ -412,6 +412,8 @@ export const CORE_SCHEMA_01 = `
       );
       CREATE INDEX IF NOT EXISTS idx_measurement_samples_sensor_metric_time
         ON measurement_samples(sensor_id, metric, timestamp DESC, id DESC);
+      CREATE INDEX IF NOT EXISTS idx_measurement_samples_sensor_time_id
+        ON measurement_samples(sensor_id, timestamp DESC, id DESC);
       CREATE INDEX IF NOT EXISTS idx_measurement_samples_time
         ON measurement_samples(timestamp, id);
       CREATE TABLE IF NOT EXISTS sensor_recorded_measurements (

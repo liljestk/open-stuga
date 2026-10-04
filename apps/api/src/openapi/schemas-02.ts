@@ -243,6 +243,7 @@ export const schemasPart02 = {
             grants: { type: "array", maxItems: 100, items: { type: "object", required: ["scopeType", "scopeId"], properties: { scopeType: { enum: ["property", "house", "area"] }, scopeId: { type: "string" } } } },
             csrfToken: { type: "string", readOnly: true, description: "Present only for authenticated local sessions." },
             setupRequired: { type: "boolean", readOnly: true },
+            cloudflareAccess: { $ref: "#/components/schemas/CloudflareAccessSyncSummary" },
           },
         },
   GeoCoordinate: {
@@ -256,6 +257,18 @@ export const schemasPart02 = {
             description: { type: ["string", "null"], maxLength: 5_000 },
             defaultHouseId: { type: ["string", "null"], description: "Child Home preferred when entering this Property without an explicit Home." },
             location: { oneOf: [{ $ref: "#/components/schemas/HouseLocation" }, { type: "null" }] },
+            stuguby: {
+              type: "object", additionalProperties: false, readOnly: true,
+              required: ["stugubyId", "authorityNodeId", "isAuthority", "editPolicy", "syncState", "authorityEpoch", "lastSyncedRevision", "pendingChangeCount", "conflictCount"],
+              properties: {
+                stugubyId: { type: "string" }, authorityNodeId: { type: "string" }, isAuthority: { type: "boolean" },
+                editPolicy: { enum: ["collaborative", "read-only"] },
+                syncState: { enum: ["current", "pending", "offline", "conflict", "detached"] },
+                authorityEpoch: { type: "integer", minimum: 0 }, lastSyncedRevision: { type: "integer", minimum: 0 },
+                pendingChangeCount: { type: "integer", minimum: 0 }, conflictCount: { type: "integer", minimum: 0 },
+                detachedAt: { type: "string", format: "date-time" },
+              },
+            },
             createdAt: { type: "string", format: "date-time", readOnly: true }, updatedAt: { type: "string", format: "date-time", readOnly: true },
           },
         },

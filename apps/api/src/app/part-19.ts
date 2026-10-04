@@ -1,3 +1,4 @@
+import { withResponseSignal } from "./response-signal.js";
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { existsSync } from "node:fs";
 import { isIP } from "node:net";
@@ -343,10 +344,11 @@ export function configureApiPart19(context: ReturnType<typeof configureApiPart18
       context.bus.publish({ type: "mutation", data: { method: "PATCH", resource: `/action-runs/${run.id}`, occurredAt: run.updatedAt } });
       response.json({ run });
     });
-  context.app.get(`${context.prefix}/data-export/preview`, requireWorkspaceAdmin, (request, response) => {
+  context.app.get(`${context.prefix}/data-export/preview`, requireWorkspaceAdmin, async (request, response) => {
       const privacyLevel = enumValue(request.query.privacyLevel ?? "operations", ["structure", "operations", "full"] as const, "privacyLevel");
       const includeTelemetry = request.query.includeTelemetry === "true";
-      response.json({ preview: context.dataOperations.preview(privacyLevel, includeTelemetry) });
+      const preview = await withResponseSignal(response, signal => context.dataOperations.preview(privacyLevel, includeTelemetry, signal));
+      response.json({ preview });
     });
   const extended = Object.assign(context, {  });
   return extended;

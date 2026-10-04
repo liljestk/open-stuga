@@ -39,6 +39,7 @@ import { configureApiPart26 } from "./part-26.js";
 import { configureApiPart27 } from "./part-27.js";
 import { configureApiPart28 } from "./part-28.js";
 import { finishCreateApi } from "./finish.js";
+import { registerEnergyOptimizationRoute } from "./energy-optimization-route.js";
 
 export function createApi(options: CreateApiOptions = {}): ApiRuntime {
   const context0 = { options };
@@ -65,6 +66,7 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
   registerLocalMcpRuntimeRoutes(context7, localMcpRuntime);
   const context10 = configureApiPart10(context7);
   const context11 = configureApiPart11(context10);
+  const stopEnergyOptimization = registerEnergyOptimizationRoute(context11);
   const context12 = configureApiPart12(context11);
   const context13 = configureApiPart13(context12);
   const context14 = configureApiPart14(context13);
@@ -84,6 +86,7 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
   const context28 = configureApiPart28(context27);
   const runtime = finishCreateApi(context28);
   const stopLocalMcp = async (): Promise<void> => {
+    stopEnergyOptimization();
     await localMcpRuntime.stop().catch(() => undefined);
   };
   return {

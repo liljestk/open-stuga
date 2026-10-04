@@ -7,7 +7,7 @@ import type {
 import type { ClimateDatabase } from "./db.js";
 import { EnergyCostService } from "./energy-cost.js";
 import { HybridTelemetryReader } from "./timeseries/read-facade.js";
-import { OPTIMIZER_POWER_HOLD_MS, propertyPowerProfile } from "./energy-optimizer-power.js";
+import { OPTIMIZER_POWER_HOLD_MS } from "./energy-optimizer-power.js";
 
 const POWER_SAMPLE_LIMIT = 200_000;
 
@@ -90,7 +90,7 @@ export class EnergyOptimizer {
       () => now,
       (sensorId) => this.database.getSensor(sensorId)?.energyMeterRole ?? "standalone",
     );
-    const [prices, measurements, costResults] = await Promise.all([
+    const [prices, powerProfile, costResults] = await Promise.all([
         reader.electricityPriceHistory({
           propertyId,
           from: priceFrom,
@@ -98,14 +98,19 @@ export class EnergyOptimizer {
           limit: 5_000,
           ...(signal ? { signal } : {}),
         }).then((result) => result.records),
-        reader.measurementWindow({
-          sensorIds: sensors.map((sensor) => sensor.id),
+        reader.measurementCoverage({ sensorIds: sensors.map(sensor => sensor.id), metrics: ["power"],
+          ...(signal ? { signal } : {}),
+        }).then(coverage => reader.optimizerPowerProfile(sensors, {
+          // Empty climate-only sensors otherwise turn an indexed single-meter
+          // read into a global sort across the whole Property.
+          sensorIds: coverage.complete ? [...new Set(coverage.records.map(record => record.sensorId))]
+            : sensors.map(sensor => sensor.id),
           metrics: ["power"],
           from: new Date(Date.parse(from) - OPTIMIZER_POWER_HOLD_MS).toISOString(),
           to: now.toISOString(),
           limit: POWER_SAMPLE_LIMIT,
           ...(signal ? { signal } : {}),
-        }).then((result) => result.records),
+        }, from)),
         Promise.allSettled(houses.map((house) => costService.summarize({
           houseId: house.id,
           propertyId,
@@ -137,9 +142,7 @@ export class EnergyOptimizer {
     const consumption = reportedConsumption.reduce((total, value) => total + value, 0);
     const historicalCost = reportedCosts.reduce((total, value) => total + value, 0);
     // A point-limited suffix cannot establish the daily Property profile.
-    const { baseline, peak } = measurements.length >= POWER_SAMPLE_LIMIT
-      ? { baseline: null, peak: null }
-      : propertyPowerProfile(sensors, measurements, Date.parse(from), now.getTime());
+    const { baseline, peak } = powerProfile;
     const windows = rankedWindows(futurePrices, hours);
     const insights: EnergyOptimizationInsight[] = [];
     if (current && percentileRank !== null && percentileRank <= 25) {
