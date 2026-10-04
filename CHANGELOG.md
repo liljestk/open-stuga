@@ -8,7 +8,7 @@ All notable Stugu releases are recorded here.
 - Avoid repeated full-window telemetry sorts in energy optimization and direct climate analyses. Repeated optimization reads share a short, scope-specific cache that expires or clears after configuration changes.
 - Integrate local power costs in one ordered pass while preserving price changes, overlapping-price clipping, stale-data exclusion and duration coverage. The optimizer skips climate-only sensors when reading power history.
 - Reject invalid playbook timing, improvement and target values with a clear client error before saving, including partial updates.
-- Align OpenAPI with sharing metadata, dimensionless measurements, security events and derived monitoring evidence.
+- Align OpenAPI with sharing metadata, dimensionless measurements, security events, derived monitoring evidence, Access synchronization and one-time MCP tokens. Return the public backup status without worker bookkeeping fields.
 - Add a reproducible endpoint testing catalogue with ordered pairs, query variants, input boundaries and fixture workflows. Keep the API and diagnostics headings readable on narrow screens.
 - Upgrade impact: application-only update; an additional sensor-history index is created automatically on first startup and may lengthen that startup on large databases. Existing telemetry, configuration and backups are retained. Host trust and Compose contracts are unchanged.
 

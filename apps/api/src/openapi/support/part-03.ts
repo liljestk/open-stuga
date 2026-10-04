@@ -412,7 +412,11 @@ export const localAuthSchemas = {
   },
   TenantInvitationCreated: {
     type: "object", additionalProperties: false, required: ["invitation", "registrationToken", "activationPath", "expiresAt"],
-    properties: { invitation: { $ref: "#/components/schemas/TenantMemberSummary" }, registrationToken: { type: "string", readOnly: true }, activationPath: { type: "string", description: "Client-side fragment path; the token is never placed in an HTTP query string." }, expiresAt: { type: "string", format: "date-time" } },
+    properties: { invitation: { $ref: "#/components/schemas/TenantMemberSummary" }, registrationToken: { type: "string", readOnly: true }, activationPath: { type: "string", description: "Client-side fragment path; the token is never placed in an HTTP query string." }, expiresAt: { type: "string", format: "date-time" }, cloudflareAccess: { $ref: "#/components/schemas/CloudflareAccessSyncSummary" } },
+  },
+  CloudflareAccessSyncSummary: {
+    type: "object", additionalProperties: false, required: ["status", "lastSyncedAt"],
+    properties: { status: { enum: ["disabled", "pending", "synced"] }, lastSyncedAt: { type: ["string", "null"], format: "date-time" } },
   },
   SecurityAuditEvent: {
     type: "object", additionalProperties: false,

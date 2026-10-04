@@ -160,6 +160,7 @@
   .weather-section > .weather-attribution a { width: 100%; margin-left: 23px; }
   .endpoint-list > div { grid-template-columns: 1fr; gap: 5px; padding: 8px 0; }
   .mcp-runtime-control { align-items: stretch; flex-direction: column; }
+  .mcp-runtime-summary { flex-basis: auto; }
   .mcp-runtime-control > button { width: 100%; }
   .mcp-network-endpoints > div { grid-template-columns: 1fr; }
   .endpoint-list a, .endpoint-list .endpoint-value, .icon-button.small, .segmented button { min-height: 40px; }

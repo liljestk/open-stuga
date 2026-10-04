@@ -1,5 +1,8 @@
 import { Ajv2020 } from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import request from "supertest";
 import { afterEach, describe, expect, it } from "vitest";
 import { SECURITY_AUDIT_EVENT_TYPES, SECURITY_AUDIT_SUBJECT_TYPES } from "@climate-twin/contracts";
@@ -28,10 +31,50 @@ function validateResponse(path: string, body: unknown, version: "v1" | "v2" = "v
 describe("served response contracts", () => {
   let runtime: ApiRuntime | undefined;
   afterEach(async () => { await runtime?.close(); });
-  function boot() {
-    return runtime = createApi({ config: loadConfig({ NODE_ENV: "test", DATABASE_PATH: ":memory:", MOCK_ENABLED: "false" }),
+  function boot(env: Record<string, string> = {}) {
+    return runtime = createApi({ config: loadConfig({ NODE_ENV: "test", DATABASE_PATH: ":memory:", MOCK_ENABLED: "false", ...env }),
       startBackground: false });
   }
+
+  it("documents optional Access synchronization after owner setup and invitation creation", async () => {
+    const api = boot({ LOCAL_AUTH_TEST_BYPASS: "false" });
+    const owner = request.agent(api.app);
+    const setup = await owner.post("/api/v1/auth/setup")
+      .send({ email: "owner@example.test", password: "Synthetic-password-2026" }).expect(201);
+    const setupSchema = documents.v1.paths["/auth/setup"]!.post.responses["201"].content["application/json"].schema;
+    const check = validate(setupSchema, setup.body);
+    expect(setup.body.cloudflareAccess).toEqual({ status: "disabled", lastSyncedAt: null });
+    expect(check({ ...setup.body, cloudflareAccess: { status: "unrecognized", lastSyncedAt: null } })).toBe(false);
+    const invitation = await owner.post("/api/v1/tenant/members").set("x-csrf-token", setup.body.csrfToken)
+      .send({ email: "member@example.test", role: "member" }).expect(201);
+    validate(documents.v1.paths["/tenant/members"]!.post.responses["201"].content["application/json"].schema, invitation.body);
+  });
+
+  it("keeps the MCP start response closed while allowing its one-time token", () => {
+    const schema = documents.v1.paths["/system/mcp-runtime/start"]!.post.responses["200"].content["application/json"].schema;
+    const body = { state: "running", endpointPath: "/api/v1/mcp", pid: 123,
+      startedAt: "2026-10-04T12:00:00Z", toolCount: 40, serverVersion: "0.41.15", errorCode: null,
+      accessToken: "synthetic-one-time-token" };
+    const check = validate(schema, body);
+    expect(check({ ...body, accessToken: null })).toBe(true);
+    expect(check({ ...body, unintended: true })).toBe(false);
+  });
+
+  it("returns the public backup projection and retains the worker's persisted version", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "stugu-backup-contract-"));
+    try {
+      const api = boot({ BACKUP_OPERATIONS_DIRECTORY: directory });
+      const response = await request(api.app).post("/api/v1/backups").expect(202);
+      validate(documents.v1.paths["/backups"]!.post.responses["202"].content["application/json"].schema, response.body);
+      expect(response.body.backup).not.toHaveProperty("version");
+      expect(JSON.parse(readFileSync(join(directory, "status.json"), "utf8")).version).toBe(1);
+      const status = await request(api.app).get("/api/v1/backups/status").expect(200);
+      expect(status.body).toEqual(response.body);
+    } finally {
+      await runtime?.close(); runtime = undefined;
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
 
   it("documents all appended security event and subject kinds", async () => {
     const api = boot();

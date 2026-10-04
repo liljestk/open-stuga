@@ -58,6 +58,8 @@ export interface AppSession {
   csrfToken?: string;
   /** True only while the pristine local database still permits first-owner setup. */
   setupRequired?: boolean;
+  /** Returned after first-owner setup synchronizes the optional Access group. */
+  cloudflareAccess?: CloudflareAccessSyncSummary;
 }
 
 export interface LocalAuthCredentials {

@@ -151,7 +151,7 @@ export class DataOperationsService {
     };
     atomicJson(join(this.#operationsDirectory, "status.json"), state);
     this.audit("backup.requested", { requestId });
-    return state;
+    return this.backupStatus();
   }
 
   operationsDirectoryHealthy(): boolean {

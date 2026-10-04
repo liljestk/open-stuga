@@ -6,11 +6,11 @@
     "documents": {
       "v1": {
         "path": "apps/api/src/openapi.ts",
-        "sha256": "eb5721e9eb4fcd84f8d2d38d31014645d5306d4a312b975fa1902bc3ad84a069"
+        "sha256": "68c55a7e143af3093344e2eeaf2ff8859f7b77e693293a05d05e5d38e8826765"
       },
       "v2": {
         "path": "apps/api/src/openapi.ts",
-        "sha256": "f67ae3519951e2dc674e606565832ba062dfa8103f56c9897c12e35a79987af3"
+        "sha256": "56535c6f1e553837f24675925e39bc39fb83344bb8c167a9c2b38fe778d529bd"
       }
     },
     "supplementalSourceHashes": {
@@ -392,6 +392,33 @@
           },
           "expiresAt": {
             "type": "string",
+            "format": "date-time"
+          },
+          "cloudflareAccess": {
+            "$ref": "#/components/schemas/CloudflareAccessSyncSummary"
+          }
+        }
+      },
+      "CloudflareAccessSyncSummary": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status",
+          "lastSyncedAt"
+        ],
+        "properties": {
+          "status": {
+            "enum": [
+              "disabled",
+              "pending",
+              "synced"
+            ]
+          },
+          "lastSyncedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
             "format": "date-time"
           }
         }
@@ -5549,6 +5576,9 @@
           "setupRequired": {
             "type": "boolean",
             "readOnly": true
+          },
+          "cloudflareAccess": {
+            "$ref": "#/components/schemas/CloudflareAccessSyncSummary"
           }
         }
       },
@@ -25035,86 +25065,75 @@
           "content": {
             "application/json": {
               "schema": {
-                "allOf": [
-                  {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": [
-                      "state",
-                      "endpointPath",
-                      "pid",
-                      "startedAt",
-                      "toolCount",
-                      "serverVersion",
-                      "errorCode"
-                    ],
-                    "properties": {
-                      "state": {
-                        "enum": [
-                          "stopped",
-                          "starting",
-                          "running",
-                          "stopping",
-                          "error"
-                        ]
-                      },
-                      "endpointPath": {
-                        "const": "/api/v1/mcp"
-                      },
-                      "pid": {
-                        "type": [
-                          "integer",
-                          "null"
-                        ],
-                        "minimum": 1
-                      },
-                      "startedAt": {
-                        "type": [
-                          "string",
-                          "null"
-                        ],
-                        "format": "date-time"
-                      },
-                      "toolCount": {
-                        "type": [
-                          "integer",
-                          "null"
-                        ],
-                        "minimum": 0
-                      },
-                      "serverVersion": {
-                        "type": [
-                          "string",
-                          "null"
-                        ]
-                      },
-                      "errorCode": {
-                        "enum": [
-                          "build_missing",
-                          "start_failed",
-                          "unexpected_exit",
-                          "stop_failed",
-                          null
-                        ]
-                      }
-                    }
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "state",
+                  "endpointPath",
+                  "pid",
+                  "startedAt",
+                  "toolCount",
+                  "serverVersion",
+                  "errorCode",
+                  "accessToken"
+                ],
+                "properties": {
+                  "state": {
+                    "enum": [
+                      "stopped",
+                      "starting",
+                      "running",
+                      "stopping",
+                      "error"
+                    ]
                   },
-                  {
-                    "type": "object",
-                    "required": [
-                      "accessToken"
+                  "endpointPath": {
+                    "const": "/api/v1/mcp"
+                  },
+                  "pid": {
+                    "type": [
+                      "integer",
+                      "null"
                     ],
-                    "properties": {
-                      "accessToken": {
-                        "type": [
-                          "string",
-                          "null"
-                        ],
-                        "writeOnly": true
-                      }
-                    }
+                    "minimum": 1
+                  },
+                  "startedAt": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "date-time"
+                  },
+                  "toolCount": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "minimum": 0
+                  },
+                  "serverVersion": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "errorCode": {
+                    "enum": [
+                      "build_missing",
+                      "start_failed",
+                      "unexpected_exit",
+                      "stop_failed",
+                      null
+                    ]
+                  },
+                  "accessToken": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "readOnly": true
                   }
-                ]
+                }
               }
             }
           }

@@ -243,6 +243,7 @@ export const schemasPart02 = {
             grants: { type: "array", maxItems: 100, items: { type: "object", required: ["scopeType", "scopeId"], properties: { scopeType: { enum: ["property", "house", "area"] }, scopeId: { type: "string" } } } },
             csrfToken: { type: "string", readOnly: true, description: "Present only for authenticated local sessions." },
             setupRequired: { type: "boolean", readOnly: true },
+            cloudflareAccess: { $ref: "#/components/schemas/CloudflareAccessSyncSummary" },
           },
         },
   GeoCoordinate: {
