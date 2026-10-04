@@ -2,6 +2,12 @@
 
 All notable Stugu releases are recorded here.
 
+## 0.41.12
+
+- Load long power-history charts faster by avoiding full-history source sorts and repeated decompression for each bucket.
+- Preserve bucket values, latest-source tie breaking, quality, units and metadata while retrieving provenance in one bounded batch.
+- Upgrade impact: application-only update; existing measurements, bucket averages, cost arithmetic, configuration and host-update trust remain compatible.
+
 ## 0.41.11
 
 - Long power-history queries keep metadata out of full-history sorts and retrieve provenance only for returned buckets.

@@ -62,10 +62,50 @@ describe("bounded generic bucket provenance", () => {
     )).rows[0]!["QUERY PLAN"] as Array<{ Plan: Record<string, unknown> }>;
     const visit = (node: Record<string, unknown>): void => {
       if (node["Node Type"] === "Sort" && String(node.Output).includes("metadata")) {
-        expect(Number(node["Actual Rows"]), "wide payload sort must be bounded by returned buckets").toBeLessThanOrEqual(3);
+        // The fixture has two real sources tied at each latest timestamp.
+        expect(Number(node["Actual Rows"]), "wide payload sort must be bounded by returned provenance candidates")
+          .toBeLessThanOrEqual(3 * 2);
       }
       for (const child of (node.Plans ?? []) as Array<Record<string, unknown>>) visit(child);
     };
     visit(explain[0]!.Plan);
+  });
+
+  it("does not sort every dense input row to aggregate the bucket means", async () => {
+    await store.measurementHistoryBucketed({
+      sensorId: "meter", metric: "power", from: "2026-09-01", to: "2026-09-02",
+      bucketSeconds: 900, limit: 3, excludeSynthetic: true,
+    });
+    const query = pool.queries.findLast(item => item.text.includes("recent_buckets AS"))!;
+    const explain = (await db.query<Record<string, unknown>>(
+      `EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON) ${query.text}`, query.values,
+    )).rows[0]!["QUERY PLAN"] as Array<{ Plan: Record<string, unknown> }>;
+    const maximumBuckets = 24 * 60 * 60 / 900 + 1;
+    const visit = (node: Record<string, unknown>): void => {
+      const children = (node.Plans ?? []) as Array<Record<string, unknown>>;
+      if (node["Node Type"] === "Sort") {
+        for (const child of children) {
+          expect(Number(child["Actual Rows"]), "sort input must be buckets or bounded provenance rows")
+            .toBeLessThanOrEqual(maximumBuckets);
+        }
+      }
+      for (const child of children) visit(child);
+    };
+    visit(explain[0]!.Plan);
+  });
+
+  it("retains the quality and provenance of a bucket with one sample", async () => {
+    await db.exec(`INSERT INTO telemetry.measurement_samples
+      (sensor_id,metric,observed_at,source,value,canonical_unit,quality,metadata)
+      VALUES ('single','power','2026-09-01T00:00:02Z','api',12.5,'W','good','{"only":true}'),
+        ('other','power','2026-09-01T00:00:02Z','zzzz',999,'W','estimated','{"wrong":true}'),
+        ('single','energy','2026-09-01T00:00:02Z','zzzz',999,'kWh','estimated','{"wrong":true}')`);
+    expect(await store.measurementHistoryBucketed({
+      sensorId: "single", metric: "power", from: "2026-09-01", to: "2026-09-02",
+      bucketSeconds: 900, limit: 3, excludeSynthetic: true,
+    })).toEqual([{
+      sensorId: "single", metric: "power", timestamp: "2026-09-01T00:00:00.000Z",
+      value: 12.5, canonicalUnit: "W", source: "api", quality: "good", metadata: { only: true },
+    }]);
   });
 });
