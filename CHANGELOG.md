@@ -2,6 +2,11 @@
 
 All notable Stugu releases are recorded here.
 
+## 0.41.18
+
+- Complete verification of the privacy-preserving startup and container health diagnostics introduced in 0.41.17 by correcting the diagnostic collector's Python formatting.
+- Upgrade impact: application-only update; no additional database migration, API, configuration, Compose or host-trust change. Existing telemetry and verified backups are retained. Appliance installation remains subject to its normal backup, readiness and rollback checks.
+
 ## 0.41.17
 
 - Capture API startup failures from configuration, database/runtime initialization, archive readiness and HTTP binding using fixed error codes that exclude private configuration and data. Failed HTTP binding now closes the runtime cleanly.
