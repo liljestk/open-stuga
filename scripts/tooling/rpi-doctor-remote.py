@@ -448,10 +448,20 @@ def api_container_lookup() -> tuple[str, dict[str, Any]]:
 
 
 def database_integrity_snapshot(name: str) -> dict[str, Any]:
-    result = run([
-        "docker", "exec", name, "timeout", "--signal=KILL", "10s",
-        "node", "-e", INTEGRITY_SCRIPT,
-    ], timeout=12.0)
+    result = run(
+        [
+            "docker",
+            "exec",
+            name,
+            "timeout",
+            "--signal=KILL",
+            "10s",
+            "node",
+            "-e",
+            INTEGRITY_SCRIPT,
+        ],
+        timeout=12.0,
+    )
     snapshot: dict[str, Any] = {"probes": {"databaseIntegrity": result["probe"]}}
     try:
         integrity = json.loads(result["stdout"])
@@ -559,9 +569,15 @@ API_LOG_LIMIT = 160
 STARTUP_PHASES = {"configuration", "runtime", "archive", "listener"}
 STARTUP_EVENTS = {"started", "ready", "failed"}
 STARTUP_ERROR_CODES = {
-    "SQLITE_LOCKED", "STORAGE_FULL", "STORAGE_IO", "HTTP_ADDRESS_IN_USE",
-    "PERMISSION_DENIED", "CONNECTION_FAILED", "STARTUP_TIMEOUT",
-    "MEMORY_EXHAUSTED", "STARTUP_FAILED",
+    "SQLITE_LOCKED",
+    "STORAGE_FULL",
+    "STORAGE_IO",
+    "HTTP_ADDRESS_IN_USE",
+    "PERMISSION_DENIED",
+    "CONNECTION_FAILED",
+    "STARTUP_TIMEOUT",
+    "MEMORY_EXHAUSTED",
+    "STARTUP_FAILED",
 }
 API_LOG_PATTERNS = {
     "sqlite-lock": r"\bSQLITE_(?:BUSY|LOCKED)\b|database (?:is |table is )?locked",
@@ -591,12 +607,26 @@ def summarize_api_logs(raw: str) -> dict[str, Any]:
             version = value.get("systemVersion")
             phase, event = value.get("phase"), value.get("event")
             elapsed = value.get("elapsedMs")
-            if (isinstance(version, str) and re.fullmatch(r"\d+\.\d+\.\d+", version)
-                and isinstance(phase, str) and phase in STARTUP_PHASES
-                and isinstance(event, str) and event in STARTUP_EVENTS
-                and type(elapsed) is int and 0 <= elapsed <= 86_400_000):
-                startup = {"systemVersion": version, "phase": phase, "event": event, "elapsedMs": elapsed}
-                if isinstance(value.get("errorCode"), str) and value["errorCode"] in STARTUP_ERROR_CODES:
+            if (
+                isinstance(version, str)
+                and re.fullmatch(r"\d+\.\d+\.\d+", version)
+                and isinstance(phase, str)
+                and phase in STARTUP_PHASES
+                and isinstance(event, str)
+                and event in STARTUP_EVENTS
+                and type(elapsed) is int
+                and 0 <= elapsed <= 86_400_000
+            ):
+                startup = {
+                    "systemVersion": version,
+                    "phase": phase,
+                    "event": event,
+                    "elapsedMs": elapsed,
+                }
+                if (
+                    isinstance(value.get("errorCode"), str)
+                    and value["errorCode"] in STARTUP_ERROR_CODES
+                ):
                     startup["errorCode"] = value["errorCode"]
         matches = [
             category
@@ -632,8 +662,16 @@ def summarize_health_logs(value: Any) -> list[dict[str, Any]]:
             output = json.loads(str(item.get("Output", ""))[:4096])
         except json.JSONDecodeError:
             output = None
-        if isinstance(output, dict) and output.get("schema") == "stugu-api-health-probe/v1":
-            if isinstance(output.get("reason"), str) and output["reason"] in {"success", "http-error", "timeout", "connection-error"}:
+        if (
+            isinstance(output, dict)
+            and output.get("schema") == "stugu-api-health-probe/v1"
+        ):
+            if isinstance(output.get("reason"), str) and output["reason"] in {
+                "success",
+                "http-error",
+                "timeout",
+                "connection-error",
+            }:
                 summary["reason"] = output["reason"]
             status = output.get("httpStatus")
             if type(status) is int and 100 <= status <= 599:
@@ -660,15 +698,32 @@ def api_logs_snapshot() -> dict[str, Any]:
         return {"available": False, "reason": "log-read-unavailable", "probes": probes}
     # Docker places application stderr in its own stderr even on success.
     summary = summarize_api_logs(result["stdout"] + "\n" + result["stderr"])
-    inspected = run([
-        "docker", "inspect", "--format", "{{if .State.Health}}{{json .State.Health.Log}}{{else}}[]{{end}}", name,
-    ], timeout=3.0)
+    inspected = run(
+        [
+            "docker",
+            "inspect",
+            "--format",
+            "{{if .State.Health}}{{json .State.Health.Log}}{{else}}[]{{end}}",
+            name,
+        ],
+        timeout=3.0,
+    )
     probes["apiHealthLogs"] = inspected["probe"]
     try:
-        health_logs = summarize_health_logs(json.loads(inspected["stdout"])) if inspected["ok"] else []
+        health_logs = (
+            summarize_health_logs(json.loads(inspected["stdout"]))
+            if inspected["ok"]
+            else []
+        )
     except json.JSONDecodeError:
         health_logs = []
-    return {"available": True, "windowMinutes": 1440, "probes": probes, "healthLogs": health_logs, **summary}
+    return {
+        "available": True,
+        "windowMinutes": 1440,
+        "probes": probes,
+        "healthLogs": health_logs,
+        **summary,
+    }
 
 
 def logs_snapshot() -> dict[str, Any]:
@@ -747,8 +802,12 @@ def main() -> None:
                 Exception
             ) as error:  # Keep one optional collector from hiding the rest.
                 results[name] = {"available": False, "reason": type(error).__name__}
-    if (options.deep and results["database"].get("available")
-        and results["health"].get("available") and results["health"].get("status") == "ok"):
+    if (
+        options.deep
+        and results["database"].get("available")
+        and results["health"].get("available")
+        and results["health"].get("status") == "ok"
+    ):
         # Finish the ordinary bounded observations before heavy integrity I/O
         # so the scan cannot make unrelated updater and log probes time out.
         name, lookup = api_container_lookup()
