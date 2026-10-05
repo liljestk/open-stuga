@@ -2,6 +2,11 @@
 
 All notable Stugu releases are recorded here.
 
+## 0.41.16
+
+- Give cold API startup the updater's existing ten-minute readiness window, including first-start sensor-history index creation on large databases. Successful probes still mark the API healthy immediately.
+- Upgrade impact: application-only update. The sensor-history index from 0.41.15 is retained; existing telemetry, configuration, backups, host trust and Compose contracts remain compatible.
+
 ## 0.41.15
 
 - Keep export previews, sensor measurement pages and setup integrity checks responsive on large local databases. Excluded telemetry is no longer counted, and heavy reads run in a bounded, cancellable worker.
