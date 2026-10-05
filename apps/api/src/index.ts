@@ -1,23 +1,17 @@
-import { createServer } from "node:http";
 import { loadConfig } from "./config.js";
 import { createApi } from "./app.js";
+import { startApiServer } from "./api-startup.js";
 import { shutdownHttpServer } from "./http-shutdown.js";
 
-const config = loadConfig();
-const runtime = createApi({ config, startBackground: true });
-const server = createServer(runtime.app);
-
-try {
-  await runtime.ready();
-  server.listen(config.port, config.apiHost, () => {
-    // Do not log configuration: it may contain integration credentials.
-    console.log(`Stugu API listening on http://${config.apiHost}:${config.port}/api/v1`);
-  });
-} catch {
-  console.error("Stugu API could not initialize its required telemetry archive");
-  await runtime.close();
+const started = await startApiServer({
+  loadConfiguration: loadConfig,
+  createRuntime: config => createApi({ config, startBackground: true }),
+  write: record => console.error(JSON.stringify(record)),
+}).catch(() => {
+  // The startup helper already logged a fixed, redacted classification.
   process.exit(1);
-}
+});
+const { runtime, server } = started;
 
 let shutdownPromise: Promise<void> | null = null;
 

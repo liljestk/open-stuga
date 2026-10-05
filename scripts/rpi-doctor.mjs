@@ -99,9 +99,9 @@ const COMMAND_PROBE_OUTCOMES = new Set([
 const COMMAND_PROBE_SOURCES = {
   service: ["service"],
   docker: ["dockerList", "dockerInspect", "dockerStats"],
-  database: ["databaseLookup", "databaseQuery"],
+  database: ["databaseLookup", "databaseQuery", "databaseIntegrity"],
   updater: ["updaterHardware", "updaterStatus"],
-  apiLogs: ["apiLogsLookup", "apiLogsRead"],
+  apiLogs: ["apiLogsLookup", "apiLogsRead", "apiHealthLogs"],
   logs: ["journal"],
 };
 
@@ -136,13 +136,47 @@ function apiLogSummary(value) {
   if (!value) return null;
   return {
     available: value.available === true,
-    windowMinutes: 15,
+    windowMinutes: 1440,
     records: Math.max(0, Math.min(160, Math.floor(number(value.records)))),
     capped: value.capped === true,
     categories: Object.fromEntries(API_LOG_CATEGORIES.flatMap((category) => {
       const count = Math.max(0, Math.min(160, Math.floor(number(value.categories?.[category]))));
       return count > 0 ? [[category, count]] : [];
     })),
+    startup: startupSummary(value.startup),
+    healthLogs: Array.isArray(value.healthLogs) ? value.healthLogs.slice(-5).flatMap(item => {
+      if (!Number.isInteger(item?.exitCode) || item.exitCode < -255 || item.exitCode > 255) return [];
+      const reasons = ["success", "http-error", "timeout", "connection-error", "unclassified"];
+      return [{ exitCode: item.exitCode, reason: reasons.includes(item.reason) ? item.reason : "unclassified",
+        ...(Number.isInteger(item.httpStatus) && item.httpStatus >= 100 && item.httpStatus <= 599
+          ? { httpStatus: item.httpStatus } : {}),
+      }];
+    }) : [],
+  };
+}
+
+function startupSummary(value) {
+  if (!value || !/^\d+\.\d+\.\d+$/u.test(value.systemVersion ?? "")
+    || !["configuration", "runtime", "archive", "listener"].includes(value.phase)
+    || !["started", "ready", "failed"].includes(value.event)
+    || !Number.isSafeInteger(value.elapsedMs) || value.elapsedMs < 0 || value.elapsedMs > 86_400_000) return null;
+  const codes = ["SQLITE_LOCKED", "STORAGE_FULL", "STORAGE_IO", "HTTP_ADDRESS_IN_USE",
+    "PERMISSION_DENIED", "CONNECTION_FAILED", "STARTUP_TIMEOUT", "MEMORY_EXHAUSTED", "STARTUP_FAILED"];
+  return { systemVersion: value.systemVersion, phase: value.phase, event: value.event, elapsedMs: value.elapsedMs,
+    ...(codes.includes(value.errorCode) ? { errorCode: value.errorCode } : {}),
+  };
+}
+
+function databaseStorageSummary(value) {
+  if (!value) return null;
+  const bytes = (raw) => Number.isSafeInteger(raw) && raw >= 0 ? raw : null;
+  return {
+    databaseBytes: bytes(value.databaseBytes),
+    walBytes: bytes(value.walBytes),
+    indexes: Object.fromEntries([
+      "idx_readings_sensor_time_id", "idx_measurement_samples_sensor_metric_time",
+      "idx_measurement_samples_sensor_time_id", "idx_measurement_samples_time",
+    ].map((name) => [name, typeof value.indexes?.[name] === "boolean" ? value.indexes[name] : null])),
   };
 }
 
@@ -334,7 +368,7 @@ export function diagnoseEvidence(evidence) {
       integrityPassed ? "pass" : "fail",
       integrity
         ? `SQLite quick check ${integrity.quickCheck?.[0] ?? "failed"}; ${number(integrity.foreignKeyViolations)} foreign-key violation(s).`
-        : "Deep database integrity evidence is unavailable.",
+        : `Deep database integrity evidence is unavailable.${failedProbes("databaseIntegrity")}`,
     ));
     checks.push(check(
       "LOGS",
@@ -395,6 +429,7 @@ export function diagnoseEvidence(evidence) {
         dirtyRows: number(archive.dirtyRows),
       },
       queues: databaseAvailable ? queues : null,
+      databaseStorage: databaseStorageSummary(evidence.database?.storage),
       integrations: integrationSummary,
       updater: {
         available: updater.available === true,

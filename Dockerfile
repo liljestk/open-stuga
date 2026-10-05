@@ -28,7 +28,7 @@ COPY packages/contracts ./packages/contracts
 COPY packages/spatial-layers ./packages/spatial-layers
 COPY packages/stuguby-protocol ./packages/stuguby-protocol
 COPY scripts/init-runtime-secrets.mjs scripts/migrate-telemetry-to-timescale.mjs \
-  scripts/sqlite-snapshot-utils.mjs scripts/stugu-backup.mjs ./scripts/
+  scripts/sqlite-snapshot-utils.mjs scripts/stugu-backup.mjs scripts/api-healthcheck.mjs ./scripts/
 COPY scripts/migrate-telemetry-to-timescale ./scripts/migrate-telemetry-to-timescale
 COPY scripts/stugu-backup ./scripts/stugu-backup
 
@@ -139,6 +139,7 @@ COPY --from=api-build --chown=node:node /app/scripts/migrate-telemetry-to-timesc
 COPY --from=api-build --chown=node:node /app/scripts/sqlite-snapshot-utils.mjs ./scripts/sqlite-snapshot-utils.mjs
 COPY --from=api-build --chown=node:node /app/scripts/stugu-backup.mjs ./scripts/stugu-backup.mjs
 COPY --from=api-build --chown=node:node /app/scripts/stugu-backup ./scripts/stugu-backup
+COPY --from=api-build --chown=node:node /app/scripts/api-healthcheck.mjs ./scripts/api-healthcheck.mjs
 
 USER node
 
@@ -147,7 +148,7 @@ EXPOSE 8787
 # Large persisted databases may build new indexes before the API listens.
 # Match the updater's ten-minute readiness window; successful probes pass early.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10m --retries=3 \
-  CMD ["node", "-e", "fetch('http://127.0.0.1:8787/api/v1/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+  CMD ["node", "scripts/api-healthcheck.mjs"]
 
 CMD ["node", "apps/api/dist/index.js"]
 
