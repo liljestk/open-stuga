@@ -2,6 +2,13 @@
 
 All notable Stugu releases are recorded here.
 
+## 0.41.17
+
+- Capture API startup failures from configuration, database/runtime initialization, archive readiness and HTTP binding using fixed error codes that exclude private configuration and data. Failed HTTP binding now closes the runtime cleanly.
+- Record HTTP status and timeout classifications in container health probes, while keeping the existing readiness window and health requirements.
+- Preserve queue, integration and index evidence when a bounded deep integrity check cannot finish. Summarize recent startup stages and container health failures without retaining raw logs.
+- Upgrade impact: application-only update. Existing telemetry, configuration, backups, host trust and updater/Compose contracts remain compatible; no new database migration is introduced. The failed 0.41.15/0.41.16 installation cause has not yet been proven, and the next installation must be verified on the appliance.
+
 ## 0.41.16
 
 - Give cold API startup the updater's existing ten-minute readiness window, including first-start sensor-history index creation on large databases. Successful probes still mark the API healthy immediately.

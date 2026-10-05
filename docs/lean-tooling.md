@@ -38,7 +38,12 @@ Default mode opens one strict, non-interactive SSH connection and is killed at
 event-loop, archive/database, bounded queue, integration, updater, version, and
 appliance-identity evidence. It uses `docker stats --no-stream`; it does not
 read raw telemetry, credentials, or unbounded logs. `--deep` explicitly adds
-SQLite integrity checks and a bounded, hashed service-log summary.
+SQLite integrity checks and bounded service and API log summaries. The queue
+and integration census remains available if the separately bounded integrity
+scan times out. Database evidence includes only file sizes and a fixed index
+presence list. API logs cover at most 160 records from the last 24 hours;
+startup stages and the last five container health probes retain only fixed
+classifications, never raw errors, configuration, SQL, or response bodies.
 
 The receipt stores hashes of the SSH selector, machine ID, and hostname, the
 verified SSH host-key fingerprint, and the host updater's hardware fingerprint.

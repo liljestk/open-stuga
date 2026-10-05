@@ -801,6 +801,11 @@ test("Pi diagnostic receipts keep only bounded probe and API log classifications
   evidence.health = { available: false, probe: { outcome: "timeout", durationMs: 2501, httpStatus: null, message: "private token" } };
   evidence.logs = { available: true, priorities: { "3": 2 } };
   evidence.apiLogs = { available: true, records: 800, capped: true, categories: { "sqlite-lock": 2, "private token": 9 }, raw: "secret log" };
+  evidence.database.storage = {
+    databaseBytes: 123456, walBytes: -1,
+    indexes: { idx_measurement_samples_sensor_time_id: true, "private token": true },
+    path: "private token",
+  };
   evidence.docker.probes = {
     dockerList: { outcome: "success", durationMs: 85, exitCode: 0, stdout: "secret log" },
     dockerInspect: { outcome: "permission-denied", durationMs: 51, exitCode: 1, stderr: "private token" },
@@ -813,7 +818,8 @@ test("Pi diagnostic receipts keep only bounded probe and API log classifications
   const diagnosis = diagnoseEvidence(evidence);
   assert.deepEqual(diagnosis.summary.healthProbe, { outcome: "timeout", durationMs: 2501, httpStatus: null });
   assert.deepEqual(diagnosis.summary.apiLogs, {
-    available: true, windowMinutes: 15, records: 160, capped: true, categories: { "sqlite-lock": 2 },
+    available: true, windowMinutes: 1440, records: 160, capped: true, categories: { "sqlite-lock": 2 },
+    startup: null, healthLogs: [],
   });
   assert.match(diagnosis.checks.find((item) => item.id === "HEALTH").summary, /timeout, 2501 ms, HTTP unavailable/u);
   assert.deepEqual(diagnosis.summary.commandProbes, {
@@ -823,6 +829,13 @@ test("Pi diagnostic receipts keep only bounded probe and API log classifications
     updaterHardware: { outcome: "not-found", durationMs: 12, exitCode: 127 },
   });
   assert.equal(diagnosis.checks.find((item) => item.id === "CONTAINERS").status, "fail");
+  assert.deepEqual(diagnosis.summary.databaseStorage, {
+    databaseBytes: 123456, walBytes: null,
+    indexes: {
+      idx_readings_sensor_time_id: null, idx_measurement_samples_sensor_metric_time: null,
+      idx_measurement_samples_sensor_time_id: true, idx_measurement_samples_time: null,
+    },
+  });
   assert.doesNotMatch(JSON.stringify(diagnosis), /private token|secret log/u);
 });
 
@@ -894,6 +907,18 @@ assert summary["categories"] == {"sqlite-lock": 1, "memory": 1, "database-timeou
 assert secret not in json.dumps(summary) and "/private" not in json.dumps(summary)
 assert module["summarize_api_logs"]("SQLITE_BUSY\n" * 200)["records"] == 160
 assert module["summarize_api_logs"]("SQLITE_BUSY\n" * 200)["capped"] is True
+startup_line = json.dumps({"schema": "stugu-api-startup/v1", "systemVersion": "0.41.17", "phase": "archive", "event": "failed", "elapsedMs": 2000, "errorCode": "CONNECTION_FAILED", "private": secret})
+summary = module["summarize_api_logs"](startup_line)
+assert summary["startup"] == {"systemVersion": "0.41.17", "phase": "archive", "event": "failed", "elapsedMs": 2000, "errorCode": "CONNECTION_FAILED"}
+assert secret not in json.dumps(summary)
+assert module["summarize_api_logs"](json.dumps({"schema": "stugu-api-startup/v1", "phase": [], "event": {}, "systemVersion": "0.41.17", "elapsedMs": 1}))["startup"] is None
+health_logs = module["summarize_health_logs"]([
+    {"ExitCode": 1, "Output": json.dumps({"schema": "stugu-api-health-probe/v1", "reason": "http-error", "httpStatus": 503, "private": secret})},
+    {"ExitCode": 1, "Output": secret},
+    {"ExitCode": 1, "Output": json.dumps({"schema": "stugu-api-health-probe/v1", "reason": {}, "httpStatus": "secret"})},
+])
+assert health_logs == [{"exitCode": 1, "reason": "http-error", "httpStatus": 503}, {"exitCode": 1, "reason": "unclassified"}, {"exitCode": 1, "reason": "unclassified"}]
+assert secret not in json.dumps(health_logs)
 snapshot = module["api_logs_snapshot"]
 commands = []
 def fake_run(arguments, timeout=3):
@@ -902,7 +927,7 @@ def fake_run(arguments, timeout=3):
 with patch.dict(snapshot.__globals__, {"api_container_lookup": lambda: ("api-fixture", {"outcome": "success", "durationMs": 1, "exitCode": 0}), "run": fake_run}):
     result = snapshot()
     assert result["categories"] == {"sqlite-lock": 1}
-    assert commands == [(["docker", "logs", "--since=15m", "--tail=160", "api-fixture"], 4.0)]
+    assert commands == [(["docker", "logs", "--since=24h", "--tail=160", "api-fixture"], 4.0), (["docker", "inspect", "--format", "{{if .State.Health}}{{json .State.Health.Log}}{{else}}[]{{end}}", "api-fixture"], 3.0)]
     assert secret not in json.dumps(result)
     assert result["probes"]["apiLogsRead"]["outcome"] == "success"
     assert result["probes"]["apiLogsLookup"]["outcome"] == "success"
@@ -912,16 +937,31 @@ with patch.dict(snapshot.__globals__, {"api_container_lookup": lambda: ("", look
     assert result["available"] is False and result["probes"]["apiLogsLookup"] == lookup_failure
     result = module["database_snapshot"](False)
     assert result["available"] is False and result["probes"]["databaseLookup"] == lookup_failure
-for deep, inside, outside in [(False, "2.5s", 3.5), (True, "10s", 12.0)]:
+for deep in [False, True]:
+    database_commands = []
     def database_run(arguments, timeout=3):
+        inside, outside = ("2.5s", 3.5) if not database_commands else ("10s", 12.0)
         assert arguments[:6] == ["docker", "exec", "api-fixture", "timeout", "--signal=KILL", inside]
         assert arguments[6:8] == ["node", "-e"]
-        assert arguments[8] == module["DATABASE_SCRIPT"]
-        assert arguments[9:] == (["--", "--deep"] if deep else [])
+        assert arguments[8] == module["DATABASE_SCRIPT" if not database_commands else "INTEGRITY_SCRIPT"]
+        assert arguments[9:] == []
         assert timeout == outside
+        database_commands.append(arguments)
         return {"ok": True, "stdout": '{"available":true}', "probe": {"outcome": "success", "durationMs": 1, "exitCode": 0}}
     with patch.dict(snapshot.__globals__, {"api_container_lookup": lambda: ("api-fixture", {"outcome": "success", "durationMs": 1, "exitCode": 0}), "run": database_run}):
         assert module["database_snapshot"](deep)["available"] is True
+        assert len(database_commands) == (2 if deep else 1)
+calls = []
+def partial_database_run(arguments, timeout=3):
+    calls.append(arguments)
+    if len(calls) == 1:
+        return {"ok": True, "stdout": '{"available":true,"queues":{"alertEvaluation":{"count":4}},"storage":{"databaseBytes":123}}', "probe": {"outcome": "success", "durationMs": 1, "exitCode": 0}}
+    return {"ok": False, "stdout": "", "probe": {"outcome": "failed", "durationMs": 10001, "exitCode": 137}}
+with patch.dict(snapshot.__globals__, {"api_container_lookup": lambda: ("api-fixture", {"outcome": "success", "durationMs": 1, "exitCode": 0}), "run": partial_database_run}):
+    result = module["database_snapshot"](True)
+    assert result["available"] is True and result["queues"]["alertEvaluation"]["count"] == 4
+    assert result["storage"]["databaseBytes"] == 123 and "integrity" not in result
+    assert result["probes"]["databaseIntegrity"]["exitCode"] == 137
 print("collector classifications passed")
 `;
   const result = spawnSync("python", ["-B", "-", fileURLToPath(collector)], {

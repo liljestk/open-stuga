@@ -98,3 +98,10 @@ npm run rpi:doctor -- --target operator@stugu.local
 The default doctor uses one SSH session and one-shot resource samples. Use
 `--deep` only when bounded logs and database integrity checks are needed. See
 [Lean verification and appliance diagnosis](lean-tooling.md).
+
+API startup records identify configuration, runtime/database initialization,
+archive readiness, and HTTP binding using fixed stages and error codes. The
+container healthcheck similarly records only HTTP status and a bounded failure
+classification. Collect candidate evidence before rollback replaces its
+container; healthy replacement logs cannot establish why an earlier candidate
+failed.
