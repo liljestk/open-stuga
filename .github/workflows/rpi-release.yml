@@ -61,7 +61,7 @@ jobs:
             --output "$GITHUB_WORKSPACE/dist/source"
 
       - name: Preserve source before publishing containers
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nexus433-corresponding-source-${{ env.RELEASE_TAG }}
           path: |
@@ -367,7 +367,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Upload short-lived factory image
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: stugu-rpi4-${{ steps.ota.outputs.version }}-factory
           path: |
@@ -378,7 +378,7 @@ jobs:
           compression-level: 0
 
       - name: Upload host inputs for the isolated RAUC signer
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: stugu-rpi4-${{ steps.ota.outputs.version }}-host-inputs
           path: dist/rpi/host-inputs/
