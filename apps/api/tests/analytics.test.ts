@@ -249,7 +249,9 @@ describe("analytics query API", () => {
       measurementIds: ["energy"], resolution: "5m",
     })).expect(200);
 
-    expect(response.body.series[0]).toMatchObject({ aggregation: "delta", points: [{ value: 2 }, { value: 2 }, { value: null }] });
+    // 12 -> 1 is a meter restart: the 1 kWh counted since the restart is kept,
+    // then 1 -> 3 adds 2, the same increments the consumption integral uses.
+    expect(response.body.series[0]).toMatchObject({ aggregation: "delta", points: [{ value: 2 }, { value: 3 }, { value: null }] });
     expect(response.body.series[0].points[1].qualityFlags).toContain("counter_reset");
   });
 

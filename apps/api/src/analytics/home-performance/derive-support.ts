@@ -12,6 +12,7 @@ import type {
   Sensor,
 } from "@climate-twin/contracts";
 import { COMFORT_TEMPERATURE_LOW_C, ENERGY_MIN_BUCKET_COVERAGE, HOUR_MS, HomePerformanceEnergy, HomePerformanceInput, HomePerformanceMaintenance, HomePerformanceOpeningEffectiveness, HomePerformanceRecovery, RECOVERY_MAX_POINT_GAP_MS, RECOVERY_MIN_BUCKET_COVERAGE, RecoveryEvidence, ValuePoint, absoluteHumidity, compareStable, contiguousRecoveryEvidence, median, resolutionHours, round, seriesFor, values } from "./model.js";
+import { averageWattsToKwh } from "@climate-twin/analytics-kernel";
 import { deriveOpeningActivity } from "../temporal/opening-intervals.js";
 
 export function moistureRecoveryResult(
@@ -246,7 +247,7 @@ export function sensorEnergyByHour(
         if (point.value !== null && point.value >= 0) {
           const key = hourKey(point.timestamp);
           if (Number.isFinite(key)) {
-            power.set(key, (power.get(key) ?? 0) + point.value * hours / 1_000);
+            power.set(key, (power.get(key) ?? 0) + averageWattsToKwh(point.value, hours));
           }
         }
       }

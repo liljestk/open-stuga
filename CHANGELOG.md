@@ -2,6 +2,17 @@
 
 All notable Stugu releases are recorded here.
 
+## 0.42.0
+
+- Counter-based measurements such as energy now keep the usage recorded after a meter restart in `delta` analytics, matching the consumption totals; previously the post-restart reading was dropped. A bucket with only one reading and nothing before it is now shown as missing instead of zero.
+- Charts and tables now give the same answer whether a query is served from the long-term archive or from raw local samples:
+  - Power charts are no longer marked "counter reset" when the load drops.
+  - A reading imported twice through two integrations counts once for `delta` and time-weighted means.
+  - The quality-filter warning no longer counts such repeats as excluded samples.
+- Daily findings use the corrected energy deltas; existing findings are recalculated on the next scheduled run.
+- Statistics, counter and kWh integration, time-weighted means and local-calendar boundaries now come from one shared analytics library instead of separate copies in the API. A new automated parity check compares the archive and raw paths on generated data with gaps, meter restarts, repeated readings, mixed quality and irregular timing.
+- Upgrade impact: application-only update. There is no database migration, and stored rollups are reused, so no rebuild is triggered. Configuration, Compose and host-trust contracts are unchanged. `delta` values change only where a meter restarted within the selected range.
+
 ## 0.41.19
 
 - Reorganize the API's analytics, forecast, thermal and moisture response, and electricity endpoints into dedicated modules, so later analytics and tariff work can change them in one place. Measurement ingest and snapshot endpoints move to their own module as well.

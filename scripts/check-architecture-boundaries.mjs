@@ -66,6 +66,24 @@ for (const path of await filesBelow(apiAppRoot)) {
   }
 }
 
+// @climate-twin/analytics-kernel owns the statistics, counter, energy and
+// local-calendar definitions. API modules adapt its results; they may not
+// grow a second implementation. SQL builders keep their SQL arithmetic,
+// which the kernel parity harness checks against the kernel.
+const kernelOwnedDefinition = /\bfunction\s+(?:median|percentile|quantile|timeWeightedMean|localDateStart)\s*[(<]/;
+const kernelOwnedKwhConstant = /\b(?:3_600_000_000|3600000000)\b/;
+for (const path of await filesBelow(join(root, "apps", "api", "src"))) {
+  const name = projectPath(path);
+  if (/\.(?:test|spec)\.[tj]s$/.test(name)) continue;
+  const text = await readFile(path, "utf8");
+  if (kernelOwnedDefinition.test(text)) {
+    report(path, "statistics and calendar helpers must come from @climate-twin/analytics-kernel");
+  }
+  if (!name.endsWith("-sql.ts") && kernelOwnedKwhConstant.test(text)) {
+    report(path, "kWh conversions must use @climate-twin/analytics-kernel");
+  }
+}
+
 for (const directory of [webDataRoot, apiAnalyticsRoot]) {
   for (const path of await filesBelow(directory)) {
     const name = projectPath(path).split("/").at(-1);

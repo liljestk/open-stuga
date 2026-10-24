@@ -1,3 +1,14 @@
+import {
+  counterDelta,
+  maximum,
+  mean,
+  median,
+  medianAbsoluteDeviation,
+  minimum,
+  quantileSorted,
+  sampleStandardDeviation,
+  timeWeightedMean,
+} from "@climate-twin/analytics-kernel";
 import { analyticsConsumptionBuckets } from "./analytics-consumption.js";
 import type {
   AggregationSemantic,
@@ -279,36 +290,6 @@ export function resolveAnalyticsResolution(
   return "1d";
 }
 
-function percentile(sorted: readonly number[], fraction: number): number | null {
-  if (sorted.length === 0) return null;
-  const position = (sorted.length - 1) * fraction;
-  const lower = Math.floor(position);
-  const upper = Math.ceil(position);
-  const weight = position - lower;
-  return (sorted[lower] ?? 0) * (1 - weight) + (sorted[upper] ?? 0) * weight;
-}
-
-function median(values: readonly number[]): number | null {
-  return percentile([...values].sort((left, right) => left - right), 0.5);
-}
-
-/**
- * Bucket and series extents are reduced rather than spread into `Math.min`.
- * A single bucket may legitimately hold tens of thousands of samples at the
- * limits this path accepts, which is past the engine's argument-count ceiling.
- */
-function minimumOf(values: readonly number[]): number | null {
-  let minimum: number | null = null;
-  for (const value of values) if (minimum === null || value < minimum) minimum = value;
-  return minimum;
-}
-
-function maximumOf(values: readonly number[]): number | null {
-  let maximum: number | null = null;
-  for (const value of values) if (maximum === null || value > maximum) maximum = value;
-  return maximum;
-}
-
 /**
  * Mirrors the archive rollup's `cadence_seconds` expression
  * (`GREATEST(1, range / GREATEST(1, sample_count))`). Bucket coverage — and
@@ -341,20 +322,20 @@ function sampleFlags(samples: readonly MeasurementSample[]): QualityFlag[] {
   return [...flags];
 }
 
-function timeWeightedMean(samples: readonly MeasurementSample[], bucketEnd: number, cadenceSeconds: number): number | null {
-  if (samples.length === 0) return null;
-  if (samples.length === 1) return samples[0]!.value;
-  let weighted = 0;
-  let duration = 0;
-  for (let index = 0; index < samples.length; index += 1) {
-    const current = samples[index]!;
-    const currentMs = Date.parse(current.timestamp);
-    const nextMs = index + 1 < samples.length ? Date.parse(samples[index + 1]!.timestamp) : bucketEnd;
-    const seconds = Math.max(0, Math.min(nextMs - currentMs, cadenceSeconds * 1_500) / 1_000);
-    weighted += current.value * seconds;
-    duration += seconds;
-  }
-  return duration > 0 ? weighted / duration : samples.at(-1)!.value;
+/**
+ * Delta and time-weighted means read a series as one value per instant, as the
+ * archive's ordered rollup does: a reading repeated by a second source counts
+ * once, and of conflicting simultaneous readings the last one read stands
+ * (local windows return same-instant rows in ingestion order).
+ */
+function oneReadingPerInstant(samples: readonly MeasurementSample[]): MeasurementSample[] {
+  const byInstant = new Map<number, MeasurementSample>();
+  for (const sample of samples) byInstant.set(Date.parse(sample.timestamp), sample);
+  return [...byInstant.values()];
+}
+
+function readsOrderedSeries(aggregation: Exclude<AnalyticsAggregation, "default">): boolean {
+  return aggregation === "delta" || aggregation === "time_weighted_mean";
 }
 
 function aggregateBucket(
@@ -362,29 +343,31 @@ function aggregateBucket(
   aggregation: Exclude<AnalyticsAggregation, "default">,
   bucketEnd: number,
   cadenceSeconds: number,
+  carriedCounter?: MeasurementSample,
 ): { value: number | null; flags: QualityFlag[] } {
   if (samples.length === 0) return { value: null, flags: ["missing"] };
   const ordered = [...samples].sort((left, right) => left.timestamp.localeCompare(right.timestamp));
   const values = ordered.map((sample) => sample.value);
   const flags = new Set(sampleFlags(ordered));
   if (aggregation === "last") return { value: ordered.at(-1)!.value, flags: [...flags] };
-  if (aggregation === "min") return { value: minimumOf(values), flags: [...flags] };
-  if (aggregation === "max") return { value: maximumOf(values), flags: [...flags] };
+  if (aggregation === "min") return { value: minimum(values), flags: [...flags] };
+  if (aggregation === "max") return { value: maximum(values), flags: [...flags] };
   if (aggregation === "sum") return { value: values.reduce((sum, value) => sum + value, 0), flags: [...flags] };
   if (aggregation === "time_weighted_mean") {
-    return { value: timeWeightedMean(ordered, bucketEnd, cadenceSeconds), flags: [...flags] };
+    const readings = ordered.map((sample) => ({ at: Date.parse(sample.timestamp), value: sample.value }));
+    // A reading stands for at most one and a half typical sampling intervals.
+    return { value: timeWeightedMean(readings, bucketEnd, cadenceSeconds * 1_500), flags: [...flags] };
   }
   if (aggregation === "delta") {
-    if (ordered.length < 2) return { value: null, flags: ["missing", "low_coverage", ...flags] };
-    let delta = 0;
-    for (let index = 1; index < ordered.length; index += 1) {
-      const change = ordered[index]!.value - ordered[index - 1]!.value;
-      if (change >= 0) delta += change;
-      else flags.add("counter_reset");
-    }
+    // The previous bucket's last reading opens this one, so no increment is
+    // lost between buckets. Its quality describes that bucket, not this one.
+    const readings = carriedCounter ? [carriedCounter.value, ...values] : values;
+    if (readings.length < 2) return { value: null, flags: ["missing", "low_coverage", ...flags] };
+    const { delta, resets } = counterDelta(readings);
+    if (resets > 0) flags.add("counter_reset");
     return { value: delta, flags: [...flags] };
   }
-  return { value: values.reduce((sum, value) => sum + value, 0) / values.length, flags: [...flags] };
+  return { value: mean(values), flags: [...flags] };
 }
 
 export function buildAnalyticsSummary(
@@ -396,26 +379,21 @@ export function buildAnalyticsSummary(
 ): AnalyticsSummary {
   const values = points.flatMap((point) => point.value === null ? [] : [point.value]);
   const sorted = [...values].sort((left, right) => left - right);
-  const mean = values.length === 0 ? null : values.reduce((sum, value) => sum + value, 0) / values.length;
-  const standardDeviation = mean === null || values.length < 2
-    ? null
-    : Math.sqrt(values.reduce((sum, value) => sum + (value - mean) ** 2, 0) / (values.length - 1));
   const center = median(values);
-  const mad = center === null ? null : median(values.map((value) => Math.abs(value - center)));
   return {
     entityId,
     measurementId,
     canonicalUnit,
     count: sampleCount,
     coverage: points.length === 0 ? 0 : points.reduce((sum, point) => sum + point.coverage, 0) / points.length,
-    minimum: minimumOf(values),
-    maximum: maximumOf(values),
-    mean,
+    minimum: minimum(values),
+    maximum: maximum(values),
+    mean: mean(values),
     median: center,
-    standardDeviation,
-    medianAbsoluteDeviation: mad,
-    p05: percentile(sorted, 0.05),
-    p95: percentile(sorted, 0.95),
+    standardDeviation: sampleStandardDeviation(values),
+    medianAbsoluteDeviation: medianAbsoluteDeviation(values, center),
+    p05: quantileSorted(sorted, 0.05),
+    p95: quantileSorted(sorted, 0.95),
   };
 }
 
@@ -461,23 +439,25 @@ async function bucketPoints(
     }
   }
   const points: AnalyticsPoint[] = [];
-  const consumption = analyticsConsumptionBuckets(consumptionSamples, consumptionSamples[0]?.metric ?? "", bucketMs, end, start);
+  // The archive integrates consumption only in its ordered rollup, so the
+  // mergeable aggregations carry none on either path.
+  const consumption = readsOrderedSeries(aggregation)
+    ? analyticsConsumptionBuckets(consumptionSamples, consumptionSamples[0]?.metric ?? "", bucketMs, end, start)
+    : new Map<number, number | null>();
   let previousCounterSample: MeasurementSample | undefined;
   for (let timestamp = firstBucket; timestamp < end; timestamp += bucketMs) {
     const values = byBucket.get(timestamp) ?? [];
     const coverage = Math.min(1, values.length / expectedPerBucket);
-    const aggregationValues = aggregation === "delta" && previousCounterSample
-      ? [previousCounterSample, ...values]
-      : values;
-    const aggregated = aggregateBucket(aggregationValues, aggregation, timestamp + bucketMs, cadenceSeconds);
+    const aggregated = aggregateBucket(values, aggregation, timestamp + bucketMs, cadenceSeconds,
+      aggregation === "delta" ? previousCounterSample : undefined);
     const flags = new Set(aggregated.flags);
     if (coverage < 0.75) flags.add("low_coverage");
     points.push({
       timestamp: new Date(timestamp).toISOString(),
       value: aggregated.value,
       ...(consumption.has(timestamp) ? { consumptionKwh: consumption.get(timestamp) ?? null } : {}),
-      minimum: minimumOf(values.map((sample) => sample.value)),
-      maximum: maximumOf(values.map((sample) => sample.value)),
+      minimum: minimum(values.map((sample) => sample.value)),
+      maximum: maximum(values.map((sample) => sample.value)),
       sampleCount: values.length,
       coverage,
       qualityFlags: [...flags],
@@ -698,7 +678,10 @@ export async function buildAnalyticsResponse(input: BuildAnalyticsResponseInput)
       const aggregation = resolution === "raw"
         ? "last"
         : resolveAnalyticsAggregation(definition, input.request.aggregation);
-      const samples = samplesBySeries.get(analyticsSeriesKey(entity.id, measurementId)) ?? [];
+      const seriesSamples = samplesBySeries.get(analyticsSeriesKey(entity.id, measurementId)) ?? [];
+      const samples = resolution !== "raw" && readsOrderedSeries(aggregation)
+        ? oneReadingPerInstant(seriesSamples)
+        : seriesSamples;
       if (resolution === "raw" && samples.length > maxPoints) {
         throw new AnalyticsQueryError(
           422,
@@ -709,7 +692,7 @@ export async function buildAnalyticsResponse(input: BuildAnalyticsResponseInput)
       const points = resolution === "raw"
         ? rawPoints(samples, rangeSeconds)
         : await bucketPoints(samples, start, end, resolution, aggregation,
-          [...samples, ...(boundariesBySeries.get(analyticsSeriesKey(entity.id, measurementId)) ?? [])]);
+          [...seriesSamples, ...(boundariesBySeries.get(analyticsSeriesKey(entity.id, measurementId)) ?? [])]);
       const provenance = {
         algorithmKey: resolution === "raw" ? "analytics-raw-series" : "analytics-bucket-rollup",
         algorithmVersion: "1.0.0",
