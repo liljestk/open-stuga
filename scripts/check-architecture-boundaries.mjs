@@ -6,7 +6,7 @@ import { workspaceDependencyViolations } from "./check-workspace-dependencies.mj
 const root = process.cwd();
 const webDataRoot = join(root, "apps", "web", "src", "data");
 const apiAnalyticsRoot = join(root, "apps", "api", "src", "analytics");
-const legacyNumberedModuleMaximum = 305;
+const legacyNumberedModuleMaximum = 304;
 const ignoredDirectories = new Set([
   "build",
   "coverage",
@@ -51,6 +51,19 @@ function projectPath(path) {
 
 function report(path, message) {
   violations.push(`${projectPath(path)}: ${message}`);
+}
+
+// Analytics, forecast, thermal-response, and electricity endpoints are owned by
+// feature route modules; the numbered app chain may not register them again.
+const apiAppRoot = join(root, "apps", "api", "src", "app");
+const featureOwnedRoute = new RegExp(String.raw`context\.app\.(?:get|post|put|patch|delete|all)\(\s*`
+  + String.raw`\x60\$\{context\.(?:prefix|v2Prefix)\}/(?:analytics/|forecast\x60|measurements/forecast`
+  + String.raw`|houses/:id/(?:electricity|energy|thermal|moisture)|properties/:id/(?:electricity|energy))`);
+for (const path of await filesBelow(apiAppRoot)) {
+  if (!/^part-\d+\.ts$/.test(projectPath(path).split("/").at(-1))) continue;
+  if (featureOwnedRoute.test(await readFile(path, "utf8"))) {
+    report(path, "analytics, forecast, and electricity routes belong in feature route modules");
+  }
 }
 
 for (const directory of [webDataRoot, apiAnalyticsRoot]) {

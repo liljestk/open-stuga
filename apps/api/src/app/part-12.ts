@@ -191,22 +191,6 @@ type NormalizedApiConfig = { [Key in keyof AppConfig]-?: Exclude<AppConfig[Key],
 export function configureApiPart12(context: ReturnType<typeof configureApiPart11>) {
   const config = context.config as NormalizedApiConfig;
   const sensorGapRecovery = context.sensorGapRecovery!;
-  context.app.post(`${context.prefix}/properties/:id/electricity/refresh`, async (request, response) => {
-      const propertyId = request.params.id as string;
-      const property = context.database.getProperty(propertyId);
-      if (!property || !context.visibility(response).hasProperty(propertyId)) throw new HttpError(404, "NOT_FOUND", "Property not found");
-      try {
-        const prices = await context.electricityPrices.refresh(propertyId);
-        const savedConfig = context.database.getPropertyElectricityConfig(propertyId);
-        response.json({
-          config: savedConfig ? publicElectricityConfiguration(savedConfig, requestPrincipal(response).role === "guest") : null,
-          current: context.database.getCurrentPropertyElectricityPrice(propertyId),
-          prices,
-        });
-      } catch (error) {
-        throw new HttpError(502, "ELECTRICITY_PRICE_SOURCE_FAILED", error instanceof Error ? error.message : "Electricity price refresh failed");
-      }
-    });
   context.app.get(`${context.prefix}/property-areas`, (request, response) => {
       const page = collectionPage(request.query);
       const access = context.visibility(response);

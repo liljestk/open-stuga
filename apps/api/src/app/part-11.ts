@@ -182,12 +182,12 @@ import {
 } from "../tracking/store.js";
 import { AREA_EQUIPMENT_STATUSES, AuthAbuseLimiter, HttpError, LOCAL_CSRF_COOKIE, LOCAL_SESSION_COOKIE, LOCAL_SESSION_MAX_AGE_MS, LocalVisibility, MAINTENANCE_BASES, MAINTENANCE_CREATE_FIELDS, MAINTENANCE_PATCH_FIELDS, MAINTENANCE_PRIORITIES, MAINTENANCE_STATUSES, MAX_EQUIPMENT_ATTACHMENT_BYTES, MAX_EVENT_STREAMS_GLOBAL, MAX_EVENT_STREAMS_PER_USER, MAX_SSE_QUEUE_BYTES, MAX_SSE_QUEUE_MESSAGES, MEASUREMENT_ID_PATTERN, OBSERVATION_CONFIDENCES, OBSERVATION_CREATE_FIELDS, OBSERVATION_KINDS, OBSERVATION_PATCH_FIELDS, OBSERVATION_SEVERITIES, OBSERVATION_SOURCES, OBSERVATION_STATUSES, OBSERVATION_TIME_PRECISIONS, PROPERTY_AREA_KINDS, PROPERTY_NOTE_KINDS, RESERVED_MEASUREMENT_IDS, SAFE_ASSET_MIME_TYPES, SAFE_EQUIPMENT_DOCUMENT_MIME_TYPES, SAFE_EQUIPMENT_PHOTO_MIME_TYPES, SAFE_HTTP_METHODS, UUID_PATTERN, alertDurationSeconds, appleNotesCaptureInput, appleNotesCaptureMatches, appleNotesGrant, appleNotesGrantSummary, appleNotesSnapshot, assertEquipmentAttachmentMediaType, auditAccountSubject, authAttemptKeys, bodyObject, boundedQueryInteger, boundedSseWriter, browserOriginAllowed, clearLocalSessionCookies, cloudflareUiRedirectUri, collectionPage, completeVisibleCollection, cookieValue, credentialString, dateValue, enumValue, equipmentAttachmentData, equipmentAttachmentDisposition, homeAssistantUrl, houseLocationValue, houseMapPlacementValue, initializeIntegrationMetadata, isIOSNotificationRegistrationPath, isLoopbackSocket, isPrivateProxySocket, isTrackingObserverHeartbeatPath, keyMatches, localAuthorizationFingerprint, localCloudflareUiRequestAllowed, localSetupRequestAllowed, maintenanceDateValue, maintenanceObservationIds, maintenanceText, maintenanceTitle, measurementId, measurementNumberMap, measurementStringMap, measurementUnits, mirrorEnvironmentWebhook, networkHost, normalizedHostname, normalizedOrigin, notePlainLine, noteTaskBlock, nullableFinite, nullablePropertyTarget, optionalBoolean, optionalNullableNumber, optionalNullableString, optionalObservationDate, optionalQueryNumber, optionalResourceQuery, optionalString, parseActionPlaybookInput, parseActionRunStart, parseAlertDeliveryPolicy, parseAlertRule, parseAreaEquipmentInput, parseAreaEquipmentPatch, parseEquipmentAttachmentUpload, parseEquipmentLinkInput, parseEquipmentLinkPatch, parseMaintenanceTaskInput, parseMaintenanceTaskPatch, parseMeasurementDefinition, parseMeasurementSample, parseObservationInput, parseObservationPatch, parsePropertyAreaInput, parsePropertyAreaPatch, parsePropertyInput, parsePropertyNoteInput, parsePropertyNotePatch, parsePropertyPatch, parseReading, parseSensorPatch, persistWeatherObservation, propertyCoordinate, propertyPolygon, propertyText, publicTapoHistoryExportJob, queryList, refreshAppleNotesStatus, rejectUnknownFields, requestOrigin, requestPrincipal, requireJsonContentType, requireNonGuest, requireWorkspaceAdmin, requiredNumber, requiredString, safeInteger, sameHomeAssistantCredential, sameTelegramCredential, sameTpLinkCredential, secureRequest, sessionDocument, setLocalSessionCookies, stringMap, trackingObserverAttemptKeys, trustedProxyClientAddress, trustedProxyRequest, trustedSelfHostname, validateMeasurementDefinition, visibleCollectionPage, workerTapoHistoryExportJob } from "./support/index.js";
 import type { ApiRuntime, AuthAttemptBucket, AuthAttemptLimit, BoundedSseWriter, CreateApiOptions, IntegrationDraftTestResult, LocalRequestPrincipal } from "./support/index.js";
-import { configureApiPart10 } from "./part-10.js";
+import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
 
 
 type NormalizedApiConfig = { [Key in keyof AppConfig]-?: Exclude<AppConfig[Key], undefined> };
 
-export function configureApiPart11(context: ReturnType<typeof configureApiPart10>) {
+export function configureApiPart11(context: ApiRouteRegistrationContext) {
   const config = context.config as NormalizedApiConfig;
   const sensorGapRecovery = context.sensorGapRecovery!;
   context.app.get(`${context.v2Prefix}/measurements/history`, async (request, response) => {
@@ -277,31 +277,6 @@ export function configureApiPart11(context: ReturnType<typeof configureApiPart10
         sensorId: request.params.id, before, limit, signal,
       }));
       response.json(page);
-    });
-  context.app.get(`${context.v2Prefix}/measurements/forecast`, async (request, response) => {
-      if (typeof request.query.sensorId !== "string") throw new HttpError(400, "INVALID_FIELD", "sensorId is required");
-      if (!context.database.getSensor(request.query.sensorId) || !context.visibility(response).sensor(request.query.sensorId)) {
-        throw new HttpError(404, "UNKNOWN_SENSOR", "Sensor not found");
-      }
-      const metric = measurementId(request.query.metric);
-      const hours = safeInteger(request.query.hours, 12, 1, 168);
-      const abortController = new AbortController();
-      const abortOnClose = () => abortController.abort(new DOMException("Client disconnected", "AbortError"));
-      response.once("close", abortOnClose);
-      if (response.destroyed) abortOnClose();
-      const measurementForecast = await context.analyticsWorkLimiter.run(
-        "measurement-forecast",
-        () => forecastMeasurement(
-          context.database,
-          request.query.sensorId as string,
-          metric,
-          hours,
-          context.telemetryReader,
-          abortController.signal,
-        ),
-        abortController.signal,
-      ).finally(() => response.off("close", abortOnClose));
-      response.json({ forecast: measurementForecast });
     });
   context.app.get(`${context.v2Prefix}/measurements/events`, (request, response) => {
       if (context.rejectEventStreamDuringShutdown(response)) return;
@@ -400,59 +375,6 @@ export function configureApiPart11(context: ReturnType<typeof configureApiPart10
       context.requireImmutableTelemetryLineage("property", propertyId);
       if (!context.database.deleteProperty(propertyId)) throw new HttpError(404, "NOT_FOUND", "Property not found");
       response.status(204).end();
-    });
-  context.app.get(`${context.prefix}/properties/:id/electricity`, async (request, response) => {
-      const propertyId = request.params.id as string;
-      const property = context.database.getProperty(propertyId);
-      if (!property || !context.visibility(response).hasProperty(propertyId)) throw new HttpError(404, "NOT_FOUND", "Property not found");
-      const config = context.database.getPropertyElectricityConfig(propertyId);
-      if (!config) throw new HttpError(404, "NOT_FOUND", "Property electricity configuration not found");
-      const from = dateValue(request.query.from, new Date(Date.now() - 24 * 60 * 60_000), "from");
-      const to = dateValue(request.query.to, new Date(Date.now() + 48 * 60 * 60_000), "to");
-      const history = await context.telemetryReader.electricityPriceHistory({
-        propertyId,
-        from,
-        to,
-        limit: 100_000,
-      });
-      response.json({
-        config: publicElectricityConfiguration(config, requestPrincipal(response).role === "guest"),
-        current: context.database.getCurrentPropertyElectricityPrice(propertyId),
-        prices: history.records,
-      });
-    });
-  context.app.put(`${context.prefix}/properties/:id/electricity/config`, (request, response) => {
-      const propertyId = request.params.id as string;
-      const property = context.database.getProperty(propertyId);
-      if (!property || !context.visibility(response).hasProperty(propertyId)) throw new HttpError(404, "NOT_FOUND", "Property not found");
-      const body = bodyObject(request.body);
-      rejectUnknownFields(body, new Set(["provider", "endpointUrl", "enabled", "marginCentsPerKwh", "contractType", "contractName", "retailer", "monthlyFeeEur"]), "Electricity configuration");
-      const nullableText = (key: "contractName" | "retailer"): string | null => body[key] === null || body[key] === undefined
-        ? null : propertyText(body, key, 200) as string;
-      const input: PropertyElectricityConfigInput = {
-        provider: enumValue(body.provider, ["porssisahko", "custom"] as const, "provider"),
-        endpointUrl: requiredString(body, "endpointUrl"),
-        enabled: typeof body.enabled === "boolean" ? body.enabled : true,
-        marginCentsPerKwh: requiredNumber(body, "marginCentsPerKwh"),
-        contractType: enumValue(body.contractType, ["spot", "fixed", "other"] as const, "contractType"),
-        contractName: nullableText("contractName"),
-        retailer: nullableText("retailer"),
-        monthlyFeeEur: body.monthlyFeeEur === null || body.monthlyFeeEur === undefined ? null : requiredNumber(body, "monthlyFeeEur"),
-      };
-      try {
-        const endpoint = validateElectricityEndpointUrl(input.endpointUrl, config.electricityAllowPrivateEndpoints === true);
-        if (input.provider === "porssisahko" && endpoint.toString() !== DEFAULT_ELECTRICITY_PRICE_ENDPOINT) {
-          throw new ElectricityEndpointPolicyError("The Porssisahko provider must use its canonical endpoint");
-        }
-        input.endpointUrl = endpoint.toString();
-      } catch (error) {
-        if (error instanceof ElectricityEndpointPolicyError) {
-          throw new HttpError(400, "INVALID_ELECTRICITY_ENDPOINT", error.message);
-        }
-        throw error;
-      }
-      const savedConfig = context.database.updatePropertyElectricityConfig(propertyId, input);
-      response.json({ config: savedConfig });
     });
   const extended = Object.assign(context, {  });
   return extended;
