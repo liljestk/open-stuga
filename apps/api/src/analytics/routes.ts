@@ -9,6 +9,7 @@ import type {
 } from "@climate-twin/contracts";
 import { CALENDAR_COMPARISON_UNITS } from "@climate-twin/contracts";
 import { AnalyticsQueryError } from "../analytics.js";
+import { DAILY_ANALYTICS_ALGORITHM_VERSION } from "../daily-analytics-findings.js";
 import type { AnalyticsWorkLimiter } from "./work-limiter.js";
 import type { ClimateDatabase } from "../db.js";
 import type { TelemetryBus } from "../events.js";
@@ -27,12 +28,16 @@ import {
 import { getOpeningActivity } from "./opening-activity/service.js";
 import type { DerivedAnalyticsCoordinator } from "./derived-artifacts/coordinator.js";
 import { registerHomeMonitoringRoutes } from "./home-monitoring/routes.js";
+import { registerAnalyticsQueryRoutes, type AnalyticsQueryRouteContext } from "./query/routes.js";
+import { registerForecastRoutes, type ForecastRouteContext } from "./forecast/routes.js";
+import { registerThermalAnalyticsRoutes, type ThermalAnalyticsRouteContext } from "./thermal-routes.js";
 import {
   CalendarComparisonSelectionError,
   compareCalendarPeriods,
 } from "./calendar-comparison/service.js";
 
-interface AnalyticsRouteContext {
+interface AnalyticsRouteContext
+  extends AnalyticsQueryRouteContext, ForecastRouteContext, ThermalAnalyticsRouteContext {
   app: express.Express;
   v2Prefix: string;
   database: ClimateDatabase;
@@ -218,6 +223,45 @@ function calendarComparisonRequest(value: unknown): CalendarComparisonRequest {
 
 export function registerAnalyticsRoutes(context: AnalyticsRouteContext): () => void {
   const removeHomeMonitoringRoutes = registerHomeMonitoringRoutes(context);
+  registerAnalyticsQueryRoutes(context);
+  registerForecastRoutes(context);
+  registerThermalAnalyticsRoutes(context);
+
+  context.app.get(`${context.v2Prefix}/analytics/findings`, (request, response) => {
+    const houseId = typeof request.query.houseId === "string" ? request.query.houseId.trim() : "";
+    if (!houseId || houseId.length > 200) throw new HttpError(400, "INVALID_FIELD", "houseId is required");
+    const house = context.database.getHouse(houseId);
+    if (!house || !context.visibility(response).house(house.id)) {
+      throw new HttpError(404, "ANALYTICS_SCOPE_NOT_FOUND", "Analytics house scope was not found");
+    }
+    const dataMode = context.database.isRealDataMode() ? "live" : "demo";
+    const stored = context.database.dailyAnalyticsFindings(house.id, dataMode);
+    const staleAlgorithm = Boolean(
+      stored?.snapshot
+      && stored.snapshot.algorithmVersion !== DAILY_ANALYTICS_ALGORITHM_VERSION,
+    );
+    response.setHeader("cache-control", "no-store");
+    response.json({
+      snapshot: stored?.snapshot ?? null,
+      status: {
+        state: stored?.lastError
+          ? "failed"
+          : staleAlgorithm
+            ? "stale-algorithm"
+            : stored?.snapshot
+              ? "ready"
+              : "pending",
+        lastAttemptAt: stored?.lastAttemptAt ?? null,
+        lastError: stored?.lastError ?? null,
+        ...(staleAlgorithm && stored?.snapshot
+          ? {
+              expectedAlgorithmVersion: DAILY_ANALYTICS_ALGORITHM_VERSION,
+              actualAlgorithmVersion: stored.snapshot.algorithmVersion,
+            }
+          : {}),
+      },
+    });
+  });
 
   context.app.post(`${context.v2Prefix}/analytics/opening-activity`, async (request, response) => {
     const input = openingActivityRequest(request.body);

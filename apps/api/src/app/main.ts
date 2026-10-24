@@ -19,7 +19,6 @@ import { registerNexus433Routes } from "./nexus433-routes.js";
 import { registerBugReportRoutes } from "./bug-report-routes.js";
 import { registerLocalMcpRuntimeRoutes, registerLocalMcpTransportRoute } from "./local-mcp-runtime-routes.js";
 import { LocalMcpRuntimeService } from "../local-mcp-runtime.js";
-import { configureApiPart10 } from "./part-10.js";
 import { configureApiPart11 } from "./part-11.js";
 import { configureApiPart12 } from "./part-12.js";
 import { configureApiPart13 } from "./part-13.js";
@@ -40,6 +39,8 @@ import { configureApiPart27 } from "./part-27.js";
 import { configureApiPart28 } from "./part-28.js";
 import { finishCreateApi } from "./finish.js";
 import { registerEnergyOptimizationRoute } from "./energy-optimization-route.js";
+import { registerElectricityRoutes } from "./electricity-routes.js";
+import { registerMeasurementIngestRoutes } from "./measurement-ingest-routes.js";
 
 export function createApi(options: CreateApiOptions = {}): ApiRuntime {
   const context0 = { options };
@@ -64,8 +65,9 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
   registerNexus433Routes(context7);
   registerBugReportRoutes(context7);
   registerLocalMcpRuntimeRoutes(context7, localMcpRuntime);
-  const context10 = configureApiPart10(context7);
-  const context11 = configureApiPart11(context10);
+  registerMeasurementIngestRoutes(context7);
+  const context11 = configureApiPart11(context7);
+  const stopElectricity = registerElectricityRoutes(context11);
   const stopEnergyOptimization = registerEnergyOptimizationRoute(context11);
   const context12 = configureApiPart12(context11);
   const context13 = configureApiPart13(context12);
@@ -87,6 +89,7 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
   const runtime = finishCreateApi(context28);
   const stopLocalMcp = async (): Promise<void> => {
     stopEnergyOptimization();
+    stopElectricity();
     await localMcpRuntime.stop().catch(() => undefined);
   };
   return {

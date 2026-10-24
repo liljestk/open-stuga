@@ -227,19 +227,6 @@ export function configureApiPart18(context: ReturnType<typeof configureApiPart17
       })));
       response.json({ from, to, bucketSeconds, series, truncated });
     });
-  context.app.get(`${context.prefix}/forecast`, async (request, response) => {
-      const sensorIds = queryList(request.query.sensorId);
-      const access = context.visibility(response);
-      const selected = (sensorIds.length ? sensorIds : context.database.listSensors().map((sensor) => sensor.id))
-        .filter((sensorId) => access.sensor(sensorId));
-      const horizonMinutes = safeInteger(request.query.horizonMinutes, 0, 0, 10_080);
-      const hours = horizonMinutes > 0 ? Math.max(1, Math.ceil(horizonMinutes / 60)) : safeInteger(request.query.hours, 12, 1, 168);
-      const series = await Promise.all(selected.map(async (sensorId) => ({
-        sensorId,
-        forecast: await forecast(context.database, sensorId, hours, context.telemetryReader),
-      })));
-      response.json({ generatedAt: new Date().toISOString(), model: "linear-v1", series, ...(series.length === 1 ? { forecast: series[0]?.forecast ?? [] } : {}) });
-    });
   const streamTelemetry = (request: Request, response: Response): void => {
       if (context.rejectEventStreamDuringShutdown(response)) return;
       const filter = new Set(queryList(request.query.sensorId));

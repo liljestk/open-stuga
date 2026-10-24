@@ -56,7 +56,7 @@ check first. Build outputs, dependencies, caches, and coverage are excluded.
 
 `npm run check:architecture` additionally protects the analytics/data rewrite.
 It rejects numbered modules in new API analytics and web data domains and
-ratchets the repository-wide TypeScript/JavaScript legacy count (currently 305)
+ratchets the repository-wide TypeScript/JavaScript legacy count (currently 304)
 so mechanical splits
 cannot increase,
 reintroduction of deleted browser derivations, direct live-stream ownership

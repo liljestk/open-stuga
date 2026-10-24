@@ -2,6 +2,12 @@
 
 All notable Stugu releases are recorded here.
 
+## 0.41.19
+
+- Reorganize the API's analytics, forecast, thermal and moisture response, and electricity endpoints into dedicated modules, so later analytics and tariff work can change them in one place. Measurement ingest and snapshot endpoints move to their own module as well.
+- Add an architecture check that keeps these endpoints out of the legacy numbered route chain, and lower the numbered-module allowance to 304.
+- Upgrade impact: application-only update with no behaviour change. Endpoints, responses, caching, configuration, database schema, Compose and host trust are unchanged; existing telemetry and verified backups are retained.
+
 ## 0.41.18
 
 - Complete verification of the privacy-preserving startup and container health diagnostics introduced in 0.41.17 by correcting the diagnostic collector's Python formatting.
