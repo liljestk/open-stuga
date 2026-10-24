@@ -18,6 +18,7 @@ import {
 } from "./analytics.js";
 import type { HybridArchiveReadState } from "./timeseries/read-facade.js";
 import type {
+  MeasurementAnalyticsAggregation,
   MeasurementAnalyticsResolution,
   MeasurementAnalyticsRollupQuery,
   MeasurementAnalyticsRollupResult,
@@ -65,6 +66,7 @@ function rollupPoints(
   start: number,
   end: number,
   resolution: MeasurementAnalyticsResolution,
+  aggregation: MeasurementAnalyticsAggregation,
 ): AnalyticsPoint[] {
   const bucketMs = analyticsResolutionSeconds(resolution) * 1_000;
   const firstBucket = Math.floor(start / bucketMs) * bucketMs;
@@ -79,7 +81,8 @@ function rollupPoints(
     if (!bucket || bucket.value === null) flags.add("missing");
     if ((bucket?.estimatedSampleCount ?? 0) > 0) flags.add("source_estimated");
     if ((bucket?.staleSampleCount ?? 0) > 0) flags.add("stale");
-    if ((bucket?.counterResetCount ?? 0) > 0) flags.add("counter_reset");
+    // Stored states count every decrease; only a counter's decrease is a reset.
+    if (aggregation === "delta" && (bucket?.counterResetCount ?? 0) > 0) flags.add("counter_reset");
     if (coverage < 0.75) flags.add("low_coverage");
     points.push({
       timestamp: new Date(timestamp).toISOString(),
@@ -130,7 +133,7 @@ export function buildAnalyticsResponseFromRollup(
       const key = analyticsSeriesKey(entity.id, measurementId);
       const record = records.get(key);
       const aggregation = aggregationBySeries.get(key)!;
-      const points = rollupPoints(record, start, end, plan.resolution);
+      const points = rollupPoints(record, start, end, plan.resolution, aggregation);
       const provenance = {
         algorithmKey: "analytics-bucket-rollup",
         algorithmVersion: "1.0.0",

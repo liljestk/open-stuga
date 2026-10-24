@@ -10,6 +10,7 @@ COPY tsconfig.base.json ./
 COPY apps/api/package*.json ./apps/api/
 COPY apps/web/package*.json ./apps/web/
 COPY apps/tapo-export-runner/package*.json ./apps/tapo-export-runner/
+COPY packages/analytics-kernel/package*.json ./packages/analytics-kernel/
 COPY packages/contracts/package*.json ./packages/contracts/
 COPY packages/spatial-layers/package*.json ./packages/spatial-layers/
 COPY packages/stuguby-protocol/package*.json ./packages/stuguby-protocol/
@@ -24,6 +25,7 @@ RUN --mount=type=cache,target=/root/.npm \
 FROM dependencies AS api-build
 
 COPY apps/api ./apps/api
+COPY packages/analytics-kernel ./packages/analytics-kernel
 COPY packages/contracts ./packages/contracts
 COPY packages/spatial-layers ./packages/spatial-layers
 COPY packages/stuguby-protocol ./packages/stuguby-protocol
@@ -48,6 +50,7 @@ COPY tsconfig.base.json ./
 COPY apps/api/package*.json ./apps/api/
 COPY apps/web/package*.json ./apps/web/
 COPY apps/tapo-export-runner/package*.json ./apps/tapo-export-runner/
+COPY packages/analytics-kernel/package*.json ./packages/analytics-kernel/
 COPY packages/contracts/package*.json ./packages/contracts/
 COPY packages/spatial-layers/package*.json ./packages/spatial-layers/
 COPY packages/stuguby-protocol/package*.json ./packages/stuguby-protocol/
@@ -62,6 +65,7 @@ RUN --mount=type=cache,target=/root/.npm \
 FROM web-dependencies AS web-build
 
 COPY apps/web ./apps/web
+COPY packages/analytics-kernel ./packages/analytics-kernel
 COPY packages/contracts ./packages/contracts
 COPY packages/spatial-layers ./packages/spatial-layers
 COPY packages/stuguby-protocol ./packages/stuguby-protocol
@@ -127,6 +131,8 @@ COPY --from=api-build --chown=node:node /app/apps/api/dist ./apps/api/dist
 COPY --from=api-build --chown=node:node /app/apps/api/python ./apps/api/python
 # npm keeps local workspaces as symlinks in node_modules. Copy the compiled
 # contracts workspace so that the production symlink has a JavaScript target.
+COPY --from=api-build --chown=node:node /app/packages/analytics-kernel/package.json ./packages/analytics-kernel/package.json
+COPY --from=api-build --chown=node:node /app/packages/analytics-kernel/dist ./packages/analytics-kernel/dist
 COPY --from=api-build --chown=node:node /app/packages/contracts/package.json ./packages/contracts/package.json
 COPY --from=api-build --chown=node:node /app/packages/contracts/dist ./packages/contracts/dist
 COPY --from=api-build --chown=node:node /app/packages/spatial-layers/package.json ./packages/spatial-layers/package.json

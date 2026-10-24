@@ -43,6 +43,7 @@ export function affectedTestPlan(files, mergeBase) {
   const api = any(/^apps\/api\//u);
   const web = any(/^apps\/web\//u);
   const spatial = any(/^packages\/spatial-layers\//u);
+  const kernel = any(/^packages\/analytics-kernel\//u);
   const bugReportRelay = any(/^apps\/bug-report-relay\//u);
   const tapoExportRunner = any(/^apps\/tapo-export-runner\//u);
 
@@ -50,10 +51,15 @@ export function affectedTestPlan(files, mergeBase) {
     add(workspaceFull("TEST_API", "API tests", "@climate-twin/api"));
     add(workspaceFull("TEST_WEB", "Web tests", "@climate-twin/web"));
     add(workspaceFull("TEST_SPATIAL", "Spatial-layer tests", "@climate-twin/spatial-layers"));
+    add(workspaceFull("TEST_ANALYTICS_KERNEL", "Analytics kernel tests", "@climate-twin/analytics-kernel"));
     add(workspaceFull("TEST_BUG_REPORT_RELAY", "Bug-report relay tests", "@climate-twin/bug-report-relay"));
     add(workspaceFull("TEST_TAPO_EXPORT_RUNNER", "Tapo export runner tests", "@climate-twin/tapo-export-runner"));
   } else {
-    if (api) add(workspaceChanged("TEST_API", "Affected API tests", "@climate-twin/api", mergeBase));
+    if (kernel) {
+      // Every API analytics path consumes the kernel, so a kernel change reruns all of them.
+      add(workspaceFull("TEST_ANALYTICS_KERNEL", "Analytics kernel tests", "@climate-twin/analytics-kernel"));
+      add(workspaceFull("TEST_API", "API tests", "@climate-twin/api"));
+    } else if (api) add(workspaceChanged("TEST_API", "Affected API tests", "@climate-twin/api", mergeBase));
     if (web) add(workspaceChanged("TEST_WEB", "Affected web tests", "@climate-twin/web", mergeBase));
     if (spatial) {
       add(workspaceChanged(

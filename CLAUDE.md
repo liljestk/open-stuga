@@ -31,13 +31,17 @@ original `climate-twin` identifier.
 | `apps/bug-report-relay` | Optional Cloudflare Worker relaying bug reports into a private GitHub repo |
 | `apps/tapo-export-runner`, `apps/ios` | Tapo history export runner; Swift/Xcode companion |
 | `packages/contracts` | Shared types and validators used by API, web, and relay |
+| `packages/analytics-kernel` | The one implementation of analytics statistics, counter/kWh integration, time-weighted means and local-calendar helpers |
 | `packages/spatial-layers`, `packages/stuguby-protocol` | Spatial inference; Stuguby peer protocol |
 | `scripts/` | Setup, local CI, release publishing, update agent, Cloudflare provisioning, their `node --test` suites |
 | `deploy/` | Compose extras, MQTT/Nexus433 images, Raspberry Pi image + host updater (Python) |
 
 API routes are registered from `apps/api/src/app/main.ts`; the numbered
 `part-NN.ts` modules are historical splits of one large registration file, not
-feature boundaries. Web pages/panels live in `apps/web/src/pages`, dialogs in
+feature boundaries. Analytics, forecast, thermal/moisture and electricity routes
+live in feature modules (`apps/api/src/analytics/**/routes.ts`,
+`app/electricity-routes.ts`), and the architecture check keeps them out of the
+numbered parts. Web pages/panels live in `apps/web/src/pages`, dialogs in
 `apps/web/src/components`.
 
 ## Build and test
@@ -58,7 +62,8 @@ on macOS.
 **Rebuild contracts after editing them.** `@climate-twin/contracts` resolves to
 `packages/contracts/dist`, so API/web tests keep using the previous build until
 `npm run build:contracts` (or `npm run build:packages`) runs. A new export that
-"exists but is undefined at runtime" is almost always this.
+"exists but is undefined at runtime" is almost always this. The same applies to
+`@climate-twin/analytics-kernel` (`npm run build:analytics-kernel`).
 
 ## Invariants that fail loudly
 
@@ -74,7 +79,14 @@ on macOS.
   `confirmAction(` call sites; `window.confirm` is banned.
 - **Source size** — 600 lines advisory, 1200 hard ceiling (`npm run check:file-size`).
 - **Architecture boundaries** — `npm run check:architecture` (prototype
-  registries, workspace dependency direction, legacy numbered-module budget).
+  registries, workspace dependency direction, legacy numbered-module budget,
+  feature-owned analytics/electricity routes, and no API-local median,
+  percentile, time-weighted mean, local-midnight or kWh-conversion code
+  outside `@climate-twin/analytics-kernel`).
+- **Kernel parity** — `apps/api/tests/analytics-kernel-parity.test.ts` runs
+  seeded series through the archive rollup SQL (PGlite) and the kernel-backed
+  raw path; every number must agree within 1e-9. Changing either side's
+  semantics means changing both.
 
 ## Versioning and pull requests
 

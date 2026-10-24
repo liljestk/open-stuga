@@ -1,3 +1,4 @@
+import { median, nearestRankQuantile } from "@climate-twin/analytics-kernel";
 import type {
   House,
   HvacExclusionSummary,
@@ -48,21 +49,6 @@ interface RoomGroup {
 
 function round(value: number, precision = 2): number {
   return Number(value.toFixed(precision));
-}
-
-function median(values: number[]): number | null {
-  if (!values.length) return null;
-  const sorted = [...values].sort((left, right) => left - right);
-  const middle = Math.floor(sorted.length / 2);
-  return sorted.length % 2
-    ? sorted[middle] ?? null
-    : ((sorted[middle - 1] ?? 0) + (sorted[middle] ?? 0)) / 2;
-}
-
-function percentile(values: number[], fraction: number): number | null {
-  if (!values.length) return null;
-  const sorted = [...values].sort((left, right) => left - right);
-  return sorted[Math.min(sorted.length - 1, Math.max(0, Math.ceil(sorted.length * fraction) - 1))] ?? null;
 }
 
 function unique<T>(values: T[]): T[] {
@@ -255,7 +241,7 @@ function synchronizedSpread(
     return values.length < minimumSensors ? [] : [Math.max(...values) - Math.min(...values)];
   });
   const typical = median(spreads);
-  const p90 = percentile(spreads, 0.9);
+  const p90 = nearestRankQuantile(spreads, 0.9);
   return {
     typicalTemperatureSpreadC: typical === null ? null : round(typical, 2),
     p90TemperatureSpreadC: p90 === null ? null : round(p90, 2),
@@ -343,7 +329,7 @@ async function synchronizedPreparedSpreadAsync(
     if (work.samplesSinceYield >= work.yieldEverySamples) await yieldAggregationWork(work);
   }
   const typical = median(spreads);
-  const p90 = percentile(spreads, 0.9);
+  const p90 = nearestRankQuantile(spreads, 0.9);
   return {
     typicalTemperatureSpreadC: typical === null ? null : round(typical, 2),
     p90TemperatureSpreadC: p90 === null ? null : round(p90, 2),

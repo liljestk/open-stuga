@@ -347,8 +347,12 @@ export function orderedAnalyticsSql(schema: string): string {
       UNION ALL
       SELECT GREATEST(hour_limits.full_to, $2::TIMESTAMPTZ), $3::TIMESTAMPTZ
       FROM hour_limits
-    ), aggregate_all_counts AS (
-      SELECT aggregate.sensor_id, aggregate.metric, sum(aggregate.sample_count)::BIGINT AS sample_count
+    ), excluded_counts AS (
+      -- Rows outside the quality filter, counted as stored like every other
+      -- path does; included states are de-duplicated, so subtracting them
+      -- from a stored total would report repeated readings as exclusions.
+      SELECT aggregate.sensor_id, aggregate.metric,
+        COALESCE(sum(aggregate.sample_count) FILTER (WHERE NOT (aggregate.quality = ANY($4::TEXT[]))), 0)::BIGINT AS sample_count
       FROM ${countAggregate} aggregate
       JOIN requested_series requested
         ON requested.sensor_id = aggregate.sensor_id AND requested.metric = aggregate.metric
@@ -359,7 +363,8 @@ export function orderedAnalyticsSql(schema: string): string {
         AND (NOT $6::BOOLEAN OR aggregate.source NOT IN ('mock', 'replay'))
       GROUP BY aggregate.sensor_id, aggregate.metric
       UNION ALL
-      SELECT sample.sensor_id, sample.metric, count(*)::BIGINT
+      SELECT sample.sensor_id, sample.metric,
+        count(*) FILTER (WHERE NOT (sample.quality = ANY($4::TEXT[])))::BIGINT
       FROM hour_count_ranges boundary
       CROSS JOIN requested_series requested
       CROSS JOIN LATERAL (
@@ -426,10 +431,9 @@ export function orderedAnalyticsSql(schema: string): string {
         COALESCE(min(states.canonical_unit_min), '') AS canonical_unit,
         COALESCE(max(states.canonical_unit_max), '') AS canonical_unit_max,
         COALESCE(sum(states.sample_count), 0)::BIGINT AS included_sample_count,
-        GREATEST(0, COALESCE((SELECT sum(aggregate_all_counts.sample_count) FROM aggregate_all_counts
-          WHERE aggregate_all_counts.sensor_id = requested.sensor_id
-            AND aggregate_all_counts.metric = requested.metric), 0)
-          - COALESCE(sum(states.sample_count), 0))::BIGINT AS excluded_sample_count,
+        COALESCE((SELECT sum(excluded_counts.sample_count) FROM excluded_counts
+          WHERE excluded_counts.sensor_id = requested.sensor_id
+            AND excluded_counts.metric = requested.metric), 0)::BIGINT AS excluded_sample_count,
         GREATEST(1.0, EXTRACT(EPOCH FROM ($3::TIMESTAMPTZ - $2::TIMESTAMPTZ))
           / GREATEST(1, COALESCE(sum(states.sample_count), 0)))::DOUBLE PRECISION AS cadence_seconds,
         COALESCE(pending.pending_days, 0) = 0 AND bool_and(count_coverage.complete) AS coverage_complete
@@ -458,9 +462,15 @@ export function orderedAnalyticsSql(schema: string): string {
         min(sequenced.minimum)::DOUBLE PRECISION AS minimum,
         max(sequenced.maximum)::DOUBLE PRECISION AS maximum,
         (array_agg(sequenced.last_value ORDER BY sequenced.last_at DESC, sequenced.last_source DESC))[1]::DOUBLE PRECISION AS last_value,
-        sum(sequenced.internal_positive_delta + CASE
-          WHEN sequenced.previous_last_value IS NULL OR sequenced.first_value < sequenced.previous_last_value THEN 0
-          ELSE sequenced.first_value - sequenced.previous_last_value END)::DOUBLE PRECISION AS delta_value,
+        -- Counter increments use the analytics kernel's reset rule: a decrease
+        -- restarts the counter, and the post-reset reading is its increment.
+        -- A lone reading with nothing before it has no measurable increase.
+        CASE WHEN sum(sequenced.sample_count) < 2 AND bool_and(sequenced.previous_last_value IS NULL) THEN NULL
+          ELSE sum(sequenced.internal_counter_consumption + CASE
+            WHEN sequenced.previous_last_value IS NULL THEN 0
+            WHEN sequenced.first_value >= sequenced.previous_last_value
+              THEN sequenced.first_value - sequenced.previous_last_value
+            ELSE GREATEST(0, sequenced.first_value) END) END::DOUBLE PRECISION AS delta_value,
         sum(sequenced.counter_reset_count + CASE WHEN sequenced.previous_last_value IS NOT NULL
           AND sequenced.first_value < sequenced.previous_last_value THEN 1 ELSE 0 END)::BIGINT AS counter_reset_count,
         sum(sequenced.estimated_sample_count)::BIGINT AS estimated_sample_count,

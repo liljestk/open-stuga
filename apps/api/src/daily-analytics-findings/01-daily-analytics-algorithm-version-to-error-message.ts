@@ -11,6 +11,16 @@ import type {
   MeasurementSample,
   Sensor,
 } from "@climate-twin/contracts";
+import {
+  addLocalDays,
+  daysInMonth,
+  localDate,
+  localDateStart,
+  maximum,
+  median as kernelMedian,
+  minimum,
+  type LocalDateParts,
+} from "@climate-twin/analytics-kernel";
 import { analyticsDefinitionSemantics, buildAnalyticsResponse } from "../analytics.js";
 import {
   ClimateDatabase,
@@ -22,7 +32,7 @@ import {
   type HybridArchiveReadState,
 } from "../timeseries/read-facade.js";
 
-export const DAILY_ANALYTICS_ALGORITHM_VERSION = "calendar-peer-findings-v3.0.0";
+export const DAILY_ANALYTICS_ALGORITHM_VERSION = "calendar-peer-findings-v3.1.0";
 
 export const HISTORY_LIMIT = 100_000;
 
@@ -36,11 +46,7 @@ export const DEFAULT_INTERVAL_MS = 6 * 60 * 60_000;
 
 export const DEFAULT_STARTUP_JITTER_MS = 30_000;
 
-export interface LocalDateParts {
-  year: number;
-  month: number;
-  day: number;
-}
+export type { LocalDateParts };
 
 export interface PeerPeriod {
   key: string;
@@ -94,74 +100,7 @@ export interface DailyAnalyticsFindingsWorkerOptions {
   random?: () => number;
 }
 
-export const formatterCache = new Map<string, Intl.DateTimeFormat>();
-
-export function zonedFormatter(timeZone: string): Intl.DateTimeFormat {
-  const existing = formatterCache.get(timeZone);
-  if (existing) return existing;
-  const formatter = new Intl.DateTimeFormat("en-CA", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hourCycle: "h23",
-  });
-  if (formatterCache.size >= 32) formatterCache.delete(formatterCache.keys().next().value!);
-  formatterCache.set(timeZone, formatter);
-  return formatter;
-}
-
-export function zonedParts(timestamp: number, timeZone: string): [number, number, number, number, number, number] {
-  const parts = zonedFormatter(timeZone).formatToParts(new Date(timestamp));
-  const value = (type: Intl.DateTimeFormatPartTypes): number => Number(parts.find((part) => part.type === type)?.value);
-  return [value("year"), value("month"), value("day"), value("hour"), value("minute"), value("second")];
-}
-
-export function localDate(timestamp: number, timeZone: string): LocalDateParts {
-  const [year, month, day] = zonedParts(timestamp, timeZone);
-  return { year, month, day };
-}
-
-export function validLocalDate(parts: LocalDateParts): boolean {
-  const date = new Date(Date.UTC(parts.year, parts.month - 1, parts.day));
-  return date.getUTCFullYear() === parts.year
-    && date.getUTCMonth() === parts.month - 1
-    && date.getUTCDate() === parts.day;
-}
-
-export function addLocalDays(parts: LocalDateParts, days: number): LocalDateParts {
-  const date = new Date(Date.UTC(parts.year, parts.month - 1, parts.day + days));
-  return { year: date.getUTCFullYear(), month: date.getUTCMonth() + 1, day: date.getUTCDate() };
-}
-
-export function daysInMonth(year: number, month: number): number {
-  return new Date(Date.UTC(year, month, 0)).getUTCDate();
-}
-
-/** Resolve the first real instant of a local date, including midnight offset changes. */
-export function localDateStart(parts: LocalDateParts, timeZone: string): number | null {
-  if (!validLocalDate(parts)) return null;
-  for (let minute = 0; minute <= 180; minute += 30) {
-    const hour = Math.floor(minute / 60);
-    const localMinute = minute % 60;
-    const nominal = Date.UTC(parts.year, parts.month - 1, parts.day, hour, localMinute, 0);
-    const offsets = new Set<number>();
-    for (let deltaHours = -36; deltaHours <= 36; deltaHours += 6) {
-      const probe = nominal + deltaHours * 3_600_000;
-      const displayed = zonedParts(probe, timeZone);
-      offsets.add(Date.UTC(displayed[0], displayed[1] - 1, displayed[2], displayed[3], displayed[4], displayed[5]) - probe);
-    }
-    const target = [parts.year, parts.month, parts.day, hour, localMinute, 0];
-    const candidate = [...offsets].map((offset) => nominal - offset)
-      .filter((instant) => zonedParts(instant, timeZone).every((value, index) => value === target[index]))
-      .sort((left, right) => left - right)[0];
-    if (candidate !== undefined) return candidate;
-  }
-  return null;
-}
+export { addLocalDays, daysInMonth, localDate, localDateStart, validLocalDate, zonedParts } from "@climate-twin/analytics-kernel";
 
 export function pad2(value: number): string {
   return String(value).padStart(2, "0");
@@ -198,13 +137,8 @@ export function dailyFindingPeriods(now: number, timeZone: string): FindingPerio
   };
 }
 
-export function median(values: readonly number[]): number {
-  const ordered = [...values].sort((left, right) => left - right);
-  const middle = Math.floor(ordered.length / 2);
-  return ordered.length % 2 === 0
-    ? (ordered[middle - 1]! + ordered[middle]!) / 2
-    : ordered[middle]!;
-}
+/** Baseline medians are taken over non-empty peer sets; an empty set has none. */
+export const median = (values: readonly number[]): number => kernelMedian(values) ?? Number.NaN;
 
 export function rounded(value: number, precision = 6): number {
   return Number(value.toFixed(precision));
@@ -229,9 +163,9 @@ export function aggregateAnalyticsSeries(series: AnalyticsSeries): PeriodValue |
   } else if (aggregation === "last") {
     value = points.at(-1)!.value!;
   } else if (aggregation === "min") {
-    value = Math.min(...points.map((point) => point.value!));
+    value = minimum(points.map((point) => point.value!))!;
   } else if (aggregation === "max") {
-    value = Math.max(...points.map((point) => point.value!));
+    value = maximum(points.map((point) => point.value!))!;
   } else {
     const weights = points.map((point) => Math.max(point.coverage, Number.EPSILON));
     const weight = weights.reduce((total, item) => total + item, 0);

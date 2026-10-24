@@ -1,10 +1,10 @@
+import { POWER_HOLD_MS, wattMillisecondsToKwh } from "@climate-twin/analytics-kernel";
 import type { ClimateDatabase } from "../db.js";
 import type { EnergyCostAggregateRecord, PowerCostAggregateQuery } from "../timeseries/types.js";
 import { SQLITE_EFFECTIVE_PRICE_END } from "./support/electricity-price-overlap.js";
 
 interface Sample { timestamp: string; value: number }
 interface Price { start_at: string; end_at: string; cents: number }
-const HOLD_MS = 15 * 60_000;
 
 /** Integrate ordered held samples once, seeking only prices that can overlap. */
 export function localPowerCostAggregate(database: Pick<ClimateDatabase, "db">, query: PowerCostAggregateQuery): EnergyCostAggregateRecord {
@@ -28,11 +28,11 @@ export function localPowerCostAggregate(database: Pick<ClimateDatabase, "db">, q
   let coverageFrom = Infinity, coverageUntil = -Infinity;
   const integrate = (sample: Sample, nextAt: number) => {
     const at = Date.parse(sample.timestamp);
-    const start = Math.max(from, at), end = Math.min(to, nextAt, at + HOLD_MS);
+    const start = Math.max(from, at), end = Math.min(to, nextAt, at + POWER_HOLD_MS);
     if (!Number.isFinite(at) || !Number.isFinite(sample.value) || sample.value < 0 || sample.value >= 1e308 || end <= start) return;
     const duration = end - start;
     result.deltaCount++;
-    result.consumptionKwh += sample.value * duration / 3_600_000_000;
+    result.consumptionKwh += wattMillisecondsToKwh(sample.value, duration);
     result.totalDurationMs += duration;
     result.maximumIntervalDurationMs = Math.max(result.maximumIntervalDurationMs, duration);
     coverageFrom = Math.min(coverageFrom, start); coverageUntil = Math.max(coverageUntil, end);
@@ -41,7 +41,7 @@ export function localPowerCostAggregate(database: Pick<ClimateDatabase, "db">, q
       const price = prices[index]!;
       const overlap = Math.min(end, price.to) - Math.max(start, price.from);
       if (overlap <= 0) continue;
-      const kwh = sample.value * overlap / 3_600_000_000;
+      const kwh = wattMillisecondsToKwh(sample.value, overlap);
       result.pricedConsumptionKwh += kwh;
       result.costEur += kwh * price.cents / 100;
       result.pricedDurationMs += overlap;

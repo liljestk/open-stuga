@@ -1,6 +1,6 @@
 {
   "name": "climate-twin",
-  "version": "0.41.19",
+  "version": "0.42.0",
   "private": true,
   "license": "MIT",
   "description": "A local-first digital twin for extensible whole-home environmental telemetry.",
@@ -10,10 +10,11 @@
   ],
   "scripts": {
     "setup": "node scripts/setup.mjs",
+    "build:analytics-kernel": "npm run build --workspace @climate-twin/analytics-kernel",
     "build:contracts": "npm run build --workspace @climate-twin/contracts",
     "build:spatial-layers": "npm run build --workspace @climate-twin/spatial-layers",
     "build:stuguby-protocol": "npm run build --workspace @climate-twin/stuguby-protocol",
-    "build:packages": "npm run build:contracts && npm run build:spatial-layers && npm run build:stuguby-protocol",
+    "build:packages": "npm run build:analytics-kernel && npm run build:contracts && npm run build:spatial-layers && npm run build:stuguby-protocol",
     "build:nexus433-source": "node scripts/build-nexus433-source-bundle.mjs",
     "build:host-bundle": "node scripts/build-host-update-bundle.mjs",
     "verify:host-publication": "python scripts/verify-host-tuf-publication.py",

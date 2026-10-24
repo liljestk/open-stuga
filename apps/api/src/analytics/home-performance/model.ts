@@ -197,14 +197,7 @@ export function compareStable(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
 }
 
-export function median(values: readonly number[]): number | null {
-  if (values.length === 0) return null;
-  const sorted = [...values].sort((left, right) => left - right);
-  const middle = Math.floor(sorted.length / 2);
-  return sorted.length % 2 === 1
-    ? sorted[middle] ?? null
-    : ((sorted[middle - 1] ?? 0) + (sorted[middle] ?? 0)) / 2;
-}
+export { median } from "@climate-twin/analytics-kernel";
 
 export function seriesFor(
   response: AnalyticsQueryResponse | null,
