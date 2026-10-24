@@ -37,7 +37,9 @@ COPY scripts/stugu-backup ./scripts/stugu-backup
 RUN npm run build:packages && npm run build --workspace @climate-twin/api
 
 FROM api-build AS production-dependencies
-RUN npm prune --omit=dev
+# The API workspace only gets its own node_modules when a dependency cannot be
+# hoisted to the root; keep the directory so the runtime copy works either way.
+RUN npm prune --omit=dev && mkdir -p apps/api/node_modules
 
 # Browser assets are architecture-neutral. Build them once on the native
 # builder instead of repeating Vite under ARM64 emulation.
@@ -124,7 +126,8 @@ FROM api-runtime AS api
 
 COPY --from=production-dependencies --chown=node:node /app/node_modules ./node_modules
 # npm may keep workspace-only dependencies nested instead of hoisting them to
-# the repository root. Preserve the API workspace's pruned production modules.
+# the repository root. Preserve the API workspace's pruned production modules
+# (an empty directory when everything is hoisted).
 COPY --from=production-dependencies --chown=node:node /app/apps/api/node_modules ./apps/api/node_modules
 COPY --from=api-build --chown=node:node /app/apps/api/package.json ./apps/api/package.json
 COPY --from=api-build --chown=node:node /app/apps/api/dist ./apps/api/dist
