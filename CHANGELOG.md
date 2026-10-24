@@ -2,6 +2,17 @@
 
 All notable Stugu releases are recorded here.
 
+## 0.42.1
+
+- Update dependencies:
+  - API: `@modelcontextprotocol/sdk` 1.32.0 and `fast-xml-parser` 5.11.1.
+  - Web: `lucide-react` 1.48.0 and `vite` 8.1.6.
+  - Indirect dependencies: `fast-uri` 3.1.8, `hono` 4.13.13, `ip-address` 10.7.2, `proxy-addr` 2.0.8 and `source-map-js` 1.2.2.
+- Move the development launcher to `concurrently` 10.0.6. This also keeps its `shell-quote` dependency on 1.12.0, which is not affected by advisory GHSA-pqg4-j6r4-53mv.
+- Make the lockfile actually install `fast-uri` 3.1.8. The dependency pin had been raised without updating the lockfile.
+- Update the manual GitHub Actions workflows to `actions/upload-artifact` 7, `actions/download-artifact` 8, `docker/setup-qemu-action` 4, `docker/build-push-action` 7.4 and the SonarQube scan action 8.2.2. These run on Node 24 hosted runners; artifacts are still uploaded zipped and downloaded by name.
+- Upgrade impact: application-only update with no database migration and no change to configuration, Compose or host trust. Development and CI still support Node 22.13 or newer.
+
 ## 0.42.0
 
 - Counter-based measurements such as energy now keep the usage recorded after a meter restart in `delta` analytics, matching the consumption totals; previously the post-restart reading was dropped. A bucket with only one reading and nothing before it is now shown as missing instead of zero.
