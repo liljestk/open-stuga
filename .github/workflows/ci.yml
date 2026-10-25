@@ -29,6 +29,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
+          # The supported runtime floor (engines, setup minimum).
           node-version: 22.13
           cache: npm
           cache-dependency-path: package-lock.json
@@ -136,7 +137,9 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 22.13
+          # The web test environment (jsdom 30) needs Node 22.22.2 or newer;
+          # the runtime floor stays 22.13 and is exercised by portable-local.
+          node-version: 22.22
           cache: npm
           cache-dependency-path: package-lock.json
 

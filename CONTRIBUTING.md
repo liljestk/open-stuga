@@ -4,7 +4,8 @@ Thanks for helping improve Stugu.
 
 ## Development
 
-1. Install Node.js 22.13 or newer.
+1. Install Node.js 22.22.2 or newer. Stugu itself runs on 22.13+, but the web
+   test environment (jsdom 30) needs 22.22.2+.
 2. Run `npm run setup -- --mode local --real`; it creates a missing `.env`
    without replacing local settings and installs dependencies with `npm ci`.
 3. Install the Python development dependencies, start Docker, and run
