@@ -2,6 +2,13 @@
 
 All notable Stugu releases are recorded here.
 
+## 0.42.2
+
+- Update the web test environment to `jsdom` 30.1.3. This also removes a deprecated text-encoding dependency from the test toolchain.
+- Running the test suites now needs Node.js 22.22.2 or newer, because that is what jsdom 30 supports. The manual CI test job uses Node 22.22, and the web tests stop with a clear message on an older Node instead of failing inside the DOM emulation. The contributor and local-CI guides are updated to match.
+- Stugu itself still runs on Node.js 22.13 or newer: `engines`, the setup check and the runtime-floor CI job are unchanged.
+- Upgrade impact: development and test tooling only. The application, container images, database, configuration, Compose and host trust are unchanged.
+
 ## 0.42.1
 
 - Update dependencies:
