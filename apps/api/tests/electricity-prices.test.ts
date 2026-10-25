@@ -482,6 +482,12 @@ describe("property electricity prices", () => {
       telemetryReader,
       startBackground: false,
     });
+    // The archived margin snapshot (0.5) is history only; the tariff in force prices it.
+    database.savePropertyElectricityTariff("property-main", [{
+      validFrom: "2000-01-01", energy: { kind: "spot", marginCentsPerKwh: 1.25 },
+      network: { kind: "flat", centsPerKwh: 3 }, electricityTaxCentsPerKwh: 2.25,
+      retailerMonthlyFeeEur: null, networkMonthlyFeeEur: null,
+    }]);
 
     const property = await request(runtime.app).get("/api/v1/properties/property-main/electricity")
       .query({ from: startAt, to: endAt })
@@ -490,8 +496,9 @@ describe("property electricity prices", () => {
       expect.objectContaining({
         propertyId: "property-main",
         rawPriceCentsPerKwh: 8,
-        effectivePriceCentsPerKwh: 8.5,
-        effectivePriceEurPerKwh: 0.085,
+        effectivePriceCentsPerKwh: 14.5,
+        effectivePriceEurPerKwh: 0.145,
+        components: { energyCentsPerKwh: 9.25, networkCentsPerKwh: 3, taxCentsPerKwh: 2.25 },
       }),
     ]);
 
@@ -501,8 +508,8 @@ describe("property electricity prices", () => {
     expect(home.body.prices).toEqual([
       expect.objectContaining({
         startAt,
-        effectivePriceCentsPerKwh: 8.5,
-        effectivePriceEurPerKwh: 0.085,
+        effectivePriceCentsPerKwh: 14.5,
+        effectivePriceEurPerKwh: 0.145,
       }),
     ]);
     expect(home.body.prices[0]).not.toHaveProperty("rawPriceCentsPerKwh");
@@ -551,9 +558,19 @@ describe("property electricity prices", () => {
       provider: "porssisahko", endpointUrl: DEFAULT_ELECTRICITY_PRICE_ENDPOINT, enabled: true,
       marginCentsPerKwh: 5, contractType: "spot", contractName: null, retailer: null, monthlyFeeEur: null,
     }).expect(200);
-    expect(runtime.database.listPropertyElectricityPrices(
+    const effectivePrices = () => runtime!.database.listPropertyElectricityPrices(
       "property-main", "2026-07-17T00:00:00.000Z", "2026-07-17T01:00:00.000Z",
-    ).map((price) => price.effectivePriceCentsPerKwh)).toEqual([11, 21]);
+    ).map((price) => price.effectivePriceCentsPerKwh);
+    // Without dated versions one contract covers all history, so the new margin reprices it.
+    expect(effectivePrices()).toEqual([15, 25]);
+    // A dated version keeps the earlier terms for earlier intervals.
+    runtime.database.savePropertyElectricityTariff("property-main", [
+      { validFrom: "2000-01-01", energy: { kind: "spot", marginCentsPerKwh: 1 }, network: null,
+        electricityTaxCentsPerKwh: null, retailerMonthlyFeeEur: null, networkMonthlyFeeEur: null },
+      { validFrom: "2026-07-18", energy: { kind: "spot", marginCentsPerKwh: 5 }, network: null,
+        electricityTaxCentsPerKwh: null, retailerMonthlyFeeEur: null, networkMonthlyFeeEur: null },
+    ]);
+    expect(effectivePrices()).toEqual([11, 21]);
   });
 
   it("keeps sparse cumulative counters complete within the five-minute edge tolerance", async () => {
@@ -636,8 +653,8 @@ describe("property electricity prices", () => {
     expect(result.headers["x-stugu-cache"]).toBe("miss");
 
     expect(result.body.summary).toMatchObject({
-      schemaVersion: 2,
-      algorithmVersion: "home-energy-summary/v2",
+      schemaVersion: 3,
+      algorithmVersion: "home-energy-summary/v3",
       houseId: "house-main",
       consumptionKwh: 2,
       pricedConsumptionKwh: 2,

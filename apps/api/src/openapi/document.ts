@@ -10,6 +10,7 @@ import { pathsPart05 } from "./paths-05.js";
 import { pathsPart06 } from "./paths-06.js";
 import { pathsPart07 } from "./paths-07.js";
 import { pathsPart08 } from "./paths-08.js";
+import { pathsPart09 } from "./paths-09.js";
 import { schemasPart01 } from "./schemas-01.js";
 import { schemasPart02 } from "./schemas-02.js";
 import { schemasPart03 } from "./schemas-03.js";
@@ -21,6 +22,7 @@ import { schemasPart08 } from "./schemas-08.js";
 import { schemasPart09 } from "./schemas-09.js";
 import { schemasPart10 } from "./schemas-10.js";
 import { schemasPart11 } from "./schemas-11.js";
+import { schemasPart12 } from "./schemas-12.js";
 
 export const combinedOpenApiDocument = {
   openapi: "3.1.0",
@@ -46,6 +48,7 @@ export const combinedOpenApiDocument = {
     ...pathsPart06,
     ...pathsPart07,
     ...pathsPart08,
+    ...pathsPart09,
   },
   components: {
     securitySchemes: {
@@ -85,6 +88,7 @@ export const combinedOpenApiDocument = {
       ...schemasPart09,
       ...schemasPart10,
       ...schemasPart11,
+      ...schemasPart12,
     },
   },
 } as const;

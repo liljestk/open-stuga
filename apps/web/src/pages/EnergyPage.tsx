@@ -2,8 +2,8 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { BellRing, Bolt, ChevronDown, CircleGauge, Clock3, Euro, Lightbulb, RadioTower, TriangleAlert } from "lucide-react";
 import {
   DEFAULT_ELECTRICITY_PRICE_ENDPOINT,
-  type ElectricityContractType,
   type DataMode,
+  type ElectricityCostBreakdown,
   type House,
   type Metric,
   type Sensor,
@@ -23,6 +23,8 @@ import { useNow } from "../useNow";
 import type { SeriesLoadState } from "../useClimateData";
 import { ElectricityHistory, ELECTRICITY_METRICS, type ElectricityMetric } from "./ElectricityHistory";
 import { EnergyPlanningPanel } from "./EnergyPlanningPanel";
+import { ElectricityBillCheckPanel } from "./ElectricityBillCheckPanel";
+import { ElectricityTariffPanel } from "./ElectricityTariffPanel";
 import { energySummaryState } from "./energySummaryState";
 import { PropertyEnergyOverview } from "./PropertyEnergyOverview";
 import {
@@ -108,24 +110,19 @@ interface EnergyPageProps {
   localAuthority?: boolean;
 }
 
+/** Price source and contract identity; the rates live in the dated tariff. */
 interface ElectricityPriceDraft {
   enabled: boolean;
-  contractType: ElectricityContractType;
-  margin: string;
   retailer: string;
   contractName: string;
-  monthlyFee: string;
   endpointUrl: string;
 }
 
 function emptyPriceDraft(): ElectricityPriceDraft {
   return {
     enabled: true,
-    contractType: "spot",
-    margin: "0",
     retailer: "",
     contractName: "",
-    monthlyFee: "",
     endpointUrl: DEFAULT_ELECTRICITY_PRICE_ENDPOINT,
   };
 }
@@ -245,11 +242,8 @@ export function EnergyPage({ state, dataMode = "live", house = null, propertyId:
     const { config } = propertyPrice;
     setPriceDraft({
       enabled: config.enabled,
-      contractType: config.contractType,
-      margin: String(config.marginCentsPerKwh),
       retailer: config.retailer ?? "",
       contractName: config.contractName ?? "",
-      monthlyFee: config.monthlyFeeEur === null ? "" : String(config.monthlyFeeEur),
       endpointUrl: config.endpointUrl,
     });
   }, [propertyPrice]);
@@ -287,7 +281,7 @@ export function EnergyPage({ state, dataMode = "live", house = null, propertyId:
       return t("energy.costUsageUnavailable");
     }
     if (energyCost.costEur === null) {
-      return effectivePrice === null ? t("energy.costPriceUnavailable") : t("energy.costCurrentPriceEstimate");
+      return energyCost.costBreakdown?.energyPriceMissing ? t("energy.costEnergyPriceMissing") : t("energy.costPriceUnavailable");
     }
     const selectedSourceCount = Math.max(0, energyCost.totalSources - energyCost.excludedSourceCount);
     if (energyCost.archiveState === "pending") {
@@ -318,23 +312,17 @@ export function EnergyPage({ state, dataMode = "live", house = null, propertyId:
         coverage: energyCost.priceCoveragePercent.toFixed(0),
       });
   })();
-  const estimatedEnergyCost = energyCost?.costEur === null && energyCost.consumptionKwh !== null && effectivePrice !== null
-    ? energyCost.consumptionKwh * effectivePrice
-    : null;
-  const formattedEnergyCost = energyCost?.costEur === null || energyCost?.costEur === undefined
-    ? estimatedEnergyCost === null ? "—" : `≈ ${formatCost(estimatedEnergyCost)}`
-    : energyCost.complete
-      ? formatCost(energyCost.costEur)
-      : t("energy.costPricedSoFar", { amount: formatCost(energyCost.costEur) });
+  // Monthly fees are part of what the period costs, so the card shows the total.
+  const shownEnergyCost = energyCost?.totalCostEur ?? null;
+  const formattedEnergyCost = shownEnergyCost === null
+    ? "—"
+    : energyCost!.complete
+      ? formatCost(shownEnergyCost)
+      : t("energy.costPricedSoFar", { amount: formatCost(shownEnergyCost) });
+  const costBreakdownText = costBreakdownLine(energyCost?.costEur === null ? null : energyCost?.costBreakdown ?? null, t);
 
   const savePriceConfiguration = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const margin = Number(priceDraft.margin);
-    const monthlyFee = priceDraft.monthlyFee.trim() ? Number(priceDraft.monthlyFee) : null;
-    if (!Number.isFinite(margin) || (monthlyFee !== null && !Number.isFinite(monthlyFee))) {
-      setPriceFeedback({ kind: "error", text: t("energy.priceInvalidNumbers") });
-      return;
-    }
     const generation = priceContextGeneration.current;
     const targetPropertyId = propertyId;
     setPriceBusy(true);
@@ -346,11 +334,8 @@ export function EnergyPage({ state, dataMode = "live", house = null, propertyId:
         provider: priceDraft.endpointUrl === DEFAULT_ELECTRICITY_PRICE_ENDPOINT ? "porssisahko" : "custom",
         endpointUrl: priceDraft.endpointUrl,
         enabled: priceDraft.enabled,
-        marginCentsPerKwh: margin,
-        contractType: priceDraft.contractType,
         contractName: priceDraft.contractName.trim() || null,
         retailer: priceDraft.retailer.trim() || null,
-        monthlyFeeEur: monthlyFee,
       });
       const result = priceDraft.enabled
         ? await api.refreshPropertyElectricity(targetPropertyId)
@@ -408,18 +393,22 @@ export function EnergyPage({ state, dataMode = "live", house = null, propertyId:
         {!readOnly && propertyPrice && <details className="energy-contract-editor" open={!propertyPrice?.current}>
           <summary><span>{t(propertyPrice?.current ? "energy.editContract" : "energy.contractTitle")}</span><ChevronDown size={16} aria-hidden="true" /></summary>
           <form onSubmit={savePriceConfiguration} className="energy-source-controls">
-            <label className="field"><span>{t("energy.contractType")}</span><select value={priceDraft.contractType} onChange={(event) => setPriceDraft((current) => ({ ...current, contractType: event.target.value as ElectricityContractType }))}><option value="spot">{t("energy.contractType.spot")}</option><option value="fixed">{t("energy.contractType.fixed")}</option><option value="other">{t("energy.contractType.other")}</option></select></label>
             <label className="field"><span>{t("energy.priceApi")}</span><input type="url" required value={priceDraft.endpointUrl} onChange={(event) => setPriceDraft((current) => ({ ...current, endpointUrl: event.target.value }))} /></label>
-            <label className="field"><span>{t("energy.margin")}</span><input type="number" step="0.001" value={priceDraft.margin} onChange={(event) => setPriceDraft((current) => ({ ...current, margin: event.target.value }))} /></label>
             <label className="field"><span>{t("energy.retailer")}</span><input value={priceDraft.retailer} onChange={(event) => setPriceDraft((current) => ({ ...current, retailer: event.target.value }))} /></label>
             <label className="field"><span>{t("energy.contractName")}</span><input value={priceDraft.contractName} onChange={(event) => setPriceDraft((current) => ({ ...current, contractName: event.target.value }))} /></label>
-            <label className="field"><span>{t("energy.monthlyFee")}</span><input type="number" min="0" step="0.01" value={priceDraft.monthlyFee} onChange={(event) => setPriceDraft((current) => ({ ...current, monthlyFee: event.target.value }))} /></label>
             <label className="field checkbox-field"><input type="checkbox" checked={priceDraft.enabled} onChange={(event) => setPriceDraft((current) => ({ ...current, enabled: event.target.checked }))} /><span>{t("energy.priceEnabled")}</span></label>
             <button type="submit" className="primary-button" disabled={priceBusy}>{priceBusy ? t("energy.updatingPrice") : t("energy.saveAndRefresh")}</button>
           </form>
         </details>}
         {priceFeedback && <p role={priceFeedback.kind === "error" ? "alert" : "status"}>{priceFeedback.text}</p>}
       </section>}
+
+      {!house && propertyId && <ElectricityTariffPanel propertyId={propertyId} readOnly={readOnly} />}
+      {!house && propertyId && <ElectricityBillCheckPanel
+        propertyId={propertyId}
+        houses={state.houses.filter((candidate) => candidate.propertyId === propertyId)}
+        readOnly={readOnly}
+      />}
 
       {priceUnavailable && <p className="energy-waiting" role="status">
         {t(priceAccessDenied ? "energy.accessDenied" : "energy.priceLoadError")} <button type="button" className="secondary-button" onClick={() => { void (house ? homePriceQuery.refetch() : propertyPriceQuery.refetch()); }}>{t("common.retry")}</button>
@@ -448,6 +437,7 @@ export function EnergyPage({ state, dataMode = "live", house = null, propertyId:
             </select>
           </label>
           <small className="energy-cost-basis">{energyCostBasis}</small>
+          {costBreakdownText && <small className="energy-cost-breakdown">{costBreakdownText}</small>}
         </article>
       </section>
 
@@ -522,6 +512,18 @@ export function EnergyPage({ state, dataMode = "live", house = null, propertyId:
       </details>
     </>
   );
+}
+
+function costBreakdownLine(
+  breakdown: ElectricityCostBreakdown | null,
+  t: ReturnType<typeof useI18n>["t"],
+): string | null {
+  if (!breakdown || breakdown.included.length < 2) return null;
+  const amounts = { energy: breakdown.energyEur, network: breakdown.networkEur, tax: breakdown.taxEur, fees: breakdown.feesEur };
+  return breakdown.included.flatMap((component) => {
+    const value = amounts[component];
+    return value === null ? [] : [t(`energy.costComponent.${component}`, { amount: formatCost(value) })];
+  }).join(" · ");
 }
 
 function formatOptimizationWindow(startAt: string, endAt: string, locale: string, timeZone?: string): string {

@@ -25,14 +25,16 @@ function summary(houseId: string, sensorId: string, consumptionKwh: number, cost
   const from = "2026-07-30T12:00:00.000Z";
   const to = "2026-07-31T12:00:00.000Z";
   return {
-    schemaVersion: 2,
-    algorithmVersion: "home-energy-summary/v2",
+    schemaVersion: 3,
+    algorithmVersion: "home-energy-summary/v3", tariffRevision: 0,
     houseId,
     from,
     to,
     consumptionKwh,
     pricedConsumptionKwh: consumptionKwh,
     costEur,
+    totalCostEur: costEur,
+    costBreakdown: null,
     priceCoveragePercent: 100,
     quality: "measured",
     archiveState: "archived",
@@ -51,6 +53,7 @@ function summary(houseId: string, sensorId: string, consumptionKwh: number, cost
       consumptionKwh,
       pricedConsumptionKwh: consumptionKwh,
       costEur,
+      costBreakdown: null,
       priceCoveragePercent: 100,
       measurementCoverageFrom: from,
       measurementCoverageUntil: to,

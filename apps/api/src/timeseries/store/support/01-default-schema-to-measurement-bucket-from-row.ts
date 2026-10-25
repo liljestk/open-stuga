@@ -201,6 +201,8 @@ export interface EnergyCostAggregateRow extends QueryResultRow {
   maximum_interval_duration_ms: number | null;
   coverage_from: string | Date | null;
   coverage_until: string | Date | null;
+  /** `[hourStartMs, kwh, spotPricedKwh, spotCostCents]` rows. */
+  hourly?: unknown;
 }
 
 export interface MeasurementBucketRow extends QueryResultRow {

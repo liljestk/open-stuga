@@ -12,15 +12,15 @@ it("keeps measured consumer insights unchanged when chart history is replaced", 
   const to = "2026-09-28T00:00:00.000Z";
   const cost: HomeEnergyCost = {
     houseId: sensor.houseId, sensorId: sensor.id, from, to,
-    consumptionKwh: 30, pricedConsumptionKwh: 30, costEur: 6,
+    consumptionKwh: 30, pricedConsumptionKwh: 30, costEur: 6, costBreakdown: null,
     priceCoveragePercent: 100, measurementBasis: "energy_counter",
     measurementCoverageFrom: from, measurementCoverageUntil: to,
     quality: "measured", archiveState: "local-only", complete: true, calculatedAt: to,
   };
   const summary: HomeEnergySummary = {
-    schemaVersion: 2, algorithmVersion: "home-energy-summary/v2",
+    schemaVersion: 3, algorithmVersion: "home-energy-summary/v3", tariffRevision: 0,
     houseId: sensor.houseId, from, to, consumptionKwh: 30,
-    pricedConsumptionKwh: 30, costEur: 6, priceCoveragePercent: 100,
+    pricedConsumptionKwh: 30, costEur: 6, totalCostEur: 6, costBreakdown: null, priceCoveragePercent: 100,
     quality: "measured", archiveState: "local-only", complete: true,
     aggregationMode: "independent_sources", sourceCount: 1, totalSources: 1,
     excludedSourceCount: 0, failedSourceCount: 0, contributions: [cost], calculatedAt: to,

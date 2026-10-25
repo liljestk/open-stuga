@@ -2,6 +2,16 @@
 
 All notable Stugu releases are recorded here.
 
+## 0.43.0
+
+- Electricity contracts are now dated tariff versions. Each version sets the energy price (spot plus margin, or a fixed price that can be flat, day/night or seasonal), an optional transfer charge with the same schedule choices, electricity tax, and retailer and network monthly fees. A new version applies from its start date, so earlier periods keep the terms they were billed with. Edit them under **Property → Electricity → Tariff**.
+- Costs follow the contract that was in force for each hour. Fixed-price contracts are no longer priced at spot plus margin. Until a fixed contract's energy price is entered, its cost shows as unavailable instead of a spot-based figure. Monthly fees are pro-rated by local calendar day and added once per Home.
+- Energy summaries show what each cost includes: energy, transfer, tax and fees. The running-cost card shows the total with fees and the split below it.
+- Prices shown as "Price now" and in price history are the variable price you pay per kWh (energy, transfer and tax) under the tariff. Raw spot prices are still stored unchanged.
+- The running-cost card no longer estimates a cost from usage × the current price when historical prices are missing. It shows that the cost is unavailable.
+- New bill check: enter an invoice's billing dates and total, and optionally its kWh and its energy, transfer, tax and fee lines. Stugu compares them with its own calculation and shows the difference per line. A total within ±2% counts as a match. Guests cannot see invoices.
+- API: new tariff, invoice and reconciliation endpoints under `/api/v1/properties/{id}/electricity/`. Energy summaries move to schema 3 (`home-energy-summary/v3`), adding `totalCostEur`, `costBreakdown` and `tariffRevision`. Price points add `components`. The configuration's `marginCentsPerKwh`, `contractType` and `monthlyFeeEur` become optional and reflect the version in force today.
+- Upgrade impact: application-only update with an automatic SQLite schema addition (two new tables). Each Property starts with one open-ended tariff version built from its current contract fields, so its margin now applies to all of its history until you add dated versions. Previously, each stored price kept the margin that applied when it was fetched. Fixed contracts need their energy price entered before costs are shown. Database archive, configuration, Compose and host trust are unchanged.
 ## 0.42.8
 
 - Fix the remaining 11 security advisories in the development and test toolchain. None of these packages ships in the containers or the Raspberry Pi image:

@@ -104,10 +104,24 @@ describe("bounded electricity SQL windows", () => {
       const edge = Math.floor((end+1000)/60000)*60000;
       const hours = Math.max(0,Math.min(stop,edge>end ? edge:end)-Math.max(Date.parse(from),price.starts_at.getTime()))/3600000;
       pricedKwh += hours;
-      expectedCost += hours*(price.raw_price_cents_per_kwh+2)/100;
+      // The stored margin snapshot (2 c/kWh) is ignored: the SQL prices at the raw spot price.
+      expectedCost += hours*price.raw_price_cents_per_kwh/100;
     }
     expect(Number(result.priced_consumption_kwh)).toBeCloseTo(pricedKwh,6);
     expect(Number(result.cost_eur)).toBeCloseTo(expectedCost,6);
+    // Hourly rows add up to the totals, and the rollup plan agrees with the raw plan hour by hour.
+    const hourly = (row: Record<string, unknown>) => row.hourly as number[][];
+    const column = (rows: number[][], index: number) => rows.reduce((total, row) => total + Number(row[index]), 0);
+    expect(column(hourly(result), 1)).toBeCloseTo(Number(result.consumption_kwh), 6);
+    expect(column(hourly(result), 2)).toBeCloseTo(Number(result.priced_consumption_kwh), 6);
+    expect(column(hourly(result), 3) / 100).toBeCloseTo(Number(result.cost_eur), 6);
+    const referenceHours = new Map(hourly(reference).map((row) => [Number(row[0]), row]));
+    expect(hourly(result)).toHaveLength(referenceHours.size);
+    for (const row of hourly(result)) {
+      const match = referenceHours.get(Number(row[0]));
+      expect(match, String(row[0])).toBeDefined();
+      for (const index of [1, 2, 3]) expect(Number(row[index])).toBeCloseTo(Number(match![index]), 6);
+    }
     // Stale generation metadata must still prevent a result claiming completeness.
     await db.exec("UPDATE telemetry.measurement_ordered_rollup_dirty SET clean_seq=0 WHERE day_start=TIMESTAMPTZ '2026-09-10' AND bucket_seconds=3600");
     expect((await db.query<{ coverage_complete: boolean }>(historical,args)).rows[0]?.coverage_complete).toBe(false);

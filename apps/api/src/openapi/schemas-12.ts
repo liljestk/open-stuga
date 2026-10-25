@@ -1,0 +1,115 @@
+const rate = { type: "number", minimum: 0, maximum: 1000 } as const;
+const nullableAmount = { type: ["number", "null"] } as const;
+const localDate = { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" } as const;
+const comparison = {
+  type: "object", additionalProperties: false,
+  required: ["invoicedEur", "calculatedEur", "errorPercent"],
+  properties: { invoicedEur: { type: "number" }, calculatedEur: nullableAmount, errorPercent: nullableAmount },
+} as const;
+
+/** Dated electricity tariffs, cost breakdowns and invoice reconciliation. */
+export const schemasPart12 = {
+  ElectricityRateSchedule: {
+    description: "Rates in cents/kWh including VAT. Daytime is 07–22 local; seasonal winter daytime is November–March, Monday–Saturday 07–22.",
+    oneOf: [
+      { type: "object", additionalProperties: false, required: ["kind", "centsPerKwh"], properties: { kind: { const: "flat" }, centsPerKwh: rate } },
+      { type: "object", additionalProperties: false, required: ["kind", "dayCentsPerKwh", "nightCentsPerKwh"], properties: { kind: { const: "day_night" }, dayCentsPerKwh: rate, nightCentsPerKwh: rate } },
+      { type: "object", additionalProperties: false, required: ["kind", "winterDayCentsPerKwh", "otherCentsPerKwh"], properties: { kind: { const: "seasonal" }, winterDayCentsPerKwh: rate, otherCentsPerKwh: rate } },
+    ],
+  },
+  ElectricityTariffVersion: {
+    type: "object", additionalProperties: false,
+    required: ["validFrom", "energy"],
+    properties: {
+      validFrom: { ...localDate, description: "First local date of this version; the earliest version also covers earlier dates." },
+      energy: {
+        description: "Spot (raw feed plus margin) or fixed schedule; null until a fixed contract's price is entered.",
+        oneOf: [
+          { type: "object", additionalProperties: false, required: ["kind", "marginCentsPerKwh"], properties: { kind: { const: "spot" }, marginCentsPerKwh: { type: "number", minimum: -1000, maximum: 1000 } } },
+          { type: "object", additionalProperties: false, required: ["kind", "schedule"], properties: { kind: { const: "fixed" }, schedule: { $ref: "#/components/schemas/ElectricityRateSchedule" } } },
+          { type: "null" },
+        ],
+      },
+      network: { oneOf: [{ $ref: "#/components/schemas/ElectricityRateSchedule" }, { type: "null" }] },
+      electricityTaxCentsPerKwh: { type: ["number", "null"], minimum: 0, maximum: 1000 },
+      retailerMonthlyFeeEur: { type: ["number", "null"], minimum: 0, maximum: 10000 },
+      networkMonthlyFeeEur: { type: ["number", "null"], minimum: 0, maximum: 10000 },
+    },
+  },
+  PropertyElectricityTariff: {
+    type: "object", additionalProperties: false,
+    required: ["propertyId", "versions", "revision", "updatedAt"],
+    properties: {
+      propertyId: { type: "string" },
+      versions: { type: "array", minItems: 1, maxItems: 120, items: { $ref: "#/components/schemas/ElectricityTariffVersion" } },
+      revision: { type: "integer", minimum: 0, description: "0 for the tariff implied by the legacy contract fields." },
+      updatedAt: { type: "string", format: "date-time" },
+    },
+  },
+  ElectricityTariffInput: {
+    type: "object", additionalProperties: false,
+    required: ["versions"],
+    properties: {
+      versions: { type: "array", minItems: 1, maxItems: 120, items: { $ref: "#/components/schemas/ElectricityTariffVersion" } },
+      revision: { type: "integer", minimum: 0, description: "Optional optimistic-concurrency check against the stored revision." },
+    },
+  },
+  ElectricityPriceComponents: {
+    type: "object", additionalProperties: false,
+    required: ["energyCentsPerKwh", "networkCentsPerKwh", "taxCentsPerKwh"],
+    properties: { energyCentsPerKwh: nullableAmount, networkCentsPerKwh: nullableAmount, taxCentsPerKwh: nullableAmount },
+  },
+  ElectricityCostBreakdown: {
+    type: "object", additionalProperties: false,
+    required: ["energyEur", "networkEur", "taxEur", "feesEur", "included", "energyPriceMissing"],
+    properties: {
+      energyEur: nullableAmount, networkEur: nullableAmount, taxEur: nullableAmount, feesEur: nullableAmount,
+      included: { type: "array", items: { enum: ["energy", "network", "tax", "fees"] } },
+      energyPriceMissing: { type: "boolean" },
+    },
+  },
+  ElectricityInvoiceInput: {
+    type: "object", additionalProperties: false,
+    required: ["houseId", "periodStart", "periodEnd", "totalEur"],
+    properties: {
+      houseId: { type: "string" }, periodStart: localDate, periodEnd: localDate,
+      totalEur: { type: "number", exclusiveMinimum: 0 }, consumptionKwh: { type: ["number", "null"], minimum: 0 },
+      energyEur: nullableAmount, networkEur: nullableAmount, taxEur: nullableAmount, feesEur: nullableAmount,
+      note: { type: ["string", "null"], maxLength: 500 },
+    },
+  },
+  ElectricityInvoice: {
+    type: "object", additionalProperties: false,
+    required: ["id", "propertyId", "houseId", "periodStart", "periodEnd", "totalEur", "consumptionKwh", "energyEur", "networkEur", "taxEur", "feesEur", "note", "createdAt"],
+    properties: {
+      id: { type: "string" }, propertyId: { type: "string" }, houseId: { type: "string" },
+      periodStart: localDate, periodEnd: localDate, totalEur: { type: "number" }, consumptionKwh: nullableAmount,
+      energyEur: nullableAmount, networkEur: nullableAmount, taxEur: nullableAmount, feesEur: nullableAmount,
+      note: { type: ["string", "null"] }, createdAt: { type: "string", format: "date-time" },
+    },
+  },
+  ElectricityInvoiceReconciliation: {
+    type: "object", additionalProperties: false,
+    required: ["invoiceId", "status", "tolerancePercent", "from", "to", "consumption", "total", "components", "breakdown", "priceCoveragePercent", "calculatedAt"],
+    properties: {
+      invoiceId: { type: "string" },
+      status: { enum: ["reconciled", "outside_tolerance", "incomplete"] },
+      tolerancePercent: { type: "number" },
+      from: { type: "string", format: "date-time" }, to: { type: "string", format: "date-time" },
+      consumption: {
+        oneOf: [{ type: "null" }, {
+          type: "object", additionalProperties: false, required: ["invoicedKwh", "calculatedKwh", "errorPercent"],
+          properties: { invoicedKwh: { type: "number" }, calculatedKwh: nullableAmount, errorPercent: nullableAmount },
+        }],
+      },
+      total: comparison,
+      components: {
+        type: "object", additionalProperties: false,
+        properties: { energy: comparison, network: comparison, tax: comparison, fees: comparison },
+      },
+      breakdown: { oneOf: [{ $ref: "#/components/schemas/ElectricityCostBreakdown" }, { type: "null" }] },
+      priceCoveragePercent: nullableAmount,
+      calculatedAt: { type: "string", format: "date-time" },
+    },
+  },
+};

@@ -28,7 +28,7 @@ it("integrates a dense power stream with exact durations and changing prices", (
     expect(result.coverageFrom).toBe(from); expect(result.coverageUntil).toBe(to);
     expect(result.consumptionKwh).toBeCloseTo(100 * 12_500_000 / 3_600_000_000, 9);
     expect(result.pricedConsumptionKwh).toBeCloseTo(result.consumptionKwh, 9);
-    expect(result.costEur).toBeCloseTo(result.consumptionKwh * 0.15, 9);
+    expect(result.spotCostEur).toBeCloseTo(result.consumptionKwh * 0.15, 9);
   } finally { database.close(); }
 });
 
@@ -69,7 +69,7 @@ describe.each(["energyCostAggregate", "powerCostAggregate"] as const)("%s SQLite
 
       expect(result.consumptionKwh).toBeCloseTo(1, 5);
       expect(result.pricedConsumptionKwh).toBeCloseTo(1, 5);
-      expect(result.costEur).toBeCloseTo(0.1, 6);
+      expect(result.spotCostEur).toBeCloseTo(0.1, 6);
       const querySql = queries.find(sql => /\b(?:FROM|JOIN) electricity_price_points AS price/.test(sql))!;
       expect(querySql).toBeDefined();
       const plan = database.db.prepare(`EXPLAIN QUERY PLAN ${querySql}`)
@@ -118,7 +118,7 @@ describe.each(["energyCostAggregate", "powerCostAggregate"] as const)("%s SQLite
       const result = database[method]({ sensorId: SENSOR, propertyId: PROPERTY, from, to });
       expect(result.consumptionKwh).toBeCloseTo(0.5, 5);
       expect(result.pricedConsumptionKwh).toBeCloseTo(25 / 60, 5);
-      expect(result.costEur).toBeCloseTo(1 / 12, 5);
+      expect(result.spotCostEur).toBeCloseTo(1 / 12, 5);
       expect(result.pricedDurationMs).toBeCloseTo(25 * 60_000, 0);
     } finally {
       database.close();
@@ -145,7 +145,7 @@ describe.each(["energyCostAggregate", "powerCostAggregate"] as const)("%s SQLite
       const result = database[method]({ sensorId: SENSOR, propertyId: PROPERTY, from, to });
       expect(result.consumptionKwh).toBeCloseTo(1, 5);
       expect(result.pricedConsumptionKwh).toBeCloseTo(1 / 3, 5);
-      expect(result.costEur).toBeCloseTo(0.04, 5);
+      expect(result.spotCostEur).toBeCloseTo(0.04, 5);
     } finally {
       database.close();
     }

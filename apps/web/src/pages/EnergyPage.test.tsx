@@ -30,6 +30,7 @@ function cumulativeCost(houseId: string, sensorId: string, from: string, to: str
     consumptionKwh: 5,
     pricedConsumptionKwh: 5,
     costEur,
+    costBreakdown: null,
     priceCoveragePercent: 100,
     measurementCoverageFrom: from,
     measurementCoverageUntil: to,
@@ -55,14 +56,16 @@ function combinedSummary(
     pricedConsumptionKwh: 5 / sensorIds.length,
   }));
   return {
-    schemaVersion: 2,
-    algorithmVersion: "home-energy-summary/v2",
+    schemaVersion: 3,
+    algorithmVersion: "home-energy-summary/v3", tariffRevision: 0,
     houseId,
     from,
     to,
     consumptionKwh: 5,
     pricedConsumptionKwh: 5,
     costEur,
+    totalCostEur: costEur,
+    costBreakdown: null,
     priceCoveragePercent: 100,
     quality: "measured",
     archiveState: "local-only",
@@ -124,7 +127,7 @@ describe("EnergyPage", () => {
     expect(within(optimizer).getByText(`Property scope · ${property.name}`)).not.toBeNull();
   });
 
-  it("preserves a disabled fixed contract when editing its descriptive fields", async () => {
+  it("saves source details without touching the contract terms kept in the tariff", async () => {
     const user = userEvent.setup();
     const state = createDemoState();
     const house = state.houses[0]!;
@@ -149,7 +152,7 @@ describe("EnergyPage", () => {
     render(<I18nProvider><EnergyPage state={state} propertyId={house.propertyId} units="metric" onLoadSeries={vi.fn()} onOpenAlerts={vi.fn()} /></I18nProvider>);
 
     const retailer = await screen.findByLabelText("Retailer");
-    expect((screen.getByLabelText("Contract type") as HTMLSelectElement).value).toBe("fixed");
+    expect(screen.queryByLabelText("Contract type")).toBeNull();
     expect((screen.getByLabelText("Fetch and apply electricity prices") as HTMLInputElement).checked).toBe(false);
     await user.clear(retailer);
     await user.type(retailer, "New retailer");
@@ -157,9 +160,12 @@ describe("EnergyPage", () => {
 
     await waitFor(() => expect(configure).toHaveBeenCalledWith(house.propertyId, expect.objectContaining({
       enabled: false,
-      contractType: "fixed",
       retailer: "New retailer",
     })));
+    const sent = configure.mock.calls[0]![1];
+    expect(sent).not.toHaveProperty("contractType");
+    expect(sent).not.toHaveProperty("marginCentsPerKwh");
+    expect(sent).not.toHaveProperty("monthlyFeeEur");
     expect(refresh).not.toHaveBeenCalled();
   });
 
@@ -449,7 +455,7 @@ describe("EnergyPage", () => {
     expect(screen.getByText(/2 of 2 sensors combined · Pending time-database confirmation/i)).not.toBeNull();
   });
 
-  it("shows a cumulative 30-day estimate when usage exists but historical prices do not", async () => {
+  it("shows no cost instead of a current-price guess when usage exists but historical prices do not", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.setSystemTime(new Date("2026-07-16T11:59:00.000Z"));
     const user = userEvent.setup();
@@ -480,11 +486,13 @@ describe("EnergyPage", () => {
         consumptionKwh,
         pricedConsumptionKwh: null,
         costEur: null,
+        totalCostEur: null,
+        costBreakdown: null,
         priceCoveragePercent: 0,
         complete: false,
         quality: "partial",
         contributions: result.contributions.map((cost) => ({
-          ...cost, consumptionKwh, pricedConsumptionKwh: null, costEur: null, priceCoveragePercent: 0, complete: false, quality: "partial",
+          ...cost, consumptionKwh, pricedConsumptionKwh: null, costEur: null, costBreakdown: null, priceCoveragePercent: 0, complete: false, quality: "partial",
         })),
       };
     });
@@ -492,14 +500,16 @@ describe("EnergyPage", () => {
     const view = render(<I18nProvider><EnergyPage state={state} house={house} units="metric" onLoadSeries={vi.fn()} onOpenAlerts={vi.fn()} /></I18nProvider>);
 
     const costCard = view.container.querySelector<HTMLElement>(".energy-summary-card.running_cost")!;
-    expect(await within(costCard).findByText("≈ 1.00 €")).not.toBeNull();
-    expect(within(costCard).getByText(/cumulative usage × the current Property price/i)).not.toBeNull();
+    expect(await within(costCard).findByText(/matching price data is unavailable/i)).not.toBeNull();
+    expect(within(costCard).getByText("—")).not.toBeNull();
+    expect(within(costCard).queryByText(/≈/)).toBeNull();
     expect(screen.getByRole("heading", { name: "Usage outlook" })).not.toBeNull();
     expect(screen.getByText("Biggest electricity consumers")).not.toBeNull();
     expect(screen.getAllByText("Water heater").length).toBeGreaterThan(1);
     expect(screen.getByText("5 kWh · 100%")).not.toBeNull();
     await user.selectOptions(screen.getByRole("combobox", { name: "Running cost interval" }), "1h");
-    expect(await within(costCard).findByText("≈ 0.20 €")).not.toBeNull();
+    await waitFor(() => expect(api.houseEnergySummary).toHaveBeenCalledWith(house.id, expect.any(String), expect.any(String), expect.anything()));
+    expect(within(costCard).queryByText(/≈/)).toBeNull();
     expect(screen.getByText("5 kWh · 100%")).not.toBeNull();
   });
 

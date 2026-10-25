@@ -8,6 +8,7 @@ import { enPart7 } from "./en/07-developer-properties";
 import { enPart8 } from "./en/08-properties-setup";
 import { enDataExport } from "./en/data-export";
 import { enBugReports } from "./en/bug-reports";
+import { enElectricityTariffs } from "./en/electricity-tariffs";
 
 export const en = {
   ...enPart1,
@@ -20,6 +21,7 @@ export const en = {
   ...enPart8,
   ...enDataExport,
   ...enBugReports,
+  ...enElectricityTariffs,
 } as const;
 
 export type TranslationKey = keyof typeof en;

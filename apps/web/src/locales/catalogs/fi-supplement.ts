@@ -5,6 +5,7 @@ import { fiSupplementPart4 } from "./fi-supplement/04-properties-opening";
 import { fiSupplementPart5 } from "./fi-supplement/05-opening-performance";
 import { fiDataExport } from "./fi-supplement/data-export";
 import { fiBugReports } from "./fi-supplement/bug-reports";
+import { fiElectricityTariffs } from "./fi-supplement/electricity-tariffs";
 import type { TranslationKey } from "./en";
 
 export const fiSupplement = {
@@ -15,4 +16,5 @@ export const fiSupplement = {
   ...fiSupplementPart5,
   ...fiDataExport,
   ...fiBugReports,
+  ...fiElectricityTariffs,
 } satisfies Partial<Record<TranslationKey, string>>;

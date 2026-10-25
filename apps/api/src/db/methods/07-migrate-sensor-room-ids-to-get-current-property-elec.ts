@@ -99,6 +99,8 @@ import { DEFAULT_COLLECTION_LIMIT, DEFAULT_PROPERTY_ID, ElectricityPricePointRow
 import { ClimateDataValidationError, parseJson } from "../support/03-sensor-data-gap-row-to-canonical-json-value.js";
 import { electricityConfigFromRow, propertyFromRow } from "../support/04-canonical-json-value-to-action-playbook-from-row.js";
 import { registerDatabaseMethods } from "../core.js";
+import { projectedElectricityConfig, versionsWithLegacyContract } from "../../electricity/legacy-contract.js";
+import { withTariffPrice } from "../../electricity/tariff-cost.js";
 
 registerDatabaseMethods({
   /**
@@ -313,12 +315,17 @@ registerDatabaseMethods({
   getPropertyElectricityConfig(propertyId: string): PropertyElectricityConfig | null {
       const row = this.db.prepare("SELECT * FROM property_electricity_configs WHERE property_id = ?")
         .get(propertyId) as unknown as PropertyElectricityConfigRow | undefined;
-      return row ? electricityConfigFromRow(row) : null;
+      return row
+        ? projectedElectricityConfig(electricityConfigFromRow(row), this.getPropertyElectricityTariff(propertyId))
+        : null;
     },
   listPropertyElectricityConfigs(): PropertyElectricityConfig[] {
       const rows = this.db.prepare("SELECT * FROM property_electricity_configs ORDER BY property_id")
         .all() as unknown as PropertyElectricityConfigRow[];
-      return rows.map(electricityConfigFromRow);
+      return rows.map((row) => projectedElectricityConfig(
+        electricityConfigFromRow(row),
+        this.getPropertyElectricityTariff(row.property_id),
+      ));
     },
   updatePropertyElectricityConfig(propertyId: string, input: PropertyElectricityConfigInput): PropertyElectricityConfig | null {
       if (!this.getProperty(propertyId)) return null;
@@ -332,10 +339,14 @@ registerDatabaseMethods({
       if (endpoint.protocol !== "https:" || endpoint.username || endpoint.password) {
         throw new ClimateDataValidationError(400, "INVALID_ELECTRICITY_ENDPOINT", "Electricity price endpoint must use HTTPS without embedded credentials");
       }
-      if (!Number.isFinite(input.marginCentsPerKwh) || input.marginCentsPerKwh < -100 || input.marginCentsPerKwh > 100) {
+      const stored = this.getPropertyElectricityConfig(propertyId);
+      const margin = input.marginCentsPerKwh ?? stored?.marginCentsPerKwh ?? 0;
+      const contractType = input.contractType ?? stored?.contractType ?? "spot";
+      const monthlyFee = input.monthlyFeeEur === undefined ? stored?.monthlyFeeEur ?? null : input.monthlyFeeEur;
+      if (!Number.isFinite(margin) || margin < -100 || margin > 100) {
         throw new ClimateDataValidationError(400, "INVALID_ELECTRICITY_MARGIN", "Electricity margin must be between -100 and 100 cents/kWh");
       }
-      if (!["spot", "fixed", "other"].includes(input.contractType)) {
+      if (!["spot", "fixed", "other"].includes(contractType)) {
         throw new ClimateDataValidationError(400, "INVALID_CONTRACT_TYPE", "Unsupported electricity contract type");
       }
       if (input.monthlyFeeEur !== undefined && input.monthlyFeeEur !== null
@@ -355,11 +366,20 @@ registerDatabaseMethods({
           contract_type = excluded.contract_type, contract_name = excluded.contract_name,
           retailer = excluded.retailer, monthly_fee_eur = excluded.monthly_fee_eur,
           last_error = NULL, updated_at = excluded.updated_at`)
-        .run(propertyId, input.provider, endpoint.toString(), input.enabled ? 1 : 0, input.marginCentsPerKwh,
-          input.contractType, text(input.contractName, "Contract name"), text(input.retailer, "Retailer"),
-          input.monthlyFeeEur ?? null, timestamp);
+        .run(propertyId, input.provider, endpoint.toString(), input.enabled ? 1 : 0, margin,
+          contractType, text(input.contractName, "Contract name"), text(input.retailer, "Retailer"),
+          monthlyFee, timestamp);
       this.db.prepare(`UPDATE electricity_price_points SET margin_cents_per_kwh = ?
-        WHERE property_id = ? AND end_at > ?`).run(input.marginCentsPerKwh, propertyId, timestamp);
+        WHERE property_id = ? AND end_at > ?`).run(margin, propertyId, timestamp);
+      // A saved tariff is authoritative; legacy fields sent by older clients
+      // update only the version in force today.
+      const tariff = this.getPropertyElectricityTariff(propertyId);
+      const contractSent = input.marginCentsPerKwh !== undefined || input.contractType !== undefined
+        || input.monthlyFeeEur !== undefined;
+      if (tariff && tariff.revision > 0 && contractSent) {
+        const versions = versionsWithLegacyContract(tariff, { contractType, marginCentsPerKwh: margin, monthlyFeeEur: monthlyFee });
+        if (versions) this.savePropertyElectricityTariff(propertyId, versions);
+      }
       return this.getPropertyElectricityConfig(propertyId);
     },
   storePropertyElectricityPrices(
@@ -408,23 +428,21 @@ registerDatabaseMethods({
         .run(message.slice(0, 1_000), new Date().toISOString(), propertyId);
     },
   listPropertyElectricityPrices(propertyId: string, from: string, to: string): PropertyElectricityPricePoint[] {
-      const config = this.getPropertyElectricityConfig(propertyId);
-      if (!config) return [];
+      const tariff = this.getPropertyElectricityTariff(propertyId);
+      if (!tariff) return [];
+      const timeZone = this.propertyElectricityTimeZone(propertyId);
       const rows = this.db.prepare(`SELECT * FROM electricity_price_points
         WHERE property_id = ? AND end_at >= ? AND start_at <= ? ORDER BY start_at`)
         .all(propertyId, from, to) as unknown as ElectricityPricePointRow[];
-      return rows.map((row) => {
-        const effective = row.raw_price_cents_per_kwh + row.margin_cents_per_kwh;
-        return {
-          propertyId: row.property_id,
-          startAt: row.start_at,
-          endAt: row.end_at,
-          rawPriceCentsPerKwh: row.raw_price_cents_per_kwh,
-          effectivePriceCentsPerKwh: effective,
-          effectivePriceEurPerKwh: effective / 100,
-          fetchedAt: row.fetched_at,
-        };
-      });
+      return rows.map((row) => withTariffPrice({
+        propertyId: row.property_id,
+        startAt: row.start_at,
+        endAt: row.end_at,
+        rawPriceCentsPerKwh: row.raw_price_cents_per_kwh,
+        effectivePriceCentsPerKwh: row.raw_price_cents_per_kwh,
+        effectivePriceEurPerKwh: row.raw_price_cents_per_kwh / 100,
+        fetchedAt: row.fetched_at,
+      }, tariff.versions, timeZone));
     },
   getCurrentPropertyElectricityPrice(propertyId: string, at = new Date().toISOString()): PropertyElectricityPricePoint | null {
       return this.listPropertyElectricityPrices(propertyId, at, at)[0] ?? null;

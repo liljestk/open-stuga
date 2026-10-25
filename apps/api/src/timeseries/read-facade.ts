@@ -3,6 +3,7 @@ import type {
   OpeningStateObservation,
   OutdoorTemperatureSample,
   PropertyElectricityPricePoint,
+  PropertyElectricityTariff,
   Reading,
   Sensor,
 } from "@climate-twin/contracts";
@@ -74,6 +75,7 @@ import {
 } from "./read-support.js";
 import { readMeasurementAnalyticsRollup, type HybridMeasurementAnalyticsRollupResult } from "./read-analytics-rollup.js";
 import { readCostAggregate } from "./read-energy-cost.js";
+import { withTariffPrice } from "../electricity/tariff-cost.js";
 import { readPowerProfile, type LocalPowerProfileQuery, type PowerProfile } from "./read-power-profile.js";
 
 export { bucketLegacyReadings, bucketMeasurementSamples };
@@ -149,6 +151,8 @@ export interface LocalTelemetryReader {
     limit?: number,
   ): OutdoorTemperatureSample[];
   listPropertyElectricityPrices?(propertyId: string, from: string, to: string): PropertyElectricityPricePoint[];
+  getPropertyElectricityTariff?(propertyId: string): PropertyElectricityTariff | null;
+  propertyElectricityTimeZone?(propertyId: string): string;
   listOpeningStateObservations?(
     houseId: string, limit?: number, at?: string | number | Date,
   ): OpeningStateObservation[];
@@ -827,8 +831,14 @@ export class HybridTelemetryReader {
       key: electricityPriceKey,
       compare: compareElectricityPrices,
     });
+    // Archived rows carry the margin snapshot from fetch time; effective
+    // prices always come from the raw price and the tariff in force.
+    const tariff = this.#local.getPropertyElectricityTariff?.(query.propertyId) ?? null;
+    const timeZone = this.#local.propertyElectricityTimeZone?.(query.propertyId) ?? "UTC";
     return {
-      records: result.records.map(({ source: _source, ...record }) => record),
+      records: result.records.map(({ source: _source, ...record }) => (
+        tariff ? withTariffPrice(record, tariff.versions, timeZone) : record
+      )),
       provenance: result.provenance,
     };
   }

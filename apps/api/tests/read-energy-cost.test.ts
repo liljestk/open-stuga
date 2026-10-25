@@ -16,12 +16,13 @@ const LONG_TO = new Date(
   Date.parse(FROM) + LOCAL_COST_FALLBACK_MAX_WINDOW_MS + 60_000,
 ).toISOString();
 
-function aggregate(costEur: number): EnergyCostAggregateRecord {
+function aggregate(spotCostEur: number): EnergyCostAggregateRecord {
   return {
     deltaCount: 2,
     consumptionKwh: 1,
     pricedConsumptionKwh: 1,
-    costEur,
+    spotCostEur,
+    hourly: [],
     totalDurationMs: 3_600_000,
     pricedDurationMs: 3_600_000,
     maximumIntervalDurationMs: 60_000,
@@ -60,7 +61,7 @@ describe("readCostAggregate fallback policy", () => {
       to: SHORT_TO,
       archiveError: new RollupsMaterializingError(),
     });
-    await expect(result).resolves.toMatchObject({ costEur: 0.1, archiveState: "pending" });
+    await expect(result).resolves.toMatchObject({ spotCostEur: 0.1, archiveState: "pending" });
     expect(local).toHaveBeenCalledOnce();
     expect(reconcile).not.toHaveBeenCalled();
   });
@@ -90,7 +91,7 @@ describe("readCostAggregate fallback policy", () => {
       to: SHORT_TO,
       archiveError: new Error("connection refused"),
     });
-    await expect(result).resolves.toMatchObject({ costEur: 0.1, archiveState: "pending" });
+    await expect(result).resolves.toMatchObject({ spotCostEur: 0.1, archiveState: "pending" });
     expect(local).toHaveBeenCalledOnce();
     expect(reconcile).toHaveBeenCalledOnce();
   });
@@ -120,7 +121,7 @@ describe("readCostAggregate fallback policy", () => {
     await expect(readCostAggregate({
       ...base,
       query: { sensorId: "meter-1", propertyId: "property-1", from: FROM, to: SHORT_TO },
-    })).resolves.toMatchObject({ costEur: 0.2, archiveState: "pending" });
+    })).resolves.toMatchObject({ spotCostEur: 0.2, archiveState: "pending" });
     await expect(readCostAggregate({
       ...base,
       query: { sensorId: "meter-1", propertyId: "property-1", from: FROM, to: LONG_TO },
@@ -138,7 +139,7 @@ describe("readCostAggregate fallback policy", () => {
       archivePhase: "ready",
       localHistoryComplete: true,
       requestReconciliation: vi.fn(),
-    })).resolves.toMatchObject({ costEur: 0.3, archiveState: "local-only" });
+    })).resolves.toMatchObject({ spotCostEur: 0.3, archiveState: "local-only" });
     expect(local).toHaveBeenCalledOnce();
   });
 });

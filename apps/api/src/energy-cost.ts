@@ -6,7 +6,10 @@ import {
   type HomeEnergyCost,
   type HomeEnergyCostQuality,
   type HomeEnergySummary,
+  type ElectricityCostBreakdown,
+  type ElectricityTariffVersion,
 } from "@climate-twin/contracts";
+import { costBreakdown, proratedMonthlyFeesEur, tariffCost, type TariffCost } from "./electricity/tariff-cost.js";
 import {
   HybridTelemetryReader,
   IncompleteTelemetryHistoryError,
@@ -24,6 +27,17 @@ const SUMMARY_CONCURRENCY = 2;
 
 function rounded(value: number, decimals: number): number {
   return Number(value.toFixed(decimals));
+}
+
+function roundedBreakdown(breakdown: ElectricityCostBreakdown): ElectricityCostBreakdown {
+  const round = (value: number | null) => value === null ? null : rounded(value, 6);
+  return {
+    ...breakdown,
+    energyEur: round(breakdown.energyEur),
+    networkEur: round(breakdown.networkEur),
+    taxEur: round(breakdown.taxEur),
+    feesEur: round(breakdown.feesEur),
+  };
 }
 
 function sumNullable(values: Array<number | null>): number | null {
@@ -53,6 +67,25 @@ async function mapSettledWithConcurrency<T, R>(
   return results;
 }
 
+/** Tariff versions and the local time zone their dates and schedules use. */
+export interface ElectricityTariffContext {
+  versions: readonly ElectricityTariffVersion[];
+  revision: number;
+  timeZone: string;
+}
+
+/** Without a tariff, usage is priced at the raw spot price. */
+function rawSpotCost(aggregate: EnergyCostAggregateRecord): TariffCost {
+  return {
+    consumptionKwh: aggregate.consumptionKwh,
+    pricedConsumptionKwh: aggregate.pricedConsumptionKwh,
+    energyEur: aggregate.spotCostEur,
+    networkEur: null,
+    taxEur: null,
+    energyPriceMissing: false,
+  };
+}
+
 interface BasisCalculation {
   aggregate: EnergyCostAggregateRecord;
   cost: HomeEnergyCost;
@@ -71,7 +104,16 @@ export class EnergyCostService {
     private readonly telemetryReader: HybridTelemetryReader,
     private readonly now: () => Date = () => new Date(),
     private readonly meterRole: (sensorId: string) => EnergyMeterRole = () => "standalone",
+    private readonly tariffFor: (propertyId: string, houseId: string) => ElectricityTariffContext | null = () => null,
   ) {}
+
+  #tariff(propertyId: string, houseId: string): ElectricityTariffContext | null {
+    try {
+      return this.tariffFor(propertyId, houseId);
+    } catch {
+      return null;
+    }
+  }
 
   async calculate(input: {
     houseId: string;
@@ -187,6 +229,24 @@ export class EnergyCostService {
     const consumptionKwh = sumNullable(reporting.map((cost) => cost.consumptionKwh));
     const pricedConsumptionKwh = sumNullable(reporting.map((cost) => cost.pricedConsumptionKwh));
     const costEur = sumNullable(reporting.map((cost) => cost.costEur));
+    const component = (key: "energyEur" | "networkEur" | "taxEur") => sumNullable(
+      reporting.map((cost) => cost.costBreakdown?.[key] ?? null),
+    );
+    const tariff = this.#tariff(input.propertyId, input.houseId);
+    // Monthly fees belong to the metering point, so only a summary that
+    // stands for the whole Home carries them, once.
+    const feesEur = tariff && selected.length > 0 && aggregationMode !== "submeters_only"
+      ? proratedMonthlyFeesEur(fromMs, toMs, tariff.versions, tariff.timeZone)
+      : null;
+    const breakdown = reporting.length > 0 || feesEur !== null
+      ? costBreakdown({
+        energyEur: component("energyEur"),
+        networkEur: component("networkEur"),
+        taxEur: component("taxEur"),
+        feesEur,
+        energyPriceMissing: reporting.some((cost) => cost.costBreakdown?.energyPriceMissing === true),
+      })
+      : null;
     const priceCoveragePercent = consumptionKwh !== null && consumptionKwh > 0
       ? Math.min(100, (pricedConsumptionKwh ?? 0) / consumptionKwh * 100)
       : reporting.length
@@ -210,7 +270,7 @@ export class EnergyCostService {
     const calculatedAt = this.now().toISOString();
 
     return {
-      schemaVersion: 2,
+      schemaVersion: 3,
       algorithmVersion: HOME_ENERGY_SUMMARY_ALGORITHM_VERSION,
       houseId: input.houseId,
       from: input.from,
@@ -218,6 +278,9 @@ export class EnergyCostService {
       consumptionKwh: consumptionKwh === null ? null : rounded(consumptionKwh, 6),
       pricedConsumptionKwh: pricedConsumptionKwh === null ? null : rounded(pricedConsumptionKwh, 6),
       costEur: costEur === null ? null : rounded(costEur, 6),
+      totalCostEur: costEur === null ? null : rounded(costEur + (feesEur ?? 0), 6),
+      costBreakdown: breakdown && roundedBreakdown(breakdown),
+      tariffRevision: tariff?.revision ?? 0,
       priceCoveragePercent: rounded(priceCoveragePercent, 1),
       quality,
       archiveState,
@@ -254,9 +317,18 @@ export class EnergyCostService {
       ? await this.telemetryReader.energyCostAggregate(query)
       : await this.telemetryReader.powerCostAggregate(query);
     const requestedDurationMs = Date.parse(input.to) - Date.parse(input.from);
-    const priceCoveragePercent = aggregate.totalDurationMs <= 0
-      ? 0
-      : Math.min(100, aggregate.pricedDurationMs / aggregate.totalDurationMs * 100);
+    const tariff = this.#tariff(input.propertyId, input.houseId);
+    const applied = tariff ? tariffCost(aggregate.hourly, tariff.versions, tariff.timeZone) : rawSpotCost(aggregate);
+    // Spot pricing depends on price intervals, so its coverage stays measured
+    // in time; a fixed price covers every kWh it applies to.
+    const spotOnly = !tariff || tariff.versions.every((version) => version.energy?.kind === "spot");
+    const priceCoveragePercent = spotOnly
+      ? aggregate.totalDurationMs <= 0
+        ? 0
+        : Math.min(100, aggregate.pricedDurationMs / aggregate.totalDurationMs * 100)
+      : aggregate.consumptionKwh > 0
+        ? Math.min(100, applied.pricedConsumptionKwh / aggregate.consumptionKwh * 100)
+        : applied.energyPriceMissing ? 0 : 100;
     const fromMs = Date.parse(input.from);
     const toMs = Date.parse(input.to);
     const coverageFromMs = aggregate.coverageFrom ? Date.parse(aggregate.coverageFrom) : NaN;
@@ -270,7 +342,8 @@ export class EnergyCostService {
     const estimated = measurementBasis === "integrated_power"
       || aggregate.maximumIntervalDurationMs > MAXIMUM_MEASURED_COUNTER_INTERVAL_MS;
     const hasUsage = aggregate.deltaCount > 0;
-    const hasPricedUsage = hasUsage && aggregate.pricedDurationMs > 0;
+    const hasPricedUsage = hasUsage && (spotOnly ? aggregate.pricedDurationMs > 0 : priceCoveragePercent > 0);
+    const variableCostEur = applied.energyEur + (applied.networkEur ?? 0) + (applied.taxEur ?? 0);
     const archiveState = aggregate.archiveState ?? "local-only";
     const complete = measurementComplete
       && priceCoveragePercent >= 99.9
@@ -286,8 +359,17 @@ export class EnergyCostService {
         to: input.to,
         measurementBasis,
         consumptionKwh: hasUsage ? rounded(aggregate.consumptionKwh, 6) : null,
-        pricedConsumptionKwh: hasPricedUsage ? rounded(aggregate.pricedConsumptionKwh, 6) : null,
-        costEur: hasPricedUsage ? rounded(aggregate.costEur, 6) : null,
+        pricedConsumptionKwh: hasPricedUsage ? rounded(applied.pricedConsumptionKwh, 6) : null,
+        costEur: hasPricedUsage ? rounded(variableCostEur, 6) : null,
+        costBreakdown: hasUsage
+          ? roundedBreakdown(costBreakdown({
+            energyEur: hasPricedUsage ? applied.energyEur : null,
+            networkEur: hasPricedUsage ? applied.networkEur : null,
+            taxEur: hasPricedUsage ? applied.taxEur : null,
+            feesEur: null,
+            energyPriceMissing: applied.energyPriceMissing,
+          }))
+          : null,
         priceCoveragePercent: rounded(priceCoveragePercent, 1),
         measurementCoverageFrom: aggregate.coverageFrom,
         measurementCoverageUntil: aggregate.coverageUntil,

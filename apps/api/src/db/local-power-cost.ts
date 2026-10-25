@@ -2,6 +2,7 @@ import { POWER_HOLD_MS, wattMillisecondsToKwh } from "@climate-twin/analytics-ke
 import type { ClimateDatabase } from "../db.js";
 import type { EnergyCostAggregateRecord, PowerCostAggregateQuery } from "../timeseries/types.js";
 import { SQLITE_EFFECTIVE_PRICE_END } from "./support/electricity-price-overlap.js";
+import { HourlyUsageAccumulator } from "../electricity/hourly-usage.js";
 
 interface Sample { timestamp: string; value: number }
 interface Price { start_at: string; end_at: string; cents: number }
@@ -9,12 +10,13 @@ interface Price { start_at: string; end_at: string; cents: number }
 /** Integrate ordered held samples once, seeking only prices that can overlap. */
 export function localPowerCostAggregate(database: Pick<ClimateDatabase, "db">, query: PowerCostAggregateQuery): EnergyCostAggregateRecord {
   const result: EnergyCostAggregateRecord = { deltaCount: 0, consumptionKwh: 0, pricedConsumptionKwh: 0,
-    costEur: 0, totalDurationMs: 0, pricedDurationMs: 0, maximumIntervalDurationMs: 0,
+    spotCostEur: 0, hourly: [], totalDurationMs: 0, pricedDurationMs: 0, maximumIntervalDurationMs: 0,
     coverageFrom: null, coverageUntil: null };
+  const hours = new HourlyUsageAccumulator();
   const from = Date.parse(query.from), to = Date.parse(query.to);
   if (!Number.isFinite(from) || !Number.isFinite(to) || from >= to) return result;
   const prices = (database.db.prepare(`SELECT price.start_at, ${SQLITE_EFFECTIVE_PRICE_END} AS end_at,
-      price.raw_price_cents_per_kwh + price.margin_cents_per_kwh AS cents
+      price.raw_price_cents_per_kwh AS cents
     FROM electricity_price_points AS price
     WHERE price.property_id = ? AND price.start_at >= COALESCE((
       SELECT boundary.start_at FROM electricity_price_points AS boundary
@@ -32,7 +34,9 @@ export function localPowerCostAggregate(database: Pick<ClimateDatabase, "db">, q
     if (!Number.isFinite(at) || !Number.isFinite(sample.value) || sample.value < 0 || sample.value >= 1e308 || end <= start) return;
     const duration = end - start;
     result.deltaCount++;
-    result.consumptionKwh += wattMillisecondsToKwh(sample.value, duration);
+    const kwh = wattMillisecondsToKwh(sample.value, duration);
+    result.consumptionKwh += kwh;
+    hours.addUsage(start, end, kwh);
     result.totalDurationMs += duration;
     result.maximumIntervalDurationMs = Math.max(result.maximumIntervalDurationMs, duration);
     coverageFrom = Math.min(coverageFrom, start); coverageUntil = Math.max(coverageUntil, end);
@@ -41,10 +45,11 @@ export function localPowerCostAggregate(database: Pick<ClimateDatabase, "db">, q
       const price = prices[index]!;
       const overlap = Math.min(end, price.to) - Math.max(start, price.from);
       if (overlap <= 0) continue;
-      const kwh = wattMillisecondsToKwh(sample.value, overlap);
-      result.pricedConsumptionKwh += kwh;
-      result.costEur += kwh * price.cents / 100;
+      const pricedKwh = wattMillisecondsToKwh(sample.value, overlap);
+      result.pricedConsumptionKwh += pricedKwh;
+      result.spotCostEur += pricedKwh * price.cents / 100;
       result.pricedDurationMs += overlap;
+      hours.addSpotPriced(Math.max(start, price.from), Math.min(end, price.to), pricedKwh, price.cents);
     }
   };
   const synthetic = query.excludeSynthetic ? 1 : 0;
@@ -63,6 +68,7 @@ export function localPowerCostAggregate(database: Pick<ClimateDatabase, "db">, q
     pending = sample;
   }
   if (pending) integrate(pending, to);
+  result.hourly = hours.toArray();
   if (result.deltaCount > 0) {
     result.coverageFrom = new Date(coverageFrom).toISOString();
     result.coverageUntil = new Date(coverageUntil).toISOString();

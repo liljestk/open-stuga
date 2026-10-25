@@ -4,6 +4,7 @@ import { apiPart03 } from "./api/part-03";
 import { apiPart04 } from "./api/part-04";
 import { nexus433Api } from "./api/nexus433";
 import { bugReportApi } from "./api/bug-reports";
+import { electricityTariffApi } from "./api/electricity-tariffs";
 
 export * from "./api/support";
 export * from "./apiRuntimeVersion";
@@ -14,4 +15,5 @@ export const api = {
   ...apiPart04,
   ...nexus433Api,
   ...bugReportApi,
+  ...electricityTariffApi,
 };

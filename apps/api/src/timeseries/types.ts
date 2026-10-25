@@ -110,11 +110,28 @@ export interface MeasurementBoundaryQuery extends QueryControl {
 
 export type PowerCostAggregateQuery = EnergyCostAggregateQuery;
 
+/** Usage of one UTC hour and its cost at the raw spot price; contract terms are applied later. */
+export interface HourlyEnergyUsage {
+  /** Epoch milliseconds of the UTC hour start. */
+  hourStart: number;
+  kwh: number;
+  /** kWh that had a raw spot price. */
+  spotPricedKwh: number;
+  /** Sum of kWh × raw spot price (c/kWh) over the spot-priced kWh. */
+  spotCostCents: number;
+}
+
+/**
+ * Consumption and its raw-spot-price coverage. Prices carry no margin or
+ * other contract terms here: the tariff in force is applied per hour.
+ */
 export interface EnergyCostAggregateRecord {
   deltaCount: number;
   consumptionKwh: number;
   pricedConsumptionKwh: number;
-  costEur: number;
+  spotCostEur: number;
+  /** Sorted by hourStart; only hours with usage or priced usage. */
+  hourly: HourlyEnergyUsage[];
   totalDurationMs: number;
   pricedDurationMs: number;
   maximumIntervalDurationMs: number;

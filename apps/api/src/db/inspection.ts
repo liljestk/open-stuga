@@ -8,7 +8,8 @@ export const TELEMETRY_EXPORT_TABLES = [
 export const EXPORT_TABLES = [
   "properties", "houses", "property_areas", "area_equipment", "property_notes", "sensors",
   "measurement_definitions", "alert_rules", "alert_events", "observations", "maintenance_tasks",
-  "action_playbooks", "action_runs", "property_electricity_configs", ...TELEMETRY_EXPORT_TABLES,
+  "action_playbooks", "action_runs", "property_electricity_configs", "property_electricity_tariffs",
+  "electricity_invoices", ...TELEMETRY_EXPORT_TABLES,
 ] as const;
 
 export type ExportTable = (typeof EXPORT_TABLES)[number];

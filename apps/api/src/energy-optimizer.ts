@@ -6,6 +6,7 @@ import type {
 } from "@climate-twin/contracts";
 import type { ClimateDatabase } from "./db.js";
 import { EnergyCostService } from "./energy-cost.js";
+import { databaseTariffContext } from "./electricity/tariff-context.js";
 import { HybridTelemetryReader } from "./timeseries/read-facade.js";
 import { OPTIMIZER_POWER_HOLD_MS } from "./energy-optimizer-power.js";
 
@@ -89,6 +90,7 @@ export class EnergyOptimizer {
       reader,
       () => now,
       (sensorId) => this.database.getSensor(sensorId)?.energyMeterRole ?? "standalone",
+      databaseTariffContext(this.database),
     );
     const [prices, powerProfile, costResults] = await Promise.all([
         reader.electricityPriceHistory({

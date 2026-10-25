@@ -395,6 +395,10 @@ export interface EnergyCostAggregateRow {
   maximum_interval_duration_ms: number | null;
   coverage_from: string | null;
   coverage_until: string | null;
+  /** JSON `[[startAt, endAt, kwh], ...]` of every delta's in-window share. */
+  usage_json?: string | null;
+  /** JSON `[[startAt, endAt, kwh, rawCentsPerKwh], ...]` of every priced overlap. */
+  priced_json?: string | null;
 }
 
 export interface PropertyAreaRow {

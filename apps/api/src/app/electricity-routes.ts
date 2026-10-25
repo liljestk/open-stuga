@@ -21,6 +21,7 @@ import {
   requiredString,
 } from "./support/index.js";
 import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
+import { registerElectricityTariffRoutes } from "./electricity-tariff-routes.js";
 
 export type ElectricityRouteContext = Pick<
   ApiRouteRegistrationContext,
@@ -60,6 +61,15 @@ export function registerElectricityRoutes(context: ElectricityRouteContext): () 
     if (!house || !context.visibility(response).house(houseId)) throw new HttpError(404, "NOT_FOUND", "House not found");
     return house;
   };
+  const visibleEnergySensors = (houseId: string, response: Parameters<ElectricityRouteContext["visibility"]>[0]) => {
+    const access = context.visibility(response);
+    return context.database.listSensors(houseId).filter((sensor) => sensor.enabled && access.sensor(sensor.id));
+  };
+  registerElectricityTariffRoutes(context, {
+    visibleProperty,
+    houseSensorIds: (houseId, response) => visibleEnergySensors(houseId, response).map((sensor) => sensor.id),
+    invalidateSummaries: () => energySummaryCache.clear(),
+  });
 
   context.app.get(`${context.prefix}/properties/:id/electricity`, async (request, response) => {
     const propertyId = request.params.id as string;
@@ -85,18 +95,26 @@ export function registerElectricityRoutes(context: ElectricityRouteContext): () 
     visibleProperty(propertyId, response);
     const body = bodyObject(request.body);
     rejectUnknownFields(body, new Set(["provider", "endpointUrl", "enabled", "marginCentsPerKwh", "contractType", "contractName", "retailer", "monthlyFeeEur"]), "Electricity configuration");
+    const optionalNumber = (key: "marginCentsPerKwh" | "monthlyFeeEur"): number | null | undefined => (
+      body[key] === undefined ? undefined : body[key] === null ? null : requiredNumber(body, key)
+    );
     const nullableText = (key: "contractName" | "retailer"): string | null => body[key] === null || body[key] === undefined
       ? null : propertyText(body, key, 200) as string;
     const input: PropertyElectricityConfigInput = {
       provider: enumValue(body.provider, ["porssisahko", "custom"] as const, "provider"),
       endpointUrl: requiredString(body, "endpointUrl"),
       enabled: typeof body.enabled === "boolean" ? body.enabled : true,
-      marginCentsPerKwh: requiredNumber(body, "marginCentsPerKwh"),
-      contractType: enumValue(body.contractType, ["spot", "fixed", "other"] as const, "contractType"),
       contractName: nullableText("contractName"),
       retailer: nullableText("retailer"),
-      monthlyFeeEur: body.monthlyFeeEur === null || body.monthlyFeeEur === undefined ? null : requiredNumber(body, "monthlyFeeEur"),
     };
+    const margin = optionalNumber("marginCentsPerKwh");
+    if (margin === null) throw new HttpError(400, "INVALID_FIELD", "marginCentsPerKwh must be a finite number");
+    if (margin !== undefined) input.marginCentsPerKwh = margin;
+    if (body.contractType !== undefined) {
+      input.contractType = enumValue(body.contractType, ["spot", "fixed", "other"] as const, "contractType");
+    }
+    const monthlyFee = optionalNumber("monthlyFeeEur");
+    if (monthlyFee !== undefined) input.monthlyFeeEur = monthlyFee;
     try {
       const endpoint = validateElectricityEndpointUrl(input.endpointUrl, context.config.electricityAllowPrivateEndpoints === true);
       if (input.provider === "porssisahko" && endpoint.toString() !== DEFAULT_ELECTRICITY_PRICE_ENDPOINT) {
@@ -110,6 +128,7 @@ export function registerElectricityRoutes(context: ElectricityRouteContext): () 
       throw error;
     }
     const savedConfig = context.database.updatePropertyElectricityConfig(propertyId, input);
+    energySummaryCache.clear();
     response.json({ config: savedConfig });
   });
   context.app.post(`${context.prefix}/properties/:id/electricity/refresh`, async (request, response) => {
@@ -135,6 +154,7 @@ export function registerElectricityRoutes(context: ElectricityRouteContext): () 
       endAt: price.endAt,
       effectivePriceCentsPerKwh: price.effectivePriceCentsPerKwh,
       effectivePriceEurPerKwh: price.effectivePriceEurPerKwh,
+      ...(price.components ? { components: price.components } : {}),
       fetchedAt: price.fetchedAt,
     });
     const current = propertyPrice ? homePrice(propertyPrice) : null;
@@ -196,9 +216,7 @@ export function registerElectricityRoutes(context: ElectricityRouteContext): () 
   context.app.get(`${context.prefix}/houses/:id/energy-summary`, async (request, response) => {
     const houseId = request.params.id as string;
     const house = visibleHouse(houseId, response);
-    const access = context.visibility(response);
-    const energySensors = context.database.listSensors(houseId)
-      .filter((sensor) => sensor.enabled && access.sensor(sensor.id));
+    const energySensors = visibleEnergySensors(houseId, response);
     const sensorIds = energySensors.map((sensor) => sensor.id);
     const to = dateValue(request.query.to, new Date(), "to");
     const from = dateValue(request.query.from, new Date(Date.parse(to) - DEFAULT_ENERGY_RANGE_MS), "from");
@@ -207,9 +225,11 @@ export function registerElectricityRoutes(context: ElectricityRouteContext): () 
       throw new HttpError(400, "INVALID_ENERGY_SUMMARY_RANGE", "Energy summary range must be greater than zero and at most 366 days");
     }
     const key = createHash("sha256").update(JSON.stringify([
-      "energy-summary-v2",
+      "energy-summary-v3",
       houseId,
       house.propertyId,
+      context.database.getPropertyElectricityTariff(house.propertyId)?.revision ?? 0,
+      house.timezone,
       energySensors.map((sensor) => [sensor.id, sensor.energyMeterRole ?? "standalone"]),
       from,
       to,

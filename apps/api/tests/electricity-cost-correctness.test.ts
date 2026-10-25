@@ -117,7 +117,8 @@ describe("electricity cost correctness", () => {
       deltaCount: 4,
       consumptionKwh: 1,
       pricedConsumptionKwh: 1,
-      costEur: 0.1,
+      spotCostEur: 0.1,
+      hourly: [],
       totalDurationMs: 3_600_000,
       pricedDurationMs: 3_600_000,
       maximumIntervalDurationMs: 900_000,
@@ -150,7 +151,8 @@ describe("electricity cost correctness", () => {
       deltaCount: 0,
       consumptionKwh: 0,
       pricedConsumptionKwh: 0,
-      costEur: 0,
+      spotCostEur: 0,
+      hourly: [],
       totalDurationMs: 0,
       pricedDurationMs: 0,
       maximumIntervalDurationMs: 0,
@@ -162,7 +164,8 @@ describe("electricity cost correctness", () => {
       deltaCount: 4,
       consumptionKwh: 1,
       pricedConsumptionKwh: 1,
-      costEur: 0.1,
+      spotCostEur: 0.1,
+      hourly: [],
       totalDurationMs: 3_600_000,
       pricedDurationMs: 3_600_000,
       maximumIntervalDurationMs: 900_000,
@@ -214,7 +217,8 @@ describe("electricity cost correctness", () => {
         deltaCount: 4,
         consumptionKwh: 1,
         pricedConsumptionKwh: 1,
-        costEur: 0.1,
+        spotCostEur: 0.1,
+        hourly: [],
         totalDurationMs: 3_600_000,
         pricedDurationMs: 3_600_000,
         maximumIntervalDurationMs: 900_000,
@@ -286,7 +290,8 @@ describe("electricity cost correctness", () => {
       deltaCount: 4,
       consumptionKwh: 1,
       pricedConsumptionKwh: 1,
-      costEur: 0.1,
+      spotCostEur: 0.1,
+      hourly: [],
       totalDurationMs: 3_600_000,
       pricedDurationMs: 3_600_000,
       maximumIntervalDurationMs: 900_000,
@@ -311,7 +316,7 @@ describe("electricity cost correctness", () => {
       }),
       powerCostAggregate: vi.fn(async ({ sensorId }: { sensorId: string }) => {
         if (sensorId === "meter-a") throw new RollupsMaterializingError();
-        return { ...pricedAggregate, deltaCount: 0, consumptionKwh: 0, pricedConsumptionKwh: 0, costEur: 0, totalDurationMs: 0, pricedDurationMs: 0 };
+        return { ...pricedAggregate, deltaCount: 0, consumptionKwh: 0, pricedConsumptionKwh: 0, spotCostEur: 0, totalDurationMs: 0, pricedDurationMs: 0 };
       }),
     } as unknown as HybridTelemetryReader;
     const service = new EnergyCostService(reader);

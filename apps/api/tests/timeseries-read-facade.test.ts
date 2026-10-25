@@ -1089,19 +1089,19 @@ describe("HybridTelemetryReader", () => {
 
   it("uses the acknowledged archive as the sole source for cumulative energy-cost aggregates", async () => {
     const localAggregate = vi.fn(() => ({
-      deltaCount: 1, consumptionKwh: 1, pricedConsumptionKwh: 1, costEur: 0.1,
+      deltaCount: 1, consumptionKwh: 1, pricedConsumptionKwh: 1, spotCostEur: 0.1, hourly: [],
       totalDurationMs: 1_000, pricedDurationMs: 1_000, coverageFrom: FROM, coverageUntil: TO,
     }));
     const archiveAggregate = vi.fn(async () => ({
-      deltaCount: 2, consumptionKwh: 2, pricedConsumptionKwh: 2, costEur: 0.2,
+      deltaCount: 2, consumptionKwh: 2, pricedConsumptionKwh: 2, spotCostEur: 0.2, hourly: [],
       totalDurationMs: 2_000, pricedDurationMs: 2_000, coverageFrom: FROM, coverageUntil: TO,
     }));
     const localPowerAggregate = vi.fn(() => ({
-      deltaCount: 3, consumptionKwh: 3, pricedConsumptionKwh: 3, costEur: 0.3,
+      deltaCount: 3, consumptionKwh: 3, pricedConsumptionKwh: 3, spotCostEur: 0.3, hourly: [],
       totalDurationMs: 3_000, pricedDurationMs: 3_000, coverageFrom: FROM, coverageUntil: TO,
     }));
     const archivePowerAggregate = vi.fn(async () => ({
-      deltaCount: 4, consumptionKwh: 4, pricedConsumptionKwh: 4, costEur: 0.4,
+      deltaCount: 4, consumptionKwh: 4, pricedConsumptionKwh: 4, spotCostEur: 0.4, hourly: [],
       totalDurationMs: 4_000, pricedDurationMs: 4_000, coverageFrom: FROM, coverageUntil: TO,
     }));
     const reader = new HybridTelemetryReader({
@@ -1118,31 +1118,31 @@ describe("HybridTelemetryReader", () => {
     });
     const query = { sensorId: "meter-1", propertyId: "property-1", from: FROM, to: TO };
     await expect(reader.energyCostAggregate(query)).resolves.toMatchObject({
-      costEur: 0.2,
+      spotCostEur: 0.2,
       archiveState: "archived",
     });
     expect(localAggregate).not.toHaveBeenCalled();
     expect(archiveAggregate).toHaveBeenCalledOnce();
 
     await expect(reader.energyCostAggregate({ ...query, from: "2026-07-17T23:00:00.000Z" }))
-      .resolves.toMatchObject({ costEur: 0.2 });
+      .resolves.toMatchObject({ spotCostEur: 0.2 });
     expect(archiveAggregate).toHaveBeenCalledTimes(2);
     expect(localAggregate).not.toHaveBeenCalled();
 
-    await expect(reader.powerCostAggregate(query)).resolves.toMatchObject({ costEur: 0.4 });
+    await expect(reader.powerCostAggregate(query)).resolves.toMatchObject({ spotCostEur: 0.4 });
     await expect(reader.powerCostAggregate({ ...query, from: "2026-07-17T23:00:00.000Z" }))
-      .resolves.toMatchObject({ costEur: 0.4 });
+      .resolves.toMatchObject({ spotCostEur: 0.4 });
     expect(localPowerAggregate).not.toHaveBeenCalled();
     expect(archivePowerAggregate).toHaveBeenCalledTimes(2);
   });
 
   it("uses archive cost aggregates while synchronization is in progress", async () => {
     const localAggregate = vi.fn(() => ({
-      deltaCount: 1, consumptionKwh: 1, pricedConsumptionKwh: 0, costEur: 0,
+      deltaCount: 1, consumptionKwh: 1, pricedConsumptionKwh: 0, spotCostEur: 0, hourly: [],
       totalDurationMs: 1_000, pricedDurationMs: 0, coverageFrom: FROM, coverageUntil: TO,
     }));
     const archiveAggregate = vi.fn(async () => ({
-      deltaCount: 2, consumptionKwh: 2, pricedConsumptionKwh: 2, costEur: 0.2,
+      deltaCount: 2, consumptionKwh: 2, pricedConsumptionKwh: 2, spotCostEur: 0.2, hourly: [],
       totalDurationMs: 2_000, pricedDurationMs: 2_000, coverageFrom: FROM, coverageUntil: TO,
     }));
     const reader = new HybridTelemetryReader({
@@ -1160,11 +1160,11 @@ describe("HybridTelemetryReader", () => {
     const query = { sensorId: "meter-1", propertyId: "property-1", from: FROM, to: TO };
 
     await expect(reader.energyCostAggregate(query)).resolves.toMatchObject({
-      costEur: 0.2,
+      spotCostEur: 0.2,
       archiveState: "pending",
     });
     await expect(reader.powerCostAggregate(query)).resolves.toMatchObject({
-      costEur: 0.2,
+      spotCostEur: 0.2,
       archiveState: "pending",
     });
     expect(archiveAggregate).toHaveBeenCalledTimes(2);

@@ -19,32 +19,71 @@ available from **Property → Electricity** at
 192 quarter-hour intervals. Its `price` value is cents/kWh including the VAT that
 applied on that date; `startDate` and `endDate` are UTC timestamps.
 
-Stugu stores the returned value unchanged as `rawPriceCentsPerKwh`. The effective
-price is derived when reading it:
-
-```text
-effectivePriceCentsPerKwh = rawPriceCentsPerKwh + marginCentsPerKwh
-effectivePriceEurPerKwh   = effectivePriceCentsPerKwh / 100
-```
+Stugu stores the returned value unchanged as `rawPriceCentsPerKwh`. Every
+effective price and every cost is derived from it when reading, under the
+Property's tariff.
 
 Every successful fetch first commits all source intervals to the crash-safe
 SQLite outbox and immediately wakes TimeDB reconciliation. The permanent store
-keeps the interval boundaries, raw price, margin snapshot, and fetch
-time in the TimescaleDB `electricity_price_samples` hypertable. Repeated fetches
-are idempotent, and raw archive rows have no expiry policy. Historical API reads
-merge the SQLite current/unacknowledged tail with TimescaleDB, so daily, weekly,
-monthly, yearly, and later
-calendar-period analytics use durable price history rather than only the latest
-provider response.
+keeps the interval boundaries, raw price, a margin snapshot, and fetch time in
+the TimescaleDB `electricity_price_samples` hypertable. Repeated fetches are
+idempotent, and raw archive rows have no expiry policy. Historical API reads
+merge the SQLite current/unacknowledged tail with TimescaleDB, so daily,
+weekly, monthly, yearly, and later calendar-period analytics use durable price
+history rather than only the latest provider response. The margin snapshot is
+kept for audit only; prices and costs never use it.
 
-Changing a margin therefore never rewrites or rounds the upstream history.
-Contract metadata includes type, retailer, contract name, and optional monthly
-fee. The monthly fee is descriptive and is not folded into instantaneous €/h
-cost because doing so would require an arbitrary allocation policy.
+## Tariff
 
-Saving descriptive fields preserves the existing `contractType` and `enabled`
-state. Fixed, other, and disabled contracts are never converted to an enabled
-spot contract as a side effect of editing their name, retailer, margin, or fee.
+A Property's contract is a list of dated **tariff versions**. Each version
+applies from its `validFrom` local date until the next version; the earliest
+version also covers every earlier date. Dates and schedules use the time zone of
+the Home being costed (for Property-wide prices, its default Home's). All rates
+include VAT, as on a consumer invoice.
+
+| Part | Options |
+| --- | --- |
+| Energy | Spot (raw feed + margin, c/kWh), fixed price with a flat, day/night or seasonal schedule, or not entered yet |
+| Transfer | None, or a flat, day/night or seasonal charge (c/kWh) |
+| Electricity tax | Optional c/kWh |
+| Monthly fees | Optional retailer and network fees (€/month) |
+
+Day/night schedules treat 07:00–22:00 local time as daytime. Seasonal schedules
+charge the winter rate on November–March, Monday–Saturday, 07:00–22:00 local
+time, and the other rate at all other times.
+
+```text
+effectivePriceCentsPerKwh = energy + transfer + tax   (for the interval's version)
+energy (spot)             = rawPriceCentsPerKwh + marginCentsPerKwh
+```
+
+While a fixed contract's energy price is not entered, effective prices fall back
+to the raw spot price and costs report the energy price as missing instead of
+pricing the contract at spot.
+
+Costs are calculated per UTC hour from metered usage: spot energy uses the raw
+price of the intervals the usage falls in; fixed energy, transfer and tax use the
+rate in force for that local hour. Transfer and tax are charged on the same kWh
+as energy, so a partly priced period stays a consistent "priced so far" figure.
+Monthly fees are pro-rated by local calendar day (fee ÷ days in that month, a
+25-hour or 23-hour day counting as one day) and are added once per Home
+summary, as `totalCostEur`. Summaries return the split as `costBreakdown`, with
+the components they include.
+
+Properties upgraded from before 0.43 start with one open-ended version built
+from the earlier contract fields: spot and "other" contracts keep their margin,
+and a fixed contract has no energy price until one is entered. Until dated
+versions are saved, a margin change applies to the whole history. The older
+`marginCentsPerKwh`, `contractType` and `monthlyFeeEur` configuration fields
+still work: they show, and update, the version in force today.
+
+## Bill check
+
+Invoices are entered by hand (billing dates, total, and optionally kWh and the
+energy, transfer, tax and fee lines). A reconciliation calculates the Home
+summary for the invoice's local billing dates and reports the error of the total
+and of each entered line. The status uses the total: within ±2% counts as
+reconciled.
 
 Custom HTTPS sources are supported when they return the same JSON shape as the
 Pörssisähkö `prices` response.
@@ -52,10 +91,20 @@ Pörssisähkö `prices` response.
 ## REST API
 
 ```text
-GET  /api/v1/properties/{propertyId}/electricity
-PUT  /api/v1/properties/{propertyId}/electricity/config
-POST /api/v1/properties/{propertyId}/electricity/refresh
+GET    /api/v1/properties/{propertyId}/electricity
+PUT    /api/v1/properties/{propertyId}/electricity/config
+POST   /api/v1/properties/{propertyId}/electricity/refresh
+GET    /api/v1/properties/{propertyId}/electricity/tariff
+PUT    /api/v1/properties/{propertyId}/electricity/tariff
+GET    /api/v1/properties/{propertyId}/electricity/invoices
+POST   /api/v1/properties/{propertyId}/electricity/invoices
+DELETE /api/v1/properties/{propertyId}/electricity/invoices/{invoiceId}
+GET    /api/v1/properties/{propertyId}/electricity/invoices/{invoiceId}/reconciliation
 ```
+
+`PUT …/tariff` replaces every version and accepts the loaded `revision` to
+reject a concurrent edit with 409. Invoices and reconciliations are not shown to
+Guests.
 
 The GET response contains `config`, `current`, and `prices`. Each price point
 contains both raw and effective values so consumers never have to guess which
