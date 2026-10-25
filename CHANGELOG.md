@@ -2,6 +2,13 @@
 
 All notable Stugu releases are recorded here.
 
+## 0.42.8
+
+- Fix the remaining 11 security advisories in the development and test toolchain. None of these packages ships in the containers or the Raspberry Pi image:
+  - `vitest` and `@vitest/coverage-v8` 4.1.12, which brings `@vitest/mocker` 4.1.12 (GHSA-qxg6-89mg-rqv8 and GHSA-xp26-3454-mjgp, medium): code injection through mock registration, and a Windows path traversal past the mock allowlist.
+  - `undici` 7.30.1 (GHSA-w293-vg96-wgc3 and GHSA-xjj6-f33q-929c, high, plus five medium and low advisories) and `sharp` 0.35.5 (GHSA-rgj7-g3m4-5g8c and GHSA-wq5f-xc86-pv6w, high). Both come from the Cloudflare test pool that runs the bug-report relay's tests. Even its newest release pins the vulnerable versions exactly, so a root `overrides` entry for `miniflare` moves them to the patched versions.
+- Upgrade impact: no application change. Only development and test tooling is updated; the API, web app, database, configuration, Compose and host trust are unchanged.
+
 ## 0.42.7
 
 - Add code-quality gates that fail the build instead of relying on written advice:
