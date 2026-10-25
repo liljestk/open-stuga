@@ -100,7 +100,9 @@ describe("frontend regressions", () => {
   it("removes the closed mobile navigation from interaction and restores it when opened", async () => {
     const user = userEvent.setup();
     vi.spyOn(HTMLElement.prototype, "getClientRects").mockImplementation(function (this: HTMLElement) {
-      const hidden = this.classList.contains("desktop-navigation-hide") || Boolean(this.closest("details:not([open])"));
+      // Like a browser, nothing inside a collapsed disclosure or a closed dialog has layout boxes.
+      const hidden = this.classList.contains("desktop-navigation-hide")
+        || Boolean(this.closest("details:not([open]), dialog:not([open])"));
       return { length: hidden ? 0 : 1 } as DOMRectList;
     });
     vi.stubGlobal("matchMedia", vi.fn().mockImplementation((media: string) => ({

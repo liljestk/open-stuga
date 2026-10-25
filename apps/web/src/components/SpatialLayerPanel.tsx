@@ -252,7 +252,7 @@ export function SpatialLayerPanel({ layers, timeZone, historyAt = null, compact 
           aria-pressed={selected}
           onClick={() => layers.setLayerSelected(layerId, !selected)}
         >
-          <span>{spatialLayerLabel(layerId, t)}</span>
+          <span>{spatialLayerLabel(layerId, t)}</span>{" "}
           <small>{t(`spatial.maturity.${manifest?.maturity ?? "research"}` as TranslationKey)}</small>
         </button>;
         })}<button type="button" className="spatial-refresh" disabled={layers.refreshing} aria-label={t("spatial.refresh")} title={t("spatial.refresh")} onClick={() => void layers.refresh()}><RefreshCw size={17} className={layers.refreshing ? "spin" : ""} aria-hidden="true" /></button></div>
