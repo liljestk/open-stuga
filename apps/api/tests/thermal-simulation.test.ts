@@ -149,6 +149,40 @@ describe("effective thermal simulation", () => {
     expect(result.points.every((point) => point.lowC <= point.simulatedTemperatureC && point.highC >= point.simulatedTemperatureC)).toBe(true);
   });
 
+  it("fits every heat-pump-off stretch of a cycling heat pump instead of only the longest one", () => {
+    const series = syntheticSeries(7 * 24, 10);
+    const start = Date.parse(series.indoor[0]!.timestamp);
+    // The heat pump runs 3 h of every 8: no passive stretch is longer than 5 h.
+    const passiveIntervals = Array.from({ length: 21 }, (_, cycle) => ({
+      fromMs: start + (cycle * 8 + 3) * 3_600_000,
+      toMs: start + (cycle * 8 + 8) * 3_600_000,
+    }));
+    const result = runThermalSimulation({
+      houseId: "house-synthetic",
+      sensorId: "sensor-synthetic",
+      roomLabel: "Cycling room",
+      from: series.indoor[0]!.timestamp,
+      to: series.indoor.at(-1)!.timestamp,
+      indoorSamples: series.indoor,
+      outdoorSamples: series.outdoor,
+      horizonHours: 0,
+      passiveIntervals,
+    });
+    const model = result.calibration.model!;
+    expect(result.calibration.status).not.toBe("insufficient-data");
+    expect(model.version).toBe("1.1.0");
+    expect(result.calibration.quality.stretchesUsed).toBe(21);
+    expect(result.calibration.quality.durationHours).toBeGreaterThan(90);
+    expect(Math.abs(model.parameters.timeConstantHours / 24 - 1)).toBeLessThanOrEqual(0.1);
+    expect(model.sensitivity.timeConstantLowHours).toBeLessThanOrEqual(model.parameters.timeConstantHours);
+    expect(model.sensitivity.timeConstantHighHours).toBeGreaterThanOrEqual(model.parameters.timeConstantHours);
+    // Reconstruction restarts at each stretch instead of simulating across heating periods.
+    const fit = result.points.filter((point) => point.phase === "fit");
+    expect(fit.every((point) => passiveIntervals.some((interval) => (
+      Date.parse(point.timestamp) >= interval.fromMs && Date.parse(point.timestamp) <= interval.toMs
+    )))).toBe(true);
+  });
+
   it("returns a typed collecting state instead of inventing missing boundary history", () => {
     const series = syntheticSeries(6);
     const result = runThermalSimulation({

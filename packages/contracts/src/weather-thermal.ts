@@ -213,7 +213,8 @@ export type ThermalCalibrationStatus = "ready" | "provisional" | "insufficient-d
 /** A fitted, effective first-order room model. Parameters are empirical, not construction properties. */
 export interface ThermalModelV1 {
   method: "first-order-lumped-v1";
-  version: "1.0.0";
+  /** 1.1.0 fits every passive stretch, searches τ up to 1,000 h and reports a bootstrap interval. */
+  version: "1.0.0" | "1.1.0";
   scope: {
     houseId: string;
     sensorIds: string[];
@@ -223,6 +224,8 @@ export interface ThermalModelV1 {
   parameters: {
     timeConstantHours: number;
     effectiveEquilibriumLiftC: number;
+    /** Daily (24 h) swing of the equilibrium from sun and occupancy, when the data shows one. */
+    dailyCycle?: { amplitudeC: number; peakHourUtc: number };
   };
   applicability: {
     indoorMinC: number;
@@ -231,6 +234,7 @@ export interface ThermalModelV1 {
     outdoorMaxC: number;
     maxHorizonHours: number;
   };
+  /** Since 1.1.0 the time-constant bounds are a 90% block-bootstrap interval and the lift bounds are refitted at them. */
   sensitivity: {
     timeConstantLowHours: number;
     timeConstantHighHours: number;
@@ -252,6 +256,8 @@ export interface ThermalCalibrationQuality {
   validationBiasC: number | null;
   persistenceMaeC: number | null;
   residualP90C: number | null;
+  /** Heat-pump-off stretches the fit used (since model 1.1.0). */
+  stretchesUsed?: number;
 }
 
 export interface ThermalCalibrationResult {
@@ -438,6 +444,9 @@ export interface MoistureResponseEntry {
     outdoorRangeHpa: number;
     validationMaeHpa: number | null;
     persistenceMaeHpa: number | null;
+    /** 90% block-bootstrap interval of the response time (medians for aggregated scopes). */
+    responseTimeLowHours?: number | null;
+    responseTimeHighHours?: number | null;
   };
   warnings: string[];
 }

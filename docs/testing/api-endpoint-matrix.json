@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
-  "projectVersion": "0.43.0",
+  "projectVersion": "0.44.0",
   "executionStatus": "not-run",
   "source": {
     "documents": {
       "v1": {
         "path": "apps/api/src/openapi.ts",
-        "sha256": "2f7cd732898a009e791b7d4ede587d355eceb00c76212c25ffd4dc9e5e17bd2c"
+        "sha256": "5cca382002b8ca6ab1ebbe651e8a4bb134298c645d2070bc0e0fef177c1dcf98"
       },
       "v2": {
         "path": "apps/api/src/openapi.ts",
-        "sha256": "e7df61561e04b6ec9c76dc8081a8fe7b4b5dd14f12bf5ed6c9161faeacc4dc99"
+        "sha256": "de8377a83cb2e009efed131a37d5f57f1204e8922260765afc9658b3db8c8204"
       }
     },
     "supplementalSourceHashes": {
@@ -9339,7 +9339,11 @@
             "const": "first-order-lumped-v1"
           },
           "version": {
-            "const": "1.0.0"
+            "enum": [
+              "1.0.0",
+              "1.1.0"
+            ],
+            "description": "1.1.0 fits every heat-pump-off stretch, searches the time constant up to 1,000 h, and reports a 90% block-bootstrap interval in sensitivity."
           },
           "scope": {
             "type": "object",
@@ -9379,6 +9383,24 @@
               },
               "effectiveEquilibriumLiftC": {
                 "type": "number"
+              },
+              "dailyCycle": {
+                "type": "object",
+                "required": [
+                  "amplitudeC",
+                  "peakHourUtc"
+                ],
+                "properties": {
+                  "amplitudeC": {
+                    "type": "number"
+                  },
+                  "peakHourUtc": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 24
+                  }
+                },
+                "description": "Daily swing of the equilibrium from sun and occupancy, when the data shows one."
               }
             }
           },
@@ -10201,6 +10223,22 @@
                   "null"
                 ],
                 "minimum": 0
+              },
+              "responseTimeLowHours": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "minimum": 0,
+                "description": "Lower end of the 90% block-bootstrap interval of the response time."
+              },
+              "responseTimeHighHours": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "minimum": 0,
+                "description": "Upper end of the 90% block-bootstrap interval of the response time."
               }
             }
           },

@@ -144,6 +144,8 @@ export const schemasPart05 = {
             quality: { type: "object", additionalProperties: false, required: ["durationHours", "outdoorRangeHpa", "validationMaeHpa", "persistenceMaeHpa"], properties: {
               durationHours: { type: "number", minimum: 0 }, outdoorRangeHpa: { type: "number", minimum: 0 },
               validationMaeHpa: { type: ["number", "null"], minimum: 0 }, persistenceMaeHpa: { type: ["number", "null"], minimum: 0 },
+              responseTimeLowHours: { type: ["number", "null"], minimum: 0, description: "Lower end of the 90% block-bootstrap interval of the response time." },
+              responseTimeHighHours: { type: ["number", "null"], minimum: 0, description: "Upper end of the 90% block-bootstrap interval of the response time." },
             } },
             warnings: { type: "array", items: { type: "string" } },
           },
