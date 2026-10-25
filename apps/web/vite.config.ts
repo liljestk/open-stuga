@@ -1,6 +1,24 @@
 import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 
+/**
+ * jsdom 30 supports Node ^22.22.2 || ^24.15.0 || >=26. The app itself still
+ * runs on Node 22.13, so only the test environment enforces this, and it
+ * does so up front instead of failing deep inside a DOM call.
+ */
+function assertTestNodeVersion(version: string): void {
+  const [major = 0, minor = 0, patch = 0] = version.split(".").map(Number);
+  const atLeast = (minimumMinor: number, minimumPatch: number) => (
+    minor > minimumMinor || (minor === minimumMinor && patch >= minimumPatch)
+  );
+  const supported = (major === 22 && atLeast(22, 2)) || (major === 24 && atLeast(15, 0)) || major >= 26;
+  if (!supported) {
+    throw new Error(`Web tests need Node.js 22.22.2+, 24.15+ or 26+ (jsdom 30); found ${version}.`);
+  }
+}
+
+if (process.env.VITEST) assertTestNodeVersion(process.versions.node);
+
 export default defineConfig({
   plugins: [react()],
   // Keep one documented environment file at the workspace root.

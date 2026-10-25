@@ -6,8 +6,9 @@ workflows remain available only as manually confirmed fallbacks.
 
 ## Prepare this computer
 
-Install Node.js 22.13 or newer, Python 3.13, and Docker Desktop. Then install
-the locked dependencies:
+Install Node.js 22.22.2 or newer, Python 3.13, and Docker Desktop. Stugu itself
+runs on Node 22.13+, but the gate's web tests use jsdom 30, which needs 22.22.2+.
+Then install the locked dependencies:
 
 ```sh
 npm ci

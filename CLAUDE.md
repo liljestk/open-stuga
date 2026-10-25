@@ -55,9 +55,10 @@ npm run verify:local -- --fast  # diff, architecture/types, affected tests
 npm run verify:local -- --full  # authoritative full gate plus exact-input receipt
 ```
 
-Full verification needs Docker Desktop and a Python 3.13 environment with
-`apps/api/python/requirements*.txt` installed; the native Apple checks only run
-on macOS.
+Full verification needs Docker Desktop, Node.js 22.22.2+ (the web tests' jsdom
+30; the runtime floor in `engines` and setup stays 22.13), and a Python 3.13
+environment with `apps/api/python/requirements*.txt` installed; the native Apple
+checks only run on macOS.
 
 **Rebuild contracts after editing them.** `@climate-twin/contracts` resolves to
 `packages/contracts/dist`, so API/web tests keep using the previous build until
