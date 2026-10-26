@@ -30,6 +30,7 @@ import { useHouseWeather } from "../useHouseWeather";
 import { useI18n } from "../i18n";
 import { formatMeasurement, measurementLabel, type MeasurementForecasts } from "../measurements";
 import { useNow } from "../useNow";
+import { compareCodeUnits } from "../textOrder";
 
 interface DataAnalyticsPageProps {
   state: ClimateState;
@@ -130,7 +131,7 @@ function analyticsStateFromLocation(metricIds: readonly Metric[], sensorIds: rea
   const requestedSensors = params.get("sensors");
   const requestedWeather = params.get("weather");
   const validRequestedSensors = requestedSensors && requestedSensors !== "none"
-    ? [...new Set(requestedSensors.split(",").filter((sensorId) => sensorIds.includes(sensorId)))].sort()
+    ? [...new Set(requestedSensors.split(",").filter((sensorId) => sensorIds.includes(sensorId)))].sort(compareCodeUnits)
     : [];
   const resolution = ANALYTICS_RESOLUTIONS.some((option) => option === requestedResolution)
     ? requestedResolution as AnalyticsResolution
@@ -169,7 +170,7 @@ function writeAnalyticsStateToLocation(state: AnalyticsLocationState, mode: "pus
   write("metric", state.metric, defaultMetric);
   if (state.selectedSensorIds === null) url.searchParams.delete("sensors");
   else if (state.selectedSensorIds.length === 0) url.searchParams.set("sensors", "none");
-  else url.searchParams.set("sensors", [...new Set(state.selectedSensorIds)].sort().join(","));
+  else url.searchParams.set("sensors", [...new Set(state.selectedSensorIds)].sort(compareCodeUnits).join(","));
   const weather = state.weatherObservationsVisible
     ? state.weatherForecastVisible ? null : "observations"
     : state.weatherForecastVisible ? "forecast" : "none";
@@ -307,7 +308,7 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
   const selectedSensors = useMemo(() => selectedSensorIds === null
     ? metricSensors.filter((sensor) => sensor.enabled)
     : metricSensors.filter((sensor) => selectedSensorIds.includes(sensor.id)), [metricSensors, selectedSensorIds]);
-  const selectedSensorKey = selectedSensors.map((sensor) => sensor.id).sort().join("\u0000");
+  const selectedSensorKey = selectedSensors.map((sensor) => sensor.id).sort(compareCodeUnits).join("\u0000");
   const sensorsOpen = openTools.has("sensors");
   const sensorRecoveryErrors = [...new Set([historyError, analyticsError]
     .filter((detail): detail is string => Boolean(detail)))];

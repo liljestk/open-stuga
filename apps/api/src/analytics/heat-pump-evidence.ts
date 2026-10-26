@@ -3,6 +3,7 @@ import type {
   MeasurementSample,
 } from "@climate-twin/contracts";
 import type { ClimateDatabase } from "../db.js";
+import { compareCodeUnits } from "../text-order.js";
 
 const MINUTE_MS = 60_000;
 const MAX_STATE_GAP_MS = 5 * MINUTE_MS;
@@ -61,7 +62,7 @@ export function configuredHeatPumpConnectionIds(
   return [...new Set((connections ?? [])
     .filter((connection) => connection.houseId === houseId)
     .map((connection) => connection.id))]
-    .sort();
+    .sort(compareCodeUnits);
 }
 
 export function heatPumpEvidenceInfluenceRange(observedAt: string): { from: string; to: string } {
@@ -148,12 +149,15 @@ function withoutBridgedUnavailabilityBlips(
   points: readonly HeatPumpEvidencePoint[],
 ): HeatPumpEvidencePoint[] {
   const result: HeatPumpEvidencePoint[] = [];
-  for (let index = 0; index < points.length; index += 1) {
+  let index = 0;
+  while (index < points.length) {
     const point = points[index]!;
     if (point.classification !== "unknown") {
       result.push(point);
+      index += 1;
       continue;
     }
+    // Skip the whole run of unknown points at once.
     let end = index;
     while (end < points.length && points[end]!.classification === "unknown") end += 1;
     const previous = points[index - 1];
@@ -162,7 +166,7 @@ function withoutBridgedUnavailabilityBlips(
       && next?.classification === "off"
       && next.time - previous.time <= MAX_STATE_GAP_MS;
     if (!bridged) result.push(...points.slice(index, end));
-    index = end - 1;
+    index = end;
   }
   return result;
 }
@@ -219,7 +223,7 @@ export function buildHeatPumpExclusionWindow(input: {
   const toMs = finiteTime(input.to, "to");
   if (fromMs >= toMs) throw new RangeError("Heat-pump evidence range must be positive");
   const windowMs = toMs - fromMs;
-  const connectionIds = [...new Set(input.connectionIds)].sort();
+  const connectionIds = [...new Set(input.connectionIds)].sort(compareCodeUnits);
   const configuredConnectionIds = new Set(
     input.configuredConnectionIds ?? connectionIds,
   );

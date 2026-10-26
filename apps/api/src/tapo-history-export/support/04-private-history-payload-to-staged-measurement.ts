@@ -2,7 +2,8 @@ import { createHash, createHmac, randomBytes, randomUUID } from "node:crypto";
 import { lookup } from "node:dns/promises";
 import { readFileSync, readdirSync } from "node:fs";
 import { request as httpsRequest } from "node:https";
-import { BlockList, isIP } from "node:net";
+import { isIP } from "node:net";
+import { isPublicIpAddress } from "../../reserved-network-addresses.js";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { MeasurementSample } from "@climate-twin/contracts";
@@ -30,20 +31,6 @@ export interface PrivateHistoryPayload {
   samples?: unknown;
 }
 
-export const PRIVATE_ENDPOINT_RESERVED_ADDRESSES = new BlockList();
-
-for (const [network, prefix] of [
-  ["0.0.0.0", 8], ["10.0.0.0", 8], ["100.64.0.0", 10], ["127.0.0.0", 8],
-  ["169.254.0.0", 16], ["172.16.0.0", 12], ["192.0.0.0", 24], ["192.0.2.0", 24],
-  ["192.168.0.0", 16], ["198.18.0.0", 15], ["198.51.100.0", 24], ["203.0.113.0", 24],
-  ["224.0.0.0", 4], ["240.0.0.0", 4],
-] as const) PRIVATE_ENDPOINT_RESERVED_ADDRESSES.addSubnet(network, prefix, "ipv4");
-
-for (const [network, prefix] of [
-  ["::", 128], ["::1", 128], ["64:ff9b:1::", 48], ["100::", 64], ["2001:2::", 48],
-  ["2001:10::", 28], ["2001:db8::", 32], ["fc00::", 7], ["fe80::", 10], ["ff00::", 8],
-] as const) PRIVATE_ENDPOINT_RESERVED_ADDRESSES.addSubnet(network, prefix, "ipv6");
-
 export function normalizedEndpointHost(value: string): string {
   return value.trim().toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "");
 }
@@ -54,8 +41,7 @@ export function isPublicEndpointAddress(value: string): boolean {
   // into this range internally, so adding the /96 subnet would also block all
   // ordinary public IPv4 addresses.
   if (address.startsWith("::ffff:")) return false;
-  const family = isIP(address);
-  return family > 0 && !PRIVATE_ENDPOINT_RESERVED_ADDRESSES.check(address, family === 4 ? "ipv4" : "ipv6");
+  return isPublicIpAddress(address);
 }
 
 export function validatePrivateEndpoint(value: string): string {

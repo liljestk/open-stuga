@@ -81,6 +81,8 @@ export interface EwpeCloudTransport {
   ): Promise<void>;
 }
 
+// The EWPE cloud API defines its request signatures and login hash with MD5.
+// Stugu never uses this digest to protect anything of its own.
 function md5(value: string): string {
   return createHash("md5").update(value, "utf8").digest("hex");
 }

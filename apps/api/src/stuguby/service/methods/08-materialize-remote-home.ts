@@ -93,6 +93,7 @@ import {
 } from "../../store.js";
 import { grantAudienceIncludes, grantExpired, recoveryAssetReferences } from "../support/01-stuguby-error-to-without-local-grant-identity.js";
 import { registerStugubyServiceMethods, stugubyServiceState, type StugubyServiceInternals } from "../core.js";
+import { compareCodeUnits } from "../../../text-order.js";
 
 registerStugubyServiceMethods({
   removeRemoteHomeProjection(
@@ -462,7 +463,7 @@ registerStugubyServiceMethods({
         && requiredSchemas.every((schema) => bySchema.has(schema))
         && recoveryArchiveReady
         && blobsReady;
-      const syncedThrough = resources.map((resource) => resource.receivedAt).sort().at(-1) ?? null;
+      const syncedThrough = resources.map((resource) => resource.receivedAt).sort(compareCodeUnits).at(-1) ?? null;
       const projection: StugubyHomeProjection = {
         stugubyId,
         authorityNodeId,

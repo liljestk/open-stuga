@@ -1,3 +1,4 @@
+import { compareCodeUnits } from "./text-order.js";
 export function clamp(value: number, minimum = 0, maximum = 1): number {
   return Math.min(maximum, Math.max(minimum, value));
 }
@@ -61,7 +62,7 @@ function stableStringify(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
   const record = value as Record<string, unknown>;
   return `{${Object.keys(record)
-    .sort()
+    .sort(compareCodeUnits)
     .map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`)
     .join(',')}}`;
 }

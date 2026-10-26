@@ -14,6 +14,7 @@ import type {
 import { MeasurementService, RuntimeStatus, TelemetryService } from "../../services.js";
 import { PendingTpLinkHistoryRequest, TapoOpeningTarget, TpLinkHistoryResultMessage, importTpLinkMappingFile, nonEmptyString, safeTpLinkHistoryFailure, tpLinkDeviceType, validateTpLinkDeviceMappings } from "../support/01-tp-link-local-climate-history-capability-revision-to.js";
 import { registerTpLinkConnectionBridgeMethods, tpLinkConnectionBridgeState, type TpLinkConnectionBridgeInternals } from "../core.js";
+import { compareCodeUnits } from "../../text-order.js";
 
 registerTpLinkConnectionBridgeMethods({
   start(this: TpLinkConnectionBridgeInternals): void {
@@ -30,7 +31,7 @@ registerTpLinkConnectionBridgeMethods({
             : stored ? validateTpLinkDeviceMappings(stored.mappings) : [];
           const missingSensorIds = [...new Set(legacyMappings
             .filter((mapping) => !this[tpLinkConnectionBridgeState].database.getSensor(mapping.sensorId))
-            .map((mapping) => mapping.sensorId))].sort();
+            .map((mapping) => mapping.sensorId))].sort(compareCodeUnits);
           this[tpLinkConnectionBridgeState].mappingWarning = missingSensorIds.length > 0
             ? `Ignored TP-Link mappings for unknown sensors: ${missingSensorIds.join(", ")}`
             : null;
@@ -339,7 +340,7 @@ registerTpLinkConnectionBridgeMethods({
         mappedSensors.add(sensor.id);
       }
       const missingSensorIds = [...new Set([...this[tpLinkConnectionBridgeState].legacyMappings.values()]
-        .filter((sensorId) => !this[tpLinkConnectionBridgeState].database.getSensor(sensorId)))].sort();
+        .filter((sensorId) => !this[tpLinkConnectionBridgeState].database.getSensor(sensorId)))].sort(compareCodeUnits);
       this[tpLinkConnectionBridgeState].mappingWarning = missingSensorIds.length > 0
         ? `Ignored TP-Link mappings for unknown sensors: ${missingSensorIds.join(", ")}`
         : null;

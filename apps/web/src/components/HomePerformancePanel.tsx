@@ -182,7 +182,7 @@ export function HomePerformancePanel(props: Readonly<HomePerformancePanelProps>)
           </div>}
       <div className="isolation-controls">
         {performance && <PerformanceState state={performance.status} />}
-        {canRefresh && <button type="button" className="secondary-button" onClick={() => void query.refresh()} disabled={query.isFetching || props.dataMode === "unknown"}>
+        {canRefresh && <button type="button" className="secondary-button" onClick={() => query.refresh()} disabled={query.isFetching || props.dataMode === "unknown"}>
           <RefreshCw className={query.isFetching ? "spin" : ""} size={14} aria-hidden="true" />{t("common.refresh")}
         </button>}
       </div>

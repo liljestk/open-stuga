@@ -1,7 +1,8 @@
 import type { IntegrationStatus } from "@climate-twin/contracts";
+import { compareCodeUnits } from "./textOrder";
 
 function newest(values: Array<string | null>): string | null {
-  return values.filter((value): value is string => Boolean(value)).sort().at(-1) ?? null;
+  return values.filter((value): value is string => Boolean(value)).sort(compareCodeUnits).at(-1) ?? null;
 }
 
 /**

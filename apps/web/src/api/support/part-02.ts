@@ -401,9 +401,15 @@ export const SAFE_HTTP_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
 export const apiClientState = { csrfToken: null as string | null };
 
-export const activeRequestControllers = new Set<AbortController>();
+const activeRequestControllers = new Set<AbortController>();
 
 export let apiRequestGeneration = 0;
+
+/** Track an in-flight request so a session change can abort it; call the result once it settles. */
+export function trackApiRequestController(controller: AbortController): () => void {
+  activeRequestControllers.add(controller);
+  return () => activeRequestControllers.delete(controller);
+}
 
 export type ApiAuthorizationChange = "changed" | "expired";
 

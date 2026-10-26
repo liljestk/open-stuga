@@ -61,6 +61,16 @@ type DeferredContext = {
   handleTelemetry: (event: TelemetryEvent) => void;
   handleMeasurement: (sample: MeasurementSample) => void;
 };
+/** Replays sensor mutations that arrived while the workspace sensor index loaded, house by house. */
+function replayWorkspaceSensors(houses: readonly House[], sensors: readonly Sensor[], mutations: HouseMutationBuffer): Sensor[] {
+  return houses.flatMap((house) => replayHouseMutations(house.id, {
+    sensors: sensors.filter((sensor) => sensor.houseId === house.id),
+    observations: [],
+    maintenanceTasks: [],
+    staticParameters: [],
+  }, mutations).sensors);
+}
+
 export function useSessionLifecycle(
   context: WorkspaceHydrationContext,
 ): WorkspaceHydrationContext & SessionLifecycleActions {
@@ -217,14 +227,10 @@ export function useSessionLifecycle(
             propertyNotes,
             maintenanceTasks: scopedMaintenanceResult.tasks ?? current.maintenanceTasks,
             houses,
+            // Replay inside the updater so mutations buffered until React applies it are included.
             sensors: workspaceSensors === null
               ? current.sensors.filter((sensor) => accessibleHouseIds.has(sensor.houseId))
-              : houses.flatMap((house) => replayHouseMutations(house.id, {
-                  sensors: workspaceSensors.filter((sensor) => sensor.houseId === house.id),
-                  observations: [],
-                  maintenanceTasks: [],
-                  staticParameters: [],
-                }, workspaceSensorMutations).sensors),
+              : replayWorkspaceSensors(houses, workspaceSensors, workspaceSensorMutations),
           }));
           const currentHouse = activeHouseId.current
             ? houses.find((house) => house.id === activeHouseId.current)

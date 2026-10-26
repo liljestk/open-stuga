@@ -13,6 +13,7 @@ import {
 } from "../../timeseries/read-facade.js";
 import type { AnalyticsWorkLimiter } from "../work-limiter.js";
 import { executeAnalyticsQuery } from "./execute.js";
+import { compareCodeUnits } from "../../text-order.js";
 
 export interface AnalyticsQueryRouteContext {
   app: express.Express;
@@ -102,8 +103,8 @@ export function registerAnalyticsQueryRoutes(context: AnalyticsQueryRouteContext
         start: record.start,
         end: record.end,
       }));
-      const starts = series.map((item) => item.start).sort();
-      const ends = series.map((item) => item.end).sort();
+      const starts = series.map((item) => item.start).sort(compareCodeUnits);
+      const ends = series.map((item) => item.end).sort(compareCodeUnits);
       response.setHeader("cache-control", "no-store");
       response.setHeader(
         "server-timing",

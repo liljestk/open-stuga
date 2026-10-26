@@ -4,6 +4,7 @@ import type {
   WeatherUpdateEvent,
   WeatherUpdateTrigger,
 } from "@climate-twin/contracts";
+import { compareCodeUnits } from "./text-order.js";
 
 const DEFAULT_RECENT_EVENT_LIMIT = 256;
 
@@ -32,7 +33,7 @@ function canonicalValue(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonicalValue);
   if (!value || typeof value !== "object") return value;
   const result: Record<string, unknown> = {};
-  for (const key of Object.keys(value).sort()) {
+  for (const key of Object.keys(value).sort(compareCodeUnits)) {
     const item = (value as Record<string, unknown>)[key];
     if (item !== undefined) result[key] = canonicalValue(item);
   }

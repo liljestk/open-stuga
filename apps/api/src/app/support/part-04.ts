@@ -183,6 +183,7 @@ import {
 } from "../../tracking/store.js";
 import { HttpError } from "./part-01.js";
 import { roleCanManageWorkspace } from "../access-policy.js";
+import { compareCodeUnits } from "../../text-order.js";
 
 export function visibleCollectionPage<T>(
   load: (limit: number, offset: number) => T[],
@@ -322,7 +323,9 @@ export function clearLocalSessionCookies(response: Response, request: Request, c
 
 export function isLoopbackSocket(request: Request): boolean {
   const address = request.socket.remoteAddress?.toLowerCase();
-  return address === "127.0.0.1" || address === "::1" || address === "::ffff:127.0.0.1";
+  // Dual-stack sockets report IPv4 peers as IPv4-mapped IPv6 addresses.
+  const peer = address?.startsWith("::ffff:") ? address.slice("::ffff:".length) : address;
+  return peer === "127.0.0.1" || peer === "::1";
 }
 
 export function isPrivateProxySocket(address: string | undefined): boolean {
@@ -407,7 +410,7 @@ export function sessionDocument(identity: LocalAuthIdentity, csrfToken?: string)
 export function localAuthorizationFingerprint(identity: LocalAuthIdentity): string {
   const grants = identity.grants
     .map((grant) => `${grant.scopeType}:${grant.scopeId}`)
-    .sort();
+    .sort(compareCodeUnits);
   return createHash("sha256")
     .update(JSON.stringify([identity.userId, identity.role, grants]))
     .digest("base64url");

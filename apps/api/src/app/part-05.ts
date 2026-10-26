@@ -184,6 +184,7 @@ import {
 import { AREA_EQUIPMENT_STATUSES, AuthAbuseLimiter, HttpError, LOCAL_CSRF_COOKIE, LOCAL_SESSION_COOKIE, LOCAL_SESSION_MAX_AGE_MS, LocalVisibility, MAINTENANCE_BASES, MAINTENANCE_CREATE_FIELDS, MAINTENANCE_PATCH_FIELDS, MAINTENANCE_PRIORITIES, MAINTENANCE_STATUSES, MAX_EQUIPMENT_ATTACHMENT_BYTES, MAX_EVENT_STREAMS_GLOBAL, MAX_EVENT_STREAMS_PER_USER, MAX_SSE_QUEUE_BYTES, MAX_SSE_QUEUE_MESSAGES, MEASUREMENT_ID_PATTERN, OBSERVATION_CONFIDENCES, OBSERVATION_CREATE_FIELDS, OBSERVATION_KINDS, OBSERVATION_PATCH_FIELDS, OBSERVATION_SEVERITIES, OBSERVATION_SOURCES, OBSERVATION_STATUSES, OBSERVATION_TIME_PRECISIONS, PROPERTY_AREA_KINDS, PROPERTY_NOTE_KINDS, RESERVED_MEASUREMENT_IDS, SAFE_ASSET_MIME_TYPES, SAFE_EQUIPMENT_DOCUMENT_MIME_TYPES, SAFE_EQUIPMENT_PHOTO_MIME_TYPES, SAFE_HTTP_METHODS, UUID_PATTERN, alertDurationSeconds, appleNotesCaptureInput, appleNotesCaptureMatches, appleNotesGrant, appleNotesGrantSummary, appleNotesSnapshot, assertEquipmentAttachmentMediaType, auditAccountSubject, authAttemptKeys, bodyObject, boundedQueryInteger, boundedSseWriter, browserOriginAllowed, clearLocalSessionCookies, cloudflareUiRedirectUri, collectionPage, completeVisibleCollection, cookieValue, credentialString, dateValue, enumValue, equipmentAttachmentData, equipmentAttachmentDisposition, homeAssistantUrl, houseLocationValue, houseMapPlacementValue, initializeIntegrationMetadata, isIOSNotificationRegistrationPath, isLoopbackSocket, isPrivateProxySocket, isTrackingObserverHeartbeatPath, keyMatches, localAuthorizationFingerprint, localCloudflareUiRequestAllowed, localSetupRequestAllowed, maintenanceDateValue, maintenanceObservationIds, maintenanceText, maintenanceTitle, measurementId, measurementNumberMap, measurementStringMap, measurementUnits, mirrorEnvironmentWebhook, networkHost, normalizedHostname, normalizedOrigin, notePlainLine, noteTaskBlock, nullableFinite, nullablePropertyTarget, optionalBoolean, optionalNullableNumber, optionalNullableString, optionalObservationDate, optionalQueryNumber, optionalResourceQuery, optionalString, parseActionPlaybookInput, parseActionRunStart, parseAlertDeliveryPolicy, parseAlertRule, parseAreaEquipmentInput, parseAreaEquipmentPatch, parseEquipmentAttachmentUpload, parseEquipmentLinkInput, parseEquipmentLinkPatch, parseMaintenanceTaskInput, parseMaintenanceTaskPatch, parseMeasurementDefinition, parseMeasurementSample, parseObservationInput, parseObservationPatch, parsePropertyAreaInput, parsePropertyAreaPatch, parsePropertyInput, parsePropertyNoteInput, parsePropertyNotePatch, parsePropertyPatch, parseReading, parseSensorPatch, persistWeatherObservation, propertyCoordinate, propertyPolygon, propertyText, publicTapoHistoryExportJob, queryList, refreshAppleNotesStatus, rejectUnknownFields, requestOrigin, requestPrincipal, requireJsonContentType, requireNonGuest, requireWorkspaceAdmin, requiredNumber, requiredString, safeInteger, sameHomeAssistantCredential, sameTelegramCredential, sameTpLinkCredential, secureRequest, sessionDocument, setLocalSessionCookies, stringMap, trackingObserverAttemptKeys, trustedProxyClientAddress, trustedProxyRequest, trustedSelfHostname, validateMeasurementDefinition, visibleCollectionPage, workerTapoHistoryExportJob } from "./support/index.js";
 import type { ApiRuntime, AuthAttemptBucket, AuthAttemptLimit, BoundedSseWriter, CreateApiOptions, IntegrationDraftTestResult, LocalRequestPrincipal } from "./support/index.js";
 import { configureApiPart04 } from "./part-04.js";
+import { compareCodeUnits } from "../text-order.js";
 
 type DeferredContext = {
   activeEventStreamCount: number;
@@ -247,7 +248,7 @@ export function configureApiPart05(context: ReturnType<typeof configureApiPart04
       value.homeAssistant.configured = homeAssistantConnections.some((connection) => connection.configured);
       value.homeAssistant.connected = homeAssistantConnections.some((connection) => connection.connected);
       value.homeAssistant.lastEventAt = homeAssistantConnections.map((connection) => connection.lastEventAt)
-        .filter((timestamp): timestamp is string => Boolean(timestamp)).sort().at(-1) ?? null;
+        .filter((timestamp): timestamp is string => Boolean(timestamp)).sort(compareCodeUnits).at(-1) ?? null;
       value.homeAssistant.mappedEntities = homeAssistantConnections
         .reduce((total, connection) => total + connection.mappedEntities, 0);
       value.homeAssistant.error = homeAssistantConnections.map((connection) => connection.error).filter(Boolean).join("; ") || null;
@@ -256,7 +257,7 @@ export function configureApiPart05(context: ReturnType<typeof configureApiPart04
       value.tpLink.configured = tpLinkConnections.some((connection) => connection.configured);
       value.tpLink.connected = tpLinkConnections.some((connection) => connection.connected);
       value.tpLink.lastPollAt = tpLinkConnections.map((connection) => connection.lastPollAt)
-        .filter((timestamp): timestamp is string => Boolean(timestamp)).sort().at(-1) ?? null;
+        .filter((timestamp): timestamp is string => Boolean(timestamp)).sort(compareCodeUnits).at(-1) ?? null;
       value.tpLink.mappedDevices = tpLinkConnections.reduce((total, connection) => total + connection.mappedDevices, 0);
       value.tpLink.discoveredDevices = tpLinkConnections.reduce((total, connection) => total + connection.discoveredDevices, 0);
       value.tpLink.hubModel = tpLinkConnections.length === 1 ? tpLinkConnections[0]!.hubModel : null;
@@ -271,7 +272,7 @@ export function configureApiPart05(context: ReturnType<typeof configureApiPart04
         value.gree.configured = greeConnections.some((connection) => connection.configured);
         value.gree.connected = greeConnections.some((connection) => connection.connected);
         value.gree.lastPollAt = greeConnections.map((connection) => connection.lastPollAt)
-          .filter((timestamp): timestamp is string => Boolean(timestamp)).sort().at(-1) ?? null;
+          .filter((timestamp): timestamp is string => Boolean(timestamp)).sort(compareCodeUnits).at(-1) ?? null;
         value.gree.error = greeConnections.map((connection) => connection.error).filter(Boolean).join("; ") || null;
       }
       if (value.tuya) {
@@ -280,7 +281,7 @@ export function configureApiPart05(context: ReturnType<typeof configureApiPart04
         value.tuya.configured = tuyaConnections.some((connection) => connection.configured);
         value.tuya.connected = tuyaConnections.some((connection) => connection.connected);
         value.tuya.lastPollAt = tuyaConnections.map((connection) => connection.lastPollAt)
-          .filter((timestamp): timestamp is string => Boolean(timestamp)).sort().at(-1) ?? null;
+          .filter((timestamp): timestamp is string => Boolean(timestamp)).sort(compareCodeUnits).at(-1) ?? null;
         value.tuya.error = tuyaConnections.map((connection) => connection.error).filter(Boolean).join("; ") || null;
       }
       const weatherConnections = (value.weather.connections ?? []).filter((connection) => connection.houseId === houseId);
@@ -369,7 +370,6 @@ export function configureApiPart05(context: ReturnType<typeof configureApiPart04
       // after shutdown has begun; do not let that late SSE stream block drain.
       if (deferred.shutdownStarted) closeStream(true);
     };
-  context.app.disable("x-powered-by");
   context.app.use((request, response, next) => {
       response.setHeader("x-content-type-options", "nosniff");
       response.setHeader("referrer-policy", "no-referrer");

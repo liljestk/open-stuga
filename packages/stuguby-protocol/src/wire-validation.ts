@@ -3,6 +3,7 @@ import type { JsonObject, JsonValue, StugubyDataset, StugubyDatasetPayload, Stug
 
 import { eventPayloadForHash, legacySigningEnvelope, normalizeLegacySignedEvent, rememberLegacySignedEvent } from "./legacy-wire.js";
 import { ENVELOPE_SCHEMA_SET, EVENT_KIND_SET, assertSafeFederationPayload, coordinate, fail, isObject, isStugubyDataset, isStugubyRole, onlyKeys, optionalString, point, requireArray, requireBoolean, requireEnumString, requireFiniteNumber, requireIdentifier, requireInteger, requireIsoDate, requireNullableFiniteNumber, requireNullableString, requireString, requireStringArray, validateShareGrant, validateSharedProperty } from "./validation.js";
+import { compareCodeUnits } from "./text-order.js";
 
 export function validateDatasetPayload(dataset: StugubyDataset, value: unknown): StugubyDatasetPayload {
   assertSafeFederationPayload(value);
@@ -429,7 +430,7 @@ export function canonicalJson(value: JsonValue): string {
     return JSON.stringify(value);
   }
   if (Array.isArray(value)) return `[${value.map((item) => canonicalJson(item)).join(",")}]`;
-  return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key]!)}`).join(",")}}`;
+  return `{${Object.keys(value).sort(compareCodeUnits).map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key]!)}`).join(",")}}`;
 }
 
 export function eventSigningValue(event: StugubyWireEvent): string {

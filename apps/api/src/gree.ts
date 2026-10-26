@@ -17,6 +17,7 @@ import {
   type EwpeCloudSnapshot,
   type EwpeCloudTransport,
 } from "./ewpe-cloud.js";
+import { compareCodeUnits } from "./text-order.js";
 
 export interface GreeStatePayload {
   observedAt: string;
@@ -763,7 +764,7 @@ export class GreeBridge {
       configured: true,
       connected: connections.some((connection) => connection.connected),
       lastPollAt: connections.map((connection) => connection.lastPollAt)
-        .filter((value): value is string => Boolean(value)).sort().at(-1) ?? null,
+        .filter((value): value is string => Boolean(value)).sort(compareCodeUnits).at(-1) ?? null,
       error: connections.map((connection) => connection.error).filter(Boolean).join("; ") || null,
       connections,
     };

@@ -10,6 +10,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs";
+import { randomBytes } from "node:crypto";
 import { dirname } from "node:path";
 import { normalizeBugReportRelayInput, type BugReportRelayInput } from "@climate-twin/contracts";
 import { pendingIntegrationSecretsPath, withIntegrationSecretsLock } from "./integration-secrets-lock.js";
@@ -575,7 +576,7 @@ export function writeIntegrationSecrets(path: string, secrets: IntegrationSecret
   mkdirSync(directory, { recursive: true, mode: 0o700 });
   try { chmodSync(directory, 0o700); } catch { /* Windows ACLs are managed by the host. */ }
 
-  const temporary = `${path}.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`;
+  const temporary = `${path}.${process.pid}.${Date.now()}.${randomBytes(8).toString("hex")}.tmp`;
   let descriptor: number | null = null;
   try {
     descriptor = openSync(temporary, "wx", 0o600);
