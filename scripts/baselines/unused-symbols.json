@@ -344,7 +344,7 @@
     "apps/web/src/pages/SensorManagementPage.test.tsx": 5,
     "apps/web/src/pages/SensorManagementPage/main.tsx": 25,
     "apps/web/src/pages/SensorManagementPage/part-01.tsx": 55,
-    "apps/web/src/pages/SensorManagementPage/part-02.tsx": 109,
+    "apps/web/src/pages/SensorManagementPage/part-02.tsx": 108,
     "apps/web/src/pages/SensorManagementPage/part-03.tsx": 133,
     "apps/web/src/pages/SensorManagementPage/part-04.tsx": 150,
     "apps/web/src/pages/SensorManagementPage/render.tsx": 140,

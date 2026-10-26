@@ -53,10 +53,11 @@ git push origin HEAD
 
 Use `npm run verify:local -- --fast` for the diff, architecture/type checks, and
 affected tests while iterating. Its type step, `npm run typecheck`, ends with the
-unused-symbol ratchet (`npm run check:unused`). The first run of that ratchet
-compiles every workspace a second time with the unused-symbol flags, which took
-about a minute on the Windows dev box; later runs reuse an incremental cache in
-`node_modules/.cache/stugu-unused-symbols` and take a few seconds.
+unused-symbol ratchet (`npm run check:unused`). It compiles every workspace a
+second time with the unused-symbol flags, which takes 10–25 seconds on the
+Windows dev box. It deliberately runs without `--incremental`: whether an import
+counts as used depends on which files the checker visited first, so a partial
+recheck reports different counts.
 
 Claude Code runs the fast verification automatically: the Stop hook in
 `.claude/settings.json` (`scripts/agent-stop-gate.mjs`) runs it when a turn

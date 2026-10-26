@@ -97,9 +97,10 @@ export function typeScriptWorkspaces(root) {
   return directories.sort();
 }
 
-function runTsc(root, workspace, cacheDirectory) {
-  // The incremental cache makes repeat runs (and the agent stop gate) cheap.
-  const buildInfo = join(cacheDirectory, `${workspace.replaceAll("/", "-")}.tsbuildinfo`);
+function runTsc(root, workspace) {
+  // No --incremental: whether an import counts as referenced depends on which
+  // files the checker visited first, so a partial recheck reports different
+  // counts (one TS6192 per declaration becomes one TS6196 per specifier).
   return new Promise((resolvePromise, reject) => {
     const child = spawn(process.execPath, [
       tsc,
@@ -108,8 +109,6 @@ function runTsc(root, workspace, cacheDirectory) {
       "--noUnusedLocals",
       "--noUnusedParameters",
       "--pretty", "false",
-      "--incremental",
-      "--tsBuildInfoFile", buildInfo,
     ], { cwd: root, windowsHide: true });
     let output = "";
     child.stdout.setEncoding("utf8").on("data", (chunk) => { output += chunk; });
@@ -120,12 +119,10 @@ function runTsc(root, workspace, cacheDirectory) {
 }
 
 async function census(root) {
-  const cacheDirectory = join(root, "node_modules", ".cache", "stugu-unused-symbols");
-  mkdirSync(cacheDirectory, { recursive: true });
   const queue = typeScriptWorkspaces(root);
   const results = [];
   const worker = async () => {
-    while (queue.length) results.push(await runTsc(root, queue.shift(), cacheDirectory));
+    while (queue.length) results.push(await runTsc(root, queue.shift()));
   };
   const limit = Math.max(1, Math.min(4, Math.floor(availableParallelism() / 2)));
   await Promise.all(Array.from({ length: limit }, worker));
