@@ -62,7 +62,7 @@ import { qrCodeMatrix } from "../../qrCode";
 import { TrendChart } from "../../components/TrendChart";
 import { isLegacyTpLinkContactSensor, tpLinkOpeningMatchesDevice } from "../../tpLinkDeviceClassification";
 import { HistoricalImportWizard, PlacementPicker, SensorLabelCard, UNPLACED_TAG, availableForSensor, clamp, deviceBindingKey, draftContext, draftForSensor, errorMessage, hasHomeAssistantBinding, hasRealBinding, initialDraft, isDemoSensor, isLive, isUnplaced, latestSensorTimestamp, mergeMetricSamples, normalizedMeasurementEntityIds, roomCenter, rounded, sameMeasurementEntityIds, sensorFloor, sensorHasMetric, sensorMeasurementEntityIds, sensorStatus, stableRoomId, tpLinkDeviceSummary, validationErrors } from "./support";
-import type { AddStep, DraftErrors, DraftSource, EditorMode, Feedback, SensorDraft, SensorFilter, SensorManagementPageProps, SensorStatus, Translate } from "./support";
+import type { AddStep, DraftErrors, DraftSource, EditorMode, Feedback, SensorDraft, SensorFilter, SensorStatus, Translate } from "./support";
 import { useSensorManagementPagePart01 } from "./part-01";
 import { sensorUrlStateFromLocation, writeSensorUrlStateToLocation, type SensorDetailTarget } from "./urlState";
 import { compareCodeUnits } from "../../textOrder";

@@ -52,8 +52,22 @@ git push origin HEAD
 ```
 
 Use `npm run verify:local -- --fast` for the diff, architecture/type checks, and
-affected tests while iterating. Useful authoritative-CI options remain available
-through direct `ci:local` maintenance/debugging:
+affected tests while iterating. Its type step, `npm run typecheck`, ends with the
+unused-symbol ratchet (`npm run check:unused`). It compiles every workspace a
+second time with the unused-symbol flags, which takes 10–25 seconds on the
+Windows dev box. It deliberately runs without `--incremental`: whether an import
+counts as used depends on which files the checker visited first, so a partial
+recheck reports different counts.
+
+Claude Code runs the fast verification automatically: the Stop hook in
+`.claude/settings.json` (`scripts/agent-stop-gate.mjs`) runs it when a turn
+changed the worktree, by editing files or committing, and keeps the turn from
+ending while it fails. A turn that changed nothing, such as a question, skips
+it. The hook needs the workspace-trust prompt accepted. Set
+`STUGU_STOP_GATE=off` in Claude Code's environment to disable it.
+
+Useful authoritative-CI options remain available through direct `ci:local`
+maintenance/debugging:
 
 - `--base-ref REF` selects the version-comparison ref.
 - `--skip-container-builds` is for explicit CI debugging only; a release full-CI
