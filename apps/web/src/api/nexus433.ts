@@ -8,11 +8,12 @@ import type {
   Sensor,
 } from "@climate-twin/contracts";
 import { request } from "./support/index";
+import { withSignal } from "./support/signal";
 
 export const nexus433Api = {
   nexus433Status: (houseId: string, signal?: AbortSignal) => request<Nexus433Status>(
     `/integrations/nexus433/status?houseId=${encodeURIComponent(houseId)}`,
-    signal ? { signal } : undefined,
+    withSignal(signal),
   ),
   configureNexus433: (input: Nexus433ConfigInput) => request<Nexus433Status>(
     "/integrations/nexus433/config",
@@ -21,13 +22,13 @@ export const nexus433Api = {
   nexus433Candidates: async (houseId: string, signal?: AbortSignal): Promise<Nexus433Candidate[]> => (
     await request<{ candidates: Nexus433Candidate[] }>(
       `/integrations/nexus433/candidates?houseId=${encodeURIComponent(houseId)}`,
-      signal ? { signal } : undefined,
+      withSignal(signal),
     )
   ).candidates,
   nexus433Bindings: async (houseId: string, signal?: AbortSignal): Promise<Nexus433Binding[]> => (
     await request<{ bindings: Nexus433Binding[] }>(
       `/integrations/nexus433/bindings?houseId=${encodeURIComponent(houseId)}`,
-      signal ? { signal } : undefined,
+      withSignal(signal),
     )
   ).bindings,
   bindNexus433Candidate: (input: Nexus433BindingCreateInput) => request<{

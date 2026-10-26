@@ -1,138 +1,40 @@
 import type { ApiReadSchedulingClass } from "./support/requestScheduler";
 import type {
-  ActionPlaybook,
-  ActionRun,
-  ActionRunStartInput,
-  AppSession,
-  AnalyticsCoverageRequest,
-  AnalyticsCoverageResponse,
-  AnalyticsQueryRequest,
-  AnalyticsQueryResponse,
-  AreaEquipment,
-  AreaEquipmentInput,
-  AreaEquipmentPatch,
   EquipmentAttachment,
   EquipmentAttachmentUploadInput,
   EquipmentLink,
   EquipmentLinkInput,
   EquipmentLinkPatch,
-  BackupOperationStatus,
-  DataExportPreview,
-  DataExportPrivacyLevel,
-  DailyAnalyticsFindingsResponse,
-  EnergyOptimizationReport,
-  AlertRulePatch,
-  AppleNotesGrantCreated,
-  AppleNotesGrantSummary,
-  AlertEvent,
   AlertRule,
   ForecastPoint,
   House,
   HouseLocation,
-  HouseMapPlacement,
   HouseWeather,
-  HomeElectricityPricePoint,
-  HomeEnergyCost,
-  IntegrationStatus,
-  IntegrationTestResult,
-  LocalInvitationRegistrationInput,
-  LocalLoginInput,
-  LocalOwnerSetupInput,
-  ManualObservation,
-  ManualObservationInput,
-  ManualObservationPatch,
-  MaintenanceTask,
-  MaintenanceTaskInput,
-  MaintenanceTaskPatch,
-  MaintenanceTaskRevision,
-  MeasurementDefinition,
-  MeasurementForecastPoint,
-  MeasurementSample,
-  MockScenario,
-  NotificationDeliveryStatus,
-  ObservationRevision,
   OpeningStateObservation,
   OpeningStateObservationInput,
   OpeningStateSnapshot,
   OutdoorTemperatureSample,
   Reading,
   Sensor,
-  SensorDataGap,
   SensorLabelDescriptor,
   SensorSnapshot,
-  SetupDoctorReport,
-  StaticParameter,
   GuestAccessGrant,
-  Property,
-  PropertyArea,
-  PropertyAreaInput,
-  PropertyAreaPatch,
-  PropertyCreateInput,
   PropertyNote,
   PropertyNoteInput,
   PropertyNotePatch,
-  PropertyPatch,
-  PropertyElectricityConfig,
-  PropertyElectricityConfigInput,
-  PropertyElectricityPricePoint,
-  PropertyInventorySnapshot,
   TenantMemberSummary,
   TenantInvitationCreated,
-  TelemetryEvent,
-  TelegramConfigInput,
-  TelegramDiscoveryResult,
-  ThermalIsolationResult,
-  ThermalSimulationResult,
   EquipmentTrackingBinding,
   TrackingCapabilities,
-  TrackingEvent,
   TrackingMapSnapshot,
   TrackingEndpoint,
   TrackingEndpointEnrollmentInput,
   TrackingProfileManifest,
   TrackedEquipmentState,
-  TpLinkDiscoveredDevice,
 } from "@climate-twin/contracts";
-import type {
-  StugubyDatasetGrant,
-  StugubyDeletionReceipt,
-  StugubyGrantAudience,
-  StugubyInvitation,
-  StugubyMember,
-  StugubyMemberState,
-  StugubyNodeIdentity,
-  StugubyPropertyConflict,
-  StugubyRemoteResource,
-  StugubyRole,
-  StugubyShareGrant,
-  StugubySharedProperty,
-  StugubySummary,
-} from "@climate-twin/stuguby-protocol";
-import {
-  spatialCalibrationSessionResult,
-  spatialCalibrationSessions,
-  spatialLayerEngines,
-  spatialLayerHealth,
-  spatialLayerSnapshotEvent,
-  spatialLayerSnapshots,
-  type SpatialLayerEngineHealth,
-  type SpatialLayerEngineManifest,
-  type SpatialLayerAssignment,
-  type SpatialLayerConfigurationResponse,
-  type SpatialContextEvent,
-  type SpatialGroundTruth,
-  type SpatialSensorBinding,
-  type SpatialSensorCalibration,
-  type SpatialTopology,
-  type SpatialLayerSnapshot,
-  type SpatialLayerSnapshotEvent,
-  type SpatialCalibrationSession,
-  type SpatialCalibrationSessionInput,
-  type SpatialCalibrationSessionResult,
-} from "../spatialLayers";
-import { publishAuthEpoch } from "../authEpoch";
-import { API_BASE, API_REQUEST_TIMEOUT_MS, API_V2_BASE, ApiRequestError, COLLECTION_PAGE_SIZE, SAFE_API_PATH, SAFE_HTTP_METHODS, STREAM_STABILITY_DELAY_MS, TRACKING_EVENT_TYPES, activeRequestControllers, apiClientState, apiRequestGeneration, assertSafeApiPath, authorizationChange, authorizationListeners, cancelPendingApiRequests, collectionPagePath, completeAuthentication, completeCollection, entity, houseResponse, isPollingHeartbeat, list, memberSummary, notifyAuthorizationChange, observationResponse, rememberSession, request, requestFrom, requestV2, sensorResponse, spatialConfigurationResponse, subscribeToApiAuthorizationChanges, subscribeToEvents, subscribeToMeasurementEvents, subscribeToSpatialLayerEvents, subscribeToSystemUpdateEvents, subscribeToTrackingEvents, updateHouseGeoreference } from "./support";
-import type { ApiAuthorizationChange, AppleNotesSetupMetadata, CloudflareSetupOperation, CloudflareSetupPhase, CloudflareSetupStartInput, CloudflareSetupStartResult, CloudflareSetupStatus, CoordinateDefaults, CreateHouseInput, CreateSensorInput, HistoricalImportResult, HomeAssistantDiscoveredInstance, HouseGeoreferencePatch, HousePatch, IntegrationDiscoveryResult, LocationSuggestion, MaintenanceTaskFilters, MeasurementHistoryPage, OutdoorTemperatureHistoryPage, SensorMeasurementPage, SensorPatch, StugubyAuthorityTransfer, StugubyDetailResponse, StugubyHomeProjection, StugubyInvitationCreated, StugubyListResponse, StugubyLocalInvitation, StugubyLocalMember, StugubyLocalPublicationCatalog, StugubyPropertyAdoption, StugubyRemoteTelemetrySample, SystemRelease, SystemUpdateDay, SystemUpdateLiveStatus, SystemUpdateOperation, SystemUpdateSettings, SystemUpdateStatus, TenantMembersResponse, TpLinkDiscoveredSource, TpLinkHistoryExportJob, TpLinkHistoryExportJobStatus, TpLinkHistoryExportJobsResponse, TpLinkHistoryExportProvider } from "./support";
+import { API_BASE, completeCollection, entity, houseResponse, list, memberSummary, request, requestV2, sensorResponse, updateHouseGeoreference } from "./support";
+import type { CreateHouseInput, CreateSensorInput, HousePatch, OutdoorTemperatureHistoryPage, SensorPatch, TenantMembersResponse } from "./support";
+import { withSignal } from "./support/signal";
 
 
 
@@ -264,7 +166,7 @@ export const apiPart02 = {
   deleteHouse: (houseId: string) => request<void>(`/houses/${encodeURIComponent(houseId)}`, { method: "DELETE" }),
   openingStates: (houseId: string, at?: string, signal?: AbortSignal) => request<{ snapshot: OpeningStateSnapshot; observations: OpeningStateObservation[] }>(
       `/houses/${encodeURIComponent(houseId)}/opening-states${at ? `?at=${encodeURIComponent(at)}` : ""}`,
-      signal ? { signal } : undefined,
+      withSignal(signal),
     ),
   openingStateHistory: async (
       houseId: string,
@@ -278,7 +180,7 @@ export const apiPart02 = {
         snapshot: OpeningStateSnapshot;
         observations: OpeningStateObservation[];
         history?: OpeningStateObservation[];
-      }>(`/houses/${encodeURIComponent(houseId)}/opening-states?${query}`, signal ? { signal } : undefined);
+      }>(`/houses/${encodeURIComponent(houseId)}/opening-states?${query}`, withSignal(signal));
       return result.history ?? [];
     },
   recordOpeningState: async (houseId: string, observation: Omit<OpeningStateObservationInput, "observedAt"> & { observedAt?: string }) => {
@@ -290,11 +192,11 @@ export const apiPart02 = {
     ), ["sensors", "data"]),
   snapshot: async (houseId: string, schedulingClass: ApiReadSchedulingClass = "background") => list<SensorSnapshot>(await request<unknown>(`/snapshot?houseId=${encodeURIComponent(houseId)}`, { schedulingClass }), ["snapshot", "sensors", "data"]),
   readings: async (sensorId: string, from: string, to: string, limit = 500, signal?: AbortSignal) => list<Reading>(
-      await request<unknown>(`/readings?sensorId=${encodeURIComponent(sensorId)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&limit=${limit}`, signal ? { signal } : undefined),
+      await request<unknown>(`/readings?sensorId=${encodeURIComponent(sensorId)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&limit=${limit}`, withSignal(signal)),
       ["readings", "data"],
     ),
   forecast: async (sensorId: string, horizonMinutes = 360, signal?: AbortSignal) => list<ForecastPoint>(
-      await request<unknown>(`/forecast?sensorId=${encodeURIComponent(sensorId)}&horizonMinutes=${horizonMinutes}`, signal ? { signal } : undefined),
+      await request<unknown>(`/forecast?sensorId=${encodeURIComponent(sensorId)}&horizonMinutes=${horizonMinutes}`, withSignal(signal)),
       ["forecast", "points", "data"],
     ),
   updateHouseGeoreference,
@@ -302,7 +204,7 @@ export const apiPart02 = {
   houseWeather: async (houseId: string, hours = 48, signal?: AbortSignal) => {
       const response = await request<HouseWeather | { weather: HouseWeather }>(
         `/houses/${encodeURIComponent(houseId)}/weather?hours=${hours}`,
-        signal ? { signal } : undefined,
+        withSignal(signal),
       );
       return "weather" in response ? response.weather : response;
     },
@@ -316,7 +218,7 @@ export const apiPart02 = {
       const query = new URLSearchParams({ from, to, limit: String(limit) });
       const result = await requestV2<Partial<Omit<OutdoorTemperatureHistoryPage, "samples">> & {
         samples: OutdoorTemperatureSample[];
-      }>(`/houses/${encodeURIComponent(houseId)}/outdoor-temperature/history?${query}`, signal ? { signal } : undefined);
+      }>(`/houses/${encodeURIComponent(houseId)}/outdoor-temperature/history?${query}`, withSignal(signal));
       return {
         samples: result.samples,
         from: result.from ?? from,

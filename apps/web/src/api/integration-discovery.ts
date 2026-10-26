@@ -8,6 +8,7 @@ import {
   INTEGRATION_DISCOVERY_REQUEST_TIMEOUT_MS,
   request,
 } from "./support";
+import { withSignal } from "./support/signal";
 
 interface DiscoveryJobEnvelope {
   job: IntegrationDiscoveryJob;
@@ -87,7 +88,7 @@ async function pollDiscoveryJob(
     await pause(1_000, signal);
     current = (await request<DiscoveryJobEnvelope>(
       `/integrations/discovery-jobs/${encodeURIComponent(job.id)}`,
-      signal ? { signal } : undefined,
+      withSignal(signal),
     )).job;
   }
 }
@@ -115,7 +116,7 @@ async function waitForIntegrationDiscoveryOnce(
       source.close();
       void request<DiscoveryJobEnvelope>(
         `/integrations/discovery-jobs/${encodeURIComponent(job.id)}`,
-        signal ? { signal } : undefined,
+        withSignal(signal),
       ).then(({ job: latest }) => {
         const result = completedResult(latest);
         if (result) finish(result);

@@ -2,6 +2,12 @@
 
 All notable Stugu releases are recorded here.
 
+## 0.42.4
+
+- Tidy the web app's API client without changing what it does. Each client module now imports only what it uses, which removes 887 unused imports left over from when the client was split into several files.
+- The live streams for telemetry, measurements and spatial layers now share one connection helper. They behave as before: "live" appears only after the connection has held for 0.75 seconds, a server that falls back to polling shows "reconnecting", and a session change closes the stream before the app reacts to it.
+- Upgrade impact: none. Requests, live updates, configuration, database, Compose and host trust are unchanged.
+
 ## 0.42.2
 
 - Update the web test environment to `jsdom` 30.1.3. This also removes a deprecated text-encoding dependency from the test toolchain.
