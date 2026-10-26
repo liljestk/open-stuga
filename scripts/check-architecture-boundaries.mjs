@@ -2,12 +2,19 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
 import { prototypeRegistryViolations } from "./check-prototype-registries.mjs";
 import { workspaceDependencyViolations } from "./check-workspace-dependencies.mjs";
+import {
+  committedBaseline,
+  isNumberedModule,
+  numberedModuleViolations,
+} from "./tooling/quality-ratchets.mjs";
 
 const root = process.cwd();
 const webDataRoot = join(root, "apps", "web", "src", "data");
 const apiAnalyticsRoot = join(root, "apps", "api", "src", "analytics");
-const legacyNumberedModuleMaximum = 304;
+const numberedModuleBaselinePath = "scripts/baselines/numbered-modules.json";
+const legacyNumberedModuleMaximum = 336;
 const ignoredDirectories = new Set([
+  "__pycache__",
   "build",
   "coverage",
   "dist",
@@ -18,32 +25,34 @@ const violations = [];
 violations.push(...await prototypeRegistryViolations(root));
 violations.push(...await workspaceDependencyViolations(root));
 
-async function filesBelow(directory) {
+async function filesBelow(directory, fileName = /\.(?:ts|tsx|js|mjs)$/) {
   const entries = await readdir(directory, { withFileTypes: true });
   const files = [];
   for (const entry of entries) {
     if (entry.name.startsWith(".") || ignoredDirectories.has(entry.name)) continue;
     const path = join(directory, entry.name);
-    if (entry.isDirectory()) files.push(...await filesBelow(path));
-    else if (entry.isFile() && /\.(?:ts|tsx|js|mjs)$/.test(entry.name)) files.push(path);
+    if (entry.isDirectory()) files.push(...await filesBelow(path, fileName));
+    else if (entry.isFile() && fileName.test(entry.name)) files.push(path);
   }
   return files;
 }
 
+// Numbered modules are the residue of mechanical line-count splits. Each one
+// that still exists is listed in the baseline; a new one anywhere fails, and
+// the list may only shrink as modules are renamed after the domain they own.
 const numberedModules = [];
 for (const sourceRoot of ["apps", "packages", "scripts", "config", "deploy"]) {
-  for (const path of await filesBelow(join(root, sourceRoot))) {
-    if (/^(?:part-\d+|\d{2}-)/.test(projectPath(path).split("/").at(-1))) {
-      numberedModules.push(projectPath(path));
-    }
+  for (const path of await filesBelow(join(root, sourceRoot), /./)) {
+    if (isNumberedModule(projectPath(path))) numberedModules.push(projectPath(path));
   }
 }
-if (numberedModules.length > legacyNumberedModuleMaximum) {
-  violations.push(
-    `numbered-module debt increased from ${legacyNumberedModuleMaximum} to ${numberedModules.length}; `
-      + "new mechanically named modules are forbidden repository-wide",
-  );
-}
+violations.push(...numberedModuleViolations({
+  found: numberedModules,
+  legacy: JSON.parse(await readFile(join(root, numberedModuleBaselinePath), "utf8")).files,
+  maximum: legacyNumberedModuleMaximum,
+  baseLegacy: committedBaseline(root, numberedModuleBaselinePath).value?.files ?? null,
+  baselinePath: numberedModuleBaselinePath,
+}));
 
 function projectPath(path) {
   return relative(root, path).split(sep).join("/");
@@ -81,15 +90,6 @@ for (const path of await filesBelow(join(root, "apps", "api", "src"))) {
   }
   if (!name.endsWith("-sql.ts") && kernelOwnedKwhConstant.test(text)) {
     report(path, "kWh conversions must use @climate-twin/analytics-kernel");
-  }
-}
-
-for (const directory of [webDataRoot, apiAnalyticsRoot]) {
-  for (const path of await filesBelow(directory)) {
-    const name = projectPath(path).split("/").at(-1);
-    if (/^(?:part-\d+|\d{2}-)/.test(name)) {
-      report(path, "numbered modules are forbidden in analytics and web data domains");
-    }
   }
 }
 
