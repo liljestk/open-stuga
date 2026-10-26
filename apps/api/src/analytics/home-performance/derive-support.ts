@@ -223,14 +223,23 @@ export function sensorEnergyByHour(
   };
   const energy = new Map<number, number>();
   const energySeries = seriesFor(response, sensor.id, "energy");
+  // Ordered analytics points carry the kernel's consumption integral (counter
+  // increments that survive a meter restart, power held at most 15 minutes);
+  // the bucket value is only a fallback when that metadata is absent.
+  const consumption = (point: (typeof energySeries & object)["points"][number]): number | null => (
+    point.consumptionKwh !== undefined && point.consumptionKwh !== null
+      && Number.isFinite(point.consumptionKwh) && point.consumptionKwh >= 0
+      ? point.consumptionKwh
+      : null
+  );
   if (energySeries && energySeries.summary.count > 0) {
     for (const point of energySeries.points) {
-      if (point.value !== null && Number.isFinite(point.value) && point.value >= 0
-        && point.coverage >= ENERGY_MIN_BUCKET_COVERAGE
-        && !point.qualityFlags.includes("counter_reset")) {
-        const key = hourKey(point.timestamp);
-        if (Number.isFinite(key)) energy.set(key, (energy.get(key) ?? 0) + point.value);
-      }
+      if (point.coverage < ENERGY_MIN_BUCKET_COVERAGE) continue;
+      const integrated = consumption(point);
+      const value = integrated ?? (point.value !== null && Number.isFinite(point.value) && point.value >= 0
+        && !point.qualityFlags.includes("counter_reset") ? point.value : null);
+      const key = hourKey(point.timestamp);
+      if (value !== null && Number.isFinite(key)) energy.set(key, (energy.get(key) ?? 0) + value);
     }
   }
   const power = new Map<number, number>();
@@ -244,12 +253,10 @@ export function sensorEnergyByHour(
     if (!bidirectional) {
       const hours = resolutionHours(powerSeries);
       for (const point of coveredPoints) {
-        if (point.value !== null && point.value >= 0) {
-          const key = hourKey(point.timestamp);
-          if (Number.isFinite(key)) {
-            power.set(key, (power.get(key) ?? 0) + averageWattsToKwh(point.value, hours));
-          }
-        }
+        const integrated = consumption(point);
+        const value = integrated ?? (point.value !== null && point.value >= 0 ? averageWattsToKwh(point.value, hours) : null);
+        const key = hourKey(point.timestamp);
+        if (value !== null && Number.isFinite(key)) power.set(key, (power.get(key) ?? 0) + value);
       }
     }
   }

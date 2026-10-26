@@ -2,6 +2,12 @@
 
 All notable Stugu releases are recorded here.
 
+## 0.46.0
+
+- Home Performance now measures energy the same way as the energy summaries: it uses the integrated consumption from the analytics engine (counter increments that survive a meter restart, power held for at most 15 minutes) instead of average power × hours. Usage right after a meter restart is no longer dropped, and a plug that went silent no longer counts a full hour of its last reading.
+- The browser's energy charts and replay detection now use the shared analytics kernel for meter-restart handling, power-to-energy conversion and medians, so they can no longer drift from the server.
+- Upgrade impact: application-only update. Stored Home Performance results are recalculated once (`home-performance-v3.2.0`). Database, configuration, Compose and host trust are unchanged.
+
 ## 0.45.0
 
 - Forecasts are rebuilt and checked against what actually happened. Each forecast now starts from the latest reading instead of drifting toward the recent average.
