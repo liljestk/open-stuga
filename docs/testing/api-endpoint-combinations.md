@@ -1,6 +1,6 @@
 # API endpoint combinations for testing
 
-This is a testing list for Stugu 0.42.2: **342 local API operations** (316 v1 and 26 v2), plus **one optional bug-report relay operation**. Each operation is a method and path, so GET and POST on the same path are separate entries.
+This is a testing list for Stugu 0.42.4: **342 local API operations** (316 v1 and 26 v2), plus **one optional bug-report relay operation**. Each operation is a method and path, so GET and POST on the same path are separate entries.
 
 The files cover endpoint inputs, applicable account/resource/runtime states, and multi-endpoint workflows. **All 117,649 ordered two-operation pairs are listed**, including repeats, reverse order, both versions and the relay. Arbitrary payload values, subsets of all endpoints and sequences of unrestricted length cannot be fully listed. These are proposed tests, not executed results.
 

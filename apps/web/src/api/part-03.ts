@@ -3,21 +3,12 @@ import type {
   ActionPlaybook,
   ActionRun,
   ActionRunStartInput,
-  AppSession,
   AnalyticsCoverageRequest,
   AnalyticsCoverageResponse,
   AnalyticsQueryRequest,
   AnalyticsQueryResponse,
   CalendarComparisonRequest,
   CalendarComparisonResponse,
-  AreaEquipment,
-  AreaEquipmentInput,
-  AreaEquipmentPatch,
-  EquipmentAttachment,
-  EquipmentAttachmentUploadInput,
-  EquipmentLink,
-  EquipmentLinkInput,
-  EquipmentLinkPatch,
   BackupOperationStatus,
   DataExportPreview,
   DataExportPrivacyLevel,
@@ -31,22 +22,12 @@ import type {
   AppleNotesGrantSummary,
   AlertEvent,
   AlertRule,
-  ForecastPoint,
   GreeDiscoveredDevice,
-  House,
-  HouseLocation,
-  HouseMapPlacement,
-  HouseWeather,
-  HomeElectricityPricePoint,
   HomePerformanceResponse,
   HomeMonitoringCollectionResponse,
   HomeMonitoringDetailResponse,
-  HomeEnergyCost,
   IntegrationStatus,
   IntegrationTestResult,
-  LocalInvitationRegistrationInput,
-  LocalLoginInput,
-  LocalOwnerSetupInput,
   ManualObservation,
   ManualObservationInput,
   ManualObservationPatch,
@@ -55,26 +36,15 @@ import type {
   MaintenanceTaskPatch,
   MaintenanceTaskRevision,
   MeasurementDefinition,
-  MeasurementForecastPoint,
-  MeasurementSample,
   MockScenario,
   NotificationDeliveryStatus,
   ObservationRevision,
-  OpeningStateObservation,
-  OpeningStateObservationInput,
-  OpeningStateSnapshot,
-  OutdoorTemperatureSample,
-  Reading,
-  Sensor,
   SensorDataGap,
-  SensorLabelDescriptor,
-  SensorSnapshot,
   ScheduledDataExport,
   ScheduledDataExportInput,
   ScheduledDataExportUpdate,
   SetupDoctorReport,
   StaticParameter,
-  GuestAccessGrant,
   HeatPumpState,
   HeatPumpPlacementPatch,
   ConnectedDeviceCommand,
@@ -83,77 +53,14 @@ import type {
   TuyaConfigInput,
   TuyaDiscoveryInput,
   TuyaDiscoveredDevice,
-  Property,
-  PropertyArea,
-  PropertyAreaInput,
-  PropertyAreaPatch,
-  PropertyCreateInput,
-  PropertyNote,
-  PropertyNoteInput,
-  PropertyNotePatch,
-  PropertyPatch,
-  PropertyElectricityConfig,
-  PropertyElectricityConfigInput,
-  PropertyElectricityPricePoint,
-  PropertyInventorySnapshot,
-  TenantMemberSummary,
-  TenantInvitationCreated,
-  TelemetryEvent,
   TelegramConfigInput,
   TelegramDiscoveryResult,
-  ThermalIsolationResult,
-  ThermalSimulationResult,
-  EquipmentTrackingBinding,
-  TrackingCapabilities,
-  TrackingEvent,
-  TrackingMapSnapshot,
-  TrackingEndpoint,
-  TrackingEndpointEnrollmentInput,
-  TrackingProfileManifest,
-  TrackedEquipmentState,
   TpLinkDiscoveredDevice,
 } from "@climate-twin/contracts";
-import type {
-  StugubyDatasetGrant,
-  StugubyDeletionReceipt,
-  StugubyGrantAudience,
-  StugubyInvitation,
-  StugubyMember,
-  StugubyMemberState,
-  StugubyNodeIdentity,
-  StugubyPropertyConflict,
-  StugubyRemoteResource,
-  StugubyRole,
-  StugubyShareGrant,
-  StugubySharedProperty,
-  StugubySummary,
-} from "@climate-twin/stuguby-protocol";
-import {
-  spatialCalibrationSessionResult,
-  spatialCalibrationSessions,
-  spatialLayerEngines,
-  spatialLayerHealth,
-  spatialLayerSnapshotEvent,
-  spatialLayerSnapshots,
-  type SpatialLayerEngineHealth,
-  type SpatialLayerEngineManifest,
-  type SpatialLayerAssignment,
-  type SpatialLayerConfigurationResponse,
-  type SpatialContextEvent,
-  type SpatialGroundTruth,
-  type SpatialSensorBinding,
-  type SpatialSensorCalibration,
-  type SpatialTopology,
-  type SpatialLayerSnapshot,
-  type SpatialLayerSnapshotEvent,
-  type SpatialCalibrationSession,
-  type SpatialCalibrationSessionInput,
-  type SpatialCalibrationSessionResult,
-} from "../spatialLayers";
-import { publishAuthEpoch } from "../authEpoch";
-import { API_BASE, API_REQUEST_TIMEOUT_MS, API_V2_BASE, ApiRequestError, COLLECTION_PAGE_SIZE, SAFE_API_PATH, SAFE_HTTP_METHODS, STREAM_STABILITY_DELAY_MS, TRACKING_EVENT_TYPES, activeRequestControllers, apiClientState, apiRequestGeneration, assertSafeApiPath, authorizationChange, authorizationListeners, cancelPendingApiRequests, collectionPagePath, completeAuthentication, completeCollection, entity, houseResponse, isPollingHeartbeat, list, memberSummary, notifyAuthorizationChange, observationResponse, rememberSession, request, requestFrom, requestV2, sensorResponse, spatialConfigurationResponse, subscribeToApiAuthorizationChanges, subscribeToEvents, subscribeToMeasurementEvents, subscribeToSpatialLayerEvents, subscribeToSystemUpdateEvents, subscribeToTrackingEvents, updateHouseGeoreference } from "./support";
-import type { ApiAuthorizationChange, AppleNotesSetupMetadata, CloudflareSetupOperation, CloudflareSetupPhase, CloudflareSetupStartInput, CloudflareSetupStartResult, CloudflareSetupStatus, CoordinateDefaults, CreateHouseInput, CreateSensorInput, HistoricalImportResult, HomeAssistantDiscoveredInstance, HouseGeoreferencePatch, HousePatch, IntegrationDiscoveryResult, LocationSuggestion, MaintenanceTaskFilters, MeasurementHistoryPage, OutdoorTemperatureHistoryPage, SensorMeasurementPage, SensorPatch, StugubyAuthorityTransfer, StugubyDetailResponse, StugubyHomeProjection, StugubyInvitationCreated, StugubyListResponse, StugubyLocalInvitation, StugubyLocalMember, StugubyLocalPublicationCatalog, StugubyPropertyAdoption, StugubyRemoteTelemetrySample, SystemRelease, SystemUpdateDay, SystemUpdateLiveStatus, SystemUpdateOperation, SystemUpdateSettings, SystemUpdateStatus, TenantMembersResponse, TpLinkDiscoveredSource, TpLinkHistoryExportJob, TpLinkHistoryExportJobStatus, TpLinkHistoryExportJobsResponse, TpLinkHistoryExportProvider } from "./support";
+import { API_BASE, completeCollection, entity, list, observationResponse, request, requestV2 } from "./support";
+import type { AppleNotesSetupMetadata, CoordinateDefaults, LocationSuggestion, MaintenanceTaskFilters, TpLinkHistoryExportJob, TpLinkHistoryExportJobsResponse } from "./support";
 import { discoverIntegrationsInBackground, latestIntegrationDiscovery, resumeIntegrationDiscovery } from "./integration-discovery";
+import { withSignal } from "./support/signal";
 
 
 
@@ -187,7 +94,7 @@ export const apiPart03 = {
       if (options.limit) query.set("limit", String(options.limit));
       return list<ActionRun>(await request<unknown>(
         `/action-runs${query.size ? `?${query}` : ""}`,
-        signal ? { signal } : undefined,
+        withSignal(signal),
       ), ["runs", "data"]);
     },
   startActionRun: async (input: ActionRunStartInput) => entity(await request<ActionRun | { run: ActionRun }>("/action-runs", { method: "POST", body: JSON.stringify(input) }), "run"),
@@ -212,12 +119,12 @@ export const apiPart03 = {
   maintenanceTaskRevisions: async (id: string) => list<MaintenanceTaskRevision>(await request<unknown>(`/maintenance-tasks/${encodeURIComponent(id)}/revisions`), ["revisions", "data"]),
   deleteMaintenanceTask: (id: string) => request<void>(`/maintenance-tasks/${encodeURIComponent(id)}`, { method: "DELETE" }),
   staticParameters: async (houseId: string, schedulingClass: ApiReadSchedulingClass = "background") => list<StaticParameter>(await request<unknown>(`/static-parameters?houseId=${encodeURIComponent(houseId)}`, { schedulingClass }), ["parameters", "staticParameters", "data"]),
-  energyOptimization: async (propertyId: string, windowHours = 2, signal?: AbortSignal) => entity(await request<EnergyOptimizationReport | { report: EnergyOptimizationReport }>(`/properties/${encodeURIComponent(propertyId)}/energy-optimization?windowHours=${encodeURIComponent(windowHours)}`, signal ? { signal } : {}), "report"),
+  energyOptimization: async (propertyId: string, windowHours = 2, signal?: AbortSignal) => entity(await request<EnergyOptimizationReport | { report: EnergyOptimizationReport }>(`/properties/${encodeURIComponent(propertyId)}/energy-optimization?windowHours=${encodeURIComponent(windowHours)}`, withSignal(signal)), "report"),
   setupDoctor: async () => entity(await request<SetupDoctorReport | { report: SetupDoctorReport }>("/setup/doctor"), "report"),
   dataExportPreview: async (privacyLevel: DataExportPrivacyLevel, includeTelemetry: boolean) => entity(await request<DataExportPreview | { preview: DataExportPreview }>(`/data-export/preview?privacyLevel=${encodeURIComponent(privacyLevel)}&includeTelemetry=${includeTelemetry}`), "preview"),
   dataExportUrl: (privacyLevel: DataExportPrivacyLevel, includeTelemetry: boolean) => `${API_BASE}/data-export?privacyLevel=${encodeURIComponent(privacyLevel)}&includeTelemetry=${includeTelemetry}`,
   scheduledDataExports: async (houseId: string, signal?: AbortSignal) => list<ScheduledDataExport>(
-      await request<unknown>(`/houses/${encodeURIComponent(houseId)}/scheduled-data-exports`, signal ? { signal } : undefined),
+      await request<unknown>(`/houses/${encodeURIComponent(houseId)}/scheduled-data-exports`, withSignal(signal)),
       ["exports", "data"],
     ),
   createScheduledDataExport: async (houseId: string, input: ScheduledDataExportInput) => entity(
@@ -252,7 +159,7 @@ export const apiPart03 = {
   discoverTelegram: (botToken: string, signal?: AbortSignal) => request<TelegramDiscoveryResult>("/integrations/telegram/discover", {
       method: "POST",
       body: JSON.stringify({ botToken }),
-      ...(signal ? { signal } : {}),
+      ...withSignal(signal),
     }),
   configureTelegram: (configuration: TelegramConfigInput) => request<{ ok: boolean; configured: boolean; integration: IntegrationStatus }>("/integrations/telegram/config", {
       method: "PUT",
@@ -268,7 +175,7 @@ export const apiPart03 = {
     }),
   revokeAppleNotesGrant: (id: string) => request<{ ok: boolean; integration: IntegrationStatus }>(`/integrations/apple-notes/grants/${encodeURIComponent(id)}`, { method: "DELETE" }),
   searchLocations: async (query: string, language = "en", signal?: AbortSignal) => (
-      await request<{ results: LocationSuggestion[] }>(`/locations/search?q=${encodeURIComponent(query)}&language=${encodeURIComponent(language)}`, signal ? { signal } : undefined)
+      await request<{ results: LocationSuggestion[] }>(`/locations/search?q=${encodeURIComponent(query)}&language=${encodeURIComponent(language)}`, withSignal(signal))
     ).results,
   coordinateDefaults: (latitude: number, longitude: number) => request<CoordinateDefaults>(
       `/locations/defaults?latitude=${encodeURIComponent(latitude)}&longitude=${encodeURIComponent(longitude)}`,
@@ -357,7 +264,7 @@ export const apiPart03 = {
   connectedDevices: async (houseId?: string, signal?: AbortSignal) => list<ConnectedDeviceState>(
       await request<unknown>(
         `/connected-devices${houseId ? `?houseId=${encodeURIComponent(houseId)}` : ""}`,
-        signal ? { signal } : undefined,
+        withSignal(signal),
       ),
       ["devices", "data"],
     ),
@@ -379,7 +286,7 @@ export const apiPart03 = {
   heatPumpStates: async (houseId?: string, signal?: AbortSignal) => list<HeatPumpState>(
       await request<unknown>(
         `/heat-pumps${houseId ? `?houseId=${encodeURIComponent(houseId)}` : ""}`,
-        signal ? { signal } : undefined,
+        withSignal(signal),
       ),
       ["states", "data"],
     ),
@@ -445,7 +352,7 @@ export const apiPart03 = {
       const query = new URLSearchParams({ limit: String(limit) });
       if (houseId) query.set("houseId", houseId);
       return list<SensorDataGap>(
-        await request<unknown>(`/integrations/sensor-data-gaps?${query}`, signal ? { signal } : undefined),
+        await request<unknown>(`/integrations/sensor-data-gaps?${query}`, withSignal(signal)),
         ["gaps", "data"],
       );
     },
@@ -454,7 +361,7 @@ export const apiPart03 = {
   measurementDefinitions: async (schedulingClass: ApiReadSchedulingClass = "background") => (await requestV2<{ definitions: MeasurementDefinition[] }>("/measurement-definitions", { schedulingClass })).definitions,
   analyticsFindings: (houseId: string, signal?: AbortSignal) => requestV2<DailyAnalyticsFindingsResponse>(
       `/analytics/findings?houseId=${encodeURIComponent(houseId)}`,
-      signal ? { signal } : undefined,
+      withSignal(signal),
     ),
   openingActivity: (input: OpeningActivityRequest, signal?: AbortSignal) => requestV2<OpeningActivityResponse>(
       "/analytics/opening-activity",
@@ -462,7 +369,7 @@ export const apiPart03 = {
         method: "POST",
         schedulingClass: "background",
         body: JSON.stringify(input),
-        ...(signal ? { signal } : {}),
+        ...withSignal(signal),
       },
     ),
   calendarComparison: (
@@ -472,7 +379,7 @@ export const apiPart03 = {
     method: "POST",
     schedulingClass: "background",
     body: JSON.stringify(input),
-    ...(signal ? { signal } : {}),
+    ...withSignal(signal),
   }),
   homePerformance: (
     houseId: string,
@@ -480,7 +387,7 @@ export const apiPart03 = {
     signal?: AbortSignal,
   ) => requestV2<DurableDerivedAnalyticsResponse<HomePerformanceResponse>>(
       `/analytics/home-performance?houseId=${encodeURIComponent(houseId)}&dataMode=${dataMode}`,
-      signal ? { signal } : undefined,
+      withSignal(signal),
     ),
   refreshHomePerformance: (
     houseId: string,
@@ -488,14 +395,14 @@ export const apiPart03 = {
     signal?: AbortSignal,
   ) => requestV2<DurableDerivedAnalyticsResponse<HomePerformanceResponse>>(
       `/analytics/home-performance?houseId=${encodeURIComponent(houseId)}&dataMode=${dataMode}`,
-      { method: "POST", schedulingClass: "background", ...(signal ? { signal } : {}) },
+      { method: "POST", schedulingClass: "background", ...withSignal(signal) },
     ),
   homeMonitoringCollection: (
     dataMode: "live" | "demo",
     signal?: AbortSignal,
   ) => requestV2<HomeMonitoringCollectionResponse>(
     `/monitoring/houses?dataMode=${dataMode}`,
-    signal ? { signal } : undefined,
+    withSignal(signal),
   ),
   homeMonitoring: (
     houseId: string,
@@ -503,18 +410,18 @@ export const apiPart03 = {
     signal?: AbortSignal,
   ) => requestV2<HomeMonitoringDetailResponse>(
     `/monitoring/houses/${encodeURIComponent(houseId)}?dataMode=${dataMode}&include=insights`,
-    signal ? { signal } : undefined,
+    withSignal(signal),
   ),
   analyticsCoverage: (input: AnalyticsCoverageRequest, signal?: AbortSignal) => requestV2<AnalyticsCoverageResponse>("/analytics/coverage", {
       method: "POST",
       schedulingClass: "background",
       body: JSON.stringify(input),
-      ...(signal ? { signal } : {}),
+      ...withSignal(signal),
     }),
   analyticsQuery: (input: AnalyticsQueryRequest, signal?: AbortSignal) => requestV2<AnalyticsQueryResponse>("/analytics/query", {
       method: "POST",
       schedulingClass: "background",
       body: JSON.stringify(input),
-      ...(signal ? { signal } : {}),
+      ...withSignal(signal),
     }),
 };

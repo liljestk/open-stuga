@@ -1,136 +1,73 @@
 import type {
-  ActionPlaybook,
-  ActionRun,
-  ActionRunStartInput,
-  AppSession,
-  AnalyticsCoverageRequest,
-  AnalyticsCoverageResponse,
-  AnalyticsQueryRequest,
-  AnalyticsQueryResponse,
-  AreaEquipment,
-  AreaEquipmentInput,
-  AreaEquipmentPatch,
-  EquipmentAttachment,
-  EquipmentAttachmentUploadInput,
-  EquipmentLink,
-  EquipmentLinkInput,
-  EquipmentLinkPatch,
-  BackupOperationStatus,
-  DataExportPreview,
-  DataExportPrivacyLevel,
-  DailyAnalyticsFindingsResponse,
-  EnergyOptimizationReport,
-  AlertRulePatch,
-  AppleNotesGrantCreated,
-  AppleNotesGrantSummary,
-  AlertEvent,
-  AlertRule,
-  ForecastPoint,
-  House,
-  HouseLocation,
-  HouseMapPlacement,
-  HouseWeather,
-  HomeElectricityPricePoint,
-  HomeEnergyCost,
-  IntegrationStatus,
-  IntegrationTestResult,
-  LocalInvitationRegistrationInput,
-  LocalLoginInput,
-  LocalOwnerSetupInput,
-  ManualObservation,
-  ManualObservationInput,
-  ManualObservationPatch,
-  MaintenanceTask,
-  MaintenanceTaskInput,
-  MaintenanceTaskPatch,
-  MaintenanceTaskRevision,
-  MeasurementDefinition,
-  MeasurementForecastPoint,
   MeasurementSample,
-  MockScenario,
-  NotificationDeliveryStatus,
-  ObservationRevision,
-  OpeningStateObservation,
-  OpeningStateObservationInput,
-  OpeningStateSnapshot,
-  OutdoorTemperatureSample,
-  Reading,
-  Sensor,
-  SensorDataGap,
-  SensorLabelDescriptor,
-  SensorSnapshot,
-  SetupDoctorReport,
-  StaticParameter,
-  GuestAccessGrant,
-  Property,
-  PropertyArea,
-  PropertyAreaInput,
-  PropertyAreaPatch,
-  PropertyCreateInput,
-  PropertyNote,
-  PropertyNoteInput,
-  PropertyNotePatch,
-  PropertyPatch,
-  PropertyElectricityConfig,
-  PropertyElectricityConfigInput,
-  PropertyElectricityPricePoint,
-  PropertyInventorySnapshot,
-  TenantMemberSummary,
-  TenantInvitationCreated,
   TelemetryEvent,
-  TelegramConfigInput,
-  TelegramDiscoveryResult,
-  ThermalIsolationResult,
-  ThermalSimulationResult,
-  EquipmentTrackingBinding,
-  TrackingCapabilities,
-  TrackingEvent,
-  TrackingMapSnapshot,
-  TrackingEndpoint,
-  TrackingEndpointEnrollmentInput,
-  TrackingProfileManifest,
-  TrackedEquipmentState,
-  TpLinkDiscoveredDevice,
 } from "@climate-twin/contracts";
-import type {
-  StugubyDatasetGrant,
-  StugubyDeletionReceipt,
-  StugubyGrantAudience,
-  StugubyInvitation,
-  StugubyMember,
-  StugubyMemberState,
-  StugubyNodeIdentity,
-  StugubyPropertyConflict,
-  StugubyRemoteResource,
-  StugubyRole,
-  StugubyShareGrant,
-  StugubySharedProperty,
-  StugubySummary,
-} from "@climate-twin/stuguby-protocol";
 import {
-  spatialCalibrationSessionResult,
-  spatialCalibrationSessions,
-  spatialLayerEngines,
-  spatialLayerHealth,
   spatialLayerSnapshotEvent,
-  spatialLayerSnapshots,
-  type SpatialLayerEngineHealth,
-  type SpatialLayerEngineManifest,
-  type SpatialLayerAssignment,
-  type SpatialLayerConfigurationResponse,
-  type SpatialContextEvent,
-  type SpatialGroundTruth,
-  type SpatialSensorBinding,
-  type SpatialSensorCalibration,
-  type SpatialTopology,
-  type SpatialLayerSnapshot,
   type SpatialLayerSnapshotEvent,
-  type SpatialCalibrationSession,
-  type SpatialCalibrationSessionInput,
-  type SpatialCalibrationSessionResult,
 } from "../../spatialLayers";
-import { publishAuthEpoch } from "../../authEpoch";
 import { API_BASE, API_V2_BASE, STREAM_STABILITY_DELAY_MS, authorizationChange, isPollingHeartbeat, notifyAuthorizationChange } from "./part-02";
+
+type ApiEventStreamState = "live" | "reconnecting";
+
+/**
+ * Receives one stream message. `reportReconnecting` cancels a pending "live"
+ * report and reports "reconnecting", e.g. when a heartbeat says the server
+ * has fallen back to polling.
+ */
+type ApiEventStreamListener = (message: MessageEvent<string>, reportReconnecting: () => void) => void;
+
+interface ApiEventStreamOptions {
+  onState: (state: ApiEventStreamState) => void;
+  onOpen?: (() => void) | undefined;
+  /** Handles unnamed messages (`onmessage`). */
+  onMessage: ApiEventStreamListener;
+  /** Handlers for named events, keyed by event type. */
+  listeners: Record<string, ApiEventStreamListener>;
+}
+
+/**
+ * Opens a credentialed live-update stream. "live" is reported only once the
+ * connection has stayed open for STREAM_STABILITY_DELAY_MS; errors report
+ * "reconnecting" at once. An `authorization` event closes the stream before
+ * the session change is announced, so the stream cannot outlive its session.
+ */
+function openApiEventStream(url: string, options: ApiEventStreamOptions): () => void {
+  const { onState, onOpen, onMessage, listeners } = options;
+  const source = new EventSource(url, { withCredentials: true });
+  let stabilityTimer: ReturnType<typeof setTimeout> | null = null;
+  const cancelStabilityTimer = () => {
+    if (stabilityTimer !== null) clearTimeout(stabilityTimer);
+    stabilityTimer = null;
+  };
+  const reportReconnecting = () => {
+    cancelStabilityTimer();
+    onState("reconnecting");
+  };
+  source.onopen = () => {
+    onOpen?.();
+    cancelStabilityTimer();
+    stabilityTimer = setTimeout(() => {
+      stabilityTimer = null;
+      onState("live");
+    }, STREAM_STABILITY_DELAY_MS);
+  };
+  source.onerror = () => reportReconnecting();
+  source.onmessage = (message) => onMessage(message, reportReconnecting);
+  for (const [type, listener] of Object.entries(listeners)) {
+    source.addEventListener(type, (message) => listener(message as MessageEvent<string>, reportReconnecting));
+  }
+  source.addEventListener("authorization", (message) => {
+    cancelStabilityTimer();
+    source.close();
+    onState("reconnecting");
+    notifyAuthorizationChange(authorizationChange(message as MessageEvent<string>));
+  });
+  return () => {
+    cancelStabilityTimer();
+    source.close();
+  };
+}
 
 export function subscribeToSpatialLayerEvents(
   requestedScope: string | { kind: "house" | "property"; id: string },
@@ -140,8 +77,6 @@ export function subscribeToSpatialLayerEvents(
 ): () => void {
   const scope = typeof requestedScope === "string" ? { kind: "house" as const, id: requestedScope } : requestedScope;
   const query = new URLSearchParams({ scopeKind: scope.kind, scopeId: scope.id });
-  const source = new EventSource(`${API_BASE}/layers/events?${query.toString()}`, { withCredentials: true });
-  let stabilityTimer: ReturnType<typeof setTimeout> | null = null;
   const consume = (message: MessageEvent<string>) => {
     try {
       const event = spatialLayerSnapshotEvent(JSON.parse(message.data) as unknown);
@@ -151,32 +86,12 @@ export function subscribeToSpatialLayerEvents(
       // notifications and retain the last validated snapshot.
     }
   };
-  source.onopen = () => {
-    onOpen?.();
-    if (stabilityTimer !== null) clearTimeout(stabilityTimer);
-    stabilityTimer = setTimeout(() => {
-      stabilityTimer = null;
-      onState("live");
-    }, STREAM_STABILITY_DELAY_MS);
-  };
-  source.onerror = () => {
-    if (stabilityTimer !== null) clearTimeout(stabilityTimer);
-    stabilityTimer = null;
-    onState("reconnecting");
-  };
-  source.onmessage = consume;
-  source.addEventListener("spatial-layer-snapshot", (message) => consume(message as MessageEvent<string>));
-  source.addEventListener("authorization", (message) => {
-    if (stabilityTimer !== null) clearTimeout(stabilityTimer);
-    stabilityTimer = null;
-    source.close();
-    onState("reconnecting");
-    notifyAuthorizationChange(authorizationChange(message as MessageEvent<string>));
+  return openApiEventStream(`${API_BASE}/layers/events?${query.toString()}`, {
+    onState,
+    onOpen,
+    onMessage: consume,
+    listeners: { "spatial-layer-snapshot": consume },
   });
-  return () => {
-    if (stabilityTimer !== null) clearTimeout(stabilityTimer);
-    source.close();
-  };
 }
 
 export function subscribeToMeasurementEvents(
@@ -184,8 +99,6 @@ export function subscribeToMeasurementEvents(
   onState: (state: "live" | "reconnecting") => void,
   onOpen?: () => void,
 ): () => void {
-  const source = new EventSource(`${API_V2_BASE}/measurements/events`, { withCredentials: true });
-  let stabilityTimer: ReturnType<typeof setTimeout> | null = null;
   const consume = (message: MessageEvent<string>) => {
     try {
       const parsed = JSON.parse(message.data) as MeasurementSample | { data?: MeasurementSample };
@@ -195,44 +108,21 @@ export function subscribeToMeasurementEvents(
       // A malformed sample is ignored; the stream remains connected.
     }
   };
-  const consumeHeartbeat = (message: MessageEvent<string>) => {
+  const consumeHeartbeat = (message: MessageEvent<string>, reportReconnecting: () => void) => {
     try {
       const parsed = JSON.parse(message.data) as unknown;
       if (!isPollingHeartbeat(parsed)) return;
-      if (stabilityTimer !== null) clearTimeout(stabilityTimer);
-      stabilityTimer = null;
-      onState("reconnecting");
+      reportReconnecting();
     } catch {
       // A malformed heartbeat is ignored; EventSource will still report disconnects.
     }
   };
-  source.onopen = () => {
-    onOpen?.();
-    if (stabilityTimer !== null) clearTimeout(stabilityTimer);
-    stabilityTimer = setTimeout(() => {
-      stabilityTimer = null;
-      onState("live");
-    }, STREAM_STABILITY_DELAY_MS);
-  };
-  source.onerror = () => {
-    if (stabilityTimer !== null) clearTimeout(stabilityTimer);
-    stabilityTimer = null;
-    onState("reconnecting");
-  };
-  source.onmessage = consume;
-  source.addEventListener("measurement", (message) => consume(message as MessageEvent<string>));
-  source.addEventListener("heartbeat", (message) => consumeHeartbeat(message as MessageEvent<string>));
-  source.addEventListener("authorization", (message) => {
-    if (stabilityTimer !== null) clearTimeout(stabilityTimer);
-    stabilityTimer = null;
-    source.close();
-    onState("reconnecting");
-    notifyAuthorizationChange(authorizationChange(message as MessageEvent<string>));
+  return openApiEventStream(`${API_V2_BASE}/measurements/events`, {
+    onState,
+    onOpen,
+    onMessage: consume,
+    listeners: { measurement: consume, heartbeat: consumeHeartbeat },
   });
-  return () => {
-    if (stabilityTimer !== null) clearTimeout(stabilityTimer);
-    source.close();
-  };
 }
 
 export function subscribeToEvents(
@@ -240,51 +130,27 @@ export function subscribeToEvents(
   onState: (state: "live" | "reconnecting") => void,
   onOpen?: () => void,
 ): () => void {
-  const source = new EventSource(`${API_BASE}/events`, { withCredentials: true });
-  let stabilityTimer: ReturnType<typeof setTimeout> | null = null;
-  const consume = (message: MessageEvent<string>, forcedType?: TelemetryEvent["type"]) => {
+  const consume = (message: MessageEvent<string>, reportReconnecting: () => void, forcedType?: TelemetryEvent["type"]) => {
     try {
       const parsed = JSON.parse(message.data) as TelemetryEvent | TelemetryEvent["data"];
       const payload = parsed && typeof parsed === "object" && "type" in parsed && "data" in parsed
         ? parsed.data
         : parsed;
-      if (forcedType === "heartbeat" && isPollingHeartbeat(payload)) {
-        if (stabilityTimer !== null) clearTimeout(stabilityTimer);
-        stabilityTimer = null;
-        onState("reconnecting");
-      }
+      if (forcedType === "heartbeat" && isPollingHeartbeat(payload)) reportReconnecting();
       if (parsed && typeof parsed === "object" && "type" in parsed && "data" in parsed) onEvent(parsed as TelemetryEvent);
       else if (forcedType) onEvent({ type: forcedType, data: parsed as TelemetryEvent["data"] } as TelemetryEvent);
     } catch {
       // A malformed event is ignored; the stream remains connected.
     }
   };
-  source.onopen = () => {
-    onOpen?.();
-    if (stabilityTimer !== null) clearTimeout(stabilityTimer);
-    stabilityTimer = setTimeout(() => {
-      stabilityTimer = null;
-      onState("live");
-    }, STREAM_STABILITY_DELAY_MS);
-  };
-  source.onerror = () => {
-    if (stabilityTimer !== null) clearTimeout(stabilityTimer);
-    stabilityTimer = null;
-    onState("reconnecting");
-  };
-  source.onmessage = (message) => consume(message);
-  (["reading", "alert", "integration", "weather", "opening", "heat-pump", "connected-device", "mutation", "heartbeat"] as const).forEach((type) => {
-    source.addEventListener(type, (message) => consume(message as MessageEvent<string>, type));
+  const eventTypes = ["reading", "alert", "integration", "weather", "opening", "heat-pump", "connected-device", "mutation", "heartbeat"] as const;
+  return openApiEventStream(`${API_BASE}/events`, {
+    onState,
+    onOpen,
+    onMessage: (message, reportReconnecting) => consume(message, reportReconnecting),
+    listeners: Object.fromEntries(eventTypes.map((type): [string, ApiEventStreamListener] => [
+      type,
+      (message, reportReconnecting) => consume(message, reportReconnecting, type),
+    ])),
   });
-  source.addEventListener("authorization", (message) => {
-    if (stabilityTimer !== null) clearTimeout(stabilityTimer);
-    stabilityTimer = null;
-    source.close();
-    onState("reconnecting");
-    notifyAuthorizationChange(authorizationChange(message as MessageEvent<string>));
-  });
-  return () => {
-    if (stabilityTimer !== null) clearTimeout(stabilityTimer);
-    source.close();
-  };
 }
