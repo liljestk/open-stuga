@@ -22,14 +22,38 @@ import {
   outdoorLocationKey,
 } from "../db.js";
 import { deriveOpeningActivity } from "../analytics/temporal/opening-intervals.js";
+import { heatingBaseTemperature } from "../analytics/house-parameters.js";
 import { HEAT_PUMP_SENSOR_TAG } from "../heat-pump-measurements.js";
 import {
   HybridTelemetryReader,
   IncompleteTelemetryHistoryError,
   type HybridArchiveReadState,
 } from "../timeseries/read-facade.js";
-import { DAILY_ANALYTICS_ALGORITHM_VERSION, DEFAULT_INTERVAL_MS, DEFAULT_STARTUP_JITTER_MS, DailyAnalyticsFindingsRunSummary, DailyAnalyticsFindingsWorkerOptions, DailyAnalyticsFindingsWorkerStatus, FindingPeriods, HISTORY_LIMIT, MAX_FINDINGS, MAX_MEASUREMENT_SERIES, OUTDOOR_TEMPERATURE_DEFINITION, PeerPeriod, PeriodValue, RankedFinding, aggregateAnalyticsSeries, comparisonFinding, dailyFindingPeriods, electricityDefinition, errorMessage, usable } from "./01-daily-analytics-algorithm-version-to-error-message.js";
+import { ComparisonWeather, DAILY_ANALYTICS_ALGORITHM_VERSION, DEFAULT_INTERVAL_MS, DEFAULT_STARTUP_JITTER_MS, DailyAnalyticsFindingsRunSummary, DailyAnalyticsFindingsWorkerOptions, DailyAnalyticsFindingsWorkerStatus, FindingPeriods, HISTORY_LIMIT, MAX_FINDINGS, MAX_MEASUREMENT_SERIES, OUTDOOR_TEMPERATURE_DEFINITION, PeerPeriod, PeriodValue, RankedFinding, TestedComparison, aggregateAnalyticsSeries, comparisonFinding, dailyFindingPeriods, electricityDefinition, errorMessage, rounded, usable } from "./01-daily-analytics-algorithm-version-to-error-message.js";
 import { compareCodeUnits } from "../text-order.js";
+import { FALSE_DISCOVERY_RATE, benjaminiHochberg, hourlyWeather, type HourlyWeather } from "./peer-statistics.js";
+
+/** A strong difference must also be clear beyond chance at this adjusted level. */
+const STRONG_Q_VALUE = 0.01;
+
+interface OutdoorPeriods {
+  values: Map<string, PeriodValue | null>;
+  hourly: Map<string, HourlyWeather>;
+}
+
+/** Keeps findings that survive the false-discovery control, with their adjusted p-values. */
+export function controlledFindings(tested: readonly TestedComparison[]): RankedFinding[] {
+  const qValues = benjaminiHochberg(tested.map((item) => item.pValue));
+  return tested.flatMap((item, index) => {
+    const qValue = qValues[index]!;
+    if (!item.ranked || qValue > FALSE_DISCOVERY_RATE) return [];
+    const strong = item.ranked.finding.strength === "strong" && qValue <= STRONG_Q_VALUE;
+    return [{
+      score: item.ranked.score - (item.ranked.finding.strength === "strong" && !strong ? 1 : 0),
+      finding: { ...item.ranked.finding, strength: strong ? "strong" : "notable", qValue: rounded(qValue, 6) },
+    }];
+  });
+}
 
 export async function mapWithConcurrency<T, R>(
   values: readonly T[],
@@ -148,7 +172,16 @@ export class DailyAnalyticsFindingsWorker {
 
   async #generateHouse(house: House, dataMode: DataMode, periods: FindingPeriods): Promise<DailyAnalyticsFindingsSnapshot> {
     const warnings = new Set<DailyAnalyticsFindingsSnapshot["warnings"][number]>();
-    const ranked: RankedFinding[] = [];
+    const tested: TestedComparison[] = [];
+    const outdoor = house.location ? await this.#outdoorPeriods(house, dataMode, periods, warnings) : null;
+    const baseTemperatureC = heatingBaseTemperature(this.#database.listParameters(house.id), house.id);
+    const weatherFor = (definition: MeasurementDefinition): ComparisonWeather | null => {
+      if (!outdoor) return null;
+      if (electricityDefinition(definition)) return { driver: "heating-degree-hours", baseTemperatureC, hourly: outdoor.hourly };
+      return definition.id.toLowerCase().includes("temperature")
+        ? { driver: "outdoor-temperature", baseTemperatureC, hourly: outdoor.hourly }
+        : null;
+    };
     const sensors = this.#database.listSensors(house.id)
       .filter((sensor) => sensor.enabled && !sensor.tags.includes(HEAT_PUMP_SENSOR_TAG));
     const definitions = this.#database.listMeasurementDefinitions(false).filter((definition) => {
@@ -181,16 +214,17 @@ export class DailyAnalyticsFindingsWorker {
       const measurementFindings = await mapWithConcurrency(candidates, 4, async (record) => {
         const sensor = sensorById.get(record.sensorId)!;
         const definition = definitionById.get(record.metric)!;
-        return this.#measurementFinding(sensor, definition, dataMode, periods, warnings);
+        return this.#measurementFinding(sensor, definition, dataMode, periods, warnings, weatherFor(definition));
       });
-      ranked.push(...measurementFindings.filter((item): item is RankedFinding => item !== null));
+      tested.push(...measurementFindings.filter((item): item is TestedComparison => item !== null));
     }
 
-    if (house.location) {
-      const outdoor = await this.#outdoorFinding(house, dataMode, periods, warnings);
-      if (outdoor) ranked.push(outdoor);
+    if (house.location && outdoor) {
+      const comparison = this.#outdoorFinding(house, periods, outdoor);
+      if (comparison) tested.push(comparison);
     }
-    ranked.push(...await this.#openingFindings(house, periods, warnings));
+    tested.push(...await this.#openingFindings(house, periods, warnings));
+    const ranked = controlledFindings(tested);
 
     return {
       apiVersion: "1.0",
@@ -205,6 +239,8 @@ export class DailyAnalyticsFindingsWorker {
         .slice(0, MAX_FINDINGS)
         .map((item) => item.finding),
       warnings: [...warnings].sort(compareCodeUnits),
+      seriesTested: tested.length,
+      falseDiscoveryRate: FALSE_DISCOVERY_RATE,
     };
   }
 
@@ -214,7 +250,8 @@ export class DailyAnalyticsFindingsWorker {
     dataMode: DataMode,
     periods: FindingPeriods,
     warnings: Set<DailyAnalyticsFindingsSnapshot["warnings"][number]>,
-  ): Promise<RankedFinding | null> {
+    weather: ComparisonWeather | null,
+  ): Promise<TestedComparison | null> {
     const current = await this.#measurementPeriod(sensor, definition, dataMode, periods.current, warnings);
     if (!usable(current)) return null;
     const peers = await Promise.all(periods.baseline.map(async (period) => ({
@@ -234,6 +271,7 @@ export class DailyAnalyticsFindingsWorker {
       current,
       baselinePeriods: usablePeers.map((peer) => peer.period),
       baseline: usablePeers.map((peer) => peer.value),
+      weather,
     });
   }
 
@@ -259,7 +297,7 @@ export class DailyAnalyticsFindingsWorker {
             rollup: rollup.result,
             archiveState: rollup.archiveState,
           });
-          return aggregateAnalyticsSeries(response.series[0]!);
+          return aggregateAnalyticsSeries(response.series[0]!, period);
         }
       }
       const read = await this.#telemetryReader.measurementHistory({
@@ -321,17 +359,19 @@ export class DailyAnalyticsFindingsWorker {
       entities: [{ id: sensor.id, label: sensor.name }],
       archiveState,
     });
-    return aggregateAnalyticsSeries(response.series[0]!);
+    return aggregateAnalyticsSeries(response.series[0]!, period);
   }
 
-  async #outdoorFinding(
+  /** Outdoor temperature per period: its level for the weather finding and its hourly means for adjusting others. */
+  async #outdoorPeriods(
     house: House,
     dataMode: DataMode,
     periods: FindingPeriods,
     warnings: Set<DailyAnalyticsFindingsSnapshot["warnings"][number]>,
-  ): Promise<RankedFinding | null> {
+  ): Promise<OutdoorPeriods> {
     const locationKey = outdoorLocationKey(house.location);
-    const readPeriod = async (period: PeerPeriod): Promise<PeriodValue | null> => {
+    const result: OutdoorPeriods = { values: new Map(), hourly: new Map() };
+    await Promise.all([periods.current, ...periods.baseline].map(async (period) => {
       try {
         const read = await this.#telemetryReader.outdoorTemperatureHistory({
           houseId: house.id,
@@ -342,32 +382,41 @@ export class DailyAnalyticsFindingsWorker {
         });
         if (read.records.length >= HISTORY_LIMIT) {
           warnings.add("source-truncated");
-          return null;
+          result.values.set(period.key, null);
+          return;
         }
-        const samples: MeasurementSample[] = read.records.filter((sample) => sample.timestamp >= period.start && sample.timestamp < period.end)
-          .map((sample) => ({
-            sensorId: "outdoor-weather",
-            metric: OUTDOOR_TEMPERATURE_DEFINITION.id,
-            value: sample.temperatureC,
-            canonicalUnit: "°C",
-            timestamp: sample.timestamp,
-            source: "import",
-            quality: "good",
-          }));
-        return this.#aggregateSamples(samples, { id: "outdoor-weather", name: "Outdoor weather" },
-          OUTDOOR_TEMPERATURE_DEFINITION, dataMode, period, read.provenance.archiveState);
+        const records = read.records.filter((sample) => sample.timestamp >= period.start && sample.timestamp < period.end);
+        result.hourly.set(period.key, hourlyWeather(records));
+        const samples: MeasurementSample[] = records.map((sample) => ({
+          sensorId: "outdoor-weather",
+          metric: OUTDOOR_TEMPERATURE_DEFINITION.id,
+          value: sample.temperatureC,
+          canonicalUnit: "°C",
+          timestamp: sample.timestamp,
+          source: "import",
+          quality: "good",
+        }));
+        result.values.set(period.key, await this.#aggregateSamples(samples, { id: "outdoor-weather", name: "Outdoor weather" },
+          OUTDOOR_TEMPERATURE_DEFINITION, dataMode, period, read.provenance.archiveState));
       } catch (error) {
         if (error instanceof IncompleteTelemetryHistoryError) {
           warnings.add("archive-incomplete");
-          return null;
+          result.values.set(period.key, null);
+          return;
         }
         throw error;
       }
-    };
-    const current = await readPeriod(periods.current);
+    }));
+    return result;
+  }
+
+  #outdoorFinding(house: House, periods: FindingPeriods, outdoor: OutdoorPeriods): TestedComparison | null {
+    const current = outdoor.values.get(periods.current.key) ?? null;
     if (!usable(current)) return null;
-    const peers = await Promise.all(periods.baseline.map(async (period) => ({ period, value: await readPeriod(period) })));
-    const usablePeers = peers.filter((peer): peer is { period: PeerPeriod; value: PeriodValue } => usable(peer.value));
+    const usablePeers = periods.baseline.flatMap((period) => {
+      const value = outdoor.values.get(period.key) ?? null;
+      return usable(value) ? [{ period, value }] : [];
+    });
     if (usablePeers.length === 0) return null;
     return comparisonFinding({
       category: "outdoor-weather",
@@ -387,7 +436,7 @@ export class DailyAnalyticsFindingsWorker {
     house: House,
     periods: FindingPeriods,
     warnings: Set<DailyAnalyticsFindingsSnapshot["warnings"][number]>,
-  ): Promise<RankedFinding[]> {
+  ): Promise<TestedComparison[]> {
     const activity = await Promise.all([periods.current, ...periods.baseline].map(async (period) => {
       try {
         const [leading, history] = await Promise.all([
@@ -420,7 +469,7 @@ export class DailyAnalyticsFindingsWorker {
         throw error;
       }
     }));
-    const result: RankedFinding[] = [];
+    const result: TestedComparison[] = [];
     for (const floor of house.floors) {
       for (const element of floor.planElements ?? []) {
         if ((element.kind !== "door" && element.kind !== "window")

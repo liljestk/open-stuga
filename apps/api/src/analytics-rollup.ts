@@ -15,6 +15,7 @@ import {
   analyticsResolutionSeconds,
   resolveAnalyticsAggregation,
   resolveAnalyticsQueryShape,
+  summaryBaseResolution,
 } from "./analytics.js";
 import type { HybridArchiveReadState } from "./timeseries/read-facade.js";
 import type {
@@ -67,10 +68,11 @@ function rollupPoints(
   end: number,
   resolution: MeasurementAnalyticsResolution,
   aggregation: MeasurementAnalyticsAggregation,
+  expectedIntervalSeconds?: number,
 ): AnalyticsPoint[] {
   const bucketMs = analyticsResolutionSeconds(resolution) * 1_000;
   const firstBucket = Math.floor(start / bucketMs) * bucketMs;
-  const cadenceSeconds = Math.max(1, series?.cadenceSeconds ?? 60);
+  const cadenceSeconds = Math.max(1, expectedIntervalSeconds ?? series?.cadenceSeconds ?? 60);
   const expectedPerBucket = Math.max(1, bucketMs / 1_000 / cadenceSeconds);
   const byBucket = new Map((series?.buckets ?? []).map((bucket) => [Date.parse(bucket.bucketStart), bucket]));
   const points: AnalyticsPoint[] = [];
@@ -106,8 +108,22 @@ export interface BuildAnalyticsRollupResponseInput extends PlanAnalyticsRollupIn
    */
   plan: Omit<MeasurementAnalyticsRollupQuery, "excludeSynthetic">;
   rollup: MeasurementAnalyticsRollupResult;
+  /** Time-weighted base buckets for summaries, when the display is coarser than the base. */
+  summaryRollup?: { resolution: MeasurementAnalyticsResolution; result: MeasurementAnalyticsRollupResult } | null;
+  /** Long-run reporting interval per series key, for coverage. */
+  expectedIntervalSeconds?: ReadonlyMap<string, number>;
   archiveState: HybridArchiveReadState;
   generatedAt?: string;
+}
+
+/** The base read a rollup response needs for time-weighted summaries, or null when the display already is the base. */
+export function planSummaryRollup(
+  plan: Omit<MeasurementAnalyticsRollupQuery, "excludeSynthetic">,
+): Omit<MeasurementAnalyticsRollupQuery, "excludeSynthetic"> | null {
+  const resolution = summaryBaseResolution((Date.parse(plan.to) - Date.parse(plan.from)) / 1_000);
+  const series = plan.series.filter((item) => item.aggregation === "time_weighted_mean" || item.aggregation === "mean");
+  if (series.length === 0 || resolution === plan.resolution) return null;
+  return { ...plan, series, resolution };
 }
 
 export function buildAnalyticsResponseFromRollup(
@@ -133,7 +149,16 @@ export function buildAnalyticsResponseFromRollup(
       const key = analyticsSeriesKey(entity.id, measurementId);
       const record = records.get(key);
       const aggregation = aggregationBySeries.get(key)!;
-      const points = rollupPoints(record, start, end, plan.resolution, aggregation);
+      const expectedIntervalSeconds = input.expectedIntervalSeconds?.get(key);
+      const points = rollupPoints(record, start, end, plan.resolution, aggregation, expectedIntervalSeconds);
+      const timeWeighted = aggregation === "time_weighted_mean" || aggregation === "mean";
+      const baseResolution = summaryBaseResolution((end - start) / 1_000);
+      const baseRecord = input.summaryRollup?.result.series.find((item) => analyticsSeriesKey(item.sensorId, item.metric) === key);
+      const summaryPoints = !timeWeighted || baseResolution === plan.resolution
+        ? points
+        : baseRecord && input.summaryRollup
+          ? rollupPoints(baseRecord, start, end, input.summaryRollup.resolution, aggregation, expectedIntervalSeconds)
+          : null;
       const provenance = {
         algorithmKey: "analytics-bucket-rollup",
         algorithmVersion: "1.0.0",
@@ -152,12 +177,22 @@ export function buildAnalyticsResponseFromRollup(
         aggregation,
         resolution: plan.resolution,
         points,
+        // Without the base read (it can still be materializing) the summary
+        // falls back to the displayed points and says so.
         summary: buildAnalyticsSummary(
           entity.id,
           measurementId,
           definition.unit,
-          points,
+          summaryPoints ?? points,
           record?.sampleCount ?? 0,
+          {
+            basis: timeWeighted && summaryPoints
+              ? { statistics: aggregation === "time_weighted_mean" ? "time-weighted-base" : "mean-base", baseResolution }
+              : { statistics: "display-points" },
+            expectedIntervalSeconds: expectedIntervalSeconds ?? null,
+            displayPoints: points,
+            rangeSeconds: (end - start) / 1_000,
+          },
         ),
         provenance,
       });

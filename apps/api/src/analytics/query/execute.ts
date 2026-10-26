@@ -11,6 +11,7 @@ import {
 import {
   buildAnalyticsResponseFromRollup,
   planAnalyticsRollup,
+  planSummaryRollup,
 } from "../../analytics-rollup.js";
 import type { HybridTelemetryReader } from "../../timeseries/read-facade.js";
 import { mapWithConcurrency } from "../../timeseries/read-support.js";
@@ -24,6 +25,8 @@ export interface ExecuteAnalyticsQueryInput {
   telemetryReader: HybridTelemetryReader;
   generatedAt: string;
   sourcePointLimit?: number;
+  /** Long-run reporting interval per series key (`analyticsSeriesKey`), for coverage. */
+  expectedIntervalSeconds?: ReadonlyMap<string, number>;
   signal?: AbortSignal;
 }
 
@@ -42,12 +45,26 @@ export async function executeAnalyticsQuery(
       ...(input.signal ? { signal: input.signal } : {}),
     });
     if (rollup) {
+      const summaryPlan = planSummaryRollup(rollupPlan);
+      // Summaries are supporting statistics: a base read that is still
+      // materializing or fails leaves them on the displayed points.
+      const summaryRead = summaryPlan
+        ? await input.telemetryReader.measurementAnalyticsRollup({
+          ...summaryPlan,
+          ...(input.signal ? { signal: input.signal } : {}),
+        }).catch((error: unknown) => {
+          if (input.signal?.aborted) throw error;
+          return null;
+        })
+        : null;
       return buildAnalyticsResponseFromRollup({
         request: input.request,
         definitions: [...input.definitions],
         entities,
         plan: rollupPlan,
         rollup: rollup.result,
+        summaryRollup: summaryPlan && summaryRead ? { resolution: summaryPlan.resolution, result: summaryRead.result } : null,
+        ...(input.expectedIntervalSeconds ? { expectedIntervalSeconds: input.expectedIntervalSeconds } : {}),
         archiveState: rollup.archiveState,
         generatedAt: input.generatedAt,
       });
@@ -83,6 +100,7 @@ export async function executeAnalyticsQuery(
   return buildAnalyticsResponse({
     request: input.request,
     samples: read.records,
+    ...(input.expectedIntervalSeconds ? { expectedIntervalSeconds: input.expectedIntervalSeconds } : {}),
     consumptionBoundarySamples: boundaryReads.flatMap((boundary) => boundary?.records ?? []),
     definitions: [...input.definitions],
     entities,

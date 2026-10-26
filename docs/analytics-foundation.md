@@ -127,6 +127,41 @@ history cannot prove continuous source uptime. The persisted response contains
 at most 16 ranked findings; source scope is bounded to 80 recorded
 sensor/measurement series with an explicit warning when that limit is reached.
 
+From `calendar-peer-findings-v4.0.0` a practical difference is reported only
+when it is also clear beyond chance:
+
+- **Spread.** The current level is compared with the median of the peer years.
+  The spread it is judged against is the larger of two things. One is how much
+  the peer years vary, pooled with a prior of two pseudo-years at half the
+  notable difference, so one or two years cannot claim to vary less than a
+  difference that matters. The other is what day-to-day noise alone would give,
+  with lag-1 persistence shrinking the effective number of days. The spread is
+  never below half the definition's displayed precision. A spread that rests on
+  peer years uses Student-t tails with matching degrees of freedom. Door and
+  window counts are compared on the variance-stabilised square-root scale.
+- **Weather.** Electricity baselines are moved to the current period's heating
+  degree-hours below the house's heating base: the `heating-base-temperature`
+  house parameter, 17 °C by default. Indoor temperature baselines are moved to
+  its mean outdoor temperature. The slope is fitted on the peer days within
+  each year and is applied only when it is positive and at least two standard
+  errors from zero. Every adjusted finding keeps the unadjusted median and both
+  weather values.
+- **Coverage.** Sums integrated from power are scaled up by their coverage, and
+  the evidence keeps the unscaled value. Counter deltas are not scaled, because
+  a counter catches up when readings resume.
+- **Multiple comparisons.** Every compared series in a run, reported or not,
+  enters one Benjamini–Hochberg control at a 10% false-discovery rate. "Strong"
+  additionally needs an adjusted p-value of at most 0.01. The snapshot records
+  how many series were compared.
+
+`apps/api/tests/daily-findings-statistics.test.ts` is the gate. Its synthetic
+months have year-level shifts, persistent daily noise and weather fronts, in
+runs of 80 series. With five peer years, chance differences are flagged in at
+most 1% of series, and at most 5% with two. A shift of about four times the
+years' typical spread is found in at least 90%. A hard-winter month is not
+reported as more electricity once weather is adjusted, while a real increase on
+top of it still is.
+
 ## Home performance checks
 
 The Data & analytics page now adds a Home-owned, progressively disclosed
@@ -140,8 +175,11 @@ and provenance. The implementation is deterministic and versioned as
 The current derivations are:
 
 1. **Comfort and air-quality exposure.** Up to 30 days of hourly temperature,
-   relative-humidity, and CO2 rollups are compared with the initial guide bands
-   of 18-25 C, 30-60% RH, and 1,000 ppm CO2. The result reports coverage-weighted
+   relative-humidity, and CO2 rollups are compared with guide bands of 30-60% RH,
+   1,000 ppm CO2 and a temperature band per room. That band comes from the room's
+   kind (18-25 C by default, 16-23 C for bedrooms, 20-27 C for bathrooms), and
+   the room-scope `comfort-temperature-low`/`-high` parameters override it.
+   Saunas and rooms with `comfort-excluded` set are left out and listed. The result reports coverage-weighted
    share of available metric-hours in range, sensor-hours outside the
    humidity/CO2 guides, and temperature degree-hours outside the guide. Missing
    buckets contribute no duration and are never treated as normal readings.
@@ -163,9 +201,15 @@ The current derivations are:
    and effective events plus median clearance time. It does not infer airflow
    rate or claim that the opening caused the change.
 4. **Weather-normalized energy.** Recorded kWh, or integrated power when a
-   cumulative energy series is unavailable, is divided by heating degree-hours
-   from the same hourly buckets using an 18 C base. At least 24 overlapping
-   hourly buckets and 24 heating degree-hours are required. A bucket needs at
+   cumulative energy series is unavailable, is regressed per day on heating
+   degree-hours below the house's heating base (17 C unless set). The result is
+   a base load plus a heating slope, and the slope is the index, with a 90%
+   interval widened for day-to-day persistence. The two halves of the window
+   are compared by their slopes with an interval, so a change in base load does
+   not read as a change in heating performance. The fit needs a week of days
+   with at least 20 shared hours and differing heating need. With fewer, the
+   index falls back to kWh per degree-hour, which requires at least 24
+   overlapping hourly buckets and 24 heating degree-hours. A bucket needs at
    least 75% source coverage, and multi-meter totals use only hours represented
    by every selected meter. Per meter, a usable cumulative-energy delta is
    preferred and integrated power fills its missing hours. Heating-tagged
@@ -299,11 +343,12 @@ cadence so a lone old value cannot silently fill a long gap.
    archive rows in real mode. The analytics API adds mandatory mode guards but
    does not pretend that current telemetry rows have the per-row `dataMode`
    schema required by the complete specification.
-5. **Descriptive findings only.** The daily detector uses versioned practical
-   thresholds and peer-period medians. It says warmer/cooler, higher/lower, or
-   more/fewer; it does not call a cause, diagnose equipment, or claim a formal
-   statistical anomaly. Correlation, causality, psychrometrics, and scientific
-   anomaly detection still need separate validated methods.
+5. **Descriptive findings with statistical control.** The daily detector uses
+   versioned practical thresholds, peer-period medians, a spread-based test,
+   weather adjustment and false-discovery control. It says warmer/cooler,
+   higher/lower, or more/fewer; it does not call a cause or diagnose equipment.
+   Correlation, causality, psychrometrics, and anomaly models beyond calendar
+   peers still need separate validated methods.
 
 ## Gap matrix and next increments
 
@@ -316,7 +361,7 @@ cadence so a lone old value cannot silently fill a long gap.
 | Rollups | Correct bounded UTC buckets computed inside PostgreSQL over complete archived ranges; calendar comparison composes exact house-local subranges and covers 23/24/25-hour days | Add specialized persisted semantic rollups, source watermarks, late-data invalidation, and reusable server-side local-calendar buckets if query volume requires them. |
 | Descriptive statistics | Core robust summaries | Add histogram/distribution and duration statistics where registry semantics allow them. |
 | Psychrometrics | A pinned Magnus calculation supports bounded within-event absolute-humidity recovery comparisons; no dew point, mould, or diagnostic claim is exposed | Add independent reference vectors and a reviewed library before broader psychrometric outputs. |
-| Statistics/findings | Daily practical-effect peer-period findings with persisted evidence; no causal or inferential claims | Add source-declared cadence, robust seasonal models, autocorrelation-aware uncertainty, multiple-testing control, user confirmation, and longer detector validation before calling results statistical anomalies. |
+| Statistics/findings | Daily peer-period findings with persisted evidence, a spread- and persistence-aware test, weather adjustment, coverage-scaled sums and Benjamini–Hochberg control, gated on synthetic detection and false-positive rates; summary statistics come from a fixed base resolution with coverage against each sensor's usual reporting interval | Add user confirmation and validation on labelled real-home history. |
 | Topology dynamics | Deferred | First version topology snapshots and placement intervals; then validate lag/coupling models on synthetic scenarios. |
 | Forecasts | Existing simple forecast paths are unchanged and are not promoted by this work | Add naive baselines, rolling-origin evaluation, intervals, promotion gates, and model cards before new production forecast claims. |
 | Predictive maintenance | Completed measured-action outcomes and recurring observations are linked as descriptive evidence; no failure forecast or diagnosis | Add persisted confirmation workflows and validated failure labels before predictive models. |

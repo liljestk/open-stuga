@@ -7,6 +7,9 @@ import {
   minimum,
   quantileSorted,
   sampleStandardDeviation,
+  orderedStateSeconds,
+  POWER_HOLD_MS,
+  stateTimeWeightedMean,
   timeWeightedMean,
 } from "@climate-twin/analytics-kernel";
 import { analyticsConsumptionBuckets } from "./analytics-consumption.js";
@@ -21,6 +24,7 @@ import type {
   AnalyticsSampleQuality,
   AnalyticsSeries,
   AnalyticsSummary,
+  AnalyticsSummaryBasis,
   MeasurementDefinition,
   MeasurementKind,
   MeasurementSample,
@@ -344,6 +348,7 @@ function aggregateBucket(
   bucketEnd: number,
   cadenceSeconds: number,
   carriedCounter?: MeasurementSample,
+  stateSeconds?: number,
 ): { value: number | null; flags: QualityFlag[] } {
   if (samples.length === 0) return { value: null, flags: ["missing"] };
   const ordered = [...samples].sort((left, right) => left.timestamp.localeCompare(right.timestamp));
@@ -355,8 +360,14 @@ function aggregateBucket(
   if (aggregation === "sum") return { value: values.reduce((sum, value) => sum + value, 0), flags: [...flags] };
   if (aggregation === "time_weighted_mean") {
     const readings = ordered.map((sample) => ({ at: Date.parse(sample.timestamp), value: sample.value }));
-    // A reading stands for at most one and a half typical sampling intervals.
-    return { value: timeWeightedMean(readings, bucketEnd, cadenceSeconds * 1_500), flags: [...flags] };
+    // A reading stands for at most one and a half typical sampling intervals,
+    // except inside one stored state, where the archive keeps the full gap.
+    return {
+      value: stateSeconds
+        ? stateTimeWeightedMean(readings, bucketEnd, cadenceSeconds * 1_500, stateSeconds * 1_000)
+        : timeWeightedMean(readings, bucketEnd, cadenceSeconds * 1_500),
+      flags: [...flags],
+    };
   }
   if (aggregation === "delta") {
     // The previous bucket's last reading opens this one, so no increment is
@@ -370,24 +381,78 @@ function aggregateBucket(
   return { value: mean(values), flags: [...flags] };
 }
 
+/** Base buckets for time-weighted summaries: the finest width that keeps at most 10,000 per series. */
+const SUMMARY_BASE_POINTS = 10_000;
+export function summaryBaseResolution(rangeSeconds: number): "1m" | "15m" | "1h" {
+  if (rangeSeconds / 60 <= SUMMARY_BASE_POINTS) return "1m";
+  if (rangeSeconds / 900 <= SUMMARY_BASE_POINTS) return "15m";
+  return "1h";
+}
+
+export interface AnalyticsSummaryOptions {
+  basis?: AnalyticsSummaryBasis;
+  expectedIntervalSeconds?: number | null;
+  /** Displayed points; their mean coverage is used when no reporting interval is known. */
+  displayPoints?: readonly AnalyticsPoint[];
+  rangeSeconds?: number;
+}
+
+/**
+ * A base bucket without readings repeats the previous bucket's value for up
+ * to the power hold (15 minutes), so a sensor that reports every few minutes
+ * is not under-weighted against one that reports every few seconds.
+ */
+function heldBaseValues(points: readonly AnalyticsPoint[]): number[] {
+  const values: number[] = [];
+  let last: { value: number; at: number } | null = null;
+  for (const point of points) {
+    const at = Date.parse(point.timestamp);
+    if (point.value !== null) {
+      values.push(point.value);
+      last = { value: point.value, at };
+    } else if (last && at - last.at <= POWER_HOLD_MS) {
+      values.push(last.value);
+    }
+  }
+  return values;
+}
+
+/**
+ * Summary statistics. With a time-weighted base each base bucket stands for
+ * the same length of time, so their mean is the time-weighted mean and their
+ * quantiles describe the share of time spent at a level; extremes come from
+ * the samples themselves.
+ */
 export function buildAnalyticsSummary(
   entityId: string,
   measurementId: string,
   canonicalUnit: string,
   points: readonly AnalyticsPoint[],
   sampleCount: number,
+  options: AnalyticsSummaryOptions = {},
 ): AnalyticsSummary {
-  const values = points.flatMap((point) => point.value === null ? [] : [point.value]);
+  const timeWeighted = options.basis?.statistics === "time-weighted-base" || options.basis?.statistics === "mean-base";
+  const values = timeWeighted ? heldBaseValues(points) : points.flatMap((point) => point.value === null ? [] : [point.value]);
   const sorted = [...values].sort((left, right) => left - right);
   const center = median(values);
+  const coveragePoints = options.displayPoints ?? points;
+  // Readings against the expected count when the reporting interval is known;
+  // otherwise the displayed buckets' relative density.
+  const coverage = options.expectedIntervalSeconds && options.rangeSeconds
+    ? Math.min(1, sampleCount * options.expectedIntervalSeconds / options.rangeSeconds)
+    : coveragePoints.length === 0 ? 0 : coveragePoints.reduce((sum, point) => sum + point.coverage, 0) / coveragePoints.length;
+  const extremes = (key: "minimum" | "maximum") => points.flatMap((point) => point[key] === null ? [] : [point[key]!]);
   return {
     entityId,
     measurementId,
     canonicalUnit,
     count: sampleCount,
-    coverage: points.length === 0 ? 0 : points.reduce((sum, point) => sum + point.coverage, 0) / points.length,
-    minimum: minimum(values),
-    maximum: maximum(values),
+    coverage,
+    ...(options.basis ? { basis: options.basis } : {}),
+    coverageBasis: options.expectedIntervalSeconds ? "expected-interval" : "window-density",
+    expectedIntervalSeconds: options.expectedIntervalSeconds ?? null,
+    minimum: timeWeighted ? minimum(extremes("minimum")) : minimum(values),
+    maximum: timeWeighted ? maximum(extremes("maximum")) : maximum(values),
     mean: mean(values),
     median: center,
     standardDeviation: sampleStandardDeviation(values),
@@ -419,12 +484,16 @@ async function bucketPoints(
   resolution: BucketResolution,
   aggregation: Exclude<AnalyticsAggregation, "default">,
   consumptionSamples: readonly MeasurementSample[] = samples,
+  options: { stateSeconds?: number; expectedIntervalSeconds?: number } = {},
 ): Promise<AnalyticsPoint[]> {
   const bucketMs = analyticsResolutionSeconds(resolution) * 1_000;
   const firstBucket = Math.floor(start / bucketMs) * bucketMs;
   const rangeSeconds = (end - start) / 1_000;
   const cadenceSeconds = analyticsBucketCadenceSeconds(samples.length, rangeSeconds);
-  const expectedPerBucket = Math.max(1, bucketMs / 1_000 / cadenceSeconds);
+  // Coverage compares with the sensor's long-run reporting interval when it is
+  // known; the in-window density only says how full a bucket is relative to
+  // the rest of the window.
+  const expectedPerBucket = Math.max(1, bucketMs / 1_000 / (options.expectedIntervalSeconds ?? cadenceSeconds));
   const byBucket = new Map<number, MeasurementSample[]>();
   let sliceRemaining = SAMPLES_PER_SLICE;
   for (const sample of samples) {
@@ -449,7 +518,7 @@ async function bucketPoints(
     const values = byBucket.get(timestamp) ?? [];
     const coverage = Math.min(1, values.length / expectedPerBucket);
     const aggregated = aggregateBucket(values, aggregation, timestamp + bucketMs, cadenceSeconds,
-      aggregation === "delta" ? previousCounterSample : undefined);
+      aggregation === "delta" ? previousCounterSample : undefined, options.stateSeconds);
     const flags = new Set(aggregated.flags);
     if (coverage < 0.75) flags.add("low_coverage");
     points.push({
@@ -608,6 +677,8 @@ export function analyticsSeriesKey(sensorId: string, measurementId: string): str
 export interface BuildAnalyticsResponseInput {
   request: AnalyticsQueryRequest;
   samples: MeasurementSample[];
+  /** Long-run reporting interval per series key, for coverage. */
+  expectedIntervalSeconds?: ReadonlyMap<string, number>;
   /** Range anchors affect consumption only, never half-open observation statistics. */
   consumptionBoundarySamples?: MeasurementSample[];
   definitions: MeasurementDefinition[];
@@ -671,10 +742,26 @@ export async function buildAnalyticsResponse(input: BuildAnalyticsResponseInput)
     );
   }
   const series: AnalyticsSeries[] = [];
+  const aggregations = input.request.measurementIds.map((measurementId) => (
+    resolveAnalyticsAggregation(analyticsMeasurementDefinition(definitions, measurementId), input.request.aggregation)
+  ));
+  const timeWeightedIds = input.request.measurementIds.filter((_, index) => aggregations[index] === "time_weighted_mean");
+  const levelIds = input.request.measurementIds.filter((_, index) => aggregations[index] === "time_weighted_mean" || aggregations[index] === "mean");
+  // The archive reads stored states of these widths; matching them keeps both paths equal.
+  const stateSeconds = resolution === "raw" ? undefined : orderedStateSeconds(analyticsResolutionSeconds(resolution), {
+    power: input.request.measurementIds.includes("power"),
+    timeWeighted: timeWeightedIds.length > 0,
+  });
+  const baseResolution = summaryBaseResolution(rangeSeconds);
+  const baseStateSeconds = orderedStateSeconds(analyticsResolutionSeconds(baseResolution), {
+    power: timeWeightedIds.includes("power"),
+    timeWeighted: true,
+  });
 
   for (const entity of input.entities) {
     for (const measurementId of input.request.measurementIds) {
       const definition = analyticsMeasurementDefinition(definitions, measurementId);
+      const expectedIntervalSeconds = input.expectedIntervalSeconds?.get(analyticsSeriesKey(entity.id, measurementId));
       const aggregation = resolution === "raw"
         ? "last"
         : resolveAnalyticsAggregation(definition, input.request.aggregation);
@@ -692,7 +779,17 @@ export async function buildAnalyticsResponse(input: BuildAnalyticsResponseInput)
       const points = resolution === "raw"
         ? rawPoints(samples, rangeSeconds)
         : await bucketPoints(samples, start, end, resolution, aggregation,
-          [...seriesSamples, ...(boundariesBySeries.get(analyticsSeriesKey(entity.id, measurementId)) ?? [])]);
+          [...seriesSamples, ...(boundariesBySeries.get(analyticsSeriesKey(entity.id, measurementId)) ?? [])],
+          { ...(stateSeconds ? { stateSeconds } : {}), ...(expectedIntervalSeconds ? { expectedIntervalSeconds } : {}) });
+      const level = levelIds.includes(measurementId);
+      const levelAggregation = resolveAnalyticsAggregation(definition, input.request.aggregation) as "time_weighted_mean" | "mean";
+      const summaryPoints = !level
+        ? points
+        : resolution === baseResolution
+          ? points
+          : await bucketPoints(levelAggregation === "time_weighted_mean" ? oneReadingPerInstant(seriesSamples) : seriesSamples,
+            start, end, baseResolution, levelAggregation, seriesSamples,
+            { stateSeconds: baseStateSeconds, ...(expectedIntervalSeconds ? { expectedIntervalSeconds } : {}) });
       const provenance = {
         algorithmKey: resolution === "raw" ? "analytics-raw-series" : "analytics-bucket-rollup",
         algorithmVersion: "1.0.0",
@@ -711,7 +808,14 @@ export async function buildAnalyticsResponse(input: BuildAnalyticsResponseInput)
         aggregation: resolution === "raw" ? "raw" : aggregation,
         resolution,
         points,
-        summary: buildAnalyticsSummary(entity.id, measurementId, definition.unit, points, samples.length),
+        summary: buildAnalyticsSummary(entity.id, measurementId, definition.unit, summaryPoints, samples.length, {
+          basis: level
+            ? { statistics: levelAggregation === "time_weighted_mean" ? "time-weighted-base" : "mean-base", baseResolution }
+            : { statistics: "display-points" },
+          expectedIntervalSeconds: expectedIntervalSeconds ?? null,
+          displayPoints: points,
+          rangeSeconds,
+        }),
         provenance,
       });
     }

@@ -845,6 +845,10 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
                 <div><dt>{t("analytics.coverageLabel")}</dt><dd>{Math.round(summary.coverage * 100)}%</dd></div>
               </dl>
               <small>{t("analytics.sampleCount", { count: summary.count })}</small>
+              {summary.basis && <small className="analytics-summary-basis">{summary.basis.statistics === "display-points"
+                ? t("analytics.summaryBasis.display")
+                : t("analytics.summaryBasis.base", { resolution: t(`analytics.resolution_${summary.basis.baseResolution}`) })}</small>}
+              {summary.expectedIntervalSeconds ? <small className="analytics-summary-basis">{t("analytics.summaryBasis.expectedInterval", { seconds: summary.expectedIntervalSeconds })}</small> : null}
             </article>;
           })}</div>
           <details className="analytics-data-details">

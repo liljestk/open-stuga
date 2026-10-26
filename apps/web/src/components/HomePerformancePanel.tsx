@@ -156,6 +156,25 @@ export function HomePerformancePanel(props: Readonly<HomePerformancePanelProps>)
     && performance?.energy.energyPerHeatingDegreeHour !== undefined
     ? t("performance.energyIndexValue", { value: number(performance.energy.energyPerHeatingDegreeHour, 3) })
     : dash;
+  const energy = performance?.energy;
+  const energyDetail = [
+    energy?.indexMethod === "regression" && energy.baseLoadKwhPerDay != null && energy.energyPerHeatingDegreeHour !== null && energy.heatingSlopeInterval
+      ? t("performance.energy.regression", {
+          base: number(energy.baseLoadKwhPerDay, 1),
+          slope: number(energy.energyPerHeatingDegreeHour, 3),
+          temperature: number(energy.heatingBaseTemperatureC ?? 17, 1),
+          low: number(energy.heatingSlopeInterval.low, 3),
+          high: number(energy.heatingSlopeInterval.high, 3),
+        })
+      : null,
+    energy?.comparisonChangePercent != null && energy.comparisonInterval
+      ? t("performance.energy.comparison", {
+          change: number(energy.comparisonChangePercent, 0),
+          low: number(energy.comparisonInterval.lowPercent, 0),
+          high: number(energy.comparisonInterval.highPercent, 0),
+        })
+      : null,
+  ].filter(Boolean).join(" ");
   const maintenanceValue = performance?.maintenance.evaluatedActions
     ? `${performance.maintenance.improvedActions}/${performance.maintenance.evaluatedActions}`
     : dash;
@@ -230,12 +249,14 @@ export function HomePerformancePanel(props: Readonly<HomePerformancePanelProps>)
             label={t("performance.exposure.title")}
             value={guideValue}
             state={performance.exposure.state}
-            context={t("performance.exposure.context", {
+            context={[t("performance.exposure.context", {
               hours: number(performance.exposure.observedHours, 1),
               degreeHours: number(performance.exposure.temperatureDegreeHours, 1),
               humidityHours: number(performance.exposure.humidityOutsideGuideHours, 1),
               co2Hours: number(performance.exposure.co2AboveGuideHours, 1),
-            })}
+            }), performance.exposure.excludedRooms?.length
+              ? t("performance.exposure.excluded", { rooms: new Intl.ListFormat(locale).format(performance.exposure.excludedRooms) })
+              : null].filter(Boolean).join(" ")}
           />
           <PerformanceRow
             icon={<Droplets size={19} />}
@@ -280,7 +301,7 @@ export function HomePerformancePanel(props: Readonly<HomePerformancePanelProps>)
                     degreeHours: number(performance.energy.heatingDegreeHours, 0),
                   })
                 : t("performance.energy.empty")}
-          />
+          >{energyDetail ? <p>{energyDetail}</p> : null}</PerformanceRow>
           <PerformanceRow
             icon={<Wrench size={19} />}
             label={t("performance.maintenance.title")}

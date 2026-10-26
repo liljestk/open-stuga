@@ -55,7 +55,7 @@ export type AggregationSemantic =
   | "custom";
 
 /** Product release version. Pre-1.0 minor releases may contain breaking changes. */
-export const SYSTEM_VERSION = "0.46.0" as const;
+export const SYSTEM_VERSION = "0.47.0" as const;
 
 export interface MeasurementDefinition {
   id: Metric;
@@ -250,12 +250,33 @@ export interface AnalyticsPoint {
   qualityFlags: QualityFlag[];
 }
 
+/**
+ * How summary statistics were formed. Level series (time-weighted mean or
+ * mean) use fixed-width base buckets in their own aggregation (the finest of
+ * 1 minute, 15 minutes or 1 hour that keeps at most 10,000 per series), so
+ * each base bucket stands for the same time and the statistics do not change
+ * with the displayed resolution. Other aggregations summarize the displayed
+ * points.
+ */
+export type AnalyticsSummaryBasis =
+  | { statistics: "time-weighted-base" | "mean-base"; baseResolution: "1m" | "15m" | "1h" }
+  | { statistics: "display-points" };
+
 export interface AnalyticsSummary {
   entityId: string;
   measurementId: string;
   canonicalUnit: string;
   count: number;
+  /**
+   * Mean bucket coverage. Against the sensor's long-run reporting interval
+   * when `coverageBasis` is "expected-interval"; otherwise relative to the
+   * sample density of the window itself.
+   */
   coverage: number;
+  basis?: AnalyticsSummaryBasis;
+  coverageBasis?: "expected-interval" | "window-density";
+  /** The reporting interval coverage was measured against, when known. */
+  expectedIntervalSeconds?: number | null;
   minimum: number | null;
   maximum: number | null;
   mean: number | null;
@@ -317,6 +338,23 @@ export type AnalyticsFindingStatistic = "mean" | "sum" | "delta" | "open-count";
 
 export type AnalyticsFindingStrength = "notable" | "strong";
 
+/** What set the scale a difference was judged against. */
+export type AnalyticsFindingSpreadBasis = "between-years" | "assumed" | "day-to-day" | "resolution" | "counts";
+
+/** How a baseline was moved to the current period's weather before comparing. */
+export interface AnalyticsFindingWeatherAdjustment {
+  driver: "heating-degree-hours" | "outdoor-temperature";
+  /** Outdoor temperature below which degree-hours accumulate. */
+  baseTemperatureC?: number;
+  /** Change per day (sums) or in the mean, per degree-hour per day or per °C, fitted on the baseline days. */
+  slope: number;
+  /** Mean daily degree-hours, or mean outdoor °C, in the current period. */
+  currentDriver: number;
+  baselineDriverMedian: number;
+  /** The baseline median before the adjustment. */
+  unadjustedBaselineMedian: number;
+}
+
 /** One like-for-like calendar window retained as auditable evidence for a daily finding. */
 export interface AnalyticsFindingPeriodEvidence {
   key: string;
@@ -327,11 +365,14 @@ export interface AnalyticsFindingPeriodEvidence {
   sampleCount: number;
   /** Null for event streams whose continuous source uptime cannot be reconstructed. */
   coverage: number | null;
+  /** A sum before it was scaled up for missing coverage. */
+  unscaledValue?: number;
 }
 
 /**
- * A descriptive peer-period difference. It deliberately reports association,
- * not causality: no weather, occupancy, tariff, or equipment cause is inferred.
+ * A descriptive peer-period difference. Temperature and electricity baselines
+ * can be moved to the current weather; beyond that it reports association, not
+ * causality: no occupancy, tariff, or equipment cause is inferred.
  */
 export interface AnalyticsFinding {
   id: string;
@@ -348,6 +389,12 @@ export interface AnalyticsFinding {
   baselineMedian: number;
   absoluteDifference: number;
   percentDifference: number | null;
+  /** The difference in units of the baseline's spread (from v4). */
+  zScore?: number;
+  /** Benjamini–Hochberg adjusted p-value across every series tested in the same run (from v4). */
+  qValue?: number;
+  spreadBasis?: AnalyticsFindingSpreadBasis;
+  weatherAdjustment?: AnalyticsFindingWeatherAdjustment;
 }
 
 export interface DailyAnalyticsFindingsSnapshot {
@@ -361,6 +408,9 @@ export interface DailyAnalyticsFindingsSnapshot {
   generatedAt: string;
   findings: AnalyticsFinding[];
   warnings: Array<"archive-incomplete" | "source-truncated" | "scope-limited">;
+  /** Series compared in this run, all counted by the false-discovery control (from v4). */
+  seriesTested?: number;
+  falseDiscoveryRate?: number;
 }
 
 export interface DailyAnalyticsFindingsStatus {

@@ -1,0 +1,18 @@
+export const svAnalyticsQuality = {
+  "analytics.summaryBasis.base": "Statistiken bygger på intervall om {resolution}, så den ändras inte med diagrammets upplösning.",
+  "analytics.summaryBasis.display": "Statistiken bygger på de visade punkterna.",
+  "analytics.summaryBasis.expectedInterval": "Täckningen jämförs med det vanliga rapportintervallet på {seconds} s.",
+  "analytics.findingsWeatherDegreeHours": "Jämförelsenivån är flyttad till periodens väder: {current} gradtimmar per dygn under {base} °C, mot {baseline} tidigare år. Före justeringen var den {unadjusted}.",
+  "analytics.findingsWeatherOutdoor": "Jämförelsenivån är flyttad till periodens väder: ett utomhusmedel på {current} °C, mot {baseline} °C tidigare år. Före justeringen var den {unadjusted}.",
+  "analytics.findingsSignificance": "{z} gånger den vanliga variationen ({basis}); p justerat för multipla jämförelser = {q}.",
+  "analytics.findingsSpread_between-years": "mellan tidigare år",
+  "analytics.findingsSpread_assumed": "antagen utifrån vad som räknas som en märkbar skillnad, eftersom få tidigare år finns",
+  "analytics.findingsSpread_day-to-day": "från dag till dag",
+  "analytics.findingsSpread_resolution": "vid sensorns upplösning",
+  "analytics.findingsSpread_counts": "för antal av den här storleken",
+  "analytics.findingsScaled": "{value} (uppskalat från {raw} för saknade avläsningar)",
+  "analytics.findingsTested": "{count} serier jämfördes; högst ungefär var tionde iakttagelse väntas bero på slumpen.",
+  "performance.energy.regression": "Grundlast {base} kWh per dygn plus {slope} kWh per gradtimme under {temperature} °C (90 % intervall {low}–{high}).",
+  "performance.energy.comparison": "Uppvärmningslutningen ändrades {change} % mellan periodens två halvor (90 % intervall {low} % till {high} %).",
+  "performance.exposure.excluded": "Utelämnade från komfortexponeringen: {rooms}.",
+} as const;

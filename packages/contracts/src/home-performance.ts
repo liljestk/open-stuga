@@ -6,7 +6,7 @@ import type {
 } from "./analytics-common.js";
 import type { HvacExclusionSummary } from "./weather-thermal.js";
 
-export const HOME_PERFORMANCE_ALGORITHM_VERSION = "home-performance-v3.2.0";
+export const HOME_PERFORMANCE_ALGORITHM_VERSION = "home-performance-v4.0.0";
 
 export type HomePerformanceEvidenceState = "ready" | "limited" | "unavailable";
 
@@ -19,6 +19,9 @@ export interface HomePerformanceRoomExposure {
   temperatureDegreeHours: number;
   humidityOutsideGuideHours: number;
   co2AboveGuideHours: number;
+  /** The temperature band this room was judged against. */
+  comfortTemperatureLowC?: number;
+  comfortTemperatureHighC?: number;
 }
 
 export interface HomePerformanceExposure {
@@ -30,6 +33,8 @@ export interface HomePerformanceExposure {
   co2AboveGuideHours: number;
   worstRoom: HomePerformanceRoomExposure | null;
   rooms: HomePerformanceRoomExposure[];
+  /** Rooms left out of comfort exposure, such as saunas. */
+  excludedRooms?: string[];
 }
 
 export interface HomePerformanceRecovery {
@@ -53,6 +58,16 @@ export interface HomePerformanceEnergy {
   energyPerHeatingDegreeHour: number | null;
   comparisonChangePercent: number | null;
   source: "heating-meter" | "unclassified-electricity" | null;
+  /** Outdoor °C below which degree-hours accumulate: the house's parameter, 17 °C by default. */
+  heatingBaseTemperatureC?: number;
+  /** "regression" when the index is the fitted heating slope; "ratio" when too few days allow a fit. */
+  indexMethod?: "regression" | "ratio";
+  /** Fitted daily energy with no heating need. */
+  baseLoadKwhPerDay?: number | null;
+  /** 90% interval of the heating slope. */
+  heatingSlopeInterval?: { low: number; high: number } | null;
+  /** 90% interval of comparisonChangePercent. */
+  comparisonInterval?: { lowPercent: number; highPercent: number } | null;
 }
 
 export interface HomePerformanceMaintenance {

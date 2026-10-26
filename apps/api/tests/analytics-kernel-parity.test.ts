@@ -7,7 +7,7 @@ import type {
   MeasurementSample,
 } from "@climate-twin/contracts";
 import { buildAnalyticsResponse, parseAnalyticsQueryRequest } from "../src/analytics.js";
-import { buildAnalyticsResponseFromRollup, planAnalyticsRollup } from "../src/analytics-rollup.js";
+import { buildAnalyticsResponseFromRollup, planAnalyticsRollup, planSummaryRollup } from "../src/analytics-rollup.js";
 import { ClimateDatabase } from "../src/db.js";
 import { RollupsMaterializingError } from "../src/timeseries/read-support.js";
 import {
@@ -128,6 +128,9 @@ function scenarios(sensorIds: readonly string[]): Scenario[] {
       }),
     },
     {
+      // Gaps inside one stored state hold the reading (at most an hour, see
+      // kernel `orderedStateSeconds`); across states they are capped. Both
+      // paths apply the same rule, so values and summaries agree exactly.
       name: "power with silent gaps beyond the hold",
       sensorId: sensorIds[2]!,
       metric: "power",
@@ -138,7 +141,6 @@ function scenarios(sensorIds: readonly string[]): Scenario[] {
         gap: () => gappyRandom() < 0.006 ? Math.round((5 + gappyRandom() * 115) * 60_000) : 0,
         next: () => Math.round(gappyRandom() * 3_000),
       }),
-      ignored: (path) => /\.points\[\d+\]\.value$/.test(path) || /\.(?:summary|summaries\[\d+\])\.(?!count$|coverage$)/.test(path),
     },
     {
       name: "energy counter with restarts, gaps and irregular cadence",
@@ -295,8 +297,13 @@ describe("analytics kernel parity between raw aggregation and archive rollups", 
           });
           const plan = planAnalyticsRollup({ request, definitions: [definition], entities })!;
           const rollup = await archiveRollup({ ...plan, excludeSynthetic: true });
+          // The executor's second read: time-weighted summaries come from base buckets.
+          const summaryPlan = planSummaryRollup(plan);
+          const summaryRollup = summaryPlan
+            ? { resolution: summaryPlan.resolution, result: await archiveRollup({ ...summaryPlan, excludeSynthetic: true }) }
+            : null;
           const fromArchive = buildAnalyticsResponseFromRollup({
-            request, definitions: [definition], entities, plan, rollup, archiveState: "merged", generatedAt: GENERATED_AT,
+            request, definitions: [definition], entities, plan, rollup, summaryRollup, archiveState: "merged", generatedAt: GENERATED_AT,
           });
           expect(fromKernel.series[0]!.summary.count, label).toBeGreaterThan(0);
           expect(differences(normalised(fromKernel), normalised(fromArchive), scenario.ignored ?? (() => false)).slice(0, 8), label)
@@ -329,6 +336,4 @@ describe("analytics kernel parity between raw aggregation and archive rollups", 
     )).rows[0]!;
     expect(stored.states).toBeGreaterThan(0);
   }, 300_000);
-
-  it.todo("time-weighted means clamp gaps inside stored rollup states like raw aggregation (W5 expected-cadence coverage)");
 });

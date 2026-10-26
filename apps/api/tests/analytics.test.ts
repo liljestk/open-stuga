@@ -132,7 +132,8 @@ describe("analytics query API", () => {
         canonicalUnit: "°C",
         truthClass: "derived",
         aggregation: "mean",
-        summary: { count: 3, minimum: 20, maximum: 22, mean: 21, median: 21, p05: 20.1, p95: 21.9 },
+        // Quantiles describe time spent at a level: each reading holds through the 1-minute base.
+        summary: { count: 3, minimum: 20, maximum: 22, p05: 20, p95: 22, basis: { statistics: "mean-base", baseResolution: "1m" } },
         provenance: { algorithmKey: "analytics-bucket-rollup", algorithmVersion: "1.0.0", archiveState: "not-configured" },
       }],
     });

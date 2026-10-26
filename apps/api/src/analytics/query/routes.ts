@@ -143,6 +143,10 @@ export function registerAnalyticsQueryRoutes(context: AnalyticsQueryRouteContext
           definitions,
           telemetryReader: context.telemetryReader,
           generatedAt: new Date().toISOString(),
+          // Coverage compares with each series' long-run reporting rhythm.
+          expectedIntervalSeconds: context.database.expectedReportingIntervals(sensors.flatMap((sensor) => (
+            definitions.map((definition) => ({ sensorId: sensor.id, metric: definition.id }))
+          ))),
           signal,
         }),
         signal,

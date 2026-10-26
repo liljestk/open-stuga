@@ -151,6 +151,17 @@ describe("daily analytics findings", () => {
     expect(opening.current.value).toBe(13);
     expect(opening.baselineMedian).toBe(3);
 
+    // Every compared series counts towards the false-discovery control, reported or not.
+    expect(response.body.snapshot).toMatchObject({ algorithmVersion: "calendar-peer-findings-v4.0.0", falseDiscoveryRate: 0.1 });
+    expect(response.body.snapshot.seriesTested).toBeGreaterThanOrEqual(findings.length);
+    for (const finding of findings) {
+      expect(finding.qValue).toBeLessThanOrEqual(0.1);
+      expect(typeof finding.zScore).toBe("number");
+    }
+    // One earlier year cannot show how much years vary, so the spread is assumed and the strength stays modest.
+    expect(findings.find((finding) => finding.metric === "temperature")).toMatchObject({ spreadBasis: "assumed", strength: "notable" });
+    expect(findings.find((finding) => finding.category === "opening")).toMatchObject({ spreadBasis: "counts" });
+
     const second = await runtime.dailyAnalyticsFindings.runOnce();
     expect(second.skipped).toBe(2);
     expect(second.generated).toBe(0);

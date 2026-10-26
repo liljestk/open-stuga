@@ -353,7 +353,7 @@ export const enPart5 = {
   "performance.openChecks": "Open six Home performance checks",
   "performance.openEvidence": "Open room and sensor evidence",
   "performance.exposure.title": "Comfort and air-quality exposure",
-  "performance.exposure.context": "Coverage-weighted evidence per supported series: {hours} h. Across sensors, temperature accumulated {degreeHours} degree-hours outside 18–25°C; humidity contributed {humidityHours} sensor-hours outside 30–60%; CO₂ contributed {co2Hours} sensor-hours above 1,000 ppm.",
+  "performance.exposure.context": "Coverage-weighted evidence per supported series: {hours} h. Across sensors, temperature accumulated {degreeHours} degree-hours outside each room's comfort band (18–25 °C unless its room type or settings give another); humidity contributed {humidityHours} sensor-hours outside 30–60%; CO₂ contributed {co2Hours} sensor-hours above 1,000 ppm.",
   "performance.recovery.title": "Moisture recovery",
   "performance.recovery.context": "Distinct moisture episodes evaluated: {count}.",
   "performance.recovery.empty": "No distinct moisture episode had enough before-and-after evidence in the last seven days.",

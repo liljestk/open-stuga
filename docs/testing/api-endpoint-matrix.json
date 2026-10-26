@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
-  "projectVersion": "0.46.0",
+  "projectVersion": "0.47.0",
   "executionStatus": "not-run",
   "source": {
     "documents": {
       "v1": {
         "path": "apps/api/src/openapi.ts",
-        "sha256": "a5e3d62569a1a8df871092445acf401990cce9a0e986246cf08fa804794d8614"
+        "sha256": "045c26685368c788c4f2a099e84120edb061434052e39ec6563d1955db14386d"
       },
       "v2": {
         "path": "apps/api/src/openapi.ts",
-        "sha256": "6df2140b8ce8ce23d42abf0128d0fa0ae6b61f2f1273df98d349e344a97c596d"
+        "sha256": "a331edb374128954fda03f931942156c774ed573ca7d0f74eb1bc813cdf85f88"
       }
     },
     "supplementalSourceHashes": {
@@ -3328,6 +3328,43 @@
             ],
             "minimum": 0,
             "maximum": 1
+          },
+          "unscaledValue": {
+            "type": "number"
+          }
+        }
+      },
+      "AnalyticsFindingWeatherAdjustment": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "driver",
+          "slope",
+          "currentDriver",
+          "baselineDriverMedian",
+          "unadjustedBaselineMedian"
+        ],
+        "properties": {
+          "driver": {
+            "enum": [
+              "heating-degree-hours",
+              "outdoor-temperature"
+            ]
+          },
+          "baseTemperatureC": {
+            "type": "number"
+          },
+          "slope": {
+            "type": "number"
+          },
+          "currentDriver": {
+            "type": "number"
+          },
+          "baselineDriverMedian": {
+            "type": "number"
+          },
+          "unadjustedBaselineMedian": {
+            "type": "number"
           }
         }
       },
@@ -3418,6 +3455,26 @@
               "null"
             ],
             "minimum": 0
+          },
+          "zScore": {
+            "type": "number"
+          },
+          "qValue": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "spreadBasis": {
+            "enum": [
+              "between-years",
+              "assumed",
+              "day-to-day",
+              "resolution",
+              "counts"
+            ]
+          },
+          "weatherAdjustment": {
+            "$ref": "#/components/schemas/AnalyticsFindingWeatherAdjustment"
           }
         }
       },
@@ -3479,6 +3536,15 @@
                 "scope-limited"
               ]
             }
+          },
+          "seriesTested": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "falseDiscoveryRate": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 1
           }
         }
       },
@@ -17640,6 +17706,12 @@
           "co2AboveGuideHours": {
             "type": "number",
             "minimum": 0
+          },
+          "comfortTemperatureLowC": {
+            "type": "number"
+          },
+          "comfortTemperatureHighC": {
+            "type": "number"
           }
         }
       },
@@ -17702,6 +17774,12 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/HomePerformanceRoomExposure"
+            }
+          },
+          "excludedRooms": {
+            "type": "array",
+            "items": {
+              "type": "string"
             }
           }
         }
@@ -17934,6 +18012,67 @@
                   "heating-meter",
                   "unclassified-electricity",
                   null
+                ]
+              },
+              "heatingBaseTemperatureC": {
+                "type": "number"
+              },
+              "indexMethod": {
+                "enum": [
+                  "regression",
+                  "ratio"
+                ]
+              },
+              "baseLoadKwhPerDay": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "heatingSlopeInterval": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "low",
+                      "high"
+                    ],
+                    "properties": {
+                      "low": {
+                        "type": "number"
+                      },
+                      "high": {
+                        "type": "number"
+                      }
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "comparisonInterval": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "lowPercent",
+                      "highPercent"
+                    ],
+                    "properties": {
+                      "lowPercent": {
+                        "type": "number"
+                      },
+                      "highPercent": {
+                        "type": "number"
+                      }
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
                 ]
               }
             }

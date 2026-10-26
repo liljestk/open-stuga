@@ -1,4 +1,5 @@
 import type { QueryResultRow } from "pg";
+import { orderedStateSeconds } from "@climate-twin/analytics-kernel";
 import { RollupsMaterializingError } from "../../read-support.js";
 import { MEASUREMENT_ANALYTICS_BUCKETS, type MeasurementAnalyticsBaseBucket } from "../../schema.js";
 import type {
@@ -33,14 +34,10 @@ function baseBucket(resolution: MeasurementAnalyticsResolution): MeasurementAnal
   return "1m";
 }
 
-function orderedBucketSeconds(resolution: MeasurementAnalyticsResolution): 60 | 900 | 3600 | 86400 {
+function resolutionSeconds(resolution: MeasurementAnalyticsResolution): number {
   if (resolution === "1d") return 86_400;
   if (resolution === "1h") return 3_600;
-  const minutes = Number(/^(\d{1,4})m$/u.exec(resolution)?.[1]);
-  if (minutes % 1_440 === 0) return 86_400;
-  if (minutes % 60 === 0) return 3_600;
-  if (minutes % 15 === 0) return 900;
-  return 60;
+  return Number(/^(\d{1,4})m$/u.exec(resolution)?.[1]) * 60;
 }
 
 function qualityMask(qualities: readonly string[]): number {
@@ -99,12 +96,14 @@ async function executeRollup(
   if (series.length === 0) return [];
   const mask = qualityMask(query.qualities);
   const sourceScope = query.excludeSynthetic === true ? "real" : "all";
-  // Power integration may hold a sample for at most 15 minutes. Keeping the
-  // stored state no wider than that makes its internal integral exact even
-  // when the requested display buckets span a day.
-  const orderedSeconds = series.some((item) => item.metric === "power")
-    ? Math.min(900, orderedBucketSeconds(query.resolution)) as 60 | 900
-    : orderedBucketSeconds(query.resolution);
+  // Power integration may hold a sample for at most 15 minutes and a
+  // time-weighted mean for at most an hour inside one stored state, so those
+  // reads use states no wider than that even for day-wide display buckets.
+  // The raw path applies the same widths (kernel `orderedStateSeconds`).
+  const orderedSeconds = orderedStateSeconds(resolutionSeconds(query.resolution), {
+    power: series.some((item) => item.metric === "power"),
+    timeWeighted: series.some((item) => item.aggregation === "time_weighted_mean"),
+  });
   if (ordered) {
     await store.enqueueMeasurementOrderedRollups(
       series,

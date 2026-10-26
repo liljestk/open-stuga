@@ -93,6 +93,8 @@ export const schemasPart09 = {
       temperatureDegreeHours: { type: "number", minimum: 0 },
       humidityOutsideGuideHours: { type: "number", minimum: 0 },
       co2AboveGuideHours: { type: "number", minimum: 0 },
+      comfortTemperatureLowC: { type: "number" },
+      comfortTemperatureHighC: { type: "number" },
     },
   },
   HomePerformanceExposure: {
@@ -119,6 +121,7 @@ export const schemasPart09 = {
         type: "array",
         items: { $ref: "#/components/schemas/HomePerformanceRoomExposure" },
       },
+      excludedRooms: { type: "array", items: { type: "string" } },
     },
   },
   HomePerformanceSensorIssue: {
@@ -192,6 +195,24 @@ export const schemasPart09 = {
           energyPerHeatingDegreeHour: { type: ["number", "null"], minimum: 0 },
           comparisonChangePercent: { type: ["number", "null"] },
           source: { enum: ["heating-meter", "unclassified-electricity", null] },
+          heatingBaseTemperatureC: { type: "number" },
+          indexMethod: { enum: ["regression", "ratio"] },
+          baseLoadKwhPerDay: { type: ["number", "null"] },
+          heatingSlopeInterval: {
+            oneOf: [
+              { type: "object", additionalProperties: false, required: ["low", "high"], properties: { low: { type: "number" }, high: { type: "number" } } },
+              { type: "null" },
+            ],
+          },
+          comparisonInterval: {
+            oneOf: [
+              {
+                type: "object", additionalProperties: false, required: ["lowPercent", "highPercent"],
+                properties: { lowPercent: { type: "number" }, highPercent: { type: "number" } },
+              },
+              { type: "null" },
+            ],
+          },
         },
       },
       maintenance: {

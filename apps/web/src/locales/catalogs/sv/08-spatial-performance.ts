@@ -515,7 +515,7 @@ export const svPart8 = {
   "performance.openChecks": "Öppna sex kontroller av hemmets prestanda",
   "performance.openEvidence": "Öppna underlag för rum och sensorer",
   "performance.exposure.title": "Klimat- och luftkvalitetsbelastning",
-  "performance.exposure.context": "Täckningsviktat underlag per stödd serie: {hours} h. Över sensorerna gav temperaturen {degreeHours} gradtimmar utanför 18–25 °C; luftfuktighet bidrog med {humidityHours} sensortimmar utanför 30–60 % och CO₂ med {co2Hours} sensortimmar över 1 000 ppm.",
+  "performance.exposure.context": "Täckningsviktat underlag per stödd serie: {hours} h. Över sensorerna gav temperaturen {degreeHours} gradtimmar utanför varje rums komfortintervall (18–25 °C om inte rumstypen eller inställningarna anger något annat); luftfuktighet bidrog med {humidityHours} sensortimmar utanför 30–60 % och CO₂ med {co2Hours} sensortimmar över 1 000 ppm.",
   "performance.recovery.title": "Fuktåterhämtning",
   "performance.recovery.context": "Utvärderade separata fukthändelser: {count}.",
   "performance.recovery.empty": "Ingen tydlig fukthändelse hade tillräckligt underlag före och efter under de senaste sju dagarna.",

@@ -149,6 +149,16 @@ export const schemasPart01 = {
             start: { type: "string", format: "date-time" }, end: { type: "string", format: "date-time" },
             value: { type: "number" }, sampleCount: { type: "integer", minimum: 0 },
             coverage: { type: ["number", "null"], minimum: 0, maximum: 1 },
+            unscaledValue: { type: "number" },
+          },
+        },
+  AnalyticsFindingWeatherAdjustment: {
+          type: "object", additionalProperties: false,
+          required: ["driver", "slope", "currentDriver", "baselineDriverMedian", "unadjustedBaselineMedian"],
+          properties: {
+            driver: { enum: ["heating-degree-hours", "outdoor-temperature"] }, baseTemperatureC: { type: "number" },
+            slope: { type: "number" }, currentDriver: { type: "number" }, baselineDriverMedian: { type: "number" },
+            unadjustedBaselineMedian: { type: "number" },
           },
         },
   AnalyticsFinding: {
@@ -162,6 +172,9 @@ export const schemasPart01 = {
             baseline: { type: "array", minItems: 1, maxItems: 5, items: { $ref: "#/components/schemas/AnalyticsFindingPeriodEvidence" } },
             baselineMedian: { type: "number" }, absoluteDifference: { type: "number", minimum: 0 },
             percentDifference: { type: ["number", "null"], minimum: 0 },
+            zScore: { type: "number" }, qValue: { type: "number", minimum: 0, maximum: 1 },
+            spreadBasis: { enum: ["between-years", "assumed", "day-to-day", "resolution", "counts"] },
+            weatherAdjustment: { $ref: "#/components/schemas/AnalyticsFindingWeatherAdjustment" },
           },
         },
   DailyAnalyticsFindingsSnapshot: {
@@ -173,6 +186,7 @@ export const schemasPart01 = {
             algorithmVersion: { type: "string" }, generatedAt: { type: "string", format: "date-time" },
             findings: { type: "array", maxItems: 16, items: { $ref: "#/components/schemas/AnalyticsFinding" } },
             warnings: { type: "array", uniqueItems: true, items: { enum: ["archive-incomplete", "source-truncated", "scope-limited"] } },
+            seriesTested: { type: "integer", minimum: 0 }, falseDiscoveryRate: { type: "number", exclusiveMinimum: 0, maximum: 1 },
           },
         },
   DailyAnalyticsFindingsResponse: {
