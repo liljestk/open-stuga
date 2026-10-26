@@ -1,6 +1,6 @@
 {
   "name": "@climate-twin/api",
-  "version": "0.42.7",
+  "version": "0.42.8",
   "private": true,
   "type": "module",
   "engines": {
@@ -37,12 +37,12 @@
     "@types/pg": "8.20.0",
     "@types/supertest": "^7.2.1",
     "@types/ws": "^8.18.1",
-    "@vitest/coverage-v8": "^4.1.10",
+    "@vitest/coverage-v8": "^4.1.12",
     "ajv": "8.20.0",
     "ajv-formats": "3.0.1",
     "supertest": "^7.1.4",
     "tsx": "^4.20.3",
     "typescript": "^5.8.3",
-    "vitest": "^4.1.11"
+    "vitest": "^4.1.12"
   }
 }
