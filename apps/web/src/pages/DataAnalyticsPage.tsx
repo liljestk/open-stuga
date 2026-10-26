@@ -20,6 +20,7 @@ import { ThermalIsolationPanel } from "../components/ThermalIsolationPanel";
 import { MoistureResponsePanel } from "../components/MoistureResponsePanel";
 import { DataExportPanel } from "../components/DataExportPanel";
 import { ForecastNotes } from "../components/ForecastNotes";
+import { AnalyticsHealthPanel } from "../components/AnalyticsHealthPanel";
 import { chartGapThresholdMs, detectSeriesGaps } from "../chartGaps";
 import { formatInTimeZone } from "../dateTime";
 import { useHouseWeather } from "../useHouseWeather";
@@ -625,6 +626,8 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
           </section>
         </details>
       </div>
+
+      {!props.readOnly && <AnalyticsHealthPanel house={props.house} definitions={definitions} />}
     </>
   );
 }

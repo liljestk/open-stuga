@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
-  "projectVersion": "0.50.0",
+  "projectVersion": "0.51.0",
   "executionStatus": "not-run",
   "source": {
     "documents": {
       "v1": {
         "path": "apps/api/src/openapi.ts",
-        "sha256": "efc156f58b8fcc133e291f29a23355bb015fcf1663a2d55f065b810d9384f653"
+        "sha256": "bc08b80b578bbeeffb34985d5d60c1f7839268c37c8aa71a4e3805365e446e39"
       },
       "v2": {
         "path": "apps/api/src/openapi.ts",
-        "sha256": "f667429955f87d1c7a3b21c0b95c5da8b8a8a7eaea7d35bafc836cc14501ffa9"
+        "sha256": "fe4e78dc96c94f193af07b1d8b1a54e72a960b6d7365d748d269fa68f61bfb84"
       }
     },
     "supplementalSourceHashes": {
@@ -22,16 +22,16 @@
   },
   "scope": "All local documented method/path operations plus the optional report-relay operation. Endpoint pairs are exhaustive only for sequences of length two. Values and longer sequences are unbounded.",
   "counts": {
-    "localOperations": 349,
+    "localOperations": 350,
     "v1": 323,
-    "v2": 26,
+    "v2": 27,
     "supplementalRelayOperations": 1,
-    "allOperations": 350,
-    "orderedPairsIncludingSelf": 122500,
-    "localOrderedPairsIncludingSelf": 121801,
-    "unorderedDistinctPairs": 61075,
-    "queryCombinations": 1406,
-    "inputCases": 18822,
+    "allOperations": 351,
+    "orderedPairsIncludingSelf": 123201,
+    "localOrderedPairsIncludingSelf": 122500,
+    "unorderedDistinctPairs": 61425,
+    "queryCombinations": 1407,
+    "inputCases": 18834,
     "workflows": 40
   },
   "combinationRules": {
@@ -20761,6 +20761,285 @@
             "type": [
               "number",
               "null"
+            ]
+          }
+        }
+      },
+      "AnalyticsDiagnostics": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "houseId",
+          "generatedAt",
+          "windowDays",
+          "latency",
+          "forecasts",
+          "bills",
+          "projection",
+          "findings"
+        ],
+        "properties": {
+          "houseId": {
+            "type": "string"
+          },
+          "generatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "windowDays": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "latency": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "operation",
+                "requests",
+                "p50Ms",
+                "p95Ms",
+                "targetP95Ms",
+                "meetsTarget"
+              ],
+              "properties": {
+                "operation": {
+                  "enum": [
+                    "query-24h",
+                    "query-7d",
+                    "query-30d",
+                    "query-365d",
+                    "energy-summary-30d"
+                  ]
+                },
+                "requests": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "p50Ms": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "p95Ms": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "targetP95Ms": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "meetsTarget": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                }
+              }
+            }
+          },
+          "forecasts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "metric",
+                "sensors",
+                "evaluations",
+                "withheld",
+                "medianSkill6h",
+                "medianSkill24h",
+                "medianCoverage90",
+                "meetsTarget"
+              ],
+              "properties": {
+                "metric": {
+                  "type": "string"
+                },
+                "sensors": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "evaluations": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "withheld": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "medianSkill6h": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "medianSkill24h": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "medianCoverage90": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "meetsTarget": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                }
+              }
+            }
+          },
+          "bills": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "invoices",
+              "reconciled",
+              "outsideTolerance",
+              "incomplete",
+              "medianAbsoluteErrorPercent",
+              "tolerancePercent",
+              "meetsTarget"
+            ],
+            "properties": {
+              "invoices": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "reconciled": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "outsideTolerance": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "incomplete": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "medianAbsoluteErrorPercent": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "tolerancePercent": {
+                "type": "number",
+                "minimum": 0
+              },
+              "meetsTarget": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              }
+            }
+          },
+          "projection": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "method",
+                  "origins",
+                  "meanAbsolutePercentError",
+                  "baselineMeanAbsolutePercentError",
+                  "skill",
+                  "meetsTarget"
+                ],
+                "properties": {
+                  "method": {
+                    "enum": [
+                      "weather-regression",
+                      "recent-average"
+                    ]
+                  },
+                  "origins": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "meanAbsolutePercentError": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "baselineMeanAbsolutePercentError": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "skill": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "meetsTarget": {
+                    "type": [
+                      "boolean",
+                      "null"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "findings": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "evaluatedThrough",
+                  "seriesTested",
+                  "findings",
+                  "falseDiscoveryRate"
+                ],
+                "properties": {
+                  "evaluatedThrough": {
+                    "type": "string",
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                  },
+                  "seriesTested": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "minimum": 0
+                  },
+                  "findings": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "falseDiscoveryRate": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
             ]
           }
         }
@@ -55766,6 +56045,88 @@
       ],
       "documentedErrorCodes": [
         "400",
+        "404"
+      ]
+    },
+    {
+      "key": "v2:analyticsDiagnostics",
+      "service": "local",
+      "version": "v2",
+      "operationId": "analyticsDiagnostics",
+      "method": "GET",
+      "path": "/api/v2/analytics/diagnostics",
+      "tags": [
+        "Measurements"
+      ],
+      "summary": "analyticsDiagnostics",
+      "description": "Evidence collected on this appliance over the last thirty days of how the analytics performed for a Home: live request latency against the speed targets, stored forecast skill and interval coverage, invoice reconciliation, the projection backtest and the daily findings control. Not available to Guests, since it includes bills.",
+      "securityAlternatives": [
+        {
+          "localSession": []
+        }
+      ],
+      "parameters": [
+        {
+          "name": "houseId",
+          "in": "query",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        }
+      ],
+      "requestBodies": [],
+      "queryFactors": [
+        {
+          "field": "houseId",
+          "required": true,
+          "choices": [
+            {
+              "kind": "fixture",
+              "description": "One schema-valid representative value"
+            }
+          ]
+        }
+      ],
+      "queryCombinationCount": "1",
+      "responses": {
+        "200": {
+          "description": "Appliance evidence for the Home",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "diagnostics"
+                ],
+                "properties": {
+                  "diagnostics": {
+                    "$ref": "#/components/schemas/AnalyticsDiagnostics"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "400": {
+          "description": "houseId is missing or invalid"
+        },
+        "403": {
+          "description": "Guest accounts cannot read analytics diagnostics"
+        },
+        "404": {
+          "description": "The house is absent or outside the caller's visibility"
+        }
+      },
+      "successCodes": [
+        "200"
+      ],
+      "documentedErrorCodes": [
+        "400",
+        "403",
         "404"
       ]
     },

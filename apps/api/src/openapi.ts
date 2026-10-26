@@ -4,6 +4,7 @@ const V2_PATHS = new Set([
   "/measurement-definitions",
   "/measurement-definitions/{id}",
   "/analytics/findings",
+  "/analytics/diagnostics",
   "/analytics/opening-activity",
   "/analytics/home-performance",
   "/analytics/thermal-isolation",

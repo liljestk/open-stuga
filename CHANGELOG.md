@@ -2,6 +2,19 @@
 
 All notable Stugu releases are recorded here.
 
+## 0.51.0
+
+- The Data & analytics page has a new **Analytics health on this appliance** section. It shows how the analytics actually performed for the Home over the last 30 days, measured on the appliance:
+  - how fast charts and the energy summary answered, against their speed targets
+  - how often forecasts beat "no change" and how often their range held the outcome
+  - how many entered invoices the cost model matched within ±2%
+  - how the 30-day projection did against simply repeating the last month
+  - how many daily findings came from how many compared series
+
+  Each line says whether it is on target, off target, or still collecting. Owners and household members can see it; Guests cannot, because it includes bills.
+- New endpoint `GET /api/v2/analytics/diagnostics`. The speed targets now live in one place, shared by the release benchmark and the appliance.
+- Upgrade impact: application-only update with an automatic SQLite schema addition (`analytics_latency_histogram`). The evidence starts collecting after the update. Database archive, configuration, Compose and host trust are unchanged.
+
 ## 0.50.0
 
 - The Data & analytics page loads its chart data, outdoor history, recorded gaps, prices and forecasts through the shared query cache. Behaviour is unchanged: a failed refresh keeps the last data it had, a refresh keeps the chart visible until the new data arrives, and forecasts are reused for five minutes. Reopening the page no longer starts from nothing.

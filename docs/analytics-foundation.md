@@ -257,6 +257,32 @@ to record cold/warm latency, response size, and cache outcomes. Add
 `--exercise-ingest` (and `STUGU_BENCH_INGEST_API_KEY` when configured) to verify
 that a routine measurement still produces a warm cache hit.
 
+## Appliance evidence
+
+`GET /api/v2/analytics/diagnostics?houseId=…` reports how the analytics actually
+performed for a Home over the last thirty days. It is measured on the appliance,
+kept there, and is not available to Guests. The Data & analytics page shows it
+under **Analytics health on this appliance**. Each line is on target, off target,
+or still collecting.
+
+- **Response times.** Every analytics query and roughly month-long energy
+  summary adds to a per-day latency histogram (`analytics_latency_histogram`).
+  Queries are classed by range like the release benchmark: 24 hours, 7 days,
+  30 days and a year. The p95 of live requests, which mixes cache hits and
+  computed answers, is held to the benchmark's cold targets in
+  `ANALYTICS_LATENCY_TARGETS_MS`: 400 ms, 800 ms, 1.5 s, 3 s, and 2 s for the
+  summary.
+- **Forecasts.** These are the daily forecast backtests stored per sensor. A
+  metric is on target when the median skill is positive at 6 and 24 hours and
+  the median 90% interval coverage is between 85% and 95%.
+- **Bills.** Up to the last twelve invoices entered for the Home are
+  reconciled. The cost model is on target once at least three are within ±2%
+  and none is outside it.
+- **Projection.** This is the 30-day projection's backtest. It is on target
+  when the weather model beat repeating the last 30 days.
+- **Findings.** This shows the latest daily snapshot's compared series and its
+  false-discovery rate.
+
 ## Query contract
 
 Example request:

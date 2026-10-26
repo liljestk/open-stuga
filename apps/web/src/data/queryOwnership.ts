@@ -21,6 +21,7 @@ export const queryOwnership = {
   electricityTariffs: "query-client",
   analyticsExplorer: "query-client",
   energyProjection: "query-client",
+  analyticsDiagnostics: "query-client",
 } as const satisfies Record<string, "legacy" | "query-client">;
 
 export type QueryResourceFamily = keyof typeof queryOwnership;

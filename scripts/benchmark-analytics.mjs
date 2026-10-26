@@ -2,21 +2,12 @@
 
 import { performance } from "node:perf_hooks";
 import { pathToFileURL } from "node:url";
+import { ANALYTICS_LATENCY_TARGETS_MS } from "@climate-twin/contracts";
 
 const DAY_MS = 86_400_000;
 
-/**
- * p95 latency targets in milliseconds for a Raspberry Pi-class appliance.
- * Cold answers are computed; warm answers repeat a request and must come from
- * the server cache.
- */
-export const ANALYTICS_LATENCY_TARGETS = Object.freeze({
-  "query-24h": { cold: 400, warm: 100 },
-  "query-7d": { cold: 800, warm: 100 },
-  "query-30d": { cold: 1_500, warm: 100 },
-  "query-365d": { cold: 3_000, warm: 150 },
-  "energy-summary-30d": { cold: 2_000, warm: 100 },
-});
+/** The appliance diagnostics hold live requests to the same targets. */
+export const ANALYTICS_LATENCY_TARGETS = ANALYTICS_LATENCY_TARGETS_MS;
 
 function percentile(values, ratio) {
   const ordered = [...values].sort((left, right) => left - right);

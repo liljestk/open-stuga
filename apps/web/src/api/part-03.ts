@@ -13,6 +13,7 @@ import type {
   DataExportPreview,
   DataExportPrivacyLevel,
   DailyAnalyticsFindingsResponse,
+  AnalyticsDiagnostics,
   DurableDerivedAnalyticsResponse,
   OpeningActivityRequest,
   OpeningActivityResponse,
@@ -363,6 +364,10 @@ export const apiPart03 = {
       `/analytics/findings?houseId=${encodeURIComponent(houseId)}`,
       withSignal(signal),
     ),
+  analyticsDiagnostics: async (houseId: string, signal?: AbortSignal) => (await requestV2<{ diagnostics: AnalyticsDiagnostics }>(
+      `/analytics/diagnostics?houseId=${encodeURIComponent(houseId)}`,
+      signal ? { signal } : undefined,
+    )).diagnostics,
   openingActivity: (input: OpeningActivityRequest, signal?: AbortSignal) => requestV2<OpeningActivityResponse>(
       "/analytics/opening-activity",
       {

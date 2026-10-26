@@ -125,6 +125,21 @@ export const pathsPart01 = {
           },
         },
       },
+  "/analytics/diagnostics": {
+        get: {
+          servers: [{ url: "/api/v2" }],
+          tags: ["Measurements"],
+          operationId: "analyticsDiagnostics",
+          description: "Evidence collected on this appliance over the last thirty days of how the analytics performed for a Home: live request latency against the speed targets, stored forecast skill and interval coverage, invoice reconciliation, the projection backtest and the daily findings control. Not available to Guests, since it includes bills.",
+          parameters: [{ name: "houseId", in: "query", required: true, schema: { type: "string", minLength: 1, maxLength: 200 } }],
+          responses: {
+            "200": { description: "Appliance evidence for the Home", content: { "application/json": { schema: { type: "object", additionalProperties: false, required: ["diagnostics"], properties: { diagnostics: { $ref: "#/components/schemas/AnalyticsDiagnostics" } } } } } },
+            "400": { description: "houseId is missing or invalid" },
+            "403": { description: "Guest accounts cannot read analytics diagnostics" },
+            "404": { description: "The house is absent or outside the caller's visibility" },
+          },
+        },
+      },
   "/analytics/opening-activity": {
         post: {
           servers: [{ url: "/api/v2" }],
