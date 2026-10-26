@@ -300,7 +300,7 @@
     "apps/web/src/data/bootstrap/useOperationsActions.ts": 195,
     "apps/web/src/data/bootstrap/usePropertyActions.ts": 173,
     "apps/web/src/data/bootstrap/useSensorActions.ts": 174,
-    "apps/web/src/data/bootstrap/useSessionLifecycle.ts": 133,
+    "apps/web/src/data/bootstrap/useSessionLifecycle.ts": 131,
     "apps/web/src/data/bootstrap/useWorkspaceHydration.ts": 133,
     "apps/web/src/domain.ts": 2,
     "apps/web/src/historicalImport/01-import-cell-to-read-zip-entry.ts": 3,
