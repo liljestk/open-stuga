@@ -31,6 +31,7 @@ import {
   type SpatialInferenceSession,
   type SpatialInferenceSessionStartInput,
 } from "../spatialLayers";
+import { expectShape, isMeasurementForecastEvaluation, isMeasurementForecastPoints } from "@climate-twin/contracts";
 import { entity, list, request, requestV2, spatialConfigurationResponse } from "./support";
 import type { HistoricalImportResult, MeasurementHistoryPage, SensorMeasurementPage } from "./support";
 import { withSignal } from "./support/signal";
@@ -100,12 +101,19 @@ export const apiPart04 = {
       )
     ).forecast,
   /** The forecast with the backtest that decided whether it is shown. */
-  measurementForecastWithEvaluation: (sensorId: string, metric: string, hours = 12, signal?: AbortSignal) => (
-      requestV2<{ forecast: MeasurementForecastPoint[]; evaluation?: MeasurementForecastEvaluation }>(
-        `/measurements/forecast?sensorId=${encodeURIComponent(sensorId)}&metric=${encodeURIComponent(metric)}&hours=${hours}`,
+  measurementForecastWithEvaluation: async (
+      { sensorId, metric, hours = 12, signal }: { sensorId: string; metric: string; hours?: number; signal?: AbortSignal },
+    ): Promise<{ forecast: MeasurementForecastPoint[]; evaluation?: MeasurementForecastEvaluation }> => {
+      const endpoint = "/measurements/forecast";
+      const body = await requestV2<unknown>(
+        `${endpoint}?sensorId=${encodeURIComponent(sensorId)}&metric=${encodeURIComponent(metric)}&hours=${hours}`,
         signal ? { signal } : undefined,
-      )
-    ),
+      );
+      const record = typeof body === "object" && body !== null ? body as Record<string, unknown> : {};
+      const forecast = expectShape(record.forecast, isMeasurementForecastPoints, endpoint);
+      const evaluation = record.evaluation === undefined ? undefined : expectShape(record.evaluation, isMeasurementForecastEvaluation, endpoint);
+      return evaluation ? { forecast, evaluation } : { forecast };
+    },
   thermalSimulation: async (
       houseId: string,
       options: {

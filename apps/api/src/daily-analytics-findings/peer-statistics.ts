@@ -82,10 +82,12 @@ export function hourlyWeather(samples: ReadonlyArray<{ timestamp: string; temper
  */
 export function weatherDriver(
   weather: HourlyWeather,
-  start: number,
-  end: number,
-  driver: WeatherDriver,
-  baseTemperatureC = DEFAULT_HEATING_BASE_TEMPERATURE_C,
+  { start, end, driver, baseTemperatureC = DEFAULT_HEATING_BASE_TEMPERATURE_C }: {
+    start: number;
+    end: number;
+    driver: WeatherDriver;
+    baseTemperatureC?: number;
+  },
 ): number | null {
   let total = 0;
   let count = 0;
@@ -191,13 +193,13 @@ export function peerLevelTest(input: {
   let weather: PeerWeatherAdjustment | null = null;
   const dayDriver = (period: PeriodObservation, day: DailyLevel): number | null => (
     input.adjustFor && period.weather
-      ? weatherDriver(period.weather, day.start, day.end, input.adjustFor.driver, input.adjustFor.baseTemperatureC)
+      ? weatherDriver(period.weather, { start: day.start, end: day.end, ...input.adjustFor })
       : null
   );
   if (input.adjustFor) {
     const { driver, baseTemperatureC } = input.adjustFor;
     const periodDriver = (period: PeriodObservation) => (
-      period.weather ? weatherDriver(period.weather, period.start, period.end, driver, baseTemperatureC) : null
+      period.weather ? weatherDriver(period.weather, { start: period.start, end: period.end, driver, baseTemperatureC }) : null
     );
     const currentDriver = periodDriver(input.current);
     const baselineDrivers = input.baseline.map(periodDriver);

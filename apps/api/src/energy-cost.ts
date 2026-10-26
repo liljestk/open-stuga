@@ -237,7 +237,7 @@ export class EnergyCostService {
     // Monthly fees belong to the metering point, so only a summary that
     // stands for the whole Home carries them, once.
     const feesEur = tariff && selected.length > 0 && aggregationMode !== "submeters_only"
-      ? proratedMonthlyFeesEur(fromMs, toMs, tariff.versions, tariff.timeZone)
+      ? proratedMonthlyFeesEur({ fromMs, toMs, versions: tariff.versions, timeZone: tariff.timeZone })
       : null;
     const breakdown = reporting.length > 0 || feesEur !== null
       ? costBreakdown({

@@ -126,7 +126,7 @@ export function useExplorerForecastsQuery(input: {
           const sensor = queue[cursor++];
           if (!sensor) return;
           try {
-            const result = await api.measurementForecastWithEvaluation(sensor.id, input.metric, 12, signal);
+            const result = await api.measurementForecastWithEvaluation({ sensorId: sensor.id, metric: input.metric, hours: 12, signal });
             forecasts[sensor.id] = { [input.metric]: result.forecast };
             if (result.evaluation) evaluations[sensor.id] = result.evaluation;
           } catch {

@@ -320,11 +320,13 @@ export async function forecast(
 /** Backtested forecast and the evaluation that decided whether to show it. */
 export async function forecastMeasurementWithEvaluation(
   database: ClimateDatabase,
-  sensorId: string,
-  metric: string,
-  hours = 12,
-  telemetryReader?: HybridTelemetryReader,
-  signal?: AbortSignal,
+  { sensorId, metric, hours = 12, telemetryReader, signal }: {
+    sensorId: string;
+    metric: string;
+    hours?: number;
+    telemetryReader?: HybridTelemetryReader;
+    signal?: AbortSignal;
+  },
 ): Promise<MeasurementForecast> {
   return measurementForecast(database, sensorId, metric, hours, telemetryReader, signal);
 }

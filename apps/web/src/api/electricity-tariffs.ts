@@ -5,6 +5,13 @@ import type {
   ElectricityTariffVersion,
   PropertyElectricityTariff,
 } from "@climate-twin/contracts";
+import {
+  ResponseShapeError,
+  expectShape,
+  isElectricityInvoice,
+  isElectricityInvoiceReconciliation,
+  isPropertyElectricityTariff,
+} from "@climate-twin/contracts";
 import { request } from "./support/index";
 
 export interface PropertyElectricityTariffResponse {
@@ -14,26 +21,39 @@ export interface PropertyElectricityTariffResponse {
 
 const electricityPath = (propertyId: string) => `/properties/${encodeURIComponent(propertyId)}/electricity`;
 
+/** Every tariff response is checked against its documented shape before callers see it. */
+function tariffResponse(body: unknown, endpoint: string): PropertyElectricityTariffResponse {
+  const record = typeof body === "object" && body !== null ? body as Record<string, unknown> : {};
+  if (typeof record.timeZone !== "string") throw new ResponseShapeError(endpoint);
+  return { tariff: expectShape(record.tariff, isPropertyElectricityTariff, endpoint), timeZone: record.timeZone };
+}
+
 export const electricityTariffApi = {
-  propertyElectricityTariff: (propertyId: string, signal?: AbortSignal) => request<PropertyElectricityTariffResponse>(
-    `${electricityPath(propertyId)}/tariff`,
-    signal ? { signal } : undefined,
+  propertyElectricityTariff: async (propertyId: string, signal?: AbortSignal) => tariffResponse(
+    await request<unknown>(`${electricityPath(propertyId)}/tariff`, signal ? { signal } : undefined),
+    "/properties/{id}/electricity/tariff",
   ),
-  savePropertyElectricityTariff: (propertyId: string, versions: ElectricityTariffVersion[], revision: number) => (
-    request<PropertyElectricityTariffResponse>(`${electricityPath(propertyId)}/tariff`, {
+  savePropertyElectricityTariff: async (propertyId: string, versions: ElectricityTariffVersion[], revision: number) => tariffResponse(
+    await request<unknown>(`${electricityPath(propertyId)}/tariff`, {
       method: "PUT",
       body: JSON.stringify({ versions, revision }),
-    })
+    }),
+    "/properties/{id}/electricity/tariff",
   ),
-  electricityInvoices: async (propertyId: string, signal?: AbortSignal): Promise<ElectricityInvoice[]> => (
-    await request<{ invoices: ElectricityInvoice[] }>(`${electricityPath(propertyId)}/invoices`, signal ? { signal } : undefined)
-  ).invoices,
-  createElectricityInvoice: async (propertyId: string, input: ElectricityInvoiceInput): Promise<ElectricityInvoice> => (
-    await request<{ invoice: ElectricityInvoice }>(`${electricityPath(propertyId)}/invoices`, {
+  electricityInvoices: async (propertyId: string, signal?: AbortSignal): Promise<ElectricityInvoice[]> => {
+    const endpoint = "/properties/{id}/electricity/invoices";
+    const body = await request<{ invoices?: unknown }>(`${electricityPath(propertyId)}/invoices`, signal ? { signal } : undefined);
+    if (!Array.isArray(body.invoices)) throw new ResponseShapeError(endpoint);
+    return body.invoices.map((invoice) => expectShape(invoice, isElectricityInvoice, endpoint));
+  },
+  createElectricityInvoice: async (propertyId: string, input: ElectricityInvoiceInput): Promise<ElectricityInvoice> => expectShape(
+    (await request<{ invoice?: unknown }>(`${electricityPath(propertyId)}/invoices`, {
       method: "POST",
       body: JSON.stringify(input),
-    })
-  ).invoice,
+    })).invoice,
+    isElectricityInvoice,
+    "/properties/{id}/electricity/invoices",
+  ),
   deleteElectricityInvoice: (propertyId: string, invoiceId: string) => request<{ deleted: true; invoiceId: string }>(
     `${electricityPath(propertyId)}/invoices/${encodeURIComponent(invoiceId)}`,
     { method: "DELETE" },
@@ -42,10 +62,12 @@ export const electricityTariffApi = {
     propertyId: string,
     invoiceId: string,
     signal?: AbortSignal,
-  ): Promise<ElectricityInvoiceReconciliation> => (
-    await request<{ reconciliation: ElectricityInvoiceReconciliation }>(
+  ): Promise<ElectricityInvoiceReconciliation> => expectShape(
+    (await request<{ reconciliation?: unknown }>(
       `${electricityPath(propertyId)}/invoices/${encodeURIComponent(invoiceId)}/reconciliation`,
       signal ? { signal } : undefined,
-    )
-  ).reconciliation,
+    )).reconciliation,
+    isElectricityInvoiceReconciliation,
+    "/properties/{id}/electricity/invoices/{invoiceId}/reconciliation",
+  ),
 };

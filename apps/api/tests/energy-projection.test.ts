@@ -92,12 +92,12 @@ describe("flexible loads", () => {
   });
 
   it("measures runs, what they paid, and what moving them would save", () => {
-    const profile = flexibleLoadProfile(dishwasher(), prices, weekStart, weekStart + week)!;
+    const profile = flexibleLoadProfile(dishwasher(), prices, { from: weekStart, to: weekStart + week })!;
     expect(profile.runs).toBe(7);
     expect(profile.typicalRunMs).toBe(90 * 60_000);
     expect(profile.dailyKwh).toBeCloseTo(3, 1);
     expect(profile.paidCentsPerKwh).toBeCloseTo(20, 6);
-    const window = cheapestWindow(prices, profile.typicalRunMs, weekStart + week, weekStart + week + DAY)!;
+    const window = cheapestWindow(prices, { durationMs: profile.typicalRunMs, from: weekStart + week, until: weekStart + week + DAY })!;
     expect(window.averageCentsPerKwh).toBe(5);
     expect(new Date(window.start).getUTCHours()).toBeLessThan(6);
     // 3 kWh a day moved from 20 to 5 c/kWh.
@@ -106,8 +106,8 @@ describe("flexible loads", () => {
 
   it("does not treat continuous or rare loads as shiftable", () => {
     const fridge = dishwasher(0, 20 * 60, 150);
-    expect(flexibleLoadProfile(fridge, prices, weekStart, weekStart + week)).toBeNull();
+    expect(flexibleLoadProfile(fridge, prices, { from: weekStart, to: weekStart + week })).toBeNull();
     const rare = dishwasher().map((bucket) => (bucket.time < weekStart + 5 * DAY ? { ...bucket, watts: 2 } : bucket));
-    expect(flexibleLoadProfile(rare, prices, weekStart, weekStart + week)).toBeNull();
+    expect(flexibleLoadProfile(rare, prices, { from: weekStart, to: weekStart + week })).toBeNull();
   });
 });

@@ -58,6 +58,7 @@ import type {
   TelegramDiscoveryResult,
   TpLinkDiscoveredDevice,
 } from "@climate-twin/contracts";
+import { expectShape, isAnalyticsDiagnostics } from "@climate-twin/contracts";
 import { API_BASE, completeCollection, entity, list, observationResponse, request, requestV2 } from "./support";
 import type { AppleNotesSetupMetadata, CoordinateDefaults, LocationSuggestion, MaintenanceTaskFilters, TpLinkHistoryExportJob, TpLinkHistoryExportJobsResponse } from "./support";
 import { discoverIntegrationsInBackground, latestIntegrationDiscovery, resumeIntegrationDiscovery } from "./integration-discovery";
@@ -364,10 +365,11 @@ export const apiPart03 = {
       `/analytics/findings?houseId=${encodeURIComponent(houseId)}`,
       withSignal(signal),
     ),
-  analyticsDiagnostics: async (houseId: string, signal?: AbortSignal) => (await requestV2<{ diagnostics: AnalyticsDiagnostics }>(
-      `/analytics/diagnostics?houseId=${encodeURIComponent(houseId)}`,
-      signal ? { signal } : undefined,
-    )).diagnostics,
+  analyticsDiagnostics: async (houseId: string, signal?: AbortSignal): Promise<AnalyticsDiagnostics> => expectShape(
+      (await requestV2<{ diagnostics?: unknown }>(`/analytics/diagnostics?houseId=${encodeURIComponent(houseId)}`, signal ? { signal } : undefined)).diagnostics,
+      isAnalyticsDiagnostics,
+      "/analytics/diagnostics",
+    ),
   openingActivity: (input: OpeningActivityRequest, signal?: AbortSignal) => requestV2<OpeningActivityResponse>(
       "/analytics/opening-activity",
       {

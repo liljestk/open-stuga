@@ -2,7 +2,12 @@ import { registerDatabaseMethods } from "../core.js";
 import { latencyBucket } from "../../analytics/diagnostics/latency.js";
 
 registerDatabaseMethods({
-  recordAnalyticsLatency(houseId: string, operation: string, durationMs: number, at = Date.now()): void {
+  recordAnalyticsLatency({ houseId, operation, durationMs, at = Date.now() }: {
+    houseId: string;
+    operation: string;
+    durationMs: number;
+    at?: number;
+  }): void {
     if (!Number.isFinite(durationMs) || durationMs < 0) return;
     this.db.prepare(`INSERT INTO analytics_latency_histogram (day, house_id, operation, bucket_ms, count)
       VALUES (?, ?, ?, ?, 1)

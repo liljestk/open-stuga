@@ -36,12 +36,12 @@ export function studentT95(degreesOfFreedom: number): number {
 }
 
 /** 24-hour days counted from `from`, kept when at least 20 hours have both energy and weather, scaled to a full day. */
-export function dailyEnergy(
-  energyByHour: ReadonlyMap<number, number>,
-  outdoorByHour: ReadonlyMap<number, number>,
-  from: number,
-  baseTemperatureC: number,
-): DailyEnergy[] {
+export function dailyEnergy({ energyByHour, outdoorByHour, from, baseTemperatureC }: {
+  energyByHour: ReadonlyMap<number, number>;
+  outdoorByHour: ReadonlyMap<number, number>;
+  from: number;
+  baseTemperatureC: number;
+}): DailyEnergy[] {
   const days = new Map<number, { energy: number; degreeHours: number; hours: number }>();
   for (const [hour, outsideC] of outdoorByHour) {
     const energy = energyByHour.get(hour);

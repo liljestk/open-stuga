@@ -82,7 +82,7 @@ describe("rate schedules in local time", () => {
 
   it("switches day and night at 07 and 22 local across the October change", () => {
     // 2026-10-25: Helsinki leaves summer time at 04:00 local (01:00 UTC).
-    const at = (iso: string) => effectivePriceAt(0, Date.parse(iso), [dayNight], HELSINKI);
+    const at = (iso: string) => effectivePriceAt(0, { timestamp: Date.parse(iso), versions: [dayNight], timeZone: HELSINKI });
     expect(at("2026-10-24T03:59:00Z").energyCentsPerKwh).toBe(8); // 06:59 EEST
     expect(at("2026-10-24T04:00:00Z").energyCentsPerKwh).toBe(12); // 07:00 EEST
     expect(at("2026-10-25T04:00:00Z").energyCentsPerKwh).toBe(8); // 06:00 EET
@@ -92,7 +92,7 @@ describe("rate schedules in local time", () => {
   });
 
   it("charges the seasonal winter rate only on November–March Monday–Saturday daytime", () => {
-    const network = (iso: string) => effectivePriceAt(0, Date.parse(iso), [dayNight], HELSINKI).networkCentsPerKwh;
+    const network = (iso: string) => effectivePriceAt(0, { timestamp: Date.parse(iso), versions: [dayNight], timeZone: HELSINKI }).networkCentsPerKwh;
     expect(network("2026-10-30T10:00:00Z")).toBe(2); // Friday in October
     expect(network("2026-11-02T10:00:00Z")).toBe(5); // Monday in November, 12:00 EET
     expect(network("2026-11-07T10:00:00Z")).toBe(5); // Saturday
@@ -111,7 +111,7 @@ describe("rate schedules in local time", () => {
     expect(point.effectivePriceCentsPerKwh).toBeCloseTo(10.39, 12);
     expect(point.effectivePriceEurPerKwh).toBeCloseTo(0.1039, 12);
     expect(point.components).toEqual({ energyCentsPerKwh: 4.6, networkCentsPerKwh: 3, taxCentsPerKwh: 2.79 });
-    const missing = effectivePriceAt(4, Date.parse("2026-07-01T10:00:00Z"), [version({ energy: null })], HELSINKI);
+    const missing = effectivePriceAt(4, { timestamp: Date.parse("2026-07-01T10:00:00Z"), versions: [version({ energy: null })], timeZone: HELSINKI });
     expect(missing).toEqual({ energyCentsPerKwh: null, networkCentsPerKwh: null, taxCentsPerKwh: null, totalCentsPerKwh: 4 });
   });
 });
@@ -163,27 +163,27 @@ describe("monthly fees", () => {
 
   it("pro-rates by local calendar day and month length", () => {
     // All of July 2026 in Helsinki: one month of both fees.
-    const july = proratedMonthlyFeesEur(Date.parse("2026-06-30T21:00:00Z"), Date.parse("2026-07-31T21:00:00Z"), fees, HELSINKI);
+    const july = proratedMonthlyFeesEur({ fromMs: Date.parse("2026-06-30T21:00:00Z"), toMs: Date.parse("2026-07-31T21:00:00Z"), versions: fees, timeZone: HELSINKI });
     expect(july).toBeCloseTo(9.3, 9);
     // One day of a 31-day month.
-    const day = proratedMonthlyFeesEur(Date.parse("2026-07-14T21:00:00Z"), Date.parse("2026-07-15T21:00:00Z"), fees, HELSINKI);
+    const day = proratedMonthlyFeesEur({ fromMs: Date.parse("2026-07-14T21:00:00Z"), toMs: Date.parse("2026-07-15T21:00:00Z"), versions: fees, timeZone: HELSINKI });
     expect(day).toBeCloseTo(9.3 / 31, 9);
     // Half of a day.
-    const half = proratedMonthlyFeesEur(Date.parse("2026-07-14T21:00:00Z"), Date.parse("2026-07-15T09:00:00Z"), fees, HELSINKI);
+    const half = proratedMonthlyFeesEur({ fromMs: Date.parse("2026-07-14T21:00:00Z"), toMs: Date.parse("2026-07-15T09:00:00Z"), versions: fees, timeZone: HELSINKI });
     expect(half).toBeCloseTo(9.3 / 31 / 2, 9);
   });
 
   it("counts the 25-hour October day as one day", () => {
-    const longDay = proratedMonthlyFeesEur(Date.parse("2026-10-24T21:00:00Z"), Date.parse("2026-10-25T22:00:00Z"), fees, HELSINKI);
+    const longDay = proratedMonthlyFeesEur({ fromMs: Date.parse("2026-10-24T21:00:00Z"), toMs: Date.parse("2026-10-25T22:00:00Z"), versions: fees, timeZone: HELSINKI });
     expect(longDay).toBeCloseTo(9.3 / 31, 9);
   });
 
   it("follows fee changes between versions and is null without fees", () => {
     const changing = [version({ retailerMonthlyFeeEur: 3 }), version({ validFrom: "2026-07-16", retailerMonthlyFeeEur: 6 })];
-    const value = proratedMonthlyFeesEur(Date.parse("2026-07-14T21:00:00Z"), Date.parse("2026-07-16T21:00:00Z"), changing, HELSINKI);
+    const value = proratedMonthlyFeesEur({ fromMs: Date.parse("2026-07-14T21:00:00Z"), toMs: Date.parse("2026-07-16T21:00:00Z"), versions: changing, timeZone: HELSINKI });
     expect(value).toBeCloseTo(3 / 31 + 6 / 31, 9);
-    expect(proratedMonthlyFeesEur(0, HOUR, [version({})], HELSINKI)).toBeNull();
-    expect(proratedMonthlyFeesEur(HOUR, 0, fees, HELSINKI)).toBeNull();
+    expect(proratedMonthlyFeesEur({ fromMs: 0, toMs: HOUR, versions: [version({})], timeZone: HELSINKI })).toBeNull();
+    expect(proratedMonthlyFeesEur({ fromMs: HOUR, toMs: 0, versions: fees, timeZone: HELSINKI })).toBeNull();
   });
 });
 

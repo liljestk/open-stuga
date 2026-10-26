@@ -33,6 +33,7 @@ import type {
   StugubySummary,
 } from "@climate-twin/stuguby-protocol";
 import { publishAuthEpoch } from "../authEpoch";
+import { expectShape, isHomeEnergyProjection } from "@climate-twin/contracts";
 import { ApiRequestError, apiClientState, completeAuthentication, completeCollection, entity, rememberSession, request } from "./support";
 import type { CloudflareSetupStartInput, CloudflareSetupStartResult, CloudflareSetupStatus, StugubyDetailResponse, StugubyInvitationCreated, StugubyListResponse, StugubyLocalMember, StugubyLocalPublicationCatalog, StugubyPropertyAdoption, StugubyRemoteTelemetrySample, SystemUpdateOperationInput, SystemUpdateSettings, SystemUpdateStatus } from "./support";
 import type { SystemStorageSettings, SystemStorageStatus } from "./support";
@@ -246,10 +247,11 @@ export const apiPart01 = {
       `/houses/${encodeURIComponent(houseId)}/energy-summary?${new URLSearchParams({ from, to })}`,
       withSignal(signal),
     ), "summary"),
-  houseEnergyProjection: async (houseId: string, signal?: AbortSignal) => (await request<{ projection: HomeEnergyProjection | null }>(
-      `/houses/${encodeURIComponent(houseId)}/energy-projection`,
-      signal ? { signal } : {},
-    )).projection,
+  houseEnergyProjection: async (houseId: string, signal?: AbortSignal): Promise<HomeEnergyProjection | null> => {
+      const endpoint = "/houses/{id}/energy-projection";
+      const body = await request<{ projection?: unknown }>(`/houses/${encodeURIComponent(houseId)}/energy-projection`, signal ? { signal } : {});
+      return body.projection === null ? null : expectShape(body.projection, isHomeEnergyProjection, endpoint);
+    },
   configurePropertyElectricity: (propertyId: string, configuration: PropertyElectricityConfigInput) => request<{ config: PropertyElectricityConfig }>(
       `/properties/${encodeURIComponent(propertyId)}/electricity/config`,
       { method: "PUT", body: JSON.stringify(configuration) },

@@ -309,7 +309,7 @@ export function energyResult(input: HomePerformanceInput): HomePerformanceEnergy
     overlapHours += 1;
   }
   const hasOverlap = overlapHours > 0;
-  const days = dailyEnergy(energy, outdoor, Date.parse(input.from), baseTemperatureC);
+  const days = dailyEnergy({ energyByHour: energy, outdoorByHour: outdoor, from: Date.parse(input.from), baseTemperatureC });
   const regression = heatingRegression(days);
   const fitted = regression !== null && regression.slope >= 0 ? regression : null;
   // Too few days with differing heating need to separate base load from heating: fall back to the plain ratio.

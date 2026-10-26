@@ -14,6 +14,7 @@ export type { UnitSystem, ConnectionState, Point, Wall, Room, PlanElementKind, O
 export { DEFAULT_ELECTRICITY_PRICE_ENDPOINT, HOME_ENERGY_SUMMARY_ALGORITHM_VERSION } from "./property-inventory.js";
 export { HOME_ENERGY_PROJECTION_ALGORITHM_VERSION } from "./energy-projection.js";
 export { ANALYTICS_LATENCY_TARGETS_MS } from "./analytics-diagnostics.js";
+export { ResponseShapeError, expectShape, isAnalyticsDiagnostics, isElectricityInvoice, isElectricityInvoiceReconciliation, isHomeEnergyProjection, isMeasurementForecastEvaluation, isMeasurementForecastPoints, isPropertyElectricityTariff } from "./response-guards.js";
 export type { AnalyticsDiagnostics, AnalyticsLatencyOperation, AnalyticsLatencyEvidence, AnalyticsForecastEvidence, AnalyticsBillEvidence, AnalyticsProjectionEvidence, AnalyticsFindingsEvidence } from "./analytics-diagnostics.js";
 export type { HomeEnergyProjection, EnergyFlexibleLoad } from "./energy-projection.js";
 export { ELECTRICITY_DAY_END_HOUR, ELECTRICITY_DAY_START_HOUR, ELECTRICITY_INVOICE_TOLERANCE_PERCENT, ELECTRICITY_TARIFF_EPOCH, electricityTariffProblem, isLocalDateKey, legacyElectricityTariffVersion, normalizedElectricityTariffVersion } from "./electricity-tariffs.js";

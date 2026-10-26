@@ -13,6 +13,7 @@ All notable Stugu releases are recorded here.
 
   Each line says whether it is on target, off target, or still collecting. Owners and household members can see it; Guests cannot, because it includes bills.
 - New endpoint `GET /api/v2/analytics/diagnostics`. The speed targets now live in one place, shared by the release benchmark and the appliance.
+- The web app now checks the shape of the tariff, invoice, forecast, projection and diagnostics responses, and reports a clear error instead of showing broken values if one doesn't match.
 - Upgrade impact: application-only update with an automatic SQLite schema addition (`analytics_latency_histogram`). The evidence starts collecting after the update. Database archive, configuration, Compose and host trust are unchanged.
 
 ## 0.50.0

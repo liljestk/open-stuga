@@ -236,7 +236,7 @@ export function registerElectricityRoutes(context: ElectricityRouteContext): () 
       response.setHeader("cache-control", "private, no-store");
       response.setHeader("x-stugu-cache", source);
       const operation = summaryLatencyOperation(durationMs);
-      if (operation) context.database.recordAnalyticsLatency(houseId, operation, performance.now() - startedAt);
+      if (operation) context.database.recordAnalyticsLatency({ houseId, operation, durationMs: performance.now() - startedAt });
       response.setHeader(
         "server-timing",
         `energy-summary;dur=${(performance.now() - startedAt).toFixed(1)}`,
