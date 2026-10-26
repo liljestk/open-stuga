@@ -570,11 +570,11 @@ describe("DataAnalyticsPage", () => {
     stubAncillaryAnalyticsRequests();
     const observed = deferred<AnalyticsQueryResponse>();
     const analyticsQuery = vi.spyOn(api, "analyticsQuery").mockReturnValue(observed.promise);
-    const pendingForecasts: Deferred<[]>[] = [];
+    const pendingForecasts: Deferred<{ forecast: [] }>[] = [];
     let activeForecasts = 0;
     let maximumActiveForecasts = 0;
-    const measurementForecast = vi.spyOn(api, "measurementForecast").mockImplementation(() => {
-      const pending = deferred<[]>();
+    const measurementForecast = vi.spyOn(api, "measurementForecastWithEvaluation").mockImplementation(() => {
+      const pending = deferred<{ forecast: [] }>();
       pendingForecasts.push(pending);
       activeForecasts += 1;
       maximumActiveForecasts = Math.max(maximumActiveForecasts, activeForecasts);
@@ -605,18 +605,18 @@ describe("DataAnalyticsPage", () => {
     const pageRefresh = container.querySelector<HTMLButtonElement>(".analytics-page-heading > button")!;
     await waitFor(() => expect(pageRefresh).not.toBeDisabled());
 
-    act(() => pendingForecasts[0]!.resolve([]));
+    act(() => pendingForecasts[0]!.resolve({ forecast: [] }));
     await waitFor(() => expect(measurementForecast).toHaveBeenCalledTimes(3));
     expect(maximumActiveForecasts).toBe(2);
     expect(activeForecasts).toBe(2);
 
-    act(() => pendingForecasts[1]!.resolve([]));
+    act(() => pendingForecasts[1]!.resolve({ forecast: [] }));
     await waitFor(() => expect(measurementForecast).toHaveBeenCalledTimes(4));
     expect(maximumActiveForecasts).toBe(2);
     expect(activeForecasts).toBe(2);
 
     act(() => {
-      pendingForecasts.slice(2).forEach((pending) => pending.resolve([]));
+      pendingForecasts.slice(2).forEach((pending) => pending.resolve({ forecast: [] }));
     });
     await waitFor(() => expect(activeForecasts).toBe(0));
   });
@@ -629,7 +629,7 @@ describe("DataAnalyticsPage", () => {
       sensors.filter((sensor) => (input.scope.entityIds ?? []).includes(sensor.id)),
       input.requestId,
     ));
-    const measurementForecast = vi.spyOn(api, "measurementForecast").mockResolvedValue([]);
+    const measurementForecast = vi.spyOn(api, "measurementForecastWithEvaluation").mockResolvedValue({ forecast: [] });
     const user = userEvent.setup();
     const panel = (dataMode: "demo" | "real") => <I18nProvider><DataAnalyticsPage
       state={state}
@@ -688,7 +688,7 @@ describe("DataAnalyticsPage", () => {
       state.sensors.filter((sensor) => (input.scope.entityIds ?? []).includes(sensor.id)),
       input.requestId,
     ));
-    vi.spyOn(api, "measurementForecast").mockResolvedValue([]);
+    vi.spyOn(api, "measurementForecastWithEvaluation").mockResolvedValue({ forecast: [] });
     const onLoadSeries = vi.fn();
     const user = userEvent.setup();
 

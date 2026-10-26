@@ -7,7 +7,7 @@ export { DataModeCoordinator } from "./services/02-data-mode-coordinator-to-mock
 export { MeasurementService } from "./services/02-data-mode-coordinator-to-mock-scenarios.js";
 export { TelemetryService } from "./services/02-data-mode-coordinator-to-mock-scenarios.js";
 export { forecast } from "./services/02-data-mode-coordinator-to-mock-scenarios.js";
-export { forecastMeasurement } from "./services/02-data-mode-coordinator-to-mock-scenarios.js";
+export { forecastMeasurement, forecastMeasurementWithEvaluation } from "./services/02-data-mode-coordinator-to-mock-scenarios.js";
 export { MOCK_SCENARIOS } from "./services/02-data-mode-coordinator-to-mock-scenarios.js";
 export { MockEngine } from "./services/03-mock-engine-to-replay-engine.js";
 export type { ReplayState } from "./services/03-mock-engine-to-replay-engine.js";

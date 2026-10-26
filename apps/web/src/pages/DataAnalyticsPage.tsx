@@ -9,6 +9,7 @@ import type {
   HomeElectricityPricePoint,
   Metric,
   MeasurementDefinition,
+  MeasurementForecastEvaluation,
   MeasurementForecastPoint,
   OutdoorTemperatureSample,
   SensorDataGap,
@@ -23,6 +24,7 @@ import { OpeningAnalyticsPanel } from "../components/OpeningAnalyticsPanel";
 import { ThermalIsolationPanel } from "../components/ThermalIsolationPanel";
 import { MoistureResponsePanel } from "../components/MoistureResponsePanel";
 import { DataExportPanel } from "../components/DataExportPanel";
+import { ForecastNotes } from "../components/ForecastNotes";
 import { chartGapThresholdMs, detectSeriesGaps } from "../chartGaps";
 import { csvDocument } from "../csv";
 import { formatInTimeZone } from "../dateTime";
@@ -284,7 +286,12 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
   const [analyticsError, setAnalyticsError] = useState<string | null>(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
   const [chartForecasts, setChartForecasts] = useState<MeasurementForecasts>({});
-  const forecastCache = useRef(new Map<string, { expiresAt: number; points: MeasurementForecastPoint[] }>());
+  const [forecastEvaluations, setForecastEvaluations] = useState<Record<string, MeasurementForecastEvaluation>>({});
+  const forecastCache = useRef(new Map<string, {
+    expiresAt: number;
+    points: MeasurementForecastPoint[];
+    evaluation: MeasurementForecastEvaluation | null;
+  }>());
   const [refreshRevision, setRefreshRevision] = useState(0);
   const [openTools, setOpenTools] = useState<Set<AnalyticsTool>>(() => new Set(analyticsToolsFromLocation()));
   const [isolationOpen, setIsolationOpen] = useState(false);
@@ -542,11 +549,13 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
   useEffect(() => {
     if (!sensorsOpen || !analytics || analytics.requestId !== analyticsRequestId || !selectedDefinition?.forecastSupported) {
       setChartForecasts({});
+      setForecastEvaluations({});
       return;
     }
     const controller = new AbortController();
     void (async () => {
       const forecasts: MeasurementForecasts = {};
+      const evaluations: Record<string, MeasurementForecastEvaluation> = {};
       const queue = selectedSensors.filter((sensor) => sensor.enabled);
       let cursor = 0;
       const worker = async () => {
@@ -557,13 +566,16 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
           const cached = forecastCache.current.get(cacheKey);
           if (cached && cached.expiresAt > Date.now()) {
             forecasts[sensor.id] = { [selectedDefinition.id]: cached.points };
+            if (cached.evaluation) evaluations[sensor.id] = cached.evaluation;
             continue;
           }
           try {
-            const points = await api.measurementForecast(sensor.id, selectedDefinition.id, 12, controller.signal);
+            const result = await api.measurementForecastWithEvaluation(sensor.id, selectedDefinition.id, 12, controller.signal);
             if (controller.signal.aborted) return;
-            forecastCache.current.set(cacheKey, { expiresAt: Date.now() + 5 * 60_000, points });
+            const points = result.forecast;
+            forecastCache.current.set(cacheKey, { expiresAt: Date.now() + 5 * 60_000, points, evaluation: result.evaluation ?? null });
             forecasts[sensor.id] = { [selectedDefinition.id]: points };
+            if (result.evaluation) evaluations[sensor.id] = result.evaluation;
           } catch {
             if (controller.signal.aborted) return;
             // Forecasts are optional supporting evidence; observed history remains usable.
@@ -571,7 +583,10 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
         }
       };
       await Promise.all(Array.from({ length: Math.min(2, queue.length) }, worker));
-      if (!controller.signal.aborted) setChartForecasts(forecasts);
+      if (!controller.signal.aborted) {
+        setChartForecasts(forecasts);
+        setForecastEvaluations(evaluations);
+      }
     })();
     return () => controller.abort();
   }, [analytics?.requestId, analyticsRequestId, forecastCacheScope, selectedDefinition?.forecastSupported, selectedDefinition?.id, selectedSensorKey, sensorsOpen]);
@@ -758,6 +773,7 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
                 onWeatherObservationsVisible={selectWeatherObservationsVisible}
                 onWeatherForecastVisible={selectWeatherForecastVisible}
               /> : <div className="empty-state">{t("common.noData")}</div>}
+              <ForecastNotes evaluations={forecastEvaluations} sensors={metricSensors} />
             </div>}
           </details>
         </div>

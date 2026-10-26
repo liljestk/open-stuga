@@ -101,4 +101,9 @@ export const svElectricityTariffs = {
   "energy.costComponent.network": "Överföring {amount}",
   "energy.costComponent.tax": "Skatt {amount}",
   "energy.costComponent.fees": "Avgifter {amount}",
+  "forecast.note.label": "Prognoskvalitet",
+  "forecast.note.ready": "{sensor}: prognosen var {skill} bättre än \"ingen ändring\" på 6 timmar de senaste två veckorna; dess 90 %-intervall höll {coverage} av gångerna.",
+  "forecast.note.coverageUnknown": "en okänd andel",
+  "forecast.note.noSkill": "{sensor}: ingen prognos visas, eftersom den inte var bättre än \"ingen ändring\" de senaste två veckorna.",
+  "forecast.note.insufficient": "{sensor}: ingen prognos ännu; den behöver tre dagars historik för att först kunna kontrolleras.",
 } as const;

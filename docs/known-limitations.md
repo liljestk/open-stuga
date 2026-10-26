@@ -411,10 +411,16 @@ system described in the roadmap.
 
 ## Predictions and replay
 
-- `linear-v1` is a damped trend baseline for interface/testing work, not a
-  calibrated predictive-maintenance model or diagnosis.
-- Only registry definitions with `forecastSupported` enabled can use this
-  baseline; unsupported metrics report no forecast rather than fabricated bands.
+- Forecasts are backtested and withheld unless they beat "no change" at six
+  hours, but they are not a predictive-maintenance model or diagnosis.
+- Temperature backtests use observed outdoor temperatures in place of the
+  forecasts issued at the time (those are not stored), so they assume a good
+  weather forecast. Drift with no observable cause (for example weather-driven
+  indoor humidity) limits 24-hour skill for the profile model.
+- A forecast needs three days of history before it can be checked, and two
+  weeks for its full backtest.
+- Only registry definitions with `forecastSupported` enabled are forecast;
+  unsupported metrics report no forecast rather than fabricated bands.
 - Ambient relative humidity does not directly measure surface condensation,
   hidden leakage, structural moisture, or mould.
 - Mock scenarios validate software paths, not model accuracy.

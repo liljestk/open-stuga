@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
-  "projectVersion": "0.44.0",
+  "projectVersion": "0.45.0",
   "executionStatus": "not-run",
   "source": {
     "documents": {
       "v1": {
         "path": "apps/api/src/openapi.ts",
-        "sha256": "5cca382002b8ca6ab1ebbe651e8a4bb134298c645d2070bc0e0fef177c1dcf98"
+        "sha256": "a5e3d62569a1a8df871092445acf401990cce9a0e986246cf08fa804794d8614"
       },
       "v2": {
         "path": "apps/api/src/openapi.ts",
-        "sha256": "de8377a83cb2e009efed131a37d5f57f1204e8922260765afc9658b3db8c8204"
+        "sha256": "6df2140b8ce8ce23d42abf0128d0fa0ae6b61f2f1273df98d349e344a97c596d"
       }
     },
     "supplementalSourceHashes": {
@@ -19560,6 +19560,161 @@
                   }
                 }
               }
+            ]
+          }
+        }
+      },
+      "MeasurementForecastEvaluation": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "algorithmVersion",
+          "sensorId",
+          "metric",
+          "status",
+          "model",
+          "computedAt",
+          "historyFrom",
+          "historyTo",
+          "origins",
+          "outdoorDriver",
+          "horizons",
+          "skill6h",
+          "skill24h",
+          "coverage90"
+        ],
+        "properties": {
+          "algorithmVersion": {
+            "const": "measurement-forecast/v2"
+          },
+          "sensorId": {
+            "type": "string"
+          },
+          "metric": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "ready",
+              "no-skill",
+              "insufficient-history"
+            ]
+          },
+          "model": {
+            "enum": [
+              "thermal-relaxation",
+              "daily-profile",
+              null
+            ]
+          },
+          "computedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "historyFrom": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "historyTo": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "origins": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "outdoorDriver": {
+            "enum": [
+              "weather-forecast",
+              "held-observation",
+              null
+            ],
+            "description": "Backtests use observed outdoor temperatures, so their skill assumes a good weather forecast."
+          },
+          "horizons": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "hours",
+                "samples",
+                "maeModel",
+                "maePersistence",
+                "maeSameTimeYesterday",
+                "skillVsPersistence",
+                "skillVsSameTimeYesterday",
+                "intervalHalfWidth",
+                "intervalCoverage"
+              ],
+              "properties": {
+                "hours": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "samples": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "maeModel": {
+                  "type": "number"
+                },
+                "maePersistence": {
+                  "type": "number"
+                },
+                "maeSameTimeYesterday": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "skillVsPersistence": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "skillVsSameTimeYesterday": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "intervalHalfWidth": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "intervalCoverage": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                }
+              }
+            }
+          },
+          "skill6h": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "skill24h": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "coverage90": {
+            "type": [
+              "number",
+              "null"
             ]
           }
         }
@@ -41366,7 +41521,7 @@
       "queryCombinationCount": "18",
       "responses": {
         "200": {
-          "description": "Linear baseline forecasts with confidence bands",
+          "description": "Backtested temperature and humidity forecasts with 90% intervals; empty for a sensor whose forecast does not beat \"no change\"",
           "content": {
             "application/json": {
               "schema": {
@@ -41382,7 +41537,7 @@
                     "format": "date-time"
                   },
                   "model": {
-                    "const": "linear-v1"
+                    "const": "backtested-v2"
                   },
                   "series": {
                     "type": "array",
@@ -57131,6 +57286,7 @@
         "Measurements"
       ],
       "summary": "forecastMeasurement",
+      "description": "Hourly forecast from the latest reading. The thermal model (temperature with an outdoor driver) and an hour-of-day profile are backtested on the last two weeks; the better one is used, intervals come from past errors at each horizon, and the forecast is withheld (empty) unless it beats \"no change\" at six hours.",
       "securityAlternatives": [
         {
           "localSession": []
@@ -57208,13 +57364,14 @@
       "queryCombinationCount": "3",
       "responses": {
         "200": {
-          "description": "Generic forecast",
+          "description": "Backtested forecast and its evaluation",
           "content": {
             "application/json": {
               "schema": {
                 "type": "object",
                 "required": [
-                  "forecast"
+                  "forecast",
+                  "evaluation"
                 ],
                 "properties": {
                   "forecast": {
@@ -57222,6 +57379,9 @@
                     "items": {
                       "$ref": "#/components/schemas/MeasurementForecastPoint"
                     }
+                  },
+                  "evaluation": {
+                    "$ref": "#/components/schemas/MeasurementForecastEvaluation"
                   }
                 }
               }

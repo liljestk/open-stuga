@@ -2,6 +2,16 @@
 
 All notable Stugu releases are recorded here.
 
+## 0.45.0
+
+- Forecasts are rebuilt and checked against what actually happened. Each forecast now starts from the latest reading instead of drifting toward the recent average.
+- Temperature is forecast with the room's thermal response, driven by the FMI hourly outdoor forecast and corrected for what the model has recently been missing (heating, an open window). Humidity, CO₂ and other supported measurements use a daily-rhythm model that follows the current level and blends in the same hour yesterday.
+- Every forecast is backtested on the last two weeks against "no change" and "same time yesterday". The better model is used, and its 90% band comes from its recent errors at each horizon, instead of a rule of thumb.
+- A forecast that does not beat "no change" at six hours is no longer shown. The analytics chart explains why it is missing, or how much better than "no change" a shown forecast was.
+- Each sensor's daily forecast evaluation is kept for a year, so long-run accuracy can be reviewed.
+- API: `GET /api/v2/measurements/forecast` adds `evaluation` (`measurement-forecast/v2`) and returns no points when the forecast is withheld. `GET /api/v1/forecast` reports `backtested-v2` and returns points only where both the temperature and the humidity forecast passed.
+- Upgrade impact: application-only update with an automatic SQLite schema addition (`forecast_evaluations`). A sensor needs three days of history before any forecast is shown, and sensors whose forecast does not beat "no change" show none. Database archive, configuration, Compose and host trust are unchanged.
+
 ## 0.44.0
 
 - Thermal and moisture models now learn from every period the heat pump was off, not just the single longest one. With a heat pump that cycles through the day, rooms that previously stayed "collecting" can now be calibrated. Each stretch must last at least two hours, and together they must cover at least 24 hours.

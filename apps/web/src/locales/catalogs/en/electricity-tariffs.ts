@@ -101,4 +101,9 @@ export const enElectricityTariffs = {
   "energy.costComponent.network": "Transfer {amount}",
   "energy.costComponent.tax": "Tax {amount}",
   "energy.costComponent.fees": "Fees {amount}",
+  "forecast.note.label": "Forecast quality",
+  "forecast.note.ready": "{sensor}: the forecast beat \"no change\" by {skill} at 6 hours in the last two weeks; its 90% band held {coverage} of the time.",
+  "forecast.note.coverageUnknown": "an unknown share",
+  "forecast.note.noSkill": "{sensor}: no forecast shown, because it did not beat \"no change\" in the last two weeks.",
+  "forecast.note.insufficient": "{sensor}: no forecast yet; it needs three days of history to be checked first.",
 } as const;

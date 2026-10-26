@@ -1,6 +1,7 @@
 import type { ApiReadSchedulingClass } from "./support/requestScheduler";
 import type {
   DurableDerivedAnalyticsResponse,
+  MeasurementForecastEvaluation,
   MeasurementForecastPoint,
   MeasurementSample,
   MoistureResponseResult,
@@ -98,6 +99,13 @@ export const apiPart04 = {
         withSignal(signal),
       )
     ).forecast,
+  /** The forecast with the backtest that decided whether it is shown. */
+  measurementForecastWithEvaluation: (sensorId: string, metric: string, hours = 12, signal?: AbortSignal) => (
+      requestV2<{ forecast: MeasurementForecastPoint[]; evaluation?: MeasurementForecastEvaluation }>(
+        `/measurements/forecast?sensorId=${encodeURIComponent(sensorId)}&metric=${encodeURIComponent(metric)}&hours=${hours}`,
+        signal ? { signal } : undefined,
+      )
+    ),
   thermalSimulation: async (
       houseId: string,
       options: {

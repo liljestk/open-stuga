@@ -101,4 +101,9 @@ export const fiElectricityTariffs = {
   "energy.costComponent.network": "Siirto {amount}",
   "energy.costComponent.tax": "Vero {amount}",
   "energy.costComponent.fees": "Maksut {amount}",
+  "forecast.note.label": "Ennusteen laatu",
+  "forecast.note.ready": "{sensor}: ennuste oli 6 tunnin päähän {skill} parempi kuin \"ei muutosta\" kahden viime viikon aikana; sen 90 %:n väli osui {coverage} kerroista.",
+  "forecast.note.coverageUnknown": "tuntemattoman osan",
+  "forecast.note.noSkill": "{sensor}: ennustetta ei näytetä, koska se ei ollut parempi kuin \"ei muutosta\" kahden viime viikon aikana.",
+  "forecast.note.insufficient": "{sensor}: ennustetta ei vielä ole; se tarvitsee kolmen päivän historian, jotta se voidaan ensin tarkistaa.",
 } as const;

@@ -55,7 +55,7 @@ export type AggregationSemantic =
   | "custom";
 
 /** Product release version. Pre-1.0 minor releases may contain breaking changes. */
-export const SYSTEM_VERSION = "0.44.0" as const;
+export const SYSTEM_VERSION = "0.45.0" as const;
 
 export interface MeasurementDefinition {
   id: Metric;
@@ -104,8 +104,54 @@ export interface MeasurementForecastPoint {
   metric: Metric;
   timestamp: string;
   value: number;
+  /** 90% interval from past forecast errors at this horizon (widened beyond the 24-hour backtest). */
   low: number;
   high: number;
+}
+
+export const MEASUREMENT_FORECAST_ALGORITHM_VERSION = "measurement-forecast/v2" as const;
+
+/** Forecasts that do not beat "no change" in their own backtest are withheld. */
+export type MeasurementForecastStatus = "ready" | "no-skill" | "insufficient-history";
+
+export type MeasurementForecastModel = "thermal-relaxation" | "daily-profile";
+
+/** Rolling-origin backtest result at one forecast horizon. */
+export interface MeasurementForecastHorizonSkill {
+  hours: number;
+  samples: number;
+  maeModel: number;
+  maePersistence: number;
+  maeSameTimeYesterday: number | null;
+  /** 1 − MAE(model) / MAE(baseline); above 0 beats the baseline. */
+  skillVsPersistence: number | null;
+  skillVsSameTimeYesterday: number | null;
+  /** Half-width of the 90% interval, from past absolute errors at this horizon. */
+  intervalHalfWidth: number;
+  /** Share of held-out backtest values inside an interval calibrated on earlier origins. */
+  intervalCoverage: number | null;
+}
+
+export interface MeasurementForecastEvaluation {
+  algorithmVersion: typeof MEASUREMENT_FORECAST_ALGORITHM_VERSION;
+  sensorId: string;
+  metric: Metric;
+  status: MeasurementForecastStatus;
+  model: MeasurementForecastModel | null;
+  computedAt: string;
+  historyFrom: string | null;
+  historyTo: string | null;
+  origins: number;
+  /**
+   * Outdoor driver of a thermal forecast: the weather forecast, or the last
+   * observation held when no forecast is available. Backtests use observed
+   * outdoor temperatures, so their skill assumes a good weather forecast.
+   */
+  outdoorDriver: "weather-forecast" | "held-observation" | null;
+  horizons: MeasurementForecastHorizonSkill[];
+  skill6h: number | null;
+  skill24h: number | null;
+  coverage90: number | null;
 }
 
 export interface MeasurementSnapshotEntry {
