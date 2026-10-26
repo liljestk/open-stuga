@@ -591,7 +591,7 @@ export function finalizeAnalyticsResponse(input: {
     provenance,
     warnings,
     generatedAt: input.generatedAt,
-    cache: { hit: false, keyVersion: "analytics-query-v1" },
+    cache: { hit: false, keyVersion: "analytics-query-v2" },
   };
 }
 

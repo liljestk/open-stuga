@@ -60,7 +60,7 @@ function response(): AnalyticsQueryResponse {
     provenance: [provenance, provenance],
     warnings: [],
     generatedAt: timestamp,
-    cache: { hit: false, keyVersion: "analytics-query-v1" },
+    cache: { hit: false, keyVersion: "analytics-query-v2" },
   };
 }
 

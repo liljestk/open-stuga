@@ -12,6 +12,7 @@ import {
   type HybridTelemetryReader,
 } from "../../timeseries/read-facade.js";
 import type { AnalyticsWorkLimiter } from "../work-limiter.js";
+import { AnalyticsQueryCache } from "./cache.js";
 import { executeAnalyticsQuery } from "./execute.js";
 import { compareCodeUnits } from "../../text-order.js";
 
@@ -73,7 +74,9 @@ async function untilClientCloses<T>(
   }
 }
 
-export function registerAnalyticsQueryRoutes(context: AnalyticsQueryRouteContext): void {
+export function registerAnalyticsQueryRoutes(context: AnalyticsQueryRouteContext): () => void {
+  const queryCache = new AnalyticsQueryCache(context.database);
+  const removeStats = context.analyticsWorkLimiter.registerCache("analytics-query", () => queryCache.stats());
   context.app.post(`${context.v2Prefix}/analytics/coverage`, async (request, response) => {
     try {
       const coverageRequest = parseAnalyticsCoverageRequest(request.body);
@@ -135,23 +138,29 @@ export function registerAnalyticsQueryRoutes(context: AnalyticsQueryRouteContext
         return definition;
       });
       const startedAt = performance.now();
-      const result = await untilClientCloses(response, (signal) => context.analyticsWorkLimiter.run(
-        "analytics-query",
-        () => executeAnalyticsQuery({
-          request: analyticsRequest,
-          sensors,
-          definitions,
-          telemetryReader: context.telemetryReader,
-          generatedAt: new Date().toISOString(),
-          // Coverage compares with each series' long-run reporting rhythm.
-          expectedIntervalSeconds: context.database.expectedReportingIntervals(sensors.flatMap((sensor) => (
-            definitions.map((definition) => ({ sensorId: sensor.id, metric: definition.id }))
-          ))),
-          signal,
-        }),
+      // Coverage compares with each series' long-run reporting rhythm.
+      const expectedIntervalSeconds = context.database.expectedReportingIntervals(sensors.flatMap((sensor) => (
+        definitions.map((definition) => ({ sensorId: sensor.id, metric: definition.id }))
+      )));
+      const result = await untilClientCloses(response, (signal) => queryCache.getOrCompute(
+        { request: analyticsRequest, sensorIds: sensors.map((sensor) => sensor.id), expectedIntervalSeconds },
+        (loadSignal) => context.analyticsWorkLimiter.run(
+          "analytics-query",
+          () => executeAnalyticsQuery({
+            request: analyticsRequest,
+            sensors,
+            definitions,
+            telemetryReader: context.telemetryReader,
+            generatedAt: new Date().toISOString(),
+            expectedIntervalSeconds,
+            signal: loadSignal,
+          }),
+          loadSignal,
+        ),
         signal,
       ));
       response.setHeader("cache-control", "no-store");
+      response.setHeader("x-stugu-cache", result.cache.hit ? "hit" : "miss");
       response.setHeader(
         "server-timing",
         `analytics-query;dur=${(performance.now() - startedAt).toFixed(1)}`,
@@ -169,4 +178,8 @@ export function registerAnalyticsQueryRoutes(context: AnalyticsQueryRouteContext
       throw error;
     }
   });
+  return () => {
+    removeStats();
+    queryCache.clear();
+  };
 }

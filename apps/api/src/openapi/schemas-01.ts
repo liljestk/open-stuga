@@ -373,7 +373,7 @@ export const schemasPart01 = {
             provenance: { type: "array", items: { $ref: "#/components/schemas/AnalyticsProvenance" } },
             warnings: { type: "array", items: { type: "object", required: ["code", "message"], properties: { code: { type: "string" }, message: { type: "string" } } } },
             generatedAt: { type: "string", format: "date-time" },
-            cache: { type: "object", required: ["hit", "keyVersion"], properties: { hit: { const: false }, keyVersion: { const: "analytics-query-v1" } } },
+            cache: { type: "object", required: ["hit", "keyVersion"], properties: { hit: { type: "boolean" }, keyVersion: { const: "analytics-query-v2" } } },
           },
         },
   MeasurementSampleInput: {

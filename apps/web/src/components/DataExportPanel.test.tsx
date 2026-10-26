@@ -64,7 +64,7 @@ function responseFor(input: AnalyticsQueryRequest): AnalyticsQueryResponse {
     provenance: series.map(() => provenance),
     warnings: [],
     generatedAt: input.range.end,
-    cache: { hit: false, keyVersion: "analytics-query-v1" },
+    cache: { hit: false, keyVersion: "analytics-query-v2" },
   };
 }
 

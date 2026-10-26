@@ -55,7 +55,7 @@ export type AggregationSemantic =
   | "custom";
 
 /** Product release version. Pre-1.0 minor releases may contain breaking changes. */
-export const SYSTEM_VERSION = "0.47.0" as const;
+export const SYSTEM_VERSION = "0.48.0" as const;
 
 export interface MeasurementDefinition {
   id: Metric;
@@ -327,7 +327,8 @@ export interface AnalyticsQueryResponse {
   provenance: AnalyticsProvenance[];
   warnings: AnalyticsWarning[];
   generatedAt: string;
-  cache: { hit: false; keyVersion: "analytics-query-v1" };
+  /** Whether this answer was served from the server's query cache. */
+  cache: { hit: boolean; keyVersion: "analytics-query-v2" };
 }
 
 export type AnalyticsFindingCategory = "sensor" | "outdoor-weather" | "electricity" | "opening";

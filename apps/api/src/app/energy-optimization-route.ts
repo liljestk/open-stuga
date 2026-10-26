@@ -6,6 +6,8 @@ import type { configureApiPart11 } from "./part-11.js";
 
 type Context = ReturnType<typeof configureApiPart11>;
 const REFRESH_MS = 30_000;
+/** Changes to these resources can change a report; live readings and device states cannot. */
+const RELEVANT_MUTATION = /^\/(?:properties|houses|sensors)(?:\/|$)/u;
 
 /** Share one bounded calculation for repeated reads of the same authorized scope. */
 export function registerEnergyOptimizationRoute(context: Context): () => void {
@@ -14,7 +16,7 @@ export function registerEnergyOptimizationRoute(context: Context): () => void {
   });
   const removeStats = context.analyticsWorkLimiter.registerCache("energy-optimization", () => cache.stats());
   const removeWake = context.bus.subscribe(event => {
-    if (event.type !== "heartbeat" && event.type !== "reading" && event.type !== "measurement") cache.clear();
+    if (event.type === "mutation" && RELEVANT_MUTATION.test(event.data.resource)) cache.clear();
   });
   context.app.get(`${context.prefix}/properties/:id/energy-optimization`, async (request, response) => {
     const propertyId = request.params.id as string;

@@ -91,7 +91,7 @@ function analyticsResponseFor(house: House, sensors: Sensor[], requestId = "batc
     provenance,
     warnings: [],
     generatedAt: end,
-    cache: { hit: false, keyVersion: "analytics-query-v1" },
+    cache: { hit: false, keyVersion: "analytics-query-v2" },
   };
 }
 
@@ -294,7 +294,7 @@ describe("DataAnalyticsPage", () => {
       provenance: [{ algorithmKey: "analytics-bucket-rollup", algorithmVersion: "1.0.0", generatedAt: afterGapNext, inputStart: beforeGap, inputEnd: afterGapNext, sourceIds: [sensor.id], archiveState: "not-configured" }],
       warnings: [],
       generatedAt: afterGapNext,
-      cache: { hit: false, keyVersion: "analytics-query-v1" },
+      cache: { hit: false, keyVersion: "analytics-query-v2" },
     } satisfies AnalyticsQueryResponse;
     const analyticsQuery = vi.spyOn(api, "analyticsQuery").mockResolvedValue(analyticsResponse);
     const thermalIsolation = vi.spyOn(api, "cachedThermalIsolation").mockRejectedValue(new Error("Unavailable"));

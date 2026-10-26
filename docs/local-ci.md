@@ -30,7 +30,11 @@ npm run verify:local -- --full
 The gate checks the release version, architecture and types, Python lint and
 formatting, JavaScript/TypeScript and Python coverage, operational tooling,
 the application build, Compose configuration, every production Docker target,
-and the built API smoke test. On macOS it also runs Swift tests and unsigned
+and the built API smoke test. The smoke test seeds a year of 15-minute readings
+and checks the analytics speed targets with `scripts/benchmark-analytics.mjs`:
+p95 cold and warm latency for 24-hour, 7-day, 30-day and 365-day queries and
+a 30-day energy summary, and that every repeated request is a cache hit. The
+same script runs against an appliance with `--origin`, `--house` and `--sensor`. On macOS it also runs Swift tests and unsigned
 iOS and Mac Catalyst builds. Those native Apple checks are unavailable on
 Windows and Linux and are recorded as such.
 

@@ -1,3 +1,4 @@
+import { EnergySummaryCache } from "../energy-summary-cache.js";
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { existsSync } from "node:fs";
 import { isIP } from "node:net";
@@ -353,6 +354,8 @@ export function configureApiPart03(context: ReturnType<typeof configureApiPart02
       (sensorId) => context.database.getSensor(sensorId)?.energyMeterRole ?? "standalone",
       databaseTariffContext(context.database),
     );
+  const energySummaries = new EnergySummaryCache(context.database, energyCost, analyticsWorkLimiter);
+  context.energyOptimizer.setSummaryCache(energySummaries);
   const storedTelegramIdentity = context.integrationMetadata.get("telegram", "singleton");
   if (status.value.telegram?.configured && storedTelegramIdentity?.active) {
       status.value.telegram.botUsername = storedTelegramIdentity.label;
@@ -553,7 +556,7 @@ export function configureApiPart03(context: ReturnType<typeof configureApiPart02
         return telemetryArchive?.reconcileNow();
       },
     });
-  const extended = Object.assign(context, { timeseries, telemetryArchive, telemetryRetention, telemetryOrderedRollups, telemetryReader, analyticsWorkLimiter, admitLowPriority, derivedAnalytics, dailyAnalyticsFindings, scheduledDataExports, measurementSnapshotCache, readingSnapshotCache, status, setupDoctor, energyCost, storedTelegramIdentity, telegram, alertEngine, telemetry, nexus433, measurements, notificationOutbox, mock, replay, wakeSensorGapRecovery, tapoHistory, tapoHistoryFallbackKeys, historyFallbackKey, homeAssistant, heatPumpStates, gree, connectedDevices, tuya });
+  const extended = Object.assign(context, { timeseries, telemetryArchive, telemetryRetention, telemetryOrderedRollups, telemetryReader, analyticsWorkLimiter, admitLowPriority, derivedAnalytics, dailyAnalyticsFindings, scheduledDataExports, measurementSnapshotCache, readingSnapshotCache, status, setupDoctor, energyCost, energySummaries, storedTelegramIdentity, telegram, alertEngine, telemetry, nexus433, measurements, notificationOutbox, mock, replay, wakeSensorGapRecovery, tapoHistory, tapoHistoryFallbackKeys, historyFallbackKey, homeAssistant, heatPumpStates, gree, connectedDevices, tuya });
   return extended as typeof extended & DeferredContext & {
     sensorGapRecovery: SensorGapRecoveryCoordinator;
     tpLink: TpLinkBridge;

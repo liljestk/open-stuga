@@ -223,7 +223,7 @@ function calendarComparisonRequest(value: unknown): CalendarComparisonRequest {
 
 export function registerAnalyticsRoutes(context: AnalyticsRouteContext): () => void {
   const removeHomeMonitoringRoutes = registerHomeMonitoringRoutes(context);
-  registerAnalyticsQueryRoutes(context);
+  const removeAnalyticsQueryRoutes = registerAnalyticsQueryRoutes(context);
   registerForecastRoutes(context);
   registerThermalAnalyticsRoutes(context);
 
@@ -468,5 +468,6 @@ export function registerAnalyticsRoutes(context: AnalyticsRouteContext): () => v
   registerDerivedRoute("/analytics/home-performance", "home-performance");
   return () => {
     removeHomeMonitoringRoutes();
+    removeAnalyticsQueryRoutes();
   };
 }
