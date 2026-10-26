@@ -20,6 +20,7 @@ import type {
 } from "../../types.js";
 import { SpatialInferenceJob, SpatialStateValidationError, SqlRow, assertInterval, assertIsoTimestamp, inferenceSessionFromRow, parseJson, partitionFromRow, partitionParams, scopeFromRow, scopeParams, snapshotFromRow, stableJson } from "../support/01-far-future-to-spatial-inference-job.js";
 import { registerSpatialLayerStateStoreMethods, spatialLayerStateStoreState, type SpatialLayerStateStoreInternals } from "../core.js";
+import { compareCodeUnits } from "../../../text-order.js";
 
 registerSpatialLayerStateStoreMethods({
   persistSnapshots(this: SpatialLayerStateStoreInternals, partition: SpatialDataPartition, drafts: SpatialLayerSnapshotDraft[], createdAt = new Date().toISOString()): PersistedSpatialLayerSnapshot[] {
@@ -27,7 +28,7 @@ registerSpatialLayerStateStoreMethods({
     },
   currentSnapshots(this: SpatialLayerStateStoreInternals, partition: SpatialDataPartition, scope: SpatialScope, layerIds: string[] = []): PersistedSpatialLayerSnapshot[] {
       const candidates = layerIds.length > 0
-        ? [...new Set(layerIds)].sort()
+        ? [...new Set(layerIds)].sort(compareCodeUnits)
         : (this.db.prepare(`SELECT DISTINCT layer_id FROM spatial_layer_snapshots
             WHERE source_db_id = ? AND data_mode = ? AND scope_kind = ? AND scope_id = ?
             ORDER BY layer_id`)

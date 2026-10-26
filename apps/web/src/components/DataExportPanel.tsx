@@ -24,6 +24,7 @@ import { twentyFourHourInputLocale } from "../dateTime";
 import { hasBrowserCapability } from "../accessPolicy";
 import { ScheduledDataExportsPanel } from "./ScheduledDataExportsPanel";
 import "./DataExportPanel.css";
+import { compareCodeUnits } from "../textOrder";
 
 type ExportPeriod = "24h" | "7d" | "30d" | "90d" | "custom";
 type ExportGranularity = "raw" | "1m" | "5m" | "15m" | "30m" | "1h" | "custom";
@@ -246,8 +247,8 @@ export function DataExportPanel(props: Readonly<DataExportPanelProps>) {
     period,
     customStart,
     customEnd,
-    sensorIds: selectedSensors.map((sensor) => sensor.id).sort(),
-    metricIds: [...selectedMetricIds].sort(),
+    sensorIds: selectedSensors.map((sensor) => sensor.id).sort(compareCodeUnits),
+    metricIds: [...selectedMetricIds].sort(compareCodeUnits),
     granularity,
     customMinutes,
     aggregation: resolution === "raw" ? "raw" : aggregation,

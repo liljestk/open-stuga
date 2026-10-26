@@ -15,6 +15,7 @@ import type {
 import type { MeasurementService, RuntimeStatus, TelemetryService } from "../../services.js";
 import { HaMessage, HomeAssistantBridgeOptions, HomeAssistantEntityMapping, validateEntityMapping } from "./01-home-assistant-measurement-binding-to-validate-entit.js";
 import { HomeAssistantConnectionBridgeCore as HomeAssistantConnectionBridge } from "../core.js";
+import { compareCodeUnits } from "../../text-order.js";
 
 export function validateEntityMappings(value: unknown): HomeAssistantEntityMapping[] {
   if (!Array.isArray(value)) throw new Error("Home Assistant entity map must contain an entities array");
@@ -245,7 +246,7 @@ export class HomeAssistantBridge implements SensorGapRecoveryAdapter {
     aggregate.configured = connections.length > 0 || this.configuredConnections().length > 0;
     aggregate.connected = connections.some((connection) => connection.connected);
     aggregate.lastEventAt = connections.map((connection) => connection.lastEventAt)
-      .filter((value): value is string => Boolean(value)).sort().at(-1) ?? null;
+      .filter((value): value is string => Boolean(value)).sort(compareCodeUnits).at(-1) ?? null;
     aggregate.mappedEntities = connections.reduce((total, connection) => total + connection.mappedEntities, 0);
     aggregate.error = connections.length > 0 && connections.every((connection) => connection.error)
       ? connections.map((connection) => connection.error).filter(Boolean).join("; ")

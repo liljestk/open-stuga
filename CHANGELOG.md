@@ -2,6 +2,18 @@
 
 All notable Stugu releases are recorded here.
 
+## 0.42.6
+
+- Fix the security and reliability findings from a SonarJS scan with the "Sonar way comprehensive" rules. Behaviour is unchanged unless noted.
+  - 55 sorts of identifiers, timestamps and canonical JSON keys now pass an explicit code-unit comparator instead of relying on the default sort. The order is exactly the same as before, so signatures, cache keys and hashes do not change.
+  - Simplify three conditionals whose branches returned the same value, give three `reduce()` calls a starting value, and rewrite two loops that changed their own counter.
+  - The temporary file used while saving integration secrets now gets a cryptographically random name instead of one from `Math.random()`.
+  - The electricity-price and Tapo private-endpoint checks now share one list of blocked private and reserved networks; previously each kept its own identical copy.
+  - The API now turns off the `X-Powered-By` header where it creates the Express app. The header was already off.
+  - The web API client no longer exports its set of in-flight requests; requests register through a small function instead.
+- Reviewed and kept as they are: the blocked-network list, the MD5 signatures that the EWPE cloud protocol requires, the `http://homeassistant.local:8123` and LAN-address examples in setup forms, a Swedish "password" field label, and the `Math.random()` fallback that only runs when a browser has no Web Crypto.
+- Upgrade impact: none. Database, configuration, Compose and host trust are unchanged.
+
 ## 0.42.4
 
 - Tidy the web app's API client without changing what it does. Each client module now imports only what it uses, which removes 887 unused imports left over from when the client was split into several files.

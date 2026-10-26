@@ -1,3 +1,4 @@
+import { compareCodeUnits } from "./text-order.js";
 const CLOUDFLARE_API_BASE = "https://api.cloudflare.com/client/v4";
 const MAX_RESPONSE_BYTES = 1024 * 1024;
 
@@ -50,7 +51,7 @@ function exactEmailRule(value: unknown): string | null {
 }
 
 function normalizedEmails(values: readonly string[]): string[] {
-  const emails = [...new Set(values.map((value) => value.trim().toLowerCase()).filter(Boolean))].sort();
+  const emails = [...new Set(values.map((value) => value.trim().toLowerCase()).filter(Boolean))].sort(compareCodeUnits);
   if (emails.length === 0) {
     throw new CloudflareAccessSyncError("EMPTY_GROUP", "The managed Access group must retain at least one account");
   }
@@ -141,7 +142,7 @@ export class CloudflareAccessGroupSynchronizer {
           "The managed Cloudflare Access group contains a rule Stugu does not own",
         );
       }
-      const normalizedCurrent = [...new Set(currentEmails as string[])].sort();
+      const normalizedCurrent = [...new Set(currentEmails as string[])].sort(compareCodeUnits);
       if (!sameStrings(normalizedCurrent, desiredEmails)) {
         await this.#request<CloudflareAccessGroup>(
           `/accounts/${encodeURIComponent(this.config.accountId)}/access/groups/${encodeURIComponent(this.config.groupId)}`,

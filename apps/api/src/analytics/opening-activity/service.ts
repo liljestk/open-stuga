@@ -7,6 +7,7 @@ import {
 } from "@climate-twin/contracts";
 import type { HybridTelemetryReader } from "../../timeseries/read-facade.js";
 import { deriveOpeningActivity } from "../temporal/opening-intervals.js";
+import { compareCodeUnits } from "../../text-order.js";
 
 const OPENING_ACTIVITY_LIMIT = 10_000;
 
@@ -84,7 +85,7 @@ export async function getOpeningActivity(
       algorithmKey: "opening-activity",
       algorithmVersion: OPENING_ACTIVITY_ALGORITHM_VERSION,
       evaluatedAt: input.request.range.end,
-      sourceIds: [...new Set(observations.map((item) => item.source))].sort(),
+      sourceIds: [...new Set(observations.map((item) => item.source))].sort(compareCodeUnits),
       archiveState,
     },
   };

@@ -2,6 +2,7 @@ import type { SpatialTopology } from './contracts.js';
 import { clamp, mad, mean, median } from './math.js';
 import type { ResampledClimateWindow } from './resampling.js';
 import { activeBindingAt } from './topology.js';
+import { compareCodeUnits } from "./text-order.js";
 
 export type SensorQualityReason =
   | 'late'
@@ -51,7 +52,7 @@ export function assessSensorQuality(
   }
   const environmentVaried = [...ranges.values()].some((range) => range.temperature > 0.2 || range.humidity > 1);
 
-  return [...sensorIds].sort().map((sensorId) => {
+  return [...sensorIds].sort(compareCodeUnits).map((sensorId) => {
     const points = window.points
       .filter((point) => point.sensorId === sensorId)
       .sort((left, right) => Date.parse(left.bucketAt) - Date.parse(right.bucketAt));

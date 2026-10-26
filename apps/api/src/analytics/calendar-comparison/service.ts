@@ -27,6 +27,7 @@ import {
   type CalendarComparisonPeriod,
   type CalendarValueAccumulator,
 } from "./model.js";
+import { compareCodeUnits } from "../../text-order.js";
 
 const resolutionByUnit = {
   day: "1m",
@@ -360,8 +361,8 @@ export async function compareCalendarPeriods(
     record.metric === input.definition.id
     && input.sensors.some((sensor) => sensor.id === record.sensorId)
   ));
-  const starts = matching.map((record) => record.start).sort();
-  const ends = matching.map((record) => record.end).sort();
+  const starts = matching.map((record) => record.start).sort(compareCodeUnits);
+  const ends = matching.map((record) => record.end).sort(compareCodeUnits);
   const candidates = starts[0] && ends.at(-1)
     ? calendarComparisonPeriods({
         unit: input.request.unit,

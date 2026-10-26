@@ -17,6 +17,7 @@ import { AUTOMATIC_ELECTRICITY_METRICS, EntityTarget, HA_HANDSHAKE_TIMEOUT_MS, H
 import { importEntityMappingFile, mappedEntityIds, mappingFingerprint, mappingMetricKeys, parseHaMessage, sensorMetricKey, validateEntityMappings } from "../support/02-validate-entity-mappings-to-home-assistant-bridge.js";
 import { registerHomeAssistantConnectionBridgeMethods, homeAssistantConnectionBridgeState, type HomeAssistantConnectionBridgeInternals } from "../core.js";
 import { assertHomeAssistantHistoryChunkLimit, boundedHomeAssistantHistoryJson, storeBoundedHomeAssistantHistorySample } from "../history-limits.js";
+import { compareCodeUnits } from "../../text-order.js";
 
 registerHomeAssistantConnectionBridgeMethods({
   start(this: HomeAssistantConnectionBridgeInternals): void {
@@ -159,7 +160,7 @@ registerHomeAssistantConnectionBridgeMethods({
         });
         const unavailableSensorIds = [...new Set(fileMappings
           .filter((mapping) => !this[homeAssistantConnectionBridgeState].database.getSensor(mapping.sensorId)?.enabled)
-          .map((mapping) => mapping.sensorId))].sort();
+          .map((mapping) => mapping.sensorId))].sort(compareCodeUnits);
         this[homeAssistantConnectionBridgeState].mappingWarning = unavailableSensorIds.length > 0
           ? `Ignored Home Assistant mappings for unknown or disabled sensors: ${unavailableSensorIds.join(", ")}`
           : null;

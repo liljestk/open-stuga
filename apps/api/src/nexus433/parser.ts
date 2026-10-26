@@ -1,4 +1,5 @@
 import type { Nexus433SamplePreview } from "@climate-twin/contracts";
+import { compareCodeUnits } from "../text-order.js";
 
 export const NEXUS433_MAX_PAYLOAD_BYTES = 2_048;
 
@@ -52,7 +53,7 @@ function sampleValue(payload: Buffer): Nexus433SamplePreview | null {
   }
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const record = value as Record<string, unknown>;
-  const keys = Object.keys(record).sort();
+  const keys = Object.keys(record).sort(compareCodeUnits);
   if (keys.join(",") !== "battery,humidity,quality,temperature") return null;
   const { temperature, humidity, battery, quality } = record;
   if (typeof temperature !== "number" || !Number.isFinite(temperature)

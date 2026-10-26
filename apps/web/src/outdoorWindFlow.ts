@@ -115,13 +115,13 @@ function sampledRoundedPath(
 }
 
 function sourceEdge(source: Point, rect: RoundedRectangle): PlanEdge {
-  const distances: Array<[PlanEdge, number]> = [
-    ["top", Math.abs(source.y - rect.top)],
+  const top: [PlanEdge, number] = ["top", Math.abs(source.y - rect.top)];
+  const others: Array<[PlanEdge, number]> = [
     ["right", Math.abs(source.x - (rect.left + rect.width))],
     ["bottom", Math.abs(source.y - (rect.top + rect.height))],
     ["left", Math.abs(source.x - rect.left)],
   ];
-  return distances.reduce((best, candidate) => candidate[1] < best[1] ? candidate : best)[0];
+  return others.reduce((best, candidate) => candidate[1] < best[1] ? candidate : best, top)[0];
 }
 
 function windParticleCount(windSpeedMps: number | null): number {

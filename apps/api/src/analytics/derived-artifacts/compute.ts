@@ -26,6 +26,7 @@ import {
   runThermalIsolationIsolated,
 } from "./fit-isolate.js";
 import type { DerivedIdentity, DerivedResult, StoredDerivedJob } from "./types.js";
+import { compareCodeUnits } from "../../text-order.js";
 
 const BOUNDARY_PADDING_MS = 2 * 3_600_000;
 
@@ -107,7 +108,7 @@ export function derivedIdentity(input: {
     cutoff,
     algorithmVersion,
     evidenceVersion,
-    heatPumpConnectionIds: [...new Set(input.heatPumpConnectionIds)].sort(),
+    heatPumpConnectionIds: [...new Set(input.heatPumpConnectionIds)].sort(compareCodeUnits),
   });
   return {
     identityKey,

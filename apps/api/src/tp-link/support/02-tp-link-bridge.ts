@@ -14,6 +14,7 @@ import type {
 import { MeasurementService, RuntimeStatus, TelemetryService } from "../../services.js";
 import { TP_LINK_LOCAL_CLIMATE_HISTORY_CAPABILITY_REVISION, TpLinkBridgeOptions, TpLinkCredentialTestResult, TpLinkDeviceMapping, TpLinkSourceDiscoveryResult, TpLinkStatusHost, loadTpLinkDeviceMappings, mergeTpLinkHistoryRecovery } from "./01-tp-link-local-climate-history-capability-revision-to.js";
 import { TpLinkConnectionBridgeCore as TpLinkConnectionBridge } from "../core.js";
+import { compareCodeUnits } from "../../text-order.js";
 
 /** Runs one independent local helper per house-scoped TP-Link host. */
 export class TpLinkBridge implements SensorGapRecoveryAdapter {
@@ -296,7 +297,7 @@ export class TpLinkBridge implements SensorGapRecoveryAdapter {
     aggregate.connections = connections;
     aggregate.configured = connections.length > 0 || this.configuredConnections().length > 0;
     aggregate.connected = connections.some((connection) => connection.connected);
-    aggregate.lastPollAt = connections.map((connection) => connection.lastPollAt).filter((value): value is string => Boolean(value)).sort().at(-1) ?? null;
+    aggregate.lastPollAt = connections.map((connection) => connection.lastPollAt).filter((value): value is string => Boolean(value)).sort(compareCodeUnits).at(-1) ?? null;
     aggregate.mappedDevices = connections.reduce((total, connection) => total + connection.mappedDevices, 0);
     aggregate.discoveredDevices = connections.reduce((total, connection) => total + connection.discoveredDevices, 0);
     aggregate.hubModel = connections.length === 1 ? connections[0]!.hubModel : null;

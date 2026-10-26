@@ -65,6 +65,7 @@ import { HistoricalImportWizard, PlacementPicker, SensorLabelCard, UNPLACED_TAG,
 import type { AddStep, DraftErrors, DraftSource, EditorMode, Feedback, SensorDraft, SensorFilter, SensorManagementPageProps, SensorStatus, Translate } from "./support";
 import { useSensorManagementPagePart01 } from "./part-01";
 import { sensorUrlStateFromLocation, writeSensorUrlStateToLocation, type SensorDetailTarget } from "./urlState";
+import { compareCodeUnits } from "../../textOrder";
 export function useSensorManagementPagePart02(context: ReturnType<typeof useSensorManagementPagePart01>) {
   const { state, house, houses, integration, tpLinkDevices, tpLinkDevicesLoading, tpLinkDevicesError, requestedDevice, requestedDeviceId, readOnly, localAuthority, units, onRequestedDeviceHandled, onLoadSeries, onHouse, onUpdateHouse, onRefreshDevices, onCreateSensor, onUpdateSensor, onDeleteSensor, onImportHistoricalData, locale, t, now, tpLinkStatus, formId, pageHeadingRef, editorHeadingRef, editorOpenerRef, importButtonRef, detailsHeadingRef, detailsOpenerRef, detailsRequestGeneration, search, setSearch, filter, setFilter, mode, setMode, addStep, setAddStep, editingSensorId, setEditingSensorId, attachSensorId, setAttachSensorId, draft, setDraft, errors, setErrors, editorFeedback, setEditorFeedback, pageFeedback, setPageFeedback, contactSetupDevice, setContactSetupDevice, setLocallyAssignedContactKeys, contactOpenerRef, submitting, setSubmitting, rowBusyId, setRowBusyId, cleanupBusy, setCleanupBusy, refreshing, setRefreshing, refreshError, setRefreshError, importOpen, setImportOpen, detailsSensor, setDetailsSensor, detailsContactKey, setDetailsContactKey, detailSamples, setDetailSamples, detailCursor, setDetailCursor, detailsLoading, setDetailsLoading, detailsError, setDetailsError, detailMetric, setDetailMetric, detailRange, setDetailRange, currentSensors, currentSensorIds, visibleDetailsSensor, demoSensors, hasExistingRealBoundSensor, enabledMeasurementDefinitions, detailDefinitions, detailDefinition, detailHistory, usedDeviceIds, homeTpLinkDevices, contactHistoryDevice, availableContactDevices, addableDevices, attachableSensors, sensorStatuses, statusCounts, normalizedSearch, visibleSensors, draftHouse, draftFloor, editingSensor, selectableDevices, currentBindingMissing, draftDevice, energyOnlyDraft, placementAnalysisEnabled, placementLayerScope, placementLayers, placementCoverage, placementSuggestion } = context;
   useEffect(() => {
@@ -242,10 +243,10 @@ export function useSensorManagementPagePart02(context: ReturnType<typeof useSens
       setDetailsError(null);
       setDetailsLoading(false);
     };
-  const sensorScopeKey = currentSensors.map((sensor) => sensor.id).sort().join("\u0000");
+  const sensorScopeKey = currentSensors.map((sensor) => sensor.id).sort(compareCodeUnits).join("\u0000");
   const contactScopeKey = context.mappedContactDevices
     .map((device) => deviceBindingKey(device.deviceId, device.connectionId))
-    .sort()
+    .sort(compareCodeUnits)
     .join("\u0000");
   useEffect(() => {
       const expectedPathname = window.location.pathname;

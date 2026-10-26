@@ -14,6 +14,7 @@ import type {
 import { MeasurementService, RuntimeStatus, TelemetryService } from "../../services.js";
 import { CLIMATE_UNCHANGED_HEARTBEAT_MS, CachedTpLinkDevice, REDUNDANT_SOURCE_HANDOVER_MIN_MS, STATE_UNCHANGED_HEARTBEAT_MS, STATUS_UNCHANGED_HEARTBEAT_MS, TpLinkContactEventsMessage, TpLinkSnapshotMessage, finiteNumber, isTpLinkHubModel, nonEmptyString, normalizeTpLinkTemperature } from "../support/01-tp-link-local-climate-history-capability-revision-to.js";
 import { registerTpLinkConnectionBridgeMethods, tpLinkConnectionBridgeState, type TpLinkConnectionBridgeInternals } from "../core.js";
+import { compareCodeUnits } from "../../text-order.js";
 
 registerTpLinkConnectionBridgeMethods({
   ingestContactEvents(this: TpLinkConnectionBridgeInternals, message: TpLinkContactEventsMessage): void {
@@ -300,7 +301,7 @@ registerTpLinkConnectionBridgeMethods({
   notifyAvailabilityChangeIfNeeded(this: TpLinkConnectionBridgeInternals, now = new Date()): void {
       const signature = JSON.stringify(this.availability(now)
         .map(({ sensorId, metric, source, available }) => JSON.stringify([sensorId, metric, source, available]))
-        .sort());
+        .sort(compareCodeUnits));
       if (signature === this[tpLinkConnectionBridgeState].lastAvailabilitySignature) return;
       this[tpLinkConnectionBridgeState].lastAvailabilitySignature = signature;
       this[tpLinkConnectionBridgeState].managedConnection?.onAvailabilityChange?.();

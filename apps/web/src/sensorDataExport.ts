@@ -6,6 +6,7 @@ import type {
 } from "@climate-twin/contracts";
 import { strToU8, zipSync } from "fflate";
 import { displayUnit, measurementLabel, toDisplayValue } from "./measurements";
+import { compareCodeUnits } from "./textOrder";
 
 export interface SensorExportLabels {
   localTime: string;
@@ -286,6 +287,6 @@ export function mergeAnalyticsResponses(responses: readonly AnalyticsQueryRespon
     },
     provenance: responses.flatMap((response) => response.provenance),
     warnings,
-    generatedAt: responses.map((response) => response.generatedAt).sort().at(-1) ?? first.generatedAt,
+    generatedAt: responses.map((response) => response.generatedAt).sort(compareCodeUnits).at(-1) ?? first.generatedAt,
   };
 }

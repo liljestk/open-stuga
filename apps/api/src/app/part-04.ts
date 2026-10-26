@@ -269,6 +269,7 @@ export function configureApiPart04(context: ReturnType<typeof configureApiPart03
       },
     });
   const app = express();
+  app.disable("x-powered-by");
   // Security middleware classifies route prefixes before Express dispatches.
     // Keep dispatch case-sensitive so mixed-case paths cannot cross auth zones.
     app.set("case sensitive routing", true);

@@ -29,6 +29,7 @@ import {
   type HybridArchiveReadState,
 } from "../timeseries/read-facade.js";
 import { DAILY_ANALYTICS_ALGORITHM_VERSION, DEFAULT_INTERVAL_MS, DEFAULT_STARTUP_JITTER_MS, DailyAnalyticsFindingsRunSummary, DailyAnalyticsFindingsWorkerOptions, DailyAnalyticsFindingsWorkerStatus, FindingPeriods, HISTORY_LIMIT, MAX_FINDINGS, MAX_MEASUREMENT_SERIES, OUTDOOR_TEMPERATURE_DEFINITION, PeerPeriod, PeriodValue, RankedFinding, aggregateAnalyticsSeries, comparisonFinding, dailyFindingPeriods, electricityDefinition, errorMessage, usable } from "./01-daily-analytics-algorithm-version-to-error-message.js";
+import { compareCodeUnits } from "../text-order.js";
 
 export async function mapWithConcurrency<T, R>(
   values: readonly T[],
@@ -203,7 +204,7 @@ export class DailyAnalyticsFindingsWorker {
         || left.finding.subjectLabel.localeCompare(right.finding.subjectLabel))
         .slice(0, MAX_FINDINGS)
         .map((item) => item.finding),
-      warnings: [...warnings].sort(),
+      warnings: [...warnings].sort(compareCodeUnits),
     };
   }
 

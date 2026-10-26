@@ -348,13 +348,14 @@ registerDatabaseMethods({
       resetAttempts = true,
     ): SensorDataGapRecord | null {
       const at = normalizedTapoHistoryTimestamp(availableAt, "availableAt");
-      const result = this.db.prepare(`UPDATE sensor_data_gaps SET recovery_state = 'pending',
+      this.db.prepare(`UPDATE sensor_data_gaps SET recovery_state = 'pending',
           attempt_count = CASE WHEN ? = 1 THEN 0 ELSE attempt_count END,
           recovery_completeness = CASE WHEN recovered_points > 0 THEN 'partial' ELSE 'none' END,
           next_attempt_at = ?, recovery_error = NULL
         WHERE id = ? AND ended_at IS NOT NULL AND recovery_state <> 'running'`)
         .run(resetAttempts ? 1 : 0, at, id);
-      return Number(result.changes) > 0 ? this.sensorDataGap(id) : this.sensorDataGap(id);
+      // A running or still-open gap is left alone; callers read its current state either way.
+      return this.sensorDataGap(id);
     },
   /** Rearms persisted TP-Link gaps after a previously unavailable fallback is configured. */
   rearmNotSupportedSensorDataGaps(

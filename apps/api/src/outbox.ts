@@ -10,6 +10,7 @@ import {
   notificationDestinationRef,
   parseTelegramNotificationPayload,
 } from "./notification-snapshot.js";
+import { compareCodeUnits } from "./text-order.js";
 
 const DELIVERY_POLL_MS = 250;
 const MAX_RETRY_MS = 15 * 60_000;
@@ -269,7 +270,7 @@ export class NotificationOutboxWorker extends DurableWorker {
     }
     webhook.lastDeliveryAt = destinations.map((candidate) => candidate.lastDeliveryAt)
       .filter((value): value is string => value !== null)
-      .sort().at(-1) ?? deliveredAt ?? webhook.lastDeliveryAt;
+      .sort(compareCodeUnits).at(-1) ?? deliveredAt ?? webhook.lastDeliveryAt;
     const failing = destinations.filter((candidate) => candidate.error !== null).length;
     webhook.error = failing > 0
       ? `${failing} webhook destination${failing === 1 ? "" : "s"} failing`
