@@ -100,6 +100,7 @@ import { AlertRuleRow, IOSNotificationRegistrationRow } from "../support/02-equi
 import { ClimateDataValidationError } from "../support/03-sensor-data-gap-row-to-canonical-json-value.js";
 import { iosNotificationRegistrationFromRow, ruleFromRow } from "../support/04-canonical-json-value-to-action-playbook-from-row.js";
 import { registerDatabaseMethods } from "../core.js";
+import { compareCodeUnits } from "../../text-order.js";
 
 registerDatabaseMethods({
   requireImmutableTelemetryLineage(
@@ -348,7 +349,7 @@ registerDatabaseMethods({
         const subscribe = this.db.prepare(`INSERT INTO ios_notification_subscriptions(
           registration_id, house_id
         ) VALUES (?, ?)`);
-        for (const houseId of [...new Set(input.homeIds)].sort()) {
+        for (const houseId of [...new Set(input.homeIds)].sort(compareCodeUnits)) {
           subscribe.run(id, houseId);
         }
         return this.getIOSNotificationRegistration(userId, id)!;

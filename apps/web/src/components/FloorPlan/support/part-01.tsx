@@ -183,9 +183,9 @@ export function defaultFloorGridSize(floor: Pick<Floor, "width" | "height">): nu
   if (!Number.isFinite(target) || target <= 0) return 1;
   const magnitude = 10 ** Math.floor(Math.log10(target));
   const normalized = target / magnitude;
-  const niceMultiplier = [1, 2, 2.5, 5, 10].reduce((best, candidate) => (
+  const niceMultiplier = [2, 2.5, 5, 10].reduce((best, candidate) => (
     Math.abs(candidate - normalized) < Math.abs(best - normalized) ? candidate : best
-  ));
+  ), 1);
   return Number((niceMultiplier * magnitude).toPrecision(12));
 }
 

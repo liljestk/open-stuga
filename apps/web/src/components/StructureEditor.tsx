@@ -89,7 +89,7 @@ function blankFloor(type: FloorType, name: string, house: House, reference: Floo
     height: reference.height,
     ...(reference.metersPerPlanUnit ? { metersPerPlanUnit: reference.metersPerPlanUnit } : {}),
     elevation: nextElevation(house, type),
-    ceilingHeight: type === "attic" ? 2.4 : type === "outdoor" ? 2.8 : 2.8,
+    ceilingHeight: type === "attic" ? 2.4 : 2.8,
     wallHeight,
     ...(type === "attic" ? { roof: { ...DEFAULT_ROOF_DESIGN, eavesHeight: wallHeight } } : {}),
     walls: [],

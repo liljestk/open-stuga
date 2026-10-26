@@ -214,6 +214,12 @@ export function localPartsToIso(parts: number[], timeZone: string): string | nul
   }
 }
 
+/** "auto" is only offered in English, where an ambiguous date is month-first. */
+function inferredDateOrder(first: number): Exclude<DateOrder, "auto"> {
+  if (first > 999) return "ymd";
+  return first > 12 ? "dmy" : "mdy";
+}
+
 export function parseImportTimestamp(value: ImportCell | undefined, timeZone: string, dateOrder: DateOrder): string | null {
   if (value instanceof Date) {
     return localPartsToIso([
@@ -252,9 +258,7 @@ export function parseImportTimestamp(value: ImportCell | undefined, timeZone: st
   const first = Number(match[1]);
   const second = Number(match[2]);
   const third = Number(match[3]);
-  const order = dateOrder === "auto"
-    ? first > 999 ? "ymd" : first > 12 ? "dmy" : second > 12 ? "mdy" : "mdy"
-    : dateOrder;
+  const order = dateOrder === "auto" ? inferredDateOrder(first) : dateOrder;
   const [year, month, day] = order === "ymd" ? [first, second, third]
     : order === "dmy" ? [third, second, first] : [third, first, second];
   return localPartsToIso([year, month, day, Number(match[4] ?? 0), Number(match[5] ?? 0), Number(match[6] ?? 0)], timeZone);

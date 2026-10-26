@@ -13,6 +13,7 @@ import {
   inferTrackedEquipmentPosition,
   trackingDistanceMeters,
 } from "./inference.js";
+import { compareCodeUnits } from "../text-order.js";
 
 export interface TrackingSimulationOptions {
   seed?: number;
@@ -187,7 +188,7 @@ export function generateTrackingSimulation(
     if (observations.length === 0) continue;
     const latestReceipt = observations
       .map((item) => item.receivedAt)
-      .sort()
+      .sort(compareCodeUnits)
       .at(-1)!;
     const normalized = observations.map((item) => ({ ...item, receivedAt: latestReceipt }));
     frames.push({ receivedAt: latestReceipt, observations: normalized });

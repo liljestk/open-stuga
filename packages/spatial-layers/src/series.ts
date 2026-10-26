@@ -3,6 +3,7 @@ import { clamp, mean, weightedMean } from './math.js';
 import { assessSensorQuality, type SensorQualityState } from './quality.js';
 import { resampleClimateWindow, type ResampledClimatePoint, type ResampledClimateWindow } from './resampling.js';
 import { activeBindingAt, validateEngineInput, type TopologyValidationResult } from './topology.js';
+import { compareCodeUnits } from "./text-order.js";
 
 export interface ZoneClimatePoint {
   zoneId: string;
@@ -82,7 +83,7 @@ export function prepareSpatialWindow(input: SpatialLayerEngineInput): PreparedSp
       humidityRatioGKg: ratio,
       dewPointC: dewPoint,
       quality: clamp(quality),
-      sensorIds: points.map((point) => point.sensorId).sort(),
+      sensorIds: points.map((point) => point.sensorId).sort(compareCodeUnits),
     });
     zoneSeries.set(zoneId, list);
   }

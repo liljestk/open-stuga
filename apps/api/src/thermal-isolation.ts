@@ -22,6 +22,7 @@ import {
 import { SYSTEM_VERSION } from "./version.js";
 import { HEAT_PUMP_SENSOR_TAG } from "./heat-pump-measurements.js";
 import type { PassiveInterval } from "./analytics/heat-pump-evidence.js";
+import { compareCodeUnits } from "./text-order.js";
 
 const DAY_HOURS = 24;
 const CALIBRATION_BUCKET_MS = 5 * 60_000;
@@ -300,7 +301,7 @@ async function prepareThermalSpreadAsync(
 }
 
 function spreadCacheKey(sensorIds: string[]): string {
-  return JSON.stringify([...sensorIds].sort());
+  return JSON.stringify([...sensorIds].sort(compareCodeUnits));
 }
 
 async function synchronizedPreparedSpreadAsync(

@@ -14,7 +14,7 @@ import { publishAuthEpoch } from "../../authEpoch";
 import { recordApiError } from "../../bugReportDiagnostics";
 import { API_RUNTIME_VERSION_HEADER, assertApiRuntimeVersion } from "../../apiRuntimeVersion";
 import type { HouseGeoreferencePatch } from "./part-01";
-import { API_BASE, API_REQUEST_TIMEOUT_MS, API_V2_BASE, ApiRequestError, COLLECTION_PAGE_SIZE, SAFE_HTTP_METHODS, activeRequestControllers, apiClientState, apiRequestGeneration, assertSafeApiPath, authorizationChange, notifyAuthorizationChange } from "./part-02";
+import { API_BASE, API_REQUEST_TIMEOUT_MS, API_V2_BASE, ApiRequestError, COLLECTION_PAGE_SIZE, SAFE_HTTP_METHODS, apiClientState, apiRequestGeneration, assertSafeApiPath, authorizationChange, notifyAuthorizationChange, trackApiRequestController } from "./part-02";
 import { acquireApiRequestSlot, type ApiRequestInit } from "./requestScheduler";
 import type { SystemUpdateLiveStatus } from "./part-02";
 
@@ -31,7 +31,7 @@ export async function requestFrom<T>(
   const abortFromCaller = () => controller.abort(callerSignal?.reason);
   if (callerSignal?.aborted) abortFromCaller();
   else callerSignal?.addEventListener("abort", abortFromCaller, { once: true });
-  activeRequestControllers.add(controller);
+  const untrackController = trackApiRequestController(controller);
   let timeout: ReturnType<typeof setTimeout> | null = null;
   let releaseRequestSlot: (() => void) | null = null;
 
@@ -93,7 +93,7 @@ export async function requestFrom<T>(
     return payload;
   } finally {
     releaseRequestSlot?.();
-    activeRequestControllers.delete(controller);
+    untrackController();
     if (timeout !== null) globalThis.clearTimeout(timeout);
     callerSignal?.removeEventListener("abort", abortFromCaller);
   }

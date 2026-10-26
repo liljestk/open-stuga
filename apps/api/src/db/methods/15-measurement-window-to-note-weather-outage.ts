@@ -101,6 +101,7 @@ import { ClimateDataValidationError } from "../support/03-sensor-data-gap-row-to
 import { measurementSampleFromRow } from "../support/04-canonical-json-value-to-action-playbook-from-row.js";
 import { outdoorLocationKey, outdoorTemperatureFromRow, weatherOutageFromRow } from "../support/06-canonical-observation-patch-time-to-outdoor-location.js";
 import { registerDatabaseMethods } from "../core.js";
+import { compareCodeUnits } from "../../text-order.js";
 
 registerDatabaseMethods({
   /**
@@ -170,8 +171,8 @@ registerDatabaseMethods({
       };
     },
   measurementCoverage(sensorIds: string[], metrics: string[]): MeasurementCoverageRecord[] {
-      const visibleSensorIds = [...new Set(sensorIds)].filter((id) => Boolean(this.getSensor(id))).sort();
-      const requestedMetrics = [...new Set(metrics)].sort();
+      const visibleSensorIds = [...new Set(sensorIds)].filter((id) => Boolean(this.getSensor(id))).sort(compareCodeUnits);
+      const requestedMetrics = [...new Set(metrics)].sort(compareCodeUnits);
       if (visibleSensorIds.length === 0 || requestedMetrics.length === 0) return [];
       // A MIN/MAX GROUP BY over the requested pairs walks every matching index
       // entry, so its runtime grows with retained history and the statement

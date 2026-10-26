@@ -8,6 +8,7 @@ import type {
   TrackingPropertySettings,
 } from "@climate-twin/contracts";
 import type { StoredGatewayRollup } from "./evidence-store.js";
+import { compareCodeUnits } from "../text-order.js";
 
 export const TRACKING_INFERENCE_ALGORITHM = "stugu.profile-fusion.2026-07";
 
@@ -206,7 +207,7 @@ export function inferTrackedEquipmentPosition(input: TrackingInferenceInput): Es
   const lastObservedAt = [
     ...observations.map((item) => item.observation.observedAt),
     ...rollups.map((item) => item.rollup.windowEndedAt),
-  ].sort().at(-1)!;
+  ].sort(compareCodeUnits).at(-1)!;
   const state = freshness(ageSeconds(lastObservedAt, now), input.settings);
   const observerIds = distinctObservers(observations, rollups);
   const observationIds = observations.map((item) => item.observation.id);

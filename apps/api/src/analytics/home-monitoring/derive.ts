@@ -1,5 +1,6 @@
 import type { AlertEvent, AlertRule, House, IntegrationStatus, Sensor } from "@climate-twin/contracts";
 import { deriveHomePulse, type HomePulseCoverage, type HomePulseSensorCoverage, type LatestMeasurements, type MeasurementHistory } from "./insights.js";
+import { compareCodeUnits } from "../../text-order.js";
 
 export type HouseMonitoringStatus =
   | "action-required"
@@ -220,7 +221,7 @@ function integrationBlockers(
     .map((sample) => sample.timestamp)
     .sort((left, right) => timestampValue(right) - timestampValue(left))[0] ?? null;
   return [{
-    id: `integration:${[...disconnectedSources].sort().join("+")}`,
+    id: `integration:${[...disconnectedSources].sort(compareCodeUnits).join("+")}`,
     kind: "source-disconnected",
     summary: `${affected.length} enabled ${affected.length === 1 ? "sensor depends" : "sensors depend"} on a disconnected data source.`,
     count: affected.length,

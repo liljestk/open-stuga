@@ -8,6 +8,7 @@ import type {
 } from "@climate-twin/contracts";
 import type { ClimateState } from "../domain";
 import type { SeriesPoint } from "../components/SensorAnalyticsPlot";
+import { compareCodeUnits } from "../textOrder";
 
 const HOUR_MS = 3_600_000;
 const DAY_MS = 24 * HOUR_MS;
@@ -283,7 +284,7 @@ function summariesUseSameSources(left: HomeEnergySummary | null, right: HomeEner
   const ids = (summary: HomeEnergySummary) => summary.contributions
     .filter((cost) => cost.consumptionKwh !== null)
     .map((cost) => cost.sensorId)
-    .sort()
+    .sort(compareCodeUnits)
     .join("\u0000");
   return ids(left) === ids(right);
 }

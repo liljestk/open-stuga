@@ -14,6 +14,7 @@ import {
 import { RollupsMaterializingError } from "./timeseries/read-support.js";
 import { AnalyticsCapacityError } from "./analytics/work-limiter.js";
 import type { EnergyCostAggregateRecord } from "./timeseries/types.js";
+import { compareCodeUnits } from "./text-order.js";
 
 const MEASUREMENT_EDGE_TOLERANCE_MS = 5 * 60_000;
 const MINIMUM_MEASUREMENT_DURATION_COVERAGE = 0.999;
@@ -140,7 +141,7 @@ export class EnergyCostService {
       return record.metric === "energy"
         ? end >= fromMs
         : record.metric === "power" && end >= fromMs - POWER_HOLD_MS;
-    }).map((record) => record.sensorId))].sort();
+    }).map((record) => record.sensorId))].sort(compareCodeUnits);
 
     const roleFor = (sensorId: string): EnergyMeterRole => {
       try {

@@ -226,7 +226,9 @@ export function useBuildingScenePart01(context: { house: BuildingSceneProps["hou
       };
     })() : null;
   const outdoorShellRail = outdoorShellProjected ? (() => {
-      const anchor = outdoorShellProjected.top.reduce((highest, point) => point.y < highest.y ? point : highest);
+      const [first, ...others] = outdoorShellProjected.top;
+      if (!first) return null;
+      const anchor = others.reduce((highest, point) => point.y < highest.y ? point : highest, first);
       return {
         anchor,
         x: Math.max(330, Math.min(VIEW_WIDTH - 430, anchor.x - 209)),

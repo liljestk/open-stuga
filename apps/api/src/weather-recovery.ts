@@ -14,6 +14,7 @@ import type {
   WeatherRecoveryLifecycle,
 } from "./weather.js";
 import type { HybridTelemetryReader } from "./timeseries/read-facade.js";
+import { compareCodeUnits } from "./text-order.js";
 
 const WEATHER_COMPONENTS: readonly WeatherComponentName[] = [
   "observation", "forecast", "short-range", "warnings",
@@ -254,7 +255,7 @@ export class WeatherRecoveryCoordinator implements WeatherRecoveryLifecycle {
     return {
       active: active.length > 0,
       activeSince: active.length
-        ? active.map((outage) => outage.startedAt).sort()[0] ?? null
+        ? active.map((outage) => outage.startedAt).sort(compareCodeUnits)[0] ?? null
         : null,
       affectedComponents,
       lastError: active[0]?.lastError ?? null,
@@ -262,7 +263,7 @@ export class WeatherRecoveryCoordinator implements WeatherRecoveryLifecycle {
         .filter((outage) => outage.backfillState === "complete" || outage.backfillState === "partial")
         .map((outage) => outage.lastAttemptAt)
         .filter((value): value is string => Boolean(value))
-        .sort()
+        .sort(compareCodeUnits)
         .at(-1) ?? null,
       observationBackfill: {
         state,

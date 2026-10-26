@@ -34,7 +34,8 @@ function encodeData(bytes: number[]): number[] {
   for (let index = 0; index < bits.length; index += 8) {
     result.push(bits.slice(index, index + 8).reduce((value, bit) => value * 2 + bit, 0));
   }
-  for (let pad = 0; result.length < DATA_CODEWORDS; pad += 1) result.push(pad % 2 === 0 ? 0xec : 0x11);
+  const dataLength = result.length;
+  while (result.length < DATA_CODEWORDS) result.push((result.length - dataLength) % 2 === 0 ? 0xec : 0x11);
   return result;
 }
 
@@ -109,8 +110,9 @@ function drawQr(codewords: number[]): boolean[][] {
   const dataBits = codewords.flatMap((codeword) => Array.from({ length: 8 }, (_, bitIndex) => (codeword >>> (7 - bitIndex)) & 1));
   let dataIndex = 0;
   let upward = true;
-  for (let right = SIZE - 1; right >= 1; right -= 2) {
-    if (right === 6) right = 5;
+  // Column pairs run right to left; left of the vertical timing pattern (column 6) they shift by one.
+  for (let pairStart = SIZE - 1; pairStart >= 2; pairStart -= 2) {
+    const right = pairStart <= 6 ? pairStart - 1 : pairStart;
     for (let vertical = 0; vertical < SIZE; vertical += 1) {
       const y = upward ? SIZE - 1 - vertical : vertical;
       for (let column = 0; column < 2; column += 1) {

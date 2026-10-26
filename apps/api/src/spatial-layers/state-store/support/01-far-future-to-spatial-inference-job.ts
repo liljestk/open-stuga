@@ -18,6 +18,7 @@ import type {
   StoredSpatialSensorBinding,
   StoredSpatialSensorCalibration,
 } from "../../types.js";
+import { compareCodeUnits } from "../../../text-order.js";
 
 export const FAR_FUTURE = "9999-12-31T23:59:59.999Z";
 
@@ -81,7 +82,7 @@ export function stableJson(value: unknown): string {
   if (value === null || typeof value !== "object") return JSON.stringify(value);
   if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
   const record = value as Record<string, unknown>;
-  return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${stableJson(record[key])}`).join(",")}}`;
+  return `{${Object.keys(record).sort(compareCodeUnits).map((key) => `${JSON.stringify(key)}:${stableJson(record[key])}`).join(",")}}`;
 }
 
 export function contentHash(value: unknown): string {
