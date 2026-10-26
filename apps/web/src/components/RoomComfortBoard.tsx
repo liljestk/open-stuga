@@ -1,3 +1,4 @@
+import { maximum as kernelMaximum, minimum as kernelMinimum } from "@climate-twin/analytics-kernel";
 import { Activity, AlertTriangle, Bolt, ChevronDown, CloudOff, Droplets, Radio, Wind, X } from "lucide-react";
 import type { AlertEvent, MeasurementDefinition, MeasurementSample, Metric, Sensor, UnitSystem } from "@climate-twin/contracts";
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
@@ -203,8 +204,8 @@ export function buildRoomComforts({
 
 function sparkline(values: number[]): string {
   if (values.length < 2) return "";
-  const minimum = Math.min(...values);
-  const maximum = Math.max(...values);
+  const minimum = (kernelMinimum(values) ?? Number.POSITIVE_INFINITY);
+  const maximum = (kernelMaximum(values) ?? Number.NEGATIVE_INFINITY);
   const spread = Math.max(maximum - minimum, .1);
   return values.map((value, index) => {
     const x = index / Math.max(values.length - 1, 1) * 96;

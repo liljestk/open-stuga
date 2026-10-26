@@ -1,4 +1,4 @@
-import { median, nearestRankQuantile } from "@climate-twin/analytics-kernel";
+import { median, nearestRankQuantile, maximum, minimum } from "@climate-twin/analytics-kernel";
 import type {
   House,
   HvacExclusionSummary,
@@ -239,7 +239,7 @@ function synchronizedSpread(
   const minimumSensors = Math.max(2, Math.ceil(sensorIds.length * 0.6));
   const spreads = [...buckets.values()].flatMap((bucket) => {
     const values = [...bucket.values()].map((point) => point.value);
-    return values.length < minimumSensors ? [] : [Math.max(...values) - Math.min(...values)];
+    return values.length < minimumSensors ? [] : [(maximum(values) ?? Number.NEGATIVE_INFINITY) - (minimum(values) ?? Number.POSITIVE_INFINITY)];
   });
   const typical = median(spreads);
   const p90 = nearestRankQuantile(spreads, 0.9);
@@ -325,7 +325,7 @@ async function synchronizedPreparedSpreadAsync(
   const minimumSensors = Math.max(2, Math.ceil(sensorIds.length * 0.6));
   const spreads: number[] = [];
   for (const values of buckets.values()) {
-    if (values.length >= minimumSensors) spreads.push(Math.max(...values) - Math.min(...values));
+    if (values.length >= minimumSensors) spreads.push((maximum(values) ?? Number.NEGATIVE_INFINITY) - (minimum(values) ?? Number.POSITIVE_INFINITY));
     work.samplesSinceYield += 1;
     if (work.samplesSinceYield >= work.yieldEverySamples) await yieldAggregationWork(work);
   }

@@ -187,7 +187,7 @@ import { AREA_EQUIPMENT_STATUSES, AuthAbuseLimiter, HttpError, LOCAL_CSRF_COOKIE
 import type { ApiRuntime, AuthAttemptBucket, AuthAttemptLimit, BoundedSseWriter, CreateApiOptions, IntegrationDraftTestResult, LocalRequestPrincipal } from "./support/index.js";
 import { configureApiPart26 } from "./part-26.js";
 import { AnalyticsCapacityError } from "../analytics/work-limiter.js";
-import { LocalTelemetryTimeoutError } from "../timeseries/local-cost-isolate.js";
+import { LocalTelemetryTimeoutError } from "../timeseries/local-telemetry-worker.js";
 
 type DeferredContext = {
   runtimeReady: Promise<void>;

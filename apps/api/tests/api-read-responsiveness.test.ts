@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createApi } from "../src/app.js";
 import { loadConfig } from "../src/config.js";
 import { HybridTelemetryReader } from "../src/timeseries/read-facade.js";
-import { LocalTelemetryTimeoutError } from "../src/timeseries/local-cost-isolate.js";
+import { LocalTelemetryTimeoutError } from "../src/timeseries/local-telemetry-worker.js";
 
 const from = "2026-09-01T00:00:00.000Z";
 const to = "2026-09-02T00:00:00.000Z";

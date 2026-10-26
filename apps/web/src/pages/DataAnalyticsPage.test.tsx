@@ -6,6 +6,7 @@ import type { AnalyticsQueryResponse, House, Sensor } from "@climate-twin/contra
 import { api } from "../api";
 import { createDemoState } from "../domain";
 import { I18nProvider } from "../i18n";
+import { queryClient } from "../data/queryClient";
 import { analyticsCsv, DataAnalyticsPage } from "./DataAnalyticsPage";
 
 const refreshWeather = vi.fn();
@@ -134,6 +135,8 @@ vi.mock("../useHouseWeather", () => ({
 
 describe("DataAnalyticsPage", () => {
   beforeEach(() => {
+    // Explorer data lives in the shared query cache; each test starts without it.
+    queryClient.clear();
     vi.restoreAllMocks();
     refreshWeather.mockReset();
     window.history.replaceState(null, "", "/");

@@ -1,3 +1,4 @@
+import { maximum, minimum } from "@climate-twin/analytics-kernel";
 import { useEffect, useId, useMemo, useState } from "react";
 import { Activity, AlertCircle, FlaskConical, Play, RotateCcw } from "lucide-react";
 import type { Sensor, ThermalSimulationPoint, UnitSystem } from "@climate-twin/contracts";
@@ -216,11 +217,11 @@ function ThermalChart({
   const chart = useMemo(() => {
     if (!points.length) return null;
     const timestamps = points.map((point) => Date.parse(point.timestamp));
-    const timeMin = Math.min(...timestamps);
-    const timeMax = Math.max(...timestamps);
+    const timeMin = (minimum(timestamps) ?? Number.POSITIVE_INFINITY);
+    const timeMax = (maximum(timestamps) ?? Number.NEGATIVE_INFINITY);
     const values = points.flatMap((point) => [point.lowC, point.highC, point.simulatedTemperatureC, ...(point.observedTemperatureC === null ? [] : [point.observedTemperatureC])]);
-    const rawMin = Math.min(...values);
-    const rawMax = Math.max(...values);
+    const rawMin = (minimum(values) ?? Number.POSITIVE_INFINITY);
+    const rawMax = (maximum(values) ?? Number.NEGATIVE_INFINITY);
     const padding = Math.max(0.4, (rawMax - rawMin) * 0.08);
     const valueMin = rawMin - padding;
     const valueMax = rawMax + padding;

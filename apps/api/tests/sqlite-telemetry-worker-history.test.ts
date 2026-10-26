@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { ClimateDatabase } from "../src/db.js";
 import { HybridTelemetryReader } from "../src/timeseries/read-facade.js";
-import { LocalCostIsolate } from "../src/timeseries/local-cost-isolate.js";
+import { LocalTelemetryWorker } from "../src/timeseries/local-telemetry-worker.js";
 
 const from = "2026-09-01T00:00:00.000Z";
 const to = "2026-09-02T00:00:00.000Z";
@@ -64,8 +64,8 @@ describe("isolated local history reads", () => {
 
   it("cancels queued and running history scans, recovers, and bounds their duration", async () => {
     const context = fixture(24);
-    const worker = new LocalCostIsolate(context.path);
-    const timedWorker = new LocalCostIsolate(context.path, 1);
+    const worker = new LocalTelemetryWorker(context.path);
+    const timedWorker = new LocalTelemetryWorker(context.path, 1);
     try {
       const running = new AbortController();
       const queued = new AbortController();

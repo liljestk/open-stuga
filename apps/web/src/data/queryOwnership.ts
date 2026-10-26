@@ -19,6 +19,8 @@ export const queryOwnership = {
   openingActivity: "query-client",
   calendarComparison: "query-client",
   electricityTariffs: "query-client",
+  analyticsExplorer: "query-client",
+  energyProjection: "query-client",
 } as const satisfies Record<string, "legacy" | "query-client">;
 
 export type QueryResourceFamily = keyof typeof queryOwnership;

@@ -160,6 +160,20 @@ for (const path of await filesBelow(apiAnalyticsRoot)) {
   }
 }
 
+// Spreading a data-sized array into Math.min/max can exceed the engine's argument limit.
+const dataSizedMinMaxFiles = [
+  ...await filesBelow(apiAnalyticsRoot),
+  ...["thermal-simulation.ts", "thermal-isolation.ts", "energy-cost.ts"].map((name) => join(root, "apps", "api", "src", name)),
+  join(webSourceRoot, "pages", "energyAnalysis.ts"),
+  ...["SensorAnalyticsChart.tsx", "TrendChart.tsx", "ThermalSimulationPanel.tsx", "RoomComfortBoard.tsx"]
+    .map((name) => join(webSourceRoot, "components", name)),
+];
+for (const path of dataSizedMinMaxFiles) {
+  if (/Math\.(?:min|max)\(\.\.\./.test(await readFile(path, "utf8"))) {
+    report(path, "use the analytics kernel's minimum/maximum instead of spreading a series into Math.min/max");
+  }
+}
+
 const ownershipPath = join(webDataRoot, "queryOwnership.ts");
 const ownership = await readFile(ownershipPath, "utf8");
 for (const family of [
@@ -169,6 +183,8 @@ for (const family of [
   "openingActivity",
   "calendarComparison",
   "sensorMutations",
+  "analyticsExplorer",
+  "energyProjection",
 ]) {
   if (!new RegExp(`\\b${family}:\\s*"query-client"`).test(ownership)) {
     report(ownershipPath, `${family} must have an explicit query-client owner`);

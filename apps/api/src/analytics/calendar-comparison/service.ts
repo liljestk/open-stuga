@@ -1,3 +1,4 @@
+import { maximum, minimum } from "@climate-twin/analytics-kernel";
 import type {
   AnalyticsQueryRequest,
   AnalyticsQueryResponse,
@@ -163,8 +164,8 @@ function combinedPoint(
   return {
     bucket,
     value: values.reduce((sum, item) => sum + item.value, 0) / divisor,
-    minimum: Math.min(...values.map((item) => item.minimum ?? item.value)),
-    maximum: Math.max(...values.map((item) => item.maximum ?? item.value)),
+    minimum: (minimum(values.map((item) => item.minimum ?? item.value)) ?? Number.POSITIVE_INFINITY),
+    maximum: (maximum(values.map((item) => item.maximum ?? item.value)) ?? Number.NEGATIVE_INFINITY),
     sampleCount: values.reduce((sum, item) => sum + item.sampleCount, 0),
     coverage: values.reduce((sum, item) => sum + item.coverage, 0) / values.length,
   };
@@ -184,9 +185,9 @@ function summarize(
       left.bucket.end.localeCompare(right.bucket.end)
     )).at(-1)!.value;
   } else if (resolved === "min") {
-    value = Math.min(...points.map((point) => point.value));
+    value = (minimum(points.map((point) => point.value)) ?? Number.POSITIVE_INFINITY);
   } else if (resolved === "max") {
-    value = Math.max(...points.map((point) => point.value));
+    value = (maximum(points.map((point) => point.value)) ?? Number.NEGATIVE_INFINITY);
   } else {
     const weighted = points.map((point) => ({
       point,
@@ -210,8 +211,8 @@ function summarize(
   ), 0);
   return {
     value,
-    minimum: Math.min(...points.map((point) => point.minimum ?? point.value)),
-    maximum: Math.max(...points.map((point) => point.maximum ?? point.value)),
+    minimum: (minimum(points.map((point) => point.minimum ?? point.value)) ?? Number.POSITIVE_INFINITY),
+    maximum: (maximum(points.map((point) => point.maximum ?? point.value)) ?? Number.NEGATIVE_INFINITY),
     sampleCount: points.reduce((sum, point) => sum + point.sampleCount, 0),
     coverage: duration > 0 ? coveredDuration / duration : 0,
     bucketCount: points.length,

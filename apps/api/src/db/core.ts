@@ -101,8 +101,8 @@ import {
   type RegisteredMethodSet,
 } from "../method-registry.js";
 import { CORE_SCHEMA_SQL } from "./migrations/core-schema.js";
-import { LocalCostIsolate } from "../timeseries/local-cost-isolate.js";
-import type { LocalBucketQuery, LocalSensorPageQuery } from "../timeseries/local-cost-worker.js";
+import { LocalTelemetryWorker } from "../timeseries/local-telemetry-worker.js";
+import type { LocalBucketQuery, LocalSensorPageQuery } from "../timeseries/local-telemetry-worker-thread.js";
 import { databaseIntegrity, exportTableCounts, type ExportTable, type DatabaseIntegrityResult } from "./inspection.js";
 import type { MeasurementWindowQuery, ThermalMeasurementHistoryQuery } from "../timeseries/types.js";
 import type { LocalPowerProfileQuery, PowerProfile } from "../timeseries/read-power-profile.js";
@@ -159,7 +159,7 @@ export interface ClimateDatabaseCore {
 export class ClimateDatabaseCore {
   readonly db: DatabaseSync;
   readonly #databasePath: string;
-  #costReader: LocalCostIsolate | null = null;
+  #telemetryWorker: LocalTelemetryWorker | null = null;
   #transactionDepth = 0;
   constructor(path: string, seed = true, options: { readOnly?: boolean } = {}) {
       this.#databasePath = path;
@@ -201,43 +201,43 @@ export class ClimateDatabaseCore {
         query.signal?.throwIfAborted();
         return metric === "energy" ? this.energyCostAggregate(query) : this.powerCostAggregate(query);
       }
-      this.#costReader ??= new LocalCostIsolate(this.#databasePath);
-      return this.#costReader.read(metric, query);
+      this.#telemetryWorker ??= new LocalTelemetryWorker(this.#databasePath);
+      return this.#telemetryWorker.read(metric, query);
     }
   closeCostReader(): void {
-      this.#costReader?.close();
+      this.#telemetryWorker?.close();
     }
   async sensorMeasurementPageAsync(query: LocalSensorPageQuery): Promise<{ samples: MeasurementSample[]; nextCursor: string | null }> {
       query.signal?.throwIfAborted();
       if (this.#databasePath === ":memory:") return this.sensorMeasurementPage(query.sensorId, query.before, query.limit);
-      this.#costReader ??= new LocalCostIsolate(this.#databasePath);
-      return this.#costReader.readSensorPage(query);
+      this.#telemetryWorker ??= new LocalTelemetryWorker(this.#databasePath);
+      return this.#telemetryWorker.readSensorPage(query);
     }
   async exportTableCountsAsync(tables: readonly ExportTable[], signal?: AbortSignal): Promise<Record<string, number>> {
       signal?.throwIfAborted();
       if (this.#databasePath === ":memory:") return exportTableCounts(this, tables);
-      this.#costReader ??= new LocalCostIsolate(this.#databasePath);
-      return this.#costReader.readExportCounts(tables, signal);
+      this.#telemetryWorker ??= new LocalTelemetryWorker(this.#databasePath);
+      return this.#telemetryWorker.readExportCounts(tables, signal);
     }
   async integrityAsync(signal?: AbortSignal): Promise<DatabaseIntegrityResult> {
       signal?.throwIfAborted();
       if (this.#databasePath === ":memory:") return databaseIntegrity(this);
-      this.#costReader ??= new LocalCostIsolate(this.#databasePath);
-      return this.#costReader.readIntegrity(signal);
+      this.#telemetryWorker ??= new LocalTelemetryWorker(this.#databasePath);
+      return this.#telemetryWorker.readIntegrity(signal);
     }
   async measurementWindowAsync(query: MeasurementWindowQuery): Promise<MeasurementSample[]> {
       query.signal?.throwIfAborted();
       if (this.#databasePath === ":memory:") return this.measurementWindow(
         [...query.sensorIds], [...query.metrics], query.from, query.to, query.limit,
       );
-      this.#costReader ??= new LocalCostIsolate(this.#databasePath);
-      return this.#costReader.readWindow(query);
+      this.#telemetryWorker ??= new LocalTelemetryWorker(this.#databasePath);
+      return this.#telemetryWorker.readWindow(query);
     }
   async optimizerPowerProfileAsync(query: LocalPowerProfileQuery): Promise<PowerProfile> {
       query.signal?.throwIfAborted();
       if (this.#databasePath === ":memory:") return localPowerProfile(this, query);
-      this.#costReader ??= new LocalCostIsolate(this.#databasePath);
-      return this.#costReader.readPowerProfile(query);
+      this.#telemetryWorker ??= new LocalTelemetryWorker(this.#databasePath);
+      return this.#telemetryWorker.readPowerProfile(query);
     }
   async thermalMeasurementHistoryAsync(query: ThermalMeasurementHistoryQuery): Promise<MeasurementSample[]> {
       query.signal?.throwIfAborted();
@@ -247,8 +247,8 @@ export class ClimateDatabaseCore {
           : this.thermalClimateHistory(query.sensorId, query.from, query.to, query.bucketMinutes, query.limitPerMetric))
           .filter(sample => query.metrics.includes(sample.metric));
       }
-      this.#costReader ??= new LocalCostIsolate(this.#databasePath);
-      return this.#costReader.readThermal(query);
+      this.#telemetryWorker ??= new LocalTelemetryWorker(this.#databasePath);
+      return this.#telemetryWorker.readThermal(query);
     }
   async measurementHistoryBucketedAsync(query: LocalBucketQuery): Promise<MeasurementSample[]> {
       query.signal?.throwIfAborted();
@@ -260,8 +260,8 @@ export class ClimateDatabaseCore {
         return this.measurementHistoryBucketed(query.sensorId, query.metric, query.from, query.to,
           query.bucketSeconds, query.limit, query.excludeSynthetic, query.toExclusive);
       }
-      this.#costReader ??= new LocalCostIsolate(this.#databasePath);
-      return this.#costReader.readBuckets(query);
+      this.#telemetryWorker ??= new LocalTelemetryWorker(this.#databasePath);
+      return this.#telemetryWorker.readBuckets(query);
     }
   private immediateTransaction<T>(operation: () => T): T {
       if (this.#transactionDepth > 0) return operation();

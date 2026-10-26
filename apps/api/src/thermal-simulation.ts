@@ -1,3 +1,4 @@
+import { maximum, minimum } from "@climate-twin/analytics-kernel";
 import type {
   MeasurementSample,
   OutdoorTemperatureSample,
@@ -340,17 +341,17 @@ function completeCalibration(
       ...(cycle ? { dailyCycle: { amplitudeC: round(cycle.amplitude, 3), peakHourUtc: round(cycle.peakHourUtc, 2) } } : {}),
     },
     applicability: {
-      indoorMinC: round(Math.min(...aligned.map((point) => point.temperatureC)), 3),
-      indoorMaxC: round(Math.max(...aligned.map((point) => point.temperatureC)), 3),
-      outdoorMinC: round(Math.min(...aligned.map((point) => point.outdoorTemperatureC)), 3),
-      outdoorMaxC: round(Math.max(...aligned.map((point) => point.outdoorTemperatureC)), 3),
+      indoorMinC: round((minimum(aligned.map((point) => point.temperatureC)) ?? Number.POSITIVE_INFINITY), 3),
+      indoorMaxC: round((maximum(aligned.map((point) => point.temperatureC)) ?? Number.NEGATIVE_INFINITY), 3),
+      outdoorMinC: round((minimum(aligned.map((point) => point.outdoorTemperatureC)) ?? Number.POSITIVE_INFINITY), 3),
+      outdoorMaxC: round((maximum(aligned.map((point) => point.outdoorTemperatureC)) ?? Number.NEGATIVE_INFINITY), 3),
       maxHorizonHours: MODEL_MAX_HORIZON_HOURS,
     },
     sensitivity: {
       timeConstantLowHours: round(tauLow, 2),
       timeConstantHighHours: round(tauHigh, 2),
-      liftLowC: round(Math.min(...lifts), 3),
-      liftHighC: round(Math.max(...lifts), 3),
+      liftLowC: round((minimum(lifts) ?? Number.POSITIVE_INFINITY), 3),
+      liftHighC: round((maximum(lifts) ?? Number.NEGATIVE_INFINITY), 3),
     },
   };
   const quality: ThermalCalibrationQuality = {

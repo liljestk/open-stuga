@@ -2,6 +2,13 @@
 
 All notable Stugu releases are recorded here.
 
+## 0.50.0
+
+- The Data & analytics page loads its chart data, outdoor history, recorded gaps, prices and forecasts through the shared query cache. Behaviour is unchanged: a failed refresh keeps the last data it had, a refresh keeps the chart visible until the new data arrives, and forecasts are reused for five minutes. Reopening the page no longer starts from nothing.
+- Very long series no longer risk a browser or server error when charts, comparisons and thermal results take their minimum and maximum.
+- Internal: the background SQLite reader is now called the local telemetry worker, since it serves history reads as well as costs.
+- Upgrade impact: application-only update. Database, configuration, Compose and host trust are unchanged.
+
 ## 0.49.0
 
 - The Energy page's 30-day outlook is now calculated by the server and tested against the Home's own history. It models daily use as a base load plus heating that follows the weather forecast. It is used only if, on past months, it predicted better than simply repeating the last 30 days; otherwise the outlook says it repeats the last 30 days. The range and confidence now come from how far those past predictions were off, not from how much data there is, and the outlook says how it did.

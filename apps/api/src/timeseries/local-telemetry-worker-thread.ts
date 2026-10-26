@@ -13,7 +13,7 @@ export interface LocalSensorPageQuery {
 }
 
 export type LocalBucketQuery = MeasurementHistoryBucketedQuery & { toExclusive?: boolean };
-export type LocalCostWorkerOperation =
+export type LocalTelemetryWorkerOperation =
   | { metric: "energy" | "power"; query: Omit<EnergyCostAggregateQuery, "signal"> }
   | { metric: "buckets"; query: Omit<LocalBucketQuery, "signal"> }
   | { metric: "sensor-page"; query: Omit<LocalSensorPageQuery, "signal"> }
@@ -22,11 +22,11 @@ export type LocalCostWorkerOperation =
   | { metric: "power-profile"; query: Omit<LocalPowerProfileQuery, "signal"> }
   | { metric: "export-counts"; query: { tables: readonly ExportTable[] } }
   | { metric: "integrity"; query: Record<string, never> };
-export type LocalCostWorkerRequest = LocalCostWorkerOperation & { id: number };
+export type LocalTelemetryWorkerRequest = LocalTelemetryWorkerOperation & { id: number };
 
 if (!parentPort) throw new Error("Local cost worker requires a parent port");
 const port = parentPort;
-port.on("message", (request: LocalCostWorkerRequest) => {
+port.on("message", (request: LocalTelemetryWorkerRequest) => {
   let database: ClimateDatabase | undefined;
   try {
     // A separate WAL reader sees committed data without running migrations or

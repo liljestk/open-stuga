@@ -1,3 +1,4 @@
+import { minimum } from "@climate-twin/analytics-kernel";
 import {
   HOME_ENERGY_SUMMARY_ALGORITHM_VERSION,
   type EnergyMeterRole,
@@ -250,7 +251,7 @@ export class EnergyCostService {
     const priceCoveragePercent = consumptionKwh !== null && consumptionKwh > 0
       ? Math.min(100, (pricedConsumptionKwh ?? 0) / consumptionKwh * 100)
       : reporting.length
-        ? Math.min(...reporting.map((cost) => cost.priceCoveragePercent))
+        ? (minimum(reporting.map((cost) => cost.priceCoveragePercent)) ?? Number.POSITIVE_INFINITY)
         : 0;
     const archiveState: HomeEnergyArchiveState = contributions.some((cost) => cost.archiveState === "pending")
       ? "pending"
