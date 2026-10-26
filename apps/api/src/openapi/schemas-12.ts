@@ -139,4 +139,73 @@ export const schemasPart12 = {
       calculatedAt: { type: "string", format: "date-time" },
     },
   },
+  HomeEnergyProjection: {
+    type: "object", additionalProperties: false,
+    required: [
+      "houseId", "generatedAt", "algorithmVersion", "horizonStart", "horizonDays", "method", "next30DaysKwh", "lowKwh",
+      "highKwh", "dailyKwh", "baseLoadKwhPerDay", "heatingSlopeKwhPerDegreeHour", "heatingBaseTemperatureC",
+      "forecastDays", "observedDays", "confidence", "backtest", "estimatedCostEur", "lowCostEur", "highCostEur", "priceBasis",
+    ],
+    properties: {
+      houseId: { type: "string" },
+      generatedAt: { type: "string", format: "date-time" },
+      algorithmVersion: { const: "energy-projection/v1" },
+      horizonStart: { type: "string", format: "date-time" },
+      horizonDays: { type: "integer", minimum: 1 },
+      method: { enum: ["weather-regression", "recent-average"] },
+      next30DaysKwh: { type: "number", minimum: 0 },
+      lowKwh: { type: "number", minimum: 0 },
+      highKwh: { type: "number", minimum: 0 },
+      dailyKwh: { type: "number", minimum: 0 },
+      baseLoadKwhPerDay: nullableAmount,
+      heatingSlopeKwhPerDegreeHour: nullableAmount,
+      heatingBaseTemperatureC: { type: "number" },
+      forecastDays: { type: "integer", minimum: 0 },
+      observedDays: { type: "integer", minimum: 0 },
+      confidence: { enum: ["low", "medium", "high"] },
+      backtest: {
+        type: "object", additionalProperties: false,
+        required: ["origins", "meanAbsolutePercentError", "baselineMeanAbsolutePercentError", "skill"],
+        properties: {
+          origins: { type: "integer", minimum: 0 },
+          meanAbsolutePercentError: nullableAmount,
+          baselineMeanAbsolutePercentError: nullableAmount,
+          skill: nullableAmount,
+        },
+      },
+      estimatedCostEur: nullableAmount,
+      lowCostEur: nullableAmount,
+      highCostEur: nullableAmount,
+      priceBasis: { enum: ["historical", "unavailable"] },
+    },
+  },
+  EnergyFlexibleLoad: {
+    type: "object", additionalProperties: false,
+    required: [
+      "sensorId", "sensorName", "runsPerDay", "dailyKwh", "typicalRunMinutes", "paidCentsPerKwh",
+      "cheapestWindow", "estimatedDailySavingsEur",
+    ],
+    properties: {
+      sensorId: { type: "string" },
+      sensorName: { type: "string" },
+      runsPerDay: { type: "number", minimum: 0 },
+      dailyKwh: { type: "number", minimum: 0 },
+      typicalRunMinutes: { type: "number", minimum: 0 },
+      paidCentsPerKwh: { type: "number" },
+      cheapestWindow: {
+        oneOf: [
+          {
+            type: "object", additionalProperties: false, required: ["startAt", "endAt", "averagePriceCentsPerKwh"],
+            properties: {
+              startAt: { type: "string", format: "date-time" },
+              endAt: { type: "string", format: "date-time" },
+              averagePriceCentsPerKwh: { type: "number" },
+            },
+          },
+          { type: "null" },
+        ],
+      },
+      estimatedDailySavingsEur: nullableAmount,
+    },
+  },
 };

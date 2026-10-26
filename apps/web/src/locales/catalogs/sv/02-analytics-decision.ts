@@ -445,8 +445,6 @@ export const svPart2 = {
   "energy.outlook.range": "Planeringsintervall {low}–{high} {unit}",
   "energy.outlook.priceMissing": "Lägg till ett fastighetspris för att uppskatta kostnaden",
   "energy.outlook.observedDays": "Baserat på {days} dagars observerad användning",
-  "energy.outlook.observedHours": "Baserat på {hours} timmars observerad användning",
-  "energy.outlook.method": "Prognosen kombinerar den längre förbrukningstakten med de senaste 24 timmarna. Planeringsintervallet blir bredare när historiken är kort eller den senaste användningen avviker från det längre mönstret; det är inte ett sannolikhetsintervall.",
   "energy.consumer.title": "Största elförbrukarna",
   "energy.consumer.period": "Kumulativ förbrukning · senaste 30 dagarna",
   "energy.consumer.pattern.steady": "Jämn last",

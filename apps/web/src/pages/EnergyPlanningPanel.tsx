@@ -1,26 +1,36 @@
 import { Activity, BarChart3, Calculator } from "lucide-react";
-import type { HomeEnergySummary, Sensor } from "@climate-twin/contracts";
+import type { HomeEnergyProjection, HomeEnergySummary, Sensor } from "@climate-twin/contracts";
 import { useI18n } from "../i18n";
-import { buildConsumerInsights, buildEnergyProjection } from "./energyAnalysis";
+import { buildConsumerInsights } from "./energyAnalysis";
 import "./EnergyPlanningPanel.css";
 
 interface EnergyPlanningPanelProps {
   sensors: Sensor[];
-  recentSummary: HomeEnergySummary | null;
+  projection: HomeEnergyProjection | null;
   rollingSummary: HomeEnergySummary | null;
-  currentPriceEurPerKwh: number | null;
 }
 
 export function EnergyPlanningPanel(props: Readonly<EnergyPlanningPanelProps>) {
   const { locale, t } = useI18n();
-  const projection = buildEnergyProjection(props.recentSummary, props.rollingSummary, props.currentPriceEurPerKwh);
+  const projection = props.projection;
   const consumers = buildConsumerInsights(props.rollingSummary, props.sensors).slice(0, 5);
   const number = new Intl.NumberFormat(locale, { maximumFractionDigits: 1 });
+  const percent = new Intl.NumberFormat(locale, { maximumFractionDigits: 0 });
   const currency = new Intl.NumberFormat(locale, { style: "currency", currency: "EUR", maximumFractionDigits: 2 });
   const energyUnit = t("energy.unit.kwh");
-  const observedPeriod = projection && projection.observedDays < 1
-    ? t("energy.outlook.observedHours", { hours: Math.max(1, Math.round(projection.observedDays * 24)) })
-    : t("energy.outlook.observedDays", { days: Math.max(1, Math.round(projection?.observedDays ?? 0)) });
+  const backtest = projection?.backtest;
+  const method = !projection || !backtest || backtest.origins === 0 || backtest.meanAbsolutePercentError === null
+    ? t("energy.outlook.methodUntested")
+    : projection.method === "weather-regression"
+      ? t("energy.outlook.methodRegression", {
+          origins: backtest.origins,
+          error: percent.format(backtest.meanAbsolutePercentError),
+          baseline: percent.format(backtest.baselineMeanAbsolutePercentError ?? backtest.meanAbsolutePercentError),
+        })
+      : t("energy.outlook.methodRecent", {
+          origins: backtest.origins,
+          error: percent.format(backtest.meanAbsolutePercentError),
+        });
 
   if (!projection && !consumers.length) return null;
   return <section className="panel energy-planning" aria-labelledby="energy-planning-heading">
@@ -34,9 +44,9 @@ export function EnergyPlanningPanel(props: Readonly<EnergyPlanningPanelProps>) {
         <div><dt>{t("energy.outlook.estimatedCost")}</dt><dd>{projection.estimatedCostEur === null ? "—" : currency.format(projection.estimatedCostEur)}</dd><dd className="energy-outlook-detail"><small>{projection.lowCostEur === null || projection.highCostEur === null
           ? t("energy.outlook.priceMissing")
           : t("energy.outlook.range", { low: currency.format(projection.lowCostEur), high: currency.format(projection.highCostEur), unit: "" })}</small></dd></div>
-        <div><dt>{t("energy.outlook.dailyPace")}</dt><dd>{t("energy.outlook.energyValue", { value: number.format(projection.dailyKwh) })}</dd><dd className="energy-outlook-detail"><small>{observedPeriod}</small></dd></div>
+        <div><dt>{t("energy.outlook.dailyPace")}</dt><dd>{t("energy.outlook.energyValue", { value: number.format(projection.dailyKwh) })}</dd><dd className="energy-outlook-detail"><small>{t("energy.outlook.observedDays", { days: projection.observedDays })}</small></dd></div>
       </dl>
-      <p className="energy-outlook-method"><Activity size={16} aria-hidden="true" />{t("energy.outlook.method")}</p>
+      <p className="energy-outlook-method"><Activity size={16} aria-hidden="true" />{method}</p>
     </>}
 
     {consumers.length > 0 && <div className="energy-consumers">

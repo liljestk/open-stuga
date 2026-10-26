@@ -1,3 +1,4 @@
+import type { EnergyFlexibleLoad } from "./energy-projection.js";
 import type { HouseLocation, StugubyPropertyLink } from "./building-structure.js";
 import type { ElectricityCostBreakdown } from "./electricity-tariffs.js";
 
@@ -101,6 +102,8 @@ export interface EnergyOptimizationReport {
   baselinePowerWatts: number | null;
   peakPowerWatts: number | null;
   insights: EnergyOptimizationInsight[];
+  /** Devices with measured runs that could move to cheaper hours. */
+  flexibleLoads?: EnergyFlexibleLoad[];
   limitations: string[];
 }
 

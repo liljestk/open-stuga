@@ -88,6 +88,55 @@ reconciled.
 Custom HTTPS sources are supported when they return the same JSON shape as the
 Pörssisähkö `prices` response.
 
+## Thirty-day projection
+
+`GET /api/v1/houses/{houseId}/energy-projection` projects a Home's next thirty
+days of consumption and cost. It needs a whole-Home meter or independent meters;
+submeters alone return `projection: null`.
+
+- **History:** up to 120 complete days. Each day is the meters' counter
+  increments, or their integrated power, with at least 80% coverage.
+- **Weather model:** a regression of daily energy on heating degree-hours below
+  the Home's heating base (`heating-base-temperature`, 17 °C by default). It
+  gives a base load plus a heating slope. The horizon's degree-hours come from
+  the stored weather forecast as far as it reaches. After that, the forecast's
+  mean is held, or the last two weeks' mean when there is no forecast.
+- **Backtest:** origins every three days project thirty days from the sixty
+  before them, with observed weather standing in for the forecast. They are
+  scored against "repeat the last 30 days".
+- **Choosing the method:** the weather model is used only when its error was
+  lower than the repeat's. Otherwise the repeat is the projection, and the
+  response says so.
+- **Interval and confidence:** the interval comes from the chosen method's
+  backtest errors (5th to 95th percentile, given at least five origins). The
+  confidence comes from its mean absolute percentage error.
+- **Cost:** consumption is priced at the last thirty days' cost per priced kWh,
+  with that period's monthly fees added once.
+- **Caching:** results are cached for up to an hour, and refreshed sooner when
+  the tariff, the forecast or imported history changes.
+
+The release gate (`apps/api/tests/energy-projection.test.ts`) requires the
+weather model to beat the repeat by at least 25% lower error through a cooling
+autumn.
+
+## Optimizer savings
+
+`GET /api/v1/properties/{propertyId}/energy-optimization` lists
+`flexibleLoads`. These are device meters (not whole-Home meters or heat pumps)
+whose last week of five-minute power shows at least three runs. A run lasts
+10 minutes to 6 hours, clearly above the device's idle draw, and the device
+must be idle more than half the time.
+
+Each entry reports:
+
+- the energy-weighted price the runs actually paid
+- the cheapest window of the device's typical run length in the next 24 hours
+- the daily saving from moving its measured daily energy into that window
+
+These savings appear as `flexible-load:{sensorId}` insights. The baseload
+insight no longer carries a savings figure, because nothing measured says how
+much of a continuous load could go.
+
 ## REST API
 
 ```text

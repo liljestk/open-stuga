@@ -4,7 +4,6 @@ import { createDemoState } from "../domain";
 import {
   aggregateCumulativeSeries,
   buildConsumerInsights,
-  buildEnergyProjection,
   consumptionHistorySeries,
   electricityUsageSeries,
   holdSeriesForBuckets,
@@ -175,58 +174,6 @@ describe("energy analysis", () => {
       Date.parse("2026-07-01T01:00:00.000Z"),
     );
     expect(points.at(-1)?.value).toBeCloseTo(0.25);
-  });
-
-  it("projects with a weighted recent/trailing pace and an uncertainty range", () => {
-    const rollingFrom = "2026-07-01T00:00:00.000Z";
-    const recentFrom = "2026-07-10T00:00:00.000Z";
-    const to = "2026-07-11T00:00:00.000Z";
-    const rolling = summary(30, rollingFrom, to, [contribution("plug", 30, rollingFrom, to)]);
-    const recent = summary(2, recentFrom, to, [contribution("plug", 2, recentFrom, to)]);
-    const projection = buildEnergyProjection(recent, rolling, 0.2)!;
-    expect(projection.next30DaysKwh).toBeGreaterThan(60);
-    expect(projection.next30DaysKwh).toBeLessThan(90);
-    expect(projection.lowKwh).toBeLessThan(projection.next30DaysKwh);
-    expect(projection.highKwh).toBeGreaterThan(projection.next30DaysKwh);
-    expect(projection.estimatedCostEur).toBeCloseTo(projection.next30DaysKwh * 0.2);
-    expect(projection.confidence).toBe("medium");
-  });
-
-  it("does not treat sparse historical prices as representative of the projection", () => {
-    const from = "2026-07-01T00:00:00.000Z";
-    const to = "2026-07-11T00:00:00.000Z";
-    const rolling = {
-      ...summary(30, from, to, [contribution("plug", 30, from, to)]),
-      pricedConsumptionKwh: 1,
-      costEur: 1,
-      costBreakdown: null,
-      priceCoveragePercent: 3.3,
-    };
-    const projection = buildEnergyProjection(null, rolling, 0.2)!;
-    expect(projection.priceBasis).toBe("current");
-    expect(projection.estimatedCostEur).toBeCloseTo(projection.next30DaysKwh * 0.2);
-  });
-
-  it("orders projected cost bounds correctly when electricity prices are negative", () => {
-    const from = "2026-07-01T00:00:00.000Z";
-    const to = "2026-07-11T00:00:00.000Z";
-    const rolling = summary(30, from, to, [contribution("plug", 30, from, to)]);
-    const projection = buildEnergyProjection(null, rolling, -0.1)!;
-    expect(projection.estimatedCostEur).toBeLessThan(0);
-    expect(projection.lowCostEur).toBeLessThan(projection.estimatedCostEur!);
-    expect(projection.highCostEur).toBeGreaterThan(projection.estimatedCostEur!);
-  });
-
-  it("keeps confidence low when a selected source is missing from the projection", () => {
-    const from = "2026-07-01T00:00:00.000Z";
-    const to = "2026-07-21T00:00:00.000Z";
-    const partial = {
-      ...summary(30, from, to, [contribution("plug", 30, from, to)]),
-      totalSources: 2,
-      sourceCount: 1,
-      failedSourceCount: 1,
-    };
-    expect(buildEnergyProjection(null, partial, 0.2)?.confidence).toBe("low");
   });
 
   it("ranks consumers from the measured summary without chart-history evidence", () => {

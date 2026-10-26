@@ -10,6 +10,7 @@ import { EnergyCostService } from "./energy-cost.js";
 import { databaseTariffContext } from "./electricity/tariff-context.js";
 import { HybridTelemetryReader } from "./timeseries/read-facade.js";
 import { OPTIMIZER_POWER_HOLD_MS } from "./energy-optimizer-power.js";
+import { FLEXIBLE_PROFILE_DAYS, measureFlexibleLoads } from "./electricity/flexible-loads.js";
 
 const POWER_SAMPLE_LIMIT = 200_000;
 
@@ -87,7 +88,9 @@ export class EnergyOptimizer {
     const property = this.database.getProperty(propertyId);
     if (!property) throw new Error("Property not found");
     const hours = Math.max(1, Math.min(12, Math.round(windowHours)));
-    const priceFrom = new Date(now.getTime() - 24 * 3_600_000).toISOString();
+    // A week of prices values each device's measured runs; the report's own price coverage still starts a day back.
+    const priceFrom = new Date(now.getTime() - FLEXIBLE_PROFILE_DAYS * 24 * 3_600_000).toISOString();
+    const reportPricesFrom = now.getTime() - 24 * 3_600_000;
     const priceUntil = new Date(now.getTime() + 72 * 3_600_000).toISOString();
     const houses = this.database.listHouses(propertyId);
     const sensors = houses.flatMap((house) => this.database.listSensors(house.id)).filter((sensor) => sensor.enabled);
@@ -101,7 +104,7 @@ export class EnergyOptimizer {
       (sensorId) => this.database.getSensor(sensorId)?.energyMeterRole ?? "standalone",
       databaseTariffContext(this.database),
     );
-    const [prices, powerProfile, costResults] = await Promise.all([
+    const [pricesWithHistory, powerProfile, costResults] = await Promise.all([
         reader.electricityPriceHistory({
           propertyId,
           from: priceFrom,
@@ -144,6 +147,14 @@ export class EnergyOptimizer {
             });
         })),
       ]);
+    const prices = pricesWithHistory.filter((price) => Date.parse(price.endAt) > reportPricesFrom);
+    const flexibleLoads = await measureFlexibleLoads({
+      reader,
+      sensors,
+      prices: pricesWithHistory,
+      now: now.getTime(),
+      ...(signal ? { signal } : {}),
+    });
     const futurePrices = prices.filter((price) => Number.isFinite(price.effectivePriceCentsPerKwh)
       && Number.isFinite(Date.parse(price.startAt)) && Number.isFinite(Date.parse(price.endAt))
       && Date.parse(price.endAt) > Math.max(now.getTime(), Date.parse(price.startAt)))
@@ -174,10 +185,16 @@ export class EnergyOptimizer {
         explanation: "Flexible, non-critical loads may be cheaper to run during the current price interval.", estimatedSavingsEur: null });
     }
     if (baseline !== null && baseline >= 150) {
-      const potentialKwh = baseline / 1_000 * 24 * 0.2;
+      // Nothing measured says how much of the baseload could go, so no saving is claimed.
       insights.push({ id: "baseload-high", severity: "warning", title: "Continuous baseload looks material",
         explanation: "The lower edge of recent power use suggests equipment may be drawing power continuously. Inspect before switching anything off.",
-        estimatedSavingsEur: averagePrice === null ? null : Number((potentialKwh * averagePrice / 100).toFixed(2)) });
+        estimatedSavingsEur: null });
+    }
+    for (const load of flexibleLoads) {
+      if (!load.cheapestWindow || load.estimatedDailySavingsEur === null || load.estimatedDailySavingsEur < 0.01) continue;
+      insights.push({ id: `flexible-load:${load.sensorId}`, severity: "opportunity", title: `${load.sensorName} could run in cheaper hours`,
+        explanation: `Its measured runs in the last week paid ${load.paidCentsPerKwh.toFixed(2)} c/kWh on average; the cheapest ${load.typicalRunMinutes}-minute window in the next 24 hours averages ${load.cheapestWindow.averagePriceCentsPerKwh.toFixed(2)} c/kWh. The saving is per day if its runs can move.`,
+        estimatedSavingsEur: load.estimatedDailySavingsEur });
     }
     if (peak !== null && baseline !== null && peak > Math.max(1_000, baseline * 5)) {
       insights.push({ id: "peak-load", severity: "info", title: "Recent peak use is much higher than baseload",
@@ -201,11 +218,12 @@ export class EnergyOptimizer {
       baselinePowerWatts: baseline === null ? null : Number(baseline.toFixed(1)),
       peakPowerWatts: peak === null ? null : Number(peak.toFixed(1)),
       insights,
+      flexibleLoads,
       limitations: [
         "Recommendations are advisory and never control equipment.",
         "Price windows use available property price data; taxes and grid tariffs may not be represented.",
         "Daily consumption and cost use matching historical usage and price intervals.",
-        "Savings estimates require representative energy and power measurements.",
+        "Savings come from each device's measured runs over the last week and the price spread to the cheapest upcoming window of the same length; they assume the runs can move.",
         "Power estimates use simultaneous readings from selected Home meters; stale, missing and submeter-only intervals are excluded.",
       ],
     };

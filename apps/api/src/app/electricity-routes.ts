@@ -19,6 +19,11 @@ import {
 } from "./support/index.js";
 import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
 import { registerElectricityTariffRoutes } from "./electricity-tariff-routes.js";
+import { LruTtlCache } from "../cache.js";
+import { EnergyProjectionService } from "../electricity/projection-service.js";
+import { outdoorLocationKey } from "../db.js";
+import type { HomeEnergyProjection } from "@climate-twin/contracts";
+import { IncompleteTelemetryHistoryError } from "../timeseries/read-facade.js";
 
 export type ElectricityRouteContext = Pick<
   ApiRouteRegistrationContext,
@@ -41,6 +46,12 @@ const DEFAULT_ENERGY_RANGE_MS = 30 * 86_400_000;
 export function registerElectricityRoutes(context: ElectricityRouteContext): () => void {
   const energySummaryCache = context.energySummaries;
   const removeStats = context.analyticsWorkLimiter.registerCache("energy-summary", () => energySummaryCache.stats());
+  const projections = new EnergyProjectionService(context.database, context.telemetryReader, energySummaryCache);
+  // A projection changes with new days, weather forecasts, tariffs and imported history, not with each reading.
+  const projectionCache = new LruTtlCache<HomeEnergyProjection | null>({
+    maxEntries: 64, maxBytes: 2 * 1024 * 1024, defaultTtlMs: 15 * 60_000,
+  });
+  const removeProjectionStats = context.analyticsWorkLimiter.registerCache("energy-projection", () => projectionCache.stats());
 
   const visibleProperty = (propertyId: string, response: Parameters<ElectricityRouteContext["visibility"]>[0]) => {
     const property = context.database.getProperty(propertyId);
@@ -239,5 +250,39 @@ export function registerElectricityRoutes(context: ElectricityRouteContext): () 
       response.off("close", abortOnClose);
     }
   });
-  return () => { removeStats(); energySummaryCache.clear(); };
+  context.app.get(`${context.prefix}/houses/:id/energy-projection`, async (request, response) => {
+    const houseId = request.params.id as string;
+    const house = visibleHouse(houseId, response);
+    const sensors = visibleEnergySensors(houseId, response);
+    const now = Date.now();
+    const key = JSON.stringify([
+      "energy-projection-v1", houseId, Math.floor(now / 3_600_000),
+      sensors.map((sensor) => [sensor.id, sensor.energyMeterRole ?? "standalone"]),
+      context.database.getPropertyElectricityTariff(house.propertyId)?.revision ?? 0,
+      context.database.telemetryHistoryRevision(),
+      house.location ? context.database.getWeatherSnapshot(house.id, outdoorLocationKey(house.location))?.weather?.fetchedAt ?? null : null,
+    ]);
+    const abortController = new AbortController();
+    const abortOnClose = () => abortController.abort();
+    response.once("close", abortOnClose);
+    const startedAt = performance.now();
+    try {
+      const projection = await projectionCache.getOrLoad(key, (signal) => context.analyticsWorkLimiter.run(
+        "energy-projection",
+        () => projections.project(house, sensors, signal),
+        signal,
+      ), { serveStale: false, signal: abortController.signal });
+      response.setHeader("cache-control", "private, no-store");
+      response.setHeader("server-timing", `energy-projection;dur=${(performance.now() - startedAt).toFixed(1)}`);
+      response.json({ projection });
+    } catch (error) {
+      if (error instanceof IncompleteTelemetryHistoryError) {
+        throw new HttpError(503, "TELEMETRY_ARCHIVE_REQUIRED", "Complete telemetry history is temporarily unavailable");
+      }
+      throw error;
+    } finally {
+      response.off("close", abortOnClose);
+    }
+  });
+  return () => { removeStats(); removeProjectionStats(); projectionCache.clear(); energySummaryCache.clear(); };
 }

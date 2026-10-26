@@ -15,4 +15,7 @@ export const fiAnalyticsQuality = {
   "performance.energy.regression": "Peruskuorma {base} kWh vuorokaudessa ja lisäksi {slope} kWh lämmitystarveastetuntia kohden alle {temperature} °C:n (90 %:n väli {low}–{high}).",
   "performance.energy.comparison": "Lämmityksen kulmakerroin muuttui {change} % jakson puoliskojen välillä (90 %:n väli {low} %…{high} %).",
   "performance.exposure.excluded": "Mukavuusaltistuksesta jätettiin pois: {rooms}.",
+  "energy.outlook.methodRegression": "Peruskuorma ja lämmitys sääennusteen ja sen jälkeen viimeaikaisen sään mukaan. {origins} aiemmalla 30 päivän jaksolla testattuna virhe oli keskimäärin {error} %, kun viimeisten 30 päivän toistamisella se oli {baseline} %.",
+  "energy.outlook.methodRecent": "Toistaa viimeiset 30 päivää, mikä osui säämallia paremmin {origins} aiemmalla 30 päivän jaksolla testattuna (keskivirhe {error} %).",
+  "energy.outlook.methodUntested": "Toistaa viimeiset 30 päivää. Säämallin testaamiseen tarvitaan pidempi historia, joten vaihteluväli on leveä oletus.",
 } as const;

@@ -23,6 +23,7 @@ import { useNow } from "../useNow";
 import type { SeriesLoadState } from "../useClimateData";
 import { ElectricityHistory, ELECTRICITY_METRICS, type ElectricityMetric } from "./ElectricityHistory";
 import { EnergyPlanningPanel } from "./EnergyPlanningPanel";
+import { useHomeEnergyProjectionQuery } from "../data/energy/homeEnergyProjectionQuery";
 import { ElectricityBillCheckPanel } from "./ElectricityBillCheckPanel";
 import { ElectricityTariffPanel } from "./ElectricityTariffPanel";
 import { energySummaryState } from "./energySummaryState";
@@ -172,6 +173,7 @@ export function EnergyPage({ state, dataMode = "live", house = null, propertyId:
   const rollingSummaryQuery = useHomeEnergySummaryQuery(
     house?.id ?? "", "month", 30 * 24 * 3_600_000, summariesEnabled, 5 * 60_000,
   );
+  const projectionQuery = useHomeEnergyProjectionQuery(house?.id ?? "", summariesEnabled);
   const homePriceQuery = useHouseElectricityPriceQuery(house?.id ?? "", Boolean(house));
   const homePrice = house ? currentElectricityPrice(homePriceQuery.data, now) : null;
   const propertyPriceQuery = usePropertyElectricityQuery(propertyId, !house && !priceBusy);
@@ -450,9 +452,8 @@ export function EnergyPage({ state, dataMode = "live", house = null, propertyId:
 
       <EnergyPlanningPanel
         sensors={electricitySensors}
-        recentSummary={dailySummary}
+        projection={projectionQuery.data ?? null}
         rollingSummary={rollingSummary}
-        currentPriceEurPerKwh={effectivePrice}
       />
 
       <ElectricityHistory
