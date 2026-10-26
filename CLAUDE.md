@@ -80,14 +80,66 @@ checks only run on macOS.
   `confirmAction(` call sites; `window.confirm` is banned.
 - **Source size** — 600 lines advisory, 1200 hard ceiling (`npm run check:file-size`).
 - **Architecture boundaries** — `npm run check:architecture` (prototype
-  registries, workspace dependency direction, legacy numbered-module budget,
-  feature-owned analytics/electricity routes, and no API-local median,
-  percentile, time-weighted mean, local-midnight or kWh-conversion code
-  outside `@climate-twin/analytics-kernel`).
+  registries, workspace dependency direction, no new numbered modules,
+  feature-owned analytics/electricity routes, no hand-copied shared types, and
+  no API-local median, percentile, time-weighted mean, local-midnight or
+  kWh-conversion code outside `@climate-twin/analytics-kernel`).
+- **Unused-symbol ratchet** — `npm run check:unused` (last step of
+  `npm run typecheck`); see "Code quality".
 - **Kernel parity** — `apps/api/tests/analytics-kernel-parity.test.ts` runs
   seeded series through the archive rollup SQL (PGlite) and the kernel-backed
   raw path; every number must agree within 1e-9. Changing either side's
   semantics means changing both.
+
+## Code quality
+
+These rules bind every change, by a person or an agent. Gates named here run in
+`npm run typecheck`, so `verify:local` and `ci:local` enforce them. In Claude
+Code, the Stop hook in `.claude/settings.json` runs
+`npm run verify:local -- --fast` whenever a turn changed the worktree (edits or
+commits) and keeps the turn from ending while it fails. Other agents run that
+command themselves before reporting work as done.
+
+1. **Split modules by domain, never by line count.** Name a module after what it
+   owns. No new `part-NN`, `NN-name` or `name.part-NN` file anywhere: code,
+   styles or tests. Gate: `check:architecture` fails on any numbered module not
+   listed in `scripts/baselines/numbered-modules.json`. That list may only
+   shrink; when you rename a legacy module after its domain, delete its line.
+2. **Import only what the file uses.** New code has no unused imports, locals or
+   parameters. A parameter that must stay for a signature gets a leading `_`.
+   Gate: `check:unused` runs `tsc --noUnusedLocals --noUnusedParameters` and
+   fails when a file's count rises above `scripts/baselines/unused-symbols.json`
+   or a file outside it has any. After cleaning files, lock in the gain with
+   `npm run check:unused -- --update`, which only ever lowers counts. The check
+   also fails if the committed baseline allows more than it does on `origin/main`.
+3. **Reuse existing helpers before writing new ones.** Search `packages/` and the
+   owning `apps/*/src` domain (`rg -n "function <name>"`) before adding a
+   helper; a second implementation of an existing one is a review blocker.
+   Statistics, time-weighted means, counter/kWh integration and local-calendar
+   helpers come from `@climate-twin/analytics-kernel`. Gate: `check:architecture`
+   for the kernel-owned helpers; review for the rest.
+4. **One canonical response shape per endpoint.** A new endpoint documents one
+   success body in OpenAPI and always returns it. Clients read that shape
+   directly: no `T | { key: T }` union unwrapped with `"key" in response`, and no
+   multi-key list fallbacks such as `body.items ?? body.sensors ?? body`. Gate:
+   OpenAPI parity requires the single documented body; the client side is
+   review-enforced.
+5. **Validate API responses at the boundary.** The `apps/web/src/api` function
+   that fetches a new endpoint checks the body's shape with a `parse…`/`is…`
+   guard and throws on a mismatch. Share the guard from
+   `@climate-twin/contracts` when the API needs it too. Hooks and components
+   receive typed data and never cast a response with `as`. Gate: none yet;
+   review-enforced.
+6. **Use an options object instead of more than three positional parameters.**
+   Write `createReport(store, { houseId, from, to, signal })`, not
+   `createReport(store, houseId, from, to, signal)`. Gate: none yet;
+   review-enforced.
+7. **Put shared types in `@climate-twin/contracts`.** A type or constant that two
+   workspaces use is defined once in `packages/contracts/src` and imported,
+   never hand-copied with a "keep identical" or "keep in sync" comment. Rebuild
+   contracts afterwards (see above). Gate: `check:architecture` rejects such
+   comments in `apps/` and `packages/` and enforces the workspace dependency
+   direction.
 
 ## Versioning and pull requests
 

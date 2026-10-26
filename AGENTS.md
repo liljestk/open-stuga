@@ -4,6 +4,14 @@ Read `CLAUDE.md` and `DESIGN.md` before changing the product. For release work,
 read `docs/release-cycle.md`; for signed Raspberry Pi host updates, also read
 `docs/host-update-release.md`.
 
+Every code change follows the "Code quality" rules in `CLAUDE.md`: split by
+domain (no new numbered modules), import only what a file uses, reuse helpers,
+one canonical response shape, validated API responses, options objects past
+three parameters, and shared types in `@climate-twin/contracts`. Run
+`npm run verify:local -- --fast` and fix every failure before reporting work as
+done. Claude Code enforces this with a Stop hook; other agents must run it
+themselves.
+
 Any change that affects a rendered screen must pass the blocking visual-
 acceptance contract in `DESIGN.md`. Inspect the finished UI with representative
 non-private data, exercise the primary workflow, and record the required

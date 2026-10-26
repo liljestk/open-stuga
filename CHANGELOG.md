@@ -2,6 +2,16 @@
 
 All notable Stugu releases are recorded here.
 
+## 0.42.7
+
+- Add code-quality gates that fail the build instead of relying on written advice:
+  - `npm run check:unused` counts unused imports, locals and parameters in every file. A file's count may fall but never rise, and a new file may have none. The baseline (22,272 today, mostly import headers copied by old file splits) is committed under `scripts/baselines/` and may only shrink. `npm run typecheck` runs the check as its last step, so `verify:local` and `ci:local` enforce it.
+  - The architecture check now rejects a new numbered module (`part-NN`, `NN-name`, `name.part-NN`) anywhere in code, styles or tests, not only in the analytics and web data folders. The 336 existing ones are listed in a baseline that may only shrink.
+  - The architecture check also rejects "keep identical" and "keep in sync" comments, which mark a type copied by hand instead of shared through `@climate-twin/contracts`.
+- Claude Code sessions in this repository now run `npm run verify:local -- --fast` when a turn changed files or made a commit, and the turn cannot end while it fails. Turns that changed nothing skip the check. Set `STUGU_STOP_GATE=off` in Claude Code's environment to turn it off.
+- `CLAUDE.md` has a new "Code quality" section with seven rules, each naming the check that enforces it. `AGENTS.md` points other agents to it.
+- Upgrade impact: none. Only development tooling and documentation change; the API, web app, database, configuration, Compose and host trust are unchanged. The first `npm run typecheck` after updating takes about a minute longer while the unused-symbol check fills its cache; later runs add a few seconds.
+
 ## 0.42.4
 
 - Tidy the web app's API client without changing what it does. Each client module now imports only what it uses, which removes 887 unused imports left over from when the client was split into several files.
