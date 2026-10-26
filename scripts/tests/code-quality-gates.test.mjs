@@ -6,7 +6,7 @@ import { dirname, join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { feedback, parsePayload, turnChanged } from "../agent-stop-gate.mjs";
+import { feedback, npmInvocation, parsePayload, turnChanged } from "../agent-stop-gate.mjs";
 import {
   BASELINE_PATH,
   baselineDocument,
@@ -250,6 +250,15 @@ test("the stop gate verifies only turns that changed the worktree", () => {
   assert.equal(turnChanged({ root: "/repo", worktreeSha256: "b".repeat(64) }, snapshot, "/repo"), false);
   assert.equal(turnChanged({ root: "/other", worktreeSha256: "b".repeat(64) }, snapshot, "/repo"), true);
   assert.equal(turnChanged(null, { ...snapshot, dirty: false }, "/repo"), false);
+  const npmCli = join(scripts, "check-unused-symbols.mjs");
+  assert.deepEqual(npmInvocation(["run", "x"], { env: { npm_execpath: npmCli }, platform: "win32", execPath: "node.exe" }), {
+    command: "node.exe",
+    args: [npmCli, "run", "x"],
+  });
+  assert.deepEqual(npmInvocation(["run", "x"], { env: {}, platform: "linux", execPath: "/usr/bin/node" }), {
+    command: "npm",
+    args: ["run", "x"],
+  });
   assert.deepEqual(parsePayload("not json"), {});
   assert.deepEqual(parsePayload("{\"session_id\":\"s\"}"), { session_id: "s" });
 
@@ -263,7 +272,9 @@ test("the stop gate verifies only turns that changed the worktree", () => {
 test("the stop gate blocks with exit 2 while fast verification fails", (t) => {
   const root = temporaryDirectory(t, "stugu-stop-gate-repo-");
   const state = temporaryDirectory(t, "stugu-stop-gate-state-");
+  write(root, "package.json", JSON.stringify({ private: true, scripts: { "verify:local": "node scripts/verify-local.mjs" } }));
   write(root, "scripts/verify-local.mjs", [
+    "if (!process.env.npm_execpath) throw new Error(\"run through npm\");",
     "import { appendFileSync, existsSync, writeFileSync } from \"node:fs\";",
     "appendFileSync(process.env.STOP_GATE_RUNS, \"run\\n\");",
     "if (existsSync(\"broken.ts\")) {",

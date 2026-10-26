@@ -45,6 +45,15 @@ function fingerprintPath(root, sessionId, env) {
   return join(stateDirectory(root, env), "agent-stop-gate", `${name}.json`);
 }
 
+// verify:local must run under npm (it starts npm itself through npm_execpath).
+// Claude Code spawns hooks outside npm, and on Windows `npm` is a .cmd shim
+// that cannot be spawned without a shell, so call npm's CLI script with node.
+export function npmInvocation(args, { env = process.env, platform = process.platform, execPath = process.execPath } = {}) {
+  const cli = env.npm_execpath
+    || (platform === "win32" ? join(dirname(execPath), "node_modules", "npm", "bin", "npm-cli.js") : "");
+  return cli && existsSync(cli) ? { command: execPath, args: [cli, ...args] } : { command: "npm", args };
+}
+
 // Without a fingerprint from the prompt (the hook arrived mid-session), any
 // uncommitted change counts as this turn's work.
 export function turnChanged(recorded, snapshot, root) {
@@ -93,15 +102,21 @@ function check(payload, env, stderr) {
   }
   if (!turnChanged(recorded, repositorySnapshot(root), root)) return 0;
 
-  const result = spawnSync(process.execPath, [join(root, "scripts", "verify-local.mjs"), "--fast"], {
+  const npm = npmInvocation(["run", "--silent", "verify:local", "--", "--fast"], { env });
+  const result = spawnSync(npm.command, npm.args, {
     cwd: root,
     env,
     encoding: "utf8",
     maxBuffer: 64 * 1024 * 1024,
     windowsHide: true,
   });
+  if (result.error) {
+    // The agent cannot repair a missing npm, so report it without blocking.
+    stderr.write(`Could not start npm run verify:local -- --fast: ${result.error.message}\n`);
+    return 1;
+  }
   if (result.status === 0) return 0;
-  const output = `${result.stdout ?? ""}${result.stderr ?? ""}${result.error ? `\n${result.error.message}` : ""}`;
+  const output = `${result.stdout ?? ""}${result.stderr ?? ""}`;
   let logText = "";
   const logPath = /^Log: (.+)$/mu.exec(output)?.[1]?.trim();
   if (logPath && existsSync(logPath)) logText = readFileSync(logPath, "utf8");
