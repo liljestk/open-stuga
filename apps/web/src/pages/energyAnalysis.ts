@@ -6,13 +6,13 @@ import type {
   MeasurementSample,
   Sensor,
 } from "@climate-twin/contracts";
+import { POWER_HOLD_MS, counterIncrement, wattMillisecondsToKwh } from "@climate-twin/analytics-kernel";
 import type { ClimateState } from "../domain";
 import type { SeriesPoint } from "../components/SensorAnalyticsPlot";
 import { compareCodeUnits } from "../textOrder";
 
 const HOUR_MS = 3_600_000;
 const DAY_MS = 24 * HOUR_MS;
-const POWER_HOLD_MS = 15 * 60_000;
 const COVERAGE_EDGE_TOLERANCE_MS = 5 * 60_000;
 const MIN_HISTORICAL_PRICE_COVERAGE_PERCENT = 80;
 
@@ -115,7 +115,8 @@ function counterUsageSeries(samples: readonly MeasurementSample[], from: number,
     const previousAt = Date.parse(previous.timestamp);
     const currentAt = Date.parse(current.timestamp);
     if (currentAt <= from || previousAt >= to || currentAt <= previousAt) continue;
-    const fullDelta = current.value >= previous.value ? current.value - previous.value : current.value;
+    // A decrease is a meter restart: the energy counted since it still counts.
+    const fullDelta = counterIncrement(previous.value, current.value).increment;
     const intervalStart = Math.max(from, previousAt);
     const intervalEnd = Math.min(to, currentAt);
     if (intervalEnd <= intervalStart) continue;
@@ -137,7 +138,7 @@ function integratedPowerSeries(samples: readonly MeasurementSample[], from: numb
     const intervalStart = Math.max(from, sampleAt);
     const intervalEnd = Math.min(to, nextAt, sampleAt + POWER_HOLD_MS);
     if (intervalEnd <= intervalStart) continue;
-    cumulative += sample.value * (intervalEnd - intervalStart) / HOUR_MS / 1_000;
+    cumulative += wattMillisecondsToKwh(sample.value, intervalEnd - intervalStart);
     points.push({ timestamp: intervalEnd, value: cumulative });
   }
   return points.length > 1 ? points : [];

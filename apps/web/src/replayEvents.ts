@@ -1,3 +1,4 @@
+import { median as kernelMedian } from "@climate-twin/analytics-kernel";
 import type { MeasurementSample } from "@climate-twin/contracts";
 import type { MeasurementHistory } from "./measurements";
 
@@ -69,13 +70,8 @@ function compareText(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
 }
 
-function median(values: readonly number[]): number {
-  const ordered = [...values].sort((left, right) => left - right);
-  const middle = Math.floor(ordered.length / 2);
-  return ordered.length % 2
-    ? ordered[middle]!
-    : (ordered[middle - 1]! + ordered[middle]!) / 2;
-}
+/** Replay series are never empty where a median is taken. */
+const median = (values: readonly number[]): number => kernelMedian(values) ?? 0;
 
 function normalizeSeries(
   samples: readonly MeasurementSample[],

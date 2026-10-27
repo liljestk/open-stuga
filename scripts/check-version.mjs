@@ -91,7 +91,7 @@ for (const path of workspaceManifests) {
     }
   }
 }
-for (const dependency of ["@climate-twin/contracts", "@climate-twin/spatial-layers", "@climate-twin/stuguby-protocol"]) {
+for (const dependency of ["@climate-twin/analytics-kernel", "@climate-twin/contracts", "@climate-twin/spatial-layers", "@climate-twin/stuguby-protocol"]) {
   const version = lock.packages?.["apps/web"]?.dependencies?.[dependency];
   if (version !== expected) mismatches.push(`package-lock.json apps/web ${dependency}: ${version ?? "missing"}`);
 }
