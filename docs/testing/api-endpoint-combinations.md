@@ -1,20 +1,20 @@
 # API endpoint combinations for testing
 
-This is a testing list for Stugu 0.42.8: **342 local API operations** (316 v1 and 26 v2), plus **one optional bug-report relay operation**. Each operation is a method and path, so GET and POST on the same path are separate entries.
+This is a testing list for Stugu 0.43.0: **348 local API operations** (322 v1 and 26 v2), plus **one optional bug-report relay operation**. Each operation is a method and path, so GET and POST on the same path are separate entries.
 
-The files cover endpoint inputs, applicable account/resource/runtime states, and multi-endpoint workflows. **All 117,649 ordered two-operation pairs are listed**, including repeats, reverse order, both versions and the relay. Arbitrary payload values, subsets of all endpoints and sequences of unrestricted length cannot be fully listed. These are proposed tests, not executed results.
+The files cover endpoint inputs, applicable account/resource/runtime states, and multi-endpoint workflows. **All 121,801 ordered two-operation pairs are listed**, including repeats, reverse order, both versions and the relay. Arbitrary payload values, subsets of all endpoints and sequences of unrestricted length cannot be fully listed. These are proposed tests, not executed results.
 
 ## Testing files
 
 | File | Contents |
 | --- | --- |
 | [api-endpoint-matrix.json](api-endpoint-matrix.json) | Every operation, resolved parameters, body schemas, response contracts, security alternatives, compact input factors and common profiles |
-| [api-input-cases.ndjson](api-input-cases.ndjson) | 18,287 individual schema, boundary, omission, null, enum, nested branch and invalid-input cases |
-| [api-query-combinations.ndjson](api-query-combinations.ndjson) | 1,399 combinations of query presence, enums and booleans; other values use synthetic fixtures |
-| [api-endpoint-pairs.ndjson](api-endpoint-pairs.ndjson) | 117,649 rows of [first operation key, second operation key] |
+| [api-input-cases.ndjson](api-input-cases.ndjson) | 18,815 individual schema, boundary, omission, null, enum, nested branch and invalid-input cases |
+| [api-query-combinations.ndjson](api-query-combinations.ndjson) | 1,405 combinations of query presence, enums and booleans; other values use synthetic fixtures |
+| [api-endpoint-pairs.ndjson](api-endpoint-pairs.ndjson) | 121,801 rows of [first operation key, second operation key] |
 | [api-workflows.json](api-workflows.json) | 40 ordered workflows with prerequisites, assertions and negative cases |
 
-Operation keys include the version because operationId alone is not unique across documents. Look up each key in the matrix to find its method, path and contract. Relay paths use their separate configured service origin. Local-only pair coverage is 116,964; filtering pairs to first key less than second key gives 58,653 distinct unordered pairs across all services.
+Operation keys include the version because operationId alone is not unique across documents. Look up each key in the matrix to find its method, path and contract. Relay paths use their separate configured service origin. Local-only pair coverage is 121,104; filtering pairs to first key less than second key gives 60,726 distinct unordered pairs across all services.
 
 ## How to use the combinations
 
@@ -419,6 +419,12 @@ Parameter markers: * required, ? optional. The JSON expands references and lists
 | `v1:getBugReportRelay` | GET `/api/v1/bug-reports/relay` | — | — | localSession | 200, 401, 403 |
 | `v1:configureBugReportRelay` | PUT `/api/v1/bug-reports/relay` | — | inline schema | localSession + csrfToken | 200, 400, 401, 403, 409 |
 | `v1:clearBugReportRelay` | DELETE `/api/v1/bug-reports/relay` | — | — | localSession + csrfToken | 200, 401, 403, 409 |
+| `v1:getPropertyElectricityTariff` | GET `/api/v1/properties/{id}/electricity/tariff` | path:id* | — | localSession | 200, 404 |
+| `v1:savePropertyElectricityTariff` | PUT `/api/v1/properties/{id}/electricity/tariff` | path:id* | ElectricityTariffInput | localSession | 200, 400, 404, 409 |
+| `v1:listElectricityInvoices` | GET `/api/v1/properties/{id}/electricity/invoices` | path:id* | — | localSession | 200, 403, 404 |
+| `v1:createElectricityInvoice` | POST `/api/v1/properties/{id}/electricity/invoices` | path:id* | ElectricityInvoiceInput | localSession | 201, 400, 404, 409 |
+| `v1:deleteElectricityInvoice` | DELETE `/api/v1/properties/{id}/electricity/invoices/{invoiceId}` | path:id*, path:invoiceId* | — | localSession | 200, 404 |
+| `v1:reconcileElectricityInvoice` | GET `/api/v1/properties/{id}/electricity/invoices/{invoiceId}/reconciliation` | path:id*, path:invoiceId* | — | localSession | 200, 403, 404, 409, 503 |
 | `v2:openApiDocument` | GET `/api/v2/openapi.json` | — | — | public | 200 |
 | `v2:listMeasurementDefinitions` | GET `/api/v2/measurement-definitions` | query:includeDisabled? | — | localSession | 200 |
 | `v2:createMeasurementDefinition` | POST `/api/v2/measurement-definitions` | — | MeasurementDefinitionInput | localSession | 201, 409 |

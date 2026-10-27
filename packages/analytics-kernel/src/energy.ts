@@ -24,6 +24,24 @@ export function averageWattsToKwh(watts: number, hours: number): number {
   return watts * hours / 1_000;
 }
 
+/**
+ * Splits `amount`, spread evenly over [startMs, endMs), into whole UTC hours
+ * by overlap. An empty, reversed or non-finite interval adds nothing.
+ */
+export function spreadAcrossHours(
+  startMs: number,
+  endMs: number,
+  amount: number,
+  add: (hourStart: number, share: number) => void,
+): void {
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || !Number.isFinite(amount) || !(endMs > startMs)) return;
+  const duration = endMs - startMs;
+  for (let hour = Math.floor(startMs / MILLISECONDS_PER_HOUR) * MILLISECONDS_PER_HOUR; hour < endMs; hour += MILLISECONDS_PER_HOUR) {
+    const overlap = Math.min(hour + MILLISECONDS_PER_HOUR, endMs) - Math.max(hour, startMs);
+    if (overlap > 0) add(hour, amount * overlap / duration);
+  }
+}
+
 export type ConsumptionSource = "counter" | "power";
 
 /**

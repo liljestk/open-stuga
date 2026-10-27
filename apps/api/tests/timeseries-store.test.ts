@@ -761,6 +761,7 @@ describe("TimeseriesStore", () => {
         priced_duration_ms: 3_300_000,
         coverage_from: new Date(FROM),
         coverage_until: new Date(TO),
+        hourly: [[Date.parse(FROM), 4.5, 4.25, 91]],
       }])
       : queryResult());
     const store = storeFor(pool);
@@ -774,7 +775,8 @@ describe("TimeseriesStore", () => {
       deltaCount: 3,
       consumptionKwh: 4.5,
       pricedConsumptionKwh: 4.25,
-      costEur: 0.91,
+      spotCostEur: 0.91,
+      hourly: [{ hourStart: Date.parse(FROM), kwh: 4.5, spotPricedKwh: 4.25, spotCostCents: 91 }],
       totalDurationMs: 3_600_000,
       pricedDurationMs: 3_300_000,
       maximumIntervalDurationMs: 0,

@@ -281,7 +281,7 @@ export function measurementCostRollupSql(schema: string, metric: CostMetric): st
       SELECT unit.*,
         date_bin(INTERVAL '1 day', unit.unit_start,
           TIMESTAMPTZ '1970-01-01 00:00:00+00') AS day_start,
-        price.raw_price_cents_per_kwh + price.margin_cents_per_kwh AS price_cents_per_kwh
+        price.raw_price_cents_per_kwh AS price_cents_per_kwh
       FROM selected_units unit
       LEFT JOIN price_hour_slices price
         ON price.hour_start = date_bin(INTERVAL '1 hour', unit.unit_start,
@@ -403,7 +403,7 @@ export function measurementCostRollupSql(schema: string, metric: CostMetric): st
         INTERVAL '1 hour'
       ) AS hour(hour_start)
     ), segment_allocations AS (
-      SELECT segment.kwh_per_ms * EXTRACT(EPOCH FROM (
+      SELECT segment.hour_start, segment.kwh_per_ms * EXTRACT(EPOCH FROM (
           LEAST(segment.window_end, price.slice_end)
           - GREATEST(segment.window_start, price.slice_start)
         )) * 1000.0 AS allocated_kwh,
@@ -411,7 +411,7 @@ export function measurementCostRollupSql(schema: string, metric: CostMetric): st
           LEAST(segment.window_end, price.slice_end)
           - GREATEST(segment.window_start, price.slice_start)
         )) * 1000.0 AS overlap_ms,
-        price.raw_price_cents_per_kwh + price.margin_cents_per_kwh AS price_cents_per_kwh
+        price.raw_price_cents_per_kwh AS price_cents_per_kwh
       FROM segment_hours segment
       JOIN price_hour_slices price USING (hour_start)
       WHERE price.slice_start < segment.window_end AND price.slice_end > segment.window_start
@@ -428,6 +428,27 @@ export function measurementCostRollupSql(schema: string, metric: CostMetric): st
         COALESCE(sum(allocated_kwh * price_cents_per_kwh / 100.0), 0)::DOUBLE PRECISION AS cost_eur,
         COALESCE(sum(overlap_ms), 0)::DOUBLE PRECISION AS priced_duration_ms
       FROM segment_allocations WHERE overlap_ms > 0
+    ), hourly_parts AS (
+      -- Usage and raw-spot-priced usage per UTC hour; contract terms are
+      -- applied per hour by the caller. Every unit and allocation lies inside
+      -- one hour, and segments are already split at hour edges.
+      SELECT date_bin(INTERVAL '1 hour', bucket_start, TIMESTAMPTZ '1970-01-01 00:00:00+00') AS hour_start,
+        ${internalConsumption} AS kwh,
+        CASE WHEN price_cents_per_kwh IS NULL THEN 0 ELSE ${internalConsumption} END AS priced_kwh,
+        COALESCE(${internalConsumption} * price_cents_per_kwh, 0) AS spot_cents
+      FROM states state WHERE is_rollup
+      UNION ALL
+      SELECT hour_start, kwh_per_ms * EXTRACT(EPOCH FROM (
+          LEAST(window_end, hour_start + INTERVAL '1 hour') - GREATEST(window_start, hour_start)
+        )) * 1000.0, 0, 0
+      FROM segment_hours
+      UNION ALL
+      SELECT hour_start, 0, allocated_kwh, allocated_kwh * price_cents_per_kwh
+      FROM segment_allocations WHERE overlap_ms > 0
+    ), hourly AS (
+      SELECT hour_start, sum(kwh) AS kwh, sum(priced_kwh) AS priced_kwh, sum(spot_cents) AS spot_cents
+      FROM hourly_parts GROUP BY hour_start
+      HAVING sum(kwh) <> 0 OR sum(priced_kwh) <> 0
     )
     SELECT pending.pending_variants = 0 AS coverage_complete,
       internal.delta_count + segment_totals.delta_count AS delta_count,
@@ -441,6 +462,9 @@ export function measurementCostRollupSql(schema: string, metric: CostMetric): st
       (SELECT min(value) FROM (VALUES (internal.coverage_from), (segment_totals.coverage_from)) AS coverage(value))
         AS coverage_from,
       (SELECT max(value) FROM (VALUES (internal.coverage_until), (segment_totals.coverage_until)) AS coverage(value))
-        AS coverage_until
+        AS coverage_until,
+      (SELECT COALESCE(json_agg(json_build_array(
+          (EXTRACT(EPOCH FROM hour_start) * 1000)::BIGINT, kwh, priced_kwh, spot_cents
+        ) ORDER BY hour_start), '[]'::JSON) FROM hourly) AS hourly
     FROM pending CROSS JOIN internal CROSS JOIN segment_totals CROSS JOIN allocation_totals`;
 }

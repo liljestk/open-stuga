@@ -1,4 +1,5 @@
 import type { HouseLocation, StugubyPropertyLink } from "./building-structure.js";
+import type { ElectricityCostBreakdown } from "./electricity-tariffs.js";
 
 /** A managed parcel or estate that groups buildings and outdoor areas. */
 export interface Property {
@@ -19,7 +20,11 @@ export type ElectricityPriceProvider = "porssisahko" | "custom";
 
 export type ElectricityContractType = "spot" | "fixed" | "other";
 
-/** Property-owned price source and the small set of contract adjustments used for cost estimates. */
+/**
+ * Property-owned price source and contract identity. Since 0.43 the margin,
+ * contract type and monthly fee are a projection of the tariff version in
+ * force today; the dated tariff versions are authoritative for costs.
+ */
 export interface PropertyElectricityConfig {
   propertyId: string;
   provider: ElectricityPriceProvider;
@@ -36,11 +41,24 @@ export interface PropertyElectricityConfig {
   updatedAt: string;
 }
 
+/** Margin, contract type and monthly fee, when sent, update the tariff version in force today. */
 export type PropertyElectricityConfigInput = Pick<PropertyElectricityConfig,
-  "provider" | "endpointUrl" | "enabled" | "marginCentsPerKwh" | "contractType"
-> & Partial<Pick<PropertyElectricityConfig, "contractName" | "retailer" | "monthlyFeeEur">>;
+  "provider" | "endpointUrl" | "enabled"
+> & Partial<Pick<PropertyElectricityConfig, "marginCentsPerKwh" | "contractType" | "contractName" | "retailer" | "monthlyFeeEur">>;
 
-/** Raw source values are retained in cents/kWh; effective values are derived and never overwrite them. */
+/** Per-kWh parts of an effective price under the tariff version for that interval. */
+export interface ElectricityPriceComponents {
+  /** Null while a fixed contract's energy price is not entered; the total then uses the raw spot price. */
+  energyCentsPerKwh: number | null;
+  networkCentsPerKwh: number | null;
+  taxCentsPerKwh: number | null;
+}
+
+/**
+ * Raw source values are retained in cents/kWh. Effective values are the
+ * variable price per kWh (energy, network and tax) under the tariff version
+ * for that interval, derived at read time and never stored.
+ */
 export interface PropertyElectricityPricePoint {
   propertyId: string;
   startAt: string;
@@ -48,6 +66,7 @@ export interface PropertyElectricityPricePoint {
   rawPriceCentsPerKwh: number;
   effectivePriceCentsPerKwh: number;
   effectivePriceEurPerKwh: number;
+  components?: ElectricityPriceComponents;
   fetchedAt: string;
 }
 
@@ -91,7 +110,7 @@ export interface EnergyOptimizationReport {
  * excluded because those remain Property-administration data.
  */
 export type HomeElectricityPricePoint = Pick<PropertyElectricityPricePoint,
-  "startAt" | "endAt" | "effectivePriceCentsPerKwh" | "effectivePriceEurPerKwh" | "fetchedAt"
+  "startAt" | "endAt" | "effectivePriceCentsPerKwh" | "effectivePriceEurPerKwh" | "components" | "fetchedAt"
 >;
 
 /** The telemetry model used to derive one source's consumption. */
@@ -112,7 +131,9 @@ export interface HomeEnergyCost {
   measurementBasis: HomeEnergyConsumptionBasis;
   consumptionKwh: number | null;
   pricedConsumptionKwh: number | null;
+  /** Energy, network and tax for the priced kWh under the tariff in force; monthly fees are summary-level. */
   costEur: number | null;
+  costBreakdown: ElectricityCostBreakdown | null;
   priceCoveragePercent: number;
   measurementCoverageFrom: string | null;
   measurementCoverageUntil: string | null;
@@ -122,7 +143,7 @@ export interface HomeEnergyCost {
   calculatedAt: string;
 }
 
-export const HOME_ENERGY_SUMMARY_ALGORITHM_VERSION = "home-energy-summary/v2" as const;
+export const HOME_ENERGY_SUMMARY_ALGORITHM_VERSION = "home-energy-summary/v3" as const;
 
 /**
  * Server-authoritative aggregation across every electricity source visible in
@@ -130,14 +151,20 @@ export const HOME_ENERGY_SUMMARY_ALGORITHM_VERSION = "home-energy-summary/v2" as
  * to audit the combined values.
  */
 export interface HomeEnergySummary {
-  schemaVersion: 2;
+  schemaVersion: 3;
   algorithmVersion: typeof HOME_ENERGY_SUMMARY_ALGORITHM_VERSION;
   houseId: string;
   from: string;
   to: string;
   consumptionKwh: number | null;
   pricedConsumptionKwh: number | null;
+  /** Variable cost: energy, network and tax for the priced kWh. */
   costEur: number | null;
+  /** Variable cost plus the monthly fees pro-rated over the range; null while costEur is. */
+  totalCostEur: number | null;
+  costBreakdown: ElectricityCostBreakdown | null;
+  /** Tariff revision the costs were calculated with. */
+  tariffRevision: number;
   priceCoveragePercent: number;
   quality: HomeEnergyCostQuality;
   archiveState: HomeEnergyArchiveState;

@@ -45,6 +45,7 @@ import { DataOperationsService } from "../data-operations.js";
 import { ClimateDatabase, outdoorLocationKey } from "../db.js";
 import { discoverHomeAssistant } from "../discovery.js";
 import { EnergyCostService } from "../energy-cost.js";
+import { databaseTariffContext } from "../electricity/tariff-context.js";
 import { EnergyOptimizer } from "../energy-optimizer.js";
 import { publicElectricityConfiguration } from "../electricity-prices.js";
 import { TelemetryBus } from "../events.js";
@@ -166,6 +167,7 @@ export const energyCost = new EnergyCostService(
   telemetryReader,
   undefined,
   (sensorId) => database.getSensor(sensorId)?.energyMeterRole ?? "standalone",
+  databaseTariffContext(database),
 );
 
 export const energyOptimizer = new EnergyOptimizer(database, telemetryReader);

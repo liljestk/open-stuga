@@ -32,6 +32,7 @@ function contribution(sensorId: string, consumptionKwh: number, from: string, to
     consumptionKwh,
     pricedConsumptionKwh: null,
     costEur: null,
+    costBreakdown: null,
     priceCoveragePercent: 0,
     measurementCoverageFrom: from,
     measurementCoverageUntil: to,
@@ -44,14 +45,16 @@ function contribution(sensorId: string, consumptionKwh: number, from: string, to
 
 function summary(consumptionKwh: number, from: string, to: string, costs: HomeEnergyCost[]): HomeEnergySummary {
   return {
-    schemaVersion: 2,
-    algorithmVersion: "home-energy-summary/v2",
+    schemaVersion: 3,
+    algorithmVersion: "home-energy-summary/v3", tariffRevision: 0,
     houseId: "home",
     from,
     to,
     consumptionKwh,
     pricedConsumptionKwh: null,
     costEur: null,
+    totalCostEur: null,
+    costBreakdown: null,
     priceCoveragePercent: 0,
     quality: "partial",
     archiveState: "local-only",
@@ -196,6 +199,7 @@ describe("energy analysis", () => {
       ...summary(30, from, to, [contribution("plug", 30, from, to)]),
       pricedConsumptionKwh: 1,
       costEur: 1,
+      costBreakdown: null,
       priceCoveragePercent: 3.3,
     };
     const projection = buildEnergyProjection(null, rolling, 0.2)!;

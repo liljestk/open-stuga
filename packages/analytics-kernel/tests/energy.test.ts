@@ -5,6 +5,7 @@ import {
   consumptionBuckets,
   counterDelta,
   counterIncrement,
+  spreadAcrossHours,
   timeWeightedMean,
   wattMillisecondsToKwh,
 } from "../src/index.js";
@@ -27,6 +28,22 @@ describe("unit conversions", () => {
     expect(wattMillisecondsToKwh(1_000, 3_600_000)).toBe(1);
     expect(wattMillisecondsToKwh(2_000, quarter)).toBe(0.5);
     expect(averageWattsToKwh(500, 2)).toBe(1);
+  });
+});
+
+describe("hourly spreading", () => {
+  it("splits an interval across UTC hours by overlap", () => {
+    const hour = 3_600_000;
+    const shares = new Map<number, number>();
+    spreadAcrossHours(hour / 2, 2 * hour + hour / 4, 7, (start, share) => shares.set(start, share));
+    expect([...shares.keys()]).toEqual([0, hour, 2 * hour]);
+    expect(shares.get(0)).toBeCloseTo(7 * 0.5 / 1.75, 12);
+    expect(shares.get(hour)).toBeCloseTo(7 / 1.75, 12);
+    expect(shares.get(2 * hour)).toBeCloseTo(7 * 0.25 / 1.75, 12);
+    let calls = 0;
+    spreadAcrossHours(hour, hour, 1, () => { calls += 1; });
+    spreadAcrossHours(2 * hour, hour, 1, () => { calls += 1; });
+    expect(calls).toBe(0);
   });
 });
 

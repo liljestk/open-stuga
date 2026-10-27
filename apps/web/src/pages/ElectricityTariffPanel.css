@@ -1,0 +1,43 @@
+.electricity-tariff-note {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.electricity-tariff-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.electricity-tariff-table th,
+.electricity-tariff-table td {
+  padding: 0.4rem 0.6rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+.electricity-tariff-actions,
+.electricity-tariff-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.electricity-tariff-toolbar {
+  margin-block: 0.75rem;
+}
+
+.electricity-bill-results {
+  display: grid;
+  gap: 0.75rem;
+  padding: 0;
+  list-style: none;
+}
+
+.electricity-bill-results li {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.electricity-bill-status.reconciled { color: var(--positive); }
+.electricity-bill-status.outside_tolerance { color: var(--red); }

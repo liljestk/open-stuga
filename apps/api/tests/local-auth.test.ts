@@ -341,6 +341,7 @@ describe("local account authentication and authorization", () => {
       endAt: priceEndAt,
       effectivePriceCentsPerKwh: 5.5,
       effectivePriceEurPerKwh: 0.055,
+      components: { energyCentsPerKwh: 5.5, networkCentsPerKwh: null, taxCentsPerKwh: null },
       fetchedAt: priceFetchedAt,
     };
     await owner.agent.get("/api/v1/houses/house-hidden/electricity-price").expect(200, {

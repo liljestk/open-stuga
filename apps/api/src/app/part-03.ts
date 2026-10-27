@@ -158,6 +158,7 @@ import { LruTtlCache } from "../cache.js";
 import { DataOperationsService } from "../data-operations.js";
 import { EnergyOptimizer } from "../energy-optimizer.js";
 import { EnergyCostService } from "../energy-cost.js";
+import { databaseTariffContext } from "../electricity/tariff-context.js";
 import { SetupDoctor } from "../setup-doctor.js";
 import { ScheduledDataExportService } from "../scheduled-data-exports.js";
 import { TimeseriesStore } from "../timeseries/store.js";
@@ -350,6 +351,7 @@ export function configureApiPart03(context: ReturnType<typeof configureApiPart02
       telemetryReader,
       undefined,
       (sensorId) => context.database.getSensor(sensorId)?.energyMeterRole ?? "standalone",
+      databaseTariffContext(context.database),
     );
   const storedTelegramIdentity = context.integrationMetadata.get("telegram", "singleton");
   if (status.value.telegram?.configured && storedTelegramIdentity?.active) {

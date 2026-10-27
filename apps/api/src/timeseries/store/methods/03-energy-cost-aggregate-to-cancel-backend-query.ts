@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { hourlyUsageFromRows } from "../../../electricity/hourly-usage.js";
 import { Pool } from "pg";
 import type { PoolClient, QueryResult, QueryResultRow } from "pg";
 import {
@@ -153,7 +154,8 @@ async function orderedCostAggregate(
     deltaCount: Number(row.delta_count ?? 0),
     consumptionKwh: Number(row.consumption_kwh ?? 0),
     pricedConsumptionKwh: Number(row.priced_consumption_kwh ?? 0),
-    costEur: Number(row.cost_eur ?? 0),
+    spotCostEur: Number(row.cost_eur ?? 0),
+    hourly: hourlyUsageFromRows(row.hourly),
     totalDurationMs: Number(row.total_duration_ms ?? 0),
     pricedDurationMs: Number(row.priced_duration_ms ?? 0),
     maximumIntervalDurationMs: Number(row.maximum_interval_duration_ms ?? 0),

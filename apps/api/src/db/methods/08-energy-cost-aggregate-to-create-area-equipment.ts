@@ -103,6 +103,22 @@ import { outdoorLocationKey } from "../support/06-canonical-observation-patch-ti
 import { registerDatabaseMethods } from "../core.js";
 import { SQLITE_EFFECTIVE_PRICE_END, sqlitePriceOverlapSql } from "../support/electricity-price-overlap.js";
 import { localPowerCostAggregate } from "../local-power-cost.js";
+import { HourlyUsageAccumulator } from "../../electricity/hourly-usage.js";
+
+function sqliteHourlyUsage(usageJson: string | null | undefined, pricedJson: string | null | undefined) {
+  const hours = new HourlyUsageAccumulator();
+  const rows = (json: string | null | undefined): unknown[][] => {
+    const parsed = json ? JSON.parse(json) as unknown : [];
+    return Array.isArray(parsed) ? parsed.filter(Array.isArray) : [];
+  };
+  for (const [startAt, endAt, kwh] of rows(usageJson)) {
+    hours.addUsage(Date.parse(String(startAt)), Date.parse(String(endAt)), Number(kwh));
+  }
+  for (const [startAt, endAt, kwh, rawCents] of rows(pricedJson)) {
+    hours.addSpotPriced(Date.parse(String(startAt)), Date.parse(String(endAt)), Number(kwh), Number(rawCents));
+  }
+  return hours.toArray();
+}
 
 registerDatabaseMethods({
   /**
@@ -150,26 +166,31 @@ registerDatabaseMethods({
           FROM deltas
         ), priced AS (
           SELECT normalized.*,
-            price.raw_price_cents_per_kwh, price.margin_cents_per_kwh,
+            price.raw_price_cents_per_kwh,
+            MAX(normalized.window_start, price.start_at) AS overlap_start,
+            MIN(normalized.current_at, ${SQLITE_EFFECTIVE_PRICE_END}) AS overlap_end,
             (julianday(MIN(normalized.current_at, ${SQLITE_EFFECTIVE_PRICE_END}))
               - julianday(MAX(normalized.window_start, price.start_at))) * 86400000.0 AS overlap_ms
           ${sqlitePriceOverlapSql("energy")}
         ), allocations AS (
-          SELECT overlap_ms,
+          SELECT overlap_ms, overlap_start, overlap_end,
             base_delta_kwh * overlap_ms / full_duration_ms AS allocated_kwh,
-            raw_price_cents_per_kwh + margin_cents_per_kwh AS effective_price_cents_per_kwh
+            raw_price_cents_per_kwh
           FROM priced WHERE overlap_ms > 0
         )
         SELECT
           (SELECT COUNT(*) FROM normalized) AS delta_count,
           (SELECT COALESCE(SUM(window_delta_kwh), 0) FROM normalized) AS consumption_kwh,
           (SELECT COALESCE(SUM(allocated_kwh), 0) FROM allocations) AS priced_consumption_kwh,
-          (SELECT COALESCE(SUM(allocated_kwh * effective_price_cents_per_kwh / 100.0), 0) FROM allocations) AS cost_eur,
+          (SELECT COALESCE(SUM(allocated_kwh * raw_price_cents_per_kwh / 100.0), 0) FROM allocations) AS cost_eur,
           (SELECT COALESCE(SUM(window_duration_ms), 0) FROM normalized) AS total_duration_ms,
           (SELECT COALESCE(SUM(overlap_ms), 0) FROM allocations) AS priced_duration_ms,
           (SELECT COALESCE(MAX(full_duration_ms), 0) FROM normalized) AS maximum_interval_duration_ms,
           (SELECT MIN(window_start) FROM normalized) AS coverage_from,
-          (SELECT MAX(current_at) FROM normalized) AS coverage_until`)
+          (SELECT MAX(current_at) FROM normalized) AS coverage_until,
+          (SELECT json_group_array(json_array(window_start, current_at, window_delta_kwh)) FROM normalized) AS usage_json,
+          (SELECT json_group_array(json_array(overlap_start, overlap_end, allocated_kwh, raw_price_cents_per_kwh))
+            FROM allocations) AS priced_json`)
         .get(query.sensorId, query.from, query.excludeSynthetic ? 1 : 0,
           query.sensorId, query.from, query.to, query.excludeSynthetic ? 1 : 0,
           query.from, query.from, query.from, query.propertyId, query.propertyId) as unknown as EnergyCostAggregateRow;
@@ -177,7 +198,8 @@ registerDatabaseMethods({
         deltaCount: Number(row.delta_count ?? 0),
         consumptionKwh: Number(row.consumption_kwh ?? 0),
         pricedConsumptionKwh: Number(row.priced_consumption_kwh ?? 0),
-        costEur: Number(row.cost_eur ?? 0),
+        spotCostEur: Number(row.cost_eur ?? 0),
+        hourly: sqliteHourlyUsage(row.usage_json, row.priced_json),
         totalDurationMs: Number(row.total_duration_ms ?? 0),
         pricedDurationMs: Number(row.priced_duration_ms ?? 0),
         maximumIntervalDurationMs: Number(row.maximum_interval_duration_ms ?? 0),

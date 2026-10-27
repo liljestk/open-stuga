@@ -28,6 +28,12 @@ export const queryKeys = {
   houseElectricityPrice: (houseId: string) => (
     ["house", houseId, "electricity-price"] as const
   ),
+  electricityTariff: (propertyId: string) => (
+    ["property", propertyId, "electricity", "tariff"] as const
+  ),
+  electricityInvoices: (propertyId: string) => (
+    ["property", propertyId, "electricity", "invoices"] as const
+  ),
   connectedDevices: (houseId: string) => (
     ["connected-devices", houseId] as const
   ),

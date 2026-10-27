@@ -46,11 +46,11 @@ describe("isolated local electricity costs", () => {
       expect(mainRead).not.toHaveBeenCalled();
       expect(result.archiveState).toBe("local-only");
       expect(result.consumptionKwh).toBeCloseTo(24, 5);
-      expect(result.costEur).toBeCloseTo(2.4, 5);
+      expect(result.spotCostEur).toBeCloseTo(2.4, 5);
       mainRead.mockRestore();
       const power = await reader.powerCostAggregate(query);
       expect(power.consumptionKwh).toBeCloseTo(24, 4);
-      expect(power.costEur).toBeCloseTo(2.4, 4);
+      expect(power.spotCostEur).toBeCloseTo(2.4, 4);
     } finally { context.close(); }
   }, 30_000);
 
