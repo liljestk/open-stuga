@@ -1,10 +1,3 @@
-import "./home-assistant/contracts/01-start-to-handle-authenticated.js";
-import "./home-assistant/contracts/02-handle-result-to-abort-pending-snapshot.js";
-import "./home-assistant/contracts/03-start-liveness-watchdog-to-database-data-version.js";
-import "./home-assistant/methods/01-start-to-handle-authenticated.js";
-import "./home-assistant/methods/02-handle-result-to-abort-pending-snapshot.js";
-import "./home-assistant/methods/03-start-liveness-watchdog-to-database-data-version.js";
-
 export type { HomeAssistantMeasurementBinding } from "./home-assistant/support/01-home-assistant-measurement-binding-to-validate-entit.js";
 export type { HomeAssistantMeasurementMapping } from "./home-assistant/support/01-home-assistant-measurement-binding-to-validate-entit.js";
 export type { HomeAssistantEntityMapping } from "./home-assistant/support/01-home-assistant-measurement-binding-to-validate-entit.js";

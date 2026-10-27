@@ -1,10 +1,3 @@
-import "./tapo-history-export/contracts/01-start-to-heartbeat.js";
-import "./tapo-history-export/contracts/02-update-from-worker-to-record-mailbox-failure.js";
-import "./tapo-history-export/contracts/03-poll-mailbox.js";
-import "./tapo-history-export/methods/01-start-to-heartbeat.js";
-import "./tapo-history-export/methods/02-update-from-worker-to-record-mailbox-failure.js";
-import "./tapo-history-export/methods/03-poll-mailbox.js";
-
 export { MAX_TAPO_HISTORY_DATA_ROWS_PER_JOB } from "./tapo-history-export/support/01-max-csv-bytes-to-tapo-csv-schema-signature.js";
 export { TAPO_TARGET_RECLAIM_GRACE_MS } from "./tapo-history-export/support/01-max-csv-bytes-to-tapo-csv-schema-signature.js";
 export { TAPO_CANARY_APPROVAL_MAX_AGE_MS } from "./tapo-history-export/support/01-max-csv-bytes-to-tapo-csv-schema-signature.js";

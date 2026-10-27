@@ -5,12 +5,15 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApi, type ApiRuntime } from "../src/app.js";
 import type { AppConfig } from "../src/config.js";
 import "../src/home-assistant.js";
-import {
-  HomeAssistantConnectionBridgeCore,
-  homeAssistantConnectionBridgeState,
-  type HomeAssistantConnectionBridgeInternals,
-} from "../src/home-assistant/core.js";
-import { HA_HISTORY_CHUNK_MS, type EntityTarget, type HaState } from "../src/home-assistant/support/01-home-assistant-measurement-binding-to-validate-entit.js";
+import { HomeAssistantConnectionBridgeCore } from "../src/home-assistant/core.js";
+import { HA_HISTORY_CHUNK_MS, type EntityTarget, type HaState, type HomeAssistantEntityMapping } from "../src/home-assistant/support/01-home-assistant-measurement-binding-to-validate-entit.js";
+
+/** The bridge's private entry points these unit tests drive directly. */
+interface BridgeInternals {
+  registerEntity(entityId: string, target: EntityTarget): void;
+  applyState(state: HaState, fallbackTimestamp?: string): (EntityTarget & { timestamp: string; value: number }) | null;
+  configuredMappings(): { mappings: HomeAssistantEntityMapping[]; warning: string | null };
+}
 
 function config(directory: string, haUrl: string): AppConfig {
   return {
@@ -48,12 +51,13 @@ describe("Home Assistant bridge unit conversion and recorder history", () => {
       status,
       undefined,
       { fetcher },
-    ) as unknown as HomeAssistantConnectionBridgeInternals;
+    );
+    const internals = bridge as unknown as BridgeInternals;
     const sensorId = runtime.database.listSensors()[0]!.id;
     const bind = (entityId: string, target: Omit<EntityTarget, "sensorId">) => {
-      bridge[homeAssistantConnectionBridgeState].entities.set(entityId, { sensorId, ...target });
+      internals.registerEntity(entityId, { sensorId, ...target });
     };
-    return { bridge, status, sensorId, bind, database: runtime.database };
+    return { bridge, internals, status, sensorId, bind, database: runtime.database, appConfig };
   }
 
   const state = (entityId: string, value: string, unit?: string, lastUpdated = "2026-07-14T09:00:00Z"): HaState => ({
@@ -64,7 +68,7 @@ describe("Home Assistant bridge unit conversion and recorder history", () => {
   });
 
   it("converts live values to canonical units and reports why a state was rejected", () => {
-    const { bridge, status, sensorId, bind } = bridgeFixture();
+    const { internals, status, sensorId, bind } = bridgeFixture();
     bind("sensor.temperature", { metric: "temperature", legacy: true });
     bind("sensor.battery", { metric: "battery", legacy: false });
     bind("sensor.power", { metric: "power", legacy: false, automaticElectricityUnitConversion: true });
@@ -73,15 +77,15 @@ describe("Home Assistant bridge unit conversion and recorder history", () => {
     bind("sensor.co2_scaled", { metric: "co2", legacy: false, expectedUnit: "ppb", scale: 0.001, offset: 1 });
     bind("sensor.unknown", { metric: "not-a-metric", legacy: false });
     const rejected = (entityState: HaState, error: string) => {
-      expect(bridge.applyState(entityState)).toBeNull();
+      expect(internals.applyState(entityState)).toBeNull();
       expect(status.value.homeAssistant.error).toBe(error);
     };
 
-    expect(bridge.applyState(state("sensor.temperature", "70", "°F"))).toMatchObject({ sensorId, metric: "temperature", value: (70 - 32) * 5 / 9 });
-    expect(bridge.applyState(state("sensor.battery", "87", "%"))).toMatchObject({ metric: "battery", value: 87 });
-    expect(bridge.applyState(state("sensor.co2", "850", "ppm"))).toMatchObject({ metric: "co2", value: 850 });
-    expect(bridge.applyState(state("sensor.co2_scaled", "900000", "ppb"))).toMatchObject({ metric: "co2", value: 901 });
-    expect(bridge.applyState(state("sensor.power", "1.5", "kW"))).toMatchObject({ metric: "power", value: 1500 });
+    expect(internals.applyState(state("sensor.temperature", "70", "°F"))).toMatchObject({ sensorId, metric: "temperature", value: (70 - 32) * 5 / 9 });
+    expect(internals.applyState(state("sensor.battery", "87", "%"))).toMatchObject({ metric: "battery", value: 87 });
+    expect(internals.applyState(state("sensor.co2", "850", "ppm"))).toMatchObject({ metric: "co2", value: 850 });
+    expect(internals.applyState(state("sensor.co2_scaled", "900000", "ppb"))).toMatchObject({ metric: "co2", value: 901 });
+    expect(internals.applyState(state("sensor.power", "1.5", "kW"))).toMatchObject({ metric: "power", value: 1500 });
 
     rejected(state("sensor.temperature", "20", "furlongs"), "Unsupported temperature unit for entity sensor.temperature");
     rejected(state("sensor.power", "1", "horsepower"), "Unsupported unit horsepower for power entity sensor.power");
@@ -92,23 +96,23 @@ describe("Home Assistant bridge unit conversion and recorder history", () => {
     rejected(state("sensor.co2_ppb", "850", "ppb"), "Entity sensor.co2_ppb requires an explicit scale or offset to convert ppb to ppm");
 
     status.value.homeAssistant.error = null;
-    expect(bridge.applyState(state("sensor.co2", "not-a-number", "ppm"))).toBeNull();
-    expect(bridge.applyState(state("sensor.unbound", "1", "ppm"))).toBeNull();
-    expect(bridge.applyState({ entity_id: "", state: "1" } as HaState)).toBeNull();
+    expect(internals.applyState(state("sensor.co2", "not-a-number", "ppm"))).toBeNull();
+    expect(internals.applyState(state("sensor.unbound", "1", "ppm"))).toBeNull();
+    expect(internals.applyState({ entity_id: "", state: "1" } as HaState)).toBeNull();
     expect(status.value.homeAssistant.error).toBeNull();
 
-    expect(bridge.applyState(state("sensor.temperature", "18", "°C", "2026-07-14T08:00:00Z"))).toBeNull();
+    expect(internals.applyState(state("sensor.temperature", "18", "°C", "2026-07-14T08:00:00Z"))).toBeNull();
   });
 
   it("merges the compatibility map with unclaimed persisted sensor bindings", () => {
-    const { bridge, database } = bridgeFixture();
+    const { internals, database, appConfig } = bridgeFixture();
     const mappingPath = join(directory!, "entities.json");
     writeFileSync(mappingPath, JSON.stringify({ entities: [
       { sensorId: "file-sensor", temperature: "sensor.file_temp" },
       { sensorId: "disabled-sensor", humidity: "sensor.disabled_humidity" },
       { sensorId: "ghost-sensor", humidity: "sensor.ghost_humidity" },
     ] }));
-    bridge[homeAssistantConnectionBridgeState].config.haEntityMapFile = mappingPath;
+    appConfig.haEntityMapFile = mappingPath;
     const sensor = (id: string, enabled: boolean, bindings: Record<string, unknown>) => database.createSensor({
       id, houseId: "house-main", floorId: "floor-ground", name: id, room: "Utility",
       model: "Home Assistant", x: 1, y: 1, z: 1, tags: [], enabled, ...bindings,
@@ -120,10 +124,9 @@ describe("Home Assistant bridge unit conversion and recorder history", () => {
       measurementEntityIds: { humidity: "sensor.db_humidity", co2: "sensor.db_co2" },
     });
 
-    const mappings = bridge.configuredMappings();
+    const { mappings, warning } = internals.configuredMappings();
 
-    expect(bridge[homeAssistantConnectionBridgeState].mappingWarning)
-      .toBe("Ignored Home Assistant mappings for unknown or disabled sensors: disabled-sensor");
+    expect(warning).toBe("Ignored Home Assistant mappings for unknown or disabled sensors: disabled-sensor");
     expect(mappings).toContainEqual({ sensorId: "file-sensor", temperature: "sensor.file_temp" });
     expect(mappings).toContainEqual({
       sensorId: "db-sensor",
@@ -137,10 +140,10 @@ describe("Home Assistant bridge unit conversion and recorder history", () => {
   });
 
   it("ignores live states for a disabled sensor", () => {
-    const { bridge, sensorId, bind, database } = bridgeFixture();
+    const { internals, sensorId, bind, database } = bridgeFixture();
     bind("sensor.co2", { metric: "co2", legacy: false });
     database.updateSensor(sensorId, { enabled: false });
-    expect(bridge.applyState(state("sensor.co2", "850", "ppm"))).toBeNull();
+    expect(internals.applyState(state("sensor.co2", "850", "ppm"))).toBeNull();
   });
 
   it("refuses history recovery without a binding or a valid range", async () => {

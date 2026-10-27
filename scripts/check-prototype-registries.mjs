@@ -10,34 +10,10 @@ const registryDefinitions = [
     registerFunction: "registerDatabaseMethods",
   },
   {
-    directory: "apps/api/src/home-assistant",
-    publicType: "HomeAssistantConnectionBridgeCore",
-    internalsType: "HomeAssistantConnectionBridgeInternals",
-    registerFunction: "registerHomeAssistantConnectionBridgeMethods",
-  },
-  {
-    directory: "apps/api/src/tp-link",
-    publicType: "TpLinkConnectionBridgeCore",
-    internalsType: "TpLinkConnectionBridgeInternals",
-    registerFunction: "registerTpLinkConnectionBridgeMethods",
-  },
-  {
-    directory: "apps/api/src/tapo-history-export",
-    publicType: "TapoHistoryExportServiceCore",
-    internalsType: "TapoHistoryExportServiceInternals",
-    registerFunction: "registerTapoHistoryExportServiceMethods",
-  },
-  {
     directory: "apps/api/src/timeseries/store",
     publicType: "TimeseriesStoreCore",
     internalsType: "TimeseriesStoreInternals",
     registerFunction: "registerTimeseriesStoreMethods",
-  },
-  {
-    directory: "apps/api/src/spatial-layers/state-store",
-    publicType: "SpatialLayerStateStoreCore",
-    internalsType: "SpatialLayerStateStoreInternals",
-    registerFunction: "registerSpatialLayerStateStoreMethods",
   },
   {
     directory: "apps/api/src/stuguby/store",
@@ -50,12 +26,6 @@ const registryDefinitions = [
     publicType: "StugubyServiceCore",
     internalsType: "StugubyServiceInternals",
     registerFunction: "registerStugubyServiceMethods",
-  },
-  {
-    directory: "apps/tapo-export-runner/src/webdriver",
-    publicType: "AppiumClientCore",
-    internalsType: "AppiumClientInternals",
-    registerFunction: "registerAppiumClientMethods",
   },
 ];
 
