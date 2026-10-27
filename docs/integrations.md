@@ -481,8 +481,18 @@ GET /api/v1/forecast?sensorId=sensor-01&hours=12
 
 History defaults to the prior 24 hours, allows repeated or comma-separated
 `sensorId`, caps `limit` at 50,000, and sets `truncated` when the cap was reached.
-Forecast horizons are 1–168 hours. The current `linear-v1` output is a baseline,
-not a validated maintenance diagnosis.
+Forecast horizons are 1–168 hours (`backtested-v2`). Each forecast starts from
+the latest reading. Temperature uses a first-order thermal model driven by the
+FMI hourly outdoor forecast, with a short-memory correction of its recent
+errors. Humidity, CO₂ and other supported metrics use an hour-of-day
+Holt–Winters profile blended with the same hour yesterday. Both are backtested
+on the last two weeks (rolling origins every three hours, 24-hour horizon); the
+better one is used, and its 90% band comes from the latest backtest errors at
+each horizon. A forecast that does not beat "no change" at six hours is
+withheld, and `GET /api/v2/measurements/forecast` returns the `evaluation`
+(status, per-horizon skill against "no change" and "same time yesterday", and
+band coverage) that decided it. One evaluation per sensor and day is kept for a
+year. A forecast is still not a validated maintenance diagnosis.
 
 ### Live stream
 

@@ -15,6 +15,7 @@ import { TelemetryBus } from "../events.js";
 import { alertNotificationBindings } from "../notification-snapshot.js";
 import { DEFAULT_ALERT_DELIVERY_POLICY } from "../notification-policy.js";
 import type { HybridTelemetryReader } from "../timeseries/read-facade.js";
+import { ForecastUnavailableError, MeasurementForecastService, type MeasurementForecast } from "../analytics/forecast/service.js";
 import { AlertEngine, DEMO_TELEMETRY_SOURCES, MeasurementValidationError, TelemetrySource, TelemetryValidationError, validateLiveTimestamp } from "./01-weather-connection-status-to-demo-data-was-disabled.js";
 
 /** Coordinates the irreversible boundary between the bundled demo and real telemetry. */
@@ -267,70 +268,65 @@ export class TelemetryService {
   }
 }
 
+async function measurementForecast(
+  database: ClimateDatabase,
+  sensorId: string,
+  metric: string,
+  hours: number,
+  telemetryReader?: HybridTelemetryReader,
+  signal?: AbortSignal,
+): Promise<MeasurementForecast> {
+  try {
+    return await new MeasurementForecastService(database, telemetryReader).forecast({
+      sensorId, metric, hours, ...(signal ? { signal } : {}),
+    });
+  } catch (error) {
+    if (error instanceof ForecastUnavailableError) throw new MeasurementValidationError(error.code, error.status, error.message);
+    throw error;
+  }
+}
+
+/** Temperature and humidity forecast pairs for the v1 API, where both are available. */
 export async function forecast(
   database: ClimateDatabase,
   sensorId: string,
   hours = 12,
   telemetryReader?: HybridTelemetryReader,
 ): Promise<ForecastPoint[]> {
-  const end = new Date();
-  const start = new Date(end.getTime() - 24 * 60 * 60_000);
-  const readings = telemetryReader
-    ? (await telemetryReader.legacyReadingHistory({
-      sensorIds: [sensorId],
-      from: start.toISOString(),
-      to: end.toISOString(),
-      limit: 5_000,
-    })).records
-    : database.history([sensorId], start.toISOString(), end.toISOString(), 5_000);
-  const latest = readings.at(-1) ?? database.getLatestReading(sensorId);
-  if (!latest) return [];
-
-  const points = readings.length > 1 ? readings : [latest];
-  const baseTime = Date.parse(points[0]?.timestamp ?? latest.timestamp);
-  const xs = points.map((point) => (Date.parse(point.timestamp) - baseTime) / 3_600_000);
-  const meanX = xs.reduce((sum, value) => sum + value, 0) / xs.length;
-  const linear = (values: number[]): { intercept: number; slope: number; error: number } => {
-    const meanY = values.reduce((sum, value) => sum + value, 0) / values.length;
-    let numerator = 0;
-    let denominator = 0;
-    for (let index = 0; index < values.length; index += 1) {
-      const dx = (xs[index] ?? 0) - meanX;
-      numerator += dx * ((values[index] ?? meanY) - meanY);
-      denominator += dx * dx;
+  const [temperature, humidity] = await Promise.all(["temperature", "humidity"].map(async (metric) => {
+    try {
+      return (await measurementForecast(database, sensorId, metric, hours, telemetryReader)).points;
+    } catch (error) {
+      if (error instanceof MeasurementValidationError) return [];
+      throw error;
     }
-    const rawSlope = denominator > 0 ? numerator / denominator : 0;
-    // Long extrapolations from home sensor noise are intentionally damped.
-    const slope = Math.max(-1.5, Math.min(1.5, rawSlope)) * 0.35;
-    const intercept = meanY - slope * meanX;
-    const mse = values.reduce((sum, value, index) => {
-      const residual = value - (intercept + slope * (xs[index] ?? meanX));
-      return sum + residual * residual;
-    }, 0) / Math.max(1, values.length - 2);
-    return { intercept, slope, error: Math.sqrt(mse) };
-  };
-  const temperatureModel = linear(points.map((point) => point.temperature));
-  const humidityModel = linear(points.map((point) => point.humidity));
-  const lastX = (Date.parse(latest.timestamp) - baseTime) / 3_600_000;
-  const result: ForecastPoint[] = [];
-  for (let offset = 1; offset <= Math.min(Math.max(hours, 1), 168); offset += 1) {
-    const x = lastX + offset;
-    const temperature = temperatureModel.intercept + temperatureModel.slope * x;
-    const humidity = Math.max(0, Math.min(100, humidityModel.intercept + humidityModel.slope * x));
-    const temperatureBand = Math.max(0.35, temperatureModel.error * 1.96) * Math.sqrt(1 + offset / 24);
-    const humidityBand = Math.max(1.5, humidityModel.error * 1.96) * Math.sqrt(1 + offset / 24);
-    result.push({
+  }));
+  const humidityAt = new Map(humidity!.map((point) => [point.timestamp, point]));
+  return temperature!.flatMap((point) => {
+    const pair = humidityAt.get(point.timestamp);
+    return pair ? [{
       sensorId,
-      timestamp: new Date(Date.parse(latest.timestamp) + offset * 3_600_000).toISOString(),
-      temperature: Number(temperature.toFixed(2)),
-      humidity: Number(humidity.toFixed(2)),
-      temperatureLow: Number((temperature - temperatureBand).toFixed(2)),
-      temperatureHigh: Number((temperature + temperatureBand).toFixed(2)),
-      humidityLow: Number(Math.max(0, humidity - humidityBand).toFixed(2)),
-      humidityHigh: Number(Math.min(100, humidity + humidityBand).toFixed(2)),
-    });
-  }
-  return result;
+      timestamp: point.timestamp,
+      temperature: point.value,
+      humidity: pair.value,
+      temperatureLow: point.low,
+      temperatureHigh: point.high,
+      humidityLow: pair.low,
+      humidityHigh: pair.high,
+    }] : [];
+  });
+}
+
+/** Backtested forecast and the evaluation that decided whether to show it. */
+export async function forecastMeasurementWithEvaluation(
+  database: ClimateDatabase,
+  sensorId: string,
+  metric: string,
+  hours = 12,
+  telemetryReader?: HybridTelemetryReader,
+  signal?: AbortSignal,
+): Promise<MeasurementForecast> {
+  return measurementForecast(database, sensorId, metric, hours, telemetryReader, signal);
 }
 
 export async function forecastMeasurement(
@@ -341,61 +337,7 @@ export async function forecastMeasurement(
   telemetryReader?: HybridTelemetryReader,
   signal?: AbortSignal,
 ): Promise<MeasurementForecastPoint[]> {
-  const definition = database.getMeasurementDefinition(metric);
-  if (!definition) throw new MeasurementValidationError("UNKNOWN_METRIC", 404, `Unknown measurement metric: ${metric}`);
-  if (!definition.forecastSupported) {
-    throw new MeasurementValidationError("FORECAST_UNSUPPORTED", 422, `Forecasting is not enabled for metric: ${metric}`);
-  }
-  const end = new Date();
-  const start = new Date(end.getTime() - 24 * 60 * 60_000);
-  const samples = telemetryReader
-    ? (await telemetryReader.measurementHistory({
-      sensorId,
-      metric,
-      from: start.toISOString(),
-      to: end.toISOString(),
-      limit: 5_000,
-      ...(signal ? { signal } : {}),
-    })).records
-    : database.measurementHistory(sensorId, metric, start.toISOString(), end.toISOString(), 5_000);
-  const latest = samples.at(-1) ?? database.getLatestMeasurementSample(sensorId, metric);
-  if (!latest) return [];
-  const points = samples.length > 1 ? samples : [latest];
-  const baseTime = Date.parse(points[0]!.timestamp);
-  const xs = points.map((point) => (Date.parse(point.timestamp) - baseTime) / 3_600_000);
-  const meanX = xs.reduce((sum, value) => sum + value, 0) / xs.length;
-  const meanY = points.reduce((sum, point) => sum + point.value, 0) / points.length;
-  let numerator = 0;
-  let denominator = 0;
-  for (let index = 0; index < points.length; index += 1) {
-    const dx = (xs[index] ?? meanX) - meanX;
-    numerator += dx * ((points[index]?.value ?? meanY) - meanY);
-    denominator += dx * dx;
-  }
-  const slope = Math.max(-definition.interpolationDelta, Math.min(definition.interpolationDelta, denominator > 0 ? numerator / denominator : 0)) * 0.35;
-  const intercept = meanY - slope * meanX;
-  const mse = points.reduce((sum, point, index) => {
-    const residual = point.value - (intercept + slope * (xs[index] ?? meanX));
-    return sum + residual * residual;
-  }, 0) / Math.max(1, points.length - 2);
-  const error = Math.sqrt(mse);
-  const lastX = (Date.parse(latest.timestamp) - baseTime) / 3_600_000;
-  const clamp = (value: number): number => Math.max(definition.validMin ?? -Infinity, Math.min(definition.validMax ?? Infinity, value));
-  const round = (value: number): number => Number(value.toFixed(definition.precision));
-  const result: MeasurementForecastPoint[] = [];
-  for (let offset = 1; offset <= Math.min(Math.max(hours, 1), 168); offset += 1) {
-    const value = clamp(intercept + slope * (lastX + offset));
-    const band = Math.max(definition.interpolationDelta * 0.15, error * 1.96) * Math.sqrt(1 + offset / 24);
-    result.push({
-      sensorId,
-      metric,
-      timestamp: new Date(Date.parse(latest.timestamp) + offset * 3_600_000).toISOString(),
-      value: round(value),
-      low: round(clamp(value - band)),
-      high: round(clamp(value + band)),
-    });
-  }
-  return result;
+  return (await measurementForecast(database, sensorId, metric, hours, telemetryReader, signal)).points;
 }
 
 export const MOCK_SCENARIOS: MockScenario[] = [

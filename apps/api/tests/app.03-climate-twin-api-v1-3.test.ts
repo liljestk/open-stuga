@@ -346,8 +346,9 @@ describe("Climate Twin API v1", () => {
 
   it("returns bounded forecasts from historical readings", async () => {
     const response = await request(runtime.app).get("/api/v1/forecast?sensorId=sensor-01&hours=6").expect(200);
-    expect(response.body.model).toBe("linear-v1");
-    expect(response.body.series[0].forecast).toHaveLength(6);
+    expect(response.body.model).toBe("backtested-v2");
+    // A sensor gets points only when both its forecasts passed their backtests.
+    expect([0, 6]).toContain(response.body.series[0].forecast.length);
     for (const point of response.body.series[0].forecast) {
       expect(point.humidity).toBeGreaterThanOrEqual(0);
       expect(point.humidity).toBeLessThanOrEqual(100);

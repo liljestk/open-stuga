@@ -7,8 +7,35 @@ const comparison = {
   properties: { invoicedEur: { type: "number" }, calculatedEur: nullableAmount, errorPercent: nullableAmount },
 } as const;
 
-/** Dated electricity tariffs, cost breakdowns and invoice reconciliation. */
+const nullableSkill = { type: ["number", "null"] } as const;
+
+/** Dated electricity tariffs, cost breakdowns, invoice reconciliation, and forecast evaluations. */
 export const schemasPart12 = {
+  MeasurementForecastEvaluation: {
+    type: "object", additionalProperties: false,
+    required: ["algorithmVersion", "sensorId", "metric", "status", "model", "computedAt", "historyFrom", "historyTo", "origins", "outdoorDriver", "horizons", "skill6h", "skill24h", "coverage90"],
+    properties: {
+      algorithmVersion: { const: "measurement-forecast/v2" },
+      sensorId: { type: "string" }, metric: { type: "string" },
+      status: { enum: ["ready", "no-skill", "insufficient-history"] },
+      model: { enum: ["thermal-relaxation", "daily-profile", null] },
+      computedAt: { type: "string", format: "date-time" },
+      historyFrom: { type: ["string", "null"], format: "date-time" }, historyTo: { type: ["string", "null"], format: "date-time" },
+      origins: { type: "integer", minimum: 0 },
+      outdoorDriver: { enum: ["weather-forecast", "held-observation", null], description: "Backtests use observed outdoor temperatures, so their skill assumes a good weather forecast." },
+      horizons: { type: "array", items: {
+        type: "object", additionalProperties: false,
+        required: ["hours", "samples", "maeModel", "maePersistence", "maeSameTimeYesterday", "skillVsPersistence", "skillVsSameTimeYesterday", "intervalHalfWidth", "intervalCoverage"],
+        properties: {
+          hours: { type: "integer", minimum: 1 }, samples: { type: "integer", minimum: 0 },
+          maeModel: { type: "number" }, maePersistence: { type: "number" }, maeSameTimeYesterday: nullableSkill,
+          skillVsPersistence: nullableSkill, skillVsSameTimeYesterday: nullableSkill,
+          intervalHalfWidth: { type: "number", minimum: 0 }, intervalCoverage: nullableSkill,
+        },
+      } },
+      skill6h: nullableSkill, skill24h: nullableSkill, coverage90: nullableSkill,
+    },
+  },
   ElectricityRateSchedule: {
     description: "Rates in cents/kWh including VAT. Daytime is 07–22 local; seasonal winter daytime is November–March, Monday–Saturday 07–22.",
     oneOf: [

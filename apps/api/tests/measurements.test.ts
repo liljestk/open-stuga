@@ -413,10 +413,11 @@ describe("registry-driven measurements API", () => {
     }).expect(201);
     expect(runtime.database.listAlertEvents()).toEqual([expect.objectContaining({ metric: "co2", value: 900 })]);
 
+    // Two readings cannot be backtested, so the forecast is withheld rather than guessed.
     const forecast = await request(runtime.app).get("/api/v2/measurements/forecast")
       .query({ sensorId: "sensor-01", metric: "co2", hours: 2 }).expect(200);
-    expect(forecast.body.forecast).toHaveLength(2);
-    expect(forecast.body.forecast[0]).toMatchObject({ sensorId: "sensor-01", metric: "co2" });
+    expect(forecast.body.forecast).toEqual([]);
+    expect(forecast.body.evaluation).toMatchObject({ sensorId: "sensor-01", metric: "co2", status: "insufficient-history" });
 
     await request(runtime.app).post("/api/v2/measurement-definitions").send({
       id: "noise", labels: { en: "Noise" }, unit: "dBA", interpolationDelta: 5,

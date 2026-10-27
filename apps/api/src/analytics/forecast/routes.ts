@@ -1,6 +1,6 @@
 import type express from "express";
 import type { ClimateDatabase } from "../../db.js";
-import { forecast, forecastMeasurement } from "../../services.js";
+import { forecast, forecastMeasurementWithEvaluation } from "../../services.js";
 import type { HybridTelemetryReader } from "../../timeseries/read-facade.js";
 import {
   HttpError,
@@ -36,7 +36,7 @@ export function registerForecastRoutes(context: ForecastRouteContext): void {
     if (response.destroyed) abortOnClose();
     const measurementForecast = await context.analyticsWorkLimiter.run(
       "measurement-forecast",
-      () => forecastMeasurement(
+      () => forecastMeasurementWithEvaluation(
         context.database,
         request.query.sensorId as string,
         metric,
@@ -46,7 +46,7 @@ export function registerForecastRoutes(context: ForecastRouteContext): void {
       ),
       abortController.signal,
     ).finally(() => response.off("close", abortOnClose));
-    response.json({ forecast: measurementForecast });
+    response.json({ forecast: measurementForecast.points, evaluation: measurementForecast.evaluation });
   });
   context.app.get(`${context.prefix}/forecast`, async (request, response) => {
     const sensorIds = queryList(request.query.sensorId);
@@ -59,6 +59,6 @@ export function registerForecastRoutes(context: ForecastRouteContext): void {
       sensorId,
       forecast: await forecast(context.database, sensorId, hours, context.telemetryReader),
     })));
-    response.json({ generatedAt: new Date().toISOString(), model: "linear-v1", series, ...(series.length === 1 ? { forecast: series[0]?.forecast ?? [] } : {}) });
+    response.json({ generatedAt: new Date().toISOString(), model: "backtested-v2", series, ...(series.length === 1 ? { forecast: series[0]?.forecast ?? [] } : {}) });
   });
 }
