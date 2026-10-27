@@ -120,8 +120,10 @@ function scope(kind: SpatialScope["kind"], request: Request): SpatialScope {
 export interface SpatialRouteOptions {
   runtime: LocalSpatialLayerRuntime | null;
   prefix?: string;
-  authorizeScope?: (request: Request, response: Response, scope: SpatialScope) => boolean;
-  authorizeMutation?: (request: Request, response: Response, scope: SpatialScope) => boolean;
+  /** Required: routes must never default to open access. Return false to answer 404. */
+  authorizeScope: (request: Request, response: Response, scope: SpatialScope) => boolean;
+  /** Required: return false to answer 403 for a scope the caller may read but not change. */
+  authorizeMutation: (request: Request, response: Response, scope: SpatialScope) => boolean;
   auditActor?: (request: Request, response: Response) => string | null;
   streamAuthorizationFingerprint?: (request: Request, response: Response) => string | null;
   /** Return false after sending a terminal response (for example, shutdown). */
@@ -140,7 +142,7 @@ function authorizedScope(
   response: Response,
 ): SpatialScope {
   const value = scope(kind, request);
-  if (options.authorizeScope && !options.authorizeScope(request, response, value)) {
+  if (!options.authorizeScope(request, response, value)) {
     // Match the core visibility policy: do not reveal whether an inaccessible
     // house or property exists.
     throw new SpatialRouteError(404, "SPATIAL_SCOPE_NOT_FOUND", `${kind} ${value.id} does not exist`);
@@ -155,7 +157,7 @@ function authorizedMutationScope(
   response: Response,
 ): SpatialScope {
   const value = authorizedScope(options, kind, request, response);
-  if (options.authorizeMutation && !options.authorizeMutation(request, response, value)) {
+  if (!options.authorizeMutation(request, response, value)) {
     throw new SpatialRouteError(
       403,
       "SPATIAL_WRITE_FORBIDDEN",

@@ -3,10 +3,10 @@ import {
   LocalMcpRuntimeError,
   type LocalMcpRuntimeService,
 } from "../local-mcp-runtime.js";
-import { HttpError, requireWorkspaceAdmin } from "./support/index.js";
+import { HttpError, requestPrincipal, requireWorkspaceAdmin } from "./support/index.js";
 import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
 
-export type LocalMcpRuntimeRouteContext = Pick<ApiRouteRegistrationContext, "app" | "prefix">;
+export type LocalMcpRuntimeRouteContext = Pick<ApiRouteRegistrationContext, "app" | "prefix" | "recordSecurityAudit">;
 export type LocalMcpTransportRouteContext = { app: Express; prefix: string };
 export type LocalMcpRuntimeController = Pick<
   LocalMcpRuntimeService,
@@ -85,10 +85,21 @@ export function registerLocalMcpRuntimeRoutes(
     response.json(runtime.status());
   });
 
+  // The MCP bearer bypasses browser sessions and Guest grants, so issuing and
+  // revoking it is audited like every other integration credential.
   context.app.post(`${context.prefix}/system/mcp-runtime/start`, requireWorkspaceAdmin, async (_request, response, next) => {
     try {
       response.setHeader("cache-control", "no-store");
-      response.json(await runtime.start());
+      const started = await runtime.start();
+      if (started.accessToken !== null) {
+        context.recordSecurityAudit(requestPrincipal(response), {
+          eventType: "integration.grant.issued",
+          subjectType: "integration-grant",
+          subjectId: "mcp-http",
+          details: { integration: "mcp" },
+        });
+      }
+      response.json(started);
     } catch (error) {
       next(routeError(error));
     }
@@ -97,7 +108,14 @@ export function registerLocalMcpRuntimeRoutes(
   context.app.post(`${context.prefix}/system/mcp-runtime/stop`, requireWorkspaceAdmin, async (_request, response, next) => {
     try {
       response.setHeader("cache-control", "no-store");
-      response.json(await runtime.stop());
+      const stopped = await runtime.stop();
+      context.recordSecurityAudit(requestPrincipal(response), {
+        eventType: "integration.grant.revoked",
+        subjectType: "integration-grant",
+        subjectId: "mcp-http",
+        details: { integration: "mcp" },
+      });
+      response.json(stopped);
     } catch (error) {
       next(routeError(error));
     }

@@ -1,6 +1,5 @@
 import { type Request, type Response } from "express";
 import type {
-  Reading,
   TelemetryEvent,
 } from "@climate-twin/contracts";
 import {
@@ -11,6 +10,7 @@ import {
 } from "../timeseries/read-facade.js";
 import { HttpError, alertDurationSeconds, bodyObject, boundedQueryInteger, boundedSseWriter, dateValue, enumValue, localAuthorizationFingerprint, measurementId, optionalBoolean, parseAlertDeliveryPolicy, parseAlertRule, queryList, requestPrincipal, requiredNumber, requiredString, safeInteger, visibleCollectionPage } from "./support/index.js";
 import { configureApiPart17 } from "./part-17.js";
+import { visibleStreamEvent } from "./live-stream-visibility.js";
 
 
 export function configureApiPart18(context: ReturnType<typeof configureApiPart17>) {
@@ -69,19 +69,12 @@ export function configureApiPart18(context: ReturnType<typeof configureApiPart17
         if (response.destroyed || response.writableEnded) return;
         const access = context.authorizedStreamVisibility(request, response, acceptedAuthorization);
         if (!access) return;
-        if (access.restricted && event.type === "integration") return;
-        if ((event.type === "reading" || event.type === "measurement" || event.type === "alert")
-          && !access.sensor(event.data.sensorId)) return;
-        if (event.type === "weather" && !access.house(event.data.houseId)) return;
-        if (event.type === "opening" && !access.house(event.data.houseId)) return;
-        if (event.type === "heat-pump" && !access.house(event.data.houseId)) return;
-        if (event.type === "connected-device" && !access.house(event.data.houseId)) return;
-        if (filter.size > 0 && (event.type === "reading" || event.type === "alert")) {
-          const data = event.data as Reading | { sensorId: string };
-          if (!filter.has(data.sensorId)) return;
-        }
-        const id = event.type === "weather" ? `id: ${event.data.id}\n` : "";
-        writer.send(`${id}event: ${event.type}\ndata: ${JSON.stringify(event.data)}\n\n`);
+        const visible = visibleStreamEvent(event, access);
+        if (!visible) return;
+        if (filter.size > 0 && (visible.type === "reading" || visible.type === "alert")
+          && !filter.has(visible.data.sensorId)) return;
+        const id = visible.type === "weather" ? `id: ${visible.data.id}\n` : "";
+        writer.send(`${id}event: ${visible.type}\ndata: ${JSON.stringify(visible.data)}\n\n`);
       };
       if (!context.visibility(response).restricted) write({ type: "integration", data: structuredClone(context.status.value) });
       const unsubscribe = context.bus.subscribe(write);
