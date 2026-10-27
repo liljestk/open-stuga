@@ -179,4 +179,3 @@ function RunStatusIcon({ run }: Readonly<{ run: ActionRun }>) {
 function formatDate(value: string | null, locale: string, pending: string): string {
   return value ? formatInTimeZone(value, locale, undefined, { dateStyle: "short", timeStyle: "short" }) : pending;
 }
-

@@ -192,4 +192,3 @@ function backupState(state: BackupOperationStatus["state"], t: ReturnType<typeof
 function formatDate(value: string | null, locale: string, never: string): string {
   return value ? formatInTimeZone(value, locale, undefined, { dateStyle: "medium", timeStyle: "short" }) : never;
 }
-
