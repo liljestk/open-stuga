@@ -19,6 +19,7 @@ export const enAnalyticsQuality = {
   "energy.outlook.methodRecent": "Repeats the last 30 days, which did better than a weather model when tested on {origins} past 30-day periods ({error}% average miss).",
   "energy.outlook.methodUntested": "Repeats the last 30 days. More history is needed to test a weather model, so the range is a wide default.",
   "analytics.health.title": "Analytics health on this appliance",
+  "analytics.health.summary": "Response times, forecast and projection accuracy, and bill checks, measured on this appliance.",
   "analytics.health.description": "How the analytics performed for this Home over the last {days} days, measured here. This evidence never leaves the appliance.",
   "analytics.health.loading": "Gathering the evidence…",
   "analytics.health.failed": "The evidence could not be read.",

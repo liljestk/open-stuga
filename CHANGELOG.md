@@ -2,6 +2,11 @@
 
 All notable Stugu releases are recorded here.
 
+## 0.51.2
+
+- Lay out **Analytics health on this appliance** like the other Data & analytics tools: it now sits in the same list, with an icon, a short description and one disclosure arrow, and its contents are padded. Each response time, forecast, bill and projection check shows its name, its result and its on-target badge as separate columns, stacked on narrow screens. Before, the panel was unstyled, labels ran into their values and two disclosure markers showed.
+- Upgrade impact: application-only update. API responses, configuration, database, Compose and host trust are unchanged.
+
 ## 0.51.1
 
 - Simplify 23 of the most complex functions in the API, the web app and the spatial-layer engines without changing what they do. They include TP-Link and Home Assistant ingestion, Home Assistant history recovery, the spatial inference scheduler and engine host, notification delivery, alert follow-ups, the integrations setup page, and the web app's session start-up and live telemetry. Each now scores 15 or less on SonarCloud's cognitive-complexity rule (S3776), and the number of functions over that limit drops by 23.

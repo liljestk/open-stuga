@@ -155,6 +155,9 @@
 
 @media (max-width: 700px) {
   .analytics-tools-intro { display: grid; }
+  .analytics-health-body { padding-inline: 14px; }
+  .analytics-health-rows li { grid-template-columns: minmax(0, 1fr) auto; }
+  .analytics-health-rows li > span:not(.status-badge) { grid-column: 1 / -1; grid-row: 2; }
   .analytics-page-heading, .daily-findings-header, .analytics-continuity-panel .panel-header, .analytics-evidence-panel .panel-header, .isolation-panel-header { align-items: stretch; flex-direction: column; }
   .home-performance-header { align-items: stretch; flex-direction: column; }
   .home-performance-header .performance-state { align-self: flex-start; }
