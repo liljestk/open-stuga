@@ -1,22 +1,17 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChartLine, ChevronDown, CloudSun, Database, DoorOpen, Download, Droplets, FileJson, FileSpreadsheet, Gauge, RefreshCw, ShieldCheck, Table2, TriangleAlert } from "lucide-react";
 import type {
   AnalyticsAggregation,
-  AnalyticsQueryResponse,
   AnalyticsResolution,
-  AnalyticsSampleQuality,
   House,
   HomeElectricityPricePoint,
   Metric,
-  MeasurementDefinition,
   MeasurementForecastEvaluation,
-  MeasurementForecastPoint,
   OutdoorTemperatureSample,
   SensorDataGap,
   UnitSystem,
 } from "@climate-twin/contracts";
-import { ANALYTICS_TIME_RANGES, timeRangeHours, type ClimateState, type TimeRange } from "../domain";
-import { api } from "../api";
+import { timeRangeHours, type ClimateState, type TimeRange } from "../domain";
 import { observedSeries, SensorAnalyticsChart } from "../components/SensorAnalyticsChart";
 import { DailyAnalyticsFindings } from "../components/DailyAnalyticsFindings";
 import { HomePerformancePanel } from "../components/HomePerformancePanel";
@@ -26,13 +21,31 @@ import { MoistureResponsePanel } from "../components/MoistureResponsePanel";
 import { DataExportPanel } from "../components/DataExportPanel";
 import { ForecastNotes } from "../components/ForecastNotes";
 import { chartGapThresholdMs, detectSeriesGaps } from "../chartGaps";
-import { csvDocument } from "../csv";
 import { formatInTimeZone } from "../dateTime";
 import { useHouseWeather } from "../useHouseWeather";
 import { useI18n } from "../i18n";
 import { formatMeasurement, measurementLabel, type MeasurementForecasts } from "../measurements";
 import { useNow } from "../useNow";
 import { compareCodeUnits } from "../textOrder";
+import {
+  ANALYTICS_RESOLUTIONS,
+  analyticsToolsFromLocation,
+  writeAnalyticsToolsToLocation,
+  evidenceIsDeepLinked,
+  defaultAnalyticsMetric,
+  analyticsStateFromLocation,
+  writeAnalyticsStateToLocation,
+  aggregationOptions,
+  qualitiesForPreset,
+  analyticsPointBudget,
+  analyticsIdentityToken,
+  durationLabel,
+  type AnalyticsLocationState,
+  type AnalyticsTool,
+  type QualityPreset,
+} from "./dataAnalytics/explorerState";
+import { analyticsCsv, downloadText } from "./dataAnalytics/analyticsExport";
+import { useExplorerAnalyticsQuery, useExplorerContextQuery, useExplorerForecastsQuery } from "../data/analytics/explorerQueries";
 
 interface DataAnalyticsPageProps {
   state: ClimateState;
@@ -54,205 +67,13 @@ interface ContinuityRow {
   detail: string | null;
 }
 
-type QualityPreset = "good" | "reliable" | "all";
-type AnalyticsTool = "performance" | "openings" | "sensors";
+const NO_OUTDOOR_HISTORY: OutdoorTemperatureSample[] = [];
+const NO_PRICES: HomeElectricityPricePoint[] = [];
+const NO_GAPS: SensorDataGap[] = [];
+const NO_FORECASTS: MeasurementForecasts = {};
+const NO_EVALUATIONS: Record<string, MeasurementForecastEvaluation> = {};
 
-const ANALYTICS_RESOLUTIONS = ["auto", "raw", "1m", "5m", "15m", "30m", "1h", "1d"] as const satisfies readonly AnalyticsResolution[];
-const ANALYTICS_AGGREGATIONS: AnalyticsAggregation[] = ["default", "mean", "sum", "delta", "last", "time_weighted_mean", "min", "max"];
-const QUALITY_PRESETS: QualityPreset[] = ["good", "reliable", "all"];
-const ANALYTICS_TOOLS: AnalyticsTool[] = ["performance", "openings", "sensors"];
-const ANALYTICS_CHART_PARAMS = ["range", "resolution", "aggregation", "quality", "metric", "sensors", "weather"];
-const DEFAULT_ANALYTICS_STATE = {
-  range: "24h",
-  resolution: "auto",
-  aggregation: "default",
-  qualityPreset: "reliable",
-  metric: "temperature",
-  selectedSensorIds: null,
-  weatherObservationsVisible: true,
-  weatherForecastVisible: true,
-} as const satisfies AnalyticsLocationState;
-
-interface AnalyticsLocationState {
-  range: TimeRange;
-  resolution: AnalyticsResolution;
-  aggregation: AnalyticsAggregation;
-  qualityPreset: QualityPreset;
-  metric: Metric;
-  selectedSensorIds: string[] | null;
-  weatherObservationsVisible: boolean;
-  weatherForecastVisible: boolean;
-}
-
-function analyticsToolsFromLocation(): AnalyticsTool[] {
-  if (typeof window === "undefined") return [];
-  const params = new URLSearchParams(window.location.search);
-  const requested = (params.get("tools") ?? "")
-    .split(",")
-    .filter((tool): tool is AnalyticsTool => ANALYTICS_TOOLS.includes(tool as AnalyticsTool));
-  const tools = new Set<AnalyticsTool>(requested);
-  const hasExplicitHash = ["#performance", "#openings", "#sensors", "#evidence"].includes(window.location.hash);
-  if (window.location.hash === "#performance") tools.add("performance");
-  if (window.location.hash === "#openings") tools.add("openings");
-  if (
-    window.location.hash === "#sensors"
-    || window.location.hash === "#evidence"
-    || (requested.length === 0 && !hasExplicitHash && ANALYTICS_CHART_PARAMS.some((parameter) => params.has(parameter)))
-  ) tools.add("sensors");
-  return ANALYTICS_TOOLS.filter((tool) => tools.has(tool));
-}
-
-function writeAnalyticsToolsToLocation(tools: ReadonlySet<AnalyticsTool>): void {
-  if (typeof window === "undefined") return;
-  const url = new URL(window.location.href);
-  const ordered = ANALYTICS_TOOLS.filter((tool) => tools.has(tool));
-  if (ordered.length > 0) url.searchParams.set("tools", ordered.join(","));
-  else url.searchParams.delete("tools");
-  const next = `${url.pathname}${url.search}${url.hash}`;
-  const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
-  if (next !== current) window.history.pushState(window.history.state, "", next);
-}
-
-function evidenceIsDeepLinked(): boolean {
-  return typeof window !== "undefined" && window.location.hash === "#evidence";
-}
-
-function defaultAnalyticsMetric(metricIds: readonly Metric[]): Metric {
-  return metricIds.includes("temperature") ? "temperature" : metricIds[0] ?? "temperature";
-}
-
-function analyticsStateFromLocation(metricIds: readonly Metric[], sensorIds: readonly string[]): AnalyticsLocationState {
-  const defaultMetric = defaultAnalyticsMetric(metricIds);
-  if (typeof window === "undefined") return { ...DEFAULT_ANALYTICS_STATE, metric: defaultMetric };
-  const params = new URLSearchParams(window.location.search);
-  const requestedRange = params.get("range");
-  const requestedResolution = params.get("resolution");
-  const requestedAggregation = params.get("aggregation");
-  const requestedQuality = params.get("quality");
-  const requestedMetric = params.get("metric");
-  const requestedSensors = params.get("sensors");
-  const requestedWeather = params.get("weather");
-  const validRequestedSensors = requestedSensors && requestedSensors !== "none"
-    ? [...new Set(requestedSensors.split(",").filter((sensorId) => sensorIds.includes(sensorId)))].sort(compareCodeUnits)
-    : [];
-  const resolution = ANALYTICS_RESOLUTIONS.some((option) => option === requestedResolution)
-    ? requestedResolution as AnalyticsResolution
-    : DEFAULT_ANALYTICS_STATE.resolution;
-  return {
-    range: ANALYTICS_TIME_RANGES.includes(requestedRange as TimeRange)
-      ? requestedRange as TimeRange
-      : DEFAULT_ANALYTICS_STATE.range,
-    resolution,
-    aggregation: resolution !== "raw" && ANALYTICS_AGGREGATIONS.includes(requestedAggregation as AnalyticsAggregation)
-      ? requestedAggregation as AnalyticsAggregation
-      : DEFAULT_ANALYTICS_STATE.aggregation,
-    qualityPreset: QUALITY_PRESETS.includes(requestedQuality as QualityPreset)
-      ? requestedQuality as QualityPreset
-      : DEFAULT_ANALYTICS_STATE.qualityPreset,
-    metric: requestedMetric && metricIds.includes(requestedMetric) ? requestedMetric : defaultMetric,
-    selectedSensorIds: requestedSensors === "none"
-      ? []
-      : validRequestedSensors.length > 0 ? validRequestedSensors : null,
-    weatherObservationsVisible: requestedWeather !== "forecast" && requestedWeather !== "none",
-    weatherForecastVisible: requestedWeather !== "observations" && requestedWeather !== "none",
-  };
-}
-
-function writeAnalyticsStateToLocation(state: AnalyticsLocationState, mode: "push" | "replace", defaultMetric: Metric): void {
-  if (typeof window === "undefined") return;
-  const url = new URL(window.location.href);
-  const write = (key: string, value: string, defaultValue: string) => {
-    if (value === defaultValue) url.searchParams.delete(key);
-    else url.searchParams.set(key, value);
-  };
-  write("range", state.range, DEFAULT_ANALYTICS_STATE.range);
-  write("resolution", state.resolution, DEFAULT_ANALYTICS_STATE.resolution);
-  write("aggregation", state.resolution === "raw" ? "default" : state.aggregation, DEFAULT_ANALYTICS_STATE.aggregation);
-  write("quality", state.qualityPreset, DEFAULT_ANALYTICS_STATE.qualityPreset);
-  write("metric", state.metric, defaultMetric);
-  if (state.selectedSensorIds === null) url.searchParams.delete("sensors");
-  else if (state.selectedSensorIds.length === 0) url.searchParams.set("sensors", "none");
-  else url.searchParams.set("sensors", [...new Set(state.selectedSensorIds)].sort(compareCodeUnits).join(","));
-  const weather = state.weatherObservationsVisible
-    ? state.weatherForecastVisible ? null : "observations"
-    : state.weatherForecastVisible ? "forecast" : "none";
-  if (weather) url.searchParams.set("weather", weather);
-  else url.searchParams.delete("weather");
-  const next = `${url.pathname}${url.search}${url.hash}`;
-  const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
-  if (next !== current) window.history[`${mode}State`](window.history.state, "", next);
-}
-
-function aggregationOptions(definition: MeasurementDefinition | undefined): AnalyticsAggregation[] {
-  const kind = definition?.kind ?? "gauge";
-  if (kind === "rate") return ["default", "time_weighted_mean", "mean", "last", "min", "max"];
-  if (kind === "increment") return ["default", "sum", "last", "min", "max"];
-  if (kind === "cumulative_counter") return ["default", "delta", "last", "min", "max"];
-  if (kind === "binary_state") return ["default", "last", "mean"];
-  if (kind === "categorical_state") return ["default", "last"];
-  return ["default", "mean", "last", "min", "max"];
-}
-
-function qualitiesForPreset(preset: QualityPreset): AnalyticsSampleQuality[] {
-  if (preset === "good") return ["good"];
-  if (preset === "reliable") return ["good", "estimated"];
-  return ["good", "estimated", "stale"];
-}
-
-function analyticsPointBudget(range: TimeRange): number {
-  if (range === "30d") return 1_000;
-  if (range === "90d") return 2_500;
-  if (range === "1y") return 1_000;
-  return 500;
-}
-
-function analyticsIdentityToken(value: string): string {
-  let left = 0x811c9dc5;
-  let right = 0x9e3779b9;
-  for (let index = 0; index < value.length; index += 1) {
-    const code = value.charCodeAt(index);
-    left = Math.imul(left ^ code, 0x01000193);
-    right = Math.imul(right ^ code, 0x85ebca6b);
-  }
-  return `${(left >>> 0).toString(36)}${(right >>> 0).toString(36)}`;
-}
-
-function durationLabel(milliseconds: number, locale: string): string {
-  const minutes = Math.max(1, Math.round(milliseconds / 60_000));
-  if (minutes < 60) return new Intl.NumberFormat(locale, { style: "unit", unit: "minute", unitDisplay: "short" }).format(minutes);
-  const hours = minutes / 60;
-  return new Intl.NumberFormat(locale, { maximumFractionDigits: hours < 10 ? 1 : 0, style: "unit", unit: "hour", unitDisplay: "short" }).format(hours);
-}
-
-export function analyticsCsv(result: AnalyticsQueryResponse): string {
-  const rows: Array<Array<string | number>> = [[
-    "api_version", "data_mode", "request_id", "timezone", "range_start", "range_end", "generated_at",
-    "series", "entity_id", "measurement", "timestamp", "value", "unit", "truth_class", "aggregation",
-    "resolution", "quality_filter", "excluded_source_samples", "coverage", "sample_count", "quality_flags", "algorithm", "algorithm_version",
-  ]];
-  for (const series of result.series) {
-    for (const point of series.points) {
-      rows.push([
-        result.apiVersion, result.dataMode, result.requestId, result.resolvedRange.timezone, result.resolvedRange.start,
-        result.resolvedRange.end, result.generatedAt, series.entityLabel, series.entityId, series.measurementId, point.timestamp,
-        point.value ?? "", series.canonicalUnit, series.truthClass, series.aggregation, series.resolution,
-        result.quality.includedQualities.join("|"), result.quality.excludedSampleCount,
-        point.coverage, point.sampleCount, point.qualityFlags.join("|"),
-        series.provenance.algorithmKey, series.provenance.algorithmVersion,
-      ]);
-    }
-  }
-  return csvDocument(rows);
-}
-
-function downloadText(filename: string, content: string, type: string): void {
-  const url = URL.createObjectURL(new Blob([content], { type }));
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = filename;
-  anchor.click();
-  setTimeout(() => URL.revokeObjectURL(url), 0);
-}
+export { analyticsCsv } from "./dataAnalytics/analyticsExport";
 
 export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
   const { locale, t } = useI18n();
@@ -276,31 +97,31 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
   const [resolution, setResolution] = useState<AnalyticsResolution>(initialLocationState.resolution);
   const [aggregation, setAggregation] = useState<AnalyticsAggregation>(initialLocationState.aggregation);
   const [qualityPreset, setQualityPreset] = useState<QualityPreset>(initialLocationState.qualityPreset);
-  const [outdoorHistory, setOutdoorHistory] = useState<OutdoorTemperatureSample[]>([]);
-  const [electricityPrices, setElectricityPrices] = useState<HomeElectricityPricePoint[]>([]);
-  const [sensorGaps, setSensorGaps] = useState<SensorDataGap[]>([]);
-  const [historyError, setHistoryError] = useState<string | null>(null);
-  const [historyLoaded, setHistoryLoaded] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [analytics, setAnalytics] = useState<AnalyticsQueryResponse | null>(null);
-  const [analyticsError, setAnalyticsError] = useState<string | null>(null);
-  const [analyticsLoading, setAnalyticsLoading] = useState(false);
-  const [chartForecasts, setChartForecasts] = useState<MeasurementForecasts>({});
-  const [forecastEvaluations, setForecastEvaluations] = useState<Record<string, MeasurementForecastEvaluation>>({});
-  const forecastCache = useRef(new Map<string, {
-    expiresAt: number;
-    points: MeasurementForecastPoint[];
-    evaluation: MeasurementForecastEvaluation | null;
-  }>());
   const [refreshRevision, setRefreshRevision] = useState(0);
   const [openTools, setOpenTools] = useState<Set<AnalyticsTool>>(() => new Set(analyticsToolsFromLocation()));
   const [isolationOpen, setIsolationOpen] = useState(false);
   const [moistureOpen, setMoistureOpen] = useState(false);
   const [evidenceOpen, setEvidenceOpen] = useState(evidenceIsDeepLinked);
   const [continuityOpen, setContinuityOpen] = useState(false);
-  const historyIdentity = useRef<string | null>(null);
-  const analyticsIdentity = useRef<string | null>(null);
   const weather = useHouseWeather(props.house);
+  // Outdoor history, durable gaps and prices load only while sensor analytics or continuity is open.
+  const auxiliaryHistoryVisible = openTools.has("sensors") || continuityOpen;
+  const contextQuery = useExplorerContextQuery({
+    houseId: props.house.id,
+    range,
+    rangeHours: timeRangeHours(range),
+    enabled: auxiliaryHistoryVisible,
+    refreshRevision,
+  });
+  const outdoorHistory = contextQuery.data?.outdoorHistory ?? NO_OUTDOOR_HISTORY;
+  const electricityPrices = contextQuery.data?.electricityPrices ?? NO_PRICES;
+  const sensorGaps = contextQuery.data?.sensorGaps ?? NO_GAPS;
+  const historyFailure = contextQuery.data?.failure ?? null;
+  const historyError = historyFailure === null
+    ? null
+    : historyFailure instanceof Error ? historyFailure.message : t("analytics.loadFailed");
+  const historyLoaded = contextQuery.data !== undefined;
+  const loading = auxiliaryHistoryVisible && contextQuery.isFetching;
   const selectedDefinition = definitions.find((definition) => definition.id === metric) ?? definitions[0];
   const availableAggregations = useMemo(() => aggregationOptions(selectedDefinition), [selectedDefinition]);
   const metricSensors = useMemo(() => sensors.filter((sensor) => (
@@ -317,9 +138,6 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
     : metricSensors.filter((sensor) => selectedSensorIds.includes(sensor.id)), [metricSensors, selectedSensorIds]);
   const selectedSensorKey = selectedSensors.map((sensor) => sensor.id).sort(compareCodeUnits).join("\u0000");
   const sensorsOpen = openTools.has("sensors");
-  const sensorRecoveryErrors = [...new Set([historyError, analyticsError]
-    .filter((detail): detail is string => Boolean(detail)))];
-  const auxiliaryHistoryVisible = sensorsOpen || continuityOpen;
   const analyticsNeeded = sensorsOpen || evidenceOpen || continuityOpen;
   const analyticsDataMode = props.dataMode === "real" ? "live" : "demo";
   const forecastCacheScope = [props.dataMode, props.house.id, refreshRevision, selectedSensorKey].join("\u0001");
@@ -446,56 +264,6 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
     }
   }, [metricSensors, selectedSensorIds]);
 
-  useEffect(() => {
-    if (!auxiliaryHistoryVisible) {
-      setLoading(false);
-      return;
-    }
-    const controller = new AbortController();
-    const to = new Date();
-    const from = new Date(to.getTime() - timeRangeHours(range) * 3_600_000);
-    const identity = `${props.house.id}\u0000${range}`;
-    if (historyIdentity.current !== identity) {
-      historyIdentity.current = identity;
-      setOutdoorHistory([]);
-      setElectricityPrices([]);
-      setSensorGaps([]);
-      setHistoryError(null);
-      setHistoryLoaded(false);
-    }
-    setLoading(true);
-    const outdoorRequest = api.outdoorTemperatureHistory(
-      props.house.id, from.toISOString(), to.toISOString(), 100_000, controller.signal,
-    ).then((outdoor) => {
-      if (!controller.signal.aborted) setOutdoorHistory(outdoor.samples);
-    });
-    const gapsRequest = api.sensorDataGaps(props.house.id, 500, controller.signal).then((gaps) => {
-      if (!controller.signal.aborted) setSensorGaps(gaps);
-    });
-    const pricesRequest = api.houseElectricityPrice(
-      props.house.id,
-      from.toISOString(),
-      new Date(to.getTime() + 48 * 3_600_000).toISOString(),
-      controller.signal,
-    ).then((prices) => {
-      if (!controller.signal.aborted) {
-        setElectricityPrices(prices.prices ?? (prices.current ? [prices.current] : []));
-      }
-    });
-    Promise.allSettled([outdoorRequest, gapsRequest, pricesRequest]).then(([outdoor, gaps, prices]) => {
-      if (controller.signal.aborted) return;
-      const failure = outdoor.status === "rejected"
-        ? outdoor.reason
-        : gaps.status === "rejected" ? gaps.reason : prices.status === "rejected" ? prices.reason : null;
-      setHistoryError(failure === null
-        ? null
-        : failure instanceof Error ? failure.message : t("analytics.loadFailed"));
-      setHistoryLoaded(true);
-    }).finally(() => {
-      if (!controller.signal.aborted) setLoading(false);
-    });
-    return () => controller.abort();
-  }, [auxiliaryHistoryVisible, props.house.id, range, refreshRevision, t]);
 
   const refresh = useCallback(() => {
     setRefreshRevision((value) => value + 1);
@@ -503,93 +271,50 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
   }, [weather.refresh]);
 
   const fromMs = now - timeRangeHours(range) * 3_600_000;
-  useEffect(() => {
-    if (analyticsIdentity.current !== analyticsRetentionIdentity) {
-      analyticsIdentity.current = analyticsRetentionIdentity;
-      setAnalytics(null);
-    }
-    if (!analyticsNeeded || props.dataMode === "unknown" || !selectedDefinition || selectedSensors.length === 0) {
-      setAnalyticsError(null);
-      setAnalyticsLoading(false);
-      return;
-    }
-    const controller = new AbortController();
-    const end = new Date();
-    const start = new Date(end.getTime() - timeRangeHours(range) * 3_600_000);
-    setAnalyticsLoading(true);
-    setAnalyticsError(null);
-    void api.analyticsQuery({
-      apiVersion: "1.0",
-      dataMode: analyticsDataMode,
-      scope: { kind: "house", id: props.house.id, entityIds: selectedSensors.map((sensor) => sensor.id) },
-      measurementIds: [metric],
-      range: { start: start.toISOString(), end: end.toISOString(), timezone: props.house.timezone },
-      resolution,
-      aggregation: resolution === "raw" ? "default" : aggregation,
-      qualityFilter: { include: qualitiesForPreset(qualityPreset) },
-      include: ["series", "summary", "quality", "provenance"],
-      maxPointsPerSeries: analyticsPointBudget(range),
-      requestId: analyticsRequestId,
-    }, controller.signal).then((result) => {
-      if (!controller.signal.aborted) setAnalytics(result);
-    }).catch((error: unknown) => {
-      if (controller.signal.aborted) return;
-      setAnalyticsError(error instanceof Error ? error.message : t("analytics.queryFailed"));
-    }).finally(() => {
-      if (!controller.signal.aborted) setAnalyticsLoading(false);
-    });
-    return () => controller.abort();
-  }, [aggregation, analyticsDataMode, analyticsNeeded, analyticsRequestId, analyticsRetentionIdentity, metric, props.dataMode, props.house.id, props.house.timezone, qualityPreset, range, refreshRevision, resolution, selectedDefinition, selectedSensorKey, t]);
-
-  useEffect(() => {
-    forecastCache.current.clear();
-    setChartForecasts({});
-  }, [forecastCacheScope]);
-
-  useEffect(() => {
-    if (!sensorsOpen || !analytics || analytics.requestId !== analyticsRequestId || !selectedDefinition?.forecastSupported) {
-      setChartForecasts({});
-      setForecastEvaluations({});
-      return;
-    }
-    const controller = new AbortController();
-    void (async () => {
-      const forecasts: MeasurementForecasts = {};
-      const evaluations: Record<string, MeasurementForecastEvaluation> = {};
-      const queue = selectedSensors.filter((sensor) => sensor.enabled);
-      let cursor = 0;
-      const worker = async () => {
-        while (!controller.signal.aborted) {
-          const sensor = queue[cursor++];
-          if (!sensor) return;
-          const cacheKey = `${forecastCacheScope}\u0000${sensor.id}\u0000${selectedDefinition.id}`;
-          const cached = forecastCache.current.get(cacheKey);
-          if (cached && cached.expiresAt > Date.now()) {
-            forecasts[sensor.id] = { [selectedDefinition.id]: cached.points };
-            if (cached.evaluation) evaluations[sensor.id] = cached.evaluation;
-            continue;
-          }
-          try {
-            const result = await api.measurementForecastWithEvaluation(sensor.id, selectedDefinition.id, 12, controller.signal);
-            if (controller.signal.aborted) return;
-            const points = result.forecast;
-            forecastCache.current.set(cacheKey, { expiresAt: Date.now() + 5 * 60_000, points, evaluation: result.evaluation ?? null });
-            forecasts[sensor.id] = { [selectedDefinition.id]: points };
-            if (result.evaluation) evaluations[sensor.id] = result.evaluation;
-          } catch {
-            if (controller.signal.aborted) return;
-            // Forecasts are optional supporting evidence; observed history remains usable.
-          }
-        }
+  const analyticsEnabled = analyticsNeeded && props.dataMode !== "unknown" && Boolean(selectedDefinition) && selectedSensors.length > 0;
+  const { query: analyticsQuery, data: analyticsData } = useExplorerAnalyticsQuery({
+    houseId: props.house.id,
+    retentionIdentity: analyticsRetentionIdentity,
+    requestId: analyticsRequestId,
+    enabled: analyticsEnabled,
+    request: () => {
+      const end = new Date();
+      const start = new Date(end.getTime() - timeRangeHours(range) * 3_600_000);
+      return {
+        apiVersion: "1.0",
+        dataMode: analyticsDataMode,
+        scope: { kind: "house", id: props.house.id, entityIds: selectedSensors.map((sensor) => sensor.id) },
+        measurementIds: [metric],
+        range: { start: start.toISOString(), end: end.toISOString(), timezone: props.house.timezone },
+        resolution,
+        aggregation: resolution === "raw" ? "default" : aggregation,
+        qualityFilter: { include: qualitiesForPreset(qualityPreset) },
+        include: ["series", "summary", "quality", "provenance"],
+        maxPointsPerSeries: analyticsPointBudget(range),
+        requestId: analyticsRequestId,
       };
-      await Promise.all(Array.from({ length: Math.min(2, queue.length) }, worker));
-      if (!controller.signal.aborted) {
-        setChartForecasts(forecasts);
-        setForecastEvaluations(evaluations);
-      }
-    })();
-    return () => controller.abort();
-  }, [analytics?.requestId, analyticsRequestId, forecastCacheScope, selectedDefinition?.forecastSupported, selectedDefinition?.id, selectedSensorKey, sensorsOpen]);
+    },
+  });
+  const analytics = analyticsData ?? null;
+  const analyticsError = analyticsEnabled && analyticsQuery.error
+    ? analyticsQuery.error instanceof Error ? analyticsQuery.error.message : t("analytics.queryFailed")
+    : null;
+  const analyticsLoading = analyticsEnabled && analyticsQuery.isFetching;
+  const sensorRecoveryErrors = [...new Set([historyError, analyticsError]
+    .filter((detail): detail is string => Boolean(detail)))];
+
+  // Optional forecasts start only once the observed batch for this exact selection has arrived.
+  const forecastsEnabled = sensorsOpen && analytics !== null && analytics.requestId === analyticsRequestId
+    && Boolean(selectedDefinition?.forecastSupported);
+  const forecastQuery = useExplorerForecastsQuery({
+    houseId: props.house.id,
+    scope: forecastCacheScope,
+    metric: selectedDefinition?.id ?? metric,
+    sensors: selectedSensors,
+    enabled: forecastsEnabled,
+  });
+  const chartForecasts = forecastsEnabled ? forecastQuery.data?.forecasts ?? NO_FORECASTS : NO_FORECASTS;
+  const forecastEvaluations = forecastsEnabled ? forecastQuery.data?.evaluations ?? NO_EVALUATIONS : NO_EVALUATIONS;
   const thresholdMs = chartGapThresholdMs(range);
   const visibleSensorGaps = useMemo(() => selectedSensors.flatMap((sensor) => {
     if (!sensor.enabled) return [];
@@ -878,7 +603,7 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
           <summary>
             <span className="analytics-tool-icon"><Database size={18} aria-hidden="true" /></span>
             <span className="analytics-tool-copy"><strong id="analytics-continuity-title">{t("analytics.continuityTitle")}</strong><small>{t("analytics.continuityDescription")}</small></span>
-            {historyLoaded && (analytics || analyticsError) && historyIdentity.current === `${props.house.id}\u0000${range}` && <span className={`analytics-gap-count ${historyError || analyticsError || visibleGapCount > 0 ? "warning" : "healthy"}`}><TriangleAlert size={14} aria-hidden="true" />{historyError || analyticsError ? t("analytics.continuityStale") : t("analytics.visibleGapCount", { count: visibleGapCount })}</span>}
+            {historyLoaded && (analytics || analyticsError) && <span className={`analytics-gap-count ${historyError || analyticsError || visibleGapCount > 0 ? "warning" : "healthy"}`}><TriangleAlert size={14} aria-hidden="true" />{historyError || analyticsError ? t("analytics.continuityStale") : t("analytics.visibleGapCount", { count: visibleGapCount })}</span>}
             <ChevronDown className="analytics-tool-chevron" size={18} aria-hidden="true" />
           </summary>
           <section className="analytics-continuity-panel analytics-tool-content" aria-labelledby="analytics-continuity-title">

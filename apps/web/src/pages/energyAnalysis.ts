@@ -6,7 +6,7 @@ import type {
   MeasurementSample,
   Sensor,
 } from "@climate-twin/contracts";
-import { POWER_HOLD_MS, counterIncrement, wattMillisecondsToKwh } from "@climate-twin/analytics-kernel";
+import { POWER_HOLD_MS, counterIncrement, wattMillisecondsToKwh, maximum, minimum } from "@climate-twin/analytics-kernel";
 import type { ClimateState } from "../domain";
 import type { SeriesPoint } from "../components/SensorAnalyticsPlot";
 
@@ -180,7 +180,7 @@ export function aggregateCumulativeSeries(
   for (const item of series) {
     for (const point of item.points) timestamps.add(Math.ceil(point.timestamp / bucketMs) * bucketMs);
   }
-  const latestAvailableTimestamp = Math.max(...series.flatMap((item) => item.points.map((point) => point.timestamp)));
+  const latestAvailableTimestamp = (maximum(series.flatMap((item) => item.points.map((point) => point.timestamp))) ?? Number.NEGATIVE_INFINITY);
   const cursors = new Map<string, number>();
   return [...timestamps].sort((left, right) => left - right).flatMap((timestamp) => {
     const bucketEnd = Math.min(timestamp, latestAvailableTimestamp);
@@ -196,8 +196,8 @@ export function aggregateCumulativeSeries(
     return [{
       timestamp: bucketEnd,
       value: values.reduce((sum, value) => sum + value, 0),
-      low: Math.min(...values),
-      high: Math.max(...values),
+      low: (minimum(values) ?? Number.POSITIVE_INFINITY),
+      high: (maximum(values) ?? Number.NEGATIVE_INFINITY),
       sensorCount: values.length,
     }];
   });

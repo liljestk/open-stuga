@@ -14,7 +14,7 @@ import type {
 import { DEFAULT_HEATING_BASE_TEMPERATURE_C, heatingBaseTemperature } from "../house-parameters.js";
 import { dailyEnergy, heatingRegression, slopeComparison, studentT95 } from "./energy-index.js";
 import { ENERGY_MIN_BUCKET_COVERAGE, HOUR_MS, HomePerformanceEnergy, HomePerformanceInput, HomePerformanceMaintenance, HomePerformanceOpeningEffectiveness, HomePerformanceRecovery, RECOVERY_MAX_POINT_GAP_MS, RECOVERY_MIN_BUCKET_COVERAGE, RecoveryEvidence, ValuePoint, absoluteHumidity, compareStable, contiguousRecoveryEvidence, median, resolutionHours, round, seriesFor, values } from "./model.js";
-import { averageWattsToKwh } from "@climate-twin/analytics-kernel";
+import { averageWattsToKwh, minimum as kernelMinimum } from "@climate-twin/analytics-kernel";
 import { deriveOpeningActivity } from "../temporal/opening-intervals.js";
 
 export function moistureRecoveryResult(
@@ -145,7 +145,7 @@ export function openingEffectivenessResult(
       }
       const after = continuous.filter((point) => point.time >= openedAt + 15 * 60_000);
       if (after.length < 2) return [];
-      const minimum = Math.min(...after.map((point) => point.value));
+      const minimum = (kernelMinimum(after.map((point) => point.value)) ?? Number.POSITIVE_INFINITY);
       const drop = baseline.value - minimum;
       const halfway = baseline.value - Math.max(0, drop) / 2;
       const cleared = drop >= candidate.threshold

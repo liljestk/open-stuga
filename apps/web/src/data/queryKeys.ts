@@ -25,6 +25,15 @@ export const queryKeys = {
   homeEnergySummary: (houseId: string, intervalId: string, durationMs: number) => (
     ["house", houseId, "energy-summary", intervalId, durationMs] as const
   ),
+  analyticsExplorerContext: (houseId: string, range: string) => (
+    ["house", houseId, "analytics-explorer-context", range] as const
+  ),
+  analyticsExplorer: (houseId: string, retentionIdentity: string, requestId: string) => (
+    ["house", houseId, "analytics-explorer", retentionIdentity, requestId] as const
+  ),
+  analyticsExplorerForecasts: (houseId: string, scope: string, metric: string) => (
+    ["house", houseId, "analytics-explorer-forecasts", scope, metric] as const
+  ),
   homeEnergyProjection: (houseId: string) => (
     ["house", houseId, "energy-projection"] as const
   ),

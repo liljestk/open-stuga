@@ -1,3 +1,4 @@
+import { maximum, minimum } from "@climate-twin/analytics-kernel";
 import { useId, useMemo, useState } from "react";
 import { Activity, BrainCircuit, ChevronDown, CloudSun, GitCompareArrows, TriangleAlert, X } from "lucide-react";
 import type {
@@ -195,8 +196,8 @@ export function aggregateObservedSeries(
     return {
       timestamp,
       value: values.reduce((sum, value) => sum + value, 0) / (aggregate === "mean" ? values.length : 1),
-      low: Math.min(...values),
-      high: Math.max(...values),
+      low: (minimum(values) ?? Number.POSITIVE_INFINITY),
+      high: (maximum(values) ?? Number.NEGATIVE_INFINITY),
       sensorCount: values.length,
     };
   });

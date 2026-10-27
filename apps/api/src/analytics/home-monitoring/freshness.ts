@@ -1,3 +1,4 @@
+import { minimum } from "@climate-twin/analytics-kernel";
 import type {
   AlertEvent,
   AlertRule,
@@ -377,7 +378,7 @@ export function warningIsCurrent(warning: WeatherWarning, nowMs: number): boolea
   const starts = [warning.effectiveAt, warning.onsetAt]
     .flatMap((value) => value ? [Date.parse(value)] : [])
     .filter(Number.isFinite);
-  if (starts.length && Math.min(...starts) > nowMs) return false;
+  if (starts.length && (minimum(starts) ?? Number.POSITIVE_INFINITY) > nowMs) return false;
   const expires = warning.expiresAt ? Date.parse(warning.expiresAt) : Number.NaN;
   return !Number.isFinite(expires) || expires >= nowMs;
 }

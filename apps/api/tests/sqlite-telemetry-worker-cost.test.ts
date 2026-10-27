@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { ClimateDatabase } from "../src/db.js";
 import { HybridTelemetryReader } from "../src/timeseries/read-facade.js";
-import { LocalCostIsolate } from "../src/timeseries/local-cost-isolate.js";
+import { LocalTelemetryWorker } from "../src/timeseries/local-telemetry-worker.js";
 
 const from = "2026-09-01T00:00:00.000Z";
 const query = { sensorId: "sensor-01", propertyId: "property-main", from,
@@ -67,7 +67,7 @@ describe("isolated local electricity costs", () => {
 
   it("cancels both queued and running reads without poisoning the next query", async () => {
     const context = fixture(24);
-    const worker = new LocalCostIsolate(context.path);
+    const worker = new LocalTelemetryWorker(context.path);
     try {
       const running = new AbortController();
       const queued = new AbortController();
@@ -83,7 +83,7 @@ describe("isolated local electricity costs", () => {
 
   it("bounds scan duration and shuts down queued work", async () => {
     const context = fixture(24);
-    const worker = new LocalCostIsolate(context.path, 1);
+    const worker = new LocalTelemetryWorker(context.path, 1);
     try {
       await expect(worker.read("energy", query)).rejects.toMatchObject({ code: "LOCAL_COST_TIMEOUT" });
       const reads = Promise.allSettled([worker.read("energy", query), worker.read("power", query)]);

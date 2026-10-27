@@ -1,3 +1,4 @@
+import { maximum, minimum } from "@climate-twin/analytics-kernel";
 import type {
   ActionRun,
   AnalyticsPoint,
@@ -50,13 +51,13 @@ export function sensorHealthResult(input: HomePerformanceInput): HomePerformance
       const definition = definitionFor(input.definitions, item.measurementId);
       const flatlineThreshold = Math.max(0.01, (definition?.interpolationDelta ?? 1) * 0.2);
       if (item.summary.coverage >= 0.75 && pointValues.length >= 24
-        && Math.max(...pointValues) - Math.min(...pointValues) <= flatlineThreshold) {
+        && (maximum(pointValues) ?? Number.NEGATIVE_INFINITY) - (minimum(pointValues) ?? Number.POSITIVE_INFINITY) <= flatlineThreshold) {
         issues.push({
           code: "flatline",
           sensorId: sensor.id,
           sensorName: sensor.name,
           metric: item.measurementId,
-          value: round(Math.max(...pointValues) - Math.min(...pointValues), definition?.precision ?? 1),
+          value: round((maximum(pointValues) ?? Number.NEGATIVE_INFINITY) - (minimum(pointValues) ?? Number.POSITIVE_INFINITY), definition?.precision ?? 1),
           unit: definition?.unit ?? "",
         });
       }

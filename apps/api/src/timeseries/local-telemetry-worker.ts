@@ -3,13 +3,13 @@ import { fileURLToPath } from "node:url";
 import type { MeasurementSample } from "@climate-twin/contracts";
 import { AnalyticsWorkLimiter } from "../analytics/work-limiter.js";
 import type { EnergyCostAggregateQuery, EnergyCostAggregateRecord, MeasurementWindowQuery, ThermalMeasurementHistoryQuery } from "./types.js";
-import type { LocalBucketQuery, LocalSensorPageQuery, LocalCostWorkerOperation, LocalCostWorkerRequest } from "./local-cost-worker.js";
+import type { LocalBucketQuery, LocalSensorPageQuery, LocalTelemetryWorkerOperation, LocalTelemetryWorkerRequest } from "./local-telemetry-worker-thread.js";
 import type { ExportTable, DatabaseIntegrityResult } from "../db/inspection.js";
 import type { LocalPowerProfileQuery, PowerProfile } from "./read-power-profile.js";
 
 type Reply = { id: number; ok: true; result: unknown } | { id: number; ok: false };
 const sourceRuntime = fileURLToPath(import.meta.url).endsWith(".ts");
-const workerUrl = new URL(sourceRuntime ? "./local-cost-worker.ts" : "./local-cost-worker.js", import.meta.url);
+const workerUrl = new URL(sourceRuntime ? "./local-telemetry-worker-thread.ts" : "./local-telemetry-worker-thread.js", import.meta.url);
 
 export class LocalTelemetryTimeoutError extends Error {
   readonly code: "LOCAL_HISTORY_TIMEOUT" | "LOCAL_COST_TIMEOUT";
@@ -21,7 +21,7 @@ export class LocalTelemetryTimeoutError extends Error {
 }
 
 /** Cost and history scans share one bounded read-only worker per database. */
-export class LocalCostIsolate {
+export class LocalTelemetryWorker {
   readonly #limiter = new AnalyticsWorkLimiter({ maxConcurrent: 1, maxQueued: 8 });
   readonly #shutdown = new AbortController();
   #worker: Worker | null = null;
@@ -66,7 +66,7 @@ export class LocalCostIsolate {
     return this.#run({ metric: "thermal", query: serializableQuery }, signal);
   }
 
-  #run<Result>(operation: LocalCostWorkerOperation, callerSignal?: AbortSignal): Promise<Result> {
+  #run<Result>(operation: LocalTelemetryWorkerOperation, callerSignal?: AbortSignal): Promise<Result> {
     const signal = callerSignal
       ? AbortSignal.any([callerSignal, this.#shutdown.signal]) : this.#shutdown.signal;
     return this.#limiter.run(`sqlite-${operation.metric}`,
@@ -80,11 +80,11 @@ export class LocalCostIsolate {
     if (worker) void worker.terminate();
   }
 
-  #read<Result>(operation: LocalCostWorkerOperation, signal: AbortSignal): Promise<Result> {
+  #read<Result>(operation: LocalTelemetryWorkerOperation, signal: AbortSignal): Promise<Result> {
     signal.throwIfAborted();
     const worker = this.#worker ??= this.#createWorker();
     worker.ref();
-    const request: LocalCostWorkerRequest = { ...operation, id: ++this.#nextId };
+    const request: LocalTelemetryWorkerRequest = { ...operation, id: ++this.#nextId };
     const history = operation.metric !== "energy" && operation.metric !== "power";
     return new Promise((resolve, reject) => {
       let settled = false;

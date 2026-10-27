@@ -1,3 +1,4 @@
+import { maximum, minimum } from "@climate-twin/analytics-kernel";
 import { useId, useMemo, useState } from "react";
 import type { MeasurementDefinition, MeasurementForecastPoint, MeasurementSample, Sensor, UnitSystem } from "@climate-twin/contracts";
 import { type TimeRange } from "../domain";
@@ -40,8 +41,8 @@ export function timelineValueDomain(
   const finiteValues = values.filter(Number.isFinite);
   if (!finiteValues.length) return null;
 
-  const actualMin = Math.min(...finiteValues);
-  const actualMax = Math.max(...finiteValues);
+  const actualMin = (minimum(finiteValues) ?? Number.POSITIVE_INFINITY);
+  const actualMax = (maximum(finiteValues) ?? Number.NEGATIVE_INFINITY);
   const actualSpan = actualMax - actualMin;
   const labelStep = 10 ** -definition.precision;
   let targetSpan = Math.max(
@@ -152,7 +153,7 @@ export function TrendChart({ sensor, history, forecast, definition, units, range
     summarizePoint(t("chart.predicted"), latestPoint(series.predicted)),
   ].filter(Boolean).join(". ");
   const dataRows = dataOpen ? [...all].sort((left, right) => left.timestamp - right.timestamp) : [];
-  const observedStart = series.observed.length ? Math.min(...series.observed.map((point) => point.timestamp)) : null;
+  const observedStart = series.observed.length ? (minimum(series.observed.map((point) => point.timestamp)) ?? Number.POSITIVE_INFINITY) : null;
   const coverageStart = loadState?.loadedFrom ? Date.parse(loadState.loadedFrom) : observedStart;
   const coverageIsPartial = loadState?.partial === true
     || (coverageStart !== null && Number.isFinite(coverageStart) && coverageStart > requestedStart + rangeHours * 36_000);
