@@ -32,6 +32,7 @@ import type {
   TrackingProfileManifest,
   TrackedEquipmentState,
 } from "@climate-twin/contracts";
+import { expectShape, isForecastSeriesResponse } from "@climate-twin/contracts";
 import { API_BASE, completeCollection, entity, houseResponse, list, memberSummary, request, requestV2, sensorResponse, updateHouseGeoreference } from "./support";
 import type { CreateHouseInput, CreateSensorInput, HousePatch, OutdoorTemperatureHistoryPage, SensorPatch, TenantMembersResponse } from "./support";
 import { withSignal } from "./support/signal";
@@ -195,10 +196,11 @@ export const apiPart02 = {
       await request<unknown>(`/readings?sensorId=${encodeURIComponent(sensorId)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&limit=${limit}`, withSignal(signal)),
       ["readings", "data"],
     ),
-  forecast: async (sensorId: string, horizonMinutes = 360, signal?: AbortSignal) => list<ForecastPoint>(
-      await request<unknown>(`/forecast?sensorId=${encodeURIComponent(sensorId)}&horizonMinutes=${horizonMinutes}`, withSignal(signal)),
-      ["forecast", "points", "data"],
-    ),
+  forecast: async (sensorId: string, horizonMinutes = 360, signal?: AbortSignal): Promise<ForecastPoint[]> => {
+    const endpoint = `/forecast?sensorId=${encodeURIComponent(sensorId)}&horizonMinutes=${horizonMinutes}`;
+    const body = expectShape(await request<unknown>(endpoint, withSignal(signal)), isForecastSeriesResponse, endpoint);
+    return body.series.find((series) => series.sensorId === sensorId)?.forecast ?? [];
+  },
   updateHouseGeoreference,
   updateHouseLocation: (houseId: string, location: HouseLocation | null) => updateHouseGeoreference(houseId, { location }),
   houseWeather: async (houseId: string, hours = 48, signal?: AbortSignal) => {

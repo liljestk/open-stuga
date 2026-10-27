@@ -324,26 +324,30 @@ export async function getHomePerformance(
       }),
     ]), input.signal);
   input.signal?.throwIfAborted();
-  const evidence = [
-    climateEvidence,
-    recoveryEvidence,
-    energyEvidence,
-    outdoorEvidence,
-    openingsEvidence,
-  ] as const;
-  const warnings: HomePerformanceResponse["warnings"] = evidence.flatMap((result, index) => (
-    result.status === "rejected"
-      ? [warningFor(result.reason, ["climate", "recovery", "energy", "outdoor", "openings"][index]!)]
-      : []
+  // Named, so each failed read's warning names the source it came from.
+  const evidence = {
+    climate: climateEvidence,
+    recovery: recoveryEvidence,
+    energy: energyEvidence,
+    outdoor: outdoorEvidence,
+    openings: openingsEvidence,
+  };
+  const warnings: HomePerformanceResponse["warnings"] = Object.entries(evidence).flatMap(([source, result]) => (
+    result.status === "rejected" ? [warningFor(result.reason, source)] : []
   ));
   const fulfilled = <T>(result: PromiseSettledResult<T>): T | null => (
     result.status === "fulfilled" ? result.value : null
   );
-  const climate = fulfilled(evidence[0]);
-  const recovery = fulfilled(evidence[1]);
-  const energy = fulfilled(evidence[2]);
-  const outdoorRead = fulfilled(evidence[3]);
-  const openingReads = fulfilled(evidence[4]);
+  const climate = fulfilled(evidence.climate);
+  const recovery = fulfilled(evidence.recovery);
+  const energy = fulfilled(evidence.energy);
+  const outdoorRead = fulfilled(evidence.outdoor);
+  const openingReads = fulfilled(evidence.openings);
+  const truncated = (source: string, label: string, limit: number) => warnings.push({
+    code: "HOME_PERFORMANCE_EVIDENCE_TRUNCATED",
+    message: `${label} evidence reached its server limit.`,
+    details: { source, limit },
+  });
   const recoveryPoints = recovery?.series.flatMap((series) => series.points
     .filter((point) => point.value !== null && Number.isFinite(point.value))) ?? [];
   const retainedRecoveryPoints = recoveryPoints.filter((point) => (
@@ -360,20 +364,8 @@ export async function getHomePerformance(
     && (openingReads[0].records.length >= OPENING_LIMIT
       || openingReads[1].records.length >= OPENING_LIMIT),
   );
-  if (outdoorTruncated) {
-    warnings.push({
-      code: "HOME_PERFORMANCE_EVIDENCE_TRUNCATED",
-      message: "Outdoor evidence reached its server limit.",
-      details: { source: "outdoor", limit: OUTDOOR_LIMIT },
-    });
-  }
-  if (openingTruncated) {
-    warnings.push({
-      code: "HOME_PERFORMANCE_EVIDENCE_TRUNCATED",
-      message: "Opening evidence reached its server limit.",
-      details: { source: "openings", limit: OPENING_LIMIT },
-    });
-  }
+  if (outdoorTruncated) truncated("outdoor", "Outdoor", OUTDOOR_LIMIT);
+  if (openingTruncated) truncated("openings", "Opening", OPENING_LIMIT);
   const openings = openingReads && !openingTruncated
     ? [...new Map(
         [...openingReads[0].records, ...openingReads[1].records]
@@ -384,13 +376,7 @@ export async function getHomePerformance(
     houseId: input.house.id,
     limit: ACTION_RUN_LIMIT,
   });
-  if (actionRuns.length >= ACTION_RUN_LIMIT) {
-    warnings.push({
-      code: "HOME_PERFORMANCE_EVIDENCE_TRUNCATED",
-      message: "Action evidence reached its server limit.",
-      details: { source: "actions", limit: ACTION_RUN_LIMIT },
-    });
-  }
+  if (actionRuns.length >= ACTION_RUN_LIMIT) truncated("actions", "Action", ACTION_RUN_LIMIT);
   const result = deriveHomePerformance({
     house: input.house,
     sensors,

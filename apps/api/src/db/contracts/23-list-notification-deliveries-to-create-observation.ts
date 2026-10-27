@@ -15,6 +15,7 @@ import "../core.js";
 declare module "../core.js" {
   interface DatabaseInternals {
     listNotificationDeliveries(limit?: number): NotificationDeliveryStatus[];
+    getNotificationDelivery(id: string): NotificationDeliveryStatus | null;
     retryNotificationDelivery(id: string, at?: Date): boolean;
     releaseNotificationOutbox(id: string, lockToken: string, availableAt?: Date): boolean;
     abandonNotificationOutbox(id: string, lockToken: string, reason: string, abandonedAt?: Date): boolean;
@@ -49,6 +50,7 @@ declare module "../core.js" {
 
   interface ClimateDatabaseCore {
     listNotificationDeliveries(limit?: number): NotificationDeliveryStatus[];
+    getNotificationDelivery(id: string): NotificationDeliveryStatus | null;
     retryNotificationDelivery(id: string, at?: Date): boolean;
     releaseNotificationOutbox(id: string, lockToken: string, availableAt?: Date): boolean;
     abandonNotificationOutbox(id: string, lockToken: string, reason: string, abandonedAt?: Date): boolean;

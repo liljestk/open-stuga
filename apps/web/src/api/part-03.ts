@@ -58,7 +58,7 @@ import type {
   TelegramDiscoveryResult,
   TpLinkDiscoveredDevice,
 } from "@climate-twin/contracts";
-import { expectShape, isAnalyticsDiagnostics } from "@climate-twin/contracts";
+import { expectShape, isAnalyticsDiagnostics, isNotificationDeliveryList, isNotificationDeliveryStatus } from "@climate-twin/contracts";
 import { API_BASE, completeCollection, entity, list, observationResponse, request, requestV2 } from "./support";
 import type { AppleNotesSetupMetadata, CoordinateDefaults, LocationSuggestion, MaintenanceTaskFilters, TpLinkHistoryExportJob, TpLinkHistoryExportJobsResponse } from "./support";
 import { discoverIntegrationsInBackground, latestIntegrationDiscovery, resumeIntegrationDiscovery } from "./integration-discovery";
@@ -73,15 +73,16 @@ export const apiPart03 = {
     },
   alerts: async (schedulingClass: ApiReadSchedulingClass = "background") => list<AlertEvent>(await request<unknown>("/alerts", { schedulingClass }), ["alerts", "events", "data"]),
   acknowledgeAlert: (id: string) => request<AlertEvent>(`/alerts/${encodeURIComponent(id)}/acknowledge`, { method: "POST" }),
-  notificationDeliveries: async (options: { subjectKind?: string; subjectId?: string; deadLettersOnly?: boolean; limit?: number } = {}) => {
-      const query = new URLSearchParams();
-      if (options.subjectKind) query.set("subjectKind", options.subjectKind);
-      if (options.subjectId) query.set("subjectId", options.subjectId);
-      if (options.deadLettersOnly) query.set("deadLettersOnly", "true");
-      if (options.limit) query.set("limit", String(options.limit));
-      return list<NotificationDeliveryStatus>(await request<unknown>(`/notification-deliveries${query.size ? `?${query}` : ""}`), ["deliveries", "data"]);
+  notificationDeliveries: async (options: { limit?: number } = {}): Promise<NotificationDeliveryStatus[]> => {
+      const endpoint = `/notification-deliveries${options.limit ? `?limit=${options.limit}` : ""}`;
+      const body = await request<{ deliveries?: unknown }>(endpoint);
+      return expectShape(body.deliveries, isNotificationDeliveryList, endpoint);
     },
-  retryNotificationDelivery: async (id: string) => entity(await request<NotificationDeliveryStatus | { delivery: NotificationDeliveryStatus }>(`/notification-deliveries/${encodeURIComponent(id)}/retry`, { method: "POST" }), "delivery"),
+  retryNotificationDelivery: async (id: string): Promise<NotificationDeliveryStatus> => {
+      const endpoint = `/notification-deliveries/${encodeURIComponent(id)}/retry`;
+      const body = await request<{ delivery?: unknown }>(endpoint, { method: "POST" });
+      return expectShape(body.delivery, isNotificationDeliveryStatus, endpoint);
+    },
   actionPlaybooks: async (metric?: string) => list<ActionPlaybook>(await request<unknown>(`/action-playbooks${metric ? `?metric=${encodeURIComponent(metric)}` : ""}`), ["playbooks", "data"]),
   alertActionPlaybooks: async (alertId: string) => list<ActionPlaybook>(await request<unknown>(`/alerts/${encodeURIComponent(alertId)}/action-playbooks`), ["playbooks", "data"]),
   actionRuns: async (

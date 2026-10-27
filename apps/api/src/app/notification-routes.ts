@@ -93,12 +93,13 @@ export function registerNotificationRoutes(context: ApiRouteRegistrationContext)
       response.json({ deliveries });
     });
   context.app.post(`${context.prefix}/notification-deliveries/:id/retry`, requireWorkspaceAdmin, (request, response) => {
-      if (!context.database.retryNotificationDelivery(request.params.id as string)) {
+      const id = request.params.id as string;
+      if (!context.database.retryNotificationDelivery(id)) {
         throw new HttpError(409, "NOT_RETRYABLE", "Notification delivery is not dead-lettered or abandoned");
       }
       context.notificationOutbox.wake();
-      const delivery = context.database.listNotificationDeliveries(500)
-        .find((candidate) => candidate.id === request.params.id);
-      response.json({ delivery: delivery ? { ...delivery, canRetry: false } : delivery });
+      const delivery = context.database.getNotificationDelivery(id);
+      if (!delivery) throw new HttpError(404, "NOT_FOUND", "Notification delivery not found");
+      response.json({ delivery: { ...delivery, canRetry: false } });
     });
 }

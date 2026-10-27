@@ -344,6 +344,12 @@ describe("Climate Twin API v1", () => {
       expect(point.humidity).toBeLessThanOrEqual(100);
       expect(point.temperatureLow).toBeLessThan(point.temperatureHigh);
     }
+    expect(response.body.forecast).toEqual(response.body.series[0].forecast);
+  });
+
+  it("answers 404 for a single requested sensor that does not exist", async () => {
+    const response = await request(runtime.app).get("/api/v1/forecast?sensorId=no-such-sensor").expect(404);
+    expect(response.body.error.code).toBe("UNKNOWN_SENSOR");
   });
 
   it("stores manual observations, static context, and binary twin assets", async () => {

@@ -20,28 +20,41 @@ import { actionPlaybookFromRow } from "../support/04-canonical-json-value-to-act
 import { actionRunFromRow, canonicalObservationCreateTime, observationFromRow, observationRevisionFromRow } from "../support/05-action-run-from-row-to-canonical-observation-create-.js";
 import { registerDatabaseMethods } from "../core.js";
 
+// Deliveries whose alert belongs to a deleted house are hidden everywhere.
+const VISIBLE_DELIVERIES = `SELECT id, subject_kind, subject_id, stage, sequence, channel, destination_id, attempts, max_attempts,
+    available_at, created_at, delivered_at, dead_lettered_at, abandoned_at, last_error
+  FROM notification_outbox
+  WHERE (subject_kind <> 'alert' OR EXISTS (
+    SELECT 1 FROM alert_events AS event
+    JOIN sensors AS sensor ON sensor.id = event.sensor_id
+    JOIN houses AS house ON house.id = sensor.house_id
+    WHERE event.id = notification_outbox.subject_id AND house.deleted_at IS NULL
+  ))`;
+
+interface DeliveryRow {
+  id: string; subject_kind: NotificationSubjectKind; subject_id: string; stage: NotificationDeliveryStage; sequence: number;
+  channel: NotificationChannel; destination_id: string; attempts: number; max_attempts: number; available_at: string;
+  created_at: string; delivered_at: string | null; dead_lettered_at: string | null;
+  abandoned_at: string | null; last_error: string | null;
+}
+
+function deliveryFromRow(row: DeliveryRow): NotificationDeliveryStatus {
+  return {
+    id: row.id, subjectKind: row.subject_kind, subjectId: row.subject_id, stage: row.stage, sequence: row.sequence,
+    channel: row.channel, destinationId: row.destination_id, attempts: row.attempts, maxAttempts: row.max_attempts,
+    availableAt: row.available_at, createdAt: row.created_at, deliveredAt: row.delivered_at,
+    deadLetteredAt: row.dead_lettered_at, abandonedAt: row.abandoned_at, lastError: row.last_error,
+  };
+}
+
 registerDatabaseMethods({
   listNotificationDeliveries(limit = 200): NotificationDeliveryStatus[] {
-      return (this.db.prepare(`SELECT id, subject_kind, subject_id, stage, sequence, channel, destination_id, attempts, max_attempts,
-          available_at, created_at, delivered_at, dead_lettered_at, abandoned_at, last_error
-        FROM notification_outbox
-        WHERE subject_kind <> 'alert' OR EXISTS (
-          SELECT 1 FROM alert_events AS event
-          JOIN sensors AS sensor ON sensor.id = event.sensor_id
-          JOIN houses AS house ON house.id = sensor.house_id
-          WHERE event.id = notification_outbox.subject_id AND house.deleted_at IS NULL
-        )
-        ORDER BY created_at DESC LIMIT ?`).all(boundedCollectionLimit(limit)) as Array<{
-          id: string; subject_kind: NotificationSubjectKind; subject_id: string; stage: NotificationDeliveryStage; sequence: number;
-          channel: NotificationChannel; destination_id: string; attempts: number; max_attempts: number; available_at: string;
-          created_at: string; delivered_at: string | null; dead_lettered_at: string | null;
-          abandoned_at: string | null; last_error: string | null;
-        }>).map((row) => ({
-          id: row.id, subjectKind: row.subject_kind, subjectId: row.subject_id, stage: row.stage, sequence: row.sequence,
-          channel: row.channel, destinationId: row.destination_id, attempts: row.attempts, maxAttempts: row.max_attempts,
-          availableAt: row.available_at, createdAt: row.created_at, deliveredAt: row.delivered_at,
-          deadLetteredAt: row.dead_lettered_at, abandonedAt: row.abandoned_at, lastError: row.last_error,
-        }));
+      return (this.db.prepare(`${VISIBLE_DELIVERIES} ORDER BY created_at DESC LIMIT ?`)
+        .all(boundedCollectionLimit(limit)) as unknown as DeliveryRow[]).map(deliveryFromRow);
+    },
+  getNotificationDelivery(id: string): NotificationDeliveryStatus | null {
+      const row = this.db.prepare(`${VISIBLE_DELIVERIES} AND id = ?`).get(id) as DeliveryRow | undefined;
+      return row ? deliveryFromRow(row) : null;
     },
   retryNotificationDelivery(id: string, at = new Date()): boolean {
       return Number(this.db.prepare(`UPDATE notification_outbox SET attempts = 0, available_at = ?, locked_at = NULL,

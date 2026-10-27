@@ -1,4 +1,5 @@
 import type express from "express";
+import type { ForecastSeriesResponse } from "@climate-twin/contracts";
 import type { ClimateDatabase } from "../../db.js";
 import { forecast, forecastMeasurementWithEvaluation } from "../../services.js";
 import type { HybridTelemetryReader } from "../../timeseries/read-facade.js";
@@ -50,6 +51,11 @@ export function registerForecastRoutes(context: ForecastRouteContext): void {
   context.app.get(`${context.prefix}/forecast`, async (request, response) => {
     const sensorIds = queryList(request.query.sensorId);
     const access = context.visibility(response);
+    // One explicitly requested sensor answers like v2: missing or hidden is 404,
+    // never an empty body whose shape depends on visibility.
+    if (sensorIds.length === 1 && (!context.database.getSensor(sensorIds[0]!) || !access.sensor(sensorIds[0]!))) {
+      throw new HttpError(404, "UNKNOWN_SENSOR", "Sensor not found");
+    }
     const selected = (sensorIds.length ? sensorIds : context.database.listSensors().map((sensor) => sensor.id))
       .filter((sensorId) => access.sensor(sensorId));
     const horizonMinutes = safeInteger(request.query.horizonMinutes, 0, 0, 10_080);
@@ -58,6 +64,12 @@ export function registerForecastRoutes(context: ForecastRouteContext): void {
       sensorId,
       forecast: await forecast(context.database, sensorId, hours, context.telemetryReader),
     })));
-    response.json({ generatedAt: new Date().toISOString(), model: "backtested-v2", series, ...(series.length === 1 ? { forecast: series[0]?.forecast ?? [] } : {}) });
+    const body: ForecastSeriesResponse = {
+      generatedAt: new Date().toISOString(),
+      model: "backtested-v2",
+      series,
+      ...(sensorIds.length === 1 ? { forecast: series[0]!.forecast } : {}),
+    };
+    response.json(body);
   });
 }

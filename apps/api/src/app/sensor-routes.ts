@@ -1,3 +1,4 @@
+import type { Request, Response } from "express";
 import type { Sensor } from "@climate-twin/contracts";
 import { HttpError, bodyObject, enumValue, measurementStringMap, optionalBoolean, optionalString, parseSensorPatch, requiredNumber, requiredString } from "./support/index.js";
 import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
@@ -5,22 +6,11 @@ import type { ApiRouteRegistrationContext } from "./route-registration-context.j
 /** Sensor CRUD, sensor labels and the sensor snapshot views. */
 export function registerSensorRoutes(context: ApiRouteRegistrationContext): void {
   context.app.get(`${context.prefix}/sensors/snapshots`, (request, response) => {
-      const access = context.visibility(response);
-      const sensors = context.database.listSensors(typeof request.query.houseId === "string" ? request.query.houseId : undefined)
-        .filter((sensor) => access.sensor(sensor.id));
-      const selected = new Set(sensors.map((sensor) => sensor.id));
-      const latest = new Map(context.cachedLatestReadings().filter((reading) => selected.has(reading.sensorId))
-        .map((reading) => [reading.sensorId, reading]));
-      response.json({ sensors: sensors.map((sensor) => ({ ...sensor, reading: latest.get(sensor.id) ?? null })) });
+      response.json({ sensors: visibleSensorSnapshots(context, request, response) });
     });
+  // Compatibility path documented as listSnapshotCompatibility.
   context.app.get(`${context.prefix}/snapshot`, (request, response) => {
-      const access = context.visibility(response);
-      const sensors = context.database.listSensors(typeof request.query.houseId === "string" ? request.query.houseId : undefined)
-        .filter((sensor) => access.sensor(sensor.id));
-      const selected = new Set(sensors.map((sensor) => sensor.id));
-      const latest = new Map(context.cachedLatestReadings().filter((reading) => selected.has(reading.sensorId))
-        .map((reading) => [reading.sensorId, reading]));
-      response.json({ snapshot: sensors.map((sensor) => ({ ...sensor, reading: latest.get(sensor.id) ?? null })) });
+      response.json({ snapshot: visibleSensorSnapshots(context, request, response) });
     });
   context.app.get(`${context.prefix}/sensors`, (request, response) => {
       const houseId = typeof request.query.houseId === "string" ? request.query.houseId : undefined;
@@ -47,76 +37,11 @@ export function registerSensorRoutes(context: ApiRouteRegistrationContext): void
       response.json({ sensor, reading: context.database.getLatestReading(sensor.id) });
     });
   context.app.patch(`${context.prefix}/sensors/:id`, (request, response) => {
-      const current = context.database.getSensor(request.params.id as string);
-      if (current) context.stuguby.assertHouseWriteAllowed(current.houseId);
-      if (current?.tags.includes("integration:gree")) {
-        throw new HttpError(409, "SENSOR_MANAGED_BY_INTEGRATION", "Manage this heat-pump sensor from Set up");
-      }
-      const patch = parseSensorPatch(request.body);
-      if (patch.tags?.includes("integration:gree")) {
-        throw new HttpError(400, "RESERVED_SENSOR_TAG", "The Gree sensor tag is managed by the heat-pump connection");
-      }
-      if (current && patch.houseId && patch.houseId !== current.houseId) {
-        context.stuguby.assertHouseWriteAllowed(patch.houseId);
-        context.assertSensorHouseMoveAllowed(current.houseId, patch.houseId);
-      }
-      if (current && ["temperatureEntityId", "humidityEntityId", "batteryEntityId", "tpLinkDeviceId", "tpLinkConnectionId", "measurementEntityIds"]
-        .some((field) => Object.hasOwn(patch, field))) context.stuguby.assertHouseLocalAuthority(current.houseId);
-      if (current && (Object.hasOwn(patch, "houseId") || Object.hasOwn(patch, "tpLinkDeviceId") || Object.hasOwn(patch, "tpLinkConnectionId"))) {
-        const candidate = { ...current, ...patch };
-        if (patch.tpLinkDeviceId === null) {
-          delete candidate.tpLinkDeviceId;
-          delete candidate.tpLinkConnectionId;
-        }
-        if (patch.tpLinkConnectionId === null) delete candidate.tpLinkConnectionId;
-        context.assertTpLinkConnectionScope(candidate);
-      }
-      const sensor = context.database.transaction(() => {
-        const updated = context.database.updateSensor(request.params.id as string, patch);
-        if (!updated) throw new HttpError(404, "NOT_FOUND", "Sensor not found");
-        if (current && current.houseId !== updated.houseId) context.stuguby.captureHomeMutation(current.houseId);
-        context.stuguby.captureHomeMutation(updated.houseId);
-        return updated;
-      });
-      context.homeAssistant.refreshMappings();
-      context.notifySpatialSensorChange(current, sensor);
-      response.json({ sensor });
+      response.json({ sensor: applySensorPatch(context, request.params.id as string, request.body) });
     });
+  // Compatibility verb: same update, answered with the bare sensor.
   context.app.put(`${context.prefix}/sensors/:id`, (request, response) => {
-      const current = context.database.getSensor(request.params.id as string);
-      if (current) context.stuguby.assertHouseWriteAllowed(current.houseId);
-      if (current?.tags.includes("integration:gree")) {
-        throw new HttpError(409, "SENSOR_MANAGED_BY_INTEGRATION", "Manage this heat-pump sensor from Set up");
-      }
-      const patch = parseSensorPatch(request.body);
-      if (patch.tags?.includes("integration:gree")) {
-        throw new HttpError(400, "RESERVED_SENSOR_TAG", "The Gree sensor tag is managed by the heat-pump connection");
-      }
-      if (current && patch.houseId && patch.houseId !== current.houseId) {
-        context.stuguby.assertHouseWriteAllowed(patch.houseId);
-        context.assertSensorHouseMoveAllowed(current.houseId, patch.houseId);
-      }
-      if (current && ["temperatureEntityId", "humidityEntityId", "batteryEntityId", "tpLinkDeviceId", "tpLinkConnectionId", "measurementEntityIds"]
-        .some((field) => Object.hasOwn(patch, field))) context.stuguby.assertHouseLocalAuthority(current.houseId);
-      if (current && (Object.hasOwn(patch, "houseId") || Object.hasOwn(patch, "tpLinkDeviceId") || Object.hasOwn(patch, "tpLinkConnectionId"))) {
-        const candidate = { ...current, ...patch };
-        if (patch.tpLinkDeviceId === null) {
-          delete candidate.tpLinkDeviceId;
-          delete candidate.tpLinkConnectionId;
-        }
-        if (patch.tpLinkConnectionId === null) delete candidate.tpLinkConnectionId;
-        context.assertTpLinkConnectionScope(candidate);
-      }
-      const sensor = context.database.transaction(() => {
-        const updated = context.database.updateSensor(request.params.id as string, patch);
-        if (!updated) throw new HttpError(404, "NOT_FOUND", "Sensor not found");
-        if (current && current.houseId !== updated.houseId) context.stuguby.captureHomeMutation(current.houseId);
-        context.stuguby.captureHomeMutation(updated.houseId);
-        return updated;
-      });
-      context.homeAssistant.refreshMappings();
-      context.notifySpatialSensorChange(current, sensor);
-      response.json(sensor);
+      response.json(applySensorPatch(context, request.params.id as string, request.body));
     });
   context.app.delete(`${context.prefix}/sensors/:id`, async (request, response) => {
       const current = context.database.getSensor(request.params.id as string);
@@ -185,4 +110,62 @@ function presentOptionalString<K extends string>(body: Record<string, unknown>, 
 /** `{ [key]: value }` when the field is set (not undefined or null), validated as a required string. */
 function presentRequiredString<K extends string>(body: Record<string, unknown>, key: K): Partial<Record<K, string>> {
   return body[key] === undefined || body[key] === null ? {} : { [key]: requiredString(body, key) } as Record<K, string>;
+}
+
+/** Sensors the caller may see, each with its latest v1 reading. */
+function visibleSensorSnapshots(context: ApiRouteRegistrationContext, request: Request, response: Response) {
+  const access = context.visibility(response);
+  const sensors = context.database.listSensors(typeof request.query.houseId === "string" ? request.query.houseId : undefined)
+    .filter((sensor) => access.sensor(sensor.id));
+  const selected = new Set(sensors.map((sensor) => sensor.id));
+  const latest = new Map(context.cachedLatestReadings().filter((reading) => selected.has(reading.sensorId))
+    .map((reading) => [reading.sensorId, reading]));
+  return sensors.map((sensor) => ({ ...sensor, reading: latest.get(sensor.id) ?? null }));
+}
+
+const INTEGRATION_BINDING_FIELDS = ["temperatureEntityId", "humidityEntityId", "batteryEntityId", "tpLinkDeviceId", "tpLinkConnectionId", "measurementEntityIds"];
+
+/** Checks that depend on the parsed patch: reserved tags, house moves, integration bindings and TP-Link scope. */
+function assertSensorPatchAllowed(context: ApiRouteRegistrationContext, current: Sensor | null, patch: ReturnType<typeof parseSensorPatch>): void {
+  if (patch.tags?.includes("integration:gree")) {
+    throw new HttpError(400, "RESERVED_SENSOR_TAG", "The Gree sensor tag is managed by the heat-pump connection");
+  }
+  if (!current) return;
+  if (patch.houseId && patch.houseId !== current.houseId) {
+    context.stuguby.assertHouseWriteAllowed(patch.houseId);
+    context.assertSensorHouseMoveAllowed(current.houseId, patch.houseId);
+  }
+  if (INTEGRATION_BINDING_FIELDS.some((field) => Object.hasOwn(patch, field))) context.stuguby.assertHouseLocalAuthority(current.houseId);
+  if (Object.hasOwn(patch, "houseId") || Object.hasOwn(patch, "tpLinkDeviceId") || Object.hasOwn(patch, "tpLinkConnectionId")) {
+    const candidate = { ...current, ...patch };
+    if (patch.tpLinkDeviceId === null) {
+      delete candidate.tpLinkDeviceId;
+      delete candidate.tpLinkConnectionId;
+    }
+    if (patch.tpLinkConnectionId === null) delete candidate.tpLinkConnectionId;
+    context.assertTpLinkConnectionScope(candidate);
+  }
+}
+
+/** PATCH and PUT /sensors/:id: validate, update, record Stuguby mutations and refresh dependants. */
+function applySensorPatch(context: ApiRouteRegistrationContext, sensorId: string, body: unknown): Sensor {
+  const current = context.database.getSensor(sensorId);
+  // Parse after the authority check on the current sensor, as before, so a
+  // shared sensor rejects the write before its body is validated.
+  if (current) context.stuguby.assertHouseWriteAllowed(current.houseId);
+  if (current?.tags.includes("integration:gree")) {
+    throw new HttpError(409, "SENSOR_MANAGED_BY_INTEGRATION", "Manage this heat-pump sensor from Set up");
+  }
+  const patch = parseSensorPatch(body);
+  assertSensorPatchAllowed(context, current, patch);
+  const sensor = context.database.transaction(() => {
+    const updated = context.database.updateSensor(sensorId, patch);
+    if (!updated) throw new HttpError(404, "NOT_FOUND", "Sensor not found");
+    if (current && current.houseId !== updated.houseId) context.stuguby.captureHomeMutation(current.houseId);
+    context.stuguby.captureHomeMutation(updated.houseId);
+    return updated;
+  });
+  context.homeAssistant.refreshMappings();
+  context.notifySpatialSensorChange(current, sensor);
+  return sensor;
 }
