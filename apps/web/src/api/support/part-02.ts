@@ -74,18 +74,6 @@ export interface StugubyRemoteTelemetrySample {
   correctionOf: string | null;
 }
 
-export class ApiRequestError extends Error {
-  constructor(
-    readonly status: number,
-    readonly code: string | null,
-    message: string,
-    readonly details?: unknown,
-  ) {
-    super(message);
-    this.name = "ApiRequestError";
-  }
-}
-
 export type SystemUpdateDay = "sun" | "mon" | "tue" | "wed" | "thu" | "fri" | "sat";
 
 export interface SystemUpdateSettings {

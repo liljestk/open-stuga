@@ -10,7 +10,7 @@ const tariffResponse = {
 const guestForbidden = { description: "Guest accounts cannot read invoices" } as const;
 
 /** Dated tariff versions and invoice reconciliation for a Property's electricity contract. */
-export const pathsPart09 = {
+export const electricityTariffPaths = {
   "/properties/{id}/electricity/tariff": {
     get: {
       tags: ["Energy"], operationId: "getPropertyElectricityTariff", parameters: [propertyId],

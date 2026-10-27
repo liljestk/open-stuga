@@ -1,3 +1,4 @@
+import { errorMessage } from "../../api/support/request-error";
 import { useCallback,useEffect } from "react";
 import type {
 AppSession,ConnectionState,House,MeasurementSample,Sensor,TelemetryEvent
@@ -317,7 +318,7 @@ export function useSessionLifecycle(
           lockExpiredSession();
           return;
         }
-        setBootstrapError(error instanceof Error && error.message.trim() ? error.message : "The Stugu service could not be reached.");
+        setBootstrapError(errorMessage(error, "The Stugu service could not be reached."));
         if (hadInventory) {
           // Keep the last confirmed real snapshot visible and mark transport
           // failure separately; a retry must not turn a transient outage into

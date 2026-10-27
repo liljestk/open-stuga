@@ -6,6 +6,7 @@ import type {
   TenantMemberSummary,
   TrackingEvent,
 } from "@climate-twin/contracts";
+import { ResponseShapeError } from "@climate-twin/contracts";
 import {
   type SpatialLayerConfigurationResponse,
   type SpatialTopology,
@@ -14,7 +15,8 @@ import { publishAuthEpoch } from "../../authEpoch";
 import { recordApiError } from "../../bugReportDiagnostics";
 import { API_RUNTIME_VERSION_HEADER, assertApiRuntimeVersion } from "../../apiRuntimeVersion";
 import type { HouseGeoreferencePatch } from "./part-01";
-import { API_BASE, API_REQUEST_TIMEOUT_MS, API_V2_BASE, ApiRequestError, COLLECTION_PAGE_SIZE, SAFE_HTTP_METHODS, apiClientState, apiRequestGeneration, assertSafeApiPath, authorizationChange, notifyAuthorizationChange, trackApiRequestController } from "./part-02";
+import { API_BASE, API_REQUEST_TIMEOUT_MS, API_V2_BASE, COLLECTION_PAGE_SIZE, SAFE_HTTP_METHODS, apiClientState, apiRequestGeneration, assertSafeApiPath, authorizationChange, notifyAuthorizationChange, trackApiRequestController } from "./part-02";
+import { ApiRequestError } from "./request-error";
 import { acquireApiRequestSlot, type ApiRequestInit } from "./requestScheduler";
 import type { SystemUpdateLiveStatus } from "./part-02";
 
@@ -104,9 +106,9 @@ export const request = <T,>(path: string, options?: ApiRequestInit, timeoutMs?: 
 export const requestV2 = <T,>(path: string, options?: ApiRequestInit, timeoutMs?: number) => requestFrom<T>(API_V2_BASE, path, options, timeoutMs);
 
 function objectList<T extends object>(value: unknown, label: string): T[] {
-  if (!Array.isArray(value)) throw new Error(`Invalid API response: ${label} must be an array`);
+  if (!Array.isArray(value)) throw new ResponseShapeError(label, "expected an array");
   if (value.some((item) => item === null || typeof item !== "object" || Array.isArray(item))) {
-    throw new Error(`Invalid API response: ${label} contains a non-object item`);
+    throw new ResponseShapeError(label, "contains a non-object item");
   }
   return value as T[];
 }
@@ -119,7 +121,7 @@ export function list<T extends object>(value: unknown, keys: string[]): T[] {
       if (candidate !== undefined) return objectList<T>(candidate, key);
     }
   }
-  throw new Error(`Invalid API response: expected an array in ${keys.join(", ")}`);
+  throw new ResponseShapeError(keys.join(" or "), "expected an array");
 }
 
 export function collectionPagePath(path: string, offset: number): string {
@@ -136,7 +138,7 @@ export async function completeCollection<T extends { id: string }>(path: string,
     let added = 0;
     for (const item of page) {
       if (typeof item.id !== "string" || !item.id) {
-        throw new Error(`Invalid API response: collection item for ${path} has no id`);
+        throw new ResponseShapeError(path, "collection item has no id");
       }
       if (seenIds.has(item.id)) continue;
       seenIds.add(item.id);

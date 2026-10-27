@@ -4,6 +4,7 @@ import { prototypeRegistryViolations } from "./check-prototype-registries.mjs";
 import { workspaceDependencyViolations } from "./check-workspace-dependencies.mjs";
 import {
   committedBaseline,
+  filesAtCommit,
   isNumberedModule,
   numberedModuleViolations,
 } from "./tooling/quality-ratchets.mjs";
@@ -12,7 +13,7 @@ const root = process.cwd();
 const webDataRoot = join(root, "apps", "web", "src", "data");
 const apiAnalyticsRoot = join(root, "apps", "api", "src", "analytics");
 const numberedModuleBaselinePath = "scripts/baselines/numbered-modules.json";
-const legacyNumberedModuleMaximum = 336;
+const legacyNumberedModuleMaximum = 362;
 const ignoredDirectories = new Set([
   "__pycache__",
   "build",
@@ -46,11 +47,13 @@ for (const sourceRoot of ["apps", "packages", "scripts", "config", "deploy"]) {
     if (isNumberedModule(projectPath(path))) numberedModules.push(projectPath(path));
   }
 }
+const numberedBaseline = committedBaseline(root, numberedModuleBaselinePath);
 violations.push(...numberedModuleViolations({
   found: numberedModules,
   legacy: JSON.parse(await readFile(join(root, numberedModuleBaselinePath), "utf8")).files,
   maximum: legacyNumberedModuleMaximum,
-  baseLegacy: committedBaseline(root, numberedModuleBaselinePath).value?.files ?? null,
+  baseLegacy: numberedBaseline.value?.files ?? null,
+  baseFiles: filesAtCommit(root, numberedBaseline.commit),
   baselinePath: numberedModuleBaselinePath,
 }));
 

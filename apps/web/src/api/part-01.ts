@@ -1,3 +1,4 @@
+import { ApiRequestError } from "./support/request-error";
 import type {
   AppSession,
   AreaEquipment,
@@ -34,7 +35,7 @@ import type {
 } from "@climate-twin/stuguby-protocol";
 import { publishAuthEpoch } from "../authEpoch";
 import { expectShape, isHomeEnergyProjection, withSignal } from "@climate-twin/contracts";
-import { ApiRequestError, apiClientState, completeAuthentication, completeCollection, entity, rememberSession, request } from "./support";
+import { apiClientState, completeAuthentication, completeCollection, entity, rememberSession, request } from "./support";
 import type { CloudflareSetupStartInput, CloudflareSetupStartResult, CloudflareSetupStatus, StugubyDetailResponse, StugubyInvitationCreated, StugubyListResponse, StugubyLocalMember, StugubyLocalPublicationCatalog, StugubyPropertyAdoption, StugubyRemoteTelemetrySample, SystemUpdateOperationInput, SystemUpdateSettings, SystemUpdateStatus } from "./support";
 import type { SystemStorageSettings, SystemStorageStatus } from "./support";
 

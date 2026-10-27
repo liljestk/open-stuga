@@ -1,5 +1,5 @@
 /** Daily latency histograms of the analytics a Home actually used, kept on the appliance as evidence. */
-export const CORE_SCHEMA_11 = `
+export const ANALYTICS_LATENCY_SCHEMA_SQL = `
       CREATE TABLE IF NOT EXISTS analytics_latency_histogram (
         day TEXT NOT NULL,
         house_id TEXT NOT NULL,

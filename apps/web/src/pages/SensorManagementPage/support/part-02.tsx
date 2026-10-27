@@ -27,10 +27,6 @@ import { qrCodeMatrix } from "../../../qrCode";
 import { isTpLinkContactDevice } from "../../../tpLinkDeviceClassification";
 import { clamp } from "./part-01";
 
-export function errorMessage(error: unknown, fallback: string): string {
-  return error instanceof Error && error.message.trim() ? error.message : fallback;
-}
-
 export function deviceBindingKey(deviceId: string, connectionId?: string): string {
   return connectionId ? `${connectionId}\u0000${deviceId}` : deviceId;
 }

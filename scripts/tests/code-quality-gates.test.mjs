@@ -98,6 +98,10 @@ test("numbered modules are recognised by name and code extension only", () => {
     "scripts/tests/setup.part-02.test.mjs",
     "apps/api/python/part3.py",
     "packages/contracts/src/sensor-part-2.tsx",
+    "apps/api/src/openapi/schemas-12.ts",
+    "apps/api/src/db/migrations/core-schema-01.ts",
+    "apps/web/src/useClimateData.02-useclimatedata-2.test.tsx",
+    "apps/api/tests/stuguby.05-stuguby-federation-5.test.ts",
   ]) assert.equal(isNumberedModule(path), true, path);
   for (const path of [
     "apps/web/src/counterpart-2.ts",
@@ -106,6 +110,10 @@ test("numbered modules are recognised by name and code extension only", () => {
     "apps/api/src/analytics/home-monitoring/model.ts",
     "deploy/rpi/assets/70-stugu-gpio.rules",
     "deploy/nexus433/patches/0001-modern-compiler-cstdint.patch",
+    "apps/api/src/nexus433.ts",
+    "apps/api/src/openapi/nexus433-paths.ts",
+    "apps/web/src/pages/RoomPlan.3d.test.tsx",
+    "apps/api/src/db/migrations/v2-schema.ts",
   ]) assert.equal(isNumberedModule(path), false, path);
 });
 
@@ -129,6 +137,15 @@ test("a new numbered module anywhere fails, and the legacy list may only shrink"
   assert.ok(violations.some((line) => line.startsWith("b/02-x.ts: legacy numbered module is gone")));
   assert.ok(violations.some((line) => line.startsWith("numbered-module debt increased from 1 to 2")));
   assert.ok(violations.includes(`${baselinePath}: may only shrink, but it gained e/part-09.ts`));
+  // A file the merge base already had is old debt a widened detector found, not growth.
+  assert.deepEqual(numberedModuleViolations({
+    found: ["a/part-01.ts", "f/paths-02.ts"],
+    legacy: ["a/part-01.ts", "f/paths-02.ts"],
+    maximum: 2,
+    baseLegacy: ["a/part-01.ts"],
+    baseFiles: new Set(["a/part-01.ts", "f/paths-02.ts"]),
+    baselinePath,
+  }), []);
 });
 
 test("committed baselines are read at the merge base, and skipped without the ref", (t) => {

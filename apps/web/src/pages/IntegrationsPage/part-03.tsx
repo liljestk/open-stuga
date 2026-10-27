@@ -1,9 +1,6 @@
-import {
-  api,
-  type TpLinkHistoryExportJob,
-} from "../../api";
+import { api, type TpLinkHistoryExportJob, errorMessage } from "../../api";
 import { confirmAction } from "../../components/ConfirmationProvider";
-import { connectionError } from "./support";
+
 import { useIntegrationsPagePart02 } from "./part-02";
 export function useIntegrationsPagePart03(context: ReturnType<typeof useIntegrationsPagePart02>) {
   const { connectionHouses, onIntegrationChange, onRefreshTpLinkDevices, onDisconnectTpLink, onMoveHomeAssistant, onMoveTpLink, t, house, integration, setTesting, setResult, homeAssistantTestGeneration, inventoryRefreshGeneration, historyExportRequestGeneration, setTestingDirect, setDirectResult, tpLinkTestGeneration, setValidatedTpLinkDraft, tpLinkHost, tpLinkUsername, tpLinkPassword, setRefreshingTpLinkInventory, setTpLinkInventoryRefreshFailed, setTpLinkExportEnabled, setTpLinkExportJobs, tpLinkExportAutomation, setTpLinkExportAutomation, setTpLinkExportJobsLoading, setTpLinkExportJobsError, setBusyTpLinkExportJobId, setTpLinkCanaryTargets, tpLinkCanarySensorId, setTpLinkCanarySensorId, tpLinkCanaryMetric, setTpLinkCanaryRunning, haUrl, haToken, setBusyAssignment, setAssignmentHouseDrafts, setAssignmentFeedback, setValidatedHomeAssistantDraft, activeSetupHouseId, tpLinkDraftKey, homeAssistantDraftKey } = context;
@@ -25,7 +22,7 @@ export function useIntegrationsPagePart03(context: ReturnType<typeof useIntegrat
             : t("setup.connectionDisconnected"),
         });
       } catch (error) {
-        setAssignmentFeedback({ kind: "error", message: connectionError(error, t("setup.connectionDisconnectFailed")) });
+        setAssignmentFeedback({ kind: "error", message: errorMessage(error, t("setup.connectionDisconnectFailed")) });
       } finally {
         setBusyAssignment((current) => current === assignmentKey ? null : current);
       }
@@ -50,7 +47,7 @@ export function useIntegrationsPagePart03(context: ReturnType<typeof useIntegrat
         });
         setAssignmentFeedback({ kind: "success", message: t("setup.connectionMoved", { home: targetHome }) });
       } catch (error) {
-        setAssignmentFeedback({ kind: "error", message: connectionError(error, t("setup.connectionMoveFailed")) });
+        setAssignmentFeedback({ kind: "error", message: errorMessage(error, t("setup.connectionMoveFailed")) });
       } finally {
         setBusyAssignment((current) => current === assignmentKey ? null : current);
       }
@@ -80,7 +77,7 @@ export function useIntegrationsPagePart03(context: ReturnType<typeof useIntegrat
             : t("setup.connectionMoved", { home: targetHome }),
         });
       } catch (error) {
-        setAssignmentFeedback({ kind: "error", message: connectionError(error, t("setup.connectionMoveFailed")) });
+        setAssignmentFeedback({ kind: "error", message: errorMessage(error, t("setup.connectionMoveFailed")) });
       } finally {
         setBusyAssignment((current) => current === assignmentKey ? null : current);
       }
@@ -191,7 +188,7 @@ export function useIntegrationsPagePart03(context: ReturnType<typeof useIntegrat
         if (result.enabled && context.canManageTuya) void loadTpLinkCanaryTargets();
       } catch (error) {
         if (historyExportRequestGeneration.current !== generation) return;
-        setTpLinkExportJobsError(connectionError(error, t("setup.tpLinkHistoryLoadFailed")));
+        setTpLinkExportJobsError(errorMessage(error, t("setup.tpLinkHistoryLoadFailed")));
       } finally {
         if (historyExportRequestGeneration.current === generation) setTpLinkExportJobsLoading(false);
       }
@@ -213,7 +210,7 @@ export function useIntegrationsPagePart03(context: ReturnType<typeof useIntegrat
         });
         await loadTpLinkExportJobs();
       } catch (error) {
-        setTpLinkExportJobsError(connectionError(error, t("setup.tpLinkHistoryCanaryQueueFailed")));
+        setTpLinkExportJobsError(errorMessage(error, t("setup.tpLinkHistoryCanaryQueueFailed")));
       } finally {
         setTpLinkCanaryRunning(false);
       }
@@ -226,7 +223,7 @@ export function useIntegrationsPagePart03(context: ReturnType<typeof useIntegrat
         await api.retryTpLinkHistoryExportJob(job.id);
         await loadTpLinkExportJobs();
       } catch (error) {
-        setTpLinkExportJobsError(connectionError(error, t("setup.tpLinkHistoryRetryFailed")));
+        setTpLinkExportJobsError(errorMessage(error, t("setup.tpLinkHistoryRetryFailed")));
       } finally {
         setBusyTpLinkExportJobId((current) => current === job.id ? null : current);
       }
@@ -240,7 +237,7 @@ export function useIntegrationsPagePart03(context: ReturnType<typeof useIntegrat
         await api.cancelTpLinkHistoryExportJob(job.id);
         await loadTpLinkExportJobs();
       } catch (error) {
-        setTpLinkExportJobsError(connectionError(error, t("setup.tpLinkHistoryCancelFailed")));
+        setTpLinkExportJobsError(errorMessage(error, t("setup.tpLinkHistoryCancelFailed")));
       } finally {
         setBusyTpLinkExportJobId((current) => current === job.id ? null : current);
       }

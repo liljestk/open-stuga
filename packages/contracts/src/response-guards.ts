@@ -6,8 +6,8 @@ import type { ForecastPoint, ForecastSeriesResponse, NotificationDeliveryStatus 
 
 /** A response body did not have the shape its endpoint documents. */
 export class ResponseShapeError extends Error {
-  constructor(readonly endpoint: string) {
-    super(`Unexpected response shape from ${endpoint}`);
+  constructor(readonly endpoint: string, detail?: string) {
+    super(`Unexpected response shape from ${endpoint}${detail ? ` (${detail})` : ""}`);
     this.name = "ResponseShapeError";
   }
 }

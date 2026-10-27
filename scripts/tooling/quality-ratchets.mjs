@@ -5,9 +5,10 @@ import { capture } from "./runtime.mjs";
 // baseline, and the baseline against the copy committed at the merge base.
 
 // Mechanically split modules carry a sequence number instead of a domain name:
-// `part-02.ts`, `07-route-handlers.ts`, `setup.part-02.test.mjs`. Ordered
-// system files such as udev rules and patch series use other extensions.
-const NUMBERED_NAME = /(?:^(?:part-?\d+|\d{2,}-)|[.-]part-?\d+[.-])/u;
+// `part-02.ts`, `07-route-handlers.ts`, `setup.part-02.test.mjs`,
+// `paths-03.ts` and `Page.02-page-2.test.tsx`. Ordered system files such as
+// udev rules and patch series use other extensions.
+const NUMBERED_NAME = /(?:^(?:part-?\d+|\d{2,}-)|[.-]part-?\d+[.-]|-\d{2,}\.(?:[cm]?[jt]sx?|s?css|py)$|\.\d{2,}(?:-|\.test\.))/u;
 const MODULE_EXTENSION = /\.(?:[cm]?[jt]sx?|s?css|py)$/u;
 
 export function isNumberedModule(path) {
@@ -15,7 +16,12 @@ export function isNumberedModule(path) {
   return MODULE_EXTENSION.test(name) && NUMBERED_NAME.test(name);
 }
 
-export function numberedModuleViolations({ found, legacy, maximum, baseLegacy = null, baselinePath }) {
+/**
+ * `baseFiles` lists every file at the merge base. A path may join the baseline
+ * only when it existed there: old debt a widened detector now sees, not a new
+ * module.
+ */
+export function numberedModuleViolations({ found, legacy, maximum, baseLegacy = null, baseFiles = null, baselinePath }) {
   const violations = [];
   const present = new Set(found);
   const allowed = new Set(legacy);
@@ -38,7 +44,9 @@ export function numberedModuleViolations({ found, legacy, maximum, baseLegacy = 
   if (baseLegacy) {
     const base = new Set(baseLegacy);
     for (const path of legacy) {
-      if (!base.has(path)) violations.push(`${baselinePath}: may only shrink, but it gained ${path}`);
+      if (!base.has(path) && !baseFiles?.has(path)) {
+        violations.push(`${baselinePath}: may only shrink, but it gained ${path}`);
+      }
     }
   }
   return violations;
@@ -61,6 +69,17 @@ export function compareCounts(allowed, actual) {
 // Reads a baseline file as committed at the merge base with `baseRef`. Returns
 // `{ skipped }` when Git or the ref is unavailable (container builds, shallow
 // clones), and `value: null` when the base predates the baseline file.
+/** Every file path in a commit's tree, or null when the commit is unknown. */
+export function filesAtCommit(repositoryRoot, commit) {
+  if (!commit) return null;
+  try {
+    return new Set(String(capture("git", ["ls-tree", "-r", "--name-only", commit], { cwd: repositoryRoot }))
+      .split("\n").filter(Boolean));
+  } catch {
+    return null;
+  }
+}
+
 export function committedBaseline(repositoryRoot, path, baseRef = "origin/main") {
   let commit;
   try {

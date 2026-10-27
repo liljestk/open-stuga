@@ -1,4 +1,4 @@
-export const pathsPart05 = {
+export const deviceIntegrationPaths = {
   "/integrations/gree/discover": {
     post: {
       tags: ["Integrations"],

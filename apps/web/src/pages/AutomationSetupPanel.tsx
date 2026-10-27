@@ -17,7 +17,7 @@ import type {
   House,
   IntegrationStatus,
 } from "@climate-twin/contracts";
-import { API_BASE, api, type AppleNotesSetupMetadata } from "../api";
+import { API_BASE, api, type AppleNotesSetupMetadata, errorMessage } from "../api";
 import { confirmAction } from "../components/ConfirmationProvider";
 import { useI18n } from "../i18n";
 import "./AutomationSetupPanel.css";
@@ -31,10 +31,6 @@ interface AutomationSetupPanelProps {
 }
 
 type Feedback = { kind: "success" | "error"; message: string } | null;
-
-function errorMessage(error: unknown, fallback: string): string {
-  return error instanceof Error && error.message.trim() ? error.message : fallback;
-}
 
 function absoluteIntegrationUrl(path: string): URL {
   const base = new URL(API_BASE, window.location.origin);

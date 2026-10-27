@@ -1,4 +1,4 @@
-export const CORE_SCHEMA_05 = `
+export const CONNECTED_DEVICE_SCHEMA_SQL = `
       CREATE TABLE IF NOT EXISTS connected_device_state_current (
         connection_id TEXT PRIMARY KEY CHECK (length(trim(connection_id)) BETWEEN 1 AND 200),
         house_id TEXT NOT NULL REFERENCES houses(id) ON DELETE CASCADE,

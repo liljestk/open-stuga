@@ -90,10 +90,6 @@ export const TP_LINK_EXPORT_PROVIDER_KEYS = {
   "private-cloud": "setup.tpLinkHistoryProviderPrivateCloud",
 } as const satisfies Record<TpLinkHistoryExportJob["provider"], string>;
 
-export function connectionError(error: unknown, fallback: string): string {
-  return error instanceof Error && error.message.trim() ? error.message : fallback;
-}
-
 export function setupSectionFromPath(pathname = typeof window === "undefined" ? "" : window.location.pathname): SetupSection {
   const candidate = pathname.match(/\/setup\/([^/]+)\/?$/)?.[1];
   return setupSectionOrder.includes(candidate as SetupSection) ? candidate as SetupSection : "overview";

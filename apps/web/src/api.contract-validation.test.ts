@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { ResponseShapeError } from "@climate-twin/contracts";
 import { api } from "./api";
 import "./apiTestSupport.js";
 
@@ -15,9 +16,9 @@ describe("API response contract validation", () => {
       json: async () => ({ unexpected: [] }),
     } as Response);
 
-    await expect(api.properties()).rejects.toThrow(
-      "Invalid API response: expected an array in properties, data",
-    );
+    const failure = api.properties();
+    await expect(failure).rejects.toBeInstanceOf(ResponseShapeError);
+    await expect(failure).rejects.toThrow("Unexpected response shape from properties or data (expected an array)");
   });
 
   it("rejects malformed collection items instead of treating them as resources", async () => {
@@ -28,8 +29,8 @@ describe("API response contract validation", () => {
       json: async () => ({ properties: ["not-a-property"] }),
     } as Response);
 
-    await expect(api.properties()).rejects.toThrow(
-      "Invalid API response: properties contains a non-object item",
-    );
+    const failure = api.properties();
+    await expect(failure).rejects.toBeInstanceOf(ResponseShapeError);
+    await expect(failure).rejects.toThrow("Unexpected response shape from properties (contains a non-object item)");
   });
 });

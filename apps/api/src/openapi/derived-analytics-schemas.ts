@@ -53,7 +53,7 @@ const durableDerivedResponse = (kind: string, resultSchema: string) => ({
   },
 });
 
-export const schemasPart09 = {
+export const derivedAnalyticsSchemas = {
   DurableThermalIsolationResponse: durableDerivedResponse(
     "thermal-isolation",
     "#/components/schemas/ThermalIsolationResult",

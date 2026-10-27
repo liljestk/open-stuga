@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { api } from "../../../api";
 
 import { replaceLegacySeriesWindow, replaceMeasurementSeriesWindow } from "./bootstrapState";
+import { ApiRequestError } from "../../../api/support/request-error";
 import { canonicalSeries, isLegacySeriesCompatibilityError, MAX_SERIES_SAMPLES, seriesBucketSeconds } from "./telemetryState";
 
 function sample(timestamp: string, value: number): MeasurementSample {
@@ -30,7 +31,7 @@ function reading(timestamp: string, temperature: number): Reading {
 }
 
 function apiError(status: number, code: string | null, message: string): Error {
-  return Object.assign(new Error(message), { name: "ApiRequestError", status, code });
+  return new ApiRequestError(status, code, message);
 }
 
 describe("historical series retention", () => {

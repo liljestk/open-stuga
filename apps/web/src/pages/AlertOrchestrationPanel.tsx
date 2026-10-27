@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { CheckCircle2, ChevronDown, CirclePlay, Clock3, LoaderCircle, RefreshCw, RotateCcw, Send, ShieldAlert } from "lucide-react";
 import type { ActionPlaybook, ActionRun, AlertEvent, NotificationDeliveryStatus } from "@climate-twin/contracts";
-import { api } from "../api";
+import { api, errorMessage } from "../api";
 import { formatInTimeZone } from "../dateTime";
 import { useI18n } from "../i18n";
 import "./AlertOrchestrationPanel.css";
@@ -21,7 +21,7 @@ export function AlertOrchestrationPanel() {
         setDeliveries(nextDeliveries);
         setRuns(nextRuns);
       })
-      .catch((reason: unknown) => setError(message(reason, t("alerts.orchestration.operationFailed"))))
+      .catch((reason: unknown) => setError(errorMessage(reason, t("alerts.orchestration.operationFailed"))))
       .finally(() => setLoading(false));
   }, [t]);
   useEffect(load, [load]);
@@ -32,7 +32,7 @@ export function AlertOrchestrationPanel() {
       const next = await api.retryNotificationDelivery(delivery.id);
       setDeliveries((current) => current.map((candidate) => candidate.id === next.id ? next : candidate));
     } catch (reason) {
-      setError(message(reason, t("alerts.orchestration.operationFailed")));
+      setError(errorMessage(reason, t("alerts.orchestration.operationFailed")));
     } finally {
       setRetrying(null);
     }
@@ -122,7 +122,7 @@ export function ActionPlaybookLauncher({ alert }: Readonly<{ alert: AlertEvent }
       void Promise.all([api.alertActionPlaybooks(alert.id), api.actionRuns({ alertEventId: alert.id })]).then(([items, existing]) => {
         setPlaybooks(items);
         setRun(existing[0] ?? null);
-      }).catch((reason: unknown) => setError(message(reason, t("alerts.orchestration.operationFailed")))).finally(() => setBusy(false));
+      }).catch((reason: unknown) => setError(errorMessage(reason, t("alerts.orchestration.operationFailed")))).finally(() => setBusy(false));
     }
   };
   const start = async (playbook: ActionPlaybook) => {
@@ -131,7 +131,7 @@ export function ActionPlaybookLauncher({ alert }: Readonly<{ alert: AlertEvent }
     try {
       setRun(await api.startActionRun({ playbookId: playbook.id, sensorId: alert.sensorId, alertEventId: alert.id }));
     } catch (reason) {
-      setError(message(reason, t("alerts.orchestration.operationFailed")));
+      setError(errorMessage(reason, t("alerts.orchestration.operationFailed")));
     } finally {
       setBusy(false);
     }
@@ -143,7 +143,7 @@ export function ActionPlaybookLauncher({ alert }: Readonly<{ alert: AlertEvent }
     try {
       setRun(await api.completeActionRun(run.id));
     } catch (reason) {
-      setError(message(reason, t("alerts.orchestration.operationFailed")));
+      setError(errorMessage(reason, t("alerts.orchestration.operationFailed")));
     } finally {
       setBusy(false);
     }
@@ -180,6 +180,3 @@ function formatDate(value: string | null, locale: string, pending: string): stri
   return value ? formatInTimeZone(value, locale, undefined, { dateStyle: "short", timeStyle: "short" }) : pending;
 }
 
-function message(error: unknown, fallback: string): string {
-  return error instanceof Error && error.message.trim() ? error.message : fallback;
-}

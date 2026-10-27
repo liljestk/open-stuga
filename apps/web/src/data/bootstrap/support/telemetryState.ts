@@ -1,3 +1,4 @@
+import { ApiRequestError, errorMessage } from "../../../api/support/request-error";
 import type {
   ConnectionState,
   House,
@@ -12,9 +13,7 @@ import type {
   StaticParameter,
 } from "@climate-twin/contracts";
 import { hasLocalHouseAuthority } from "@climate-twin/contracts";
-import {
-  api,
-} from "../../../api";
+import { api } from "../../../api";
 import { nextMockReading, type ClimateState, type TimeRange } from "../../../domain";
 import { appendHistory, readingSamples, upsertLatest } from "../../../measurements";
 
@@ -299,22 +298,13 @@ export function seriesBucketSeconds(range: TimeRange, metric?: string): number |
   return metric === "power" ? 15 * 60 : 60 * 60;
 }
 
-export function errorMessage(error: unknown, fallback: string): string {
-  return error instanceof Error && error.message.trim() ? error.message : fallback;
-}
-
-export function apiErrorStatus(error: unknown): number | null {
-  if (!(error instanceof Error) || error.name !== "ApiRequestError" || !("status" in error)) return null;
-  return typeof error.status === "number" && Number.isInteger(error.status)
-    && error.status >= 100 && error.status <= 599 ? error.status : null;
-}
 export function isLegacySeriesCompatibilityError(error: unknown): boolean {
-  if (!(error instanceof Error) || error.name !== "ApiRequestError") return false;
-  const apiError = error as Error & { status?: unknown; code?: unknown };
-  if (apiError.status === 405 || apiError.status === 501) return true;
-  return apiError.status === 404
-    && apiError.code === "NOT_FOUND"
-    && /\bAPI endpoint not found\b/i.test(apiError.message);
+  if (!(error instanceof ApiRequestError)) return false;
+  if (error.status === 405 || error.status === 501) return true;
+  // The API's unknown-path 404 shares NOT_FOUND with missing resources; only its message tells them apart.
+  return error.status === 404
+    && error.code === "NOT_FOUND"
+    && /\bAPI endpoint not found\b/i.test(error.message);
 }
 
 export async function optionalForecast<T>(request: Promise<T[]>): Promise<{ value: T[] | null; error: string | null }> {

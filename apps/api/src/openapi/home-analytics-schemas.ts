@@ -24,7 +24,7 @@ const qualityFilter = {
   },
 } as const;
 
-export const schemasPart10 = {
+export const homeAnalyticsSchemas = {
   HomePulseCoverage: {
     type: "object",
     additionalProperties: false,

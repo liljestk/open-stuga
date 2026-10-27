@@ -36,12 +36,12 @@ original `climate-twin` identifier.
 | `scripts/` | Setup, local CI, release publishing, update agent, Cloudflare provisioning, their `node --test` suites |
 | `deploy/` | Compose extras, MQTT/Nexus433 images, Raspberry Pi image + host updater (Python) |
 
-API routes are registered from `apps/api/src/app/main.ts`; the numbered
-`part-NN.ts` modules are historical splits of one large registration file, not
-feature boundaries. Analytics, forecast, thermal/moisture and electricity routes
-live in feature modules (`apps/api/src/analytics/**/routes.ts`,
-`app/electricity-routes.ts`), and the architecture check keeps them out of the
-numbered parts. Web pages/panels live in `apps/web/src/pages`, dialogs in
+`apps/api/src/app/main.ts` builds the API from named composition steps
+(config, data services, telemetry, integrations, request pipeline, access
+control) and then registers one route module per domain
+(`app/*-routes.ts`, `apps/api/src/analytics/**/routes.ts`, `stuguby/routes.ts`,
+`spatial-layers/routes.ts`). Add a route to the module that owns its domain.
+Web pages/panels live in `apps/web/src/pages`, dialogs in
 `apps/web/src/components`.
 
 ## Build and test
@@ -107,8 +107,8 @@ commits) and keeps the turn from ending while it fails. Other agents run that
 command themselves before reporting work as done.
 
 1. **Split modules by domain, never by line count.** Name a module after what it
-   owns. No new `part-NN`, `NN-name` or `name.part-NN` file anywhere: code,
-   styles or tests. Gate: `check:architecture` fails on any numbered module not
+   owns. No new `part-NN`, `NN-name`, `name.part-NN`, `name-NN` or
+   `Name.NN-slug.test` file anywhere: code, styles or tests. Gate: `check:architecture` fails on any numbered module not
    listed in `scripts/baselines/numbered-modules.json`. That list may only
    shrink; when you rename a legacy module after its domain, delete its line.
 2. **Import only what the file uses.** New code has no unused imports, locals or

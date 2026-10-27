@@ -2,7 +2,7 @@ import { STUGBY_MAX_BLOB_BYTES, STUGBY_MAX_EVENT_BYTES, STUGBY_PROTOCOL_VERSION 
 import type { JsonObject, JsonValue, StugubyDataset, StugubyDatasetPayload, StugubyHomeRecoveryKind, StugubySignedEvent, StugubyWireEvent, StugubyHomeCommand } from "./protocol-contracts.js";
 
 import { eventPayloadForHash, legacySigningEnvelope, normalizeLegacySignedEvent, rememberLegacySignedEvent } from "./legacy-wire.js";
-import { ENVELOPE_SCHEMA_SET, EVENT_KIND_SET, assertSafeFederationPayload, coordinate, fail, isObject, isStugubyDataset, isStugubyRole, onlyKeys, optionalString, point, requireArray, requireBoolean, requireEnumString, requireFiniteNumber, requireIdentifier, requireInteger, requireIsoDate, requireNullableFiniteNumber, requireNullableString, requireString, requireStringArray, validateShareGrant, validateSharedProperty } from "./validation.js";
+import { ENVELOPE_SCHEMA_SET, EVENT_KIND_SET, assertSafeFederationPayload, coordinate, fail, isObject, isStugubyDataset, isStugubyRole, onlyKeys, optionalString, point, requireArray, requireBoolean, requireEnumString, requireFiniteNumber, requireIdentifier, requireInteger, requireIsoDate, requireNullableFiniteNumber, requireNullableIsoDate, requireNullableString, requireString, requireStringArray, validateShareGrant, validateSharedProperty } from "./validation.js";
 import { compareCodeUnits } from "./text-order.js";
 
 export function validateDatasetPayload(dataset: StugubyDataset, value: unknown): StugubyDatasetPayload {
@@ -180,7 +180,7 @@ export function validateDatasetPayload(dataset: StugubyDataset, value: unknown):
         optionalString(observation, "localObservationId"); optionalString(observation, "sensorPublicationId");
         for (const axis of ["x", "y"] as const) if (observation[axis] !== null) requireFiniteNumber(observation, axis);
         requireIsoDate(observation.occurredAt, "observation.occurredAt"); requireIsoDate(observation.updatedAt, "observation.updatedAt");
-        for (const key of ["validFrom", "validTo", "resolvedAt"] as const) if (observation[key] !== undefined) requireIsoDate(observation[key], `observation.${key}`, true);
+        for (const key of ["validFrom", "validTo", "resolvedAt"] as const) if (observation[key] !== undefined) requireNullableIsoDate(observation[key], `observation.${key}`);
         for (const key of ["timePrecision", "confidence", "status"] as const) optionalString(observation, key);
         if (observation.resolutionNote !== undefined) requireNullableString(observation.resolutionNote, "observation.resolutionNote");
       }
@@ -274,7 +274,7 @@ export function validateDatasetPayload(dataset: StugubyDataset, value: unknown):
           requireInteger(record, "durationSeconds", 0);
           requireEnumString(record, "severity", ["info", "warning", "critical"]);
           requireBoolean(record, "enabled");
-          requireIsoDate(record.retiredAt, "alert rule retiredAt", true);
+          requireNullableIsoDate(record.retiredAt, "alert rule retiredAt");
         }
       } else if (kind === "alert-events") {
         for (const record of typedRecords) {
@@ -284,9 +284,9 @@ export function validateDatasetPayload(dataset: StugubyDataset, value: unknown):
           requireFiniteNumber(record, "value");
           requireFiniteNumber(record, "threshold");
           requireEnumString(record, "severity", ["info", "warning", "critical"]);
-          const startedAt = requireIsoDate(record.startedAt, "alert event startedAt")!;
-          const acknowledgedAt = requireIsoDate(record.acknowledgedAt, "alert event acknowledgedAt", true);
-          const resolvedAt = requireIsoDate(record.resolvedAt, "alert event resolvedAt", true);
+          const startedAt = requireIsoDate(record.startedAt, "alert event startedAt");
+          const acknowledgedAt = requireNullableIsoDate(record.acknowledgedAt, "alert event acknowledgedAt");
+          const resolvedAt = requireNullableIsoDate(record.resolvedAt, "alert event resolvedAt");
           if (acknowledgedAt && Date.parse(acknowledgedAt) < Date.parse(startedAt)) fail("alert event acknowledgedAt precedes startedAt");
           if (resolvedAt && Date.parse(resolvedAt) < Date.parse(startedAt)) fail("alert event resolvedAt precedes startedAt");
         }
@@ -312,8 +312,8 @@ export function validateDatasetPayload(dataset: StugubyDataset, value: unknown):
             || (state !== "open" && openFraction !== 0))) {
             fail("opening-state openFraction is invalid");
           }
-          const observedAt = requireIsoDate(record.observedAt, "opening-state observedAt")!;
-          const validUntil = requireIsoDate(record.validUntil, "opening-state validUntil", true);
+          const observedAt = requireIsoDate(record.observedAt, "opening-state observedAt");
+          const validUntil = requireNullableIsoDate(record.validUntil, "opening-state validUntil");
           if (validUntil && Date.parse(validUntil) <= Date.parse(observedAt)) fail("opening-state validUntil must follow observedAt");
         }
       } else if (kind === "weather-history") {
@@ -331,8 +331,8 @@ export function validateDatasetPayload(dataset: StugubyDataset, value: unknown):
         }
       } else if (kind === "electricity-history") {
         for (const record of typedRecords) {
-          const startAt = requireIsoDate(record.startAt, "electricity startAt")!;
-          const endAt = requireIsoDate(record.endAt, "electricity endAt")!;
+          const startAt = requireIsoDate(record.startAt, "electricity startAt");
+          const endAt = requireIsoDate(record.endAt, "electricity endAt");
           if (Date.parse(endAt) <= Date.parse(startAt)) fail("electricity endAt must follow startAt");
           requireFiniteNumber(record, "rawPriceCentsPerKwh");
           requireFiniteNumber(record, "marginCentsPerKwh");
@@ -400,7 +400,7 @@ export function validateWireEvent(value: unknown): StugubyWireEvent {
     if (!["invited", "active", "suspended", "left", "revoked"].includes(String(value.payload.state))) fail("invalid member state");
     requireString(value.payload, "publicKey");
     requireString(value.payload, "keyFingerprint");
-    requireIsoDate(value.payload.joinedAt, "member.joinedAt", true);
+    requireNullableIsoDate(value.payload.joinedAt, "member.joinedAt");
     requireIsoDate(value.payload.updatedAt, "member.updatedAt");
   } else if (value.schema === "stuguby.shared-property.v2") {
     if (value.eventKind !== "shared-property.updated" || value.operation !== "upsert") fail("invalid shared-property event");

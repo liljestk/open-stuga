@@ -17,7 +17,7 @@ import { hasBrowserCapability } from "../accessPolicy";
 export function renderApp(context: ReturnType<typeof useAppPart03>) {
   const { t, climate, state, workspaceReadOnly, canManagePeople, loadSeriesInBackground, page, routeLoading, routeNotFound, setRouteRevision, propertyId, setPropertyId, houseId, setHouseId, setFloorId, metric, setMetric, viewMode, setViewMode, selectedSensorId, setSelectedSensorId, units, bootstrapAction, maintenanceObservationId, setMaintenanceObservationId, requestedSensorDevice, setRequestedSensorDevice, invitationToken, setInvitationToken, logoutUncertain, setLogoutUncertain, logout, property, propertyElectricityAvailable, propertyHouses, selectedPropertyHouse, house, houseLocalAuthority, locationRoute, readOnly, effectiveRouteNotFound, floor, lastUpdated, openAlertCount, undisclosedTpLinkDevices, discoveredSensorNotice, applyHouse, setUnits, dismissTpLinkDeviceNotices, navigate, chooseHouse, chooseProperty, createHouse, deleteHouse, repairHome, renderFirstHomeCard, renderNoAccessCard } = context;
   const localAuthorityHouses = propertyHouses.filter(hasLocalHouseAuthority);
-  const canUseDeveloperTools = hasBrowserCapability(state.session?.tenant.role ?? "guest", "developer-tools");
+  const canUseDeveloperTools = hasBrowserCapability(state.session.tenant.role, "developer-tools");
   if (climate.loading || climate.bootstrapStatus === "loading") {
       return <output className="loading-screen"><span className="loading-logo" aria-hidden="true" /><strong>{t("app.name")}</strong><span>{t("common.loading")}</span></output>;
     }
@@ -57,7 +57,7 @@ export function renderApp(context: ReturnType<typeof useAppPart03>) {
         lastUpdated={null}
         dataMode={climate.dataMode}
         pollingFallback={climate.pollingFallback}
-        resourceErrors={[...new Set(Object.values(climate.resourceErrors ?? {}))]}
+        resourceErrors={[...new Set(Object.values(climate.resourceErrors))]}
         openAlertCount={openAlertCount}
         properties={state.properties}
         propertyId={propertyId}
@@ -65,7 +65,7 @@ export function renderApp(context: ReturnType<typeof useAppPart03>) {
         houses={state.houses}
         readOnly={readOnly}
         propertyElectricityAvailable={propertyElectricityAvailable}
-        principalEmail={state.session?.principal.email ?? null}
+        principalEmail={state.session.principal.email}
         onLogout={logout}
         onRetryConnection={climate.retryBootstrap}
       >
@@ -86,7 +86,7 @@ export function renderApp(context: ReturnType<typeof useAppPart03>) {
         lastUpdated={null}
         dataMode={climate.dataMode}
         pollingFallback={climate.pollingFallback}
-        resourceErrors={[...new Set(Object.values(climate.resourceErrors ?? {}))]}
+        resourceErrors={[...new Set(Object.values(climate.resourceErrors))]}
         openAlertCount={openAlertCount}
         canManagePeople={canManagePeople}
         canUseDeveloperTools={canUseDeveloperTools}
@@ -96,7 +96,7 @@ export function renderApp(context: ReturnType<typeof useAppPart03>) {
         houses={state.houses}
         readOnly={readOnly}
         propertyElectricityAvailable={propertyElectricityAvailable}
-        principalEmail={state.session?.principal.email ?? null}
+        principalEmail={state.session.principal.email}
         onLogout={logout}
         onRetryConnection={climate.retryBootstrap}
       >
@@ -190,7 +190,7 @@ export function renderApp(context: ReturnType<typeof useAppPart03>) {
         lastUpdated={null}
         dataMode={climate.dataMode}
         pollingFallback={climate.pollingFallback}
-        resourceErrors={[...new Set(Object.values(climate.resourceErrors ?? {}))]}
+        resourceErrors={[...new Set(Object.values(climate.resourceErrors))]}
         openAlertCount={openAlertCount}
         properties={state.properties}
         propertyId={property.id}
@@ -202,7 +202,7 @@ export function renderApp(context: ReturnType<typeof useAppPart03>) {
         onBackLabel={t("header.backToProperty")}
         readOnly={readOnly}
         propertyElectricityAvailable={propertyElectricityAvailable}
-        principalEmail={state.session?.principal.email ?? null}
+        principalEmail={state.session.principal.email}
         onLogout={logout}
         onRetryConnection={climate.retryBootstrap}
       ><Suspense fallback={routeLoading}><MaintenancePage
@@ -235,7 +235,7 @@ export function renderApp(context: ReturnType<typeof useAppPart03>) {
         lastUpdated={contextualHouse ? lastUpdated : null}
         dataMode={climate.dataMode}
         pollingFallback={climate.pollingFallback}
-        resourceErrors={[...new Set(Object.values(climate.resourceErrors ?? {}))]}
+        resourceErrors={[...new Set(Object.values(climate.resourceErrors))]}
         openAlertCount={openAlertCount}
         properties={state.properties}
         propertyId={property.id}
@@ -249,7 +249,7 @@ export function renderApp(context: ReturnType<typeof useAppPart03>) {
         onBackLabel={t(contextualHouse ? "header.backToHome" : "header.backToProperty")}
         readOnly={readOnly}
         propertyElectricityAvailable={propertyElectricityAvailable}
-        principalEmail={state.session?.principal.email ?? null}
+        principalEmail={state.session.principal.email}
         onLogout={logout}
         onRetryConnection={climate.retryBootstrap}
       >{propertyEnergyDenied ? <section className="route-recovery" aria-labelledby="property-electricity-access-title">
@@ -263,7 +263,7 @@ export function renderApp(context: ReturnType<typeof useAppPart03>) {
         propertyId={property.id}
         units={units}
         onLoadSeries={loadSeriesInBackground}
-        seriesStates={climate.seriesStates ?? {}}
+        seriesStates={climate.seriesStates}
         {...(contextualHouse && !readOnly && houseLocalAuthority ? { onOpenSensors: () => navigate("sensors", contextualHouse.id) } : {})}
         onOpenAlerts={() => navigate("alerts", null, false, window.location.pathname, null)}
         readOnly={readOnly}
@@ -283,7 +283,7 @@ export function renderApp(context: ReturnType<typeof useAppPart03>) {
         lastUpdated={null}
         dataMode={climate.dataMode}
         pollingFallback={climate.pollingFallback}
-        resourceErrors={[...new Set(Object.values(climate.resourceErrors ?? {}))]}
+        resourceErrors={[...new Set(Object.values(climate.resourceErrors))]}
         properties={state.properties}
         propertyId={propertyIndex ? "" : propertyId}
         onProperty={chooseProperty}
@@ -293,7 +293,7 @@ export function renderApp(context: ReturnType<typeof useAppPart03>) {
         homeAvailable={!readOnly || Boolean(house && floor)}
         readOnly={readOnly}
         propertyElectricityAvailable={propertyElectricityAvailable}
-        principalEmail={state.session?.principal.email ?? null}
+        principalEmail={state.session.principal.email}
         onLogout={logout}
         onRetryConnection={climate.retryBootstrap}
       ><Suspense fallback={routeLoading}><PropertyManagementPage
@@ -342,14 +342,14 @@ export function renderApp(context: ReturnType<typeof useAppPart03>) {
         lastUpdated={null}
         dataMode={climate.dataMode}
         pollingFallback={climate.pollingFallback}
-        resourceErrors={[...new Set(Object.values(climate.resourceErrors ?? {}))]}
+        resourceErrors={[...new Set(Object.values(climate.resourceErrors))]}
         properties={state.properties}
         propertyId={propertyId}
         onProperty={chooseProperty}
         houses={state.houses}
         readOnly={readOnly}
         propertyElectricityAvailable={propertyElectricityAvailable}
-        principalEmail={state.session?.principal.email ?? null}
+        principalEmail={state.session.principal.email}
         onLogout={logout}
         onRetryConnection={climate.retryBootstrap}
       ><div className="home-empty-state">{readOnly ? renderNoAccessCard() : renderFirstHomeCard()}</div></AppShell>;
@@ -389,11 +389,11 @@ export function renderApp(context: ReturnType<typeof useAppPart03>) {
         freshnessLabel={freshnessLabel}
         dataMode={climate.dataMode}
         pollingFallback={climate.pollingFallback}
-        resourceErrors={[...new Set(Object.values(climate.resourceErrors ?? {}))]}
+        resourceErrors={[...new Set(Object.values(climate.resourceErrors))]}
         openAlertCount={openAlertCount}
         readOnly={readOnly}
         propertyElectricityAvailable={propertyElectricityAvailable}
-        principalEmail={state.session?.principal.email ?? null}
+        principalEmail={state.session.principal.email}
         onLogout={logout}
         properties={state.properties}
         propertyId={propertyId}

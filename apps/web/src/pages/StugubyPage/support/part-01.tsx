@@ -88,10 +88,6 @@ export function initialDatasetDraft(): Record<StugubyDataset, DatasetDraft> {
   }])) as Record<StugubyDataset, DatasetDraft>;
 }
 
-export function errorMessage(error: unknown, fallback: string): string {
-  return error instanceof Error && error.message.trim() ? error.message : fallback;
-}
-
 export function formattedTime(value: string | null, never: string, locale: string): string {
   if (!value) return never;
   const date = new Date(value);

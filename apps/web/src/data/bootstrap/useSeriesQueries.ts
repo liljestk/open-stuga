@@ -1,10 +1,9 @@
+import { apiErrorStatus, errorMessage } from "../../api/support/request-error";
 import { useCallback } from "react";
 import { type TimeRange, timeRangeHours } from "../../domain";
 import {
   MAX_SERIES_SAMPLES,
   canonicalSeries,
-  apiErrorStatus,
-  errorMessage,
   isLegacySeriesCompatibilityError,
   legacySeries,
   mergeLegacySeries,

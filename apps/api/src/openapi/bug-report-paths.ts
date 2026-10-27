@@ -1,4 +1,4 @@
-export const pathsPart08 = {
+export const bugReportPaths = {
   "/bug-reports": {
     post: {
       tags: ["Security"],

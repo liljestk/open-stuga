@@ -5,16 +5,10 @@ import {
   type StugubyShareGrant,
   type StugubySharedProperty,
 } from "@climate-twin/stuguby-protocol";
-import {
-  api,
-  type StugubyDetailResponse,
-  type StugubyInvitationCreated,
-  type StugubyListResponse,
-  type StugubyRemoteTelemetrySample,
-} from "../../api";
+import { api, type StugubyDetailResponse, type StugubyInvitationCreated, type StugubyListResponse, type StugubyRemoteTelemetrySample, errorMessage } from "../../api";
 import { useI18n } from "../../i18n";
 import "../StugubyPage.css";
-import { activeGrant, errorMessage, idlePublicationCatalog, initialDatasetDraft, memberStateLabelKeys, roleLabelKeys, suggestedCoordinatorOrigin } from "./support";
+import { activeGrant, idlePublicationCatalog, initialDatasetDraft, memberStateLabelKeys, roleLabelKeys, suggestedCoordinatorOrigin } from "./support";
 import type { PublicationCatalogState, StugubyPageProps } from "./support";
 
 type StugubyActiveScope = Readonly<{

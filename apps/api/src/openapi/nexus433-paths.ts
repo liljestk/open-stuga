@@ -5,7 +5,7 @@ const houseQuery = {
   schema: { type: "string", minLength: 1, maxLength: 200 },
 } as const;
 
-export const pathsPart07 = {
+export const nexus433Paths = {
   "/integrations/nexus433/status": {
     get: {
       tags: ["Integrations"], operationId: "getNexus433Status", parameters: [houseQuery],

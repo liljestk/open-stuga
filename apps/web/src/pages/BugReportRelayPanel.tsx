@@ -5,17 +5,13 @@ import {
   BUG_REPORT_RELAY_URL_MAX_LENGTH,
   type BugReportRelaySettings,
 } from "@climate-twin/contracts";
-import { api, ApiRequestError } from "../api";
+import { api, ApiRequestError, errorMessage } from "../api";
 import { confirmAction } from "../components/ConfirmationProvider";
 import { formatInTimeZone } from "../dateTime";
 import { useI18n } from "../i18n";
 import "./BugReportRelayPanel.css";
 
 type Feedback = { kind: "success" | "error"; message: string } | null;
-
-function errorMessage(error: unknown, fallback: string): string {
-  return (error instanceof ApiRequestError || error instanceof Error) && error.message.trim() ? error.message : fallback;
-}
 
 export function BugReportRelayPanel() {
   const { locale, t } = useI18n();

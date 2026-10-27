@@ -2,12 +2,10 @@ import { useEffect,useRef,type FormEvent } from "react";
 import type {
 IntegrationStatus
 } from "@climate-twin/contracts";
-import {
-api,type IntegrationDiscoveryResult
-} from "../../api";
+import { api, type IntegrationDiscoveryResult, errorMessage } from "../../api";
 import { confirmAction } from "../../components/ConfirmationProvider";
 import { type TranslationKey } from "../../i18n";
-import { connectionError,forgetIntegrationDiscovery,rememberIntegrationDiscovery,rememberedIntegrationDiscovery,validTimeZone } from "./support";
+import { forgetIntegrationDiscovery, rememberIntegrationDiscovery, rememberedIntegrationDiscovery, validTimeZone } from "./support";
 import type { DiscoveryOutcome } from "./support";
 import { useIntegrationsPagePart03 } from "./part-03";
 
@@ -394,7 +392,7 @@ export function useIntegrationsPagePart04(context: ReturnType<typeof useIntegrat
         });
       } catch (error) {
         if (activeSetupHouseId.current === requestViewHouseId) {
-          setTpLinkFeedback({ kind: "error", message: connectionError(error, t("setup.credentialsError")) });
+          setTpLinkFeedback({ kind: "error", message: errorMessage(error, t("setup.credentialsError")) });
         }
       } finally {
         if (activeSetupHouseId.current === requestViewHouseId) setSavingTpLink(false);

@@ -13,7 +13,7 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import type { IntegrationStatus, TelegramDiscoveryResult } from "@climate-twin/contracts";
-import { api } from "../api";
+import { api, errorMessage } from "../api";
 import { confirmAction } from "../components/ConfirmationProvider";
 import { formatInTimeZone } from "../dateTime";
 import { useI18n } from "../i18n";
@@ -29,10 +29,6 @@ export interface TelegramSetupPanelProps {
 }
 
 type Feedback = { kind: "success" | "error"; message: string } | null;
-
-function errorMessage(error: unknown, fallback: string): string {
-  return error instanceof Error && error.message.trim() ? error.message : fallback;
-}
 
 export function TelegramSetupPanel({
   integration,

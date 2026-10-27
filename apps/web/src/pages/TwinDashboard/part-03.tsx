@@ -8,7 +8,7 @@ import type { OutdoorVisualizationState } from "../../components/OutdoorConditio
 import {
   type ClimateSampleMatrix,
 } from "../../airflowSimulation";
-import { api } from "../../api";
+import { api, errorMessage } from "../../api";
 import {
   assessSensorCoverage,
 } from "../../experimentalSpatialLayers";
@@ -97,7 +97,7 @@ export function useTwinDashboardPart03(context: ReturnType<typeof useTwinDashboa
         context.setReplayOutdoorLoading(false);
         controller.abort();
         setReplayLoadState("error");
-        setReplayLoadError(error instanceof Error && error.message.trim() ? error.message : t("replay.loadFailed"));
+        setReplayLoadError(errorMessage(error, t("replay.loadFailed")));
       } finally {
         if (context.replayWindowControllerRef.current === controller) {
           context.replayWindowControllerRef.current = null;

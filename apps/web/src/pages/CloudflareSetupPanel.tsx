@@ -1,11 +1,6 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type FormEvent } from "react";
 import { CircleHelp, ExternalLink, LoaderCircle, ShieldCheck } from "lucide-react";
-import {
-  api,
-  type CloudflareSetupOperation,
-  type CloudflareSetupPhase,
-  type CloudflareSetupStatus,
-} from "../api";
+import { api, type CloudflareSetupOperation, type CloudflareSetupPhase, type CloudflareSetupStatus, errorMessage } from "../api";
 import { useI18n, type TranslationKey } from "../i18n";
 
 interface CloudflareSetupPanelProps {
@@ -43,10 +38,6 @@ function hostnameFromOrigin(origin: string): string {
 function suggestedZone(hostname: string): string {
   const labels = hostname.split(".").filter(Boolean);
   return labels.length > 1 ? labels.slice(-2).join(".") : "";
-}
-
-function errorMessage(error: unknown, fallback: string): string {
-  return error instanceof Error && error.message.trim() ? error.message : fallback;
 }
 
 function trustedAuthorizationUrl(value: string): string {

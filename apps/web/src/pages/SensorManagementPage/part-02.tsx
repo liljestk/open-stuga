@@ -5,11 +5,11 @@ import type {
   Sensor,
   TpLinkDiscoveredDevice,
 } from "@climate-twin/contracts";
-import { api } from "../../api";
+import { api, errorMessage } from "../../api";
 import type { TimeRange } from "../../domain";
 import { type TranslationKey } from "../../i18n";
 import { isLegacyTpLinkContactSensor, tpLinkOpeningMatchesDevice } from "../../tpLinkDeviceClassification";
-import { deviceBindingKey, draftContext, draftForSensor, errorMessage, hasHomeAssistantBinding, initialDraft, roomCenter, rounded, validationErrors } from "./support";
+import { deviceBindingKey, draftContext, draftForSensor, hasHomeAssistantBinding, initialDraft, roomCenter, rounded, validationErrors } from "./support";
 import type { AddStep, DraftErrors, DraftSource, SensorFilter } from "./support";
 import { useSensorManagementPagePart01 } from "./part-01";
 import { sensorUrlStateFromLocation, writeSensorUrlStateToLocation, type SensorDetailTarget } from "./urlState";

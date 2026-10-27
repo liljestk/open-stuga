@@ -31,7 +31,7 @@ import {
   type SpatialInferenceSession,
   type SpatialInferenceSessionStartInput,
 } from "../spatialLayers";
-import { expectShape, isMeasurementForecastEvaluation, isMeasurementForecastPoints, withSignal } from "@climate-twin/contracts";
+import { ResponseShapeError, expectShape, isMeasurementForecastEvaluation, isMeasurementForecastPoints, withSignal } from "@climate-twin/contracts";
 import { entity, list, request, requestV2, spatialConfigurationResponse } from "./support";
 import type { HistoricalImportResult, MeasurementHistoryPage, SensorMeasurementPage } from "./support";
 
@@ -214,7 +214,7 @@ export const apiPart04 = {
         body: JSON.stringify(input),
         ...withSignal(signal),
       }));
-      if (!session) throw new Error("The spatial inference-session response was invalid");
+      if (!session) throw new ResponseShapeError("/houses/{id}/layers/inference-session");
       return session;
     },
   stopHouseSpatialInferenceSession: async (houseId: string, signal?: AbortSignal): Promise<SpatialInferenceSession | null> => spatialInferenceSession(
@@ -245,7 +245,7 @@ export const apiPart04 = {
         body: JSON.stringify(input),
         ...withSignal(signal),
       }));
-      if (!response) throw new Error("The spatial calibration-session response was invalid");
+      if (!response) throw new ResponseShapeError("/houses/{id}/layers/calibration-sessions");
       return response;
     },
   houseSpatialLayerContextEvents: async (houseId: string, signal?: AbortSignal): Promise<SpatialContextEvent[]> => list<SpatialContextEvent>(

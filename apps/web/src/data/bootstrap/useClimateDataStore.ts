@@ -1,3 +1,4 @@
+import { errorMessage } from "../../api/support/request-error";
 import { useCallback, useEffect, useRef, useState, type SetStateAction } from "react";
 import type {
   IntegrationStatus,
@@ -8,7 +9,7 @@ import type {
 } from "@climate-twin/contracts";
 import { type ClimateState } from "../../domain";
 import { routeFromLocation } from "../../routing";
-import { aggregateConnection, blankState, errorMessage, houseMutationKey, withoutDemoTelemetry } from "./support";
+import { aggregateConnection, blankState, houseMutationKey, withoutDemoTelemetry } from "./support";
 import type { BootstrapStatus, BufferedHouseMutation, BufferedLiveTelemetry, BufferedSeriesTelemetry, DataMode, HouseInventoryMutation, HouseMutationBuffer, SeriesCommit, SeriesLoadState, StreamConnections } from "./support";
 export function useClimateDataStore(context: Record<string, never>) {
   // Telemetry starts empty until the API positively confirms that this database

@@ -1,3 +1,4 @@
+import { ApiRequestError } from "./api/support/request-error";
 import { act, renderHook, waitFor } from "@testing-library/react";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -238,10 +239,7 @@ describe("useClimateData", () => {
     const readingsRequest = deferred<Array<typeof staleReading>>();
     const { result } = renderHook(() => useClimateData());
     await waitFor(() => expect(result.current.loading).toBe(false));
-    mocks.measurementHistoryPage.mockRejectedValueOnce(Object.assign(
-      new Error("API endpoint not found"),
-      { name: "ApiRequestError", status: 404, code: "NOT_FOUND" },
-    ));
+    mocks.measurementHistoryPage.mockRejectedValueOnce(new ApiRequestError(404, "NOT_FOUND", "API endpoint not found"));
     mocks.readings.mockReturnValueOnce(readingsRequest.promise);
     mocks.forecast.mockResolvedValueOnce([]);
     const [[handleTelemetry]] = mocks.subscribeToEvents.mock.calls as unknown as [[(event: TelemetryEvent) => void]];

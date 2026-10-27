@@ -4,9 +4,9 @@ import {
 import type {
   Sensor,
 } from "@climate-twin/contracts";
-import { type CreateSensorInput, type SensorPatch } from "../../api";
+import { type CreateSensorInput, type SensorPatch, errorMessage } from "../../api";
 import { confirmAction } from "../../components/ConfirmationProvider";
-import { UNPLACED_TAG, errorMessage, hasRealBinding, normalizedMeasurementEntityIds, roomCenter, rounded, sameMeasurementEntityIds, sensorMeasurementEntityIds, stableRoomId, validationErrors } from "./support";
+import { UNPLACED_TAG, hasRealBinding, normalizedMeasurementEntityIds, roomCenter, rounded, sameMeasurementEntityIds, sensorMeasurementEntityIds, stableRoomId, validationErrors } from "./support";
 import type { AddStep, DraftErrors, SensorDraft } from "./support";
 import { useSensorManagementPagePart02 } from "./part-02";
 export function useSensorManagementPagePart03(context: ReturnType<typeof useSensorManagementPagePart02>) {

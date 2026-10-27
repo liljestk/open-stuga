@@ -148,7 +148,7 @@ export interface NotificationScheduleDecision {
   quietHours: boolean;
 }
 
-function canDeliver(policy: AlertDeliveryPolicy, severity: AlertSeverity, at: Date): { allowed: boolean; silent: boolean; quiet: boolean } {
+function deliveryDecisionAt(policy: AlertDeliveryPolicy, severity: AlertSeverity, at: Date): { allowed: boolean; silent: boolean; quiet: boolean } {
   if (!activeAt(policy, at)) return { allowed: false, silent: false, quiet: false };
   const quiet = quietAt(policy, at);
   if (!quiet || (severity === "critical" && policy.criticalBypassQuietHours)) {
@@ -163,7 +163,7 @@ export function notificationScheduleDecision(
   severity: AlertSeverity,
   now = new Date(),
 ): NotificationScheduleDecision {
-  const immediate = canDeliver(policy, severity, now);
+  const immediate = deliveryDecisionAt(policy, severity, now);
   if (immediate.allowed) {
     return { deliverAt: now, silent: immediate.silent, deferred: false, quietHours: immediate.quiet };
   }
@@ -174,7 +174,7 @@ export function notificationScheduleDecision(
   candidate.setUTCSeconds(0, 0);
   candidate.setUTCMinutes(candidate.getUTCMinutes() + 1);
   for (let minute = 0; minute < 8 * 24 * 60; minute += 1) {
-    const decision = canDeliver(policy, severity, candidate);
+    const decision = deliveryDecisionAt(policy, severity, candidate);
     if (decision.allowed) {
       return { deliverAt: new Date(candidate), silent: decision.silent, deferred: true, quietHours: immediate.quiet };
     }

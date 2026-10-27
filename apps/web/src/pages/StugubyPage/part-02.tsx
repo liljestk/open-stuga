@@ -5,12 +5,10 @@ import {
   type StugubyDatasetGrant,
   type StugubyShareGrant,
 } from "@climate-twin/stuguby-protocol";
-import {
-  api,
-} from "../../api";
+import { api, errorMessage } from "../../api";
 import { confirmAction } from "../../components/ConfirmationProvider";
 import "../StugubyPage.css";
-import { activeGrant, editableHomeDatasets, errorMessage, idlePublicationCatalog } from "./support";
+import { activeGrant, editableHomeDatasets, idlePublicationCatalog } from "./support";
 import type { DatasetDraft } from "./support";
 import { useStugubyPagePart01 } from "./part-01";
 export function useStugubyPagePart02(context: ReturnType<typeof useStugubyPagePart01>) {

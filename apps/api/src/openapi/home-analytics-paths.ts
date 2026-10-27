@@ -1,4 +1,4 @@
-export const pathsPart06 = {
+export const homeAnalyticsPaths = {
   "/analytics/calendar-comparison": {
     post: {
       servers: [{ url: "/api/v2" }],

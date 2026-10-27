@@ -1,4 +1,4 @@
-export const CORE_SCHEMA_08 = `
+export const FORECAST_EVALUATION_SCHEMA_SQL = `
       CREATE TABLE IF NOT EXISTS forecast_evaluations (
         sensor_id TEXT NOT NULL,
         metric TEXT NOT NULL,

@@ -1,3 +1,4 @@
+import { errorMessage } from "../api";
 import { useEffect, useId, useMemo, useRef, useState, type DragEvent, type KeyboardEvent } from "react";
 import {
   ArrowLeft,
@@ -42,10 +43,6 @@ interface HistoricalImportWizardProps {
 }
 
 type WizardStep = 1 | 2 | 3 | 4;
-
-function message(error: unknown, fallback: string): string {
-  return error instanceof Error && error.message.trim() ? error.message : fallback;
-}
 
 export function HistoricalImportWizard({
   open,
@@ -114,7 +111,7 @@ export function HistoricalImportWizard({
       if (previewBuildGenerationRef.current === generation && !controller.signal.aborted) setPreview(nextPreview);
     }).catch((previewError) => {
       if (previewBuildGenerationRef.current === generation && !controller.signal.aborted) {
-        setError(message(previewError, t("historyImport.fileError")));
+        setError(errorMessage(previewError, t("historyImport.fileError")));
       }
     }).finally(() => {
       if (previewBuildGenerationRef.current === generation && !controller.signal.aborted) setPreviewing(false);
@@ -241,7 +238,7 @@ export function HistoricalImportWizard({
       setStep(2);
     } catch (loadError) {
       if (fileReadGenerationRef.current !== generation) return;
-      setError(message(loadError, t("historyImport.fileError")));
+      setError(errorMessage(loadError, t("historyImport.fileError")));
     } finally {
       if (fileReadGenerationRef.current === generation) setReadingFile(false);
     }
@@ -287,7 +284,7 @@ export function HistoricalImportWizard({
       const imported = await onImport(preview.samples, (completed, total) => setProgress({ completed, total }));
       setResult(imported);
     } catch (importError) {
-      setError(message(importError, t("historyImport.importError")));
+      setError(errorMessage(importError, t("historyImport.importError")));
     } finally {
       setImporting(false);
     }

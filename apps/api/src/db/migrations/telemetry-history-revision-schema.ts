@@ -3,7 +3,7 @@
  * publications, delayed uploads), so caches of closed time ranges can tell
  * when their inputs changed. Ordinary live ingestion never touches it.
  */
-export const CORE_SCHEMA_10 = `
+export const TELEMETRY_HISTORY_REVISION_SCHEMA_SQL = `
       CREATE TABLE IF NOT EXISTS telemetry_history_revision (
         id INTEGER PRIMARY KEY CHECK (id = 1),
         revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1)

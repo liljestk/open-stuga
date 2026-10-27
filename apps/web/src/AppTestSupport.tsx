@@ -27,6 +27,8 @@ export function mockClimateData() {
     tpLinkDevices: [],
     tpLinkDevicesLoading: false,
     tpLinkDevicesError: null,
+    resourceErrors: {},
+    seriesStates: {},
     refreshTpLinkDevices: resolved,
     applyIntegrationStatus: vi.fn(),
     selectHouse: resolved,

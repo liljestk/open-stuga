@@ -1,4 +1,4 @@
-export const CORE_SCHEMA_09 = `
+export const SENSOR_REPORTING_INTERVAL_SCHEMA_SQL = `
       CREATE TABLE IF NOT EXISTS sensor_reporting_intervals (
         sensor_id TEXT NOT NULL,
         metric TEXT NOT NULL,

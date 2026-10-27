@@ -4,12 +4,10 @@ import type {
   HouseLocation,
   HouseMapPlacement,
 } from "@climate-twin/contracts";
-import {
-  api,
-} from "../../api";
+import { api, errorMessage } from "../../api";
 import type { HouseLocationMapItem } from "../../components/HouseLocationMap";
 import { confirmAction } from "../../components/ConfirmationProvider";
-import { connectionError, floorPlanSize, footprintFloorFor, mapLocation, placementForm, setupSectionFromPath, validTimeZone, writeSetupSection } from "./support";
+import { floorPlanSize, footprintFloorFor, mapLocation, placementForm, setupSectionFromPath, validTimeZone, writeSetupSection } from "./support";
 import { useIntegrationsPagePart01 } from "./part-01";
 export function useIntegrationsPagePart02(context: ReturnType<typeof useIntegrationsPagePart01>) {
   const { houses, connectionHouses, onHouse, onIntegrationChange, onDisconnectHomeAssistant, t, setSetupHouseId, house, setActiveSection, setTesting, setResult, homeAssistantTestGeneration, discoveryGeneration, inventoryRefreshGeneration, historyExportRequestGeneration, setTestingDirect, setDirectResult, tpLinkTestGeneration, setValidatedTpLinkDraft, setDiscovering, setDiscovery, setDiscoveryOutcome, tpLinkHost, setTpLinkHost, tpLinkHostDraft, tpLinkUsername, setTpLinkUsername, tpLinkPassword, setTpLinkPassword, setReuseSavedTpLinkAccount, setShowTpLinkPassword, setSavingTpLink, setTpLinkFeedback, setRefreshingTpLinkInventory, setTpLinkInventoryRefreshFailed, tpLinkChildDiscoveryAbort, tpLinkChildDiscoveryKey, tpLinkChildDiscoveryRunning, haUrl, setHaUrl, haToken, setHaToken, setShowHaToken, setSavingHomeAssistant, setHomeAssistantFeedback, setBusyAssignment, setAssignmentFeedback, setValidatedHomeAssistantDraft, latitude, setLatitude, longitude, setLongitude, locationLabel, setLocationLabel, timezone, setTimezone, locationValidationAttempted, setLocationValidationAttempted, placementLatitude, setPlacementLatitude, placementLongitude, setPlacementLongitude, footprintFloorId, setFootprintFloorId, footprintWidthMeters, setFootprintWidthMeters, setPlacementEditing, setMapViewport, orientation, setOrientation, setSavingLocation, setLocationFeedback, setSavingPlacement, setPlacementFeedback, locationRequestGeneration, placementRequestGeneration, stopTpLinkChildDiscovery } = context;
@@ -218,7 +216,7 @@ export function useIntegrationsPagePart02(context: ReturnType<typeof useIntegrat
         onIntegrationChange(result.integration);
         setAssignmentFeedback({ kind: "success", message: t("setup.connectionDisconnected") });
       } catch (error) {
-        setAssignmentFeedback({ kind: "error", message: connectionError(error, t("setup.connectionDisconnectFailed")) });
+        setAssignmentFeedback({ kind: "error", message: errorMessage(error, t("setup.connectionDisconnectFailed")) });
       } finally {
         setBusyAssignment((current) => current === assignmentKey ? null : current);
       }

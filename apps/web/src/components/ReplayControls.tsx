@@ -60,16 +60,7 @@ function resolutionModeFor(value: number | null | undefined): string {
 }
 
 function replayEventMetadata(event: ReplayClimateEvent): { significance: string | null; autoTags: string[] } {
-  const candidate = event as unknown as { significance?: unknown; autoTags?: unknown };
-  const significance = typeof candidate.significance === "string" && candidate.significance.trim()
-    ? candidate.significance.trim()
-    : typeof candidate.significance === "number" && Number.isFinite(candidate.significance)
-      ? String(candidate.significance)
-      : null;
-  const autoTags = Array.isArray(candidate.autoTags)
-    ? [...new Set(candidate.autoTags.flatMap((tag) => typeof tag === "string" && tag.trim() ? [tag.trim()] : []))]
-    : [];
-  return { significance, autoTags };
+  return { significance: event.significance ?? null, autoTags: [...new Set(event.autoTags ?? [])] };
 }
 
 function validTimeZone(timeZone: string): string | undefined {
