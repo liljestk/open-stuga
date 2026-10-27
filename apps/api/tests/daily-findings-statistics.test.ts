@@ -69,7 +69,7 @@ function period(next: () => number, scenario: Scenario, yearIndex: number, curre
   const daily = Array.from({ length: DAYS }, (_, day) => {
     noise = scenario.persistence * noise + Math.sqrt(1 - scenario.persistence ** 2) * normal(next) * scenario.daySd;
     const dayStart = start + day * DAY;
-    const driver = weatherDriver(weather, dayStart, dayStart + DAY, "heating-degree-hours", 17)!;
+    const driver = weatherDriver(weather, { start: dayStart, end: dayStart + DAY, driver: "heating-degree-hours", baseTemperatureC: 17 })!;
     return { start: dayStart, end: dayStart + DAY, level: yearLevel + (scenario.weatherSlope ?? 0) * driver + noise };
   });
   return { start, end, level: daily.reduce((sum, day) => sum + day.level, 0) / DAYS, daily, weather };

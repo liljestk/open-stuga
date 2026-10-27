@@ -29,6 +29,7 @@ import { getOpeningActivity } from "./opening-activity/service.js";
 import type { DerivedAnalyticsCoordinator } from "./derived-artifacts/coordinator.js";
 import { registerHomeMonitoringRoutes } from "./home-monitoring/routes.js";
 import { registerAnalyticsQueryRoutes, type AnalyticsQueryRouteContext } from "./query/routes.js";
+import { registerAnalyticsDiagnosticsRoutes, type AnalyticsDiagnosticsRouteContext } from "./diagnostics/routes.js";
 import { registerForecastRoutes, type ForecastRouteContext } from "./forecast/routes.js";
 import { registerThermalAnalyticsRoutes, type ThermalAnalyticsRouteContext } from "./thermal-routes.js";
 import {
@@ -37,7 +38,7 @@ import {
 } from "./calendar-comparison/service.js";
 
 interface AnalyticsRouteContext
-  extends AnalyticsQueryRouteContext, ForecastRouteContext, ThermalAnalyticsRouteContext {
+  extends AnalyticsQueryRouteContext, ForecastRouteContext, ThermalAnalyticsRouteContext, AnalyticsDiagnosticsRouteContext {
   app: express.Express;
   v2Prefix: string;
   database: ClimateDatabase;
@@ -224,6 +225,7 @@ function calendarComparisonRequest(value: unknown): CalendarComparisonRequest {
 export function registerAnalyticsRoutes(context: AnalyticsRouteContext): () => void {
   const removeHomeMonitoringRoutes = registerHomeMonitoringRoutes(context);
   const removeAnalyticsQueryRoutes = registerAnalyticsQueryRoutes(context);
+  registerAnalyticsDiagnosticsRoutes(context);
   registerForecastRoutes(context);
   registerThermalAnalyticsRoutes(context);
 

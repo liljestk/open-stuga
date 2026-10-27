@@ -13,6 +13,7 @@ import {
 } from "../../timeseries/read-facade.js";
 import type { AnalyticsWorkLimiter } from "../work-limiter.js";
 import { AnalyticsQueryCache } from "./cache.js";
+import { queryLatencyOperation } from "../diagnostics/latency.js";
 import { executeAnalyticsQuery } from "./execute.js";
 import { compareCodeUnits } from "../../text-order.js";
 
@@ -161,6 +162,11 @@ export function registerAnalyticsQueryRoutes(context: AnalyticsQueryRouteContext
       ));
       response.setHeader("cache-control", "no-store");
       response.setHeader("x-stugu-cache", result.cache.hit ? "hit" : "miss");
+      context.database.recordAnalyticsLatency({
+        houseId: analyticsRequest.scope.id,
+        operation: queryLatencyOperation(Date.parse(analyticsRequest.range.end) - Date.parse(analyticsRequest.range.start)),
+        durationMs: performance.now() - startedAt,
+      });
       response.setHeader(
         "server-timing",
         `analytics-query;dur=${(performance.now() - startedAt).toFixed(1)}`,

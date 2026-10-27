@@ -190,7 +190,10 @@ const DAMPED_STEPS = Array.from({ length: 169 }, (_, steps) => {
  * hour. Returns the state after each observed hour, so every origin sees only
  * its own past.
  */
-function holtWinters(series: readonly HourlyValue[], alpha: number, beta: number, gamma: number): Map<number, SeasonalState> {
+function holtWinters(
+  series: readonly HourlyValue[],
+  { alpha, beta, gamma }: { alpha: number; beta: number; gamma: number },
+): Map<number, SeasonalState> {
   const states = new Map<number, SeasonalState>();
   const firstDay = series.filter((point) => point.time < series[0]!.time + DAY_HOURS * HOUR_MS);
   const level0 = firstDay.reduce((sum, point) => sum + point.value, 0) / firstDay.length;
@@ -222,10 +225,7 @@ interface ProfileChoice {
 function profileForecast(
   choice: ProfileChoice,
   state: SeasonalState,
-  values: HourlyLookup,
-  origin: number,
-  originValue: number,
-  step: number,
+  { values, origin, originValue, step }: { values: HourlyLookup; origin: number; originValue: number; step: number },
 ): number {
   const surprise = originValue - (state.level + state.season[new Date(origin).getUTCHours()]!);
   const time = origin + step * HOUR_MS;
@@ -258,7 +258,7 @@ export function fitProfileForecaster(history: readonly HourlyValue[], until: num
       for (let step = 1; step <= DAY_HOURS && origin + step * HOUR_MS <= until; step += 1) {
         const actual = values(origin + step * HOUR_MS);
         if (actual === null) continue;
-        error += Math.abs(actual - profileForecast(choice, state, values, origin, originValue, step));
+        error += Math.abs(actual - profileForecast(choice, state, { values, origin, originValue, step }));
         count += 1;
       }
     }
@@ -269,7 +269,7 @@ export function fitProfileForecaster(history: readonly HourlyValue[], until: num
   for (const alpha of LEVEL_WEIGHTS) {
     for (const beta of TREND_WEIGHTS) {
       for (const gamma of SEASON_WEIGHTS) {
-        const states = holtWinters(series, alpha, beta, gamma);
+        const states = holtWinters(series, { alpha, beta, gamma });
         for (const decay of DECAY_CANDIDATES) {
           const choice = { states, alpha, beta, gamma, decay, shortBlend: 0, longBlend: 0 };
           const error = selectionError(choice);
@@ -291,7 +291,7 @@ export function fitProfileForecaster(history: readonly HourlyValue[], until: num
   if (!best) return null;
   // A state after hour t depends only on data up to t, so running the chosen
   // weights over all history lets each origin start from its own present.
-  const chosen = { ...best, states: holtWinters(history, best.alpha, best.beta, best.gamma) };
+  const chosen = { ...best, states: holtWinters(history, best) };
   const observed = lookup(history);
   return {
     kind: "daily-profile",
@@ -299,7 +299,7 @@ export function fitProfileForecaster(history: readonly HourlyValue[], until: num
       const state = chosen.states.get(hourStart(origin));
       if (!state) return null;
       return Array.from({ length: horizonHours }, (_, index) => (
-        profileForecast(chosen, state, observed, hourStart(origin), originValue, index + 1)
+        profileForecast(chosen, state, { values: observed, origin: hourStart(origin), originValue, step: index + 1 })
       ));
     },
   };

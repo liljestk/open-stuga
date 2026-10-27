@@ -36,14 +36,13 @@ export function registerForecastRoutes(context: ForecastRouteContext): void {
     if (response.destroyed) abortOnClose();
     const measurementForecast = await context.analyticsWorkLimiter.run(
       "measurement-forecast",
-      () => forecastMeasurementWithEvaluation(
-        context.database,
-        request.query.sensorId as string,
+      () => forecastMeasurementWithEvaluation(context.database, {
+        sensorId: request.query.sensorId as string,
         metric,
         hours,
-        context.telemetryReader,
-        abortController.signal,
-      ),
+        telemetryReader: context.telemetryReader,
+        signal: abortController.signal,
+      }),
       abortController.signal,
     ).finally(() => response.off("close", abortOnClose));
     response.json({ forecast: measurementForecast.points, evaluation: measurementForecast.evaluation });

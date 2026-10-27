@@ -208,4 +208,90 @@ export const schemasPart12 = {
       estimatedDailySavingsEur: nullableAmount,
     },
   },
+  AnalyticsDiagnostics: {
+    type: "object", additionalProperties: false,
+    required: ["houseId", "generatedAt", "windowDays", "latency", "forecasts", "bills", "projection", "findings"],
+    properties: {
+      houseId: { type: "string" },
+      generatedAt: { type: "string", format: "date-time" },
+      windowDays: { type: "integer", minimum: 1 },
+      latency: {
+        type: "array",
+        items: {
+          type: "object", additionalProperties: false,
+          required: ["operation", "requests", "p50Ms", "p95Ms", "targetP95Ms", "meetsTarget"],
+          properties: {
+            operation: { enum: ["query-24h", "query-7d", "query-30d", "query-365d", "energy-summary-30d"] },
+            requests: { type: "integer", minimum: 0 },
+            p50Ms: nullableAmount,
+            p95Ms: nullableAmount,
+            targetP95Ms: { type: "number", minimum: 0 },
+            meetsTarget: { type: ["boolean", "null"] },
+          },
+        },
+      },
+      forecasts: {
+        type: "array",
+        items: {
+          type: "object", additionalProperties: false,
+          required: ["metric", "sensors", "evaluations", "withheld", "medianSkill6h", "medianSkill24h", "medianCoverage90", "meetsTarget"],
+          properties: {
+            metric: { type: "string" },
+            sensors: { type: "integer", minimum: 0 },
+            evaluations: { type: "integer", minimum: 0 },
+            withheld: { type: "integer", minimum: 0 },
+            medianSkill6h: nullableAmount,
+            medianSkill24h: nullableAmount,
+            medianCoverage90: nullableAmount,
+            meetsTarget: { type: ["boolean", "null"] },
+          },
+        },
+      },
+      bills: {
+        type: "object", additionalProperties: false,
+        required: ["invoices", "reconciled", "outsideTolerance", "incomplete", "medianAbsoluteErrorPercent", "tolerancePercent", "meetsTarget"],
+        properties: {
+          invoices: { type: "integer", minimum: 0 },
+          reconciled: { type: "integer", minimum: 0 },
+          outsideTolerance: { type: "integer", minimum: 0 },
+          incomplete: { type: "integer", minimum: 0 },
+          medianAbsoluteErrorPercent: nullableAmount,
+          tolerancePercent: { type: "number", minimum: 0 },
+          meetsTarget: { type: ["boolean", "null"] },
+        },
+      },
+      projection: {
+        oneOf: [
+          {
+            type: "object", additionalProperties: false,
+            required: ["method", "origins", "meanAbsolutePercentError", "baselineMeanAbsolutePercentError", "skill", "meetsTarget"],
+            properties: {
+              method: { enum: ["weather-regression", "recent-average"] },
+              origins: { type: "integer", minimum: 0 },
+              meanAbsolutePercentError: nullableAmount,
+              baselineMeanAbsolutePercentError: nullableAmount,
+              skill: nullableAmount,
+              meetsTarget: { type: ["boolean", "null"] },
+            },
+          },
+          { type: "null" },
+        ],
+      },
+      findings: {
+        oneOf: [
+          {
+            type: "object", additionalProperties: false,
+            required: ["evaluatedThrough", "seriesTested", "findings", "falseDiscoveryRate"],
+            properties: {
+              evaluatedThrough: localDate,
+              seriesTested: { type: ["integer", "null"], minimum: 0 },
+              findings: { type: "integer", minimum: 0 },
+              falseDiscoveryRate: nullableAmount,
+            },
+          },
+          { type: "null" },
+        ],
+      },
+    },
+  },
 };

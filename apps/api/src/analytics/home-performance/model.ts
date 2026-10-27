@@ -266,10 +266,12 @@ export function newExposureAccumulator(): ExposureAccumulator {
 
 export function addExposure(
   accumulator: ExposureAccumulator,
-  sensorId: string,
-  metric: string,
-  series: AnalyticsSeries,
-  band: ComfortBand = DEFAULT_COMFORT_BAND,
+  { sensorId, metric, series, band = DEFAULT_COMFORT_BAND }: {
+    sensorId: string;
+    metric: string;
+    series: AnalyticsSeries;
+    band?: ComfortBand;
+  },
 ): void {
   if (series.summary.count === 0) return;
   const hoursPerPoint = resolutionHours(series);
@@ -322,8 +324,8 @@ export function exposureResult(input: HomePerformanceInput): HomePerformanceExpo
     for (const metric of ["temperature", "humidity", "co2"]) {
       const series = seriesFor(input.climate, sensor.id, metric);
       if (!series) continue;
-      addExposure(home, sensor.id, metric, series, band);
-      addExposure(room.accumulator, sensor.id, metric, series, band);
+      addExposure(home, { sensorId: sensor.id, metric, series, band });
+      addExposure(room.accumulator, { sensorId: sensor.id, metric, series, band });
     }
   }
   const formattedRooms = [...rooms.entries()].flatMap(([id, room]) => {

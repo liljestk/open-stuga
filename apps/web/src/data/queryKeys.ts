@@ -34,6 +34,9 @@ export const queryKeys = {
   analyticsExplorerForecasts: (houseId: string, scope: string, metric: string) => (
     ["house", houseId, "analytics-explorer-forecasts", scope, metric] as const
   ),
+  analyticsDiagnostics: (houseId: string) => (
+    ["house", houseId, "analytics-diagnostics"] as const
+  ),
   homeEnergyProjection: (houseId: string) => (
     ["house", houseId, "energy-projection"] as const
   ),

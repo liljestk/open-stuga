@@ -1,20 +1,20 @@
 # API endpoint combinations for testing
 
-This is a testing list for Stugu 0.50.0: **349 local API operations** (323 v1 and 26 v2), plus **one optional bug-report relay operation**. Each operation is a method and path, so GET and POST on the same path are separate entries.
+This is a testing list for Stugu 0.51.0: **350 local API operations** (323 v1 and 27 v2), plus **one optional bug-report relay operation**. Each operation is a method and path, so GET and POST on the same path are separate entries.
 
-The files cover endpoint inputs, applicable account/resource/runtime states, and multi-endpoint workflows. **All 122,500 ordered two-operation pairs are listed**, including repeats, reverse order, both versions and the relay. Arbitrary payload values, subsets of all endpoints and sequences of unrestricted length cannot be fully listed. These are proposed tests, not executed results.
+The files cover endpoint inputs, applicable account/resource/runtime states, and multi-endpoint workflows. **All 123,201 ordered two-operation pairs are listed**, including repeats, reverse order, both versions and the relay. Arbitrary payload values, subsets of all endpoints and sequences of unrestricted length cannot be fully listed. These are proposed tests, not executed results.
 
 ## Testing files
 
 | File | Contents |
 | --- | --- |
 | [api-endpoint-matrix.json](api-endpoint-matrix.json) | Every operation, resolved parameters, body schemas, response contracts, security alternatives, compact input factors and common profiles |
-| [api-input-cases.ndjson](api-input-cases.ndjson) | 18,822 individual schema, boundary, omission, null, enum, nested branch and invalid-input cases |
-| [api-query-combinations.ndjson](api-query-combinations.ndjson) | 1,406 combinations of query presence, enums and booleans; other values use synthetic fixtures |
-| [api-endpoint-pairs.ndjson](api-endpoint-pairs.ndjson) | 122,500 rows of [first operation key, second operation key] |
+| [api-input-cases.ndjson](api-input-cases.ndjson) | 18,834 individual schema, boundary, omission, null, enum, nested branch and invalid-input cases |
+| [api-query-combinations.ndjson](api-query-combinations.ndjson) | 1,407 combinations of query presence, enums and booleans; other values use synthetic fixtures |
+| [api-endpoint-pairs.ndjson](api-endpoint-pairs.ndjson) | 123,201 rows of [first operation key, second operation key] |
 | [api-workflows.json](api-workflows.json) | 40 ordered workflows with prerequisites, assertions and negative cases |
 
-Operation keys include the version because operationId alone is not unique across documents. Look up each key in the matrix to find its method, path and contract. Relay paths use their separate configured service origin. Local-only pair coverage is 121,801; filtering pairs to first key less than second key gives 61,075 distinct unordered pairs across all services.
+Operation keys include the version because operationId alone is not unique across documents. Look up each key in the matrix to find its method, path and contract. Relay paths use their separate configured service origin. Local-only pair coverage is 122,500; filtering pairs to first key less than second key gives 61,425 distinct unordered pairs across all services.
 
 ## How to use the combinations
 
@@ -433,6 +433,7 @@ Parameter markers: * required, ? optional. The JSON expands references and lists
 | `v2:disableMeasurementDefinition` | DELETE `/api/v2/measurement-definitions/{id}` | path:id* | — | localSession | 200 |
 | `v2:queryAnalytics` | POST `/api/v2/analytics/query` | — | AnalyticsQueryRequest | localSession | 200, 400, 409, 422 |
 | `v2:dailyAnalyticsFindings` | GET `/api/v2/analytics/findings` | query:houseId* | — | localSession | 200, 400, 404 |
+| `v2:analyticsDiagnostics` | GET `/api/v2/analytics/diagnostics` | query:houseId* | — | localSession | 200, 400, 403, 404 |
 | `v2:openingActivity` | POST `/api/v2/analytics/opening-activity` | — | OpeningActivityRequest | localSession | 200, 400, 404, 409, 503 |
 | `v2:cachedThermalIsolation` | GET `/api/v2/analytics/thermal-isolation` | query:houseId*, query:dataMode*="live"/"demo", query:windowDays?=1/7/14 | — | localSession | 200, 400, 404, 409 |
 | `v2:refreshCachedThermalIsolation` | POST `/api/v2/analytics/thermal-isolation` | query:houseId*, query:dataMode*="live"/"demo", query:windowDays?=1/7/14 | — | localSession | 202, 400, 403, 404, 409 |

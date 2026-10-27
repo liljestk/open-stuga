@@ -82,9 +82,7 @@ export interface EffectivePrice {
 
 export function effectivePriceAt(
   rawCentsPerKwh: number,
-  timestamp: number,
-  versions: readonly ElectricityTariffVersion[],
-  timeZone: string,
+  { timestamp, versions, timeZone }: { timestamp: number; versions: readonly ElectricityTariffVersion[]; timeZone: string },
 ): EffectivePrice {
   const local = localHour(timestamp, timeZone);
   const version = tariffVersionOn(versions, local.dateKey);
@@ -111,7 +109,7 @@ export function withTariffPrice<T extends {
   effectivePriceCentsPerKwh: number;
   effectivePriceEurPerKwh: number;
 }>(point: T, versions: readonly ElectricityTariffVersion[], timeZone: string): T & { components: ElectricityPriceComponents } {
-  const price = effectivePriceAt(point.rawPriceCentsPerKwh, Date.parse(point.startAt), versions, timeZone);
+  const price = effectivePriceAt(point.rawPriceCentsPerKwh, { timestamp: Date.parse(point.startAt), versions, timeZone });
   return {
     ...point,
     effectivePriceCentsPerKwh: price.totalCentsPerKwh,
@@ -185,12 +183,12 @@ export function tariffCost(
  * carries fee / days-in-month, scaled by the part of the day inside the range.
  * Returns null when no version in the range has a fee.
  */
-export function proratedMonthlyFeesEur(
-  fromMs: number,
-  toMs: number,
-  versions: readonly ElectricityTariffVersion[],
-  timeZone: string,
-): number | null {
+export function proratedMonthlyFeesEur({ fromMs, toMs, versions, timeZone }: {
+  fromMs: number;
+  toMs: number;
+  versions: readonly ElectricityTariffVersion[];
+  timeZone: string;
+}): number | null {
   if (!(toMs > fromMs)) return null;
   let total = 0;
   let configured = false;

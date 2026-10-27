@@ -63,8 +63,7 @@ function priceAt(prices: readonly PriceInterval[], time: number): number | null 
 export function flexibleLoadProfile(
   buckets: readonly PowerBucket[],
   prices: readonly PriceInterval[],
-  from: number,
-  to: number,
+  { from, to }: { from: number; to: number },
 ): FlexibleLoadProfile | null {
   const ordered = buckets.filter((bucket) => Number.isFinite(bucket.watts) && bucket.watts >= 0 && bucket.time >= from && bucket.time < to)
     .sort((left, right) => left.time - right.time);
@@ -110,9 +109,7 @@ export function flexibleLoadProfile(
 /** The cheapest window of `durationMs` starting on a price boundary within [from, until). */
 export function cheapestWindow(
   prices: readonly PriceInterval[],
-  durationMs: number,
-  from: number,
-  until: number,
+  { durationMs, from, until }: { durationMs: number; from: number; until: number },
 ): PriceWindow | null {
   const sorted = [...prices].sort((left, right) => left.start - right.start);
   let best: PriceWindow | null = null;
@@ -175,11 +172,10 @@ export async function measureFlexibleLoads(input: {
     const profile = flexibleLoadProfile(
       read.records.map((record) => ({ time: Date.parse(record.timestamp), watts: record.value })),
       intervals.filter((interval) => interval.end <= input.now + FLEXIBLE_BUCKET_MS),
-      from,
-      input.now,
+      { from, to: input.now },
     );
     if (!profile) return null;
-    const window = cheapestWindow(intervals, profile.typicalRunMs, input.now, input.now + 86_400_000);
+    const window = cheapestWindow(intervals, { durationMs: profile.typicalRunMs, from: input.now, until: input.now + 86_400_000 });
     const load: EnergyFlexibleLoad = {
       sensorId: sensor.id,
       sensorName: sensor.name,

@@ -185,6 +185,7 @@ for (const family of [
   "sensorMutations",
   "analyticsExplorer",
   "energyProjection",
+  "analyticsDiagnostics",
 ]) {
   if (!new RegExp(`\\b${family}:\\s*"query-client"`).test(ownership)) {
     report(ownershipPath, `${family} must have an explicit query-client owner`);

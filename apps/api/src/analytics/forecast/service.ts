@@ -42,13 +42,13 @@ interface Candidate {
   fit: (until: number) => Forecaster | null;
 }
 
-function emptyEvaluation(
-  sensorId: string,
-  metric: string,
-  computedAt: string,
-  history: readonly HourlyValue[],
-  outdoorDriver: MeasurementForecastEvaluation["outdoorDriver"],
-): MeasurementForecastEvaluation {
+function emptyEvaluation({ sensorId, metric, computedAt, history, outdoorDriver }: {
+  sensorId: string;
+  metric: string;
+  computedAt: string;
+  history: readonly HourlyValue[];
+  outdoorDriver: MeasurementForecastEvaluation["outdoorDriver"];
+}): MeasurementForecastEvaluation {
   return {
     algorithmVersion: MEASUREMENT_FORECAST_ALGORITHM_VERSION,
     sensorId,
@@ -191,7 +191,7 @@ export class MeasurementForecastService {
     }
     const evaluation = best
       ? {
-        ...emptyEvaluation(sensorId, metric, computedAt, history, outdoorDriver),
+        ...emptyEvaluation({ sensorId, metric, computedAt, history, outdoorDriver }),
         status: (skillAt(best.result, 6) ?? 0) > 0 ? "ready" as const : "no-skill" as const,
         model: best.kind,
         origins: best.result.origins,
@@ -200,7 +200,7 @@ export class MeasurementForecastService {
         skill24h: skillAt(best.result, 24),
         coverage90: pooledCoverage(best.result.horizons),
       }
-      : emptyEvaluation(sensorId, metric, computedAt, history, outdoorDriver);
+      : emptyEvaluation({ sensorId, metric, computedAt, history, outdoorDriver });
     this.database.saveForecastEvaluation(evaluation);
     return evaluation;
   }
