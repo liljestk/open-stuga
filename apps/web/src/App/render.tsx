@@ -1,33 +1,21 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { hasLocalHouseAuthority, type Floor, type Metric, type TpLinkDiscoveredDevice, type UnitSystem } from "@climate-twin/contracts";
-import { AlertTriangle, HousePlus, LoaderCircle, RotateCcw, ShieldCheck, Wrench } from "lucide-react";
+import { Suspense } from "react";
+import { hasLocalHouseAuthority } from "@climate-twin/contracts";
+import { AlertTriangle, LoaderCircle, RotateCcw, ShieldCheck, Wrench } from "lucide-react";
 import { AppShell } from "../components/AppShell";
-import { preferredHouseForProperty, type AppPage, type ViewMode } from "../domain";
-import { useClimateData } from "../useClimateData";
-import { countActionableAlertGroups } from "../alertGrouping";
-import { useI18n } from "../i18n";
-import { enabledDefinitions } from "../measurements";
-import { api, type CreateHouseInput } from "../api";
-import { locationForPropertySection, locationForRoute, routeFromLocation } from "../routing";
+import { preferredHouseForProperty } from "../domain";
+import { locationForPropertySection } from "../routing";
 import { StuguMark } from "../components/StuguMark";
 import { RouteErrorBoundary } from "../components/RouteErrorBoundary";
-import { readLocalStorage, writeLocalStorage } from "../browserStorage";
 import {
-  clearInvitationBootstrapStorage,
-  clearInvitationFragment,
-  invitationTokenFromBootstrapStorage,
-  invitationTokenFromFragment,
   LocalAuthPage,
 } from "../pages/LocalAuthPage";
-import { integrationForHouse } from "../integrationScope";
 import { isTpLinkContactDevice } from "../tpLinkDeviceClassification";
 import { twinDashboardHomeViewLocation } from "../pages/TwinDashboard/queryState";
-import { ActivityPage, AlertsPage, DataAnalyticsPage, DeveloperPage, EnergyPage, IntegrationsPage, MaintenancePage, OutdoorWeatherPage, PeopleAccessPage, PortfolioOverview, PropertyManagementPage, SensorManagementPage, StugubyPage, SystemUpdatesPage, TwinDashboard, dismissedTpLinkDevicesKey, firstFloor, freshTpLinkDiscoveryWindowMs, latestIso, pageTitleKeys, settleInBackground, storedDismissedTpLinkDevices, tpLinkDeviceKey } from "./support";
-import type { TpLinkDeviceReference } from "./support";
+import { ActivityPage, AlertsPage, DataAnalyticsPage, DeveloperPage, EnergyPage, IntegrationsPage, MaintenancePage, OutdoorWeatherPage, PeopleAccessPage, PortfolioOverview, PropertyManagementPage, SensorManagementPage, StugubyPage, SystemUpdatesPage, TwinDashboard, latestIso, settleInBackground } from "./support";
 import { useAppPart03 } from "./part-03";
 import { hasBrowserCapability } from "../accessPolicy";
 export function renderApp(context: ReturnType<typeof useAppPart03>) {
-  const { t, climate, state, workspaceReadOnly, canManagePeople, loadSeriesInBackground, initialRoute, initialHouse, initialPropertyId, initialSelectedHouse, page, setPage, routeLoading, routeNotFound, setRouteNotFound, setRouteRevision, propertyId, setPropertyId, houseId, setHouseId, floorId, setFloorId, metric, setMetric, viewMode, setViewMode, selectedSensorId, setSelectedSensorId, units, setUnitsState, firstHomeName, setFirstHomeName, firstPropertyName, setFirstPropertyName, firstHomePropertyId, setFirstHomePropertyId, bootstrapAction, setBootstrapAction, maintenanceObservationId, setMaintenanceObservationId, requestedSensorDevice, setRequestedSensorDevice, dismissedTpLinkDeviceIds, setDismissedTpLinkDeviceIds, invitationToken, setInvitationToken, logoutUncertain, setLogoutUncertain, previousPage, logout, property, propertyReadOnly, propertyElectricityAvailable, propertyHouses, selectedPropertyHouse, house, activeSharedHouse, houseReadOnly, houseLocalAuthority, locationRoute, readOnly, routeHouse, routeScopeInvalid, effectiveRouteNotFound, floor, measurementDefinitions, availableMeasurements, lastUpdated, openAlertCount, scopedIntegration, availableTpLinkDevices, currentTpLinkDevices, undisclosedTpLinkDevices, discoveredSensorNotice, applyHouse, setUnits, dismissTpLinkDeviceNotices, navigate, chooseHouse, chooseProperty, createHouse, deleteHouse, createFirstHome, repairHome, renderFirstHomeCard, renderNoAccessCard } = context;
+  const { t, climate, state, workspaceReadOnly, canManagePeople, loadSeriesInBackground, page, routeLoading, routeNotFound, setRouteRevision, propertyId, setPropertyId, houseId, setHouseId, setFloorId, metric, setMetric, viewMode, setViewMode, selectedSensorId, setSelectedSensorId, units, bootstrapAction, maintenanceObservationId, setMaintenanceObservationId, requestedSensorDevice, setRequestedSensorDevice, invitationToken, setInvitationToken, logoutUncertain, setLogoutUncertain, logout, property, propertyElectricityAvailable, propertyHouses, selectedPropertyHouse, house, houseLocalAuthority, locationRoute, readOnly, effectiveRouteNotFound, floor, lastUpdated, openAlertCount, undisclosedTpLinkDevices, discoveredSensorNotice, applyHouse, setUnits, dismissTpLinkDeviceNotices, navigate, chooseHouse, chooseProperty, createHouse, deleteHouse, repairHome, renderFirstHomeCard, renderNoAccessCard } = context;
   const localAuthorityHouses = propertyHouses.filter(hasLocalHouseAuthority);
   const canUseDeveloperTools = hasBrowserCapability(state.session?.tenant.role ?? "guest", "developer-tools");
   if (climate.loading || climate.bootstrapStatus === "loading") {
@@ -135,7 +123,6 @@ export function renderApp(context: ReturnType<typeof useAppPart03>) {
             houses={state.houses}
             sensors={state.sensors}
             latestMeasurements={state.latestMeasurements}
-            measurementHistory={state.measurementHistory}
             measurementDefinitions={state.measurementDefinitions}
             alerts={state.alerts}
             alertRules={state.alertRules}

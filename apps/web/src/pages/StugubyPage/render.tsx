@@ -1,37 +1,23 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import type { House, Property } from "@climate-twin/contracts";
 import {
   STUGBY_DATASETS,
-  type StugubyDataset,
-  type StugubyDatasetGrant,
   type StugubyMember,
   type StugubyRole,
-  type StugubyShareGrant,
   type StugubySharedProperty,
-  type StugubySummary,
 } from "@climate-twin/stuguby-protocol";
 import { AlertTriangle, Check, Copy, Database, KeyRound, Link, LoaderCircle, Network, Plus, RefreshCw, Settings2, ShieldCheck, Sparkles, Trash2, Unplug, Users } from "lucide-react";
 import {
   api,
-  type StugubyDetailResponse,
-  type StugubyInvitationCreated,
-  type StugubyListResponse,
-  type StugubyLocalMember,
-  type StugubyLocalPublicationCatalog,
-  type StugubyRemoteTelemetrySample,
 } from "../../api";
 import { confirmAction } from "../../components/ConfirmationProvider";
 import { StugubyMark } from "../../components/StugubyMark";
 import { twentyFourHourInputLocale } from "../../dateTime";
-import { useI18n, type TranslationKey } from "../../i18n";
 import { CloudflareSetupPanel } from "../CloudflareSetupPanel";
 import "../StugubyPage.css";
-import { MemberIdentity, datasetLabelKeys, editableHomeDatasets, errorMessage, formattedTime, idlePublicationCatalog, initialDatasetDraft, localDateTimeInput, loopbackOrigin, memberStateLabelKeys, parseArray, roleLabelKeys, suggestedCoordinatorOrigin } from "./support";
-import type { DatasetDraft, PublicationCatalogState, StugubyPageProps } from "./support";
+import { MemberIdentity, datasetLabelKeys, editableHomeDatasets, formattedTime, loopbackOrigin } from "./support";
 import { useStugubyPagePart03 } from "./part-03";
 import { GrantOverview } from "./GrantOverview";
 export function renderStugubyPage(context: ReturnType<typeof useStugubyPagePart03>) {
-  const { houses, properties, onInventoryChange, locale, t, roleLabel, stateLabel, index, setIndex, detail, setDetail, selectedId, setSelectedId, loading, setLoading, busy, setBusy, error, setError, notice, setNotice, detailLoading, setDetailLoading, telemetryError, setTelemetryError, copied, setCopied, cloudflareSetupRequested, setCloudflareSetupRequested, createdInvitation, setCreatedInvitation, telemetrySamples, setTelemetrySamples, createName, setCreateName, createDescription, setCreateDescription, createCoordinatorUrl, setCreateCoordinatorUrl, joinCoordinatorUrl, setJoinCoordinatorUrl, joinUrl, setJoinUrl, joinInvitationId, setJoinInvitationId, joinSecret, setJoinSecret, inviteRole, setInviteRole, inviteLocalLabel, setInviteLocalLabel, inviteExpiresAt, setInviteExpiresAt, publishableHouses, grantHouseId, setGrantHouseId, audienceKind, setAudienceKind, audienceNodes, setAudienceNodes, datasetDraft, setDatasetDraft, telemetryLive, setTelemetryLive, telemetryHistoryHours, setTelemetryHistoryHours, telemetryMetrics, setTelemetryMetrics, telemetrySensors, setTelemetrySensors, telemetryRate, setTelemetryRate, grantExpiresAt, setGrantExpiresAt, houseEditPolicy, setHouseEditPolicy, recoveryMode, setRecoveryMode, houseSuccessorNodeId, setHouseSuccessorNodeId, editingGrantId, setEditingGrantId, publicationCatalog, setPublicationCatalog, catalogRevision, setCatalogRevision, activeLocalGrantHouseIds, unsharedHouses, grantHouseOptions, propertyName, setPropertyName, propertyDescription, setPropertyDescription, propertyLatitude, setPropertyLatitude, propertyLongitude, setPropertyLongitude, propertyLocationLabel, setPropertyLocationLabel, areasJson, setAreasJson, equipmentJson, setEquipmentJson, notesJson, setNotesJson, maintenanceJson, setMaintenanceJson, propertyEditPolicy, setPropertyEditPolicy, propertySuccessorNodeId, setPropertySuccessorNodeId, adoptionPropertyId, setAdoptionPropertyId, migrationPropertyId, setMigrationPropertyId, detailRequest, selectedIdRef, captureActiveScope, isActiveScope, resetGrantDraft, resetStugubyScopedUi, beginSelection, loadDetail, load, withBusy, createStuguby, joinStuguby, activeRemoteMembers, selectRecoveryMode, selectHouseEditPolicy, saveGrant, editGrant, saveProperty, memberName, updateMember, updateMemberLocalLabel, adoptSharedProperty, migrateLocalProperty, disconnectProperty, deleteStuguby } = context;
+  const { houses, properties, onInventoryChange, locale, t, roleLabel, stateLabel, index, detail, selectedId, loading, busy, error, setError, notice, setNotice, detailLoading, telemetryError, copied, setCopied, cloudflareSetupRequested, setCloudflareSetupRequested, createdInvitation, setCreatedInvitation, telemetrySamples, createName, setCreateName, createDescription, setCreateDescription, createCoordinatorUrl, setCreateCoordinatorUrl, joinCoordinatorUrl, setJoinCoordinatorUrl, joinUrl, setJoinUrl, joinInvitationId, setJoinInvitationId, joinSecret, setJoinSecret, inviteRole, setInviteRole, inviteLocalLabel, setInviteLocalLabel, inviteExpiresAt, setInviteExpiresAt, publishableHouses, grantHouseId, setGrantHouseId, audienceKind, setAudienceKind, audienceNodes, setAudienceNodes, datasetDraft, setDatasetDraft, telemetryLive, setTelemetryLive, telemetryHistoryHours, setTelemetryHistoryHours, telemetryMetrics, setTelemetryMetrics, telemetrySensors, setTelemetrySensors, telemetryRate, setTelemetryRate, grantExpiresAt, setGrantExpiresAt, houseEditPolicy, recoveryMode, houseSuccessorNodeId, setHouseSuccessorNodeId, editingGrantId, publicationCatalog, setCatalogRevision, grantHouseOptions, propertyName, setPropertyName, propertyDescription, setPropertyDescription, propertyLatitude, setPropertyLatitude, propertyLongitude, setPropertyLongitude, propertyLocationLabel, setPropertyLocationLabel, areasJson, setAreasJson, equipmentJson, setEquipmentJson, notesJson, setNotesJson, maintenanceJson, setMaintenanceJson, propertyEditPolicy, setPropertyEditPolicy, propertySuccessorNodeId, setPropertySuccessorNodeId, adoptionPropertyId, setAdoptionPropertyId, migrationPropertyId, setMigrationPropertyId, captureActiveScope, isActiveScope, resetGrantDraft, beginSelection, loadDetail, load, withBusy, createStuguby, joinStuguby, activeRemoteMembers, selectRecoveryMode, selectHouseEditPolicy, saveGrant, editGrant, saveProperty, memberName, updateMember, updateMemberLocalLabel, adoptSharedProperty, migrateLocalProperty, disconnectProperty, deleteStuguby } = context;
   if (loading) return <output className="page-loading"><LoaderCircle className="spin" size={20} aria-hidden="true" />{t("common.loading")}</output>;
   const currentDetail = detail?.stuguby.id === selectedId ? detail : null;
   const coordinator = currentDetail?.stuguby.localMemberState === "active" && currentDetail.stuguby.localRole === "steward";

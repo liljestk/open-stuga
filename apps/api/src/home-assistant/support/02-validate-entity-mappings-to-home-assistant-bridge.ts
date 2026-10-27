@@ -1,10 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
-import { Agent as HttpAgent } from "node:http";
-import { Agent as HttpsAgent } from "node:https";
-import type { Socket } from "node:net";
 import { resolve } from "node:path";
-import WebSocket from "ws";
-import { hasLocalHouseAuthority, type MeasurementSample, type OpeningState, type OpeningStateObservation, type Reading } from "@climate-twin/contracts";
+import { hasLocalHouseAuthority } from "@climate-twin/contracts";
 import type { AppConfig } from "../../config.js";
 import type { ClimateDatabase } from "../../db.js";
 import type {

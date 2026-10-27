@@ -1,60 +1,18 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
-import {
-  Building2,
-  Check,
-  ChevronRight,
-  CircleDot,
-  CloudSun,
-  Compass,
-  ExternalLink,
-  Home,
-  LocateFixed,
-  Link2,
-  LoaderCircle,
-  LockKeyhole,
-  MapPin,
-  Maximize2,
-  Move,
-  RadioTower,
-  RefreshCw,
-  Router,
-  Ruler,
-  ShieldCheck,
-  ThermometerSun,
-  Trash2,
-  TriangleAlert,
-} from "lucide-react";
+import { useEffect, useMemo } from "react";
 import { floorMetersPerPlanUnit } from "@climate-twin/contracts";
 import type {
-  ConnectionState,
-  House,
   HouseLocation,
   HouseMapPlacement,
-  IntegrationStatus,
-  TpLinkDiscoveredDevice,
-  UnitSystem,
 } from "@climate-twin/contracts";
 import {
   api,
-  type HouseGeoreferencePatch,
-  type HousePatch,
-  type IntegrationDiscoveryResult,
-  type TpLinkHistoryExportJob,
-  type TpLinkHistoryExportJobsResponse,
-  type TpLinkHistoryExportJobStatus,
 } from "../../api";
-import type { HouseLocationMapItem, MapLocation } from "../../components/HouseLocationMap";
+import type { HouseLocationMapItem } from "../../components/HouseLocationMap";
 import { confirmAction } from "../../components/ConfirmationProvider";
-import { LocationDiscoveryPanel, type DiscoveredHomeDefaults } from "../../components/LocationDiscoveryPanel";
-import { useI18n } from "../../i18n";
-import { integrationForHouse } from "../../integrationScope";
-import { AutomationSetupPanel } from "../AutomationSetupPanel";
-import { SetupOperationsPanel } from "../SetupOperationsPanel";
-import { ACTIVE_TP_LINK_EXPORT_STATUSES, HouseLocationMap, RETRYABLE_TP_LINK_EXPORT_STATUSES, TP_LINK_EXPORT_PROVIDER_KEYS, TP_LINK_EXPORT_STATUS_KEYS, connectionError, dateTime, decimal, defaultFootprintWidthMeters, floorPlanSize, footprintFloorFor, mapLocation, placementForm, setupSectionFromPath, setupSectionOrder, validTimeZone, writeSetupSection } from "./support";
-import type { DiscoveryOutcome, Feedback, HouseFloor, IntegrationsPageProps, SetupSection, TpLinkChildDiscovery } from "./support";
+import { connectionError, floorPlanSize, footprintFloorFor, mapLocation, placementForm, setupSectionFromPath, validTimeZone, writeSetupSection } from "./support";
 import { useIntegrationsPagePart01 } from "./part-01";
 export function useIntegrationsPagePart02(context: ReturnType<typeof useIntegrationsPagePart01>) {
-  const { aggregateIntegration, initialHouse, houses, connectionHouses, streamConnection, tpLinkDevicesLoading, tpLinkDevicesError, onHouse, onHouseUpdate, onGeoreferenceChange, onIntegrationChange, onRefreshTpLinkDevices, onDisconnectHomeAssistant, onDisconnectTpLink, onMoveHomeAssistant, onMoveTpLink, onOpenSensors, onOpenLayout, locale, t, setupHouseId, setSetupHouseId, house, integration, activeSection, setActiveSection, mapLoaded, setMapLoaded, testing, setTesting, result, setResult, homeAssistantTestGeneration, discoveryGeneration, automaticallyScannedHouseId, inventoryRefreshGeneration, historyExportRequestGeneration, testingDirect, setTestingDirect, directResult, setDirectResult, tpLinkTestGeneration, validatedTpLinkDraft, setValidatedTpLinkDraft, discovering, setDiscovering, discovery, setDiscovery, discoveryOutcome, setDiscoveryOutcome, tpLinkSettingsOpen, setTpLinkSettingsOpen, tpLinkHost, setTpLinkHost, tpLinkHostDraft, tpLinkUsername, setTpLinkUsername, tpLinkPassword, setTpLinkPassword, reuseSavedTpLinkAccount, setReuseSavedTpLinkAccount, showTpLinkPassword, setShowTpLinkPassword, savingTpLink, setSavingTpLink, tpLinkFeedback, setTpLinkFeedback, refreshingTpLinkInventory, setRefreshingTpLinkInventory, tpLinkInventoryRefreshFailed, setTpLinkInventoryRefreshFailed, tpLinkExportEnabled, setTpLinkExportEnabled, tpLinkExportJobs, setTpLinkExportJobs, tpLinkExportAutomation, setTpLinkExportAutomation, tpLinkExportJobsLoading, setTpLinkExportJobsLoading, tpLinkExportJobsError, setTpLinkExportJobsError, busyTpLinkExportJobId, setBusyTpLinkExportJobId, tpLinkCanaryTargets, setTpLinkCanaryTargets, tpLinkCanarySensorId, setTpLinkCanarySensorId, tpLinkCanaryMetric, setTpLinkCanaryMetric, tpLinkCanaryRunning, setTpLinkCanaryRunning, tpLinkChildDiscovery, setTpLinkChildDiscovery, tpLinkChildDiscoveryAbort, tpLinkChildDiscoveryKey, tpLinkChildDiscoveryRunning, haUrl, setHaUrl, haToken, setHaToken, showHaToken, setShowHaToken, savingHomeAssistant, setSavingHomeAssistant, homeAssistantFeedback, setHomeAssistantFeedback, busyAssignment, setBusyAssignment, assignmentHouseDrafts, setAssignmentHouseDrafts, assignmentFeedback, setAssignmentFeedback, validatedHomeAssistantDraft, setValidatedHomeAssistantDraft, latitude, setLatitude, longitude, setLongitude, locationLabel, setLocationLabel, timezone, setTimezone, locationValidationAttempted, setLocationValidationAttempted, placementLatitude, setPlacementLatitude, placementLongitude, setPlacementLongitude, footprintFloorId, setFootprintFloorId, footprintWidthMeters, setFootprintWidthMeters, placementEditing, setPlacementEditing, mapViewport, setMapViewport, orientation, setOrientation, savingLocation, setSavingLocation, locationFeedback, setLocationFeedback, savingPlacement, setSavingPlacement, placementFeedback, setPlacementFeedback, activeSetupHouseId, locationRequestGeneration, placementRequestGeneration, localDateTime, managedHouseIds, homeAssistantAssignments, tpLinkAssignments, beginLocationRequest, isCurrentLocationRequest, beginPlacementRequest, isCurrentPlacementRequest, stopTpLinkChildDiscovery } = context;
+  const { houses, connectionHouses, onHouse, onIntegrationChange, onDisconnectHomeAssistant, t, setSetupHouseId, house, setActiveSection, setTesting, setResult, homeAssistantTestGeneration, discoveryGeneration, inventoryRefreshGeneration, historyExportRequestGeneration, setTestingDirect, setDirectResult, tpLinkTestGeneration, setValidatedTpLinkDraft, setDiscovering, setDiscovery, setDiscoveryOutcome, tpLinkHost, setTpLinkHost, tpLinkHostDraft, tpLinkUsername, setTpLinkUsername, tpLinkPassword, setTpLinkPassword, setReuseSavedTpLinkAccount, setShowTpLinkPassword, setSavingTpLink, setTpLinkFeedback, setRefreshingTpLinkInventory, setTpLinkInventoryRefreshFailed, tpLinkChildDiscoveryAbort, tpLinkChildDiscoveryKey, tpLinkChildDiscoveryRunning, haUrl, setHaUrl, haToken, setHaToken, setShowHaToken, setSavingHomeAssistant, setHomeAssistantFeedback, setBusyAssignment, setAssignmentFeedback, setValidatedHomeAssistantDraft, latitude, setLatitude, longitude, setLongitude, locationLabel, setLocationLabel, timezone, setTimezone, locationValidationAttempted, setLocationValidationAttempted, placementLatitude, setPlacementLatitude, placementLongitude, setPlacementLongitude, footprintFloorId, setFootprintFloorId, footprintWidthMeters, setFootprintWidthMeters, setPlacementEditing, setMapViewport, orientation, setOrientation, setSavingLocation, setLocationFeedback, setSavingPlacement, setPlacementFeedback, locationRequestGeneration, placementRequestGeneration, stopTpLinkChildDiscovery } = context;
   useEffect(() => {
       const restoreSection = () => setActiveSection(setupSectionFromPath());
       window.addEventListener("popstate", restoreSection);

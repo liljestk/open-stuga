@@ -4,11 +4,9 @@ import {
   CloudRain,
   CloudSun,
   Droplets,
-  ExternalLink,
   LoaderCircle,
   MapPin,
   RefreshCw,
-  ShieldCheck,
   ThermometerSun,
   TriangleAlert,
   Wind,
@@ -16,11 +14,7 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import type {
   House,
-  HouseWeather,
-  OutdoorConditions,
   UnitSystem,
-  WeatherRecoveryStatus,
-  WeatherWarning,
 } from "@climate-twin/contracts";
 import {
   ForecastWindowNavigator,
@@ -32,12 +26,9 @@ import {
   formatWeatherTemperature,
   formatWeatherWind,
   formatZonedForecastTime,
-  type ForecastHorizonHours,
 } from "../../components/ForecastWindowNavigator";
-import { useI18n, type Locale, type TranslationKey } from "../../i18n";
-import { ApiRequestError } from "../../api";
+import { useI18n } from "../../i18n";
 import { useHouseWeather } from "../../useHouseWeather";
-import { homeRelevantWeatherWarnings } from "../../weatherWarningRelevance";
 import "../OutdoorWeatherPage.css";
 import { OutdoorWeatherViewProps, WarningCoverageArea, WeatherIssueDetails, backfillLabelKeys, decimal, finite, outageComponentLabel, pressure, recoveryFromError, stationDistance, summarizeOutdoorForecast, translateCopy, unavailableLabel, visibility } from "./01-outdoor-page-copy-to-outdoor-weather-view-props";
 

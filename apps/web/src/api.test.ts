@@ -1,4 +1,4 @@
-import { SYSTEM_VERSION, type House, type HouseWeather, type ManualObservation, type ManualObservationInput, type Sensor, type TpLinkDiscoveredDevice } from "@climate-twin/contracts";
+import { SYSTEM_VERSION } from "@climate-twin/contracts";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -13,8 +13,6 @@ import {
   subscribeToSystemUpdateEvents,
   subscribeToTrackingEvents,
 } from "./api";
-
-import { createDemoState } from "./domain";
 
 import "./apiTestSupport.js";
 

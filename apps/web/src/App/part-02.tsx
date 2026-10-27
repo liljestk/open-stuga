@@ -1,30 +1,15 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import type { Floor, Metric, TpLinkDiscoveredDevice, UnitSystem } from "@climate-twin/contracts";
-import { AlertTriangle, HousePlus, LoaderCircle, RotateCcw, ShieldCheck, Sparkles, Wrench } from "lucide-react";
-import { AppShell } from "../components/AppShell";
-import { preferredHouseForProperty, type AppPage, type ViewMode } from "../domain";
-import { useClimateData } from "../useClimateData";
-import { countActionableAlertGroups } from "../alertGrouping";
-import { useI18n } from "../i18n";
-import { enabledDefinitions } from "../measurements";
-import { api, type CreateHouseInput } from "../api";
+import { useCallback, useEffect, useRef, type FormEvent } from "react";
+import type { TpLinkDiscoveredDevice, UnitSystem } from "@climate-twin/contracts";
+import { HousePlus, LoaderCircle, Sparkles } from "lucide-react";
+import { preferredHouseForProperty, type AppPage } from "../domain";
+import { type CreateHouseInput } from "../api";
 import { locationForPropertySection, locationForRoute, routeFromLocation } from "../routing";
 import { StuguMark } from "../components/StuguMark";
-import { RouteErrorBoundary } from "../components/RouteErrorBoundary";
-import { readLocalStorage, writeLocalStorage } from "../browserStorage";
-import {
-  clearInvitationBootstrapStorage,
-  clearInvitationFragment,
-  invitationTokenFromBootstrapStorage,
-  invitationTokenFromFragment,
-  LocalAuthPage,
-} from "../pages/LocalAuthPage";
-import { integrationForHouse } from "../integrationScope";
-import { ActivityPage, AlertsPage, DataAnalyticsPage, DeveloperPage, EnergyPage, IntegrationsPage, MaintenancePage, OutdoorWeatherPage, PeopleAccessPage, PortfolioOverview, PropertyManagementPage, SensorManagementPage, StugubyPage, SystemUpdatesPage, TwinDashboard, dismissedTpLinkDevicesKey, firstFloor, freshTpLinkDiscoveryWindowMs, latestIso, pageTitleKeys, settleInBackground, storedDismissedTpLinkDevices, tpLinkDeviceKey } from "./support";
-import type { TpLinkDeviceReference } from "./support";
+import { writeLocalStorage } from "../browserStorage";
+import { dismissedTpLinkDevicesKey, firstFloor, pageTitleKeys, settleInBackground, tpLinkDeviceKey } from "./support";
 import { useAppPart01 } from "./part-01";
 export function useAppPart02(context: ReturnType<typeof useAppPart01>) {
-  const { t, climate, state, workspaceReadOnly, canManagePeople, loadSeriesInBackground, initialRoute, initialHouse, initialPropertyId, initialSelectedHouse, page, setPage, routeLoading, routeNotFound, setRouteNotFound, setRouteRevision, propertyId, setPropertyId, houseId, setHouseId, floorId, setFloorId, metric, setMetric, viewMode, setViewMode, selectedSensorId, setSelectedSensorId, units, setUnitsState, firstHomeName, setFirstHomeName, firstPropertyName, setFirstPropertyName, firstHomePropertyId, setFirstHomePropertyId, bootstrapAction, setBootstrapAction, maintenanceObservationId, setMaintenanceObservationId, requestedSensorDevice, setRequestedSensorDevice, dismissedTpLinkDeviceIds, setDismissedTpLinkDeviceIds, invitationToken, setInvitationToken, logoutUncertain, setLogoutUncertain, previousPage, logout, property, propertyReadOnly, propertyElectricityAvailable, propertyHouses, selectedPropertyHouse, house, activeSharedHouse, houseReadOnly, houseLocalAuthority, locationRoute, readOnly, routeHouse, routeScopeInvalid, effectiveRouteNotFound, floor, measurementDefinitions, availableMeasurements, lastUpdated, openAlertCount, scopedIntegration, availableTpLinkDevices, currentTpLinkDevices, undisclosedTpLinkDevices, discoveredSensorNotice } = context;
+  const { t, climate, state, page, setPage, setRouteNotFound, setRouteRevision, propertyId, setPropertyId, houseId, setHouseId, floorId, setFloorId, metric, setMetric, selectedSensorId, setSelectedSensorId, setUnitsState, firstHomeName, setFirstHomeName, firstPropertyName, setFirstPropertyName, firstHomePropertyId, setFirstHomePropertyId, bootstrapAction, setBootstrapAction, setMaintenanceObservationId, setDismissedTpLinkDeviceIds, previousPage, property, house, locationRoute, routeScopeInvalid, effectiveRouteNotFound, floor, availableMeasurements } = context;
   // Seed from the already-selected scope so initial URL canonicalization is not
   // mistaken for user-initiated SPA navigation and does not steal focus.
   const previousFocusScope = useRef(`${page}:${locationRoute.propertyId ?? (page === "twin" ? propertyId : "")}:${locationRoute.houseId ?? (page === "twin" ? houseId : "")}`);

@@ -13,7 +13,6 @@ import {
   type TrackingEvent,
   type TrackingFeatureFlags,
   type TrackingFindDescriptor,
-  type TrackingGatewayRollupInput,
   type TrackingMapSnapshot,
   type TrackingObservation,
   type TrackingObservationBatchError,

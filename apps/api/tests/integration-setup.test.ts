@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 
 import { tmpdir } from "node:os";
 
@@ -11,8 +11,6 @@ import request from "supertest";
 import { createApi, type ApiRuntime } from "../src/app.js";
 
 import { loadConfig } from "../src/config.js";
-
-import { ClimateDatabase } from "../src/db.js";
 
 import { homeAssistantInstanceFromService } from "../src/discovery.js";
 

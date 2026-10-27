@@ -7,7 +7,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 
 export const CLOUDFLARE_API_BASE = "https://api.cloudflare.com/client/v4";
 

@@ -1,12 +1,9 @@
-import { createPrivateKey, randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createPrivateKey } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import {
   readIntegrationSecrets,
   normalizedWebhookDestinations,
-  type AppleNotesGrantSecret,
-  type HomeAssistantConnectionSecret,
-  type TpLinkConnectionSecret,
   type WebhookDestinationSecret,
 } from "../integration-secrets.js";
 import { AppConfig, booleanValue, boundedInteger, environmentTuple, exportIntervalMinutes, githubRepository, httpEndpoint, inferredStugubyPublicOrigin, localAuthProxySecret, nonNegativeInteger, normalizedEmailList, optional, optionalFileSecret, positiveInteger, stugubyPublicOrigin, systemUpdateImagePrefix, timeseriesPassword, timeseriesSslMode } from "./01-app-config-to-system-update-image-prefix.js";

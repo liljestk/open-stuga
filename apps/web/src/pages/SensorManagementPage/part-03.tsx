@@ -1,71 +1,16 @@
 import {
-  lazy,
-  Suspense,
-  useEffect,
-  useId,
-  useMemo,
-  useRef,
-  useState,
   type FormEvent,
-  type KeyboardEvent,
-  type PointerEvent as ReactPointerEvent,
 } from "react";
-import {
-  Archive,
-  Check,
-  ChevronDown,
-  ChevronLeft,
-  ChevronRight,
-  CircleDot,
-  Copy,
-  Database,
-  Edit3,
-  FileSpreadsheet,
-  Home,
-  LoaderCircle,
-  MapPin,
-  Plus,
-  Printer,
-  QrCode,
-  RadioTower,
-  RefreshCw,
-  RotateCcw,
-  Search,
-  Sparkles,
-  ThermometerSun,
-  Trash2,
-  TriangleAlert,
-  X,
-} from "lucide-react";
 import type {
-  Floor,
-  House,
-  IntegrationStatus,
-  MeasurementSample,
-  Metric,
   Sensor,
-  SensorLabelDescriptor,
-  TpLinkDiscoveredDevice,
-  UnitSystem,
 } from "@climate-twin/contracts";
-import { api, type CreateSensorInput, type HistoricalImportResult, type SensorPatch } from "../../api";
+import { type CreateSensorInput, type SensorPatch } from "../../api";
 import { confirmAction } from "../../components/ConfirmationProvider";
-import type { ClimateState, TimeRange } from "../../domain";
-import { useI18n, type TranslationKey } from "../../i18n";
-import { formatInTimeZone } from "../../dateTime";
-import { measurementLabel } from "../../measurements";
-import { useNow } from "../../useNow";
-import { integrationForHouse } from "../../integrationScope";
-import { assessSensorCoverage, suggestSensorPlacement, type SensorCoverageAssessment, type SensorPlacementSuggestion } from "../../experimentalSpatialLayers";
-import { configuredSpatialMaxSampleAgeMs } from "../../spatialFreshness";
-import { useSpatialLayers } from "../../useSpatialLayers";
-import { qrCodeMatrix } from "../../qrCode";
-import { TrendChart } from "../../components/TrendChart";
-import { HistoricalImportWizard, PlacementPicker, SensorLabelCard, UNPLACED_TAG, availableForSensor, clamp, deviceBindingKey, draftContext, draftForSensor, errorMessage, hasHomeAssistantBinding, hasRealBinding, initialDraft, isDemoSensor, isLive, isUnplaced, latestSensorTimestamp, mergeMetricSamples, normalizedMeasurementEntityIds, roomCenter, rounded, sameMeasurementEntityIds, sensorFloor, sensorHasMetric, sensorMeasurementEntityIds, sensorStatus, stableRoomId, tpLinkDeviceSummary, validationErrors } from "./support";
-import type { AddStep, DraftErrors, DraftSource, EditorMode, Feedback, SensorDraft, SensorFilter, SensorManagementPageProps, SensorStatus, Translate } from "./support";
+import { UNPLACED_TAG, errorMessage, hasRealBinding, normalizedMeasurementEntityIds, roomCenter, rounded, sameMeasurementEntityIds, sensorMeasurementEntityIds, stableRoomId, validationErrors } from "./support";
+import type { AddStep, DraftErrors, SensorDraft } from "./support";
 import { useSensorManagementPagePart02 } from "./part-02";
 export function useSensorManagementPagePart03(context: ReturnType<typeof useSensorManagementPagePart02>) {
-  const { state, house, houses, integration, tpLinkDevices, tpLinkDevicesLoading, tpLinkDevicesError, requestedDevice, requestedDeviceId, readOnly, localAuthority, units, onRequestedDeviceHandled, onLoadSeries, onHouse, onRefreshDevices, onCreateSensor, onUpdateSensor, onDeleteSensor, onImportHistoricalData, locale, t, now, tpLinkStatus, formId, pageHeadingRef, editorHeadingRef, editorOpenerRef, importButtonRef, detailsHeadingRef, detailsOpenerRef, detailsRequestGeneration, search, setSearch, filter, setFilter, mode, setMode, addStep, setAddStep, editingSensorId, setEditingSensorId, attachSensorId, setAttachSensorId, draft, setDraft, errors, setErrors, editorFeedback, setEditorFeedback, pageFeedback, setPageFeedback, submitting, setSubmitting, rowBusyId, setRowBusyId, cleanupBusy, setCleanupBusy, refreshing, setRefreshing, refreshError, setRefreshError, importOpen, setImportOpen, detailsSensor, setDetailsSensor, detailSamples, setDetailSamples, detailCursor, setDetailCursor, detailsLoading, setDetailsLoading, detailsError, setDetailsError, detailMetric, setDetailMetric, detailRange, setDetailRange, currentSensors, currentSensorIds, visibleDetailsSensor, demoSensors, hasExistingRealBoundSensor, enabledMeasurementDefinitions, detailDefinitions, detailDefinition, detailHistory, usedDeviceIds, homeTpLinkDevices, addableDevices, attachableSensors, sensorStatuses, statusCounts, normalizedSearch, visibleSensors, draftHouse, draftFloor, editingSensor, selectableDevices, currentBindingMissing, draftDevice, energyOnlyDraft, placementAnalysisEnabled, placementLayerScope, placementLayers, placementCoverage, placementSuggestion, clearError, beginAdd, beginEdit, restoreEditorFocus, cancelEditor, closeImport, loadSensorDetails, closeSensorDetails, chooseSource, chooseDevice, attachDeviceToExistingSensor, changeDraftHouse, changeDraftFloor, focusFirstError, advanceAdd, retreatAdd, buildPlacement } = context;
+  const { house, houses, integration, tpLinkDevicesLoading, readOnly, localAuthority, onHouse, onRefreshDevices, onCreateSensor, onUpdateSensor, onDeleteSensor, t, formId, setMode, addStep, setAddStep, editingSensorId, setEditingSensorId, draft, setDraft, errors, setErrors, setEditorFeedback, setPageFeedback, submitting, setSubmitting, rowBusyId, setRowBusyId, cleanupBusy, setCleanupBusy, refreshing, setRefreshing, setRefreshError, detailsSensor, demoSensors, hasExistingRealBoundSensor, draftHouse, draftFloor, editingSensor, clearError, restoreEditorFocus, cancelEditor, closeSensorDetails, changeDraftHouse, changeDraftFloor, focusFirstError, advanceAdd, buildPlacement } = context;
   const submitAdd = async (event: FormEvent) => {
       event.preventDefault();
       if (readOnly || submitting) return;

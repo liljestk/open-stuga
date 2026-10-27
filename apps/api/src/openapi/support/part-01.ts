@@ -1,4 +1,3 @@
-import { MAX_OBSERVATION_RESOLUTION_NOTE_LENGTH } from "@climate-twin/contracts";
 import { STUGBY_MEDIA_TYPE } from "@climate-twin/stuguby-protocol";
 
 export type OpenApiSchema = Record<string, unknown>;

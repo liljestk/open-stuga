@@ -10,8 +10,6 @@ import type {
   MaintenanceTask,
   ManualObservation,
   MeasurementDefinition,
-  MeasurementForecastPoint,
-  MeasurementSample,
   Metric,
   MockScenario,
   OpeningStateObservation,

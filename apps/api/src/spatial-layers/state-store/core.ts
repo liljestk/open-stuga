@@ -1,28 +1,10 @@
-import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
-import { basename, dirname, resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import {
   installRegisteredMethods,
-  type AssertNoMethodKeys,
-  type IncompatibleMethodKeys,
   type RegisteredMethodSet,
 } from "../../method-registry.js";
-import type {
-  PersistedSpatialLayerSnapshot,
-  SpatialConfigurationVersion,
-  SpatialCalibrationSession,
-  SpatialDataPartition,
-  SpatialEngineAssignment,
-  SpatialGroundTruth,
-  SpatialInferenceRun,
-  SpatialLayerSnapshotDraft,
-  SpatialRunStatus,
-  SpatialScope,
-  StoredSpatialContextEvent,
-  StoredSpatialSensorBinding,
-  StoredSpatialSensorCalibration,
-} from "../types.js";
 
 export const spatialLayerStateStoreState = Symbol("SpatialLayerStateStore.state");
 
@@ -68,10 +50,6 @@ export class SpatialLayerStateStoreCore {
       }
     }
 }
-
-type SpatialLayerStateStorePublicMethodMismatch = AssertNoMethodKeys<
-  IncompatibleMethodKeys<SpatialLayerStateStoreCore, SpatialLayerStateStoreInternals>
->;
 
 export function registerSpatialLayerStateStoreMethods(methods: SpatialLayerStateStoreMethodSet): void {
   installRegisteredMethods(

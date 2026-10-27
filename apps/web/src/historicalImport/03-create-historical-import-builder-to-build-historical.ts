@@ -1,5 +1,4 @@
 import type { MeasurementDefinition, MeasurementSample, Sensor } from "@climate-twin/contracts";
-import type { Locale } from "../i18n";
 import { HistoricalImportMapping, HistoricalImportPreview, ImportCell, ImportIssue, ImportSheet, InputUnit, MAX_RETAINED_ISSUES, isBlank, validateImportSheet } from "./01-import-cell-to-read-zip-entry";
 import { HistoricalImportBuilder, convertValue, createImportLookups, numberValue, parseImportTimestamp, resolveMetric, resolveSensor, unitFromCell } from "./02-validate-xlsx-archive-to-historical-import-builder";
 

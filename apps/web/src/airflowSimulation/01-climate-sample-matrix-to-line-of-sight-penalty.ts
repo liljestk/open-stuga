@@ -4,15 +4,13 @@ import {
   resolvePlanElementOpeningState,
   type AirflowPlanElement,
   type Floor,
-  type House,
   type MeasurementSample,
   type OpeningStateObservation,
   type PlanElement,
   type Point,
   type Sensor,
-  type VentPlanElement,
 } from "@climate-twin/contracts";
-import type { OutdoorBoundaryContext, PlanEdge } from "../outdoorContext";
+import type { OutdoorBoundaryContext } from "../outdoorContext";
 import { defaultPlanElementWidth, effectivePlanElementHeight, planElementBottomOffset } from "../planElementGeometry";
 import { isSpatialSampleFresh, type SpatialFreshnessOptions } from "../spatialFreshness";
 

@@ -1,20 +1,15 @@
 import {
   configuredPlanElementOpeningState,
-  isAirflowPlanElement,
-  resolvePlanElementOpeningState,
-  type AirflowPlanElement,
   type Floor,
   type House,
-  type MeasurementSample,
   type OpeningStateObservation,
   type PlanElement,
   type Point,
   type Sensor,
-  type VentPlanElement,
 } from "@climate-twin/contracts";
-import type { OutdoorBoundaryContext, PlanEdge } from "../outdoorContext";
-import { defaultPlanElementWidth, effectivePlanElementHeight, planElementBottomOffset } from "../planElementGeometry";
-import { isSpatialSampleFresh, type SpatialFreshnessOptions } from "../spatialFreshness";
+import type { OutdoorBoundaryContext } from "../outdoorContext";
+import { effectivePlanElementHeight, planElementBottomOffset } from "../planElementGeometry";
+import { type SpatialFreshnessOptions } from "../spatialFreshness";
 import { AirflowDataSupport, AirflowEvidence, AirflowPath2D, AirflowPath3D, AirflowPoint2D, AirflowPoint3D, BuildGridInput, BuildingAirflowEstimate, ClimateSampleMatrix, FIELD_EPSILON, FloorAirflowEstimate, NormalizedPoint3D, SolverGrid, blockedByWall, ceilingHeight, clamp, elementWidth, openingIsActive, pointInPolygon } from "./01-climate-sample-matrix-to-line-of-sight-penalty";
 import { buildGrid, chooseSeeds, emptyEvidence, fluidAt, velocityAt } from "./02-interpolate-scalars-to-choose-seeds";
 

@@ -1,18 +1,12 @@
 import type {
-  ConnectionLayerValue,
   SpatialConnection,
   SpatialConnectionStateInterval,
-  SpatialLayerEngine,
   SpatialLayerEngineInput,
-  SpatialLayerEngineManifest,
-  SpatialLayerSnapshot,
 } from './contracts.js';
 
-import { clamp, mean, median, pearson, robustScale } from './math.js';
+import { clamp, mean, median } from './math.js';
 
-import { prepareSpatialWindow, type PreparedSpatialWindow, type ZoneClimatePoint } from './series.js';
-
-import { snapshotBase } from './snapshot.js';
+import { prepareSpatialWindow, type PreparedSpatialWindow } from './series.js';
 
 import { createSignalSeries, detectEvents, propagationConfig, segmentCorrelation, withCommonModeFractions } from "./propagation-signals.js";
 import type { ClimatePropagationEvent, DirectedPropagationEvidence, MatchedPropagationEvent, PropagationAnalysis, PropagationConfig, PropagationSignal, SignalSeries } from "./propagation-signals.js";

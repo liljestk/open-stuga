@@ -1,7 +1,4 @@
-import { MAX_OBSERVATION_RESOLUTION_NOTE_LENGTH } from "@climate-twin/contracts";
-import { STUGBY_MEDIA_TYPE } from "@climate-twin/stuguby-protocol";
-import { jsonRequestBody, jsonResponse, localAuthPaths, localAuthSchemas, operationalOrchestrationPaths, spatialHouseResourcePath, spatialJsonResponse, spatialLayerPaths, spatialLayerSchemas, spatialRequestBody, spatialScopePaths, spatialScopeQueryParameters, stugubyIdParameter, stugubyNodeSecurity, stugubyObject, stugubyPaths, stugubyRequestBody, stugubyResponse, trackingObject, trackingObserverBearerSecurity, trackingObserverSecurity, trackingPathParameter, trackingPaths } from "./support/index.js";
-import type { OpenApiSchema } from "./support/index.js";
+import { jsonRequestBody, jsonResponse } from "./support/index.js";
 
 export const pathsPart03 = {
   "/stream": { get: { tags: ["Telemetry"], operationId: "streamTelemetry", parameters: [{ $ref: "#/components/parameters/SensorIdsQuery" }], responses: { "200": { description: "Server-sent reading, alert, integration, weather, opening-state, heat-pump, and heartbeat events. Authorization changes emit a final event before closing. Weather snapshots carry a stable SSE id so consumers can deduplicate repeated delivery.", content: { "text/event-stream": {} }, "x-sse-event-schemas": { weather: { $ref: "#/components/schemas/WeatherUpdateEvent" }, opening: { $ref: "#/components/schemas/OpeningStateObservation" }, "heat-pump": { $ref: "#/components/schemas/HeatPumpState" }, authorization: { $ref: "#/components/schemas/StreamAuthorizationEvent" } } } } } },

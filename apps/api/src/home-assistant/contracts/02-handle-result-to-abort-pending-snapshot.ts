@@ -1,19 +1,5 @@
-import { existsSync, readFileSync } from "node:fs";
-import { Agent as HttpAgent } from "node:http";
-import { Agent as HttpsAgent } from "node:https";
-import type { Socket } from "node:net";
-import { resolve } from "node:path";
-import WebSocket from "ws";
-import type { MeasurementSample, OpeningState, OpeningStateObservation, Reading } from "@climate-twin/contracts";
-import type { AppConfig } from "../../config.js";
-import type { ClimateDatabase } from "../../db.js";
-import type {
-  SensorGapRecoveryAdapter,
-  SensorHistoryRecoveryResult,
-  SensorMetricAvailability,
-} from "../../sensor-gap-recovery.js";
-import type { MeasurementService, RuntimeStatus, TelemetryService } from "../../services.js";
-import { EntityTarget, HA_COMPOSITE_MAX_SKEW_MS, HA_OPENING_HEARTBEAT_MS, HA_SNAPSHOT_EVENT_BUFFER_LIMIT, HA_SNAPSHOT_TIMEOUT_MS, HaMessage, HaState, OpeningTarget, normalizeHomeAssistantElectricityMeasurement, normalizeHomeAssistantTemperature, normalizeHomeAssistantTimestamp } from "../support/01-home-assistant-measurement-binding-to-validate-entit.js";
+import type { OpeningState } from "@climate-twin/contracts";
+import { EntityTarget, HaMessage, HaState, OpeningTarget } from "../support/01-home-assistant-measurement-binding-to-validate-entit.js";
 import "../core.js";
 
 declare module "../core.js" {

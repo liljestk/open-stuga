@@ -14,35 +14,18 @@ import {
   type Sensor,
 } from "@climate-twin/contracts";
 import {
-  validateTopology,
-  type CoordinateFrame,
-  type SpatialClimateSample,
   type SpatialConnection,
-  type SpatialConnectionStateInterval,
-  type SpatialContextEvent,
-  type SpatialLayerEngineInput,
   type SpatialSensorBinding,
-  type SpatialSensorCalibration,
   type SpatialTopology,
   type SpatialZone,
   type Vector2,
-  type Vector3,
 } from "@climate-twin/spatial-layers";
-import { outdoorLocationKey } from "../../db.js";
 import type {
-  HybridTelemetryReadProvenance,
   HybridTelemetryReader,
 } from "../../timeseries/read-facade.js";
 import type {
-  SpatialConfigurationVersion,
-  SpatialCoreDescription,
-  SpatialCoreDataset,
-  SpatialCoreInputPort,
-  SpatialDataPartition,
   SpatialScope,
-  StoredSpatialContextEvent,
   StoredSpatialSensorBinding,
-  StoredSpatialSensorCalibration,
 } from "../types.js";
 
 export type SpatialTelemetryReader =

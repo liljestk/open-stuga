@@ -1,24 +1,18 @@
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 import userEvent from "@testing-library/user-event";
 
 import { describe, expect, it, vi } from "vitest";
 
-import type { ConfiguredOpeningState, Floor, ManualObservation, MeasurementDefinition, MeasurementSample, OpeningStateObservation, Sensor, UnitSystem } from "@climate-twin/contracts";
+import type { Floor, OpeningStateObservation, Sensor } from "@climate-twin/contracts";
 
 import { createDemoState } from "../domain";
 
 import { I18nProvider } from "../i18n";
 
-import { definitionFor } from "../measurements";
-
 import { TwinDashboard } from "../pages/TwinDashboard";
 
 import { api } from "../api";
-
-import { BuildingScene } from "./BuildingScene";
-
-import { renderScene } from "./BuildingSceneTestSupport";
 
 describe("TwinDashboard whole-building replay", () => {
   it("persists a live map toggle as runtime state instead of a layout edit", async () => {

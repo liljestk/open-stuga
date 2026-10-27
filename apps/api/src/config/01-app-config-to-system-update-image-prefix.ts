@@ -1,9 +1,7 @@
-import { createPrivateKey, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import {
-  readIntegrationSecrets,
-  normalizedWebhookDestinations,
   type AppleNotesGrantSecret,
   type GreeConnectionSecret,
   type HomeAssistantConnectionSecret,

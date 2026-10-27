@@ -4,11 +4,8 @@ import type {
   House,
   MeasurementSample,
   Metric,
-  OutdoorConditions,
   Sensor,
-  WeatherWarning,
 } from "@climate-twin/contracts";
-import { isHomeRelevantWeatherWarning } from "@climate-twin/contracts";
 import { AGING_MS, EngineContext, FRESH_MS, FUTURE_TOLERANCE_MS, HOME_INSIGHT_DEFAULT_MAX, HOME_INSIGHT_THRESHOLDS, HomeInsightConfidence, HomeInsightConfidenceLevel, HomeInsightEvidence, HomeInsightFreshness, HomeInsightFreshnessState, HomeInsightTarget, HomePulseCoverage, HomePulseStatus, InsightCandidate, MINUTE_MS, SensorCoverageState, WindowEvidence, alertSeverityOrder, qualityOrder, severityOrder } from "./insights.js";
 
 export function newestMetricSample(context: EngineContext, sensorId: string, metric: Metric): MeasurementSample | undefined {

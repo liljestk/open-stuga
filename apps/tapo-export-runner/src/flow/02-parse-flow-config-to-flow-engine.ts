@@ -5,9 +5,8 @@ import {
   ElementNotFoundError,
   WebDriverError,
   type Selector,
-  type SelectorStrategy,
 } from "../webdriver.js";
-import { FlowAction, MAX_REPEAT_TAPS, RepeatCountVariable, TapoFlowConfig, UiState, action, actions, classifyUiSignals, finiteNumber, nonEmptyString, record, selector, validateCredentialBindings, validateExportBindings } from "./01-selector-strategies-to-validate-credential-bindings.js";
+import { FlowAction, MAX_REPEAT_TAPS, RepeatCountVariable, TapoFlowConfig, UiState, actions, classifyUiSignals, finiteNumber, nonEmptyString, record, selector, validateCredentialBindings, validateExportBindings } from "./01-selector-strategies-to-validate-credential-bindings.js";
 
 export function parseFlowConfig(value: unknown): TapoFlowConfig {
   const root = record(value, "flow config");

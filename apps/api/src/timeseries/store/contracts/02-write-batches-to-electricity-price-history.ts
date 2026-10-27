@@ -1,26 +1,10 @@
-import { randomUUID } from "node:crypto";
-import { Pool } from "pg";
-import type { PoolClient, QueryResult, QueryResultRow } from "pg";
 import {
-  HYPERTABLE_DEFINITIONS,
-  MEASUREMENT_BUCKETS,
   TELEMETRY_TABLES,
-  buildBaseSchemaSql,
-  buildContinuousAggregateSql,
-  buildFallbackAggregateSql,
-  measurementAggregateName,
-  qualifiedName,
-  quoteIdentifier,
-  validateSchemaName,
 } from "../../schema.js";
 import type {
-  AggregateRefreshQuery,
   ArchiveCheckpoint,
   ArchiveTableName,
   BatchWriteResult,
-  ColdStorageMode,
-  EnergyCostAggregateQuery,
-  EnergyCostAggregateRecord,
   ElectricityPriceHistoryQuery,
   ElectricityPriceRecord,
   HeatPumpStateHistoryQuery,
@@ -44,13 +28,8 @@ import type {
   OutdoorTemperatureHistoryQuery,
   OutdoorTemperatureRecord,
   QueryControl,
-  TelemetryHealth,
-  TelemetrySchemaInitResult,
-  TelemetryStorageStats,
-  TelemetryStoreOptions,
-  TelemetryTableStorage,
 } from "../../types.js";
-import { ArchiveCheckpointRow, ElectricityPriceRow, LatestLegacyReadingFilter, LatestMeasurementFilter, LegacyReadingRow, MAX_HISTORY_LIMIT, MAX_MEASUREMENT_WINDOW_LIMIT, MeasurementBucketRow, MeasurementCoverageRow, MeasurementRow, OpeningStateRow, OutdoorTemperatureRow, SqlValue, electricityPriceFromRow, legacyReadingFromRow, measurementBucketFromRow, measurementFromRow, openingStateFromRow, outdoorTemperatureFromRow, positiveInteger, timestamp } from "../support/01-default-schema-to-measurement-bucket-from-row.js";
+import { LatestLegacyReadingFilter, LatestMeasurementFilter, SqlValue } from "../support/01-default-schema-to-measurement-bucket-from-row.js";
 import "../core.js";
 
 declare module "../core.js" {

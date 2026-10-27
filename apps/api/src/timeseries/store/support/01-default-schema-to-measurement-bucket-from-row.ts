@@ -1,49 +1,14 @@
-import { randomUUID } from "node:crypto";
-import { Pool } from "pg";
-import type { PoolClient, QueryResult, QueryResultRow } from "pg";
-import {
-  HYPERTABLE_DEFINITIONS,
-  MEASUREMENT_BUCKETS,
-  TELEMETRY_TABLES,
-  buildBaseSchemaSql,
-  buildContinuousAggregateSql,
-  buildFallbackAggregateSql,
-  measurementAggregateName,
-  qualifiedName,
-  quoteIdentifier,
-  validateSchemaName,
-} from "../../schema.js";
+import type { QueryResultRow } from "pg";
 import type {
-  AggregateRefreshQuery,
-  ArchiveCheckpoint,
   ArchiveTableName,
-  BatchWriteResult,
-  ColdStorageMode,
-  EnergyCostAggregateQuery,
-  EnergyCostAggregateRecord,
-  ElectricityPriceHistoryQuery,
   ElectricityPriceRecord,
   HeatPumpStateRecord,
-  LegacyReadingHistoryQuery,
   LegacyReadingRecord,
-  MeasurementBucketQuery,
   MeasurementBucketRecord,
-  MeasurementCoverageQuery,
-  MeasurementCoverageRecord,
-  MeasurementHistoryQuery,
   MeasurementSampleRecord,
-  MeasurementWindowQuery,
-  OpeningStateHistoryQuery,
   OpeningStateRecord,
-  OpeningStateSnapshotQuery,
-  OutdoorTemperatureHistoryQuery,
   OutdoorTemperatureRecord,
   QueryControl,
-  TelemetryHealth,
-  TelemetrySchemaInitResult,
-  TelemetryStorageStats,
-  TelemetryStoreOptions,
-  TelemetryTableStorage,
 } from "../../types.js";
 
 export const DEFAULT_SCHEMA = "telemetry";

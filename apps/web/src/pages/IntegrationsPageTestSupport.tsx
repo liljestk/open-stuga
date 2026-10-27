@@ -1,12 +1,8 @@
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-
-import userEvent from "@testing-library/user-event";
+import { render } from "@testing-library/react";
 
 import type { House, IntegrationStatus, TpLinkDiscoveredDevice } from "@climate-twin/contracts";
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-
-import { api } from "../api";
+import { vi } from "vitest";
 
 import { I18nProvider } from "../i18n";
 

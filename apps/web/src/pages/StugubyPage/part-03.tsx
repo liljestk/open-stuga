@@ -1,39 +1,27 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import type { House, Property } from "@climate-twin/contracts";
+import { type FormEvent } from "react";
 import {
   STUGBY_DATASETS,
   type StugubyDataset,
-  type StugubyDatasetGrant,
   type StugubyMember,
   type StugubyRole,
   type StugubyShareGrant,
   type StugubySharedProperty,
-  type StugubySummary,
 } from "@climate-twin/stuguby-protocol";
-import { AlertTriangle, Check, Copy, Database, KeyRound, Link, LoaderCircle, Network, Pencil, Plus, RefreshCw, Settings2, ShieldCheck, Sparkles, Trash2, Unplug, Users } from "lucide-react";
 import {
   api,
-  type StugubyDetailResponse,
-  type StugubyInvitationCreated,
-  type StugubyListResponse,
   type StugubyLocalMember,
-  type StugubyLocalPublicationCatalog,
-  type StugubyRemoteTelemetrySample,
 } from "../../api";
-import { StugubyMark } from "../../components/StugubyMark";
 import { confirmAction } from "../../components/ConfirmationProvider";
-import { useI18n, type TranslationKey } from "../../i18n";
-import { CloudflareSetupPanel } from "../CloudflareSetupPanel";
 import "../StugubyPage.css";
-import { MemberIdentity, activeGrant, datasetLabelKeys, editableHomeDatasets, errorMessage, formattedTime, grantHomeName, idlePublicationCatalog, initialDatasetDraft, localDateTimeInput, loopbackOrigin, memberStateLabelKeys, parseArray, roleLabelKeys, suggestedCoordinatorOrigin } from "./support";
-import type { DatasetDraft, PublicationCatalogState, StugubyPageProps } from "./support";
+import { localDateTimeInput, parseArray } from "./support";
+import type { DatasetDraft } from "./support";
 import { useStugubyPagePart02 } from "./part-02";
 type DeferredContext = {
   coordinator: boolean;
 };
 export function useStugubyPagePart03(context: ReturnType<typeof useStugubyPagePart02>) {
   const deferred = context as typeof context & DeferredContext;
-  const { houses, properties, onInventoryChange, locale, t, roleLabel, stateLabel, index, setIndex, detail, setDetail, selectedId, setSelectedId, loading, setLoading, busy, setBusy, error, setError, notice, setNotice, detailLoading, setDetailLoading, telemetryError, setTelemetryError, copied, setCopied, cloudflareSetupRequested, setCloudflareSetupRequested, createdInvitation, setCreatedInvitation, telemetrySamples, setTelemetrySamples, createName, setCreateName, createDescription, setCreateDescription, createCoordinatorUrl, setCreateCoordinatorUrl, joinCoordinatorUrl, setJoinCoordinatorUrl, joinUrl, setJoinUrl, joinInvitationId, setJoinInvitationId, joinSecret, setJoinSecret, inviteRole, setInviteRole, inviteLocalLabel, setInviteLocalLabel, inviteExpiresAt, setInviteExpiresAt, publishableHouses, grantHouseId, setGrantHouseId, audienceKind, setAudienceKind, audienceNodes, setAudienceNodes, datasetDraft, setDatasetDraft, telemetryLive, setTelemetryLive, telemetryHistoryHours, setTelemetryHistoryHours, telemetryMetrics, setTelemetryMetrics, telemetrySensors, setTelemetrySensors, telemetryRate, setTelemetryRate, grantExpiresAt, setGrantExpiresAt, houseEditPolicy, setHouseEditPolicy, recoveryMode, setRecoveryMode, houseSuccessorNodeId, setHouseSuccessorNodeId, editingGrantId, setEditingGrantId, publicationCatalog, setPublicationCatalog, catalogRevision, setCatalogRevision, activeLocalGrantHouseIds, unsharedHouses, grantHouseOptions, propertyName, setPropertyName, propertyDescription, setPropertyDescription, propertyLatitude, setPropertyLatitude, propertyLongitude, setPropertyLongitude, propertyLocationLabel, setPropertyLocationLabel, areasJson, setAreasJson, equipmentJson, setEquipmentJson, notesJson, setNotesJson, maintenanceJson, setMaintenanceJson, propertyEditPolicy, setPropertyEditPolicy, propertySuccessorNodeId, setPropertySuccessorNodeId, adoptionPropertyId, setAdoptionPropertyId, migrationPropertyId, setMigrationPropertyId, detailRequest, selectedIdRef, captureActiveScope, isActiveScope, resetGrantDraft, resetStugubyScopedUi, beginSelection, loadDetail, load, withBusy, createStuguby, joinStuguby, activeRemoteMembers, selectRecoveryMode, selectHouseEditPolicy, saveGrant } = context;
+  const { properties, onInventoryChange, t, stateLabel, index, detail, setNotice, setGrantHouseId, setAudienceKind, setAudienceNodes, setDatasetDraft, setTelemetryLive, setTelemetryHistoryHours, setTelemetryMetrics, setTelemetrySensors, setTelemetryRate, setGrantExpiresAt, setHouseEditPolicy, setRecoveryMode, setHouseSuccessorNodeId, setEditingGrantId, propertyName, propertyDescription, propertyLatitude, propertyLongitude, propertyLocationLabel, areasJson, equipmentJson, notesJson, maintenanceJson, propertyEditPolicy, propertySuccessorNodeId, adoptionPropertyId, migrationPropertyId, setMigrationPropertyId, detailRequest, selectedIdRef, captureActiveScope, isActiveScope, beginSelection, loadDetail, load, withBusy } = context;
   const editGrant = (grant: StugubyShareGrant) => {
       const drafts = Object.fromEntries(STUGBY_DATASETS.map((dataset) => {
         const configured = grant.datasets.find((item) => item.dataset === dataset);

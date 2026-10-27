@@ -8,7 +8,6 @@ import type {
   Sensor,
   WeatherWarning,
 } from "@climate-twin/contracts";
-import { isHomeRelevantWeatherWarning } from "@climate-twin/contracts";
 import { co2Insight, coverageInsight, humidityGuidance, measureCoverage, metricGuidance, temperatureBalanceInsight, temperatureInsight, windowEvidence } from "./freshness.js";
 import { clampPriority, compareAlerts, compareCandidates, compareText, confidence, confidenceForTrend, coverageStateForSensor, freshnessForSample, freshnessForTimestamp, guidanceSafetyNote, isFreshUsable, metricLabel, metricPair, metricUnit, newestMetricSample, normalizeMaximum, numericEvidence, parseReferenceTime, pulseStatus, round, targetFor, targetLabel } from "./model.js";
 

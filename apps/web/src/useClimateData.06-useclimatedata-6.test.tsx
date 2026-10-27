@@ -3,10 +3,8 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type {
-  AreaEquipment,
   House,
   IntegrationStatus,
-  MaintenanceTask,
   ManualObservation,
   MeasurementForecastPoint,
   MeasurementSample,
@@ -14,14 +12,11 @@ import type {
   SensorSnapshot,
   StaticParameter,
   TelemetryEvent,
-  TpLinkDiscoveredDevice,
-  PropertyArea,
-  PropertyNote,
 } from "@climate-twin/contracts";
 
-import { createDemoState, type ClimateState } from "./domain";
+import { createDemoState } from "./domain";
 
-import { replaceLoadedHouseTelemetry, seriesStateKey, useClimateData, withoutDemoTelemetry } from "./useClimateData";
+import { seriesStateKey, useClimateData } from "./useClimateData";
 
 import { deferred, twoHouseFixture } from "./useClimateDataTestSupport";
 

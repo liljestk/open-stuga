@@ -1,24 +1,15 @@
-import { createHash, createHmac, randomBytes, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import { lookup } from "node:dns/promises";
-import { readFileSync, readdirSync } from "node:fs";
 import { request as httpsRequest } from "node:https";
 import { isIP } from "node:net";
 import { isPublicIpAddress } from "../../reserved-network-addresses.js";
-import { dirname, join, relative } from "node:path";
-import { fileURLToPath } from "node:url";
 import type { MeasurementSample } from "@climate-twin/contracts";
-import type { AppConfig } from "../../config.js";
 import type {
-  ClimateDatabase,
-  SensorDataGapRecord,
-  TapoHistoryExportClaim,
   TapoHistoryExportJob,
   TapoHistoryExportJobStatus,
-  TapoHistoryExportProvider,
   TapoHistoryExportStagedSample,
   TapoHistoryExportStagedSampleInput,
 } from "../../db.js";
-import type { SensorHistoryRecoveryResult } from "../../sensor-gap-recovery.js";
 import type { HybridTelemetryReader } from "../../timeseries/read-facade.js";
 import { MAX_TAPO_HISTORY_DATA_ROWS_PER_JOB, REQUEST_TIMEOUT_MS, TapoHistoryFormatError } from "./01-max-csv-bytes-to-tapo-csv-schema-signature.js";
 import { TapoPrivateHistoryClientOptions, boundedResponseJson } from "./03-bounded-response-bytes-to-tapo-private-history-clien.js";

@@ -6,8 +6,6 @@ import { tmpdir } from "node:os";
 
 import { join } from "node:path";
 
-import { createServer, type Socket } from "node:net";
-
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import request from "supertest";
@@ -17,14 +15,6 @@ import { WebSocketServer, type WebSocket } from "ws";
 import { createApi, type ApiRuntime } from "../src/app.js";
 
 import type { AppConfig } from "../src/config.js";
-
-import {
-  loadEntityMappings,
-  normalizeHomeAssistantElectricityMeasurement,
-  normalizeHomeAssistantTemperature,
-  normalizeHomeAssistantTimestamp,
-  testHomeAssistantCredentials,
-} from "../src/home-assistant.js";
 
 import { waitFor } from "./home-assistantTestSupport.js";
 

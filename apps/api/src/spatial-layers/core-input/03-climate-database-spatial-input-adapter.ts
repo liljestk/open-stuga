@@ -1,37 +1,13 @@
 import {
-  configuredPlanElementOpeningState,
-  floorMetersPerPlanUnit,
-  resolvePlanElementOpeningState,
-  type AirflowPlanElement,
-  type Floor,
   type House,
-  type MeasurementSample,
-  type OutdoorTemperatureSample,
   type OpeningStateObservation,
-  type Property,
-  type PropertyArea,
-  type Reading,
-  type Sensor,
 } from "@climate-twin/contracts";
 import {
-  validateTopology,
-  type CoordinateFrame,
-  type SpatialClimateSample,
-  type SpatialConnection,
-  type SpatialConnectionStateInterval,
-  type SpatialContextEvent,
   type SpatialLayerEngineInput,
-  type SpatialSensorBinding,
-  type SpatialSensorCalibration,
-  type SpatialTopology,
-  type SpatialZone,
-  type Vector2,
-  type Vector3,
 } from "@climate-twin/spatial-layers";
 import { outdoorLocationKey } from "../../db.js";
 import type {
   HybridTelemetryReadProvenance,
-  HybridTelemetryReader,
 } from "../../timeseries/read-facade.js";
 import type {
   SpatialConfigurationVersion,

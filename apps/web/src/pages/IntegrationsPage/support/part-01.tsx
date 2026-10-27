@@ -1,35 +1,8 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
-import {
-  Building2,
-  Check,
-  ChevronRight,
-  CircleDot,
-  CloudSun,
-  Compass,
-  ExternalLink,
-  Home,
-  LocateFixed,
-  Link2,
-  LoaderCircle,
-  LockKeyhole,
-  MapPin,
-  Maximize2,
-  Move,
-  RadioTower,
-  RefreshCw,
-  Router,
-  Ruler,
-  ShieldCheck,
-  ThermometerSun,
-  Trash2,
-  TriangleAlert,
-} from "lucide-react";
+import { lazy } from "react";
 import { floorMetersPerPlanUnit } from "@climate-twin/contracts";
 import type {
   ConnectionState,
   House,
-  HouseLocation,
-  HouseMapPlacement,
   IntegrationDiscoveryJob,
   IntegrationStatus,
   TpLinkDiscoveredDevice,
@@ -39,23 +12,16 @@ import {
   api,
   type HouseGeoreferencePatch,
   type HousePatch,
-  type IntegrationDiscoveryResult,
   type TpLinkHistoryExportJob,
-  type TpLinkHistoryExportJobsResponse,
   type TpLinkHistoryExportJobStatus,
 } from "../../../api";
-import type { HouseLocationMapItem, MapLocation } from "../../../components/HouseLocationMap";
-import { LocationDiscoveryPanel, type DiscoveredHomeDefaults } from "../../../components/LocationDiscoveryPanel";
+import type { MapLocation } from "../../../components/HouseLocationMap";
 import { formatInTimeZone } from "../../../dateTime";
-import { useI18n } from "../../../i18n";
-import { integrationForHouse } from "../../../integrationScope";
 export {
   forgetIntegrationDiscovery,
   rememberIntegrationDiscovery,
   rememberedIntegrationDiscovery,
 } from "../../../integrationDiscoveryStorage";
-import { AutomationSetupPanel } from "../../AutomationSetupPanel";
-import { SetupOperationsPanel } from "../../SetupOperationsPanel";
 
 export const HouseLocationMap = lazy(() => import("../../../components/HouseLocationMap").then((module) => ({ default: module.HouseLocationMap })));
 

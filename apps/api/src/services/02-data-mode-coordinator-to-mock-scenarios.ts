@@ -1,19 +1,13 @@
 import type {
-  AlertEvent,
-  AlertRule,
   ForecastPoint,
-  IntegrationStatus,
   MeasurementForecastPoint,
   MeasurementSample,
   MockScenario,
   Reading,
   Sensor,
 } from "@climate-twin/contracts";
-import { configuredAlertWebhookDestinations, type AppConfig } from "../config.js";
 import { ClimateDatabase } from "../db.js";
 import { TelemetryBus } from "../events.js";
-import { alertNotificationBindings } from "../notification-snapshot.js";
-import { DEFAULT_ALERT_DELIVERY_POLICY } from "../notification-policy.js";
 import type { HybridTelemetryReader } from "../timeseries/read-facade.js";
 import { ForecastUnavailableError, MeasurementForecastService, type MeasurementForecast } from "../analytics/forecast/service.js";
 import { AlertEngine, DEMO_TELEMETRY_SOURCES, MeasurementValidationError, TelemetrySource, TelemetryValidationError, validateLiveTimestamp } from "./01-weather-connection-status-to-demo-data-was-disabled.js";

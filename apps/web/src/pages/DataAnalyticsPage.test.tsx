@@ -208,7 +208,7 @@ describe("DataAnalyticsPage", () => {
   it("keeps last received continuity data visibly stale after a failed refresh and collapse", async () => {
     const state = createDemoState();
     const house = state.houses[0]!;
-    const analyticsQuery = vi.spyOn(api, "analyticsQuery").mockResolvedValue(analyticsResponseFor(house, state.sensors.filter((sensor) => sensor.houseId === house.id && sensor.enabled)));
+    vi.spyOn(api, "analyticsQuery").mockResolvedValue(analyticsResponseFor(house, state.sensors.filter((sensor) => sensor.houseId === house.id && sensor.enabled)));
     vi.spyOn(api, "outdoorTemperatureHistory").mockResolvedValue({ samples: [], from: "", to: "", truncated: false });
     const gaps = vi.spyOn(api, "sensorDataGaps").mockResolvedValue([]);
     vi.spyOn(api, "houseElectricityPrice").mockResolvedValue({ current: null, prices: [] });

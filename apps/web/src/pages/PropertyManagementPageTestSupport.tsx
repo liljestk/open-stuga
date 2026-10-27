@@ -1,31 +1,16 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, within } from "@testing-library/react";
 
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { vi } from "vitest";
 
 import type {
   AreaEquipment,
-  EquipmentAttachment,
-  EquipmentLink,
   MaintenanceTask,
   PropertyArea,
-  PropertyMemberLocation,
   PropertyNote,
-  TenantMemberSummary,
   TrackingCapabilities,
-  TrackingMapSnapshot,
 } from "@climate-twin/contracts";
 
-import { api, ApiRequestError } from "../api";
-
-import { createDemoState, DEMO_PROPERTY_ID } from "../domain";
-
-import { I18nProvider } from "../i18n";
-
-import { PeopleAccessPage } from "./PeopleAccessPage";
-
-import { PropertyManagementPage } from "./PropertyManagementPage";
-
-import propertyStyles from "./PropertyManagementPage.css?raw";
+import { DEMO_PROPERTY_ID } from "../domain";
 
 export const originalClipboard = navigator.clipboard;
 

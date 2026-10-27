@@ -4,14 +4,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   api,
-  cancelPendingApiRequests,
-  COLLECTION_PAGE_SIZE,
-  subscribeToApiAuthorizationChanges,
-  subscribeToEvents,
-  subscribeToMeasurementEvents,
-  subscribeToSpatialLayerEvents,
-  subscribeToSystemUpdateEvents,
-  subscribeToTrackingEvents,
 } from "./api";
 
 import { createDemoState } from "./domain";

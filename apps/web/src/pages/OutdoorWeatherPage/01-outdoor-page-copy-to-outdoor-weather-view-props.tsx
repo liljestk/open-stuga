@@ -1,19 +1,9 @@
 import {
-  Check,
   ChevronDown,
-  CloudRain,
-  CloudSun,
-  Droplets,
   ExternalLink,
-  LoaderCircle,
-  MapPin,
-  RefreshCw,
   ShieldCheck,
-  ThermometerSun,
   TriangleAlert,
-  Wind,
 } from "lucide-react";
-import { useMemo } from "react";
 import type {
   House,
   HouseWeather,
@@ -23,20 +13,11 @@ import type {
   WeatherWarning,
 } from "@climate-twin/contracts";
 import {
-  ForecastWindowNavigator,
-  FORECAST_WINDOW_LABEL_KEYS,
-  MAX_FORECAST_HOURS,
-  buildForecastWindows,
-  formatWeatherPercent,
-  formatWeatherPrecipitation,
-  formatWeatherTemperature,
-  formatWeatherWind,
   formatZonedForecastTime,
   type ForecastHorizonHours,
 } from "../../components/ForecastWindowNavigator";
-import { useI18n, type Locale, type TranslationKey } from "../../i18n";
+import { type Locale, type TranslationKey } from "../../i18n";
 import { ApiRequestError } from "../../api";
-import { useHouseWeather } from "../../useHouseWeather";
 import { homeRelevantWeatherWarnings } from "../../weatherWarningRelevance";
 import "../OutdoorWeatherPage.css";
 

@@ -7,13 +7,10 @@ import type {
   OutdoorConditions,
   WeatherComponentCoverage,
   WeatherComponentStatus,
-  WeatherComponentStatuses,
   WeatherRecoveryStatus,
   WeatherStation,
   WeatherWarning,
-  WeatherWarningSeverity,
 } from "@climate-twin/contracts";
-import { SYSTEM_VERSION } from "../version.js";
 
 export type WeatherConnectionStatus = NonNullable<IntegrationStatus["weather"]["connections"]>[number];
 

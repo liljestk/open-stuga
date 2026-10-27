@@ -63,7 +63,7 @@ function supportsMetric(state: ClimateState, sensor: Sensor, metric: Electricity
     || (metric === "energy" && supportsDirectMetric(state, sensor, "power"));
 }
 
-function loadedMetrics(state: ClimateState, sensor: Sensor, metric: ElectricityMetric): ElectricityMetric[] {
+function loadedMetrics(metric: ElectricityMetric): ElectricityMetric[] {
   if (metric !== "energy") return [metric];
   // Consumption has a separate integral query. Generic history is averaged
   // and must never be interpreted as resetting counters or held power.
@@ -149,7 +149,7 @@ export function ElectricityHistory(props: Readonly<ElectricityHistoryProps>) {
     : mode === "multiple" ? multipleSensors : props.metric === "electricity_price" ? metricSensors : sensorsForHomeTotal(metricSensors);
   const activeSensorKey = activeSensors.map((sensor) => sensor.id).join("\u0000");
   const activeLoadKey = activeSensors.map((sensor) => (
-    `${sensor.id}:${loadedMetrics(props.state, sensor, props.metric).join(",")}`
+    `${sensor.id}:${loadedMetrics(props.metric).join(",")}`
   )).join("\u0000");
   const houseId = props.sensors[0]?.houseId ?? "";
   const consumptionQuery = useElectricityHistoryQuery(houseId, activeSensors.map((sensor) => ({
@@ -177,7 +177,7 @@ export function ElectricityHistory(props: Readonly<ElectricityHistoryProps>) {
 
   useEffect(() => {
     activeSensors.forEach((sensor) => {
-      for (const candidate of loadedMetrics(props.state, sensor, props.metric)) {
+      for (const candidate of loadedMetrics(props.metric)) {
         props.onLoadSeries?.(sensor.id, candidate, props.range, false);
       }
     });
@@ -257,7 +257,7 @@ export function ElectricityHistory(props: Readonly<ElectricityHistoryProps>) {
     outdoorForecast: [],
     electricityPrice: propertyPrices,
   };
-  const loadStates = activeSensors.flatMap((sensor) => loadedMetrics(props.state, sensor, props.metric).flatMap((candidate) => {
+  const loadStates = activeSensors.flatMap((sensor) => loadedMetrics(props.metric).flatMap((candidate) => {
     const state = props.seriesStates?.[seriesStateKey(sensor.id, candidate)];
     return state ? [state] : [];
   }));

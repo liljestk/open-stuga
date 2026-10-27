@@ -1,18 +1,11 @@
 import type {
-  AlertEvent,
-  AlertRule,
   House,
   MeasurementSample,
   Sensor,
   WeatherWarning,
 } from "@climate-twin/contracts";
 
-import { describe, expect, it } from "vitest";
-
 import {
-  deriveHomeInsights,
-  deriveHomePulse,
-  HOME_INSIGHT_ADVISORY,
   type HomeInsightInput,
 } from "../src/analytics/home-monitoring/insights.js";
 

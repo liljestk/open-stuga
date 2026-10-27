@@ -1,17 +1,10 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
-import { networkInterfaces } from "node:os";
-import { createInterface } from "node:readline";
-import { hasLocalHouseAuthority, type OpeningStateObservation, type Reading, type TpLinkDiscoveredDevice } from "@climate-twin/contracts";
-import type { AppConfig } from "../../config.js";
-import type { ClimateDatabase } from "../../db.js";
+import { existsSync } from "node:fs";
+import { hasLocalHouseAuthority, type TpLinkDiscoveredDevice } from "@climate-twin/contracts";
 import type {
-  SensorGapRecoveryAdapter,
   SensorHistoryRecoveryResult,
-  SensorMetricAvailability,
 } from "../../sensor-gap-recovery.js";
-import { MeasurementService, RuntimeStatus, TelemetryService } from "../../services.js";
 import { PendingTpLinkHistoryRequest, TapoOpeningTarget, TpLinkHistoryResultMessage, importTpLinkMappingFile, nonEmptyString, safeTpLinkHistoryFailure, tpLinkDeviceType, validateTpLinkDeviceMappings } from "../support/01-tp-link-local-climate-history-capability-revision-to.js";
 import { registerTpLinkConnectionBridgeMethods, tpLinkConnectionBridgeState, type TpLinkConnectionBridgeInternals } from "../core.js";
 import { compareCodeUnits } from "../../text-order.js";

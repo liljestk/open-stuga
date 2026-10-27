@@ -1,64 +1,11 @@
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
-import { MAX_OBSERVATION_RESOLUTION_NOTE_LENGTH, resolvePlanElementOpeningState } from "@climate-twin/contracts";
-import type { StugubyRole, StugubySummary } from "@climate-twin/stuguby-protocol";
-import type {
-  AreaEquipment,
-  AreaEquipmentInput,
-  AreaEquipmentPatch,
-  AlertRule,
-  Floor,
-  GeoCoordinate,
-  HouseLocation,
-  HouseMapPlacement,
-  HouseWeather,
-  MaintenanceTask,
-  ManualObservation,
-  MeasurementDefinition,
-  MeasurementSample,
-  MeasurementSnapshotEntry,
-  Property,
-  PropertyArea,
-  PropertyAreaInput,
-  PropertyAreaPatch,
-  PropertyCreateInput,
-  Reading,
-  Sensor,
-  StaticParameter,
-} from "@climate-twin/contracts";
-import {
-  parseAlertRule,
-  parseMeasurementDefinition,
-  parseMeasurementSample,
-  parseMaintenanceTaskInput,
-  parseMaintenanceTaskPatch,
-  parseObservationInput,
-  parseObservationPatch,
-  parseReading,
-  parseSensorPatch,
-} from "../app.js";
-import { loadConfig } from "../config.js";
-import { DataOperationsService } from "../data-operations.js";
-import { ClimateDatabase, outdoorLocationKey } from "../db.js";
-import { discoverHomeAssistant } from "../discovery.js";
-import { EnergyCostService } from "../energy-cost.js";
-import { EnergyOptimizer } from "../energy-optimizer.js";
-import { publicElectricityConfiguration } from "../electricity-prices.js";
-import { TelemetryBus } from "../events.js";
-import { HomeAssistantBridge } from "../home-assistant.js";
 import { runMcpToolRequest } from "../mcp-lifecycle.js";
 import {
-  mcpToolAnnotations,
   mcpBoundedInteger,
   mcpBoundedNumber,
-  mcpIsoDate,
   mcpLanguage,
   mcpLocationQuery,
-  mcpOptionalFiniteNumber,
-  mcpThermalDateRange,
   requireMcpHouse,
-  requireMcpHouseSensor,
-  requireMcpConfirmation,
   requireMcpMeasurementTarget,
   requireMcpSensor,
   summarizeMcpAreaEquipment,
@@ -66,31 +13,12 @@ import {
   summarizeMcpProperty,
   summarizeMcpPropertyArea,
   validateMcpToolRegistry,
-  validateMcpDateRange,
 } from "../mcp-validation.js";
-import { LocationDiscoveryService } from "../location-discovery.js";
-import { AutomaticWeatherProvider, OpenMeteoWeatherProvider } from "../open-meteo.js";
 import {
-  AlertEngine,
-  DataModeCoordinator,
   forecast,
   forecastMeasurement,
-  MeasurementService,
   MOCK_SCENARIOS,
-  MockEngine,
-  ReplayEngine,
-  RuntimeStatus,
-  TelemetryService,
 } from "../services.js";
-import { SetupDoctor } from "../setup-doctor.js";
-import { HybridTelemetryReader } from "../timeseries/read-facade.js";
-import { runThermalIsolation } from "../thermal-isolation.js";
-import { runThermalSimulation } from "../thermal-simulation.js";
-import { TpLinkBridge } from "../tp-link.js";
-import { SYSTEM_VERSION } from "../version.js";
-import { FmiWeatherProvider, WeatherRequestSupersededError, WeatherService } from "../weather.js";
-import type { StugubyService } from "../stuguby/service.js";
-import { StugubyStore } from "../stuguby/store.js";
 import { createAreaEquipment, createProperty, createPropertyArea, dataMode, database, energyOptimizer, getHouseWeather, homeAssistant, locationDiscovery, measurementSnapshot, mock, objectArguments, optionalBoolean, optionalString, replay, requiredString, setupDoctor, status, stugubyStore, telemetryReader, timeseries, tpLink, updateAreaEquipment, updatePropertyArea } from "./01-config-to-get-house-weather.js";
 import { createAlertRule, createHouse, createMeasurementDefinition, createSensor, deleteSensor, disableMeasurementDefinition, importMeasurements, ingestMeasurements, ingestReadings, queryMeasurementHistory, querySensorHistory, replaceHouseFloor, replaceHouseLayout, thermalSimulation, updateHouse, updateMeasurementDefinition, updateSensor } from "./02-thermal-simulation-to-create-alert-rule.js";
 import { acknowledgeAlert, assetMetadata, createMaintenanceTask, createObservation, deleteAlertRule, deleteAsset, deleteMaintenanceTask, deleteObservation, deleteStaticParameter, discoverIntegrations, homeAssistantConnectionTest, homeAssistantSetup, listMaintenanceTaskRevisions, listMaintenanceTasks, listObservationRevisions, selectMockScenario, startReplay, tpLinkConnectionTest, tpLinkSetup, updateAlertRule, updateMaintenanceTask, updateObservation, uploadAsset, upsertStaticParameter } from "./03-update-alert-rule-to-start-replay.js";

@@ -12,10 +12,6 @@ import { createApi, type ApiRuntime } from "../src/app.js";
 
 import type { AppConfig } from "../src/config.js";
 
-import { readIntegrationSecrets, writeIntegrationSecrets } from "../src/integration-secrets.js";
-
-import { ipv4BroadcastAddress, loadTpLinkDeviceMappings, normalizeTpLinkTemperature } from "../src/tp-link.js";
-
 import { waitFor } from "./tp-linkTestSupport.js";
 
 describe("direct TP-Link H100/H200/H500 bridge", () => {

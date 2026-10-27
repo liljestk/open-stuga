@@ -4,14 +4,14 @@ import axe from "axe-core";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { StugubyShareGrant, StugubySummary } from "@climate-twin/stuguby-protocol";
+import type { StugubyShareGrant } from "@climate-twin/stuguby-protocol";
 
-import { api, type StugubyDetailResponse, type StugubyListResponse } from "../api";
+import { api, type StugubyDetailResponse } from "../api";
 import { confirmAction } from "../components/ConfirmationProvider";
 
 import { I18nProvider } from "../i18n";
 
-import { localDateTimeInput, StugubyPage } from "./StugubyPage";
+import { StugubyPage } from "./StugubyPage";
 
 import { detail, identity, localGrant, mockLoadedStugubys, summary } from "./StugubyPageTestSupport";
 

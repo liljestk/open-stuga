@@ -1,12 +1,11 @@
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 
 import userEvent from "@testing-library/user-event";
 
-import type { Sensor, TpLinkDiscoveredDevice } from "@climate-twin/contracts";
+import type { TpLinkDiscoveredDevice } from "@climate-twin/contracts";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { api } from "../api";
 import { confirmAction } from "../components/ConfirmationProvider";
 
 import { createDemoState } from "../domain";
@@ -15,7 +14,7 @@ import { I18nProvider } from "../i18n";
 
 import { SensorManagementPage } from "./SensorManagementPage";
 
-import { deferred, discoveredDevice, expectDescribedError, renderPage } from "./SensorManagementPageTestSupport";
+import { discoveredDevice, expectDescribedError, renderPage } from "./SensorManagementPageTestSupport";
 
 vi.mock("../components/ConfirmationProvider", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../components/ConfirmationProvider")>();

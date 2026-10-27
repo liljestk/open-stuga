@@ -16,7 +16,7 @@ import type {
 import { useI18n, type TranslationKey } from "../i18n";
 import { formatInTimeZone } from "../dateTime";
 import { useNow } from "../useNow";
-import type { LatestMeasurements, MeasurementHistory } from "../measurements";
+import type { LatestMeasurements } from "../measurements";
 import { HomeOriginIndicator, isRemoteHome } from "../components/HomeOriginIndicator";
 import { useHomeMonitoringCollectionQuery } from "../data/analytics/homeMonitoringQuery";
 import { MobileGlanceOverview } from "../components/MobileGlanceOverview";
@@ -29,7 +29,6 @@ interface PortfolioOverviewProps {
   houses: House[];
   sensors: Sensor[];
   latestMeasurements: LatestMeasurements;
-  measurementHistory: MeasurementHistory;
   measurementDefinitions?: MeasurementDefinition[];
   alerts: AlertEvent[];
   alertRules: AlertRule[];
@@ -89,7 +88,6 @@ function PortfolioOverviewView({
   houses,
   sensors,
   latestMeasurements,
-  measurementHistory,
   measurementDefinitions = [],
   alerts,
   alertRules,

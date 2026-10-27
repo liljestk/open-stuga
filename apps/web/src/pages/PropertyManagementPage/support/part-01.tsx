@@ -1,48 +1,9 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import {
-  Building2,
-  Battery,
-  Boxes,
-  Camera,
-  Check,
-  ChevronRight,
-  Clipboard,
-  ClipboardList,
-  ExternalLink,
-  FileText,
-  HardHat,
-  KeyRound,
-  Link as LinkIcon,
-  LoaderCircle,
-  Map as MapIcon,
-  MapPin,
-  Move,
-  NotebookPen,
-  Plus,
-  QrCode,
-  Radio,
-  Redo2,
-  Save,
-  Search,
-  ShieldCheck,
-  Tag,
-  Trash2,
-  Undo2,
-  Upload,
-  Users,
-  UserRound,
-  Wrench,
-  X,
-} from "lucide-react";
-import { floorMetersPerPlanUnit } from "@climate-twin/contracts";
+import { lazy } from "react";
 import type {
   AreaEquipment,
   AreaEquipmentInput,
   AreaEquipmentPatch,
-  AreaEquipmentStatus,
-  EquipmentAttachment,
   EquipmentAttachmentKind,
-  EquipmentLink,
   GeoCoordinate,
   GuestAccessGrant,
   HouseCreateInput,
@@ -58,21 +19,13 @@ import type {
   PropertyNoteInput,
   PropertyNotePatch,
   PropertyPatch,
-  TenantMemberSummary,
-  TrackingCapabilities,
-  TrackingEndpoint,
-  TrackingMapSnapshot,
-  TrackedEquipmentState,
   HomeMonitoringCollectionResponse,
 } from "@climate-twin/contracts";
-import { api, ApiRequestError, subscribeToTrackingEvents, type HouseGeoreferencePatch } from "../../../api";
+import { type HouseGeoreferencePatch } from "../../../api";
 import { createClientUuid } from "../../../clientUuid";
-import { EquipmentQrLabel } from "../../../components/EquipmentQrLabel";
-import { StugubyMark } from "../../../components/StugubyMark";
 import type { ClimateState } from "../../../domain";
 import { useI18n, type TranslationKey } from "../../../i18n";
-import { derivePropertyTrafficLights, type PropertyTrafficLight } from "../../../propertyStatus";
-import { useNow } from "../../../useNow";
+import { type PropertyTrafficLight } from "../../../propertyStatus";
 import "../../PropertyManagementPage.css";
 
 export const PropertyAreaMap = lazy(() => import("../../../components/PropertyAreaMap").then((module) => ({ default: module.PropertyAreaMap })));

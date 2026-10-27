@@ -1,29 +1,12 @@
-import { createHash, createHmac, randomBytes, randomUUID } from "node:crypto";
-import { lookup } from "node:dns/promises";
-import { readFileSync, readdirSync } from "node:fs";
-import { request as httpsRequest } from "node:https";
-import { BlockList, isIP } from "node:net";
-import { dirname, join, relative } from "node:path";
-import { fileURLToPath } from "node:url";
-import type { MeasurementSample } from "@climate-twin/contracts";
+import { createHash } from "node:crypto";
 import type { AppConfig } from "../config.js";
 import {
   installRegisteredMethods,
-  type AssertNoMethodKeys,
-  type IncompatibleMethodKeys,
   type RegisteredMethodSet,
 } from "../method-registry.js";
 import type {
   ClimateDatabase,
-  SensorDataGapRecord,
-  TapoHistoryExportClaim,
-  TapoHistoryExportJob,
-  TapoHistoryExportJobStatus,
-  TapoHistoryExportProvider,
-  TapoHistoryExportStagedSample,
-  TapoHistoryExportStagedSampleInput,
 } from "../db.js";
-import type { SensorHistoryRecoveryResult } from "../sensor-gap-recovery.js";
 import { TAPO_HISTORY_CSV_PARSER_VERSION } from "./support/01-max-csv-bytes-to-tapo-csv-schema-signature.js";
 import { GmailTapoMailbox } from "./support/03-bounded-response-bytes-to-tapo-private-history-clien.js";
 import { TapoHistoryMailboxHealth, TapoHistoryServiceOptions, TapoPrivateHistoryClient } from "./support/04-private-history-payload-to-staged-measurement.js";
@@ -84,7 +67,6 @@ export class TapoHistoryExportServiceCore {
       database: ClimateDatabase,
       options: TapoHistoryServiceOptions = {},
     ) {
-      const service = this as unknown as TapoHistoryExportServiceInternals;
       this[tapoHistoryExportServiceState].config = config;
       this[tapoHistoryExportServiceState].database = database;
       this[tapoHistoryExportServiceState].options = options;
@@ -131,10 +113,6 @@ export class TapoHistoryExportServiceCore {
       return { ...this[tapoHistoryExportServiceState].mailboxHealth };
     }
 }
-
-type TapoHistoryExportPublicMethodMismatch = AssertNoMethodKeys<
-  IncompatibleMethodKeys<TapoHistoryExportServiceCore, TapoHistoryExportServiceInternals>
->;
 
 export function registerTapoHistoryExportServiceMethods(methods: TapoHistoryExportServiceMethodSet): void {
   installRegisteredMethods(

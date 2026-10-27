@@ -1,28 +1,6 @@
-import { createServer, type Server } from "node:http";
-
-import type { House, HouseWeather, IntegrationStatus, WeatherUpdateEvent } from "@climate-twin/contracts";
-
-import { afterEach, describe, expect, it, vi } from "vitest";
-
-import request from "supertest";
-
-import { createApi, type ApiRuntime } from "../src/app.js";
+import type { HouseWeather } from "@climate-twin/contracts";
 
 import type { AppConfig } from "../src/config.js";
-
-import {
-  currentObservation,
-  FmiWeatherProvider,
-  fmiWarningCoverage,
-  parseCapWarnings,
-  parseFmiTimeSeries,
-  readTextWithByteLimit,
-  WeatherRequestSupersededError,
-  WeatherService,
-  WeatherUnavailableError,
-  type FmiTimeSeries,
-  type WeatherProvider,
-} from "../src/weather.js";
 
 export const config: AppConfig = {
   port: 0,

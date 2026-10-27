@@ -4,12 +4,7 @@ import type {
   AnalyticsFindingPeriodEvidence,
   AnalyticsFindingStatistic,
   AnalyticsSeries,
-  DailyAnalyticsFindingsSnapshot,
-  DataMode,
-  House,
   MeasurementDefinition,
-  MeasurementSample,
-  Sensor,
 } from "@climate-twin/contracts";
 import {
   addLocalDays,
@@ -21,7 +16,6 @@ import {
   minimum,
   type LocalDateParts,
 } from "@climate-twin/analytics-kernel";
-import { analyticsDefinitionSemantics, buildAnalyticsResponse } from "../analytics.js";
 import {
   peerCountTest,
   peerLevelTest,
@@ -32,12 +26,10 @@ import {
 } from "./peer-statistics.js";
 import {
   ClimateDatabase,
-  outdoorLocationKey,
 } from "../db.js";
 import {
   HybridTelemetryReader,
   IncompleteTelemetryHistoryError,
-  type HybridArchiveReadState,
 } from "../timeseries/read-facade.js";
 
 export const DAILY_ANALYTICS_ALGORITHM_VERSION = "calendar-peer-findings-v4.0.0";

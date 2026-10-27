@@ -1,18 +1,9 @@
 import { maximum, minimum } from "@climate-twin/analytics-kernel";
 import type {
-  ActionRun,
-  AnalyticsPoint,
   AnalyticsQueryResponse,
   AnalyticsSeries,
-  House,
-  MaintenanceTask,
-  ManualObservation,
-  MeasurementDefinition,
-  OpeningStateObservation,
-  OutdoorTemperatureSample,
-  Sensor,
 } from "@climate-twin/contracts";
-import { HOME_PERFORMANCE_ALGORITHM_VERSION, HomePerformanceInput, HomePerformanceLimitation, HomePerformanceResult, HomePerformanceSensorHealth, HomePerformanceSensorIssue, compareStable, exposureResult, median, recoveryEvidenceBySensor, round, values } from "./model.js";
+import { HOME_PERFORMANCE_ALGORITHM_VERSION, HomePerformanceInput, HomePerformanceLimitation, HomePerformanceResult, HomePerformanceSensorHealth, HomePerformanceSensorIssue, compareStable, exposureResult, median, recoveryEvidenceBySensor, round } from "./model.js";
 import { definitionFor, energyResult, maintenanceResult, moistureRecoveryResult, openingEffectivenessResult, sampleMedian } from "./derive-support.js";
 
 export function sensorHealthResult(input: HomePerformanceInput): HomePerformanceSensorHealth {

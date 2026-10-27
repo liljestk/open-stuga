@@ -1,8 +1,4 @@
-import { mkdir, open, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
-import { createHash, randomUUID } from "node:crypto";
-import { dirname, join } from "node:path";
-import { readBoundedResponseText, ResponseLimitError } from "../../bounded-response.js";
-import { ELEMENT_KEY, ElementNotFoundError, Selector, WebDriverError, abortableDelay } from "../support/01-max-appium-json-response-bytes-to-abortable-delay.js";
+import { Selector } from "../support/01-max-appium-json-response-bytes-to-abortable-delay.js";
 import "../core.js";
 
 declare module "../core.js" {

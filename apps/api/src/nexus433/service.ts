@@ -50,7 +50,7 @@ export class Nexus433Service {
 
   constructor(
     private readonly config: AppConfig,
-    private readonly database: ClimateDatabase,
+    database: ClimateDatabase,
     private readonly telemetry: TelemetryService,
     transportFactory?: TransportFactory,
   ) {

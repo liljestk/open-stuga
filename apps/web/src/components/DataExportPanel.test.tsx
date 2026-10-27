@@ -139,7 +139,7 @@ describe("DataExportPanel", () => {
     const house = state.houses[0]!;
     const analyticsQuery = vi.spyOn(api, "analyticsQuery").mockImplementation(async (input) => responseFor(input));
     const user = userEvent.setup();
-    const { container } = render(<I18nProvider><DataExportPanel state={state} house={house} units="metric" dataMode="demo" /></I18nProvider>);
+    render(<I18nProvider><DataExportPanel state={state} house={house} units="metric" dataMode="demo" /></I18nProvider>);
 
     await user.click(screen.getByText("Export sensor data").closest("summary")!);
     await waitFor(() => expect(analyticsQuery).toHaveBeenCalled());

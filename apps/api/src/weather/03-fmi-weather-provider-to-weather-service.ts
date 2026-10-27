@@ -1,17 +1,12 @@
-import { XMLParser } from "fast-xml-parser";
 import type {
   House,
   HouseLocation,
   HouseWeather,
   IntegrationStatus,
-  OutdoorConditions,
   WeatherComponentCoverage,
-  WeatherComponentStatus,
   WeatherComponentStatuses,
   WeatherRecoveryStatus,
-  WeatherStation,
   WeatherWarning,
-  WeatherWarningSeverity,
 } from "@climate-twin/contracts";
 import { SYSTEM_VERSION } from "../version.js";
 import { outdoorLocationKey, type StoredWeatherSnapshot } from "../db.js";

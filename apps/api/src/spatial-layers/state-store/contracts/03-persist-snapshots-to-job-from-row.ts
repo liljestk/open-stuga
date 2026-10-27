@@ -1,24 +1,11 @@
-import { createHash, randomUUID } from "node:crypto";
-import { mkdirSync } from "node:fs";
-import { basename, dirname, resolve } from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import type {
   PersistedSpatialLayerSnapshot,
-  SpatialConfigurationVersion,
-  SpatialCalibrationSession,
   SpatialDataPartition,
-  SpatialEngineAssignment,
-  SpatialGroundTruth,
   SpatialInferenceSession,
-  SpatialInferenceRun,
   SpatialLayerSnapshotDraft,
-  SpatialRunStatus,
   SpatialScope,
-  StoredSpatialContextEvent,
-  StoredSpatialSensorBinding,
-  StoredSpatialSensorCalibration,
 } from "../../types.js";
-import { SpatialInferenceJob, SqlRow, assertInterval, assertIsoTimestamp, parseJson, partitionFromRow, partitionParams, scopeFromRow, scopeParams, snapshotFromRow, stableJson } from "../support/01-far-future-to-spatial-inference-job.js";
+import { SpatialInferenceJob, SqlRow } from "../support/01-far-future-to-spatial-inference-job.js";
 import "../core.js";
 
 declare module "../core.js" {

@@ -1,60 +1,24 @@
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
-import { MAX_OBSERVATION_RESOLUTION_NOTE_LENGTH, resolvePlanElementOpeningState } from "@climate-twin/contracts";
-import type { StugubyRole, StugubySummary } from "@climate-twin/stuguby-protocol";
 import type {
-  AreaEquipment,
-  AreaEquipmentInput,
-  AreaEquipmentPatch,
   AlertRule,
   Floor,
-  GeoCoordinate,
   HouseLocation,
   HouseMapPlacement,
-  HouseWeather,
-  MaintenanceTask,
-  ManualObservation,
   MeasurementDefinition,
   MeasurementSample,
-  MeasurementSnapshotEntry,
-  Property,
-  PropertyArea,
-  PropertyAreaInput,
-  PropertyAreaPatch,
-  PropertyCreateInput,
   Reading,
   Sensor,
-  StaticParameter,
 } from "@climate-twin/contracts";
 import {
   parseAlertRule,
   parseMeasurementDefinition,
   parseMeasurementSample,
-  parseMaintenanceTaskInput,
-  parseMaintenanceTaskPatch,
-  parseObservationInput,
-  parseObservationPatch,
   parseReading,
   parseSensorPatch,
 } from "../app.js";
-import { loadConfig } from "../config.js";
-import { DataOperationsService } from "../data-operations.js";
-import { ClimateDatabase, outdoorLocationKey } from "../db.js";
-import { discoverHomeAssistant } from "../discovery.js";
-import { EnergyCostService } from "../energy-cost.js";
-import { EnergyOptimizer } from "../energy-optimizer.js";
-import { publicElectricityConfiguration } from "../electricity-prices.js";
-import { TelemetryBus } from "../events.js";
-import { HomeAssistantBridge } from "../home-assistant.js";
-import { McpOperationTracker } from "../mcp-lifecycle.js";
+import { outdoorLocationKey } from "../db.js";
 import {
-  mcpToolAnnotations,
   mcpBoundedInteger,
-  mcpBoundedNumber,
   mcpIsoDate,
-  mcpLanguage,
-  mcpLocationQuery,
   mcpOptionalFiniteNumber,
   mcpThermalDateRange,
   requireMcpHouse,
@@ -62,38 +26,10 @@ import {
   requireMcpConfirmation,
   requireMcpMeasurementTarget,
   requireMcpSensor,
-  summarizeMcpAreaEquipment,
-  summarizeMcpHouse,
-  summarizeMcpProperty,
-  summarizeMcpPropertyArea,
-  validateMcpToolRegistry,
   validateMcpDateRange,
 } from "../mcp-validation.js";
-import { LocationDiscoveryService } from "../location-discovery.js";
-import { AutomaticWeatherProvider, OpenMeteoWeatherProvider } from "../open-meteo.js";
-import {
-  AlertEngine,
-  DataModeCoordinator,
-  forecast,
-  forecastMeasurement,
-  MeasurementService,
-  MOCK_SCENARIOS,
-  MockEngine,
-  ReplayEngine,
-  RuntimeStatus,
-  TelemetryService,
-} from "../services.js";
-import { SetupDoctor } from "../setup-doctor.js";
-import { HybridTelemetryReader } from "../timeseries/read-facade.js";
-import { runThermalIsolation } from "../thermal-isolation.js";
 import { runThermalSimulationAsync } from "../thermal-simulation.js";
-import { TpLinkBridge } from "../tp-link.js";
-import { SYSTEM_VERSION } from "../version.js";
-import { FmiWeatherProvider, WeatherRequestSupersededError, WeatherService } from "../weather.js";
-import type { StugubyService } from "../stuguby/service.js";
-import { StugubyStore } from "../stuguby/store.js";
 import { config, database, measurements, optionalBoolean, optionalString, optionalStringArray, requiredArray, requiredNumber, requiredObject, requiredString, status, stuguby, telemetry, telemetryReader, weather } from "./01-config-to-get-house-weather.js";
-import { outdoorTemperatureHistory } from "./05-get-mcp-stuguby-to-result-output-schema.js";
 import { runMcpThermalWork } from "./thermal-work.js";
 import {
   configuredHeatPumpConnectionIds,

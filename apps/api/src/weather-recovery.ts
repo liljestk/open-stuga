@@ -2,7 +2,6 @@ import type {
   House,
   HouseWeather,
   WeatherComponentName,
-  WeatherOutageComponent,
   WeatherProviderName,
   WeatherRecoveryStatus,
 } from "@climate-twin/contracts";

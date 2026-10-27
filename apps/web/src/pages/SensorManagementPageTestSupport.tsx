@@ -1,12 +1,8 @@
-import { act, render, screen, waitFor, within } from "@testing-library/react";
-
-import userEvent from "@testing-library/user-event";
+import { render } from "@testing-library/react";
 
 import type { Sensor, TpLinkDiscoveredDevice } from "@climate-twin/contracts";
 
-import { afterEach, describe, expect, it, vi } from "vitest";
-
-import { api } from "../api";
+import { expect, vi } from "vitest";
 
 import { createDemoState } from "../domain";
 

@@ -1,57 +1,38 @@
 import {
-  useEffect, useId, useMemo, useRef, useState,
-  type CSSProperties, type KeyboardEvent, type MouseEvent, type PointerEvent as ReactPointerEvent, type WheelEvent,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
 } from "react";
-import { isAirflowPlanElement, type ConfiguredOpeningState, type Floor, type House, type ManualObservation, type MeasurementDefinition, type MeasurementSample, type OpeningStateObservation, type PlanElement, type Sensor, type UnitSystem } from "@climate-twin/contracts";
 import { useI18n, type TranslationKey } from "../../i18n";
-import { formatMeasurement, formatMeasurementDelta, measurementGradient, measurementLabel, measurementValue, toDisplayValue, type LatestMeasurements } from "../../measurements";
-import { energyDeviceMapStats, isEnergyDeviceSensor } from "../../energyDeviceMap";
+import { measurementLabel, measurementValue } from "../../measurements";
 import {
   configuredSpatialMaxSampleAgeMs, isSpatialSampleFresh, type SpatialFreshnessOptions,
 } from "../../spatialFreshness";
-import { simulateBuildingAirflow, type BuildingAirflowEstimate, type ClimateSampleMatrix } from "../../airflowSimulation";
+import { simulateBuildingAirflow } from "../../airflowSimulation";
 import {
-  clampCameraOrbit, createVolumeClouds, estimateVolumeFlows, interpolateVolume, projectPoint3D,
-  type CameraOrbit, type Point3D, type ProjectedPoint3D, type VolumeBounds, type VolumeCloudBlob,
+  createVolumeClouds,
+  estimateVolumeFlows,
+  interpolateVolume,
+  projectPoint3D,
+  type CameraOrbit,
+  type Point3D,
 } from "../../spatialVolume";
 import {
   formatOutdoorHumidity,
   formatOutdoorTemperature,
   formatOutdoorWindSpeed,
-  OutdoorConditionsBadge,
-  type OutdoorVisualizationState,
 } from "../OutdoorConditionsBadge";
-import { PlanElementDimensionFields } from "../PlanElementDimensionFields";
-import { applyAirflowPlanElementPatch, PlanElementAirflowFields, type AirflowPlanElementPatch } from "../PlanElementAirflowFields";
-import { applyFixturePlanElementPatch, PlanElementFixtureFields, type FixturePlanElementPatch } from "../PlanElementFixtureFields";
-import { OpeningInventory } from "../OpeningInventory";
-import { SpatialLayerOverlay3D } from "../SpatialLayerOverlay3D";
-import type { SpatialLayerSnapshot, SpatialTopology } from "../../spatialLayers";
-import type { SensorCoverageAssessment } from "../../experimentalSpatialLayers";
-import { ExperimentalSensorCoverage3D } from "../ExperimentalSensorCoverage";
-import {
-  clampPlanElementHeight,
-  clampPlanElementWidth,
-  DEFAULT_CEILING_HEIGHT_METRES,
-  defaultPlanElementHeight,
-  defaultPlanElementWidth,
-  defaultFireEscapeProjection,
-  editablePlanElementWidthBounds,
-  effectivePlanElementHeight,
-  isWallAttachedPlanElement,
-  isWallOpening,
-  planElementBottomOffset,
-  planElementHeightBounds,
-  planElementWidthBounds,
-} from "../../planElementGeometry";
-import { fireplaceChimneyDimensions, fireplaceChimneyTop, isRoofSpanningFireplace, roofEavesZ, roofPeakZ, roofSurfaces } from "../../architecturalGeometry";
-import { MapInformationToggle, useMapInformationVisibility } from "../MapInformationToggle";
-import { effectiveOpeningState, openingStateCanChange, openingStateKey, openingStateObservationsForHouse } from "../../openingState";
+import { isRoofSpanningFireplace } from "../../architecturalGeometry";
+import { useMapInformationVisibility } from "../MapInformationToggle";
+import { openingStateObservationsForHouse } from "../../openingState";
 import { windPathOnRectangle } from "../../outdoorContext";
-import { DEFAULT_CAMERA, VIEW_HEIGHT, VIEW_WIDTH, buildingBounds, elementAxis, elementWorldGeometry, inferReferenceTime, points, projectedCloud, relativeSensorHeight, smoothProjectedAirflowPath, svgToken, visualLabel } from "./support";
-import type { AddableOpeningKind, BuildingSceneProps, DragState, ElementWorldGeometry, ProjectedCloud, SelectedElementPatch } from "./support";
+import { DEFAULT_CAMERA, VIEW_HEIGHT, VIEW_WIDTH, buildingBounds, inferReferenceTime } from "./support";
+import type { AddableOpeningKind, BuildingSceneProps, DragState } from "./support";
 export function useBuildingScenePart01(context: { house: BuildingSceneProps["house"]; sensors: BuildingSceneProps["sensors"]; samples: BuildingSceneProps["samples"]; climateSamples: BuildingSceneProps["climateSamples"]; observations: BuildingSceneProps["observations"]; definition: BuildingSceneProps["definition"]; colorDomain: BuildingSceneProps["colorDomain"]; units: BuildingSceneProps["units"]; activeFloorId: BuildingSceneProps["activeFloorId"]; selectedSensorId: BuildingSceneProps["selectedSensorId"]; referenceTimeMs: BuildingSceneProps["referenceTimeMs"]; maxSampleAgeMs: BuildingSceneProps["maxSampleAgeMs"]; outdoor: BuildingSceneProps["outdoor"]; mapAnimationsEnabled: Exclude<BuildingSceneProps["mapAnimationsEnabled"], undefined>; outdoorExtrasVisible: Exclude<BuildingSceneProps["outdoorExtrasVisible"], undefined>; editing: Exclude<BuildingSceneProps["editing"], undefined>; spatialLayerSnapshots: Exclude<BuildingSceneProps["spatialLayerSnapshots"], undefined>; spatialLayerTopology: Exclude<BuildingSceneProps["spatialLayerTopology"], undefined>; experimentalAirflowEnabled: Exclude<BuildingSceneProps["experimentalAirflowEnabled"], undefined>; experimentalAirflow: Exclude<BuildingSceneProps["experimentalAirflow"], undefined>; experimentalSensorCoverage: Exclude<BuildingSceneProps["experimentalSensorCoverage"], undefined>; experimentalOutdoorInfluence: Exclude<BuildingSceneProps["experimentalOutdoorInfluence"], undefined>; openingStateObservations: Exclude<BuildingSceneProps["openingStateObservations"], undefined>; openingStateLabelsVisible: Exclude<BuildingSceneProps["openingStateLabelsVisible"], undefined>; pendingOpeningStateKeys: Exclude<BuildingSceneProps["pendingOpeningStateKeys"], undefined>; onOpeningStateChange: BuildingSceneProps["onOpeningStateChange"]; sensorMeasurements: Exclude<BuildingSceneProps["sensorMeasurements"], undefined>; climateSensorMarkersVisible: Exclude<BuildingSceneProps["climateSensorMarkersVisible"], undefined>; energyDevicesVisible: Exclude<BuildingSceneProps["energyDevicesVisible"], undefined>; connectedDevices: Exclude<BuildingSceneProps["connectedDevices"], undefined>; connectedDevicesVisible: Exclude<BuildingSceneProps["connectedDevicesVisible"], undefined>; pendingConnectedDeviceIds: Exclude<BuildingSceneProps["pendingConnectedDeviceIds"], undefined>; onConnectedDevicePowerChange: BuildingSceneProps["onConnectedDevicePowerChange"]; onFloorSelect: BuildingSceneProps["onFloorSelect"]; onSensorSelect: BuildingSceneProps["onSensorSelect"]; onFloorChange: BuildingSceneProps["onFloorChange"] }) {
-  const { house, sensors, samples, climateSamples, observations, definition, colorDomain, units, activeFloorId, selectedSensorId, referenceTimeMs, maxSampleAgeMs, outdoor, editing, spatialLayerSnapshots, spatialLayerTopology, experimentalAirflowEnabled, experimentalAirflow, experimentalSensorCoverage, experimentalOutdoorInfluence, openingStateObservations, pendingOpeningStateKeys, onOpeningStateChange, sensorMeasurements, climateSensorMarkersVisible, energyDevicesVisible, onFloorSelect, onSensorSelect, onFloorChange } = context;
+  const { house, sensors, samples, climateSamples, definition, colorDomain, units, referenceTimeMs, maxSampleAgeMs, outdoor, editing, experimentalAirflowEnabled, experimentalAirflow, openingStateObservations } = context;
   const { locale, t } = useI18n();
   const houseOpeningStateObservations = useMemo(
       () => openingStateObservationsForHouse(house.id, openingStateObservations),

@@ -1,28 +1,24 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import type { Floor, IntegrationDiscoveryJob, IntegrationDiscoveryResult, Metric, TpLinkDiscoveredDevice, UnitSystem } from "@climate-twin/contracts";
-import { AlertTriangle, HousePlus, LoaderCircle, RotateCcw, ShieldCheck, Wrench } from "lucide-react";
-import { AppShell } from "../components/AppShell";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { IntegrationDiscoveryJob, IntegrationDiscoveryResult, Metric, UnitSystem } from "@climate-twin/contracts";
+import { LoaderCircle } from "lucide-react";
 import { preferredHouseForProperty, type AppPage, type ViewMode } from "../domain";
 import { useClimateData } from "../useClimateData";
 import { countActionableAlertGroups } from "../alertGrouping";
 import { useI18n } from "../i18n";
 import { enabledDefinitions } from "../measurements";
-import { api, ApiRequestError, type CreateHouseInput } from "../api";
-import { locationForRoute, routeFromLocation } from "../routing";
-import { StuguMark } from "../components/StuguMark";
-import { RouteErrorBoundary } from "../components/RouteErrorBoundary";
+import { api, ApiRequestError } from "../api";
+import { routeFromLocation } from "../routing";
 import { readLocalStorage, subscribeToAccountStorageScope, writeLocalStorage } from "../browserStorage";
 import {
   clearInvitationBootstrapStorage,
   clearInvitationFragment,
   invitationTokenFromBootstrapStorage,
   invitationTokenFromFragment,
-  LocalAuthPage,
 } from "../pages/LocalAuthPage";
 import { integrationForHouse } from "../integrationScope";
 import { forgetIntegrationDiscovery, rememberedIntegrationDiscovery } from "../integrationDiscoveryStorage";
 import { houseHasTpLinkOpeningBinding } from "../tpLinkDeviceClassification";
-import { ActivityPage, AlertsPage, DataAnalyticsPage, DeveloperPage, EnergyPage, IntegrationsPage, MaintenancePage, OutdoorWeatherPage, PeopleAccessPage, PortfolioOverview, PropertyManagementPage, SensorManagementPage, StugubyPage, SystemUpdatesPage, TwinDashboard, dismissedIntegrationDiscoveryJobsKey, dismissedTpLinkDevicesKey, firstFloor, freshTpLinkDiscoveryWindowMs, latestIso, pageTitleKeys, settleInBackground, storedDismissedIntegrationDiscoveryJobs, storedDismissedTpLinkDevices, tpLinkDeviceKey } from "./support";
+import { dismissedIntegrationDiscoveryJobsKey, freshTpLinkDiscoveryWindowMs, pageTitleKeys, settleInBackground, storedDismissedIntegrationDiscoveryJobs, storedDismissedTpLinkDevices, tpLinkDeviceKey } from "./support";
 import type { TpLinkDeviceReference } from "./support";
 import { hasBrowserCapability } from "../accessPolicy";
 

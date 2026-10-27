@@ -1,17 +1,12 @@
-import { spawn, type ChildProcess } from "node:child_process";
-import { randomUUID } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { type ChildProcess } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { networkInterfaces } from "node:os";
-import { createInterface } from "node:readline";
-import type { OpeningStateObservation, Reading, TpLinkDiscoveredDevice } from "@climate-twin/contracts";
-import type { AppConfig } from "../../config.js";
+import type { OpeningStateObservation, TpLinkDiscoveredDevice } from "@climate-twin/contracts";
 import type { ClimateDatabase } from "../../db.js";
 import type {
-  SensorGapRecoveryAdapter,
   SensorHistoryRecoveryResult,
-  SensorMetricAvailability,
 } from "../../sensor-gap-recovery.js";
-import { MeasurementService, RuntimeStatus, TelemetryService } from "../../services.js";
+import { RuntimeStatus } from "../../services.js";
 
 export const TP_LINK_LOCAL_CLIMATE_HISTORY_CAPABILITY_REVISION = "t310-t315-retained-history-v1";
 export const TP_LINK_HUB_MODELS = ["H100", "H200", "H500"] as const;

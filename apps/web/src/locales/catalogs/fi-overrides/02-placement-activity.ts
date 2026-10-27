@@ -1,5 +1,3 @@
-import { fiBranded } from "../fi-branded";
-
 export const fiOverridesPart2 = {
   "placement.save": "Tallenna sijoitus",
   "placement.remove": "Poista sijoitus",

@@ -1,12 +1,7 @@
 import type {
-  CoordinateFrame as CanonicalCoordinateFrame,
-  SpatialContextEvent,
   SpatialLayerEngineHealth as CanonicalEngineHealth,
   SpatialLayerEngineManifest as CanonicalEngineManifest,
   SpatialLayerSnapshot as CanonicalLayerSnapshot,
-  SpatialSensorBinding,
-  SpatialSensorCalibration,
-  SpatialTopology,
 } from "@climate-twin/spatial-layers";
 import { SpatialCoordinateFrame, SpatialLayerConnection, SpatialLayerEngineHealth, SpatialLayerEngineManifest, SpatialLayerEvidence, SpatialLayerMetric, SpatialLayerPoint, SpatialLayerScopeKind, SpatialLayerSnapshot, SpatialLayerSnapshotEvent, SpatialLayerZone, arrayFromPayload, evidence, metrics, number, point, record, strings, style, zone } from "./01-spatial-coordinate-frame-to-zone";
 

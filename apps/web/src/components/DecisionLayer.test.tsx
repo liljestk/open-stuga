@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 
 import { describe, expect, it, vi } from "vitest";
 
-import type { AlertEvent, IntegrationStatus, MaintenanceTask, ManualObservation, MeasurementSample, ObservationRevision, Sensor } from "@climate-twin/contracts";
+import type { AlertEvent, MaintenanceTask, ManualObservation, ObservationRevision } from "@climate-twin/contracts";
 
 import { ApiRequestError } from "../api";
 

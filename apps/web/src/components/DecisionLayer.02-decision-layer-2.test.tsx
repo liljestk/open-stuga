@@ -1,10 +1,8 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 
 import { describe, expect, it, vi } from "vitest";
 
-import type { AlertEvent, IntegrationStatus, MaintenanceTask, ManualObservation, MeasurementSample, ObservationRevision, Sensor } from "@climate-twin/contracts";
-
-import { ApiRequestError } from "../api";
+import type { AlertEvent, MeasurementSample } from "@climate-twin/contracts";
 
 import { I18nProvider } from "../i18n";
 
@@ -14,20 +12,15 @@ import { createDemoState } from "../domain";
 
 import { buildRoomComforts, RoomComfortBoard } from "./RoomComfortBoard";
 
-import { buildMoistureAdvice, dewPointCelsius, MoistureCoach } from "./MoistureCoach";
-
-import { buildHomeActivityEvents, HomeActivityTimeline } from "./HomeActivityTimeline";
-
 import { HomePulsePanel } from "./HomePulsePanel";
 
-import { observationInstantTimestamp } from "./RoomComparisonChart";
 import {
   monitoringDetail,
   monitoringInsight,
   monitoringSummary,
 } from "../monitoringTestSupport";
 
-import { integration, now, openHomePulseMore, sample, sensor } from "./DecisionLayerTestSupport";
+import { now, openHomePulseMore, sample, sensor } from "./DecisionLayerTestSupport";
 
 describe("decision layer", () => {
   it("omits unsupported CO2 from room cards but keeps configured missing readings visible", () => {

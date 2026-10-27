@@ -1,44 +1,17 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { Activity, AlertTriangle, BatteryMedium, Bolt, Box, Check, ChevronDown, Droplets, Edit3, Gauge, History, Home, Map, MapPinPlus, Maximize2, Minimize2, Save, Sparkles, Thermometer, Wind } from "lucide-react";
-import { isAirflowPlanElement, type ConfiguredOpeningState, type ConnectionState, type Floor, type House, type ManualObservation, type ManualObservationInput, type ManualObservationPatch, type MeasurementDefinition, type MeasurementSample, type Metric, type MockScenario, type ObservationConfidence, type ObservationRevision, type ObservationSource, type ObservationTimePrecision, type OpeningStateObservation, type Point, type Reading, type Sensor, type StaticParameter, type UnitSystem } from "@climate-twin/contracts";
-import { ReplayControls } from "../../../components/ReplayControls";
-import { RoomComfortBoard } from "../../../components/RoomComfortBoard";
-import { MoistureCoach } from "../../../components/MoistureCoach";
-import { HomePulsePanel } from "../../../components/HomePulsePanel";
-import { HomeOperationsPreview } from "../../../components/HomeOperationsPreview";
+import { lazy } from "react";
+import { Droplets, Gauge, Thermometer, Wind } from "lucide-react";
+import { type ConnectionState, type Floor, type House, type ManualObservation, type ManualObservationInput, type ManualObservationPatch, type MeasurementDefinition, type Metric, type MockScenario, type ObservationConfidence, type ObservationRevision, type ObservationSource, type ObservationTimePrecision, type OpeningStateObservation, type Point, type Sensor, type StaticParameter, type UnitSystem } from "@climate-twin/contracts";
 import "../../../components/decisionLayer.css";
 import "../../OperationsPages.css";
-import { formatInTimeZone } from "../../../dateTime";
-import { clamp, round, type ClimateState, type TimeRange, type ViewMode } from "../../../domain";
-import { useI18n, type TranslationKey } from "../../../i18n";
-import { definitionFor, displayUnit, enabledDefinitions, formatMeasurement, formatMeasurementDelta, measurementComparisonColor, measurementDomain, measurementLabel, measurementValue, samplesAt, type LatestMeasurements } from "../../../measurements";
-import { isEnergyDeviceSensor } from "../../../energyDeviceMap";
-import { configuredSpatialMaxSampleAgeMs, configuredSpatialReplayMaxSampleAgeMs, isSpatialSampleFresh } from "../../../spatialFreshness";
-import { createOutdoorBoundaryContext } from "../../../outdoorContext";
-import { useHouseWeather } from "../../../useHouseWeather";
-import type { OutdoorVisualizationState } from "../../../components/OutdoorConditionsBadge";
+import { type ClimateState, type TimeRange, type ViewMode } from "../../../domain";
 import type { CreateHouseInput } from "../../../components/StructureEditor";
-import {
-  simulateBuildingAirflow,
-  simulateFloorAirflow,
-  type BuildingAirflowEstimate,
-  type ClimateSampleMatrix,
-  type FloorAirflowEstimate,
-} from "../../../airflowSimulation";
 import type { DataMode } from "../../../useClimateData";
-import { api, type MeasurementHistoryPage, type SensorPatch } from "../../../api";
-import { useSpatialLayers } from "../../../useSpatialLayers";
-import { SpatialLayerPanel } from "../../../components/SpatialLayerPanel";
+import { type MeasurementHistoryPage, type SensorPatch } from "../../../api";
 import {
-  assessSensorCoverage,
-  experimentalLayerSuggestions,
   type ExperimentalVisualizationId,
 } from "../../../experimentalSpatialLayers";
 import type { OutdoorInfluenceMetric } from "../../../outdoorInfluence";
-import { readLocalStorage, writeLocalStorage } from "../../../browserStorage";
-import { detectReplayClimateEvents, type ReplayClimateEvent } from "../../../replayEvents";
-import { openingStateCanChange, openingStateKey, openingStateObservationsForHouse } from "../../../openingState";
-import { integrationForHouse } from "../../../integrationScope";
+import { readLocalStorage } from "../../../browserStorage";
 
 export const BuildingScene = lazy(() => import("../../../components/BuildingScene").then((module) => ({ default: module.BuildingScene })));
 

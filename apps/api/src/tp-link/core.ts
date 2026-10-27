@@ -1,21 +1,10 @@
-import { spawn, type ChildProcess } from "node:child_process";
-import { randomUUID } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
-import { networkInterfaces } from "node:os";
-import { createInterface } from "node:readline";
-import type { OpeningStateObservation, Reading, TpLinkDiscoveredDevice } from "@climate-twin/contracts";
+import { type ChildProcess } from "node:child_process";
+import type { OpeningStateObservation } from "@climate-twin/contracts";
 import type { AppConfig } from "../config.js";
 import type { ClimateDatabase } from "../db.js";
-import type {
-  SensorGapRecoveryAdapter,
-  SensorHistoryRecoveryResult,
-  SensorMetricAvailability,
-} from "../sensor-gap-recovery.js";
-import { MeasurementService, RuntimeStatus, TelemetryService } from "../services.js";
+import { MeasurementService, TelemetryService } from "../services.js";
 import {
   installRegisteredMethods,
-  type AssertNoMethodKeys,
-  type IncompatibleMethodKeys,
   type RegisteredMethodSet,
 } from "../method-registry.js";
 import { CachedTpLinkDevice, LastIngestedDevice, LastIngestedMeasurement, LastIngestedOpeningState, PendingTpLinkHistoryRequest, TpLinkConnectionUpdate, TpLinkStatusHost } from "./support/01-tp-link-local-climate-history-capability-revision-to.js";
@@ -130,7 +119,6 @@ export class TpLinkConnectionBridgeCore {
         onOpeningStateRecorded?: (observation: OpeningStateObservation) => void;
       },
     ) {
-      const service = this as unknown as TpLinkConnectionBridgeInternals;
       this[tpLinkConnectionBridgeState].config = config;
       this[tpLinkConnectionBridgeState].telemetry = telemetry;
       this[tpLinkConnectionBridgeState].measurements = measurements;
@@ -139,10 +127,6 @@ export class TpLinkConnectionBridgeCore {
       this[tpLinkConnectionBridgeState].connection = connection;
       this[tpLinkConnectionBridgeState].managedConnection = managedConnection;}
 }
-
-type TpLinkPublicMethodMismatch = AssertNoMethodKeys<
-  IncompatibleMethodKeys<TpLinkConnectionBridgeCore, TpLinkConnectionBridgeInternals>
->;
 
 export function registerTpLinkConnectionBridgeMethods(methods: TpLinkConnectionBridgeMethodSet): void {
   installRegisteredMethods("TpLinkConnectionBridge", TpLinkConnectionBridgeCore.prototype, methods);

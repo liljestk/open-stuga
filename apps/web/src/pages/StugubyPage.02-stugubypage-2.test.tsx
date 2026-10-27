@@ -2,20 +2,18 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 
 import userEvent from "@testing-library/user-event";
 
-import axe from "axe-core";
-
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { StugubyShareGrant, StugubySummary } from "@climate-twin/stuguby-protocol";
+import type { StugubyShareGrant } from "@climate-twin/stuguby-protocol";
 
-import { api, type StugubyDetailResponse, type StugubyListResponse } from "../api";
+import { api } from "../api";
 import { ConfirmationProvider } from "../components/ConfirmationProvider";
 
 import { I18nProvider } from "../i18n";
 
 import { localDateTimeInput, StugubyPage } from "./StugubyPage";
 
-import { detail, identity, localGrant, mockLoadedStugubys, summary } from "./StugubyPageTestSupport";
+import { detail, identity, mockLoadedStugubys, summary } from "./StugubyPageTestSupport";
 
 afterEach(() => vi.restoreAllMocks());
 

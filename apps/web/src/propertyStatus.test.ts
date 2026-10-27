@@ -72,9 +72,6 @@ describe("derivePropertyTrafficLights", () => {
     state.propertyAreas = [well];
     state.areaEquipment = [connector];
     state.integration.tpLink = { ...state.integration.tpLink, configured: true, connected: true };
-    const referenceTime = Math.max(...Object.values(state.latestMeasurements)
-      .flatMap((samples) => Object.values(samples))
-      .map((sample) => Date.parse(sample.timestamp)));
     const lights = byId(derivePropertyTrafficLights(
       state,
       DEMO_PROPERTY_ID,

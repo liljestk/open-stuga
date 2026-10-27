@@ -1,49 +1,15 @@
-import { randomUUID } from "node:crypto";
-import { Pool } from "pg";
 import type { PoolClient, QueryResult, QueryResultRow } from "pg";
-import {
-  HYPERTABLE_DEFINITIONS,
-  MEASUREMENT_BUCKETS,
-  TELEMETRY_TABLES,
-  buildBaseSchemaSql,
-  buildContinuousAggregateSql,
-  buildFallbackAggregateSql,
-  measurementAggregateName,
-  qualifiedName,
-  quoteIdentifier,
-  validateSchemaName,
-} from "../../schema.js";
 import type {
   AggregateRefreshQuery,
-  ArchiveCheckpoint,
-  ArchiveTableName,
-  BatchWriteResult,
-  ColdStorageMode,
   EnergyCostAggregateQuery,
   EnergyCostAggregateRecord,
-  ElectricityPriceHistoryQuery,
-  ElectricityPriceRecord,
-  LegacyReadingHistoryQuery,
-  LegacyReadingRecord,
-  MeasurementBucketQuery,
-  MeasurementBucketRecord,
-  MeasurementCoverageQuery,
-  MeasurementCoverageRecord,
-  MeasurementHistoryQuery,
-  MeasurementSampleRecord,
-  MeasurementWindowQuery,
-  OutdoorTemperatureHistoryQuery,
-  OutdoorTemperatureRecord,
   PowerCostAggregateQuery,
   QueryControl,
   TelemetryHealth,
   TimeseriesQueryDiagnostics,
-  TelemetrySchemaInitResult,
   TelemetryStorageStats,
-  TelemetryStoreOptions,
-  TelemetryTableStorage,
 } from "../../types.js";
-import { EnergyCostAggregateRow, ExtensionRow, HealthRow, QUERY_TAG_PREFIX, SqlValue, StorageRow, TimescaleStorageRow, abortError, describeError, timeoutValue, timestamp } from "../support/01-default-schema-to-measurement-bucket-from-row.js";
+import { SqlValue } from "../support/01-default-schema-to-measurement-bucket-from-row.js";
 import "../core.js";
 
 declare module "../core.js" {

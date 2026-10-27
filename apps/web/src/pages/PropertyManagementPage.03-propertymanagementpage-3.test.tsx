@@ -4,18 +4,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type {
   AreaEquipment,
-  EquipmentAttachment,
-  EquipmentLink,
-  MaintenanceTask,
   PropertyArea,
   PropertyMemberLocation,
   PropertyNote,
   TenantMemberSummary,
-  TrackingCapabilities,
-  TrackingMapSnapshot,
 } from "@climate-twin/contracts";
 
-import { api, ApiRequestError } from "../api";
+import { api } from "../api";
 import { ConfirmationProvider } from "../components/ConfirmationProvider";
 
 import { createDemoState, DEMO_PROPERTY_ID } from "../domain";
@@ -26,9 +21,7 @@ import { PeopleAccessPage } from "./PeopleAccessPage";
 
 import { PropertyManagementPage } from "./PropertyManagementPage";
 
-import propertyStyles from "./PropertyManagementPage.css?raw";
-
-import { area, areaNavigation, areaTask, callbacks, enabledTrackingCapabilities, equipment, equipmentOnlyTask, note, originalClipboard, selectArea } from "./PropertyManagementPageTestSupport";
+import { area, callbacks, equipment, note, originalClipboard } from "./PropertyManagementPageTestSupport";
 
 vi.mock("../components/PropertyAreaMap", () => ({
   PropertyAreaMap: ({

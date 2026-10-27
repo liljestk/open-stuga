@@ -1,8 +1,4 @@
-import { mkdir, open, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
-import { createHash, randomUUID } from "node:crypto";
-import { dirname, join } from "node:path";
-import { readBoundedResponseText, ResponseLimitError } from "../../bounded-response.js";
-import { MAX_ACTIVE_APPIUM_SESSIONS, MAX_APPIUM_JSON_RESPONSE_BYTES, MAX_APPIUM_SCREENSHOT_RESPONSE_BYTES, SessionRecord, WebDriverError, parseError } from "../support/01-max-appium-json-response-bytes-to-abortable-delay.js";
+import { SessionRecord } from "../support/01-max-appium-json-response-bytes-to-abortable-delay.js";
 import "../core.js";
 
 declare module "../core.js" {

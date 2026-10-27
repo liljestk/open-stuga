@@ -1,58 +1,32 @@
-import {
-  useEffect, useId, useMemo, useRef, useState,
-  type CSSProperties, type KeyboardEvent, type MouseEvent, type PointerEvent as ReactPointerEvent, type WheelEvent,
-} from "react";
-import { isAirflowPlanElement, type ConfiguredOpeningState, type Floor, type House, type ManualObservation, type MeasurementDefinition, type MeasurementSample, type OpeningStateObservation, type PlanElement, type Sensor, type UnitSystem } from "@climate-twin/contracts";
-import { useI18n, type TranslationKey } from "../../i18n";
-import { formatMeasurement, formatMeasurementDelta, measurementGradient, measurementLabel, measurementValue, toDisplayValue, type LatestMeasurements } from "../../measurements";
+import { isAirflowPlanElement } from "@climate-twin/contracts";
+import { type TranslationKey } from "../../i18n";
+import { formatMeasurement, formatMeasurementDelta, measurementGradient, measurementValue, toDisplayValue } from "../../measurements";
 import { energyDeviceMapStats, isEnergyDeviceSensor } from "../../energyDeviceMap";
 import {
-  configuredSpatialMaxSampleAgeMs, isSpatialSampleFresh, type SpatialFreshnessOptions,
+  isSpatialSampleFresh,
 } from "../../spatialFreshness";
-import { simulateBuildingAirflow, type BuildingAirflowEstimate, type ClimateSampleMatrix } from "../../airflowSimulation";
 import {
-  clampCameraOrbit, createVolumeClouds, estimateVolumeFlows, interpolateVolume, projectPoint3D,
-  type CameraOrbit, type Point3D, type ProjectedPoint3D, type VolumeBounds, type VolumeCloudBlob,
-} from "../../spatialVolume";
-import {
-  formatOutdoorHumidity,
-  formatOutdoorTemperature,
-  formatOutdoorWindSpeed,
   OutdoorConditionsBadge,
-  type OutdoorVisualizationState,
 } from "../OutdoorConditionsBadge";
 import { PlanElementDimensionFields } from "../PlanElementDimensionFields";
-import { applyAirflowPlanElementPatch, PlanElementAirflowFields, type AirflowPlanElementPatch } from "../PlanElementAirflowFields";
-import { applyFixturePlanElementPatch, PlanElementFixtureFields, type FixturePlanElementPatch } from "../PlanElementFixtureFields";
+import { PlanElementAirflowFields } from "../PlanElementAirflowFields";
+import { PlanElementFixtureFields } from "../PlanElementFixtureFields";
 import { OpeningInventory } from "../OpeningInventory";
 import { SpatialLayerOverlay3D } from "../SpatialLayerOverlay3D";
-import type { SpatialLayerSnapshot, SpatialTopology } from "../../spatialLayers";
-import type { SensorCoverageAssessment } from "../../experimentalSpatialLayers";
 import { ExperimentalSensorCoverage3D } from "../ExperimentalSensorCoverage";
 import { OutdoorInfluenceOverlay3D } from "../OutdoorInfluenceOverlay";
 import { ConnectedDeviceMarker3D } from "../ConnectedDeviceMarkers";
 import { HeatPumpMarker3D } from "../HeatPumpMarkers";
 import { heatPumpSensorId, sensorRepresentsHeatPump } from "../../heatPumpPresentation";
 import {
-  clampPlanElementHeight,
-  clampPlanElementWidth,
   DEFAULT_CEILING_HEIGHT_METRES,
-  defaultPlanElementHeight,
   defaultPlanElementWidth,
-  defaultFireEscapeProjection,
-  editablePlanElementWidthBounds,
   effectivePlanElementHeight,
-  isWallAttachedPlanElement,
-  isWallOpening,
-  planElementBottomOffset,
-  planElementHeightBounds,
-  planElementWidthBounds,
 } from "../../planElementGeometry";
-import { fireplaceChimneyDimensions, fireplaceChimneyTop, isRoofSpanningFireplace, roofEavesZ, roofPeakZ, roofSurfaces } from "../../architecturalGeometry";
-import { MapInformationToggle, useMapInformationVisibility } from "../MapInformationToggle";
-import { effectiveOpeningState, openingStateCanChange, openingStateKey, openingStateObservationsForHouse } from "../../openingState";
-import { DEFAULT_CAMERA, VIEW_HEIGHT, VIEW_WIDTH, buildingBounds, elementAxis, elementWorldGeometry, inferReferenceTime, points, projectedCloud, relativeSensorHeight, smoothProjectedAirflowPath, svgToken, visualLabel } from "./support";
-import type { AddableOpeningKind, BuildingSceneProps, DragState, ElementWorldGeometry, ProjectedCloud, SelectedElementPatch } from "./support";
+import { roofEavesZ, roofSurfaces } from "../../architecturalGeometry";
+import { MapInformationToggle } from "../MapInformationToggle";
+import { DEFAULT_CAMERA, VIEW_HEIGHT, VIEW_WIDTH, points, relativeSensorHeight, smoothProjectedAirflowPath, svgToken, visualLabel } from "./support";
+import type { AddableOpeningKind, BuildingSceneProps } from "./support";
 import { useBuildingScenePart03 } from "./part-03";
 export function renderBuildingScene(context: ReturnType<typeof useBuildingScenePart03>) {
   const extended = context as typeof context & {
@@ -61,7 +35,7 @@ export function renderBuildingScene(context: ReturnType<typeof useBuildingSceneP
     selectedHeatPumpId: Exclude<BuildingSceneProps["selectedHeatPumpId"], undefined>;
     onHeatPumpSelect: BuildingSceneProps["onHeatPumpSelect"];
   };
-  const { house, sensors, samples, climateSamples, observations, definition, colorDomain, units, activeFloorId, selectedSensorId, referenceTimeMs, maxSampleAgeMs, outdoor, mapAnimationsEnabled, outdoorExtrasVisible, editing, spatialLayerSnapshots, spatialLayerTopology, experimentalAirflowEnabled, experimentalAirflow, experimentalSensorCoverage, experimentalOutdoorInfluence, openingStateObservations, pendingOpeningStateKeys, onOpeningStateChange, sensorMeasurements, climateSensorMarkersVisible, energyDevicesVisible, connectedDevices, connectedDevicesVisible, pendingConnectedDeviceIds, heatPumps, heatPumpInfluenceVisible, selectedHeatPumpId, onConnectedDevicePowerChange, onHeatPumpSelect, onFloorSelect, onSensorSelect, onFloorChange, locale, t, houseOpeningStateObservations, metricLabel, markerId, camera, setCamera, reducedMotion, setReducedMotion, mapInformationExpanded, setMapInformationExpanded, mapInformationId, selectedElementKey, setSelectedElementKey, addableOpeningKind, setAddableOpeningKind, openingEditorMessage, setOpeningEditorMessage, dragRef, suppressClickRef, effectiveReferenceTimeMs, effectiveMaxAgeMs, freshness, boundsSignature, bounds, floorModels, volume, heatMin, heatMax, clouds, gradientFlows, allValues, project, outdoorContext, airflow, airflowPaths, activeGradientFlows, airflowSupport, airflowDriver, airflowDescription, airflowAria, outdoorTemperature, outdoorHumidity, outdoorTemperatureColor, outdoorHumidityColor, activeOutdoorColor, activeOutdoorStyle, outdoorTemperatureStyle, outdoorHumidityStyle, outdoorWindSpeed, outdoorWindDirection, outdoorWindwardSide, outdoorShellLabel, outdoorShellWorld, outdoorShellProjected, outdoorWindwardProjected, outdoorShellRail, projectedClouds, renderedSensors, orderedFloors, selectedElementFloor, selectedElement, changeCamera, rotateCamera, onPointerDown, onPointerMove, endPointer, onWheel, activateFloor, floorKeyDown, selectSensor, selectArchitecturalElement, updateSelectedElement, selectedWidthBounds, selectedHeightBounds, updateSelectedWidth, updateSelectedHeight, deleteSelectedElement, addOpeningIn3d, renderArchitecturalElement, observationName } = extended;
+  const { house, sensors, samples, observations, definition, units, activeFloorId, selectedSensorId, outdoor, mapAnimationsEnabled, outdoorExtrasVisible, editing, spatialLayerSnapshots, spatialLayerTopology, experimentalAirflowEnabled, experimentalSensorCoverage, experimentalOutdoorInfluence, sensorMeasurements, climateSensorMarkersVisible, energyDevicesVisible, connectedDevices, connectedDevicesVisible, pendingConnectedDeviceIds, heatPumps, heatPumpInfluenceVisible, selectedHeatPumpId, onConnectedDevicePowerChange, onHeatPumpSelect, onFloorSelect, onFloorChange, t, metricLabel, markerId, camera, setCamera, reducedMotion, mapInformationExpanded, setMapInformationExpanded, mapInformationId, selectedElementKey, setSelectedElementKey, addableOpeningKind, setAddableOpeningKind, openingEditorMessage, setOpeningEditorMessage, freshness, floorModels, heatMin, heatMax, allValues, project, outdoorContext, airflowPaths, activeGradientFlows, airflowDescription, airflowAria, outdoorTemperature, outdoorHumidity, outdoorTemperatureColor, outdoorHumidityColor, activeOutdoorColor, activeOutdoorStyle, outdoorTemperatureStyle, outdoorHumidityStyle, outdoorShellLabel, outdoorShellProjected, outdoorWindwardProjected, outdoorShellRail, projectedClouds, renderedSensors, orderedFloors, selectedElementFloor, selectedElement, changeCamera, rotateCamera, onPointerDown, onPointerMove, endPointer, onWheel, activateFloor, floorKeyDown, selectSensor, updateSelectedElement, selectedWidthBounds, selectedHeightBounds, updateSelectedWidth, updateSelectedHeight, deleteSelectedElement, addOpeningIn3d, renderArchitecturalElement, observationName } = extended;
   return (
       <div className="building-scene">
         <div className="building-scene-controls">

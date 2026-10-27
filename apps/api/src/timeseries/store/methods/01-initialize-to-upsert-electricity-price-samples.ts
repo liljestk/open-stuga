@@ -1,6 +1,3 @@
-import { randomUUID } from "node:crypto";
-import { Pool } from "pg";
-import type { PoolClient, QueryResult, QueryResultRow } from "pg";
 import {
   HYPERTABLE_DEFINITIONS,
   MEASUREMENT_ANALYTICS_BUCKETS,
@@ -13,40 +10,20 @@ import {
   measurementAnalyticsAggregateName,
   measurementAggregateName,
   qualifiedName,
-  quoteIdentifier,
-  validateSchemaName,
 } from "../../schema.js";
 import type {
-  AggregateRefreshQuery,
-  ArchiveCheckpoint,
-  ArchiveTableName,
   BatchWriteResult,
   ColdStorageMode,
-  EnergyCostAggregateQuery,
-  EnergyCostAggregateRecord,
-  ElectricityPriceHistoryQuery,
   ElectricityPriceRecord,
   HeatPumpStateRecord,
-  LegacyReadingHistoryQuery,
   LegacyReadingRecord,
-  MeasurementBucketQuery,
-  MeasurementBucketRecord,
-  MeasurementCoverageQuery,
-  MeasurementCoverageRecord,
-  MeasurementHistoryQuery,
   MeasurementSampleRecord,
-  MeasurementWindowQuery,
   OpeningStateRecord,
-  OutdoorTemperatureHistoryQuery,
   OutdoorTemperatureRecord,
   QueryControl,
-  TelemetryHealth,
   TelemetrySchemaInitResult,
-  TelemetryStorageStats,
-  TelemetryStoreOptions,
-  TelemetryTableStorage,
 } from "../../types.js";
-import { ContinuousAggregateRow, ExtensionRow, ProcedureFeatureRow, RelationKindRow, abortError, describeError, timestamp } from "../support/01-default-schema-to-measurement-bucket-from-row.js";
+import { ContinuousAggregateRow, ExtensionRow, ProcedureFeatureRow, RelationKindRow, abortError, describeError } from "../support/01-default-schema-to-measurement-bucket-from-row.js";
 import { registerTimeseriesStoreMethods, timeseriesStoreState, type TimeseriesStoreInternals } from "../core.js";
 
 registerTimeseriesStoreMethods({

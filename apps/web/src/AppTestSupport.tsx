@@ -1,10 +1,6 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 
-import { StrictMode } from "react";
-
-import userEvent from "@testing-library/user-event";
-
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { vi } from "vitest";
 
 import { App } from "./App";
 
@@ -13,8 +9,6 @@ import { I18nProvider } from "./i18n";
 import { createDemoState } from "./domain";
 
 import { useClimateData } from "./useClimateData";
-
-import { api } from "./api";
 
 export function mockClimateData() {
   const state = createDemoState();

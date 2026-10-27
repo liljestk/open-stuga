@@ -1,9 +1,5 @@
-import { readFile } from "node:fs/promises";
 import type { AttentionCode } from "../types.js";
 import {
-  AppiumClient,
-  ElementNotFoundError,
-  WebDriverError,
   type Selector,
   type SelectorStrategy,
 } from "../webdriver.js";

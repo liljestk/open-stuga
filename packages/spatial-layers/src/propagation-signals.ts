@@ -1,18 +1,12 @@
 import type {
-  ConnectionLayerValue,
   SpatialConnection,
   SpatialConnectionStateInterval,
-  SpatialLayerEngine,
   SpatialLayerEngineInput,
-  SpatialLayerEngineManifest,
-  SpatialLayerSnapshot,
 } from './contracts.js';
 
-import { clamp, mean, median, pearson, robustScale } from './math.js';
+import { clamp, median, pearson, robustScale } from './math.js';
 
-import { prepareSpatialWindow, type PreparedSpatialWindow, type ZoneClimatePoint } from './series.js';
-
-import { snapshotBase } from './snapshot.js';
+import { type PreparedSpatialWindow } from './series.js';
 
 import { connectionOpenFractionThroughout } from "./propagation-analysis.js";
 

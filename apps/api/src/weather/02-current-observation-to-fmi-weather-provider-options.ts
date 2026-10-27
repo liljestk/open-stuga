@@ -1,19 +1,11 @@
 import { XMLParser } from "fast-xml-parser";
 import type {
-  House,
   HouseLocation,
-  HouseWeather,
-  IntegrationStatus,
   OutdoorConditions,
-  WeatherComponentCoverage,
-  WeatherComponentStatus,
-  WeatherComponentStatuses,
-  WeatherRecoveryStatus,
   WeatherStation,
   WeatherWarning,
   WeatherWarningSeverity,
 } from "@climate-twin/contracts";
-import { SYSTEM_VERSION } from "../version.js";
 import { FmiTimeSeries, OBSERVATION_FUTURE_TOLERANCE_MS, OBSERVATION_MAX_AGE_MS, OBSERVATION_MAX_PARAMETER_SKEW_MS, ParsedCapWarning, ParsedWarningArea, WeatherUnavailableError, XmlObject, applyObservationValue, asArray, haversineKm, nestedObject, xmlObject, xmlText } from "./01-weather-connection-status-to-haversine-km.js";
 
 /** Selects the nearest station with a recent temperature and co-timed values. */

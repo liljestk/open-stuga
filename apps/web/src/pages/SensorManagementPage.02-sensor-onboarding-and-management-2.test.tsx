@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 
 import userEvent from "@testing-library/user-event";
 
@@ -15,7 +15,7 @@ import { I18nProvider } from "../i18n";
 
 import { SensorManagementPage } from "./SensorManagementPage";
 
-import { deferred, discoveredDevice, expectDescribedError, renderPage } from "./SensorManagementPageTestSupport";
+import { deferred, discoveredDevice, renderPage } from "./SensorManagementPageTestSupport";
 
 vi.mock("../components/ConfirmationProvider", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../components/ConfirmationProvider")>();

@@ -1,18 +1,8 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
-
-import userEvent from "@testing-library/user-event";
-
-import axe from "axe-core";
-
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { vi } from "vitest";
 
 import type { StugubyShareGrant, StugubySummary } from "@climate-twin/stuguby-protocol";
 
 import { api, type StugubyDetailResponse, type StugubyListResponse } from "../api";
-
-import { I18nProvider } from "../i18n";
-
-import { localDateTimeInput, StugubyPage } from "./StugubyPage";
 
 export const identity: StugubyListResponse["identity"] = {
   nodeId: "node-local",

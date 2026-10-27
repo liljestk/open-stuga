@@ -1,20 +1,13 @@
 import {
   configuredPlanElementOpeningState,
   isAirflowPlanElement,
-  resolvePlanElementOpeningState,
-  type AirflowPlanElement,
   type Floor,
-  type House,
-  type MeasurementSample,
-  type OpeningStateObservation,
   type PlanElement,
   type Point,
-  type Sensor,
   type VentPlanElement,
 } from "@climate-twin/contracts";
 import type { OutdoorBoundaryContext, PlanEdge } from "../outdoorContext";
-import { defaultPlanElementWidth, effectivePlanElementHeight, planElementBottomOffset } from "../planElementGeometry";
-import { isSpatialSampleFresh, type SpatialFreshnessOptions } from "../spatialFreshness";
+import { effectivePlanElementHeight, planElementBottomOffset } from "../planElementGeometry";
 import { AirflowEvidence, BuildGridInput, ClimateAnchor, FIELD_EPSILON, GRAVITY_MPS2, MIN_TEMPERATURE_ANCHORS, NormalizedPoint3D, PRESSURE_ITERATIONS, STEADY_STEPS, SolverGrid, Velocity3D, anchorsForFloor, ceilingHeight, clamp, effectiveGridInput, faceOpen, finite, freshSample, gridDimensions, index, lineOfSightPenalty, openingIsActive, rasterizeFluid, rasterizeWalls, supportLevel, virtualTemperatureK } from "./01-climate-sample-matrix-to-line-of-sight-penalty";
 import { naturalDoorCounterflow } from "./03-trace2-ddirection-to-simulate-building-airflow";
 

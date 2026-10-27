@@ -1,78 +1,28 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   Building2,
-  Battery,
-  Boxes,
-  Camera,
   Check,
-  ChevronRight,
   Clipboard,
-  ClipboardList,
-  ExternalLink,
-  FileText,
-  HardHat,
   KeyRound,
-  Link as LinkIcon,
   LoaderCircle,
-  Map as MapIcon,
   MapPin,
-  Move,
-  NotebookPen,
   Plus,
-  QrCode,
-  Radio,
-  Redo2,
   Save,
-  Search,
   ShieldCheck,
-  Tag,
   Trash2,
-  Undo2,
-  Upload,
   Users,
-  UserRound,
-  Wrench,
   X,
 } from "lucide-react";
-import { floorMetersPerPlanUnit } from "@climate-twin/contracts";
 import type {
-  AreaEquipment,
-  AreaEquipmentInput,
-  AreaEquipmentPatch,
-  AreaEquipmentStatus,
-  EquipmentAttachment,
-  EquipmentAttachmentKind,
-  EquipmentLink,
-  GeoCoordinate,
   GuestAccessGrant,
-  HouseCreateInput,
-  MaintenanceTask,
-  MaintenanceTaskInput,
   Property,
-  PropertyArea,
-  PropertyAreaInput,
-  PropertyAreaKind,
-  PropertyAreaPatch,
-  PropertyCreateInput,
-  PropertyNote,
-  PropertyNoteInput,
-  PropertyNotePatch,
-  PropertyPatch,
   TenantMemberSummary,
-  TrackingCapabilities,
-  TrackingEndpoint,
-  TrackingMapSnapshot,
-  TrackedEquipmentState,
 } from "@climate-twin/contracts";
-import { api, ApiRequestError, subscribeToTrackingEvents, type HouseGeoreferencePatch } from "../../../api";
+import { api } from "../../../api";
 import { confirmAction } from "../../../components/ConfirmationProvider";
-import { EquipmentQrLabel } from "../../../components/EquipmentQrLabel";
-import { StugubyMark } from "../../../components/StugubyMark";
 import { formatInTimeZone } from "../../../dateTime";
 import type { ClimateState } from "../../../domain";
-import { useI18n, type TranslationKey } from "../../../i18n";
-import { derivePropertyTrafficLights, type PropertyTrafficLight } from "../../../propertyStatus";
-import { useNow } from "../../../useNow";
+import { useI18n } from "../../../i18n";
 import "../../PropertyManagementPage.css";
 import { MAX_GUEST_ACCESS_GRANTS, guestActivationUrl, normalizeGuestGrants } from "./part-01";
 import type { Feedback } from "./part-01";

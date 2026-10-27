@@ -12,7 +12,6 @@ import {
   enumValue,
   metadata,
   optionalBoolean,
-  optionalNumber,
   rejectUnknown,
   requiredString,
 } from "./route-support.js";

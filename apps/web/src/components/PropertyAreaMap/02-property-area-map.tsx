@@ -1,16 +1,6 @@
 import { useEffect, useRef } from "react";
-import type {
-  AreaEquipment,
-  GeoCoordinate,
-  House,
-  HouseLocation,
-  PropertyArea,
-  PropertyMemberLocation,
-  TrackedEquipmentState,
-} from "@climate-twin/contracts";
 import L, { type Circle, type Map as LeafletMap, type Marker, type Polygon } from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { layerConfidence, layerVisualStrength, type SpatialLayerSnapshot, type SpatialTopology } from "../../spatialLayers";
 import { AREA_ZOOM, DEFAULT_CENTER, DEFAULT_ZOOM, PropertyAreaMapProps, VIEWPORT_PADDING, areaColors, equipmentIcon, equipmentMapPoint, fixedAssetIcon, houseCoordinate, houseIcon, houseLayerState, makeAreaLayerAccessible, makeEditableHandleAccessible, makeHouseMarkerAccessible, makeInformationalMarkerAccessible, memberIcon, midpoint, propertyIcon, propertyViewportPlan, tuples, validCoordinate, vertexIcon } from "./01-property-map-house-to-make-area-layer-accessible";
 
 export function PropertyAreaMap({

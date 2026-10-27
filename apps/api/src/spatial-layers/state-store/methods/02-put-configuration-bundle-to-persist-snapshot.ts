@@ -1,7 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
-import { mkdirSync } from "node:fs";
-import { basename, dirname, resolve } from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import { randomUUID } from "node:crypto";
 import type {
   PersistedSpatialLayerSnapshot,
   SpatialConfigurationVersion,
@@ -18,7 +15,7 @@ import type {
   StoredSpatialSensorCalibration,
 } from "../../types.js";
 import { FAR_FUTURE, NonDeterministicSpatialOutputError, SpatialStateValidationError, SqlRow, assertInterval, assertIsoTimestamp, calibrationMethodForStorage, calibrationMethodFromStorage, contentHash, parseJson, partitionParams, runFromRow, scopeParams, snapshotFromRow, stableJson } from "../support/01-far-future-to-spatial-inference-job.js";
-import { registerSpatialLayerStateStoreMethods, spatialLayerStateStoreState, type SpatialLayerStateStoreInternals } from "../core.js";
+import { registerSpatialLayerStateStoreMethods, type SpatialLayerStateStoreInternals } from "../core.js";
 
 registerSpatialLayerStateStoreMethods({
   putConfigurationBundle(this: SpatialLayerStateStoreInternals, input: {

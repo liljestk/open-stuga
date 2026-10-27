@@ -8,45 +8,20 @@ import express from "express";
 
 import request from "supertest";
 
-import {
-  ClimateScalarEngine,
-  SpatialLayerEngineRegistry,
-  snapshotBase,
-  type SpatialLayerEngine,
-  type SpatialLayerEngineInput,
-  type SpatialLayerEngineManifest,
-  type SpatialLayerSnapshot,
-} from "@climate-twin/spatial-layers";
-
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ClimateDatabase } from "../src/db.js";
 
-import { openApiV1Document } from "../src/openapi.js";
-
-import { buildHouseTopology } from "../src/spatial-layers/core-input.js";
-
-import {
-  HybridTelemetryReader,
-  type ArchiveTelemetryReader,
-} from "../src/timeseries/read-facade.js";
-
 import {
   createLocalSpatialLayerRuntime,
-  DirectSpatialEngineExecutor,
-  deriveSpatialStatePath,
   registerSpatialLayerRoutes,
   sourceDatabaseId,
   SpatialLayerStateStore,
   SpatialSourceIdentityCollisionError,
-  SpatialExecutionTimeoutError,
-  WorkerThreadSpatialEngineExecutor,
   type LocalSpatialLayerRuntime,
-  type SpatialDataPartition,
-  type SpatialLayerSnapshotDraft,
 } from "../src/spatial-layers/index.js";
 
-import { SPATIAL_PARTITION_TABLES, TestSchema, coreDatabases, documentedResponseSchema, enableEngine, engineSnapshot, expectOpenApiConformance, partition, partitionRowCount, resolvedSchema, runtimes, schemaConformanceErrors, scope, seedEverySpatialTable, seededRuntime, snapshot, spatialOpenApiPaths, spatialOpenApiSchemas, temporaryDirectories } from "./spatial-layersTestSupport.js";
+import { SPATIAL_PARTITION_TABLES, coreDatabases, documentedResponseSchema, expectOpenApiConformance, partition, partitionRowCount, runtimes, scope, seedEverySpatialTable, seededRuntime, snapshot, spatialOpenApiSchemas, temporaryDirectories } from "./spatial-layersTestSupport.js";
 
 afterEach(async () => {
   await Promise.all(runtimes.splice(0).map((runtime) => runtime.stop()));

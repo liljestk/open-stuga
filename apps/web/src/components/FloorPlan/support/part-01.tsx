@@ -1,46 +1,14 @@
-import { useEffect, useId, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
-import { BoxSelect, Grid3X3, ImagePlus, MapPinPlus, MousePointer2, PenLine, Plus, RotateCcw, RotateCw, Trash2 } from "lucide-react";
-import { floorMetersPerPlanUnit, isAirflowPlanElement, wallLengthPlanUnits, type ConfiguredOpeningState, type ConnectedDeviceState, type Floor, type HeatPumpState, type House, type ManualObservation, type MeasurementDefinition, type MeasurementSample, type OpeningStateObservation, type PlanElement, type PlanElementKind, type Point, type Room, type Sensor, type UnitSystem, type Wall } from "@climate-twin/contracts";
-import { clamp, round, type ViewMode } from "../../../domain";
-import { useI18n, type TranslationKey } from "../../../i18n";
-import { formatMeasurement, formatMeasurementDelta, measurementGradient, measurementLabel, measurementValue, toDisplayValue, type LatestMeasurements } from "../../../measurements";
-import { energyDeviceMapStats, isEnergyDeviceSensor } from "../../../energyDeviceMap";
-import { createCloudLobes, estimateFieldFlows, heatColor, interpolateHeat } from "../../../spatialField";
-import { simulateFloorAirflow, type AirflowPoint2D, type ClimateSampleMatrix, type FloorAirflowEstimate } from "../../../airflowSimulation";
-import { configuredSpatialMaxSampleAgeMs, isSpatialSampleFresh } from "../../../spatialFreshness";
-import { cardinalDirection, normalizeDegrees, windPathOnRectangle, type PlanEdge } from "../../../outdoorContext";
+import { type ConfiguredOpeningState, type ConnectedDeviceState, type Floor, type HeatPumpState, type House, type ManualObservation, type MeasurementDefinition, type MeasurementSample, type OpeningStateObservation, type PlanElementKind, type Point, type Sensor, type UnitSystem, type Wall } from "@climate-twin/contracts";
+import { clamp, type ViewMode } from "../../../domain";
+import { type LatestMeasurements } from "../../../measurements";
+import { type AirflowPoint2D, type ClimateSampleMatrix, type FloorAirflowEstimate } from "../../../airflowSimulation";
+import { windPathOnRectangle, type PlanEdge } from "../../../outdoorContext";
 import {
-  formatOutdoorHumidity,
-  formatOutdoorTemperature,
-  formatOutdoorWindSpeed,
-  OutdoorConditionsBadge,
   type OutdoorVisualizationState,
 } from "../../OutdoorConditionsBadge";
-import { PlanElementDimensionFields } from "../../PlanElementDimensionFields";
-import { applyAirflowPlanElementPatch, PlanElementAirflowFields, type AirflowPlanElementPatch } from "../../PlanElementAirflowFields";
-import { applyFixturePlanElementPatch, PlanElementFixtureFields, type FixturePlanElementPatch } from "../../PlanElementFixtureFields";
-import { OpeningInventory } from "../../OpeningInventory";
-import { SpatialLayerOverlay2D } from "../../SpatialLayerOverlay2D";
 import type { SpatialLayerSnapshot, SpatialTopology } from "../../../spatialLayers";
 import type { SensorCoverageAssessment } from "../../../experimentalSpatialLayers";
 import type { OutdoorInfluenceEstimate } from "../../../outdoorInfluence";
-import { ExperimentalSensorCoverage2D } from "../../ExperimentalSensorCoverage";
-import {
-  clampPlanElementHeight,
-  clampPlanElementWidth,
-  DEFAULT_CEILING_HEIGHT_METRES,
-  defaultPlanElementHeight,
-  defaultPlanElementWidth,
-  defaultFireEscapeProjection,
-  editablePlanElementWidthBounds,
-  effectivePlanElementHeight,
-  isWallAttachedPlanElement,
-  isWallOpening,
-  planElementHeightBounds,
-} from "../../../planElementGeometry";
-import { chimneyPenetrationsForFloor, fireplaceChimneyDimensions } from "../../../architecturalGeometry";
-import { MapInformationToggle, useMapInformationVisibility } from "../../MapInformationToggle";
-import { effectiveOpeningState, openingStateCanChange, openingStateKey, openingStateObservationsForHouse } from "../../../openingState";
 
 export { heatColor, interpolateHeat } from "../../../spatialField";
 

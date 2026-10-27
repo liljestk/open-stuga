@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 
 import { tmpdir } from "node:os";
 
@@ -14,11 +14,7 @@ import { loadConfig } from "../src/config.js";
 
 import { ClimateDatabase } from "../src/db.js";
 
-import { homeAssistantInstanceFromService } from "../src/discovery.js";
-
 import { readIntegrationSecrets, writeIntegrationSecrets } from "../src/integration-secrets.js";
-
-import { waitFor } from "./integration-setupTestSupport.js";
 
 describe("guided integration setup", () => {
   let directory: string | null = null;
@@ -236,6 +232,7 @@ describe("guided integration setup", () => {
     });
     runtime = createApi({ config, startBackground: false });
     const mockCountBefore = (runtime.database.db.prepare("SELECT COUNT(*) AS count FROM measurement_samples WHERE source = 'mock'").get() as { count: number }).count;
+    expect(mockCountBefore).toBeGreaterThan(0);
 
     await request(runtime.app).post("/api/v2/measurements").send({ samples: [
       { sensorId: "sensor-01", metric: "co2", value: 700, canonicalUnit: "ppm", timestamp: "2026-07-14T10:00:00Z", source: "mock" },

@@ -1,4 +1,4 @@
-import type { MeasurementDefinition, MeasurementSample, Sensor } from "@climate-twin/contracts";
+import type { MeasurementDefinition, Sensor } from "@climate-twin/contracts";
 import type { Locale } from "../i18n";
 import { DateOrder, HistoricalImportMapping, HistoricalImportPreview, ImportCell, ImportMode, ImportSheet, InputUnit, MAX_FILE_BYTES, MAX_IMPORT_CELLS, MAX_IMPORT_ROWS, MAX_XLSX_WORKSHEET_BYTES, MAX_XLSX_XML_BYTES, MAX_XLSX_XML_ENTRIES, METRIC_ALIASES, SENSOR_ALIASES, TIMESTAMP_ALIASES, UNIT_ALIASES, VALUE_ALIASES, importSizeError, invalidWorkbookError, isBlank, normalizeImportToken, parseCsv, parseZipEntries, readFileText, readZipEntry, validateImportSheet, worksheetAllocation } from "./01-import-cell-to-read-zip-entry";
 

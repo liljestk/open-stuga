@@ -1,18 +1,10 @@
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-
-import { StrictMode } from "react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 
 import userEvent from "@testing-library/user-event";
 
 import type { DoorPlanElement, IntegrationDiscoveryJob } from "@climate-twin/contracts";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-
-import { App } from "./App";
-
-import { I18nProvider } from "./i18n";
-
-import { createDemoState } from "./domain";
 
 import { useClimateData } from "./useClimateData";
 

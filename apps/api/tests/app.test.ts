@@ -1,5 +1,3 @@
-import { createServer, type Server } from "node:http";
-
 import { generateKeyPairSync } from "node:crypto";
 
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -12,9 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import request from "supertest";
 
-import type { TelemetryEvent } from "@climate-twin/contracts";
-
-import { loadConfig, type AppConfig } from "../src/config.js";
+import { loadConfig } from "../src/config.js";
 
 import { createApi, type ApiRuntime } from "../src/app.js";
 

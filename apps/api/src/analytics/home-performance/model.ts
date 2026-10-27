@@ -1,6 +1,5 @@
 import type {
   ActionRun,
-  AnalyticsPoint,
   AnalyticsQueryResponse,
   AnalyticsSeries,
   House,

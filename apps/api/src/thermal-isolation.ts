@@ -146,11 +146,10 @@ function sensorEntry(
     ...(input.hvacExclusion ? { hvacExclusion: input.hvacExclusion } : {}),
     ...(input.passiveIntervals ? { passiveIntervals: input.passiveIntervals } : {}),
   }, preparedOutdoor).calibration;
-  return sensorEntryFromCalibration(input, sensor, parentId, calibration);
+  return sensorEntryFromCalibration(sensor, parentId, calibration);
 }
 
 function sensorEntryFromCalibration(
-  input: ThermalIsolationInput,
   sensor: Sensor,
   parentId: string,
   calibration: ThermalCalibrationResult,
@@ -209,7 +208,7 @@ async function sensorEntryAsync(
     ...(input.hvacExclusion ? { hvacExclusion: input.hvacExclusion } : {}),
     ...(input.passiveIntervals ? { passiveIntervals: input.passiveIntervals } : {}),
   }, preparedOutdoor, signal ? { signal } : {})).calibration;
-  return sensorEntryFromCalibration(input, sensor, parentId, calibration);
+  return sensorEntryFromCalibration(sensor, parentId, calibration);
 }
 
 type ThermalSpreadMetrics = Pick<

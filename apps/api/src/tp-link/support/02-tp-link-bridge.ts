@@ -1,9 +1,5 @@
-import { spawn, type ChildProcess } from "node:child_process";
-import { randomUUID } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
-import { networkInterfaces } from "node:os";
-import { createInterface } from "node:readline";
-import { hasLocalHouseAuthority, type OpeningStateObservation, type Reading, type TpLinkDiscoveredDevice } from "@climate-twin/contracts";
+import { existsSync } from "node:fs";
+import { hasLocalHouseAuthority, type TpLinkDiscoveredDevice } from "@climate-twin/contracts";
 import type { AppConfig } from "../../config.js";
 import type { ClimateDatabase } from "../../db.js";
 import type {

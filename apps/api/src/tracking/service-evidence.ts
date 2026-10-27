@@ -1,7 +1,6 @@
 import type {
   EquipmentLocationEstimate,
   TrackingGatewayRollupInput,
-  TrackingObservation,
   TrackingObservationBatchError,
   TrackingObservationInput,
   TrackingObservationQualityFlag,

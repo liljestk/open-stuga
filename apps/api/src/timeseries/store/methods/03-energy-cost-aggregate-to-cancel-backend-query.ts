@@ -1,48 +1,22 @@
 import { randomUUID } from "node:crypto";
 import { hourlyUsageFromRows } from "../../../electricity/hourly-usage.js";
-import { Pool } from "pg";
 import type { PoolClient, QueryResult, QueryResultRow } from "pg";
 import {
-  HYPERTABLE_DEFINITIONS,
   MEASUREMENT_ANALYTICS_BUCKETS,
   MEASUREMENT_BUCKETS,
   TELEMETRY_TABLES,
-  buildBaseSchemaSql,
-  buildContinuousAggregateSql,
-  buildFallbackAggregateSql,
   measurementAnalyticsAggregateName,
   measurementAggregateName,
   qualifiedName,
-  quoteIdentifier,
-  validateSchemaName,
 } from "../../schema.js";
 import type {
   AggregateRefreshQuery,
-  ArchiveCheckpoint,
-  ArchiveTableName,
-  BatchWriteResult,
-  ColdStorageMode,
   EnergyCostAggregateQuery,
   EnergyCostAggregateRecord,
-  ElectricityPriceHistoryQuery,
-  ElectricityPriceRecord,
-  LegacyReadingHistoryQuery,
-  LegacyReadingRecord,
-  MeasurementBucketQuery,
-  MeasurementBucketRecord,
-  MeasurementCoverageQuery,
-  MeasurementCoverageRecord,
-  MeasurementHistoryQuery,
-  MeasurementSampleRecord,
-  MeasurementWindowQuery,
-  OutdoorTemperatureHistoryQuery,
-  OutdoorTemperatureRecord,
   PowerCostAggregateQuery,
   QueryControl,
   TelemetryHealth,
-  TelemetrySchemaInitResult,
   TelemetryStorageStats,
-  TelemetryStoreOptions,
   TelemetryTableStorage,
 } from "../../types.js";
 import { RollupsMaterializingError } from "../../read-support.js";

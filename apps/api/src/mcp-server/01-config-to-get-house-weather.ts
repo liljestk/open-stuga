@@ -1,23 +1,13 @@
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { isIP } from "node:net";
 import { isLocalTelemetryHistoryComplete } from "../timeseries/read-support.js";
-import { MAX_OBSERVATION_RESOLUTION_NOTE_LENGTH, hasLocalHouseAuthority, resolvePlanElementOpeningState } from "@climate-twin/contracts";
-import type { StugubyRole, StugubySummary } from "@climate-twin/stuguby-protocol";
+import { hasLocalHouseAuthority } from "@climate-twin/contracts";
 import type {
   AreaEquipment,
   AreaEquipmentInput,
   AreaEquipmentPatch,
-  AlertRule,
-  Floor,
   GeoCoordinate,
   HouseLocation,
-  HouseMapPlacement,
   HouseWeather,
-  MaintenanceTask,
-  ManualObservation,
-  MeasurementDefinition,
   MeasurementSample,
   MeasurementSnapshotEntry,
   Property,
@@ -25,62 +15,24 @@ import type {
   PropertyAreaInput,
   PropertyAreaPatch,
   PropertyCreateInput,
-  Reading,
-  Sensor,
-  StaticParameter,
 } from "@climate-twin/contracts";
-import {
-  parseAlertRule,
-  parseMeasurementDefinition,
-  parseMeasurementSample,
-  parseMaintenanceTaskInput,
-  parseMaintenanceTaskPatch,
-  parseObservationInput,
-  parseObservationPatch,
-  parseReading,
-  parseSensorPatch,
-} from "../app.js";
 import { loadConfig } from "../config.js";
 import { DataOperationsService } from "../data-operations.js";
 import { ClimateDatabase, outdoorLocationKey } from "../db.js";
-import { discoverHomeAssistant } from "../discovery.js";
 import { EnergyCostService } from "../energy-cost.js";
 import { databaseTariffContext } from "../electricity/tariff-context.js";
 import { EnergyOptimizer } from "../energy-optimizer.js";
-import { publicElectricityConfiguration } from "../electricity-prices.js";
 import { TelemetryBus } from "../events.js";
 import { HomeAssistantBridge } from "../home-assistant.js";
-import { McpOperationTracker } from "../mcp-lifecycle.js";
 import {
-  mcpToolAnnotations,
-  mcpBoundedInteger,
-  mcpBoundedNumber,
-  mcpIsoDate,
-  mcpLanguage,
-  mcpLocationQuery,
-  mcpOptionalFiniteNumber,
-  mcpThermalDateRange,
   requireMcpHouse,
-  requireMcpHouseSensor,
-  requireMcpConfirmation,
-  requireMcpMeasurementTarget,
-  requireMcpSensor,
-  summarizeMcpAreaEquipment,
-  summarizeMcpHouse,
-  summarizeMcpProperty,
-  summarizeMcpPropertyArea,
-  validateMcpToolRegistry,
-  validateMcpDateRange,
 } from "../mcp-validation.js";
 import { LocationDiscoveryService } from "../location-discovery.js";
 import { AutomaticWeatherProvider, OpenMeteoWeatherProvider } from "../open-meteo.js";
 import {
   AlertEngine,
   DataModeCoordinator,
-  forecast,
-  forecastMeasurement,
   MeasurementService,
-  MOCK_SCENARIOS,
   MockEngine,
   ReplayEngine,
   RuntimeStatus,
@@ -89,10 +41,7 @@ import {
 import { SetupDoctor } from "../setup-doctor.js";
 import { HybridTelemetryReader } from "../timeseries/read-facade.js";
 import { TimeseriesStore } from "../timeseries/store.js";
-import { runThermalIsolation } from "../thermal-isolation.js";
-import { runThermalSimulation } from "../thermal-simulation.js";
 import { TpLinkBridge } from "../tp-link.js";
-import { SYSTEM_VERSION } from "../version.js";
 import { FmiWeatherProvider, WeatherRequestSupersededError, WeatherService } from "../weather.js";
 import type { StugubyService } from "../stuguby/service.js";
 import { StugubyStore } from "../stuguby/store.js";

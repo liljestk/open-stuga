@@ -1,10 +1,6 @@
 import type {
   AlertEvent,
   AlertRule,
-  House,
-  MeasurementSample,
-  Sensor,
-  WeatherWarning,
 } from "@climate-twin/contracts";
 
 import { describe, expect, it } from "vitest";
@@ -13,10 +9,9 @@ import {
   deriveHomeInsights,
   deriveHomePulse,
   HOME_INSIGHT_ADVISORY,
-  type HomeInsightInput,
 } from "../src/analytics/home-monitoring/insights.js";
 
-import { NOW, NOW_MS, baseInput, house, sample, sensor, warning } from "./home-monitoring-test-support.js";
+import { NOW, baseInput, house, sample, sensor, warning } from "./home-monitoring-test-support.js";
 
 describe("deriveHomePulse", () => {
   it("returns a steady, evidence-backed empty pulse when fresh readings need no action", () => {

@@ -1,20 +1,12 @@
 import type {
-  AlertEvent,
-  AlertRule,
-  ForecastPoint,
-  IntegrationStatus,
-  MeasurementForecastPoint,
-  MeasurementSample,
   MockScenario,
   Reading,
   Sensor,
 } from "@climate-twin/contracts";
 import { hasLocalHouseAuthority } from "@climate-twin/contracts";
-import { configuredAlertWebhookDestinations, type AppConfig } from "../config.js";
+import { type AppConfig } from "../config.js";
 import { ClimateDatabase } from "../db.js";
 import { TelemetryBus } from "../events.js";
-import { alertNotificationBindings } from "../notification-snapshot.js";
-import { DEFAULT_ALERT_DELIVERY_POLICY } from "../notification-policy.js";
 import { demoDataWasDisabled } from "./01-weather-connection-status-to-demo-data-was-disabled.js";
 import { DataModeCoordinator, MOCK_SCENARIOS, TelemetryService, samplesFromReading } from "./02-data-mode-coordinator-to-mock-scenarios.js";
 

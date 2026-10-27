@@ -1,82 +1,16 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import {
-  Building2,
-  Battery,
-  Boxes,
-  Camera,
-  Check,
-  ChevronRight,
-  Clipboard,
-  ClipboardList,
-  ExternalLink,
-  FileText,
-  HardHat,
-  KeyRound,
-  Link as LinkIcon,
-  LoaderCircle,
-  Map as MapIcon,
-  MapPin,
-  Move,
-  NotebookPen,
-  Plus,
-  QrCode,
-  Radio,
-  Redo2,
-  Save,
-  Search,
-  ShieldCheck,
-  Tag,
-  Trash2,
-  Undo2,
-  Upload,
-  Users,
-  UserRound,
-  Wrench,
-  X,
-} from "lucide-react";
-import { floorMetersPerPlanUnit } from "@climate-twin/contracts";
+import { useCallback, useMemo, useRef, useState } from "react";
 import type {
   AreaEquipment,
-  AreaEquipmentInput,
-  AreaEquipmentPatch,
-  AreaEquipmentStatus,
-  EquipmentAttachment,
-  EquipmentAttachmentKind,
-  EquipmentLink,
   GeoCoordinate,
-  GuestAccessGrant,
-  HouseCreateInput,
-  MaintenanceTask,
-  MaintenanceTaskInput,
-  Property,
-  PropertyArea,
-  PropertyAreaInput,
-  PropertyAreaKind,
-  PropertyAreaPatch,
-  PropertyCreateInput,
   PropertyNote,
-  PropertyNoteInput,
-  PropertyNotePatch,
-  PropertyPatch,
-  TenantMemberSummary,
-  TrackingCapabilities,
-  TrackingEndpoint,
-  TrackingMapSnapshot,
-  TrackedEquipmentState,
 } from "@climate-twin/contracts";
-import { api, ApiRequestError, subscribeToTrackingEvents, type HouseGeoreferencePatch } from "../../api";
-import { EquipmentQrLabel } from "../../components/EquipmentQrLabel";
-import { StugubyMark } from "../../components/StugubyMark";
-import type { ClimateState } from "../../domain";
-import { useI18n, type TranslationKey } from "../../i18n";
-import { derivePropertyTrafficLights, type PropertyTrafficLight } from "../../propertyStatus";
-import { useNow } from "../../useNow";
+import { type TranslationKey } from "../../i18n";
 import "../PropertyManagementPage.css";
-import { AccessPanel, EQUIPMENT_DOCUMENT_ACCEPT, EQUIPMENT_DRAFT_MAP_ID, EQUIPMENT_PHOTO_ACCEPT, MAP_ITEM_BATCH_SIZE, MAX_EQUIPMENT_ATTACHMENT_BYTES, MAX_GUEST_ACCESS_GRANTS, NEW_FIXED_ASSET_ID, PropertyAreaMap, PropertyStatusLights, TRACKED_ASSETS_REFRESH_MS, areaDraft, areaKinds, attachmentSize, coordinateText, emptyAreaDraft, equipmentAttachmentMimeType, equipmentAttachmentMimeTypes, equipmentPlacement, fileDataUrl, firstHouseFloor, fixedAssetKinds, guestActivationUrl, inventoryPlacement, isForeignSharedHouse, mapCoordinateInput, normalizeGuestGrants, parseCoordinateText, placementInput, targetLabel, toggledGuestGrants } from "./support";
-import type { AreaDraft, EquipmentPlacement, Feedback, InventoryLocationFilter, MapCatalogEntry, MapItemFilter, MapItemKind, MapItemSelection, MapLayerVisibility, PropertyManagementPageProps, WorkspaceTab } from "./support";
+import { EQUIPMENT_DRAFT_MAP_ID, mapCoordinateInput, placementInput } from "./support";
+import type { MapCatalogEntry, MapItemKind } from "./support";
 import { usePropertyManagementPagePart01 } from "./part-01";
 export function usePropertyManagementPagePart02(context: ReturnType<typeof usePropertyManagementPagePart01>) {
-  const { props, state, t, now, propertySummary, workspaceReadOnly, canManageAccess, tab, setTab, properties, initialPropertyAvailable, appliedInitialPropertyIdRef, lastInitialPropertyIdRef, internalPropertyId, setInternalPropertyId, controlledPropertyAvailable, propertyId, setPropertyId, property, readOnly, houses, houseReadOnly, mapLoaded, setMapLoaded, areas, fixedAssets, equipment, propertyTrafficLights, notes, selectedAreaId, setSelectedAreaId, selectedArea, selectedAreaEquipmentIds, selectedAreaTasks, isNewArea, setIsNewArea, isNewFixedAsset, setIsNewFixedAsset, drawing, setDrawing, areaForm, setAreaForm, redoVertices, setRedoVertices, coordinateInput, setCoordinateInput, coordinateError, setCoordinateError, newPropertyName, setNewPropertyName, newHouseName, setNewHouseName, areaDestinationPropertyId, setAreaDestinationPropertyId, equipmentDestination, setEquipmentDestination, editingProperty, setEditingProperty, propertyEditButtonRef, propertyNameInputRef, propertyName, setPropertyName, propertyDescription, setPropertyDescription, pending, setPending, feedback, setFeedback, editingEquipmentId, setEditingEquipmentId, equipmentName, setEquipmentName, equipmentKind, setEquipmentKind, equipmentManufacturer, setEquipmentManufacturer, equipmentModel, setEquipmentModel, equipmentSerialNumber, setEquipmentSerialNumber, equipmentStatus, setEquipmentStatus, equipmentNotes, setEquipmentNotes, equipmentLatitude, setEquipmentLatitude, equipmentLongitude, setEquipmentLongitude, equipmentPinMapOpen, setEquipmentPinMapOpen, inventoryQuery, setInventoryQuery, inventoryStatus, setInventoryStatus, inventoryLocation, setInventoryLocation, structureQuery, setStructureQuery, mapItemQuery, setMapItemQuery, mapItemFilter, setMapItemFilter, mapItemLimit, setMapItemLimit, mapItemSelection, setMapItemSelection, mapLayers, setMapLayers, inventoryFormOpen, setInventoryFormOpen, trackedEquipment, setTrackedEquipment, trackingCapabilities, setTrackingCapabilities, trackingSnapshot, setTrackingSnapshot, trackingEndpoints, setTrackingEndpoints, trackingConnection, setTrackingConnection, selectedEquipmentId, setSelectedEquipmentId, equipmentAttachments, setEquipmentAttachments, equipmentLinks, setEquipmentLinks, equipmentResourcesState, setEquipmentResourcesState, equipmentResourcesBusy, setEquipmentResourcesBusy, equipmentResourcesRefresh, setEquipmentResourcesRefresh, equipmentResourcesFeedback, setEquipmentResourcesFeedback, equipmentLinkLabel, setEquipmentLinkLabel, equipmentLinkUrl, setEquipmentLinkUrl, equipmentPhotoInputRef } = context;
+  const { t, now, property, houses, areas, fixedAssets, equipment, equipmentDestination, equipmentName, equipmentKind, equipmentManufacturer, equipmentModel, equipmentSerialNumber, equipmentStatus, equipmentNotes, equipmentLatitude, setEquipmentLatitude, equipmentLongitude, setEquipmentLongitude, structureQuery, mapItemQuery, mapItemFilter, mapItemLimit, mapItemSelection, trackedEquipment, trackingCapabilities, trackingSnapshot, trackingEndpoints, selectedEquipmentId } = context;
   const equipmentDocumentInputRef = useRef<HTMLInputElement>(null);
   const [selectedEndpointId, setSelectedEndpointId] = useState("");
   const [noteText, setNoteText] = useState("");

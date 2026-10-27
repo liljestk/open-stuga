@@ -4,26 +4,20 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type {
   AreaEquipment,
-  House,
-  IntegrationStatus,
   MaintenanceTask,
-  ManualObservation,
-  MeasurementForecastPoint,
   MeasurementSample,
-  Sensor,
   SensorSnapshot,
   StaticParameter,
   TelemetryEvent,
-  TpLinkDiscoveredDevice,
   PropertyArea,
   PropertyNote,
 } from "@climate-twin/contracts";
 
-import { createDemoState, type ClimateState } from "./domain";
+import { createDemoState } from "./domain";
 
-import { replaceLoadedHouseTelemetry, seriesStateKey, useClimateData, withoutDemoTelemetry } from "./useClimateData";
+import { useClimateData } from "./useClimateData";
 
-import { deferred, twoHouseFixture } from "./useClimateDataTestSupport";
+import { deferred } from "./useClimateDataTestSupport";
 
 const mocks = vi.hoisted(() => ({
   session: vi.fn(),
@@ -145,23 +139,6 @@ vi.mock("./api", () => ({
 vi.mock("./authEpoch", () => ({
   subscribeToAuthEpoch: mocks.subscribeToAuthEpoch,
 }));
-
-function useTwoHouseApi(fixture: ReturnType<typeof twoHouseFixture>) {
-  const { firstHouse, secondHouse, firstSensor, secondSensor, firstSample, secondSample, firstObservation, secondObservation } = fixture;
-  mocks.houses.mockResolvedValue([firstHouse, secondHouse]);
-  mocks.sensors.mockImplementation(async (houseId: string) => houseId === secondHouse.id ? [secondSensor] : [firstSensor]);
-  mocks.snapshot.mockImplementation(async (houseId: string): Promise<SensorSnapshot[]> => houseId === secondHouse.id
-    ? [{ ...secondSensor, reading: null }]
-    : [{ ...firstSensor, reading: fixture.demo.readings[firstSensor.id] ?? null }]);
-  mocks.measurementSnapshot.mockImplementation(async (houseId: string) => houseId === secondHouse.id
-    ? [{ sensorId: secondSensor.id, measurements: { temperature: secondSample } }]
-    : [{ sensorId: firstSensor.id, measurements: { temperature: firstSample } }]);
-  mocks.observations.mockImplementation(async (houseId: string) => houseId === secondHouse.id
-    ? [secondObservation]
-    : [firstObservation]);
-  mocks.staticParameters.mockResolvedValue([]);
-  mocks.maintenanceTasks.mockResolvedValue([]);
-}
 
 describe("useClimateData", () => {
   beforeEach(() => {

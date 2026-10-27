@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { Suspense } from "react";
 import {
   Building2,
   Battery,
@@ -6,12 +6,10 @@ import {
   Camera,
   Check,
   ChevronRight,
-  Clipboard,
   ClipboardList,
   ExternalLink,
   FileText,
   HardHat,
-  KeyRound,
   Link as LinkIcon,
   LoaderCircle,
   Map as MapIcon,
@@ -25,61 +23,32 @@ import {
   Save,
   Search,
   ShieldCheck,
-  Tag,
   Trash2,
   Undo2,
   Upload,
-  Users,
   UserRound,
   Wrench,
   X,
 } from "lucide-react";
-import { floorMetersPerPlanUnit } from "@climate-twin/contracts";
 import type {
-  AreaEquipment,
-  AreaEquipmentInput,
-  AreaEquipmentPatch,
   AreaEquipmentStatus,
-  EquipmentAttachment,
-  EquipmentAttachmentKind,
-  EquipmentLink,
-  GeoCoordinate,
-  GuestAccessGrant,
-  HouseCreateInput,
-  MaintenanceTask,
-  MaintenanceTaskInput,
-  Property,
-  PropertyArea,
-  PropertyAreaInput,
   PropertyAreaKind,
-  PropertyAreaPatch,
-  PropertyCreateInput,
   PropertyNote,
-  PropertyNoteInput,
-  PropertyNotePatch,
-  PropertyPatch,
-  TenantMemberSummary,
-  TrackingCapabilities,
-  TrackingEndpoint,
-  TrackingMapSnapshot,
-  TrackedEquipmentState,
 } from "@climate-twin/contracts";
-import { api, ApiRequestError, subscribeToTrackingEvents, type HouseGeoreferencePatch } from "../../api";
+import { api } from "../../api";
 import { EquipmentQrLabel } from "../../components/EquipmentQrLabel";
 import { StugubyMark } from "../../components/StugubyMark";
 import { formatInTimeZone } from "../../dateTime";
-import type { ClimateState } from "../../domain";
-import { useI18n, type TranslationKey } from "../../i18n";
-import { derivePropertyTrafficLights, type PropertyTrafficLight } from "../../propertyStatus";
-import { useNow } from "../../useNow";
+import { type TranslationKey } from "../../i18n";
+import { type PropertyTrafficLight } from "../../propertyStatus";
 import "../PropertyManagementPage.css";
-import { AccessPanel, EQUIPMENT_DOCUMENT_ACCEPT, EQUIPMENT_DRAFT_MAP_ID, EQUIPMENT_PHOTO_ACCEPT, MAP_ITEM_BATCH_SIZE, MAX_EQUIPMENT_ATTACHMENT_BYTES, MAX_GUEST_ACCESS_GRANTS, NEW_FIXED_ASSET_ID, PropertyAreaMap, PropertyStatusLights, TRACKED_ASSETS_REFRESH_MS, areaDraft, areaKinds, attachmentSize, coordinateText, emptyAreaDraft, equipmentAttachmentMimeType, equipmentAttachmentMimeTypes, equipmentPlacement, fileDataUrl, firstHouseFloor, fixedAssetKinds, guestActivationUrl, inventoryPlacement, isForeignSharedHouse, mapCoordinateInput, normalizeGuestGrants, parseCoordinateText, placementInput, targetLabel, toggledGuestGrants } from "./support";
-import type { AreaDraft, EquipmentPlacement, Feedback, InventoryLocationFilter, MapCatalogEntry, MapItemFilter, MapItemKind, MapItemSelection, MapLayerVisibility, PropertyManagementPageProps, WorkspaceTab } from "./support";
+import { AccessPanel, EQUIPMENT_DOCUMENT_ACCEPT, EQUIPMENT_DRAFT_MAP_ID, EQUIPMENT_PHOTO_ACCEPT, MAP_ITEM_BATCH_SIZE, NEW_FIXED_ASSET_ID, PropertyAreaMap, PropertyStatusLights, areaDraft, areaKinds, attachmentSize, isForeignSharedHouse, targetLabel } from "./support";
+import type { EquipmentPlacement, InventoryLocationFilter, MapItemFilter } from "./support";
 import { usePropertyManagementPagePart07 } from "./part-07";
 import { PropertyCarousel } from "./PropertyCarousel";
 import { PropertyWeatherSettings } from "./PropertyWeatherSettings";
 export function renderPropertyManagementPage(context: ReturnType<typeof usePropertyManagementPagePart07>) {
-  const { props, state, locale, t, now, propertySummary, workspaceReadOnly, canManageAccess, tab, setTab, properties, initialPropertyAvailable, appliedInitialPropertyIdRef, lastInitialPropertyIdRef, internalPropertyId, setInternalPropertyId, controlledPropertyAvailable, propertyId, setPropertyId, property, readOnly, houses, houseReadOnly, mapLoaded, setMapLoaded, areas, fixedAssets, equipment, propertyTrafficLights, notes, selectedAreaId, setSelectedAreaId, selectedArea, selectedAreaEquipmentIds, selectedAreaTasks, isNewArea, setIsNewArea, isNewFixedAsset, setIsNewFixedAsset, drawing, setDrawing, areaForm, setAreaForm, redoVertices, setRedoVertices, coordinateInput, setCoordinateInput, coordinateError, setCoordinateError, newPropertyName, setNewPropertyName, newHouseName, setNewHouseName, areaDestinationPropertyId, setAreaDestinationPropertyId, equipmentDestination, setEquipmentDestination, editingProperty, setEditingProperty, propertyEditButtonRef, propertyNameInputRef, propertyName, setPropertyName, propertyDescription, setPropertyDescription, pending, setPending, feedback, setFeedback, editingEquipmentId, setEditingEquipmentId, equipmentName, setEquipmentName, equipmentKind, setEquipmentKind, equipmentManufacturer, setEquipmentManufacturer, equipmentModel, setEquipmentModel, equipmentSerialNumber, setEquipmentSerialNumber, equipmentStatus, setEquipmentStatus, equipmentNotes, setEquipmentNotes, equipmentLatitude, setEquipmentLatitude, equipmentLongitude, setEquipmentLongitude, equipmentPinMapOpen, setEquipmentPinMapOpen, inventoryQuery, setInventoryQuery, changeInventoryQuery, inventoryStatus, setInventoryStatus, changeInventoryStatus, inventoryLocation, setInventoryLocation, changeInventoryLocation, structureQuery, setStructureQuery, changeStructureQuery, mapItemQuery, setMapItemQuery, changeMapItemQuery, mapItemFilter, setMapItemFilter, changeMapItemFilter, mapItemLimit, setMapItemLimit, mapItemSelection, setMapItemSelection, changeMapItemSelection, mapLayers, setMapLayers, changeMapLayer, inventoryFormOpen, setInventoryFormOpen, trackedEquipment, setTrackedEquipment, trackingCapabilities, setTrackingCapabilities, trackingSnapshot, setTrackingSnapshot, trackingEndpoints, setTrackingEndpoints, trackingConnection, setTrackingConnection, selectedEquipmentId, setSelectedEquipmentId, changeSelectedEquipmentId, equipmentAttachments, setEquipmentAttachments, equipmentLinks, setEquipmentLinks, equipmentResourcesState, setEquipmentResourcesState, equipmentResourcesBusy, setEquipmentResourcesBusy, equipmentResourcesRefresh, setEquipmentResourcesRefresh, equipmentResourcesFeedback, setEquipmentResourcesFeedback, equipmentLinkLabel, setEquipmentLinkLabel, equipmentLinkUrl, setEquipmentLinkUrl, equipmentPhotoInputRef, equipmentDocumentInputRef, selectedEndpointId, setSelectedEndpointId, noteText, setNoteText, noteKind, setNoteKind, noteTarget, setNoteTarget, editingNoteId, setEditingNoteId, noteFormOpen, setNoteFormOpen, maintenanceTitle, setMaintenanceTitle, maintenanceHouseId, setMaintenanceHouseId, maintenanceEquipmentId, setMaintenanceEquipmentId, placementHouseId, setPlacementHouseId, placementLatitude, setPlacementLatitude, placementLongitude, setPlacementLongitude, placementWidth, setPlacementWidth, placementOrientation, setPlacementOrientation, placementEditing, setPlacementEditing, placementAssetId, setPlacementAssetId, assetPlacementEditing, setAssetPlacementEditing, assetDraftLocation, setAssetDraftLocation, assetLatitudeInput, setAssetLatitudeInput, assetLongitudeInput, setAssetLongitudeInput, trackingStates, trackingByEquipmentId, trackingEnabled, liveMapEnabled, selectedEquipment, selectedEquipmentResourceId, selectedTracking, sharedMembers, assignedEndpointIds, availableTrackingEndpoints, equipmentLatitudeValue, equipmentLongitudeValue, equipmentPinEmpty, equipmentPinValid, equipmentDraftMapLocation, equipmentPinMapItem, updateEquipmentPinFromMap, equipmentLocationLabel, normalizedStructureQuery, sidebarHouses, sidebarAreas, mapCatalogItems, normalizedMapItemQuery, matchingMapCatalogItems, visibleMapCatalogItems, remainingMapCatalogItems, inventoryLocationCount, inventoryEquipmentVersion, visibleInventory, inventoryAttentionCount, placementAsset, editingFixedAsset, assetLatitude, assetLongitude, assetCoordinateInputsValid, updateFixedAssetCoordinate, mapAreas, placementHouse, mapHouses, visibleMapHouses, visibleAssetIds, visibleMapEquipment, visibleMapMembers, placementDraftIsValid, tabs, chooseTabFromKeyboard, vertexLabel, midpointLabel, startArea, startFixedAsset, appendVertex, moveVertex, insertVertex, undoVertex, redoVertex, applyCoordinates, saveArea, removeArea, createProperty, saveProperty, setDefaultHouse, createHouse, removeProperty, clearEquipmentDraft, beginEquipmentEdit, saveEquipment, moveHouse, removeEquipment, uploadEquipmentAttachments, removeEquipmentAttachment, addEquipmentLink, removeEquipmentLink, refreshInventoryTracking, bindEndpoint, unbindEndpoint, showEquipmentOnMap, removeNote, noteTargetParts, saveNote, planMaintenance, selectMapArea, selectMapEquipment, selectPlacementHouse, updatePlacementFromMap, selectPlacementAsset, updateAssetPlacementFromMap, saveAssetPlacement, removeAssetPlacement, saveHousePlacement, removeHousePlacement, propertyShareLabel, houseShareLabel } = context;
+  const { props, state, locale, t, propertySummary, workspaceReadOnly, canManageAccess, tab, setTab, properties, setPropertyId, property, readOnly, houses, houseReadOnly, mapLoaded, setMapLoaded, areas, fixedAssets, equipment, propertyTrafficLights, notes, selectedAreaId, selectedArea, selectedAreaTasks, isNewArea, isNewFixedAsset, drawing, setDrawing, areaForm, setAreaForm, redoVertices, setRedoVertices, coordinateInput, setCoordinateInput, coordinateError, setCoordinateError, newPropertyName, setNewPropertyName, newHouseName, setNewHouseName, areaDestinationPropertyId, setAreaDestinationPropertyId, equipmentDestination, setEquipmentDestination, editingProperty, setEditingProperty, propertyEditButtonRef, propertyNameInputRef, propertyName, setPropertyName, propertyDescription, setPropertyDescription, pending, feedback, setFeedback, editingEquipmentId, equipmentName, setEquipmentName, equipmentKind, setEquipmentKind, equipmentManufacturer, setEquipmentManufacturer, equipmentModel, setEquipmentModel, equipmentSerialNumber, setEquipmentSerialNumber, equipmentStatus, setEquipmentStatus, equipmentNotes, setEquipmentNotes, equipmentLatitude, setEquipmentLatitude, equipmentLongitude, setEquipmentLongitude, equipmentPinMapOpen, setEquipmentPinMapOpen, inventoryQuery, changeInventoryQuery, inventoryStatus, changeInventoryStatus, inventoryLocation, changeInventoryLocation, structureQuery, changeStructureQuery, mapItemQuery, changeMapItemQuery, mapItemFilter, changeMapItemFilter, setMapItemLimit, mapItemSelection, mapLayers, changeMapLayer, inventoryFormOpen, setInventoryFormOpen, trackedEquipment, trackingSnapshot, trackingConnection, selectedEquipmentId, changeSelectedEquipmentId, equipmentAttachments, equipmentLinks, equipmentResourcesState, equipmentResourcesBusy, setEquipmentResourcesRefresh, equipmentResourcesFeedback, equipmentLinkLabel, setEquipmentLinkLabel, equipmentLinkUrl, setEquipmentLinkUrl, equipmentPhotoInputRef, equipmentDocumentInputRef, selectedEndpointId, setSelectedEndpointId, noteText, setNoteText, noteKind, setNoteKind, noteTarget, setNoteTarget, editingNoteId, setEditingNoteId, noteFormOpen, setNoteFormOpen, maintenanceTitle, setMaintenanceTitle, maintenanceHouseId, setMaintenanceHouseId, maintenanceEquipmentId, setMaintenanceEquipmentId, placementLatitude, setPlacementLatitude, placementLongitude, setPlacementLongitude, placementWidth, setPlacementWidth, placementOrientation, setPlacementOrientation, placementEditing, setPlacementEditing, assetPlacementEditing, setAssetPlacementEditing, assetDraftLocation, setAssetDraftLocation, assetLatitudeInput, setAssetLatitudeInput, assetLongitudeInput, setAssetLongitudeInput, trackingStates, trackingByEquipmentId, trackingEnabled, selectedEquipment, selectedTracking, sharedMembers, availableTrackingEndpoints, equipmentPinEmpty, equipmentPinValid, equipmentPinMapItem, updateEquipmentPinFromMap, equipmentLocationLabel, sidebarHouses, sidebarAreas, matchingMapCatalogItems, visibleMapCatalogItems, remainingMapCatalogItems, inventoryLocationCount, visibleInventory, inventoryAttentionCount, placementAsset, editingFixedAsset, assetCoordinateInputsValid, updateFixedAssetCoordinate, mapAreas, placementHouse, visibleMapHouses, visibleAssetIds, visibleMapEquipment, visibleMapMembers, placementDraftIsValid, tabs, chooseTabFromKeyboard, vertexLabel, midpointLabel, startArea, startFixedAsset, appendVertex, moveVertex, insertVertex, undoVertex, redoVertex, applyCoordinates, saveArea, removeArea, createProperty, saveProperty, setDefaultHouse, createHouse, removeProperty, clearEquipmentDraft, beginEquipmentEdit, saveEquipment, moveHouse, removeEquipment, uploadEquipmentAttachments, removeEquipmentAttachment, addEquipmentLink, removeEquipmentLink, bindEndpoint, unbindEndpoint, showEquipmentOnMap, removeNote, saveNote, planMaintenance, selectMapArea, selectMapEquipment, selectPlacementHouse, updatePlacementFromMap, selectPlacementAsset, updateAssetPlacementFromMap, saveAssetPlacement, removeAssetPlacement, saveHousePlacement, removeHousePlacement, propertyShareLabel, houseShareLabel } = context;
   const statusPriority = { ok: 0, caution: 1, critical: 2 } as const;
   const primaryPropertyStatus = propertyTrafficLights.reduce<PropertyTrafficLight | null>((current, light) => (
     !current || statusPriority[light.level] > statusPriority[current.level] ? light : current

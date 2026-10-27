@@ -1,21 +1,12 @@
-import { createHash, randomUUID } from "node:crypto";
-import { mkdirSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { basename, dirname, resolve } from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import type {
   PersistedSpatialLayerSnapshot,
-  SpatialConfigurationVersion,
-  SpatialCalibrationSession,
   SpatialDataPartition,
-  SpatialEngineAssignment,
-  SpatialGroundTruth,
   SpatialInferenceSession,
   SpatialInferenceRun,
-  SpatialLayerSnapshotDraft,
   SpatialRunStatus,
   SpatialScope,
-  StoredSpatialContextEvent,
-  StoredSpatialSensorBinding,
   StoredSpatialSensorCalibration,
 } from "../../types.js";
 import { compareCodeUnits } from "../../../text-order.js";

@@ -1,106 +1,14 @@
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { createHash, randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
-import { DEFAULT_ELECTRICITY_PRICE_ENDPOINT, fixedPlanElementOpeningState } from "@climate-twin/contracts";
 import type {
-  AreaEquipment,
-  AreaEquipmentInput,
-  AreaEquipmentPatch,
-  EquipmentAttachment,
-  EquipmentLink,
-  EquipmentLinkInput,
-  EquipmentLinkPatch,
-  ActionPlaybook,
-  ActionPlaybookInput,
-  ActionRun,
-  ActionRunStartInput,
-  AlertEvent,
-  AlertDeliveryPolicy,
-  AlertRule,
-  DailyAnalyticsFindingsSnapshot,
-  NotificationDeliveryStage,
-  NotificationDeliveryStatus,
-  NotificationSubjectKind,
-  Floor,
-  GeoCoordinate,
-  House,
-  HouseLocation,
-  HouseMapPlacement,
-  IOSNotificationRegistration,
-  IOSNotificationRegistrationInput,
-  MaintenanceTask,
-  MaintenanceTaskChangedField,
-  MaintenanceTaskInput,
-  MaintenanceTaskPatch,
-  MaintenanceTaskRevision,
-  MaintenanceTaskRevisionActor,
-  ManualObservation,
-  ManualObservationInput,
-  ManualObservationPatch,
-  MeasurementDefinition,
   MeasurementSample,
-  ObservationChangedField,
-  ObservationConfidence,
-  ObservationRevision,
-  ObservationRevisionActor,
-  ObservationSource,
-  ObservationTimePrecision,
-  OpeningStateObservation,
-  OpeningStateObservationInput,
-  OutdoorConditions,
-  OutdoorTemperatureSample,
-  Property,
-  PropertyElectricityConfig,
-  PropertyElectricityConfigInput,
-  PropertyElectricityPricePoint,
-  PropertyArea,
-  PropertyAreaInput,
-  PropertyAreaPatch,
-  PropertyCreateInput,
-  PropertyNote,
-  PropertyNoteInput,
-  PropertyNotePatch,
-  PropertyPatch,
-  Reading,
-  Sensor,
-  SecurityAuditEvent,
-  SecurityAuditEventType,
-  SecurityAuditOutcome,
-  SecurityAuditSubjectType,
-  StaticParameter,
-  StugubyHouseLink,
-  StugubyPropertyLink,
-  TenantMemberRole,
-  Wall,
-  WeatherBackfillState,
-  WeatherOutageComponent,
-  WeatherProviderName,
 } from "@climate-twin/contracts";
-import {
-  apnsNotificationSnapshot,
-  alertNotificationBindings,
-  legacyNotificationDestinationRef,
-  notificationSnapshot,
-  operationalNotificationSnapshot,
-  type AlertNotificationBindings,
-} from "../notification-snapshot.js";
-import type { APNSDestination } from "../apns.js";
-import {
-  DEFAULT_ALERT_DELIVERY_POLICY,
-  normalizeAlertDeliveryPolicy,
-  notificationScheduleDecision,
-  policyFromJson,
-  policyJson,
-} from "../notification-policy.js";
-import type { EnergyCostAggregateQuery, EnergyCostAggregateRecord, MeasurementCoverageRecord, PowerCostAggregateQuery } from "../timeseries/types.js";
+import type { EnergyCostAggregateQuery, EnergyCostAggregateRecord } from "../timeseries/types.js";
 import {
   installRegisteredMethods,
-  type AssertNoMethodKeys,
-  type IncompatibleMethodKeys,
   type RegisteredMethodSet,
 } from "../method-registry.js";
-import { CORE_SCHEMA_SQL } from "./migrations/core-schema.js";
 import { LocalTelemetryWorker } from "../timeseries/local-telemetry-worker.js";
 import type { LocalBucketQuery, LocalSensorPageQuery } from "../timeseries/local-telemetry-worker-thread.js";
 import { databaseIntegrity, exportTableCounts, type ExportTable, type DatabaseIntegrityResult } from "./inspection.js";
@@ -279,10 +187,6 @@ export class ClimateDatabaseCore {
       }
     }
 }
-
-type DatabasePublicMethodMismatch = AssertNoMethodKeys<
-  IncompatibleMethodKeys<ClimateDatabaseCore, DatabaseInternals>
->;
 
 export function registerDatabaseMethods(methods: DatabaseMethodSet): void {
   installRegisteredMethods("ClimateDatabase", ClimateDatabaseCore.prototype, methods);

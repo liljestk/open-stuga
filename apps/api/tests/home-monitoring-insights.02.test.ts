@@ -1,10 +1,6 @@
 import type {
   AlertEvent,
   AlertRule,
-  House,
-  MeasurementSample,
-  Sensor,
-  WeatherWarning,
 } from "@climate-twin/contracts";
 
 import { describe, expect, it } from "vitest";
@@ -12,11 +8,9 @@ import { describe, expect, it } from "vitest";
 import {
   deriveHomeInsights,
   deriveHomePulse,
-  HOME_INSIGHT_ADVISORY,
-  type HomeInsightInput,
 } from "../src/analytics/home-monitoring/insights.js";
 
-import { NOW, NOW_MS, baseInput, house, sample, sensor, warning } from "./home-monitoring-test-support.js";
+import { baseInput, sample, sensor } from "./home-monitoring-test-support.js";
 
 describe("deriveHomePulse", () => {
   it("uses the alert operator for advice and always keeps critical alerts above warnings", () => {

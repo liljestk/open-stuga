@@ -1,7 +1,6 @@
 import type { Application } from "express";
 import type { TrackingEvent } from "@climate-twin/contracts";
 import {
-  bodyObject,
   equipmentBorrowInput,
   equipmentReturnInput,
   memberLocationInput,

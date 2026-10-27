@@ -1,8 +1,8 @@
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 
 import userEvent from "@testing-library/user-event";
 
-import type { House, IntegrationStatus, TpLinkDiscoveredDevice } from "@climate-twin/contracts";
+import type { IntegrationStatus } from "@climate-twin/contracts";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 

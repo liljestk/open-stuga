@@ -1,5 +1,3 @@
-import { describe, expect, it } from "vitest";
-
 import type {
   ActionRun,
   AnalyticsPoint,
@@ -7,14 +5,10 @@ import type {
   AnalyticsSeries,
   House,
   MaintenanceTask,
-  ManualObservation,
   MeasurementDefinition,
   OpeningStateObservation,
-  OutdoorTemperatureSample,
   Sensor,
 } from "@climate-twin/contracts";
-
-import { deriveHomePerformance } from "../src/analytics/home-performance/derive.js";
 
 export const from = "2026-01-01T00:00:00.000Z";
 

@@ -1,5 +1,4 @@
-import type { MeasurementDefinition, MeasurementSample, Sensor } from "@climate-twin/contracts";
-import type { Locale } from "../i18n";
+import type { MeasurementSample } from "@climate-twin/contracts";
 
 export type ImportCell = string | number | boolean | Date | null;
 

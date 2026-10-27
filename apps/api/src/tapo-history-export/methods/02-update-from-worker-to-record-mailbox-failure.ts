@@ -1,24 +1,12 @@
 import { createHash, createHmac, randomBytes, randomUUID } from "node:crypto";
-import { lookup } from "node:dns/promises";
-import { readFileSync, readdirSync } from "node:fs";
-import { request as httpsRequest } from "node:https";
-import { BlockList, isIP } from "node:net";
-import { dirname, join, relative } from "node:path";
-import { fileURLToPath } from "node:url";
-import { hasLocalHouseAuthority, type MeasurementSample } from "@climate-twin/contracts";
-import type { AppConfig } from "../../config.js";
+import { hasLocalHouseAuthority } from "@climate-twin/contracts";
 import type {
-  ClimateDatabase,
   SensorDataGapRecord,
-  TapoHistoryExportClaim,
   TapoHistoryExportJob,
   TapoHistoryExportJobStatus,
   TapoHistoryExportProvider,
-  TapoHistoryExportStagedSample,
-  TapoHistoryExportStagedSampleInput,
 } from "../../db.js";
-import type { SensorHistoryRecoveryResult } from "../../sensor-gap-recovery.js";
-import { TAPO_HISTORY_ACCEPTANCE_REVISION, TAPO_HISTORY_API_IMPLEMENTATION_SHA256, TAPO_HISTORY_CSV_PARSER_VERSION, TAPO_TARGET_RECLAIM_GRACE_MS, TapoHistoryCanaryError, apiImplementationSha256 } from "../support/01-max-csv-bytes-to-tapo-csv-schema-signature.js";
+import { TAPO_HISTORY_ACCEPTANCE_REVISION, TAPO_HISTORY_API_IMPLEMENTATION_SHA256, TAPO_HISTORY_CSV_PARSER_VERSION, TAPO_TARGET_RECLAIM_GRACE_MS, TapoHistoryCanaryError } from "../support/01-max-csv-bytes-to-tapo-csv-schema-signature.js";
 import { tapoExportRecipient } from "../support/02-finite-csv-number-to-gmail-header.js";
 import { GmailAuthenticationUnavailable, GmailSearchBudgetExceeded } from "../support/03-bounded-response-bytes-to-tapo-private-history-clien.js";
 import { TapoWorkerStatusUpdate } from "../support/04-private-history-payload-to-staged-measurement.js";

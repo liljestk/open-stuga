@@ -53,7 +53,6 @@ import {
   openingStateKey,
   outdoorKey,
   readingKey,
-  type SourcedElectricityPrice,
 } from "./read-records.js";
 import {
   DEFAULT_HISTORY_LIMIT,

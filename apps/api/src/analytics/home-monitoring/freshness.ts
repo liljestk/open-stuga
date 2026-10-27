@@ -1,8 +1,6 @@
 import { minimum } from "@climate-twin/analytics-kernel";
 import type {
-  AlertEvent,
   AlertRule,
-  House,
   MeasurementSample,
   Metric,
   OutdoorConditions,
