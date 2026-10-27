@@ -13,6 +13,7 @@ import type {
 } from "@climate-twin/contracts";
 import { ActionRunRow, MaintenanceTaskRevisionRow, MaintenanceTaskRow, ObservationRevisionRow, ObservationRow, StoredObservation } from "./02-equipment-attachment-row-to-sensor-data-gap-state.js";
 import { ClimateDataValidationError, parseJson } from "./03-sensor-data-gap-row-to-canonical-json-value.js";
+import { compareCodeUnits } from "../../text-order.js";
 
 export function actionRunFromRow(row: ActionRunRow): ActionRun {
   return {
@@ -85,7 +86,7 @@ export function observationRevisionFromRow(row: ObservationRevisionRow): Observa
 }
 
 export function canonicalMaintenanceObservationIds(observationIds: readonly string[]): string[] {
-  return [...new Set(observationIds)].sort((left, right) => left < right ? -1 : left > right ? 1 : 0);
+  return [...new Set(observationIds)].sort(compareCodeUnits);
 }
 
 export function maintenanceTaskFromRow(row: MaintenanceTaskRow, observationIds: string[]): MaintenanceTask {

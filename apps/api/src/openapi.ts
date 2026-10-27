@@ -42,6 +42,3 @@ export const openApiV2Document = {
   servers: [{ url: "/api/v2", description: "Registry-driven measurements API" }],
   paths: selectPaths("v2"),
 };
-
-/** @deprecated Import the version-specific document. Retained for source compatibility. */
-export const openApiDocument = openApiV1Document;

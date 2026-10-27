@@ -15,7 +15,8 @@ import {
 import { type ReplayClimateEvent } from "../../replayEvents";
 import { replayOutdoorAttribution, replayOutdoorConditions, replayOutdoorSampleAt } from "../../replayWeather";
 import { openingStateCanChange, openingStateObservationsForHouse } from "../../openingState";
-import { houseLocalDateTimeCandidates, mergeOpeningStateObservations } from "./support";
+import { mergeOpeningStateObservations } from "./support";
+import { houseLocalDateTimeCandidates } from "../../observationTime";
 import { useTwinDashboardPart02 } from "./part-02";
 
 const OPENING_FALLBACK_MIN_MS = 60_000;

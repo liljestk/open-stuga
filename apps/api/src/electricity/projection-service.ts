@@ -167,8 +167,9 @@ export class EnergyProjectionService {
       ? summary.costEur / summary.pricedConsumptionKwh
       : null;
     const fees = summary?.costBreakdown?.feesEur ?? 0;
-    const cost = (kwh: number) => (pricePerKwh === null ? null : kwh * pricePerKwh + fees);
-    const rounded = (value: number | null, digits = 2) => (value === null ? null : Number(value.toFixed(digits)));
+    const roundTo = (value: number, digits = 2) => Number(value.toFixed(digits));
+    const rounded = (value: number | null, digits = 2) => (value === null ? null : roundTo(value, digits));
+    const cost = pricePerKwh === null ? null : (kwh: number) => kwh * pricePerKwh + fees;
     return {
       houseId: house.id,
       generatedAt: now.toISOString(),
@@ -176,10 +177,10 @@ export class EnergyProjectionService {
       horizonStart: new Date(horizonStart).toISOString(),
       horizonDays: PROJECTION_HORIZON_DAYS,
       method: result.method,
-      next30DaysKwh: rounded(result.next30DaysKwh)!,
-      lowKwh: rounded(result.lowKwh)!,
-      highKwh: rounded(result.highKwh)!,
-      dailyKwh: rounded(result.dailyKwh, 3)!,
+      next30DaysKwh: roundTo(result.next30DaysKwh),
+      lowKwh: roundTo(result.lowKwh),
+      highKwh: roundTo(result.highKwh),
+      dailyKwh: roundTo(result.dailyKwh, 3),
       baseLoadKwhPerDay: rounded(result.baseLoadKwhPerDay, 3),
       heatingSlopeKwhPerDegreeHour: rounded(result.heatingSlopeKwhPerDegreeHour, 5),
       heatingBaseTemperatureC: baseTemperatureC,
@@ -192,11 +193,24 @@ export class EnergyProjectionService {
         baselineMeanAbsolutePercentError: rounded(result.backtest.baselineMeanAbsolutePercentError, 1),
         skill: rounded(result.backtest.skill, 3),
       },
-      estimatedCostEur: rounded(cost(result.next30DaysKwh)),
-      // Negative prices turn more energy into a lower cost.
-      lowCostEur: pricePerKwh === null ? null : rounded(Math.min(cost(result.lowKwh)!, cost(result.highKwh)!)),
-      highCostEur: pricePerKwh === null ? null : rounded(Math.max(cost(result.lowKwh)!, cost(result.highKwh)!)),
+      ...projectedCosts(cost, result),
       priceBasis: pricePerKwh === null ? "unavailable" : "historical",
     };
   }
+}
+
+/** Cost at the historical unit price; all null when no reliable price exists. */
+function projectedCosts(
+  cost: ((kwh: number) => number) | null,
+  kwh: { next30DaysKwh: number; lowKwh: number; highKwh: number },
+): { estimatedCostEur: number | null; lowCostEur: number | null; highCostEur: number | null } {
+  if (!cost) return { estimatedCostEur: null, lowCostEur: null, highCostEur: null };
+  const roundTo = (value: number) => Number(value.toFixed(2));
+  const [low, high] = [cost(kwh.lowKwh), cost(kwh.highKwh)];
+  return {
+    estimatedCostEur: roundTo(cost(kwh.next30DaysKwh)),
+    // Negative prices turn more energy into a lower cost.
+    lowCostEur: roundTo(Math.min(low, high)),
+    highCostEur: roundTo(Math.max(low, high)),
+  };
 }

@@ -1,6 +1,6 @@
 import type { ManualObservationInput, ObservationTimePrecision } from "@climate-twin/contracts";
 
-function zonedDateTimeParts(date: Date, timeZone: string): number[] {
+export function zonedDateTimeParts(date: Date, timeZone: string): number[] {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone,
     year: "numeric",
@@ -32,13 +32,18 @@ export function localObservationDate(date = new Date(), timeZone?: string): stri
 }
 
 export function houseLocalDateTimeCandidates(value: string, timeZone: string): string[] | null {
-  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(value);
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/.exec(value);
   if (!match) return null;
-  const [year, month, day, hour, minute] = match.slice(1).map(Number) as [number, number, number, number, number];
-  const nominal = Date.UTC(year, month - 1, day, hour, minute, 0);
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const hour = Number(match[4]);
+  const minute = Number(match[5]);
+  const second = match[6] === undefined ? 0 : Number(match[6]);
+  const nominal = Date.UTC(year, month - 1, day, hour, minute, second);
   const nominalDate = new Date(nominal);
   if (nominalDate.getUTCFullYear() !== year || nominalDate.getUTCMonth() !== month - 1 || nominalDate.getUTCDate() !== day
-    || nominalDate.getUTCHours() !== hour || nominalDate.getUTCMinutes() !== minute) return null;
+    || nominalDate.getUTCHours() !== hour || nominalDate.getUTCMinutes() !== minute || nominalDate.getUTCSeconds() !== second) return null;
   try {
     const offsets = new Set<number>();
     for (let deltaHours = -36; deltaHours <= 36; deltaHours += 6) {
@@ -46,9 +51,9 @@ export function houseLocalDateTimeCandidates(value: string, timeZone: string): s
       const displayed = zonedDateTimeParts(new Date(probe), timeZone);
       offsets.add(Date.UTC(displayed[0]!, displayed[1]! - 1, displayed[2]!, displayed[3]!, displayed[4]!, displayed[5]!) - probe);
     }
-    const target = [year, month, day, hour, minute];
+    const target = [year, month, day, hour, minute, second];
     return [...new Set([...offsets].map((offset) => nominal - offset))]
-      .filter((candidate) => zonedDateTimeParts(new Date(candidate), timeZone).slice(0, 5)
+      .filter((candidate) => zonedDateTimeParts(new Date(candidate), timeZone).slice(0, 6)
         .every((part, index) => part === target[index]))
       .sort((left, right) => left - right)
       .map((candidate) => new Date(candidate).toISOString());

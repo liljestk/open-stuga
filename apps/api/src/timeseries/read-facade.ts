@@ -34,26 +34,7 @@ import type {
   ThermalMeasurementHistoryQuery,
 } from "./types.js";
 import { bucketLegacyReadings, bucketMeasurementSamples } from "./read-buckets.js";
-import {
-  archivedElectricityPrice,
-  archivedMeasurement,
-  archivedOpeningState,
-  archivedOutdoor,
-  archivedReading,
-  compareElectricityPrices,
-  compareMeasurements,
-  compareOpeningStates,
-  compareOutdoor,
-  compareReadings,
-  compareText,
-  electricityPriceKey,
-  measurementCoverageKey,
-  measurementKey,
-  openingStateIdentityKey,
-  openingStateKey,
-  outdoorKey,
-  readingKey,
-} from "./read-records.js";
+import { archivedElectricityPrice, archivedMeasurement, archivedOpeningState, archivedOutdoor, archivedReading, compareElectricityPrices, compareMeasurements, compareOpeningStates, compareOutdoor, compareReadings, electricityPriceKey, measurementCoverageKey, measurementKey, openingStateIdentityKey, openingStateKey, outdoorKey, readingKey } from "./read-records.js";
 import {
   DEFAULT_HISTORY_LIMIT,
   DEFAULT_WINDOW_LIMIT,
@@ -76,6 +57,7 @@ import { readMeasurementAnalyticsRollup, type HybridMeasurementAnalyticsRollupRe
 import { readCostAggregate } from "./read-energy-cost.js";
 import { withTariffPrice } from "../electricity/tariff-cost.js";
 import { readPowerProfile, type LocalPowerProfileQuery, type PowerProfile } from "./read-power-profile.js";
+import { compareCodeUnits } from "../text-order.js";
 
 export { bucketLegacyReadings, bucketMeasurementSamples };
 export { IncompleteTelemetryHistoryError, isLocalTelemetryHistoryComplete } from "./read-support.js";
@@ -716,7 +698,7 @@ export class HybridTelemetryReader {
         } : record);
       }
       return {
-        records: [...merged.values()].sort((left, right) => compareText(left.sensorId, right.sensorId) || compareText(left.metric, right.metric)),
+        records: [...merged.values()].sort((left, right) => compareCodeUnits(left.sensorId, right.sensorId) || compareCodeUnits(left.metric, right.metric)),
         archiveState: "merged",
         complete: true,
       };

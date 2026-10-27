@@ -1,7 +1,7 @@
 {
   "rule": "sonarjs/cognitive-complexity (S3776)",
   "threshold": 15,
-  "functions": 308,
+  "functions": 307,
   "files": {
     "apps/api/src/analytics-rollup.ts": [23],
     "apps/api/src/analytics.ts": [74, 18],
@@ -15,7 +15,7 @@
     "apps/api/src/analytics/home-monitoring/model.ts": [18],
     "apps/api/src/analytics/home-performance/derive-support.ts": [33, 32, 28],
     "apps/api/src/analytics/home-performance/derive.ts": [38],
-    "apps/api/src/analytics/home-performance/model.ts": [28, 17],
+    "apps/api/src/analytics/home-performance/model.ts": [28],
     "apps/api/src/analytics/house-parameters.ts": [19],
     "apps/api/src/analytics/query/execute.ts": [26],
     "apps/api/src/analytics/relaxation-fit.ts": [35, 17],

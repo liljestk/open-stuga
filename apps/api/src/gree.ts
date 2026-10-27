@@ -83,9 +83,10 @@ function boolNullable(value: unknown): boolean | null | undefined {
 }
 
 function parseDevice(value: unknown): GreeDiscoveredDevice | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const item = value as Record<string, unknown>;
-  const mac = normalizedMac(item?.mac);
-  if (!item || !mac || typeof item.host !== "string" || !item.host.trim() || item.host.length > 253
+  const mac = normalizedMac(item.mac);
+  if (!mac || typeof item.host !== "string" || !item.host.trim() || item.host.length > 253
     || typeof item.port !== "number" || !Number.isInteger(item.port) || item.port < 1 || item.port > 65_535) {
     return null;
   }
@@ -121,34 +122,40 @@ function parsedDiagnostics(value: unknown): HeatPumpState["diagnostics"] | null 
   return diagnostics;
 }
 
+/** Fields older bridge versions omit: absent means unknown (null). */
+function optionalBoolean(candidate: unknown): boolean | null | undefined {
+  return candidate === undefined ? null : boolNullable(candidate);
+}
+
 function parseState(value: unknown): GreeStatePayload | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const item = value as Record<string, unknown>;
-  const target = finiteNullable(item?.targetTemperatureC, -60, 100);
-  const current = finiteNullable(item?.currentTemperatureC, -60, 100);
-  const currentHumidity = item?.currentHumidityPercent === undefined
+  const target = finiteNullable(item.targetTemperatureC, -60, 100);
+  const current = finiteNullable(item.currentTemperatureC, -60, 100);
+  const currentHumidity = item.currentHumidityPercent === undefined
     ? null
     : finiteNullable(item.currentHumidityPercent, 0, 100);
-  const targetHumidity = item?.targetHumidityPercent === undefined
+  const targetHumidity = item.targetHumidityPercent === undefined
     ? null
     : finiteNullable(item.targetHumidityPercent, 0, 100);
-  const power = boolNullable(item?.power);
-  const freshAir = item?.freshAir === undefined ? null : boolNullable(item.freshAir);
-  const anion = item?.anion === undefined ? null : boolNullable(item.anion);
-  const sleep = item?.sleep === undefined ? null : boolNullable(item.sleep);
-  const light = item?.light === undefined ? null : boolNullable(item.light);
-  const quiet = boolNullable(item?.quiet);
-  const turbo = boolNullable(item?.turbo);
-  const xfan = boolNullable(item?.xfan);
-  const steadyHeat = item?.steadyHeat === undefined ? null : boolNullable(item.steadyHeat);
-  const powerSave = item?.powerSave === undefined ? null : boolNullable(item.powerSave);
-  const cleanFilter = item?.cleanFilter === undefined ? null : boolNullable(item.cleanFilter);
-  const waterFull = item?.waterFull === undefined ? null : boolNullable(item.waterFull);
-  const compressorFrequency = item?.compressorFrequencyHz === undefined
+  const power = boolNullable(item.power);
+  const freshAir = optionalBoolean(item.freshAir);
+  const anion = optionalBoolean(item.anion);
+  const sleep = optionalBoolean(item.sleep);
+  const light = optionalBoolean(item.light);
+  const quiet = boolNullable(item.quiet);
+  const turbo = boolNullable(item.turbo);
+  const xfan = boolNullable(item.xfan);
+  const steadyHeat = optionalBoolean(item.steadyHeat);
+  const powerSave = optionalBoolean(item.powerSave);
+  const cleanFilter = optionalBoolean(item.cleanFilter);
+  const waterFull = optionalBoolean(item.waterFull);
+  const compressorFrequency = item.compressorFrequencyHz === undefined
     ? null
     : finiteNullable(item.compressorFrequencyHz, 0, 300);
-  const diagnostics = item?.diagnostics === undefined ? {} : parsedDiagnostics(item.diagnostics);
+  const diagnostics = item.diagnostics === undefined ? {} : parsedDiagnostics(item.diagnostics);
   const modes: Array<HeatPumpMode | null> = [null, "auto", "cool", "dry", "fan", "heat"];
-  if (!item || typeof item.observedAt !== "string" || !Number.isFinite(Date.parse(item.observedAt))
+  if (typeof item.observedAt !== "string" || !Number.isFinite(Date.parse(item.observedAt))
     || typeof item.available !== "boolean" || power === undefined || target === undefined || current === undefined
     || currentHumidity === undefined || targetHumidity === undefined
     || freshAir === undefined || anion === undefined || sleep === undefined || light === undefined

@@ -79,27 +79,6 @@ function influenceStyle(intensity: number): CSSProperties {
   return { "--heat-pump-influence": intensity } as CSSProperties;
 }
 
-function markerReading(
-  state: HeatPumpState,
-  sample: MeasurementSample | undefined,
-  definition: MeasurementDefinition,
-  units: UnitSystem,
-  referenceTimeMs: number,
-  maxSampleAgeMs: number,
-  locale: string,
-  noData: string,
-) {
-  return heatPumpMarkerReading(
-    state,
-    sample,
-    definition,
-    units,
-    referenceTimeMs,
-    maxSampleAgeMs,
-    locale,
-    noData,
-  );
-}
 
 export function HeatPumpMarker2D({
   state,
@@ -140,7 +119,7 @@ export function HeatPumpMarker2D({
   const selectable = Boolean(onSelect);
   const interactive = movable || selectable;
   const impact = estimateHeatPumpInfluence(state);
-  const reading = markerReading(state, sample, definition, units, referenceTimeMs, maxSampleAgeMs, locale, t("common.noData"));
+  const reading = heatPumpMarkerReading({ state, sample, definition, units, referenceTimeMs, maxSampleAgeMs, locale, noData: t("common.noData") });
   const label = markerLabel(t, locale, state, floor, pending, definition, reading);
   const status = markerState(t, state, pending, reading.fresh);
   const x = state.x ?? 0;
@@ -238,7 +217,7 @@ export function HeatPumpMarker3D({
 }) {
   const { locale, t } = useI18n();
   const impact = estimateHeatPumpInfluence(state);
-  const reading = markerReading(state, sample, definition, units, referenceTimeMs, maxSampleAgeMs, locale, t("common.noData"));
+  const reading = heatPumpMarkerReading({ state, sample, definition, units, referenceTimeMs, maxSampleAgeMs, locale, noData: t("common.noData") });
   const label = markerLabel(t, locale, state, floor, false, definition, reading);
   const status = markerState(t, state, false, reading.fresh);
   return <g

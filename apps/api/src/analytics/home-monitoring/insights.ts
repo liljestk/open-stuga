@@ -1,5 +1,6 @@
 import { co2Insight, coverageInsight, humidityGuidance, measureCoverage, metricGuidance, temperatureBalanceInsight, temperatureInsight, windowEvidence } from "./freshness.js";
-import { clampPriority, compareAlerts, compareCandidates, compareText, confidence, confidenceForTrend, coverageStateForSensor, freshnessForSample, freshnessForTimestamp, guidanceSafetyNote, isFreshUsable, metricLabel, metricPair, metricUnit, newestMetricSample, normalizeMaximum, numericEvidence, parseReferenceTime, pulseStatus, round, targetFor, targetLabel, EngineContext, HOME_INSIGHT_THRESHOLDS, HomeInsightEvidence, HomePulseSensorCoverage, InsightCandidate, HomeInsightSeverity, HomeInsight, HomeInsightInput, HomePulseResult, HOME_INSIGHT_ADVISORY } from "./model.js";
+import { clampPriority, compareAlerts, compareCandidates, confidence, confidenceForTrend, coverageStateForSensor, freshnessForSample, freshnessForTimestamp, guidanceSafetyNote, isFreshUsable, metricLabel, metricPair, metricUnit, newestMetricSample, normalizeMaximum, numericEvidence, parseReferenceTime, pulseStatus, round, targetFor, targetLabel, EngineContext, HOME_INSIGHT_THRESHOLDS, HomeInsightEvidence, HomePulseSensorCoverage, InsightCandidate, HomeInsightSeverity, HomeInsight, HomeInsightInput, HomePulseResult, HOME_INSIGHT_ADVISORY } from "./model.js";
+import { compareCodeUnits } from "../../text-order.js";
 
 /** Return the ranked insight list when a component does not need pulse metadata. */
 export function deriveHomeInsights(input: HomeInsightInput): HomeInsight[] {
@@ -15,7 +16,7 @@ export function deriveHomePulse(input: HomeInsightInput): HomePulseResult {
   const sensors = input.sensors
     .filter((sensor) => sensor.houseId === input.house.id)
     .slice()
-    .sort((first, second) => compareText(first.id, second.id));
+    .sort((first, second) => compareCodeUnits(first.id, second.id));
   const context: EngineContext = {
     house: input.house,
     sensors,
@@ -94,6 +95,7 @@ export function activeAlertInsights(context: EngineContext): {
       evidence.unshift(numericEvidence("Latest reading", current.value, current.canonicalUnit || metricUnit(alert.metric), alert.metric, sensor.id, current.timestamp));
     }
     evidence.push(...guidance.evidence);
+    const safetyNote = guidanceSafetyNote(alert.metric, rule?.operator, current?.value ?? alert.value);
 
     insights.push({
       id: `active-alert:${alert.id}`,
@@ -114,9 +116,7 @@ export function activeAlertInsights(context: EngineContext): {
         : currentFreshness.state === "fresh" || currentFreshness.state === "aging"
           ? confidence("medium", "The alert is open, but its supporting evidence is estimated or aging.")
           : confidence("low", "The alert is open, but no recent supporting reading is available."),
-      ...(guidanceSafetyNote(alert.metric, rule?.operator, current?.value ?? alert.value)
-        ? { safetyNote: guidanceSafetyNote(alert.metric, rule?.operator, current?.value ?? alert.value)! }
-        : {}),
+      ...(safetyNote ? { safetyNote } : {}),
     });
   }
 
@@ -138,7 +138,7 @@ export function humidityInsight(context: EngineContext, coveredPairs: ReadonlySe
       55 + (sample.value - HOME_INSIGHT_THRESHOLDS.humidityPercent) * 1.5 + (window.sustained ? 8 : 0),
     );
     return [{ sensor, sample, window, priority }];
-  }).sort((first, second) => second.priority - first.priority || compareText(first.sensor.id, second.sensor.id));
+  }).sort((first, second) => second.priority - first.priority || compareCodeUnits(first.sensor.id, second.sensor.id));
   const selected = options[0];
   if (!selected) return [];
 

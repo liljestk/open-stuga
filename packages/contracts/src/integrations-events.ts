@@ -332,12 +332,7 @@ export const API_V1_VERSION = "v1" as const;
 
 export const API_V2_VERSION = "v2" as const;
 
-/** Legacy alias retained for v1 clients. */
-export const API_VERSION = API_V1_VERSION;
 
 export const API_V1_PREFIX = `/api/${API_V1_VERSION}` as const;
 
 export const API_V2_PREFIX = `/api/${API_V2_VERSION}` as const;
-
-/** Legacy alias retained for v1 clients. */
-export const DEFAULT_API_PREFIX = API_V1_PREFIX;

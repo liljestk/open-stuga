@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto";
-import { isIP } from "node:net";
 import type express from "express";
 import type {
   ConnectedDeviceCapabilities,
@@ -13,7 +12,7 @@ import type { ClimateDatabase } from "./db.js";
 import type { TuyaConnectionSecret } from "./integration-secrets.js";
 import { commitCoordinatedIntegrationSecrets } from "./integration-secrets-coordinator.js";
 import type { RuntimeStatus } from "./services.js";
-import { TuyaBridge } from "./tuya.js";
+import { TuyaBridge, localIpv4 } from "./tuya.js";
 import {
   HttpError,
   bodyObject,
@@ -54,17 +53,6 @@ const CONFIG_FIELDS = new Set([
 const COMMAND_FIELDS = new Set([
   "operationId", "power", "brightnessPercent", "colorTemperatureKelvin", "color",
 ]);
-
-function localIpv4(value: string): boolean {
-  if (isIP(value) !== 4) return false;
-  const [first, second] = value.split(".").map(Number);
-  return first === 10
-    || first === 100 && second! >= 64 && second! <= 127
-    || first === 127
-    || first === 169 && second === 254
-    || first === 172 && second! >= 16 && second! <= 31
-    || first === 192 && second === 168;
-}
 
 function optionalText(
   body: Record<string, unknown>,

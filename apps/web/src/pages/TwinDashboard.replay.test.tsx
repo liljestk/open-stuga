@@ -5,7 +5,8 @@ import { api } from "../api";
 import type { ClimateState } from "../domain";
 import { createDemoState } from "../domain";
 import { I18nProvider } from "../i18n";
-import { observationTimeFields, TwinDashboard } from "./TwinDashboard";
+import { TwinDashboard } from "./TwinDashboard";
+import { observationTimeFields } from "../observationTime";
 
 function renderDashboard(
   state: ClimateState,

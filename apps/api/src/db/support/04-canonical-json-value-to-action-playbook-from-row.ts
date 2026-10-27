@@ -29,6 +29,7 @@ import {
 import { AreaEquipmentRow, HouseRow, OpeningStateObservationRow, PropertyAreaRow, PropertyElectricityConfigRow, PropertyRow } from "./01-json-value-to-area-equipment-row.js";
 import { ActionPlaybookRow, AlertEventRow, AlertRuleRow, EquipmentAttachmentRow, EquipmentLinkRow, IOSNotificationRegistrationRow, MeasurementDefinitionRow, MeasurementSampleRow, PropertyNoteRow, ReadingRow, SensorRow } from "./02-equipment-attachment-row-to-sensor-data-gap-state.js";
 import { CanonicalJsonValue, parseJson } from "./03-sensor-data-gap-row-to-canonical-json-value.js";
+import { compareCodeUnits } from "../../text-order.js";
 
 export function canonicalJsonValue(value: unknown): CanonicalJsonValue {
   if (value === null || typeof value === "string" || typeof value === "boolean") return value;
@@ -39,7 +40,7 @@ export function canonicalJsonValue(value: unknown): CanonicalJsonValue {
   if (Array.isArray(value)) return value.map(canonicalJsonValue);
   if (!value || typeof value !== "object") throw new Error("Integration mappings must be JSON-compatible");
   return Object.fromEntries(Object.entries(value)
-    .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
+    .sort(([left], [right]) => compareCodeUnits(left, right))
     .map(([key, entry]) => [key, canonicalJsonValue(entry)]));
 }
 
@@ -49,7 +50,7 @@ export function canonicalIntegrationMappingsJson(mappings: readonly unknown[]): 
     .sort((left, right) => {
       const leftJson = JSON.stringify(left);
       const rightJson = JSON.stringify(right);
-      return leftJson < rightJson ? -1 : leftJson > rightJson ? 1 : 0;
+      return compareCodeUnits(leftJson, rightJson);
     });
   return JSON.stringify(canonical);
 }

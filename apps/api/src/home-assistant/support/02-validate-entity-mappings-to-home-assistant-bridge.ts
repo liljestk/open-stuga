@@ -21,7 +21,7 @@ export function validateEntityMappings(value: unknown): HomeAssistantEntityMappi
   return mappings.sort((left, right) => {
     const leftJson = JSON.stringify(left);
     const rightJson = JSON.stringify(right);
-    return leftJson < rightJson ? -1 : leftJson > rightJson ? 1 : 0;
+    return compareCodeUnits(leftJson, rightJson);
   });
 }
 
@@ -77,7 +77,7 @@ export function mappingFingerprint(mappings: HomeAssistantEntityMapping[]): stri
     humidity: mapping.humidity?.trim() ?? null,
     battery: mapping.battery?.trim() ?? null,
     measurements: Object.entries(mapping.measurements ?? {})
-      .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
+      .sort(([left], [right]) => compareCodeUnits(left, right))
       .map(([metric, configured]) => {
         const binding = typeof configured === "string" ? { entityId: configured } : configured;
         return [metric, {
@@ -91,7 +91,7 @@ export function mappingFingerprint(mappings: HomeAssistantEntityMapping[]): stri
   normalized.sort((left, right) => {
     const leftJson = JSON.stringify(left);
     const rightJson = JSON.stringify(right);
-    return leftJson < rightJson ? -1 : leftJson > rightJson ? 1 : 0;
+    return compareCodeUnits(leftJson, rightJson);
   });
   return JSON.stringify(normalized);
 }

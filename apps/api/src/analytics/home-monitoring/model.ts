@@ -8,6 +8,7 @@ import type {
   Sensor,
   WeatherWarning,
 } from "@climate-twin/contracts";
+import { compareCodeUnits } from "../../text-order.js";
 
 export function newestMetricSample(context: EngineContext, sensorId: string, metric: Metric): MeasurementSample | undefined {
   const direct = context.latest[sensorId]?.[metric];
@@ -24,14 +25,14 @@ export function newestMetricSample(context: EngineContext, sensorId: string, met
 export function newestSensorSample(context: EngineContext, sensorId: string): MeasurementSample | undefined {
   let newest: MeasurementSample | undefined;
   const latestMetrics = context.latest[sensorId] ?? {};
-  for (const metric of Object.keys(latestMetrics).sort(compareText)) {
+  for (const metric of Object.keys(latestMetrics).sort(compareCodeUnits)) {
     if (metric === "battery") continue;
     const sample = latestMetrics[metric];
     if (!sample || !validSample(sample, sensorId, metric, context.nowMs)) continue;
     newest = newest ? newerSample(newest, sample) : sample;
   }
   const historyMetrics = context.history[sensorId] ?? {};
-  for (const metric of Object.keys(historyMetrics).sort(compareText)) {
+  for (const metric of Object.keys(historyMetrics).sort(compareCodeUnits)) {
     if (metric === "battery") continue;
     for (const sample of historyMetrics[metric] ?? []) {
       if (!validSample(sample, sensorId, metric, context.nowMs)) continue;
@@ -57,7 +58,7 @@ export function coverageStateForSensor(context: EngineContext, sensorId: string)
     .map((rule) => rule.metric);
   const requiredMetrics = [...ruleMetrics, ...declaredMetrics]
     .filter((metric, index, metrics) => metrics.indexOf(metric) === index)
-    .sort(compareText);
+    .sort(compareCodeUnits);
   if (requiredMetrics.length === 0) {
     const sample = newestSensorSample(context, sensorId);
     return {
@@ -135,8 +136,8 @@ export function preferredSample(first: MeasurementSample, second: MeasurementSam
 }
 
 export function compareSamples(first: MeasurementSample, second: MeasurementSample): number {
-  return compareText(first.source, second.source)
-    || compareText(first.canonicalUnit, second.canonicalUnit)
+  return compareCodeUnits(first.source, second.source)
+    || compareCodeUnits(first.canonicalUnit, second.canonicalUnit)
     || first.value - second.value;
 }
 
@@ -300,18 +301,14 @@ export function round(value: number, digits: number): number {
 export function compareCandidates(first: InsightCandidate, second: InsightCandidate): number {
   return severityOrder[second.severity] - severityOrder[first.severity]
     || second.priority - first.priority
-    || compareText(first.id, second.id);
+    || compareCodeUnits(first.id, second.id);
 }
 
 export function compareAlerts(first: AlertEvent, second: AlertEvent): number {
   return alertSeverityOrder[second.severity] - alertSeverityOrder[first.severity]
     || Number(Boolean(first.acknowledgedAt)) - Number(Boolean(second.acknowledgedAt))
     || Date.parse(second.startedAt) - Date.parse(first.startedAt)
-    || compareText(first.id, second.id);
-}
-
-export function compareText(first: string, second: string): number {
-  return first < second ? -1 : first > second ? 1 : 0;
+    || compareCodeUnits(first.id, second.id);
 }
 
 export function pulseStatus(candidates: readonly InsightCandidate[], coverage: HomePulseCoverage): HomePulseStatus {

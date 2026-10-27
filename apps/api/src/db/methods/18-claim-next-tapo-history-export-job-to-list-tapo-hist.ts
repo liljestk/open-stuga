@@ -275,11 +275,10 @@ registerDatabaseMethods({
   /** Cancellation fences worker mutations while retaining the target cool-down tombstone. */
   cancelTapoHistoryExportJob(id: string, cancelledAt = new Date().toISOString()): TapoHistoryExportJob | null {
       const at = normalizedTapoHistoryTimestamp(cancelledAt, "cancelledAt");
-      const result = this.db.prepare(`UPDATE tapo_history_export_jobs SET status = 'cancelled',
+      this.db.prepare(`UPDATE tapo_history_export_jobs SET status = 'cancelled',
           attention_reason = NULL,
           updated_at = ?, completed_at = NULL
         WHERE id = ? AND status NOT IN ('completed', 'cancelled')`).run(at, id);
-      if (Number(result.changes) > 0) return this.getTapoHistoryExportJob(id);
       return this.getTapoHistoryExportJob(id);
     },
   requeueTapoHistoryExportJob(

@@ -4,6 +4,7 @@ import type { Socket } from "node:net";
 import WebSocket from "ws";
 import type { OpeningStateObservation } from "@climate-twin/contracts";
 import type { RuntimeStatus } from "../../services.js";
+import { compareCodeUnits } from "../../text-order.js";
 
 export interface HomeAssistantMeasurementBinding {
   entityId: string;
@@ -328,7 +329,7 @@ function normalizedMeasurementMappings(
 ): Record<string, HomeAssistantMeasurementMapping> {
   const normalized: Record<string, HomeAssistantMeasurementMapping> = {};
   for (const [metric, configured] of Object.entries(measurements)
-    .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)) {
+    .sort(([left], [right]) => compareCodeUnits(left, right))) {
     normalized[metric] = normalizedMeasurementMapping(configured);
   }
   return normalized;

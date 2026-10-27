@@ -53,16 +53,27 @@ export interface HeatPumpMarkerReading {
   formatted: string;
 }
 
-export function heatPumpMarkerReading(
-  state: HeatPumpState,
-  sample: MeasurementSample | undefined,
-  definition: MeasurementDefinition,
-  units: UnitSystem,
-  referenceTimeMs: number,
-  maxSampleAgeMs: number,
-  locale: string,
-  noData: string,
-): HeatPumpMarkerReading {
+export interface HeatPumpMarkerReadingInput {
+  state: HeatPumpState;
+  sample: MeasurementSample | undefined;
+  definition: MeasurementDefinition;
+  units: UnitSystem;
+  referenceTimeMs: number;
+  maxSampleAgeMs: number;
+  locale: string;
+  noData: string;
+}
+
+export function heatPumpMarkerReading({
+  state,
+  sample,
+  definition,
+  units,
+  referenceTimeMs,
+  maxSampleAgeMs,
+  locale,
+  noData,
+}: HeatPumpMarkerReadingInput): HeatPumpMarkerReading {
   const sampleValue = measurementValue(sample, definition.id);
   const value = sampleValue ?? directMeasurement(state, definition.id);
   const fresh = state.available && (sample

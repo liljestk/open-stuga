@@ -7,6 +7,7 @@ import type {
   SensorHistoryRecoveryResult,
 } from "../../sensor-gap-recovery.js";
 import { RuntimeStatus } from "../../services.js";
+import { compareCodeUnits } from "../../text-order.js";
 
 export const TP_LINK_LOCAL_CLIMATE_HISTORY_CAPABILITY_REVISION = "t310-t315-retained-history-v1";
 export const TP_LINK_HUB_MODELS = ["H100", "H200", "H500"] as const;
@@ -296,8 +297,7 @@ export function validateTpLinkDeviceMappings(value: unknown): TpLinkDeviceMappin
     deviceIds.add(deviceId);
     sensorIds.add(sensorId);
     return { deviceId, sensorId };
-  }).sort((left, right) => left.deviceId < right.deviceId ? -1 : left.deviceId > right.deviceId ? 1
-    : left.sensorId < right.sensorId ? -1 : left.sensorId > right.sensorId ? 1 : 0);
+  }).sort((left, right) => compareCodeUnits(left.deviceId, right.deviceId) || compareCodeUnits(left.sensorId, right.sensorId));
 }
 
 export function importTpLinkMappingFile(database: ClimateDatabase, path: string): TpLinkDeviceMapping[] {

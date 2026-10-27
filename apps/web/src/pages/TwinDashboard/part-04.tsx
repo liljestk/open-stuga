@@ -21,7 +21,8 @@ import {
 } from "../../experimentalSpatialLayers";
 import { estimateOutdoorInfluence } from "../../outdoorInfluence";
 import { openingStateCanChange, openingStateKey } from "../../openingState";
-import { localDateTimeValue, localDateValue, mergeOpeningStateObservations, observationTimeFields } from "./support";
+import { localDateTimeValue, localDateValue, mergeOpeningStateObservations } from "./support";
+import { observationTimeFields } from "../../observationTime";
 import { useTwinDashboardPart03 } from "./part-03";
 export function useTwinDashboardPart04(context: ReturnType<typeof useTwinDashboardPart03>) {
   const { props, state, house, floor, houseId, floorId, viewMode, t, setLiveMapOpen, readOnly, localAuthority, setRange, replayActive, setLiveSpatialClockMs, experimentalVisualizations, setExperimentalVisualizations, outdoorInfluenceMetric, setObservationPlacement, observationKind, observationSeverity, observationNote, setObservationNote, observationTimePrecision, observationDateTime, setObservationDateTime, observationDate, setObservationDate, observationValidFrom, setObservationValidFrom, observationValidTo, setObservationValidTo, observationSource, observationSourceDetail, observationConfidence, observationDraft, setObservationDraft, setObservationValidationError, setObservationStatus, setObservationError, outdoorContext, outdoor, houseSensors, floorSensors, selectedSensor, summarySensors, definitions, definition, replayTimestamp, spatialReferenceTimeMs, spatialLayers, liveSpatialMaxSampleAgeMs, spatialFreshness, displayedSamples, airflowSamples, sensorCoverage, setOpeningStateObservations, setPendingOpeningStateKeys, setOpeningStateError, setOpeningStateAnnouncement, openingStateRequestsRef, openingStateContextRef, houseOpeningStateObservations } = context;

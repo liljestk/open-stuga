@@ -8,6 +8,7 @@ import type {
 import { HttpError } from "./http-error.js";
 import { bodyObject, enumValue, requiredString } from "./part-01.js";
 import { OBSERVATION_CONFIDENCES, OBSERVATION_CREATE_FIELDS, OBSERVATION_KINDS, OBSERVATION_PATCH_FIELDS, OBSERVATION_SEVERITIES, OBSERVATION_SOURCES, OBSERVATION_STATUSES, OBSERVATION_TIME_PRECISIONS, propertyText, rejectUnknownFields } from "./part-02.js";
+import { compareCodeUnits } from "../../text-order.js";
 
 export function optionalNullableString(
   body: Record<string, unknown>,
@@ -165,7 +166,7 @@ export function maintenanceObservationIds(value: unknown): string[] {
     );
   }
   return [...new Set(value.map((id) => (id as string).trim()))]
-    .sort((left, right) => left < right ? -1 : left > right ? 1 : 0);
+    .sort(compareCodeUnits);
 }
 
 export function maintenanceTitle(body: Record<string, unknown>): string {

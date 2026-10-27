@@ -8,7 +8,8 @@ import type {
   WeatherWarning,
 } from "@climate-twin/contracts";
 import { isHomeRelevantWeatherWarning } from "@climate-twin/contracts";
-import { AGING_MS, EngineContext, FUTURE_TOLERANCE_MS, HOME_INSIGHT_THRESHOLDS, HomeInsightEvidence, HomePulseCoverage, HomePulseSensorCoverage, InsightCandidate, MINUTE_MS, OutdoorGuidance, TREND_MS, WindowEvidence, clampPriority, compareSamples, compareText, confidence, confidenceForTrend, coverageStateForSensor, dewPointC, finiteNumber, freshnessForSample, freshnessForTimestamp, isFreshUsable, metricPair, newestMetricSample, numericEvidence, preferredSample, round, targetFor, targetLabel, unknownFreshness, validSample } from "./model.js";
+import { AGING_MS, EngineContext, FUTURE_TOLERANCE_MS, HOME_INSIGHT_THRESHOLDS, HomeInsightEvidence, HomePulseCoverage, HomePulseSensorCoverage, InsightCandidate, MINUTE_MS, OutdoorGuidance, TREND_MS, WindowEvidence, clampPriority, compareSamples, confidence, confidenceForTrend, coverageStateForSensor, dewPointC, finiteNumber, freshnessForSample, freshnessForTimestamp, isFreshUsable, metricPair, newestMetricSample, numericEvidence, preferredSample, round, targetFor, targetLabel, unknownFreshness, validSample } from "./model.js";
+import { compareCodeUnits } from "../../text-order.js";
 
 export function co2Insight(context: EngineContext, coveredPairs: ReadonlySet<string>): InsightCandidate[] {
   const options = context.enabledSensors.flatMap((sensor) => {
@@ -23,7 +24,7 @@ export function co2Insight(context: EngineContext, coveredPairs: ReadonlySet<str
     );
     const priority = clampPriority(62 + (sample.value - HOME_INSIGHT_THRESHOLDS.co2Ppm) / 25 + (window.sustained ? 4 : 0));
     return [{ sensor, sample, window, priority }];
-  }).sort((first, second) => second.priority - first.priority || compareText(first.sensor.id, second.sensor.id));
+  }).sort((first, second) => second.priority - first.priority || compareCodeUnits(first.sensor.id, second.sensor.id));
   const selected = options[0];
   if (!selected) return [];
 
@@ -72,7 +73,7 @@ export function temperatureInsight(context: EngineContext, coveredPairs: Readonl
       : sample.value - HOME_INSIGHT_THRESHOLDS.highTemperatureC;
     const priority = clampPriority(76 + distance * 3 + (critical ? 7 : 0));
     return [{ sensor, sample, cold, critical, priority }];
-  }).sort((first, second) => second.priority - first.priority || compareText(first.sensor.id, second.sensor.id));
+  }).sort((first, second) => second.priority - first.priority || compareCodeUnits(first.sensor.id, second.sensor.id));
   const selected = options[0];
   if (!selected) return [];
 
@@ -110,7 +111,7 @@ export function temperatureBalanceInsight(context: EngineContext, coveredPairs: 
     if (coveredPairs.has(metricPair(sensor.id, "temperature"))) return [];
     const sample = newestMetricSample(context, sensor.id, "temperature");
     return isFreshUsable(sample, context.nowMs) ? [{ sensor, sample }] : [];
-  }).sort((first, second) => first.sample.value - second.sample.value || compareText(first.sensor.id, second.sensor.id));
+  }).sort((first, second) => first.sample.value - second.sample.value || compareCodeUnits(first.sensor.id, second.sensor.id));
   if (temperatures.length < 2) return [];
   // An extreme-temperature insight already gives the safer, more direct action.
   // Avoid spending a second card on the same evidence as a room imbalance.
@@ -176,7 +177,7 @@ export function coverageInsight(context: EngineContext, coverage: HomePulseCover
     if (!first.sample) return -1;
     if (!second.sample) return 1;
     return Date.parse(first.sample.timestamp) - Date.parse(second.sample.timestamp)
-      || compareText(first.sensor.id, second.sensor.id);
+      || compareCodeUnits(first.sensor.id, second.sensor.id);
   })[0]!;
   const rooms = affected.slice(0, 3).map(({ sensor }) => targetLabel(sensor)).join(", ");
   const extraRooms = affected.length > 3 ? ` and ${affected.length - 3} more` : "";

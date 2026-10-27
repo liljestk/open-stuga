@@ -12,6 +12,7 @@ import {
 } from "../../../experimentalSpatialLayers";
 import type { OutdoorInfluenceMetric } from "../../../outdoorInfluence";
 import { readLocalStorage } from "../../../browserStorage";
+import { zonedDateTimeParts } from "../../../observationTime";
 
 export const BuildingScene = lazy(() => import("../../../components/BuildingScene").then((module) => ({ default: module.BuildingScene })));
 
@@ -167,21 +168,6 @@ export function mergeOpeningStateObservations(
   ));
 }
 
-export function zonedDateTimeParts(date: Date, timeZone: string): number[] {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hourCycle: "h23",
-  }).formatToParts(date);
-  const value = (type: Intl.DateTimeFormatPartTypes) => Number(parts.find((part) => part.type === type)?.value);
-  return [value("year"), value("month"), value("day"), value("hour"), value("minute"), value("second")];
-}
-
 export function localDateTimeValue(date = new Date(), timeZone?: string): string {
   if (timeZone) {
     try {
@@ -196,58 +182,6 @@ export function localDateTimeValue(date = new Date(), timeZone?: string): string
 
 export function localDateValue(date = new Date(), timeZone?: string): string {
   return localDateTimeValue(date, timeZone).slice(0, 10);
-}
-
-export function houseLocalDateTimeCandidates(value: string, timeZone: string): string[] | null {
-  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/.exec(value);
-  if (!match) return null;
-  const year = Number(match[1]);
-  const month = Number(match[2]);
-  const day = Number(match[3]);
-  const hour = Number(match[4]);
-  const minute = Number(match[5]);
-  const second = match[6] === undefined ? 0 : Number(match[6]);
-  const nominal = Date.UTC(year, month - 1, day, hour, minute, second);
-  const nominalDate = new Date(nominal);
-  if (nominalDate.getUTCFullYear() !== year || nominalDate.getUTCMonth() !== month - 1 || nominalDate.getUTCDate() !== day
-    || nominalDate.getUTCHours() !== hour || nominalDate.getUTCMinutes() !== minute || nominalDate.getUTCSeconds() !== second) return null;
-  try {
-    const offsets = new Set<number>();
-    for (let deltaHours = -36; deltaHours <= 36; deltaHours += 6) {
-      const probe = nominal + deltaHours * 3_600_000;
-      const displayed = zonedDateTimeParts(new Date(probe), timeZone);
-      offsets.add(Date.UTC(displayed[0]!, displayed[1]! - 1, displayed[2]!, displayed[3]!, displayed[4]!, displayed[5]!) - probe);
-    }
-    const target = [year, month, day, hour, minute, second];
-    return [...new Set([...offsets].map((offset) => nominal - offset))]
-      .filter((candidate) => zonedDateTimeParts(new Date(candidate), timeZone).slice(0, 6)
-        .every((part, index) => part === target[index]))
-      .sort((left, right) => left - right)
-      .map((candidate) => new Date(candidate).toISOString());
-  } catch {
-    return null;
-  }
-}
-
-export function observationTimeFields(
-  precision: ObservationTimePrecision,
-  dateTime: string,
-  date: string,
-  validFrom: string,
-  validTo: string,
-  timeZone: string,
-): Pick<ManualObservationInput, "timePrecision"> & Partial<Pick<ManualObservationInput, "occurredAt" | "validFrom" | "validTo">> | null {
-  if (precision === "unknown") return { timePrecision: precision };
-  if (precision === "date-only") return /^\d{4}-\d{2}-\d{2}$/.test(date) ? { timePrecision: precision, occurredAt: date } : null;
-  if (precision === "date-range") {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(validFrom) || !/^\d{4}-\d{2}-\d{2}$/.test(validTo) || validFrom > validTo) return null;
-    return { timePrecision: precision, validFrom, validTo };
-  }
-  const candidates = houseLocalDateTimeCandidates(dateTime, timeZone);
-  const instant = candidates?.length === 1 || (precision === "approximate" && candidates && candidates.length > 1)
-    ? candidates[0]
-    : null;
-  return instant ? { timePrecision: precision, occurredAt: instant } : null;
 }
 
 export function MeasurementGlyph({ definition, size }: { definition: MeasurementDefinition; size: number }) {

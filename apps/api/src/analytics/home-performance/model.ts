@@ -17,6 +17,7 @@ import {
   isTimeWithinPassiveIntervals,
   type PassiveInterval,
 } from "../heat-pump-evidence.js";
+import { compareCodeUnits } from "../../text-order.js";
 
 export { HOME_PERFORMANCE_ALGORITHM_VERSION };
 
@@ -211,10 +212,6 @@ export function clamp(value: number, minimum = 0, maximum = 1): number {
   return Math.min(maximum, Math.max(minimum, value));
 }
 
-export function compareStable(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0;
-}
-
 export { median } from "@climate-twin/analytics-kernel";
 
 export function seriesFor(
@@ -305,6 +302,12 @@ export function roomKey(sensor: Sensor): string {
   return `${sensor.floorId}\u0000${sensor.roomId ?? (sensor.room.trim() || sensor.name)}`;
 }
 
+/** The room's comfort band; null means the room is excluded from comfort scoring. */
+function sensorComfortBand(bands: ReadonlyMap<string, ComfortBand | null>, roomId: string | null | undefined): ComfortBand | null {
+  const stored = roomId ? bands.get(roomId) : undefined;
+  return stored === undefined ? DEFAULT_COMFORT_BAND : stored;
+}
+
 export function exposureResult(input: HomePerformanceInput): HomePerformanceExposure {
   const home = newExposureAccumulator();
   const rooms = new Map<string, { label: string; band: ComfortBand; accumulator: ExposureAccumulator }>();
@@ -312,7 +315,7 @@ export function exposureResult(input: HomePerformanceInput): HomePerformanceExpo
   const excluded = new Set<string>();
   for (const sensor of input.sensors.filter((candidate) => candidate.enabled)) {
     const label = sensor.room.trim() || sensor.name;
-    const band = sensor.roomId && bands.has(sensor.roomId) ? bands.get(sensor.roomId)! : DEFAULT_COMFORT_BAND;
+    const band = sensorComfortBand(bands, sensor.roomId);
     if (band === null) {
       excluded.add(label);
       continue;
@@ -333,7 +336,7 @@ export function exposureResult(input: HomePerformanceInput): HomePerformanceExpo
     return [{
       id,
       label: room.label,
-      sensorIds: [...accumulator.sensorIds].sort(compareStable),
+      sensorIds: [...accumulator.sensorIds].sort(compareCodeUnits),
       guideRangePercent: round(accumulator.withinHours / accumulator.evaluatedHours * 100, 0),
       observedHours: round(accumulator.evaluatedHours / Math.max(1, accumulator.supportedSeries.size), 1),
       temperatureDegreeHours: round(accumulator.temperatureDegreeHours, 1),
@@ -342,7 +345,7 @@ export function exposureResult(input: HomePerformanceInput): HomePerformanceExpo
       comfortTemperatureLowC: room.band.lowC,
       comfortTemperatureHighC: room.band.highC,
     }];
-  }).sort((left, right) => left.guideRangePercent - right.guideRangePercent || compareStable(left.label, right.label));
+  }).sort((left, right) => left.guideRangePercent - right.guideRangePercent || compareCodeUnits(left.label, right.label));
   const observedHours = home.evaluatedHours / Math.max(1, home.supportedSeries.size);
   return {
     state: observedHours >= 24 ? "ready" : observedHours > 0 ? "limited" : "unavailable",
@@ -353,7 +356,7 @@ export function exposureResult(input: HomePerformanceInput): HomePerformanceExpo
     co2AboveGuideHours: round(home.co2AboveGuideHours, 1),
     worstRoom: formattedRooms[0] ?? null,
     rooms: formattedRooms,
-    ...(excluded.size > 0 ? { excludedRooms: [...excluded].sort(compareStable) } : {}),
+    ...(excluded.size > 0 ? { excludedRooms: [...excluded].sort(compareCodeUnits) } : {}),
   };
 }
 
