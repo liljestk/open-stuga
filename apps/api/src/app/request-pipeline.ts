@@ -12,12 +12,13 @@ import {
 } from "../tracking/store.js";
 import { HttpError, LOCAL_SESSION_COOKIE, SAFE_HTTP_METHODS, appleNotesGrant, cookieValue, isIOSNotificationRegistrationPath, isTrackingObserverHeartbeatPath, keyMatches, localCloudflareUiRequestAllowed, trackingObserverAttemptKeys } from "./support/index.js";
 import type { LocalRequestPrincipal } from "./support/index.js";
-import { configureApiPart05 } from "./part-05.js";
+import type { RuntimeCoordination } from "./runtime-coordination.js";
 import { roleCanAccessNonGuestConfiguration } from "./access-policy.js";
 
 
 
-export function configureApiPart06(context: ReturnType<typeof configureApiPart05>) {
+/** Request middleware ahead of authentication: body parsers per route zone, Cloudflare setup callbacks, the Stuguby peer protocol and request guards. */
+export function installRequestPipeline(context: RuntimeCoordination) {
   const config = context.config;
   context.app.get(cloudflareSetupCallbackPath, async (request, response, next) => {
       try {
@@ -245,3 +246,5 @@ export function configureApiPart06(context: ReturnType<typeof configureApiPart05
   const extended = Object.assign(context, { authJsonParser, cloudflareSetupJsonParser, memberJsonParser, trackingObserverJsonParser, apiJsonParser });
   return extended;
 }
+
+export type RequestPipeline = ReturnType<typeof installRequestPipeline>;

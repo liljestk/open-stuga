@@ -7,11 +7,12 @@ import { SYSTEM_VERSION } from "../version.js";
 import { registerStugubyLocalRoutes } from "../stuguby/routes.js";
 import { HttpError, LOCAL_CSRF_COOKIE, LOCAL_SESSION_COOKIE, LOCAL_SESSION_MAX_AGE_MS, LocalVisibility, SAFE_HTTP_METHODS, cookieValue, isTrackingObserverHeartbeatPath, keyMatches, localAuthorizationFingerprint, requestPrincipal, requireWorkspaceAdmin, secureRequest, sessionDocument } from "./support/index.js";
 import type { LocalRequestPrincipal } from "./support/index.js";
-import { configureApiPart06 } from "./part-06.js";
+import type { RequestPipeline } from "./request-pipeline.js";
 
 
 
-export function configureApiPart07(context: ReturnType<typeof configureApiPart06>) {
+/** Authentication and visibility: session middleware, principal resolution, stream authorization, and the session, OpenAPI and health routes. */
+export function installAccessControl(context: RequestPipeline) {
   const config = context.config;
   context.app.use((request, response, next) => {
       // Authentication endpoints were parsed above because their credentials are

@@ -1,11 +1,13 @@
 import type { ApiRuntime, CreateApiOptions } from "./support/index.js";
-import { configureApiPart01 } from "./part-01.js";
-import { configureApiPart02 } from "./part-02.js";
-import { configureApiPart03 } from "./part-03.js";
-import { configureApiPart04 } from "./part-04.js";
-import { configureApiPart05 } from "./part-05.js";
-import { configureApiPart06 } from "./part-06.js";
-import { configureApiPart07 } from "./part-07.js";
+import { resolveApiConfig } from "./api-config.js";
+import { createCoreDataServices } from "./core-data-services.js";
+import { createTelemetryServices } from "./telemetry-services.js";
+import { createSpatialLayerServices } from "./spatial-layer-services.js";
+import { createIntegrationBridges } from "./integration-bridges.js";
+import { createExternalFeedServices } from "./external-feed-services.js";
+import { createRuntimeCoordination } from "./runtime-coordination.js";
+import { installRequestPipeline } from "./request-pipeline.js";
+import { installAccessControl } from "./access-control.js";
 import { registerLocalAuthRoutes } from "./local-auth-routes.js";
 import { registerTenantAdministrationRoutes } from "./tenant-administration-routes.js";
 import { registerSystemUpdateRoutes } from "./system-update-routes.js";
@@ -58,16 +60,20 @@ import { registerApiErrorHandling } from "./error-handling.js";
 import { buildApiRuntime, createApiShutdown, startBackgroundServices, startTelemetryArchive } from "./api-lifecycle.js";
 
 export function createApi(options: CreateApiOptions = {}): ApiRuntime {
-  const context0 = { options };
-  const context1 = configureApiPart01(context0);
-  const context2 = configureApiPart02(context1);
-  const context3 = configureApiPart03(context2);
-  const context4 = configureApiPart04(context3);
+  // Composition: each step adds the services it owns to the shared context,
+  // in dependency order (spatial layers before the bridges that notify them).
+  const config = resolveApiConfig({ options });
+  const coreData = createCoreDataServices(config);
+  const telemetry = createTelemetryServices(coreData);
+  const spatial = createSpatialLayerServices(telemetry);
+  const bridges = createIntegrationBridges(spatial);
+  const feeds = createExternalFeedServices(bridges);
   const localMcpRuntime = new LocalMcpRuntimeService();
-  const context5 = configureApiPart05(context4);
-  registerLocalMcpTransportRoute(context5, localMcpRuntime);
-  const context6 = configureApiPart06(context5);
-  const context = configureApiPart07(context6);
+  const runtimeCoordination = createRuntimeCoordination(feeds);
+  // The MCP bearer route authenticates itself and must precede browser sessions.
+  registerLocalMcpTransportRoute(runtimeCoordination, localMcpRuntime);
+  const pipeline = installRequestPipeline(runtimeCoordination);
+  const context = installAccessControl(pipeline);
 
   // Route families. Express matches in registration order, so the error
   // handling registered last answers every path nothing else claimed.

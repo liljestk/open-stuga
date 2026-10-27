@@ -61,8 +61,8 @@ export function createApiShutdown(
   handles: RouteLifecycleHandles,
 ): Pick<ApiRuntime, "beginShutdown" | "close"> {
   const beginShutdown = (): Promise<void> => {
-    if (context.shutdownPromise) return context.shutdownPromise;
-    context.shutdownStarted = true;
+    if (context.runtimeState.shutdownPromise) return context.runtimeState.shutdownPromise;
+    context.runtimeState.shutdownStarted = true;
     context.tracking.stop();
     context.alertEngine.stop();
     context.systemUpdates.stop();
@@ -84,7 +84,7 @@ export function createApiShutdown(
     const stoppingDerivedAnalytics = context.derivedAnalytics.stop();
     context.scheduledDataExports.stop();
     for (const closeStream of [...context.activeEventStreams]) closeStream(true);
-    context.shutdownPromise = Promise.all([
+    context.runtimeState.shutdownPromise = Promise.all([
       context.notificationOutbox.stop(),
       stoppingStuguby,
       context.cloudflareAccess?.stop() ?? Promise.resolve(),
@@ -101,12 +101,12 @@ export function createApiShutdown(
         context.telemetryOrderedRollups?.stop() ?? Promise.resolve(),
       ]).then(() => context.telemetryArchive?.stop()),
     ]).then(() => undefined);
-    return context.shutdownPromise;
+    return context.runtimeState.shutdownPromise;
   };
   const close = (): Promise<void> => {
-    if (context.closePromise) return context.closePromise;
-    if (context.closed) return Promise.resolve();
-    context.closed = true;
+    if (context.runtimeState.closePromise) return context.runtimeState.closePromise;
+    if (context.runtimeState.closed) return Promise.resolve();
+    context.runtimeState.closed = true;
     context.removeSnapshotMutationWake();
     context.removeSnapshotMeasurementWake();
     context.removeNotificationWake();
@@ -114,8 +114,8 @@ export function createApiShutdown(
     handles.removeAnalyticsCacheWake();
     context.removeWeatherTelemetryBridge();
     context.removeWeatherProjector();
-    context.closePromise = beginShutdown().then(() => { context.database.close(); });
-    return context.closePromise;
+    context.runtimeState.closePromise = beginShutdown().then(() => { context.database.close(); });
+    return context.runtimeState.closePromise;
   };
   return { beginShutdown, close };
 }

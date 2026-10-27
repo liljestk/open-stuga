@@ -11,13 +11,13 @@ export function registerTelegramRoutes(context: ApiRouteRegistrationContext): vo
       response.json(await context.telegram.discover(credentialString(body, "botToken", 256, true)));
     });
   context.app.put(`${context.prefix}/integrations/telegram/config`, async (request, response) => {
-      const generation = ++context.telegramConfigurationGeneration;
+      const generation = ++context.runtimeState.telegramConfigurationGeneration;
       const body = bodyObject(request.body);
       const botToken = credentialString(body, "botToken", 256, true);
       const chatId = credentialString(body, "chatId", 32, true);
       const rotatingCredentials = Boolean(config.telegramBotToken && config.telegramChatId);
       const identity = await context.telegram.verify(botToken, chatId);
-      if (generation !== context.telegramConfigurationGeneration) {
+      if (generation !== context.runtimeState.telegramConfigurationGeneration) {
         throw new HttpError(409, "INTEGRATION_CONFIG_SUPERSEDED", "A newer Telegram configuration change superseded this request");
       }
       context.notificationOutbox.fenceTelegramConfigurationChange();
@@ -28,7 +28,7 @@ export function registerTelegramRoutes(context: ApiRouteRegistrationContext): vo
       });
       config.telegramBotToken = botToken;
       config.telegramChatId = chatId;
-      context.telegramDeliveryGeneration += 1;
+      context.runtimeState.telegramDeliveryGeneration += 1;
       const telegramStatus = context.status.value.telegram!;
       telegramStatus.configured = true;
       telegramStatus.connected = false;
@@ -75,13 +75,13 @@ export function registerTelegramRoutes(context: ApiRouteRegistrationContext): vo
       }
     });
   context.app.delete(`${context.prefix}/integrations/telegram/config`, (_request, response) => {
-      context.telegramConfigurationGeneration += 1;
+      context.runtimeState.telegramConfigurationGeneration += 1;
       context.notificationOutbox.fenceTelegramConfigurationChange();
       updateIntegrationSecrets(config.integrationSecretsFile, { telegram: null });
       context.integrationMetadata.retireTelegram();
       config.telegramBotToken = null;
       config.telegramChatId = null;
-      context.telegramDeliveryGeneration += 1;
+      context.runtimeState.telegramDeliveryGeneration += 1;
       const telegramStatus = context.status.value.telegram!;
       telegramStatus.configured = false;
       telegramStatus.connected = false;

@@ -1,15 +1,6 @@
-import { EnergyProjectionCache } from "../electricity/projection-cache.js";
-import { EnergySummaryCache } from "../energy-summary-cache.js";
-import type {
-  OpeningStateObservation,
-  MeasurementSample,
-  Reading,
-} from "@climate-twin/contracts";
 import { HomeAssistantBridge } from "../home-assistant.js";
 import { mergeTpLinkHistoryRecovery, TpLinkBridge, type TpLinkConnectionUpdate } from "../tp-link.js";
 import { GreeBridge } from "../gree.js";
-import { HeatPumpStateStore } from "../heat-pump-state.js";
-import { ConnectedDeviceStore } from "../connected-device-store.js";
 import { TuyaBridge } from "../tuya.js";
 import {
   updateIntegrationSecrets,
@@ -22,10 +13,8 @@ import {
   MeasurementService,
   MockEngine,
   ReplayEngine,
-  RuntimeStatus,
   TelemetryService,
 } from "../services.js";
-import { DailyAnalyticsFindingsWorker } from "../daily-analytics-findings.js";
 import { SensorGapRecoveryCoordinator } from "../sensor-gap-recovery.js";
 import {
   TapoHistoryExportService,
@@ -33,36 +22,9 @@ import {
 import { TelegramService } from "../telegram.js";
 import { NotificationOutboxWorker } from "../outbox.js";
 import { enqueueHostSystemAlertNotifications } from "../host-system-notifications.js";
-import { LruTtlCache } from "../cache.js";
-import { EnergyCostService } from "../energy-cost.js";
-import { databaseTariffContext } from "../electricity/tariff-context.js";
-import { SetupDoctor } from "../setup-doctor.js";
-import { ScheduledDataExportService } from "../scheduled-data-exports.js";
-import { TimeseriesStore } from "../timeseries/store.js";
-import {
-  TelemetryArchiveWorker,
-} from "../timeseries/archive-worker.js";
-import {
-  HybridTelemetryReader,
-  isLocalTelemetryHistoryComplete,
-} from "../timeseries/read-facade.js";
-import { TelemetryRetentionWorker } from "../timeseries/retention-worker.js";
-import { TelemetryOrderedRollupWorker } from "../timeseries/ordered-rollup-worker.js";
-import { AnalyticsWorkLimiter } from "../analytics/work-limiter.js";
-import { DerivedAnalyticsCoordinator } from "../analytics/derived-artifacts/coordinator.js";
-import { configuredHeatPumpConnectionIds } from "../analytics/heat-pump-evidence.js";
-import { hostAllowsBackgroundWork } from "../analytics/background-admission.js";
 import { Nexus433Service } from "../nexus433/index.js";
-import { configureApiPart02 } from "./part-02.js";
-
-type DeferredContext = {
-  telegramDeliveryGeneration: number;
-  sensorGapRecovery: SensorGapRecoveryCoordinator | null;
-  tpLink: TpLinkBridge | undefined;
-  notifyOpeningStateRecorded: (observation: OpeningStateObservation) => void;
-};
-
-
+import { testHomeAssistantCredentials } from "../home-assistant.js";
+import type { SpatialLayerServices } from "./spatial-layer-services.js";
 type PendingTpLinkConnectionUpdate = Omit<TpLinkConnectionUpdate, "previousHost">;
 
 function applyTpLinkConnectionUpdate(
@@ -96,127 +58,16 @@ function tpLinkConnectionsConflict(connections: TpLinkConnectionSecret[]): boole
   return false;
 }
 
-export function configureApiPart03(context: ReturnType<typeof configureApiPart02>) {
-  const deferred = context as typeof context & DeferredContext;
+/** Alerting, notification delivery, demo data and the device integration bridges (Home Assistant, TP-Link, Gree, Tuya, Nexus433, Tapo history), their credential testers and sensor-gap recovery. */
+export function createIntegrationBridges(context: SpatialLayerServices) {
   const config = context.config;
-  const timeseries = config.timeseriesEnabled ? context.options.timeseriesStore ?? new TimeseriesStore({
-      poolConfig: {
-        host: config.timeseriesHost,
-        port: config.timeseriesPort,
-        database: config.timeseriesDatabase,
-        user: config.timeseriesUser,
-        password: config.timeseriesPassword,
-        // Heavy analytics are already admitted in-process. Disabling backend
-        // query parallelism prevents two admitted reads from consuming every
-        // Raspberry Pi core through PostgreSQL worker fan-out.
-        options: "-c max_parallel_workers_per_gather=0",
-        ...(context.timeseriesSsl ? { ssl: context.timeseriesSsl } : {}),
-      },
-      maxConnections: config.timeseriesPoolMax,
-      connectionTimeoutMs: config.timeseriesConnectTimeoutMs,
-      statementTimeoutMs: config.timeseriesStatementTimeoutMs,
-      batchSize: config.timeseriesBatchSize,
-      orderedMetricIds: context.database.listMeasurementDefinitions(false)
-        .filter((definition) => definition.kind === "rate" || definition.kind === "cumulative_counter")
-        .map((definition) => definition.id),
-      coldStorageAfterDays: config.timeseriesColumnstoreAfterDays,
-    }) : null;
-  context.hostDatabaseMetrics.setTimeseries(timeseries);
-  const heatPumpStates = new HeatPumpStateStore(context.database);
-  const connectedDevices = new ConnectedDeviceStore(context.database);
-  const telemetryArchive = timeseries
-      ? new TelemetryArchiveWorker(context.database, context.bus, timeseries, {
-        batchSize: config.timeseriesBatchSize,
-        requireTimescale: config.timeseriesRequired,
-        localHistoryRetentionDays: config.retentionDays,
-        heatPumpStatePage: (cursor, limit) => heatPumpStates.archivePage(cursor, limit),
-      })
-      : null;
-  const telemetryRetention = telemetryArchive && config.retentionDays > 0
-      ? new TelemetryRetentionWorker(context.database, telemetryArchive, config.retentionDays)
-      : null;
-  const telemetryOrderedRollups = timeseries ? new TelemetryOrderedRollupWorker(timeseries, { ready: () => ["syncing", "ready"].includes(telemetryArchive!.status().phase) }) : null;
-  const telemetryReader = context.options.telemetryReader ?? new HybridTelemetryReader({
-      local: context.database,
-      archive: timeseries,
-      archivePhase: () => {
-        const archive = telemetryArchive?.status();
-        return archive?.caughtUp ? "ready" : archive?.phase;
-      },
-      archiveLastSuccessAt: () => telemetryArchive?.status().lastSuccessAt,
-      reconcile: () => telemetryArchive?.reconcileNow(),
-      localHistoryComplete: telemetryArchive === null || config.retentionDays === 0
-        ? true
-        : (query) => isLocalTelemetryHistoryComplete({
-            timeseriesEnabled: true,
-            retentionDays: config.retentionDays,
-            from: query.from,
-          }),
-    });
-  const analyticsWorkLimiter = new AnalyticsWorkLimiter({
-      maxConcurrent: Math.max(1, Math.min(2, config.timeseriesPoolMax)),
-      maxQueued: 32,
-    });
-  const admitLowPriority = context.options.backgroundWorkAdmission
-    ?? (context.options.startBackground === false
-      ? () => true
-      : async (): Promise<boolean> => hostAllowsBackgroundWork(
-          await context.hostSystem.snapshot(),
-        ));
-  const derivedAnalytics = new DerivedAnalyticsCoordinator(
-      context.database,
-      telemetryReader,
-      analyticsWorkLimiter,
-      {
-        admitLowPriority,
-        heatPumpConnectionIds: (houseId) => configuredHeatPumpConnectionIds(
-          context.config.greeConnections,
-          houseId,
-        ),
-      },
-    );
-  context.energyOptimizer.setTelemetryReader(telemetryReader);
-  const dailyAnalyticsFindings = new DailyAnalyticsFindingsWorker({
-      database: context.database,
-      telemetryReader,
-      ...(context.options.dailyAnalyticsNow ? { now: context.options.dailyAnalyticsNow } : {}),
-    });
-  const scheduledDataExports = new ScheduledDataExportService({
-      database: context.database,
-      telemetryReader,
-      systemStorage: context.systemStorage,
-      dataOperations: context.dataOperations,
-      operationsDirectory: config.backupOperationsDirectory ?? null,
-    });
-  const measurementSnapshotCache = new LruTtlCache<MeasurementSample[]>({
-      maxEntries: 64,
-      maxBytes: 8 * 1024 * 1024,
-      defaultTtlMs: 2_000,
-    });
-  const readingSnapshotCache = new LruTtlCache<Reading[]>({
-      maxEntries: 4,
-      maxBytes: 4 * 1024 * 1024,
-      defaultTtlMs: 2_000,
-    });
-  const status = new RuntimeStatus(config, context.bus, context.database);
-  const setupDoctor = new SetupDoctor(context.database, config, status, context.dataOperations, telemetryArchive);
-  const energyCost = new EnergyCostService(
-      telemetryReader,
-      undefined,
-      (sensorId) => context.database.getSensor(sensorId)?.energyMeterRole ?? "standalone",
-      databaseTariffContext(context.database),
-    );
-  const energySummaries = new EnergySummaryCache(context.database, energyCost, analyticsWorkLimiter);
-  const energyProjections = new EnergyProjectionCache(context.database, telemetryReader, energySummaries, analyticsWorkLimiter);
-  context.energyOptimizer.setSummaryCache(energySummaries);
+  const { heatPumpStates, connectedDevices, telemetryArchive, telemetryReader, measurementSnapshotCache, status } = context;
   const storedTelegramIdentity = context.integrationMetadata.get("telegram", "singleton");
   if (status.value.telegram?.configured && storedTelegramIdentity?.active) {
       status.value.telegram.botUsername = storedTelegramIdentity.label;
       status.value.telegram.chatLabel = storedTelegramIdentity.secondaryLabel;
     }
   const telegram = context.options.telegram ?? new TelegramService();
-  const initialTelegramDeliveryGeneration: number = 0;
-  Object.assign(context, { telegramDeliveryGeneration: initialTelegramDeliveryGeneration });
   const alertEngine = new AlertEngine(context.database, context.bus, config, status, telegram, telemetryReader);
   const telemetry = new TelemetryService(context.database, context.bus, alertEngine, context.dataMode);
   const nexus433 = new Nexus433Service(config, context.database, telemetry);
@@ -230,7 +81,7 @@ export function configureApiPart03(context: ReturnType<typeof configureApiPart02
       status,
       telegram,
       fetch,
-      () => deferred.telegramDeliveryGeneration,
+      () => context.runtimeState.telegramDeliveryGeneration,
       undefined,
       (failure) => context.systemErrorLog.record({
         level: failure.terminal ? "error" : "warning",
@@ -246,19 +97,17 @@ export function configureApiPart03(context: ReturnType<typeof configureApiPart02
     });
   const mock = new MockEngine(context.database, telemetry, config, context.dataMode);
   const replay = new ReplayEngine(context.database, context.bus);
-  const initialSensorGapRecovery: SensorGapRecoveryCoordinator | null = null;
-  Object.assign(context, { sensorGapRecovery: initialSensorGapRecovery });
-  const initialTpLink: TpLinkBridge | undefined = undefined;
-  Object.assign(context, { tpLink: initialTpLink });
-  const initialNotifyOpeningStateRecorded = (_observation: OpeningStateObservation): void => undefined;
-  Object.assign(context, { notifyOpeningStateRecorded: initialNotifyOpeningStateRecorded });
-  const wakeSensorGapRecovery = (): void => deferred.sensorGapRecovery?.wake();
+  // Recovery and the TP-Link bridge reference each other through callbacks, so
+  // both are declared before either is built.
+  let sensorGapRecovery: SensorGapRecoveryCoordinator | null = null;
+  let tpLink: TpLinkBridge | undefined;
+  const wakeSensorGapRecovery = (): void => sensorGapRecovery?.wake();
   const tapoHistory = new TapoHistoryExportService(config, context.database, {
       telemetryReader,
       onHistoryReady: wakeSensorGapRecovery,
       ...(context.options.tapoHistoryNow ? { now: context.options.tapoHistoryNow } : {}),
       deviceNameFor: context.options.tapoHistoryDeviceNameFor
-        ?? ((sensorId, deviceId) => deferred.tpLink?.tapoAppDeviceName(sensorId, deviceId) ?? null),
+        ?? ((sensorId, deviceId) => tpLink?.tapoAppDeviceName(sensorId, deviceId) ?? null),
     });
   const tapoHistoryFallbackKeys = new Set<string>();
   const historyFallbackKey = (sensorId: string, metric: string, from: string, to: string): string => (
@@ -266,19 +115,19 @@ export function configureApiPart03(context: ReturnType<typeof configureApiPart02
     );
   const homeAssistant = new HomeAssistantBridge(config, telemetry, measurements, context.database, status, {
       onAvailabilityChange: wakeSensorGapRecovery,
-      onOpeningStateRecorded: (observation) => deferred.notifyOpeningStateRecorded(observation),
+      onOpeningStateRecorded: (observation) => context.notifyOpeningStateRecorded(observation),
       // Direct polling defaults to 2 s versus HA's current 5 s integration poll.
       // Prefer it only while this exact metric is healthy; HA then fails over
       // without requiring a configuration change or a second Sensor row.
       shouldIngestLiveMeasurement: (sensorId, metric) => (
-        !deferred.tpLink?.isMetricAvailable(sensorId, metric)
+        !tpLink?.isMetricAvailable(sensorId, metric)
         && !nexus433.isMetricAvailable(sensorId, metric)
       ),
     });
   const pendingTpLinkConnectionUpdates = new Map<string, PendingTpLinkConnectionUpdate>();
-  deferred.tpLink = new TpLinkBridge(config, telemetry, measurements, context.database, status, {
+  tpLink = new TpLinkBridge(config, telemetry, measurements, context.database, status, {
       onAvailabilityChange: wakeSensorGapRecovery,
-      onOpeningStateRecorded: (observation) => deferred.notifyOpeningStateRecorded(observation),
+      onOpeningStateRecorded: (observation) => context.notifyOpeningStateRecorded(observation),
       historyFallback: {
         recoverHistory: async (sensorId, metric, from, to) => {
           const key = historyFallbackKey(sensorId, metric, from, to);
@@ -351,6 +200,7 @@ export function configureApiPart03(context: ReturnType<typeof configureApiPart02
         }
       },
     });
+  const tpLinkBridge = tpLink;
   const gree = new GreeBridge(config, status, heatPumpStates, context.bus, {
       onStateRecorded: () => {
         void telemetryArchive?.reconcileNow().catch(() => undefined);
@@ -402,16 +252,26 @@ export function configureApiPart03(context: ReturnType<typeof configureApiPart02
         },
       },
     );
-  deferred.sensorGapRecovery = new SensorGapRecoveryCoordinator(context.database, measurements, [homeAssistant, deferred.tpLink], {
+  sensorGapRecovery = new SensorGapRecoveryCoordinator(context.database, measurements, [homeAssistant, tpLink], {
       telemetryReader,
       onRecovered: () => {
         measurementSnapshotCache.clear();
         return telemetryArchive?.reconcileNow();
       },
     });
-  const extended = Object.assign(context, { timeseries, telemetryArchive, telemetryRetention, telemetryOrderedRollups, telemetryReader, analyticsWorkLimiter, admitLowPriority, derivedAnalytics, dailyAnalyticsFindings, scheduledDataExports, measurementSnapshotCache, readingSnapshotCache, status, setupDoctor, energyCost, energySummaries, energyProjections, storedTelegramIdentity, telegram, alertEngine, telemetry, nexus433, measurements, notificationOutbox, mock, replay, wakeSensorGapRecovery, tapoHistory, tapoHistoryFallbackKeys, historyFallbackKey, homeAssistant, heatPumpStates, gree, connectedDevices, tuya });
-  return extended as typeof extended & DeferredContext & {
-    sensorGapRecovery: SensorGapRecoveryCoordinator;
-    tpLink: TpLinkBridge;
-  };
+  const recovery = sensorGapRecovery;
+  const homeAssistantCredentialTester = context.options.homeAssistantCredentialTester ?? testHomeAssistantCredentials;
+  const tpLinkCredentialTester = context.options.tpLinkCredentialTester
+      ?? ((host: string, username: string, password: string) => tpLinkBridge.testCredentials(host, username, password));
+  context.dataMode.onActivated(() => {
+      mock.stop();
+      replay.reset();
+      context.derivedAnalytics.handleDataModeActivated();
+      context.notifySpatial((runtime) => runtime.handleDataModeActivated("real"));
+      context.telemetryArchive?.enforceRealDataBoundary();
+      context.status.refreshDataMode();
+    });
+  return Object.assign(context, { telegram, alertEngine, telemetry, nexus433, measurements, notificationOutbox, mock, replay, tapoHistory, homeAssistant, gree, tuya, tpLink: tpLinkBridge, sensorGapRecovery: recovery, homeAssistantCredentialTester, tpLinkCredentialTester });
 }
+
+export type IntegrationBridges = ReturnType<typeof createIntegrationBridges>;

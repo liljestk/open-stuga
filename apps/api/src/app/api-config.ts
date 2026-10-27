@@ -1,7 +1,8 @@
 import { applyApiConfigDefaults, loadConfig } from "../config.js";
 import type { CreateApiOptions } from "./support/index.js";
 
-export function configureApiPart01(context: { options: CreateApiOptions }) {
+/** createApi's configuration: the caller's or the environment's, with createApi defaults applied. */
+export function resolveApiConfig(context: { options: CreateApiOptions }) {
   const config = applyApiConfigDefaults(context.options.config ?? loadConfig());
   const cloudflareAccessRuntimeValues = [
       config.cloudflareAccessAccountId,
@@ -13,6 +14,8 @@ export function configureApiPart01(context: { options: CreateApiOptions }) {
   if (cloudflareAccessRuntimeValues.some(Boolean) && !cloudflareAccessRuntimeValues.every(Boolean)) {
       throw new Error("Cloudflare Access synchronization requires a group identity, a static operator email, and an API token");
     }
-  const extended = Object.assign(context, { config, cloudflareAccessRuntimeValues });
+  const extended = Object.assign(context, { config });
   return extended;
 }
+
+export type ApiConfigContext = ReturnType<typeof resolveApiConfig>;

@@ -1,20 +1,22 @@
-import { type Request, type Response } from "express";
+import express, { type Request, type Response } from "express";
 import type {
   IntegrationStatus,
 } from "@climate-twin/contracts";
 import { SYSTEM_VERSION } from "../version.js";
 import { HttpError, MAX_EVENT_STREAMS_GLOBAL, MAX_EVENT_STREAMS_PER_USER, SAFE_HTTP_METHODS, browserOriginAllowed, normalizedOrigin, requestPrincipal } from "./support/index.js";
-import { configureApiPart04 } from "./part-04.js";
+import type { ExternalFeedServices } from "./external-feed-services.js";
 import { compareCodeUnits } from "../text-order.js";
 
-type DeferredContext = {
-  activeEventStreamCount: number;
-  shutdownStarted: boolean;
-};
-
-
-export function configureApiPart05(context: ReturnType<typeof configureApiPart04>) {
-  const deferred = context as typeof context & DeferredContext;
+/** The Express app, internal event wakes, the live event-stream registry and integration status helpers. */
+export function createRuntimeCoordination(context: ExternalFeedServices) {
+  const app = express();
+  app.disable("x-powered-by");
+  // Security middleware classifies route prefixes before Express dispatches.
+  // Keep dispatch case-sensitive so mixed-case paths cannot cross auth zones.
+  app.set("case sensitive routing", true);
+  // Authentication decisions use the real socket address. Proxy headers must
+  // never turn a remote first-owner setup request into a loopback request.
+  app.disable("trust proxy");
   const config = context.config;
   const removeSnapshotMutationWake = context.bus.subscribe((event) => {
       if (event.type === "mutation") context.invalidateSnapshotCaches();
@@ -31,18 +33,6 @@ export function configureApiPart05(context: ReturnType<typeof configureApiPart04
   const v2Prefix = "/api/v2" as const;
   const activeEventStreams = new Set<(notifyClient?: boolean) => void>();
   const activeEventStreamsByUser = new Map<string, number>();
-  const initialActiveEventStreamCount: number = 0;
-  Object.assign(context, { activeEventStreamCount: initialActiveEventStreamCount });
-  const initialShutdownStarted: boolean = false;
-  Object.assign(context, { shutdownStarted: initialShutdownStarted });
-  const initialClosed: boolean = false;
-  Object.assign(context, { closed: initialClosed });
-  const initialShutdownPromise: Promise<void> | null = null;
-  Object.assign(context, { shutdownPromise: initialShutdownPromise });
-  const initialClosePromise: Promise<void> | null = null;
-  Object.assign(context, { closePromise: initialClosePromise });
-  const initialTelegramConfigurationGeneration: number = 0;
-  Object.assign(context, { telegramConfigurationGeneration: initialTelegramConfigurationGeneration });
   const homeAssistantConfigurationGenerations = new Map<string, number>();
   const tpLinkConfigurationGenerations = new Map<string, number>();
   const synchronizeCloudflareAccess = async (): Promise<{
@@ -138,24 +128,24 @@ export function configureApiPart05(context: ReturnType<typeof configureApiPart04
       }
     };
   const acquireEventStream = (response: Response): (() => void) | null => {
-      if (deferred.shutdownStarted || deferred.activeEventStreamCount >= MAX_EVENT_STREAMS_GLOBAL) return null;
+      if (context.runtimeState.shutdownStarted || context.runtimeState.activeEventStreamCount >= MAX_EVENT_STREAMS_GLOBAL) return null;
       const userId = requestPrincipal(response).userId;
       const userCount = activeEventStreamsByUser.get(userId) ?? 0;
       if (userCount >= MAX_EVENT_STREAMS_PER_USER) return null;
-      deferred.activeEventStreamCount += 1;
+      context.runtimeState.activeEventStreamCount += 1;
       activeEventStreamsByUser.set(userId, userCount + 1);
       let released = false;
       return () => {
         if (released) return;
         released = true;
-        deferred.activeEventStreamCount = Math.max(0, deferred.activeEventStreamCount - 1);
+        context.runtimeState.activeEventStreamCount = Math.max(0, context.runtimeState.activeEventStreamCount - 1);
         const remaining = Math.max(0, (activeEventStreamsByUser.get(userId) ?? 1) - 1);
         if (remaining === 0) activeEventStreamsByUser.delete(userId);
         else activeEventStreamsByUser.set(userId, remaining);
       };
     };
   const rejectEventStreamDuringShutdown = (response: Response): boolean => {
-      if (!deferred.shutdownStarted) return false;
+      if (!context.runtimeState.shutdownStarted) return false;
       response.status(200);
       response.setHeader("content-type", "text/event-stream; charset=utf-8");
       response.setHeader("cache-control", "no-cache, no-transform");
@@ -187,9 +177,9 @@ export function configureApiPart05(context: ReturnType<typeof configureApiPart04
       response.once("close", () => closeStream());
       // A request accepted just before server.close() can reach this handler
       // after shutdown has begun; do not let that late SSE stream block drain.
-      if (deferred.shutdownStarted) closeStream(true);
+      if (context.runtimeState.shutdownStarted) closeStream(true);
     };
-  context.app.use((request, response, next) => {
+  app.use((request, response, next) => {
       response.setHeader("x-content-type-options", "nosniff");
       response.setHeader("referrer-policy", "no-referrer");
       response.setHeader("x-api-version", request.path.startsWith(v2Prefix) ? "v2" : "v1");
@@ -221,6 +211,8 @@ export function configureApiPart05(context: ReturnType<typeof configureApiPart04
       if (request.method === "OPTIONS") { response.status(204).end(); return; }
       next();
     });
-  const extended = Object.assign(context, { removeSnapshotMutationWake, removeSpatialLayerWake, removeNotificationWake, prefix, v2Prefix, activeEventStreams, activeEventStreamsByUser, homeAssistantConfigurationGenerations, tpLinkConfigurationGenerations, synchronizeCloudflareAccess, integrationStatusForHouse, assertTpLinkConnectionScope, acquireEventStream, rejectEventStreamDuringShutdown, registerEventStream });
-  return extended as typeof extended & { activeEventStreamCount: number; shutdownStarted: boolean; closed: boolean; shutdownPromise: Promise<void> | null; closePromise: Promise<void> | null; telegramConfigurationGeneration: number };
+  const extended = Object.assign(context, { app, removeSnapshotMutationWake, removeSpatialLayerWake, removeNotificationWake, prefix, v2Prefix, activeEventStreams, activeEventStreamsByUser, homeAssistantConfigurationGenerations, tpLinkConfigurationGenerations, synchronizeCloudflareAccess, integrationStatusForHouse, assertTpLinkConnectionScope, acquireEventStream, rejectEventStreamDuringShutdown, registerEventStream });
+  return extended;
 }
+
+export type RuntimeCoordination = ReturnType<typeof createRuntimeCoordination>;

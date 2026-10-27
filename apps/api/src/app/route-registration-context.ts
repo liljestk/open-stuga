@@ -1,3 +1,4 @@
-import type { configureApiPart07 } from "./part-07.js";
+import type { installAccessControl } from "./access-control.js";
 
-export type ApiRouteRegistrationContext = ReturnType<typeof configureApiPart07>;
+/** Everything a route module may use: the composed services, the app and the access helpers. */
+export type ApiRouteRegistrationContext = ReturnType<typeof installAccessControl>;

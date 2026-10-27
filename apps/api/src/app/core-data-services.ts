@@ -39,10 +39,24 @@ import {
   TrackingStore,
 } from "../tracking/store.js";
 import { AuthAbuseLimiter, HttpError, initializeIntegrationMetadata } from "./support/index.js";
-import { configureApiPart01 } from "./part-01.js";
+import type { ApiConfigContext } from "./api-config.js";
 
 
-export function configureApiPart02(context: ReturnType<typeof configureApiPart01>) {
+/** Mutable flags and counters shared by the bridges, live streams, Telegram routes and shutdown. */
+export interface ApiRuntimeState {
+  shutdownStarted: boolean;
+  closed: boolean;
+  shutdownPromise: Promise<void> | null;
+  closePromise: Promise<void> | null;
+  activeEventStreamCount: number;
+  /** Bumped when Telegram delivery settings change, so queued sends to the old chat are dropped. */
+  telegramDeliveryGeneration: number;
+  /** Bumped per Telegram configuration request, so a slower test cannot overwrite a newer save. */
+  telegramConfigurationGeneration: number;
+}
+
+/** The SQLite control plane and the services that only need it: tracking, system updates and storage, host metrics, Cloudflare setup, data operations, Stuguby. */
+export function createCoreDataServices(context: ApiConfigContext) {
   const config = context.config;
   if (config.timeseriesRequired && !config.timeseriesEnabled) {
       throw new Error("timeseriesRequired=true requires timeseriesEnabled=true");
@@ -212,6 +226,17 @@ export function configureApiPart02(context: ReturnType<typeof configureApiPart01
             ...(config.timeseriesSslCa ? { ca: config.timeseriesSslCa } : {}),
             ...(isIP(config.timeseriesHost) === 0 ? { servername: config.timeseriesHost } : {}),
           };
-  const extended = Object.assign(context, { database, systemErrorLog, trackingFlags, trackingStore, tracking, systemUpdates, systemStorage, hostDatabaseMetrics, hostSystem, cloudflareSetup, dataOperations, energyOptimizer, integrationMetadata, localAuth, recordSecurityAudit, cloudflareAccess, authAbuseLimiter, trackingObserverAbuseLimiter, dataMode, bus, stuguby, assertSensorHouseMoveAllowed, timeseriesSsl });
+  const runtimeState: ApiRuntimeState = {
+    shutdownStarted: false,
+    closed: false,
+    shutdownPromise: null,
+    closePromise: null,
+    activeEventStreamCount: 0,
+    telegramDeliveryGeneration: 0,
+    telegramConfigurationGeneration: 0,
+  };
+  const extended = Object.assign(context, { runtimeState, database, systemErrorLog, trackingFlags, trackingStore, tracking, systemUpdates, systemStorage, hostDatabaseMetrics, hostSystem, cloudflareSetup, dataOperations, energyOptimizer, integrationMetadata, localAuth, recordSecurityAudit, cloudflareAccess, authAbuseLimiter, trackingObserverAbuseLimiter, dataMode, bus, stuguby, assertSensorHouseMoveAllowed, timeseriesSsl });
   return extended;
 }
+
+export type CoreDataServices = ReturnType<typeof createCoreDataServices>;
