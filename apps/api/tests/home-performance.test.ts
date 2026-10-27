@@ -172,7 +172,7 @@ describe("deriveHomePerformance", () => {
       energyKwh: 48,
       source: "heating-meter",
     });
-    expect(result.energy.energyPerHeatingDegreeHour).toBeCloseTo(48 / (48 * 18), 3);
+    expect(result.energy.energyPerHeatingDegreeHour).toBeCloseTo(48 / (48 * 17), 3);
     expect(result.maintenance).toMatchObject({
       state: "ready",
       evaluatedActions: 2,

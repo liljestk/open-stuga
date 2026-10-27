@@ -1,0 +1,18 @@
+export const enAnalyticsQuality = {
+  "analytics.summaryBasis.base": "Statistics come from buckets of {resolution}, so they do not change with the chart resolution.",
+  "analytics.summaryBasis.display": "Statistics from the points shown.",
+  "analytics.summaryBasis.expectedInterval": "Coverage compared with its usual reporting interval of {seconds} s.",
+  "analytics.findingsWeatherDegreeHours": "Baseline moved to this period's weather: {current} heating degree-hours a day below {base} °C, against {baseline} in earlier years. Before the adjustment it was {unadjusted}.",
+  "analytics.findingsWeatherOutdoor": "Baseline moved to this period's weather: an outdoor mean of {current} °C, against {baseline} °C in earlier years. Before the adjustment it was {unadjusted}.",
+  "analytics.findingsSignificance": "{z} times the usual variation ({basis}); p adjusted for multiple comparisons = {q}.",
+  "analytics.findingsSpread_between-years": "between earlier years",
+  "analytics.findingsSpread_assumed": "assumed from what counts as a notable difference, as few earlier years exist",
+  "analytics.findingsSpread_day-to-day": "from day to day",
+  "analytics.findingsSpread_resolution": "at the sensor's resolution",
+  "analytics.findingsSpread_counts": "for counts of this size",
+  "analytics.findingsScaled": "{value} (scaled up from {raw} for missing readings)",
+  "analytics.findingsTested": "{count} series compared; at most about one finding in ten is expected to be chance.",
+  "performance.energy.regression": "Base load {base} kWh a day plus {slope} kWh per heating degree-hour below {temperature} °C (90% interval {low}–{high}).",
+  "performance.energy.comparison": "The heating slope changed {change}% between the two halves of the period (90% interval {low}% to {high}%).",
+  "performance.exposure.excluded": "Left out of comfort exposure: {rooms}.",
+} as const;

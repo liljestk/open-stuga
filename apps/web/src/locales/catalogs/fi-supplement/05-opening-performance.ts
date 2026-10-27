@@ -433,7 +433,7 @@ export const fiSupplementPart5 = {
   "performance.openChecks": "Avaa kuusi kodin suorituskykytarkistusta",
   "performance.openEvidence": "Avaa huone- ja anturinäyttö",
   "performance.exposure.title": "Olosuhde- ja ilmanlaatukuormitus",
-  "performance.exposure.context": "Kattavuudella painotettua näyttöä tuettua sarjaa kohti: {hours} h. Antureissa lämpötilaa kertyi {degreeHours} aste-tuntia alueen 18–25 °C ulkopuolella; kosteus tuotti {humidityHours} anturituntia alueen 30–60 % ulkopuolella ja CO₂ {co2Hours} anturituntia yli 1 000 ppm.",
+  "performance.exposure.context": "Kattavuudella painotettua näyttöä tuettua sarjaa kohti: {hours} h. Antureissa lämpötilaa kertyi {degreeHours} aste-tuntia kunkin huoneen mukavuusalueen ulkopuolella (18–25 °C, ellei huonetyyppi tai asetukset anna muuta); kosteus tuotti {humidityHours} anturituntia alueen 30–60 % ulkopuolella ja CO₂ {co2Hours} anturituntia yli 1 000 ppm.",
   "performance.recovery.title": "Kosteuden palautuminen",
   "performance.recovery.context": "Arvioituja erillisiä kosteustapahtumia: {count}.",
   "performance.recovery.empty": "Yhdessäkään kosteustapahtumassa ei ollut riittävästi ennen- ja jälkeen-näyttöä viimeisten seitsemän päivän aikana.",

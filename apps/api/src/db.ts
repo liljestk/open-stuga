@@ -26,6 +26,7 @@ import "./db/contracts/25-update-maintenance-task-to-delete-asset.js";
 import "./db/contracts/weather-snapshot.js";
 import "./db/contracts/electricity-tariffs.js";
 import "./db/contracts/forecast-evaluations.js";
+import "./db/contracts/reporting-intervals.js";
 import "./db/contracts/derived-analytics-history.js";
 import "./db/contracts/measurement-boundaries.js";
 import "./db/methods/01-migrate-equipment-placement-table-to-migrate.js";
@@ -56,6 +57,7 @@ import "./db/methods/25-update-maintenance-task-to-delete-asset.js";
 import "./db/methods/weather-snapshot.js";
 import "./db/methods/electricity-tariffs.js";
 import "./db/methods/forecast-evaluations.js";
+import "./db/methods/reporting-intervals.js";
 import "./db/methods/derived-analytics-history.js";
 import "./db/methods/measurement-boundaries.js";
 

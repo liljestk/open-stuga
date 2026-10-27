@@ -2,6 +2,13 @@
 
 All notable Stugu releases are recorded here.
 
+## 0.47.0
+
+- Analytics summaries (median, percentiles, extremes, spread) no longer change with the chart resolution. They are computed from fixed 1-minute, 15-minute or hourly buckets depending on the range, weighted by time where the measurement is a level, and each summary card says which base it used. Coverage is now measured against each sensor's usual reporting interval (the median gap over the last three days), so a sensor that lost half its readings shows about 50% instead of looking complete.
+- Daily findings now report a difference only when it is clear beyond chance as well as large enough to matter. Each difference is judged against how much the earlier years varied and how noisy the days were. Electricity and indoor temperature are compared with earlier years moved to this month's weather. Sums are scaled up for missing readings. A false-discovery control covers every series compared, so a large house with many sensors no longer surfaces more chance differences. Each finding explains the weather adjustment and how clear the difference is.
+- Home Performance judges each room against a comfort band for its kind (bedrooms 16–23 °C, bathrooms 20–27 °C, wider bands for storage, utility and garage spaces, 18–25 °C elsewhere) and leaves saunas out. Room parameters can set a band or exclude a room. The energy index is now a regression of daily energy on heating degree-hours: a base load plus a heating slope with a 90% interval. The comparison between the two halves of the period uses the slope, so a new appliance no longer looks like worse insulation. The heating base temperature is a house parameter (`heating-base-temperature`, default 17 °C instead of the former fixed 18 °C).
+- Upgrade impact: application-only update with an automatic SQLite schema addition (`sensor_reporting_intervals`). Daily findings (`calendar-peer-findings-v4.0.0`) and Home Performance (`home-performance-v4.0.0`) are recalculated once. With only one or two earlier years, fewer daily findings may appear than before. Database archive, configuration, Compose and host trust are unchanged.
+
 ## 0.46.0
 
 - Home Performance now measures energy the same way as the energy summaries: it uses the integrated consumption from the analytics engine (counter increments that survive a meter restart, power held for at most 15 minutes) instead of average power × hours. Usage right after a meter restart is no longer dropped, and a plug that went silent no longer counts a full hour of its last reading.

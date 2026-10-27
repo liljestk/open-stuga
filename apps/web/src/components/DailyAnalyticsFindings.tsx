@@ -148,12 +148,28 @@ export function DailyAnalyticsFindings(props: Readonly<DailyAnalyticsFindingsPro
           <thead><tr><th scope="col">{t("analytics.findingsPeriod")}</th><th scope="col">{t("analytics.value")}</th><th scope="col">{t("analytics.coverageLabel")}</th><th scope="col">{t("analytics.findingsObservations")}</th></tr></thead>
           <tbody>{[finding.current, ...finding.baseline].map((period, index) => <tr key={period.key}>
             <th scope="row">{index === 0 ? t("analytics.findingsCurrent", { year: period.year }) : String(period.year)}</th>
-            <td>{formatValue(finding, period.value)}</td>
+            <td>{period.unscaledValue === undefined
+              ? formatValue(finding, period.value)
+              : t("analytics.findingsScaled", { value: formatValue(finding, period.value), raw: formatValue(finding, period.unscaledValue) })}</td>
             <td>{period.coverage === null ? "—" : `${Math.round(period.coverage * 100)}%`}</td>
             <td>{new Intl.NumberFormat(locale).format(period.sampleCount)}</td>
           </tr>)}</tbody>
         </table></div>
         <small className="daily-findings-method">{t("analytics.findingsMethod", { baseline: formatValue(finding, finding.baselineMedian) })}</small>
+        {finding.weatherAdjustment && <small className="daily-findings-method">{t(
+          finding.weatherAdjustment.driver === "heating-degree-hours" ? "analytics.findingsWeatherDegreeHours" : "analytics.findingsWeatherOutdoor",
+          {
+            current: new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(finding.weatherAdjustment.currentDriver),
+            baseline: new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(finding.weatherAdjustment.baselineDriverMedian),
+            base: new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(finding.weatherAdjustment.baseTemperatureC ?? 17),
+            unadjusted: formatValue(finding, finding.weatherAdjustment.unadjustedBaselineMedian),
+          },
+        )}</small>}
+        {finding.zScore !== undefined && finding.qValue !== undefined && finding.spreadBasis && <small className="daily-findings-method">{t("analytics.findingsSignificance", {
+          z: new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(Math.abs(finding.zScore)),
+          basis: t(`analytics.findingsSpread_${finding.spreadBasis}`),
+          q: new Intl.NumberFormat(locale, { maximumSignificantDigits: 2 }).format(finding.qValue),
+        })}</small>}
       </details>
     </article>;
   };
@@ -197,6 +213,7 @@ export function DailyAnalyticsFindings(props: Readonly<DailyAnalyticsFindingsPro
           date: formatDateOnly(snapshot.evaluatedThrough, locale, { dateStyle: "long" }),
         })}</span>
         <span>{t("analytics.findingsCount", { count: snapshot.findings.length })}</span>
+        {snapshot.seriesTested !== undefined && <span>{t("analytics.findingsTested", { count: snapshot.seriesTested })}</span>}
       </div>
       {warnings.length > 0 && <div className="inline-warning" role="status"><ul>{warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul></div>}
       {snapshot.findings.length === 0 ? <div className="daily-findings-state" role="status">

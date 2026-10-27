@@ -23,6 +23,14 @@ import {
 } from "@climate-twin/analytics-kernel";
 import { analyticsDefinitionSemantics, buildAnalyticsResponse } from "../analytics.js";
 import {
+  peerCountTest,
+  peerLevelTest,
+  type DailyLevel,
+  type HourlyWeather,
+  type PeriodObservation,
+  type WeatherDriver,
+} from "./peer-statistics.js";
+import {
   ClimateDatabase,
   outdoorLocationKey,
 } from "../db.js";
@@ -32,7 +40,11 @@ import {
   type HybridArchiveReadState,
 } from "../timeseries/read-facade.js";
 
-export const DAILY_ANALYTICS_ALGORITHM_VERSION = "calendar-peer-findings-v3.1.0";
+export const DAILY_ANALYTICS_ALGORITHM_VERSION = "calendar-peer-findings-v4.0.0";
+
+const DAY_MS = 86_400_000;
+/** Edge days shorter than this say little about a whole day's level. */
+const MIN_DAY_MS = 20 * 3_600_000;
 
 export const HISTORY_LIMIT = 100_000;
 
@@ -66,11 +78,28 @@ export interface PeriodValue {
   sampleCount: number;
   coverage: number | null;
   statistic: AnalyticsFindingStatistic;
+  /** Daily levels for the spread and weather estimates; absent for event counts. */
+  daily?: DailyLevel[];
+  /** A sum before it was scaled up for missing coverage. */
+  unscaledValue?: number;
 }
 
 export interface RankedFinding {
   finding: AnalyticsFinding;
   score: number;
+}
+
+/** A compared series: it always counts towards the false-discovery control, even when too small to report. */
+export interface TestedComparison {
+  pValue: number;
+  ranked: RankedFinding | null;
+}
+
+export interface ComparisonWeather {
+  driver: WeatherDriver;
+  baseTemperatureC: number;
+  /** Hourly outdoor means by period key. */
+  hourly: ReadonlyMap<string, HourlyWeather>;
 }
 
 export interface DailyAnalyticsFindingsRunSummary {
@@ -150,10 +179,29 @@ export function periodEvidence(period: PeerPeriod, value: PeriodValue): Analytic
     value: rounded(value.value),
     sampleCount: value.sampleCount,
     coverage: value.coverage === null ? null : rounded(Math.max(0, Math.min(1, value.coverage))),
+    ...(value.unscaledValue === undefined ? {} : { unscaledValue: rounded(value.unscaledValue) }),
   };
 }
 
-export function aggregateAnalyticsSeries(series: AnalyticsSeries): PeriodValue | null {
+/** Daily buckets clipped to the period, as levels: means and deltas as they are, sums scaled by their coverage. */
+function dailyLevels(
+  points: AnalyticsSeries["points"],
+  statistic: AnalyticsFindingStatistic,
+  window: Pick<PeerPeriod, "start" | "end">,
+): DailyLevel[] {
+  const periodStart = Date.parse(window.start);
+  const periodEnd = Date.parse(window.end);
+  return points.flatMap((point) => {
+    const bucket = Date.parse(point.timestamp);
+    const start = Math.max(bucket, periodStart);
+    const end = Math.min(bucket + DAY_MS, periodEnd);
+    if (point.value === null || end - start < MIN_DAY_MS || point.coverage < 0.5) return [];
+    return [{ start, end, level: statistic === "sum" ? point.value / Math.min(1, point.coverage) : point.value }];
+  });
+}
+
+/** `window` is the period of a one-day-resolution series; with it, daily levels are kept. */
+export function aggregateAnalyticsSeries(series: AnalyticsSeries, window?: Pick<PeerPeriod, "start" | "end">): PeriodValue | null {
   const points = series.points.filter((point) => point.value !== null);
   if (points.length === 0) return null;
   const aggregation = series.aggregation === "raw" ? "mean" : series.aggregation;
@@ -175,11 +223,16 @@ export function aggregateAnalyticsSeries(series: AnalyticsSeries): PeriodValue |
   const coverage = series.points.length === 0
     ? 0
     : series.points.reduce((total, point) => total + point.coverage, 0) / series.points.length;
+  const statistic: AnalyticsFindingStatistic = aggregation === "sum" ? "sum" : aggregation === "delta" ? "delta" : "mean";
+  // Power integrated into energy loses whatever a gap hides; a counter's delta catches up when readings resume.
+  const scale = statistic === "sum" && coverage > 0 && coverage < 1 ? 1 / coverage : 1;
   return {
-    value,
+    value: value * scale,
+    ...(scale === 1 ? {} : { unscaledValue: value }),
     sampleCount,
     coverage,
-    statistic: aggregation === "sum" ? "sum" : aggregation === "delta" ? "delta" : "mean",
+    statistic,
+    ...(window ? { daily: dailyLevels(series.points, statistic, window) } : {}),
   };
 }
 
@@ -194,6 +247,28 @@ export function electricityDefinition(definition: MeasurementDefinition): boolea
   return dimension === "power" || dimension === "energy"
     || id === "power" || id === "energy"
     || /(?:electric|power|energy|consumption)/u.test(id);
+}
+
+/** The smallest difference from `baseline` that `threshold` calls notable. */
+export function notableDifference(input: {
+  category: AnalyticsFinding["category"];
+  metric: string;
+  definition?: MeasurementDefinition;
+  baseline: number;
+}): number {
+  const metric = input.metric.toLowerCase();
+  if (input.category === "opening") return 3;
+  if (metric.includes("temperature")) return 1;
+  if (metric.includes("humidity")) return 5;
+  if (metric === "co2" || metric.includes("carbon")) return 100;
+  const relative = Math.abs(input.baseline);
+  if (input.category === "electricity") {
+    const unit = input.definition?.unit.toLowerCase() ?? "";
+    const minimum = unit.includes("kwh") ? 0.5 : unit === "w" || unit.includes("watt") ? 50 : 10 ** -(input.definition?.precision ?? 1);
+    return Math.max(minimum, relative * 0.1);
+  }
+  const minimum = Math.max(input.definition?.interpolationDelta ?? 0, 10 ** -(input.definition?.precision ?? 1));
+  return Math.max(minimum, relative * 0.2);
 }
 
 export function threshold(input: {
@@ -233,6 +308,11 @@ export function findingId(parts: readonly string[]): string {
   return createHash("sha256").update(parts.join("\u0000")).digest("hex").slice(0, 24);
 }
 
+/** Half the smallest step a definition's precision can show, the least spread a difference is judged against. */
+export function measurementResolution(definition?: MeasurementDefinition): number {
+  return 0.5 * 10 ** -(definition?.precision ?? 1);
+}
+
 export function comparisonFinding(input: {
   category: AnalyticsFinding["category"];
   subjectId: string;
@@ -244,10 +324,36 @@ export function comparisonFinding(input: {
   current: PeriodValue;
   baselinePeriods: PeerPeriod[];
   baseline: PeriodValue[];
-}): RankedFinding | null {
-  const baselineMedian = median(input.baseline.map((item) => item.value));
+  weather?: ComparisonWeather | null;
+}): TestedComparison | null {
+  // Sums and deltas compare as totals per day, so a leap day does not count as a difference.
+  const perDay = input.current.statistic === "sum" || input.current.statistic === "delta";
+  const days = (period: PeerPeriod) => (perDay ? (Date.parse(period.end) - Date.parse(period.start)) / DAY_MS : 1);
+  const observation = (period: PeerPeriod, value: PeriodValue): PeriodObservation => ({
+    start: Date.parse(period.start),
+    end: Date.parse(period.end),
+    level: value.value / days(period),
+    daily: value.daily ?? [],
+    weather: input.weather?.hourly.get(period.key) ?? null,
+  });
+  const test = input.current.statistic === "open-count"
+    ? peerCountTest(input.current.value, input.baseline.map((item) => item.value))
+    : peerLevelTest({
+        current: observation(input.currentPeriod, input.current),
+        baseline: input.baseline.map((value, index) => observation(input.baselinePeriods[index]!, value)),
+        resolution: measurementResolution(input.definition),
+        // Before enough years are seen, assume they vary by half a notable difference.
+        assumedYearSpread: notableDifference({
+          category: input.category,
+          metric: input.metric,
+          ...(input.definition ? { definition: input.definition } : {}),
+          baseline: median(input.baseline.map((item) => item.value)),
+        }) / 2 / days(input.currentPeriod),
+        adjustFor: input.weather ? { driver: input.weather.driver, baseTemperatureC: input.weather.baseTemperatureC } : null,
+      });
+  if (!test) return null;
+  const baselineMedian = median(test.baselineLevels.map((level, index) => level * days(input.baselinePeriods[index]!)));
   const difference = input.current.value - baselineMedian;
-  if (Math.abs(difference) < 1e-12) return null;
   const significance = threshold({
     category: input.category,
     metric: input.metric,
@@ -255,25 +361,41 @@ export function comparisonFinding(input: {
     baseline: baselineMedian,
     difference,
   });
-  if (!significance.notable) return null;
+  if (Math.abs(difference) < 1e-12 || !significance.notable) return { pValue: test.pValue, ranked: null };
   const baselineEvidence = input.baseline.map((value, index) => periodEvidence(input.baselinePeriods[index]!, value));
+  const weather = test.weather;
   return {
-    score: significance.score + (significance.strong ? 1 : 0),
-    finding: {
-      id: findingId([input.category, input.subjectId, input.metric, input.currentPeriod.key]),
-      category: input.category,
-      subjectId: input.subjectId,
-      subjectLabel: input.subjectLabel,
-      metric: input.metric,
-      unit: input.unit,
-      statistic: input.current.statistic,
-      direction: difference > 0 ? "higher" : "lower",
-      strength: significance.strong ? "strong" : "notable",
-      current: periodEvidence(input.currentPeriod, input.current),
-      baseline: baselineEvidence,
-      baselineMedian: rounded(baselineMedian),
-      absoluteDifference: rounded(Math.abs(difference)),
-      percentDifference: Math.abs(baselineMedian) < 1e-9 ? null : rounded(Math.abs(difference / baselineMedian) * 100, 3),
+    pValue: test.pValue,
+    ranked: {
+      score: significance.score + (significance.strong ? 1 : 0),
+      finding: {
+        id: findingId([input.category, input.subjectId, input.metric, input.currentPeriod.key]),
+        category: input.category,
+        subjectId: input.subjectId,
+        subjectLabel: input.subjectLabel,
+        metric: input.metric,
+        unit: input.unit,
+        statistic: input.current.statistic,
+        direction: difference > 0 ? "higher" : "lower",
+        strength: significance.strong ? "strong" : "notable",
+        current: periodEvidence(input.currentPeriod, input.current),
+        baseline: baselineEvidence,
+        baselineMedian: rounded(baselineMedian),
+        absoluteDifference: rounded(Math.abs(difference)),
+        percentDifference: Math.abs(baselineMedian) < 1e-9 ? null : rounded(Math.abs(difference / baselineMedian) * 100, 3),
+        zScore: rounded(test.zScore, 3),
+        spreadBasis: test.spreadBasis,
+        ...(weather ? {
+          weatherAdjustment: {
+            driver: weather.driver,
+            ...(weather.baseTemperatureC === undefined ? {} : { baseTemperatureC: weather.baseTemperatureC }),
+            slope: rounded(weather.slope),
+            currentDriver: rounded(weather.currentDriver, 3),
+            baselineDriverMedian: rounded(median(weather.baselineDrivers), 3),
+            unadjustedBaselineMedian: rounded(median(input.baseline.map((item) => item.value))),
+          },
+        } : {}),
+      },
     },
   };
 }

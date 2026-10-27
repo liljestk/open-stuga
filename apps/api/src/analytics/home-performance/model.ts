@@ -10,8 +10,10 @@ import type {
   OpeningStateObservation,
   OutdoorTemperatureSample,
   Sensor,
+  StaticParameter,
 } from "@climate-twin/contracts";
 import { HOME_PERFORMANCE_ALGORITHM_VERSION } from "@climate-twin/contracts";
+import { DEFAULT_COMFORT_BAND, roomComfortBands, type ComfortBand } from "../house-parameters.js";
 import {
   isTimeWithinPassiveIntervals,
   type PassiveInterval,
@@ -21,9 +23,9 @@ export { HOME_PERFORMANCE_ALGORITHM_VERSION };
 
 export const HOUR_MS = 3_600_000;
 
-export const COMFORT_TEMPERATURE_LOW_C = 18;
+export const COMFORT_TEMPERATURE_LOW_C = DEFAULT_COMFORT_BAND.lowC;
 
-export const COMFORT_TEMPERATURE_HIGH_C = 25;
+export const COMFORT_TEMPERATURE_HIGH_C = DEFAULT_COMFORT_BAND.highC;
 
 export const COMFORT_HUMIDITY_LOW_PCT = 30;
 
@@ -48,6 +50,9 @@ export interface HomePerformanceRoomExposure {
   temperatureDegreeHours: number;
   humidityOutsideGuideHours: number;
   co2AboveGuideHours: number;
+  /** The temperature band this room was judged against. */
+  comfortTemperatureLowC?: number;
+  comfortTemperatureHighC?: number;
 }
 
 export interface HomePerformanceExposure {
@@ -59,6 +64,8 @@ export interface HomePerformanceExposure {
   co2AboveGuideHours: number;
   worstRoom: HomePerformanceRoomExposure | null;
   rooms: HomePerformanceRoomExposure[];
+  /** Rooms left out of comfort exposure, such as saunas. */
+  excludedRooms?: string[];
 }
 
 export interface HomePerformanceRecovery {
@@ -82,6 +89,16 @@ export interface HomePerformanceEnergy {
   energyPerHeatingDegreeHour: number | null;
   comparisonChangePercent: number | null;
   source: "heating-meter" | "unclassified-electricity" | null;
+  /** Outdoor °C below which degree-hours accumulate: the house's parameter, 17 °C by default. */
+  heatingBaseTemperatureC?: number;
+  /** "regression" when the index is the fitted heating slope; "ratio" when too few days allow a fit. */
+  indexMethod?: "regression" | "ratio";
+  /** Fitted daily energy with no heating need. */
+  baseLoadKwhPerDay?: number | null;
+  /** 90% interval of the heating slope. */
+  heatingSlopeInterval?: { low: number; high: number } | null;
+  /** 90% interval of comparisonChangePercent. */
+  comparisonInterval?: { lowPercent: number; highPercent: number } | null;
 }
 
 export interface HomePerformanceMaintenance {
@@ -160,6 +177,8 @@ export interface HomePerformanceInput {
   sensorScopeTruncated?: boolean;
   evidenceScopeTruncated?: boolean;
   hvacPassiveIntervals?: readonly PassiveInterval[];
+  /** House and room static parameters: heating base, comfort bands, excluded rooms. */
+  parameters?: readonly StaticParameter[];
 }
 
 export interface ValuePoint {
@@ -250,6 +269,7 @@ export function addExposure(
   sensorId: string,
   metric: string,
   series: AnalyticsSeries,
+  band: ComfortBand = DEFAULT_COMFORT_BAND,
 ): void {
   if (series.summary.count === 0) return;
   const hoursPerPoint = resolutionHours(series);
@@ -261,10 +281,10 @@ export function addExposure(
     if (hours <= 0) continue;
     accumulator.evaluatedHours += hours;
     if (metric === "temperature") {
-      const distance = point.value < COMFORT_TEMPERATURE_LOW_C
-        ? COMFORT_TEMPERATURE_LOW_C - point.value
-        : point.value > COMFORT_TEMPERATURE_HIGH_C
-          ? point.value - COMFORT_TEMPERATURE_HIGH_C
+      const distance = point.value < band.lowC
+        ? band.lowC - point.value
+        : point.value > band.highC
+          ? point.value - band.highC
           : 0;
       accumulator.temperatureDegreeHours += distance * hours;
       if (distance === 0) accumulator.withinHours += hours;
@@ -286,19 +306,24 @@ export function roomKey(sensor: Sensor): string {
 
 export function exposureResult(input: HomePerformanceInput): HomePerformanceExposure {
   const home = newExposureAccumulator();
-  const rooms = new Map<string, { label: string; accumulator: ExposureAccumulator }>();
+  const rooms = new Map<string, { label: string; band: ComfortBand; accumulator: ExposureAccumulator }>();
+  const bands = input.house ? roomComfortBands(input.house, input.parameters ?? []) : new Map<string, ComfortBand | null>();
+  const excluded = new Set<string>();
   for (const sensor of input.sensors.filter((candidate) => candidate.enabled)) {
+    const label = sensor.room.trim() || sensor.name;
+    const band = sensor.roomId && bands.has(sensor.roomId) ? bands.get(sensor.roomId)! : DEFAULT_COMFORT_BAND;
+    if (band === null) {
+      excluded.add(label);
+      continue;
+    }
     const key = roomKey(sensor);
-    const room = rooms.get(key) ?? {
-      label: sensor.room.trim() || sensor.name,
-      accumulator: newExposureAccumulator(),
-    };
+    const room = rooms.get(key) ?? { label, band, accumulator: newExposureAccumulator() };
     rooms.set(key, room);
     for (const metric of ["temperature", "humidity", "co2"]) {
       const series = seriesFor(input.climate, sensor.id, metric);
       if (!series) continue;
-      addExposure(home, sensor.id, metric, series);
-      addExposure(room.accumulator, sensor.id, metric, series);
+      addExposure(home, sensor.id, metric, series, band);
+      addExposure(room.accumulator, sensor.id, metric, series, band);
     }
   }
   const formattedRooms = [...rooms.entries()].flatMap(([id, room]) => {
@@ -313,6 +338,8 @@ export function exposureResult(input: HomePerformanceInput): HomePerformanceExpo
       temperatureDegreeHours: round(accumulator.temperatureDegreeHours, 1),
       humidityOutsideGuideHours: round(accumulator.humidityOutsideGuideHours, 1),
       co2AboveGuideHours: round(accumulator.co2AboveGuideHours, 1),
+      comfortTemperatureLowC: room.band.lowC,
+      comfortTemperatureHighC: room.band.highC,
     }];
   }).sort((left, right) => left.guideRangePercent - right.guideRangePercent || compareStable(left.label, right.label));
   const observedHours = home.evaluatedHours / Math.max(1, home.supportedSeries.size);
@@ -325,6 +352,7 @@ export function exposureResult(input: HomePerformanceInput): HomePerformanceExpo
     co2AboveGuideHours: round(home.co2AboveGuideHours, 1),
     worstRoom: formattedRooms[0] ?? null,
     rooms: formattedRooms,
+    ...(excluded.size > 0 ? { excludedRooms: [...excluded].sort(compareStable) } : {}),
   };
 }
 

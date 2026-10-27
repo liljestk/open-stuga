@@ -410,6 +410,7 @@ export async function getHomePerformance(
     to,
     generatedAt: input.evaluatedAt,
     hvacPassiveIntervals: heatPumpWindow.passiveIntervals,
+    parameters: input.database.listParameters(input.house.id),
   });
   input.signal?.throwIfAborted();
   const limitations = result.limitations.filter((item): item is HomePerformanceLimitation => (

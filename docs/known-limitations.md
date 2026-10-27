@@ -15,9 +15,12 @@ system described in the roadmap.
   scientific derived metrics, statistical anomaly models, topology models,
   validated forecasts, and predictive-maintenance signals remain deferred.
 - Daily findings compare the completed month-to-date span with at most five
-  matching prior years and retain only the latest snapshot per Home. Their
-  fixed practical thresholds are useful for surfacing candidates, not p-values,
-  diagnoses, causal explanations, or proof that a change is abnormal.
+  matching prior years and retain only the latest snapshot per Home. A finding
+  must pass a practical threshold and a false-discovery-controlled test against
+  the peer years' spread. Electricity and temperature are adjusted only for
+  outdoor temperature, not for occupancy, tariffs or equipment changes. With one
+  or two peer years the year-to-year spread is assumed rather than measured.
+  Findings are not diagnoses or causal explanations.
 - A daily Home run examines at most 80 recorded sensor/measurement series and
   retains at most 16 ranked findings. Electricity series are prioritized and
   the UI warns when the scope bound excluded other series.

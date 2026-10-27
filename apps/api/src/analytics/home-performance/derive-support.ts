@@ -11,7 +11,9 @@ import type {
   OutdoorTemperatureSample,
   Sensor,
 } from "@climate-twin/contracts";
-import { COMFORT_TEMPERATURE_LOW_C, ENERGY_MIN_BUCKET_COVERAGE, HOUR_MS, HomePerformanceEnergy, HomePerformanceInput, HomePerformanceMaintenance, HomePerformanceOpeningEffectiveness, HomePerformanceRecovery, RECOVERY_MAX_POINT_GAP_MS, RECOVERY_MIN_BUCKET_COVERAGE, RecoveryEvidence, ValuePoint, absoluteHumidity, compareStable, contiguousRecoveryEvidence, median, resolutionHours, round, seriesFor, values } from "./model.js";
+import { DEFAULT_HEATING_BASE_TEMPERATURE_C, heatingBaseTemperature } from "../house-parameters.js";
+import { dailyEnergy, heatingRegression, slopeComparison, studentT95 } from "./energy-index.js";
+import { ENERGY_MIN_BUCKET_COVERAGE, HOUR_MS, HomePerformanceEnergy, HomePerformanceInput, HomePerformanceMaintenance, HomePerformanceOpeningEffectiveness, HomePerformanceRecovery, RECOVERY_MAX_POINT_GAP_MS, RECOVERY_MIN_BUCKET_COVERAGE, RecoveryEvidence, ValuePoint, absoluteHumidity, compareStable, contiguousRecoveryEvidence, median, resolutionHours, round, seriesFor, values } from "./model.js";
 import { averageWattsToKwh } from "@climate-twin/analytics-kernel";
 import { deriveOpeningActivity } from "../temporal/opening-intervals.js";
 
@@ -295,43 +297,42 @@ export function energyResult(input: HomePerformanceInput): HomePerformanceEnergy
   const source = selected.length === 0 ? null : tagged.length > 0 ? "heating-meter" : "unclassified-electricity";
   const energy = combinedEnergyByHour(selected.map((item) => item.hours));
   const outdoor = outdoorHours(input.outdoor);
-  const midpoint = (Date.parse(input.from) + Date.parse(input.to)) / 2;
-  const totals = [
-    { energy: 0, degreeHours: 0, overlapHours: 0 },
-    { energy: 0, degreeHours: 0, overlapHours: 0 },
-  ];
+  const baseTemperatureC = input.house ? heatingBaseTemperature(input.parameters ?? [], input.house.id) : DEFAULT_HEATING_BASE_TEMPERATURE_C;
+  let energyKwh = 0;
+  let heatingDegreeHours = 0;
+  let overlapHours = 0;
   for (const [hour, outsideC] of outdoor) {
-    const energyKwh = energy.get(hour);
-    if (energyKwh === undefined) continue;
-    const degreeHours = Math.max(0, COMFORT_TEMPERATURE_LOW_C - outsideC);
-    const half = hour < midpoint ? 0 : 1;
-    totals[half]!.degreeHours += degreeHours;
-    totals[half]!.energy += energyKwh;
-    totals[half]!.overlapHours += 1;
+    const energyHour = energy.get(hour);
+    if (energyHour === undefined) continue;
+    heatingDegreeHours += Math.max(0, baseTemperatureC - outsideC);
+    energyKwh += energyHour;
+    overlapHours += 1;
   }
-  const energyKwh = totals[0]!.energy + totals[1]!.energy;
-  const heatingDegreeHours = totals[0]!.degreeHours + totals[1]!.degreeHours;
-  const overlapHours = totals[0]!.overlapHours + totals[1]!.overlapHours;
   const hasOverlap = overlapHours > 0;
-  const index = heatingDegreeHours >= 24 && overlapHours >= 24
-    ? energyKwh / heatingDegreeHours
-    : null;
-  const firstIndex = totals[0]!.degreeHours >= 12 && totals[0]!.overlapHours >= 12
-    ? totals[0]!.energy / totals[0]!.degreeHours
-    : null;
-  const secondIndex = totals[1]!.degreeHours >= 12 && totals[1]!.overlapHours >= 12
-    ? totals[1]!.energy / totals[1]!.degreeHours
-    : null;
-  const comparison = firstIndex !== null && secondIndex !== null && firstIndex !== 0
-    ? (secondIndex - firstIndex) / firstIndex * 100
-    : null;
+  const days = dailyEnergy(energy, outdoor, Date.parse(input.from), baseTemperatureC);
+  const regression = heatingRegression(days);
+  const fitted = regression !== null && regression.slope >= 0 ? regression : null;
+  // Too few days with differing heating need to separate base load from heating: fall back to the plain ratio.
+  const ratio = heatingDegreeHours >= 24 && overlapHours >= 24 ? energyKwh / heatingDegreeHours : null;
+  const index = fitted ? fitted.slope : ratio;
+  const halfWidth = fitted ? studentT95(fitted.days - 2) * fitted.standardError : null;
+  const comparison = fitted ? slopeComparison(days, (Date.parse(input.from) + Date.parse(input.to)) / 2) : null;
   return {
     state: index === null ? hasOverlap ? "limited" : "unavailable" : source === "heating-meter" ? "ready" : "limited",
     energyKwh: hasOverlap ? round(energyKwh, 2) : null,
     heatingDegreeHours: round(heatingDegreeHours, 1),
     energyPerHeatingDegreeHour: index === null ? null : round(index, 3),
-    comparisonChangePercent: comparison === null ? null : round(comparison, 0),
+    comparisonChangePercent: comparison === null ? null : round(comparison.changePercent, 0),
     source,
+    heatingBaseTemperatureC: baseTemperatureC,
+    indexMethod: fitted ? "regression" : "ratio",
+    baseLoadKwhPerDay: fitted ? round(fitted.baseLoadKwhPerDay, 2) : null,
+    heatingSlopeInterval: fitted && halfWidth !== null
+      ? { low: round(fitted.slope - halfWidth, 4), high: round(fitted.slope + halfWidth, 4) }
+      : null,
+    comparisonInterval: comparison
+      ? { lowPercent: round(comparison.lowPercent, 0), highPercent: round(comparison.highPercent, 0) }
+      : null,
   };
 }
 

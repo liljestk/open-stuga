@@ -1,0 +1,18 @@
+export const fiAnalyticsQuality = {
+  "analytics.summaryBasis.base": "Tunnusluvut lasketaan jaksoista, joiden pituus on {resolution}, joten ne eivät muutu kaavion tarkkuuden mukaan.",
+  "analytics.summaryBasis.display": "Tunnusluvut lasketaan näytetyistä pisteistä.",
+  "analytics.summaryBasis.expectedInterval": "Kattavuutta verrataan tavalliseen {seconds} s:n raportointiväliin.",
+  "analytics.findingsWeatherDegreeHours": "Vertailutaso on siirretty tämän jakson säähän: {current} lämmitystarveastetuntia vuorokaudessa alle {base} °C:n, aiempina vuosina {baseline}. Ennen korjausta taso oli {unadjusted}.",
+  "analytics.findingsWeatherOutdoor": "Vertailutaso on siirretty tämän jakson säähän: ulkolämpötilan keskiarvo {current} °C, aiempina vuosina {baseline} °C. Ennen korjausta taso oli {unadjusted}.",
+  "analytics.findingsSignificance": "Ero on {z}-kertainen tavalliseen vaihteluun nähden ({basis}); monivertailukorjattu p = {q}.",
+  "analytics.findingsSpread_between-years": "aiempien vuosien välillä",
+  "analytics.findingsSpread_assumed": "oletettu merkittävän eron perusteella, koska aiempia vuosia on vähän",
+  "analytics.findingsSpread_day-to-day": "päivästä toiseen",
+  "analytics.findingsSpread_resolution": "anturin tarkkuudella",
+  "analytics.findingsSpread_counts": "tämän kokoisille määrille",
+  "analytics.findingsScaled": "{value} (skaalattu arvosta {raw} puuttuvien lukemien vuoksi)",
+  "analytics.findingsTested": "Vertailtiin {count} sarjaa; havainnoista enintään noin joka kymmenes voi olla sattumaa.",
+  "performance.energy.regression": "Peruskuorma {base} kWh vuorokaudessa ja lisäksi {slope} kWh lämmitystarveastetuntia kohden alle {temperature} °C:n (90 %:n väli {low}–{high}).",
+  "performance.energy.comparison": "Lämmityksen kulmakerroin muuttui {change} % jakson puoliskojen välillä (90 %:n väli {low} %…{high} %).",
+  "performance.exposure.excluded": "Mukavuusaltistuksesta jätettiin pois: {rooms}.",
+} as const;
