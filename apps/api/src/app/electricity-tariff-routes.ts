@@ -1,3 +1,4 @@
+import { withResponseSignal } from "./response-signal.js";
 import type { ElectricityInvoiceInput, ElectricityTariffVersion } from "@climate-twin/contracts";
 import { invoiceRange, reconcileInvoice } from "../electricity/invoice-reconciliation.js";
 import {
@@ -130,26 +131,19 @@ export function registerElectricityTariffRoutes(
     const house = context.database.getHouse(invoice.houseId);
     const range = house ? invoiceRange(invoice, house.timezone) : null;
     if (!house || !range) throw new HttpError(409, "INVOICE_PERIOD_UNAVAILABLE", "The invoice period cannot be resolved for its Home");
-    const abortController = new AbortController();
-    const abortOnClose = () => abortController.abort();
-    response.once("close", abortOnClose);
-    try {
-      const summary = await context.analyticsWorkLimiter.run(
-        "energy-summary",
-        () => context.energyCost.summarize({
-          houseId: house.id,
-          // The invoice belongs to this Property's contract and price feed.
-          propertyId,
-          sensorIds: access.houseSensorIds(house.id, response),
-          ...range,
-          signal: abortController.signal,
-        }),
-        abortController.signal,
-      );
-      response.setHeader("cache-control", "private, no-store");
-      response.json({ reconciliation: reconcileInvoice(invoice, summary) });
-    } finally {
-      response.off("close", abortOnClose);
-    }
+    const summary = await withResponseSignal(response, (signal) => context.analyticsWorkLimiter.run(
+      "energy-summary",
+      () => context.energyCost.summarize({
+        houseId: house.id,
+        // The invoice belongs to this Property's contract and price feed.
+        propertyId,
+        sensorIds: access.houseSensorIds(house.id, response),
+        ...range,
+        signal,
+      }),
+      signal,
+    ));
+    response.setHeader("cache-control", "private, no-store");
+    response.json({ reconciliation: reconcileInvoice(invoice, summary) });
   });
 }

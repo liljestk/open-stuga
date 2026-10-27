@@ -1,3 +1,4 @@
+import { withSignal } from "@climate-twin/contracts";
 import type {
   IntegrationDiscoveryJob,
   IntegrationDiscoveryResult,
@@ -8,7 +9,6 @@ import {
   INTEGRATION_DISCOVERY_REQUEST_TIMEOUT_MS,
   request,
 } from "./support";
-import { withSignal } from "./support/signal";
 
 interface DiscoveryJobEnvelope {
   job: IntegrationDiscoveryJob;

@@ -1,3 +1,4 @@
+import { withSignal } from "@climate-twin/contracts";
 import { maximum, minimum } from "@climate-twin/analytics-kernel";
 import type {
   MeasurementSample,
@@ -397,7 +398,7 @@ async function calibrateAsync(
   const quality = precheck(input);
   if (isCalibrationResult(quality)) return quality;
   const fit = await runStepsAsync(calibrateRelaxationSteps(input.transitions, FIT_OPTIONS), {
-    ...(options.signal ? { signal: options.signal } : {}),
+    ...withSignal(options.signal),
     yieldEvery: options.yieldEveryCandidates ?? 4,
   });
   options.signal?.throwIfAborted();

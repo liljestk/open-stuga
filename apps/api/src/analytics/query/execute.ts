@@ -1,3 +1,4 @@
+import { withSignal } from "@climate-twin/contracts";
 import type {
   AnalyticsQueryRequest,
   AnalyticsQueryResponse,
@@ -42,7 +43,7 @@ export async function executeAnalyticsQuery(
   if (rollupPlan) {
     const rollup = await input.telemetryReader.measurementAnalyticsRollup({
       ...rollupPlan,
-      ...(input.signal ? { signal: input.signal } : {}),
+      ...withSignal(input.signal),
     });
     if (rollup) {
       const summaryPlan = planSummaryRollup(rollupPlan);
@@ -51,7 +52,7 @@ export async function executeAnalyticsQuery(
       const summaryRead = summaryPlan
         ? await input.telemetryReader.measurementAnalyticsRollup({
           ...summaryPlan,
-          ...(input.signal ? { signal: input.signal } : {}),
+          ...withSignal(input.signal),
         }).catch((error: unknown) => {
           if (input.signal?.aborted) throw error;
           return null;
@@ -79,7 +80,7 @@ export async function executeAnalyticsQuery(
       sensorId: sensor.id, metric: metric as "energy" | "power",
       from: input.request.range.start, to: input.request.range.end,
       qualities: input.request.qualityFilter?.include ?? ["good", "estimated", "stale"],
-      ...(input.signal ? { signal: input.signal } : {}),
+      ...withSignal(input.signal),
     }),
   );
   const read = await input.telemetryReader.measurementWindow({
@@ -88,7 +89,7 @@ export async function executeAnalyticsQuery(
     from: input.request.range.start,
     to: new Date(Date.parse(input.request.range.end) - 1).toISOString(),
     limit: sourcePointLimit,
-    ...(input.signal ? { signal: input.signal } : {}),
+    ...withSignal(input.signal),
   });
   if (read.records.length >= sourcePointLimit) {
     throw new AnalyticsQueryError(

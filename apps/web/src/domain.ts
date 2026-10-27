@@ -91,8 +91,6 @@ export function preferredHouseForProperty(
     ?? candidates.sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id))[0];
 }
 
-const now = new Date();
-
 const groundFloor: Floor = {
   id: DEMO_GROUND_ID,
   name: "Ground floor",
@@ -160,7 +158,7 @@ const sensorSeeds = [
   ["sensor-guest", DEMO_UPPER_ID, "Guest room", "Guest room", 795, 500, 19.9, 50, 620],
 ] as const;
 
-export function createDemoState(): ClimateState {
+export function createDemoState(now = new Date()): ClimateState {
   const propertyCreatedAt = new Date(now.getTime() - 86400000 * 30).toISOString();
   const houses: House[] = [{
     id: DEMO_HOUSE_ID,

@@ -402,7 +402,8 @@ describe("useClimateData", () => {
     const demo = createDemoState();
     const { result } = renderHook(() => useClimateData());
     await waitFor(() => expect(result.current.loading).toBe(false));
-    await waitFor(() => expect(result.current.state.alerts).toEqual(demo.alerts));
+    // Each demo state is anchored to its own clock, so compare identity rather than timestamps.
+    await waitFor(() => expect(result.current.state.alerts.map((item) => item.id)).toEqual(demo.alerts.map((item) => item.id)));
     const realIntegration: IntegrationStatus = {
       ...demo.integration,
       mock: { ...demo.integration.mock, enabled: false, mode: "real", activatedAt: "2026-07-16T10:00:00.000Z" },

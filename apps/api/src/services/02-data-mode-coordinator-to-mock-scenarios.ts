@@ -1,3 +1,4 @@
+import { withSignal } from "@climate-twin/contracts";
 import type {
   ForecastPoint,
   MeasurementForecastPoint,
@@ -272,7 +273,7 @@ async function measurementForecast(
 ): Promise<MeasurementForecast> {
   try {
     return await new MeasurementForecastService(database, telemetryReader).forecast({
-      sensorId, metric, hours, ...(signal ? { signal } : {}),
+      sensorId, metric, hours, ...withSignal(signal),
     });
   } catch (error) {
     if (error instanceof ForecastUnavailableError) throw new MeasurementValidationError(error.code, error.status, error.message);

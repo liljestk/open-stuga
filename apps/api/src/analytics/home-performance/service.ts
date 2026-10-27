@@ -7,9 +7,7 @@ import type {
   MeasurementDefinition,
   Sensor,
 } from "@climate-twin/contracts";
-import {
-  HOME_PERFORMANCE_ALGORITHM_VERSION,
-} from "@climate-twin/contracts";
+import { HOME_PERFORMANCE_ALGORITHM_VERSION, withSignal } from "@climate-twin/contracts";
 import type { ClimateDatabase } from "../../db.js";
 import { outdoorLocationKey } from "../../db.js";
 import {
@@ -179,7 +177,7 @@ async function analyticsEvidence(input: {
       definitions: input.definitions,
       telemetryReader: input.service.telemetryReader,
       generatedAt: input.service.evaluatedAt,
-      ...(input.service.signal ? { signal: input.service.signal } : {}),
+      ...withSignal(input.service.signal),
     }));
   }
   input.service.signal?.throwIfAborted();
@@ -303,7 +301,7 @@ export async function getHomePerformance(
           from,
           to,
           limit: OUTDOOR_LIMIT,
-          ...(input.signal ? { signal: input.signal } : {}),
+          ...withSignal(input.signal),
         })
       : Promise.resolve(null), input.signal),
   ]);
@@ -313,14 +311,14 @@ export async function getHomePerformance(
         houseId: input.house.id,
         at: recoveryFrom,
         limit: OPENING_LIMIT,
-        ...(input.signal ? { signal: input.signal } : {}),
+        ...withSignal(input.signal),
       }),
       input.telemetryReader.openingStateHistory({
         houseId: input.house.id,
         from: recoveryFrom,
         to,
         limit: OPENING_LIMIT,
-        ...(input.signal ? { signal: input.signal } : {}),
+        ...withSignal(input.signal),
       }),
     ]), input.signal);
   input.signal?.throwIfAborted();

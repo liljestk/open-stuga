@@ -1,3 +1,4 @@
+import { withSignal } from "@climate-twin/contracts";
 import { createHash } from "node:crypto";
 import type { EnergyMeterRole, HomeEnergySummary } from "@climate-twin/contracts";
 import { LruTtlCache, type CacheStats } from "./cache.js";
@@ -71,7 +72,7 @@ export class EnergySummaryCache {
     ), {
       serveStale: false,
       ttlMs: SUMMARY_TTL_MS,
-      ...(request.signal ? { signal: request.signal } : {}),
+      ...withSignal(request.signal),
     });
     if (!summary.complete && !hit && !coalesced) this.#cache.set(key, summary, { ttlMs: INCOMPLETE_TTL_MS });
     return { summary, source: hit ? "hit" : coalesced ? "coalesced" : "miss" };

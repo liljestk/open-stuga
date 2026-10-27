@@ -26,9 +26,8 @@ const config: AppConfig = {
   tpLinkPollIntervalMs: 10_000,
   tpLinkPython: "python",
   tpLinkBridgeScript: "apps/api/python/tp_link_bridge.py",
-  alertWebhookUrl: null,
-  alertWebhookBearerToken: null,
   corsOrigin: null,
+  localAuthTestBypass: true,
 };
 
 function syntheticSeries(hours = 96, intervalMinutes = 15): { indoor: MeasurementSample[]; outdoor: OutdoorTemperatureSample[] } {

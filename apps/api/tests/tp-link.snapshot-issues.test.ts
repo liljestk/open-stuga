@@ -29,9 +29,8 @@ function config(directory: string): AppConfig {
     tpLinkPollIntervalMs: 2_000,
     tpLinkPython: process.execPath,
     tpLinkBridgeScript: "unused.py",
-    alertWebhookUrl: null,
-    alertWebhookBearerToken: null,
     corsOrigin: null,
+    localAuthTestBypass: true,
   };
 }
 

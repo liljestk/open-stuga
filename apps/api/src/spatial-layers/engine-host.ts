@@ -1,3 +1,4 @@
+import { withSignal } from "@climate-twin/contracts";
 import {
   immutableDependencySnapshots,
   type SpatialLayerEngineManifest,
@@ -338,7 +339,7 @@ export class EngineHost {
       configuration,
       bindings,
       currentProjection,
-      ...(signal ? { signal } : {}),
+      ...withSignal(signal),
     });
     signal?.throwIfAborted();
     return {

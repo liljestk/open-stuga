@@ -1,3 +1,4 @@
+import { withSignal } from "@climate-twin/contracts";
 import type { HomeEnergyProjection, House, Sensor } from "@climate-twin/contracts";
 import { LruTtlCache, type CacheStats } from "../cache.js";
 import type { AnalyticsWorkLimiter } from "../analytics/work-limiter.js";
@@ -46,6 +47,6 @@ export class EnergyProjectionCache {
       "energy-projection",
       () => this.#service.project(house, sensors, loadSignal),
       loadSignal,
-    ), { serveStale: false, ...(signal ? { signal } : {}) });
+    ), { serveStale: false, ...withSignal(signal) });
   }
 }

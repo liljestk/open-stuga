@@ -1,3 +1,4 @@
+import { withSignal } from "@climate-twin/contracts";
 import type {
   MeasurementSample,
   OpeningStateObservation,
@@ -459,7 +460,7 @@ export class HybridTelemetryReader {
         to: isNewestChunk ? input.to : new Date(chunkStartMs + chunkMs).toISOString(),
         bucketSeconds: input.bucketSeconds, limit: needed,
         excludeSynthetic: input.excludeSynthetic, toExclusive: !isNewestChunk,
-        ...(input.signal ? { signal: input.signal } : {}),
+        ...withSignal(input.signal),
       });
       const kept = input.bucketFilter ? rows.filter(input.bucketFilter) : rows;
       if (kept.length) collected = [...kept, ...collected];
@@ -581,7 +582,7 @@ export class HybridTelemetryReader {
               from: query.from,
               to: query.to,
               limit: MAX_WINDOW_LIMIT,
-              ...(query.signal ? { signal: query.signal } : {}),
+              ...withSignal(query.signal),
               ...(query.timeoutMs === undefined ? {} : { timeoutMs: query.timeoutMs }),
             });
             if (raw.length >= MAX_WINDOW_LIMIT) throw error;
@@ -593,7 +594,7 @@ export class HybridTelemetryReader {
                 from: query.from,
                 to: query.to,
                 limit: MAX_HISTORY_LIMIT,
-                ...(query.signal ? { signal: query.signal } : {}),
+                ...withSignal(query.signal),
                 ...(query.timeoutMs === undefined ? {} : { timeoutMs: query.timeoutMs }),
               })
             ));
@@ -643,7 +644,7 @@ export class HybridTelemetryReader {
             from: query.from,
             to: query.to,
             limit: Math.min(limit, MAX_HISTORY_LIMIT),
-            ...(query.signal ? { signal: query.signal } : {}),
+            ...withSignal(query.signal),
             ...(query.timeoutMs === undefined ? {} : { timeoutMs: query.timeoutMs }),
           })
         ));
@@ -875,7 +876,7 @@ export class HybridTelemetryReader {
     limit: number,
     signal: AbortSignal | undefined,
   ): Promise<MeasurementSample[]> {
-    return this.#local.measurementWindowAsync({ sensorIds, metrics, from, to, limit, ...(signal ? { signal } : {}) });
+    return this.#local.measurementWindowAsync({ sensorIds, metrics, from, to, limit, ...withSignal(signal) });
   }
 
   async #read<T extends { source: string }>(input: {

@@ -37,7 +37,7 @@ registerTpLinkConnectionBridgeMethods({
       preferredConnection?: { username: string; password: string },
     ): Promise<TpLinkSourceDiscoveryResult> {
       return new Promise((resolve, reject) => {
-        const configuredTargets = process.env.TP_LINK_DISCOVERY_TARGETS?.trim();
+        const configuredTargets = (this[tpLinkConnectionBridgeState].config.tpLinkDiscoveryTargets ?? []).join(",");
         const savedConnection = this[tpLinkConnectionBridgeState].config.tpLinkConnections?.[0];
         const recoveryHostList = (this[tpLinkConnectionBridgeState].config.tpLinkConnections ?? []).map((connection) => connection.host)
           .concat(this[tpLinkConnectionBridgeState].config.tpLinkHost ?? []).filter(Boolean);
@@ -189,7 +189,7 @@ registerTpLinkConnectionBridgeMethods({
   spawnHelper(this: TpLinkConnectionBridgeInternals): void {
       if (!this[tpLinkConnectionBridgeState].running || this[tpLinkConnectionBridgeState].child || !this[tpLinkConnectionBridgeState].config.tpLinkHost || !this[tpLinkConnectionBridgeState].config.tpLinkUsername || !this[tpLinkConnectionBridgeState].config.tpLinkPassword) return;
       this[tpLinkConnectionBridgeState].stderr = "";
-      const configuredTargets = process.env.TP_LINK_DISCOVERY_TARGETS?.trim();
+      const configuredTargets = (this[tpLinkConnectionBridgeState].config.tpLinkDiscoveryTargets ?? []).join(",");
       const discoveryTargets = configuredTargets
         || tpLinkDiscoveryTargets([this[tpLinkConnectionBridgeState].config.tpLinkHost]).join(",");
       const contactEventsEnabled = this.configuredOpeningTargets().length > 0;

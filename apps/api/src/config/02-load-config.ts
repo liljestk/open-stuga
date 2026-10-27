@@ -228,9 +228,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     : storedWebhookDestinations
       ? "protected-file"
       : null;
-  const primaryWebhook = webhookDestinations.find((destination) => destination.id === "primary")
-    ?? webhookDestinations[0]
-    ?? null;
   const configuredWebhookAllowedHosts = optional(env.ALERT_WEBHOOK_ALLOWED_HOSTS)?.split(",")
     .map((host) => host.trim().toLowerCase()).filter(Boolean);
   const alertWebhookAllowedHosts = [...new Set(configuredWebhookAllowedHosts
@@ -379,6 +376,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     tpLinkPollIntervalMs: positiveInteger(env.TP_LINK_POLL_INTERVAL_MS, 2_000),
     tpLinkPython: optional(env.TP_LINK_PYTHON) ?? (process.platform === "win32" ? "python" : "python3"),
     tpLinkBridgeScript: resolve(env.TP_LINK_BRIDGE_SCRIPT ?? "./apps/api/python/tp_link_bridge.py"),
+    tpLinkDiscoveryTargets: discoveryTargetList(env.TP_LINK_DISCOVERY_TARGETS),
     greeConnections: (stored.greeConnections ?? []).map((connection) => ({ ...connection })),
     greePollIntervalMs: boundedInteger(
       env.GREE_POLL_INTERVAL_MS,
@@ -391,8 +389,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       ?? optional(env.TP_LINK_PYTHON)
       ?? (process.platform === "win32" ? "python" : "python3"),
     greeBridgeScript: resolve(env.GREE_BRIDGE_SCRIPT ?? "./apps/api/python/gree_bridge.py"),
-    greeDiscoveryTargets: [...new Set((optional(env.GREE_DISCOVERY_TARGETS) ?? "")
-      .split(",").map((target) => target.trim()).filter(Boolean))],
+    greeDiscoveryTargets: discoveryTargetList(env.GREE_DISCOVERY_TARGETS),
     tuyaConnections: (stored.tuyaConnections ?? []).map((connection) => ({ ...connection })),
     tuyaPollIntervalMs: boundedInteger(
       env.TUYA_POLL_INTERVAL_MS,
@@ -439,10 +436,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     tapoHistoryGmailRefreshToken: tapoGmail?.[2] ?? null,
     tapoHistoryPrivateEndpoint: tapoPrivate ? httpEndpoint(tapoPrivate[0]!, "TAPO_HISTORY_PRIVATE_ENDPOINT") : null,
     tapoHistoryPrivateToken: tapoPrivate?.[1] ?? null,
-    alertWebhookUrl: primaryWebhook?.url ?? null,
-    alertWebhookBearerToken: primaryWebhook?.bearerToken ?? null,
     alertWebhookDestinations: webhookDestinations.map((destination) => ({ ...destination })),
-    alertWebhookSigningSecret: primaryWebhook?.signingSecret ?? null,
     alertWebhookAllowedHosts,
     alertWebhookSource: webhookSource,
     telegramBotToken: telegram?.botToken ?? null,
@@ -486,4 +480,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     ),
     electricityAllowPrivateEndpoints: booleanValue(env.ELECTRICITY_ALLOW_PRIVATE_ENDPOINTS, false),
   };
+}
+
+/** A comma-separated list of discovery addresses, trimmed and de-duplicated. */
+function discoveryTargetList(value: string | undefined): string[] {
+  return [...new Set((optional(value) ?? "").split(",").map((target) => target.trim()).filter(Boolean))];
 }

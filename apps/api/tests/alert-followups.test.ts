@@ -6,9 +6,7 @@ import { normalizeAlertDeliveryPolicy } from "../src/notification-policy.js";
 import { AlertEngine } from "../src/services.js";
 
 const webhookConfig = {
-  alertWebhookUrl: "https://alerts.example.test/stugu",
-  alertWebhookBearerToken: null,
-  alertWebhookSigningSecret: "test-signing-secret",
+  alertWebhookDestinations: [{ id: "primary", url: "https://alerts.example.test/stugu", signingSecret: "test-signing-secret" }],
   telegramBotToken: null,
   telegramChatId: null,
 } as unknown as AppConfig;
@@ -101,7 +99,7 @@ describe("alert follow-ups and maintenance reminders", () => {
       database.updateMaintenanceTask(completed.id, { status: "completed", completionNote: "Bled all radiators", baseRevision: completed.revision });
       const now = new Date("2026-07-18T12:00:00.000Z");
 
-      void new AlertEngine(database, new TelemetryBus(), { ...webhookConfig, alertWebhookUrl: null } as AppConfig).tick(now);
+      void new AlertEngine(database, new TelemetryBus(), { ...webhookConfig, alertWebhookDestinations: [] } as AppConfig).tick(now);
       expect(database.listNotificationDeliveries(100).filter((item) => item.subjectKind === "maintenance")).toEqual([]);
 
       void new AlertEngine(database, new TelemetryBus(), webhookConfig).tick(now);

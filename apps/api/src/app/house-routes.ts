@@ -1,3 +1,4 @@
+import { withResponseSignal } from "./response-signal.js";
 import { resolvePlanElementOpeningState, hasLocalHouseAuthority } from "@climate-twin/contracts";
 import type { Floor, House, OpeningStateObservationInput, HouseLocation, HouseMapPlacement } from "@climate-twin/contracts";
 import { HttpError, bodyObject, boundedQueryInteger, dateValue, houseLocationValue, houseMapPlacementValue, optionalResourceQuery, requiredNumber, requiredString, refreshAppleNotesStatus } from "./support/index.js";
@@ -79,15 +80,12 @@ export function registerHouseRoutes(context: ApiRouteRegistrationContext): void 
         }
         return { from, to, limit: boundedQueryInteger(request.query.limit, "limit", 1, 10_000) ?? 10_000 };
       })();
-      const abortController = new AbortController();
-      const abortOnClose = () => abortController.abort(new DOMException("Client disconnected", "AbortError"));
-      response.once("close", abortOnClose);
-      try {
+      await withResponseSignal(response, async (signal) => {
         const observations = (await context.telemetryReader.openingStateSnapshot({
           houseId,
           at,
           limit: 10_000,
-          signal: abortController.signal,
+          signal,
           timeoutMs: 5_000,
         })).records;
         const states = house.floors.flatMap((floor) => (floor.planElements ?? []).flatMap((element) => {
@@ -107,7 +105,7 @@ export function registerHouseRoutes(context: ApiRouteRegistrationContext): void 
           houseId,
           at: from,
           limit,
-          signal: abortController.signal,
+          signal,
           timeoutMs: 5_000,
         })).records;
         const history = (await context.telemetryReader.openingStateHistory({
@@ -115,16 +113,14 @@ export function registerHouseRoutes(context: ApiRouteRegistrationContext): void 
           from,
           to,
           limit: Math.max(1, limit - Math.min(initial.length, limit - 1)),
-          signal: abortController.signal,
+          signal,
           timeoutMs: 5_000,
         })).records;
         const mergedHistory = [...new Map([...initial, ...history].map((observation) => [observation.id, observation])).values()]
           .sort((left, right) => Date.parse(left.observedAt) - Date.parse(right.observedAt) || left.id.localeCompare(right.id))
           .slice(-limit);
         response.json({ snapshot: { houseId, at, states }, observations, history: mergedHistory, from, to });
-      } finally {
-        response.off("close", abortOnClose);
-      }
+      });
     });
   context.app.post(`${context.prefix}/houses/:id/opening-states`, (request, response) => {
       const houseId = request.params.id as string;

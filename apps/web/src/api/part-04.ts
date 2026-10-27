@@ -31,10 +31,9 @@ import {
   type SpatialInferenceSession,
   type SpatialInferenceSessionStartInput,
 } from "../spatialLayers";
-import { expectShape, isMeasurementForecastEvaluation, isMeasurementForecastPoints } from "@climate-twin/contracts";
+import { expectShape, isMeasurementForecastEvaluation, isMeasurementForecastPoints, withSignal } from "@climate-twin/contracts";
 import { entity, list, request, requestV2, spatialConfigurationResponse } from "./support";
 import type { HistoricalImportResult, MeasurementHistoryPage, SensorMeasurementPage } from "./support";
-import { withSignal } from "./support/signal";
 
 const measurementHistoryPageRequest = async (
     sensorId: string,

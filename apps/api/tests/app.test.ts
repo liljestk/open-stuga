@@ -502,7 +502,7 @@ describe("Climate Twin API v1", () => {
   it("validates outbound webhook URLs and does not accept orphan credentials", () => {
     expect(loadConfig({
       NODE_ENV: "test", DATABASE_PATH: ":memory:", ALERT_WEBHOOK_URL: "http://127.0.0.1:9000/hooks/",
-    }).alertWebhookUrl).toBe("http://127.0.0.1:9000/hooks");
+    }).alertWebhookDestinations).toEqual([{ id: "primary", url: "http://127.0.0.1:9000/hooks" }]);
     expect(() => loadConfig({
       NODE_ENV: "test", DATABASE_PATH: ":memory:", ALERT_WEBHOOK_URL: "file:///tmp/hook",
     })).toThrow(/valid HTTP\(S\) URL|must be an HTTP\(S\) URL/);
@@ -541,8 +541,6 @@ describe("Climate Twin API v1", () => {
       destinations[1],
     ]);
     expect(loaded.alertWebhookAllowedHosts).toEqual(["ops.example.test", "archive.example.test"]);
-    expect(loaded.alertWebhookUrl).toBe("https://ops.example.test/hooks");
-    expect(loaded.alertWebhookBearerToken).toBe("ops-bearer");
 
     expect(() => loadConfig({
       NODE_ENV: "test",

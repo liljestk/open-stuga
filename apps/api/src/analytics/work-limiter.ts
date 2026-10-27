@@ -1,3 +1,4 @@
+import { withSignal } from "@climate-twin/contracts";
 import type { CacheStats } from "../cache.js";
 
 export class AnalyticsCapacityError extends Error {
@@ -225,7 +226,7 @@ export class AnalyticsWorkLimiter {
         task,
         resolve,
         reject,
-        ...(signal ? { signal } : {}),
+        ...withSignal(signal),
         cancelled: false,
         started: false,
         priority,

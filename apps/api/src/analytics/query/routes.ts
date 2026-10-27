@@ -1,3 +1,4 @@
+import { withResponseSignal } from "../../app/response-signal.js";
 import type express from "express";
 import type { AnalyticsEntityScope, DataMode, Sensor } from "@climate-twin/contracts";
 import {
@@ -61,20 +62,6 @@ function resolveScopeSensors(
   });
 }
 
-async function untilClientCloses<T>(
-  response: express.Response,
-  operation: (signal: AbortSignal) => Promise<T>,
-): Promise<T> {
-  const abortController = new AbortController();
-  const abortOnClose = () => abortController.abort();
-  response.once("close", abortOnClose);
-  try {
-    return await operation(abortController.signal);
-  } finally {
-    response.off("close", abortOnClose);
-  }
-}
-
 export function registerAnalyticsQueryRoutes(context: AnalyticsQueryRouteContext): () => void {
   const queryCache = new AnalyticsQueryCache(context.database);
   const removeStats = context.analyticsWorkLimiter.registerCache("analytics-query", () => queryCache.stats());
@@ -90,7 +77,7 @@ export function registerAnalyticsQueryRoutes(context: AnalyticsQueryRouteContext
         }
       }
       const startedAt = performance.now();
-      const coverage = await untilClientCloses(response, (signal) => context.analyticsWorkLimiter.run(
+      const coverage = await withResponseSignal(response, (signal) => context.analyticsWorkLimiter.run(
         "analytics-coverage",
         () => context.telemetryReader.measurementCoverage({
           sensorIds: sensors.map((sensor) => sensor.id),
@@ -143,7 +130,7 @@ export function registerAnalyticsQueryRoutes(context: AnalyticsQueryRouteContext
       const expectedIntervalSeconds = context.database.expectedReportingIntervals(sensors.flatMap((sensor) => (
         definitions.map((definition) => ({ sensorId: sensor.id, metric: definition.id }))
       )));
-      const result = await untilClientCloses(response, (signal) => queryCache.getOrCompute(
+      const result = await withResponseSignal(response, (signal) => queryCache.getOrCompute(
         { request: analyticsRequest, sensorIds: sensors.map((sensor) => sensor.id), expectedIntervalSeconds },
         (loadSignal) => context.analyticsWorkLimiter.run(
           "analytics-query",

@@ -1,10 +1,15 @@
 import { loadConfig } from "./config.js";
 import { createApi } from "./app.js";
+import { ensureSqliteSpillDirectory } from "./db.js";
 import { startApiServer } from "./api-startup.js";
 import { shutdownHttpServer } from "./http-shutdown.js";
 
 const started = await startApiServer({
-  loadConfiguration: loadConfig,
+  loadConfiguration: () => {
+    const config = loadConfig();
+    ensureSqliteSpillDirectory(config.databasePath);
+    return config;
+  },
   createRuntime: config => createApi({ config, startBackground: true }),
   write: record => console.error(JSON.stringify(record)),
 }).catch(() => {

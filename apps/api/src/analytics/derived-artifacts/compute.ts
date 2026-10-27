@@ -4,7 +4,7 @@ import type {
   DurableDerivedAnalyticsKind,
   MeasurementSample,
 } from "@climate-twin/contracts";
-import { HOME_PERFORMANCE_ALGORITHM_VERSION } from "@climate-twin/contracts";
+import { HOME_PERFORMANCE_ALGORITHM_VERSION, withSignal } from "@climate-twin/contracts";
 import type { ClimateDatabase } from "../../db.js";
 import { outdoorLocationKey } from "../../db.js";
 import { addLocalDays, localDate, localDateStart } from "../../daily-analytics-findings.js";
@@ -154,7 +154,7 @@ export class DerivedAnalyticsComputer {
         telemetryReader: this.#telemetryReader,
         heatPumpConnectionIds: this.#heatPumpConnectionIds(house.id),
         evaluatedAt: job.cutoff,
-        ...(signal ? { signal } : {}),
+        ...withSignal(signal),
       });
     }
 
@@ -176,7 +176,7 @@ export class DerivedAnalyticsComputer {
     const coverage = (await this.#telemetryReader.measurementCoverage({
       sensorIds: sensors.map((sensor) => sensor.id),
       metrics: [...metrics],
-      ...(signal ? { signal } : {}),
+      ...withSignal(signal),
     })).records;
     const withTemperature = new Set(coverage
       .filter((item) => item.metric === "temperature")
@@ -205,7 +205,7 @@ export class DerivedAnalyticsComputer {
       from: new Date(Date.parse(from) - BOUNDARY_PADDING_MS).toISOString(),
       to: new Date(Date.parse(to) + BOUNDARY_PADDING_MS).toISOString(),
       limit: 10_000,
-      ...(signal ? { signal } : {}),
+      ...withSignal(signal),
     })).records;
     const indoorSamplesBySensor = new Map<string, MeasurementSample[]>();
     // Serial archive reads intentionally trade throughput for predictable Pi
@@ -219,7 +219,7 @@ export class DerivedAnalyticsComputer {
         to,
         bucketMinutes: 5,
         limitPerMetric: 5_000,
-        ...(signal ? { signal } : {}),
+        ...withSignal(signal),
       });
       indoorSamplesBySensor.set(sensor.id, read.records);
       await new Promise<void>((resolve) => setImmediate(resolve));

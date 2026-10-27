@@ -1,3 +1,4 @@
+import { withResponseSignal } from "../../app/response-signal.js";
 import type express from "express";
 import type { ClimateDatabase } from "../../db.js";
 import type { EnergySummaryCache } from "../../energy-summary-cache.js";
@@ -32,15 +33,8 @@ export function registerAnalyticsDiagnosticsRoutes(context: AnalyticsDiagnostics
       throw new HttpError(403, "GUEST_READ_ONLY", "Guest accounts cannot read analytics diagnostics");
     }
     const sensors = context.database.listSensors(house.id).filter((sensor) => sensor.enabled && access.sensor(sensor.id));
-    const abortController = new AbortController();
-    const abortOnClose = () => abortController.abort();
-    response.once("close", abortOnClose);
-    try {
-      const diagnostics = await service.diagnose(house, sensors, abortController.signal);
-      response.setHeader("cache-control", "private, no-store");
-      response.json({ diagnostics });
-    } finally {
-      response.off("close", abortOnClose);
-    }
+    const diagnostics = await withResponseSignal(response, (signal) => service.diagnose(house, sensors, signal));
+    response.setHeader("cache-control", "private, no-store");
+    response.json({ diagnostics });
   });
 }

@@ -1,3 +1,4 @@
+import { withResponseSignal } from "../../app/response-signal.js";
 import type express from "express";
 import type { ForecastSeriesResponse } from "@climate-twin/contracts";
 import type { ClimateDatabase } from "../../db.js";
@@ -31,21 +32,17 @@ export function registerForecastRoutes(context: ForecastRouteContext): void {
     }
     const metric = measurementId(request.query.metric);
     const hours = safeInteger(request.query.hours, 12, 1, 168);
-    const abortController = new AbortController();
-    const abortOnClose = () => abortController.abort(new DOMException("Client disconnected", "AbortError"));
-    response.once("close", abortOnClose);
-    if (response.destroyed) abortOnClose();
-    const measurementForecast = await context.analyticsWorkLimiter.run(
+    const measurementForecast = await withResponseSignal(response, (signal) => context.analyticsWorkLimiter.run(
       "measurement-forecast",
       () => forecastMeasurementWithEvaluation(context.database, {
         sensorId: request.query.sensorId as string,
         metric,
         hours,
         telemetryReader: context.telemetryReader,
-        signal: abortController.signal,
+        signal,
       }),
-      abortController.signal,
-    ).finally(() => response.off("close", abortOnClose));
+      signal,
+    ));
     response.json({ forecast: measurementForecast.points, evaluation: measurementForecast.evaluation });
   });
   context.app.get(`${context.prefix}/forecast`, async (request, response) => {

@@ -1,7 +1,4 @@
-import {
-  type House,
-  type OpeningStateObservation,
-} from "@climate-twin/contracts";
+import { type House, type OpeningStateObservation, withSignal } from "@climate-twin/contracts";
 import {
   type SpatialLayerEngineInput,
 } from "@climate-twin/spatial-layers";
@@ -101,14 +98,14 @@ export class ClimateDatabaseSpatialInputAdapter implements SpatialCoreInputPort 
             houseId: resolved.house.id,
             at: windowStart,
             limit: 10_000,
-            ...(request.signal ? { signal: request.signal } : {}),
+            ...withSignal(request.signal),
           }),
           this.telemetry.openingStateHistory({
             houseId: resolved.house.id,
             from: windowStart,
             to: windowEnd,
             limit: 10_000,
-            ...(request.signal ? { signal: request.signal } : {}),
+            ...withSignal(request.signal),
           }),
         ]);
         openingStateObservations = [...leading.records, ...history.records];
@@ -131,7 +128,7 @@ export class ClimateDatabaseSpatialInputAdapter implements SpatialCoreInputPort 
       from: windowStart,
       to: windowEnd,
       limit: 250_000,
-      ...(request.signal ? { signal: request.signal } : {}),
+      ...withSignal(request.signal),
     });
     const outdoorReads = await Promise.all(resolved.houses.map((candidate) => this.telemetry.outdoorTemperatureHistory({
       houseId: candidate.id,
@@ -139,7 +136,7 @@ export class ClimateDatabaseSpatialInputAdapter implements SpatialCoreInputPort 
       from: windowStart,
       to: windowEnd,
       limit: 20_000,
-      ...(request.signal ? { signal: request.signal } : {}),
+      ...withSignal(request.signal),
     })));
     request.signal?.throwIfAborted();
     const sparseSamples = measurements.records;
@@ -220,7 +217,7 @@ export class ClimateDatabaseSpatialInputAdapter implements SpatialCoreInputPort 
           houseId: house.id,
           at: bucketAt,
           limit: 10_000,
-          ...(signal ? { signal } : {}),
+          ...withSignal(signal),
         })).records;
       } else {
         openingStateObservations = this.core.listOpeningStateObservations(house.id, 10_000, bucketAt);

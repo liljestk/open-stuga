@@ -1,3 +1,4 @@
+import { withSignal } from "@climate-twin/contracts";
 import { median, nearestRankQuantile, maximum, minimum } from "@climate-twin/analytics-kernel";
 import type {
   House,
@@ -207,7 +208,7 @@ async function sensorEntryAsync(
     ...(input.generatedAt ? { generatedAt: input.generatedAt } : {}),
     ...(input.hvacExclusion ? { hvacExclusion: input.hvacExclusion } : {}),
     ...(input.passiveIntervals ? { passiveIntervals: input.passiveIntervals } : {}),
-  }, preparedOutdoor, signal ? { signal } : {})).calibration;
+  }, preparedOutdoor, withSignal(signal))).calibration;
   return sensorEntryFromCalibration(sensor, parentId, calibration);
 }
 
@@ -557,7 +558,7 @@ async function prepareAsyncSpreadResolver(
   options: ThermalIsolationAsyncOptions,
 ): Promise<(sensorIds: string[]) => ThermalSpreadMetrics> {
   const work: CooperativeAggregationWork = {
-    ...(options.signal ? { signal: options.signal } : {}),
+    ...withSignal(options.signal),
     yieldEverySamples: positiveBatchSize(options.yieldEveryAggregationSamples, 1_024),
     samplesSinceYield: 0,
   };

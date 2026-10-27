@@ -1,3 +1,4 @@
+import { withSignal } from "@climate-twin/contracts";
 import type { EnergySummaryCache } from "./energy-summary-cache.js";
 import type {
   EnergyOptimizationInsight,
@@ -110,10 +111,10 @@ export class EnergyOptimizer {
           from: priceFrom,
           to: priceUntil,
           limit: 5_000,
-          ...(signal ? { signal } : {}),
+          ...withSignal(signal),
         }).then((result) => result.records),
         reader.measurementCoverage({ sensorIds: sensors.map(sensor => sensor.id), metrics: ["power"],
-          ...(signal ? { signal } : {}),
+          ...withSignal(signal),
         }).then(coverage => reader.optimizerPowerProfile(sensors, {
           // Empty climate-only sensors otherwise turn an indexed single-meter
           // read into a global sort across the whole Property.
@@ -123,7 +124,7 @@ export class EnergyOptimizer {
           from: new Date(Date.parse(from) - OPTIMIZER_POWER_HOLD_MS).toISOString(),
           to: now.toISOString(),
           limit: POWER_SAMPLE_LIMIT,
-          ...(signal ? { signal } : {}),
+          ...withSignal(signal),
         }, from)),
         Promise.allSettled(houses.map((house) => {
           const houseSensors = sensors.filter((sensor) => sensor.houseId === house.id);
@@ -135,7 +136,7 @@ export class EnergyOptimizer {
               sensors: houseSensors,
               from,
               to: summaryTo.toISOString(),
-              ...(signal ? { signal } : {}),
+              ...withSignal(signal),
             }).then((result) => result.summary)
             : costService.summarize({
               houseId: house.id,
@@ -143,7 +144,7 @@ export class EnergyOptimizer {
               sensorIds: houseSensors.map((sensor) => sensor.id),
               from,
               to: summaryTo.toISOString(),
-              ...(signal ? { signal } : {}),
+              ...withSignal(signal),
             });
         })),
       ]);
@@ -153,7 +154,7 @@ export class EnergyOptimizer {
       sensors,
       prices: pricesWithHistory,
       now: now.getTime(),
-      ...(signal ? { signal } : {}),
+      ...withSignal(signal),
     });
     const futurePrices = prices.filter((price) => Number.isFinite(price.effectivePriceCentsPerKwh)
       && Number.isFinite(Date.parse(price.startAt)) && Number.isFinite(Date.parse(price.endAt))

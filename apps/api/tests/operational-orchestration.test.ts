@@ -116,9 +116,7 @@ describe("operational orchestration", () => {
         dueBy: "2026-07-18",
       });
       const config = {
-        alertWebhookUrl: "https://alerts.example.test/stugu",
-        alertWebhookBearerToken: null,
-        alertWebhookSigningSecret: "test-signing-secret",
+        alertWebhookDestinations: [{ id: "primary", url: "https://alerts.example.test/stugu", signingSecret: "test-signing-secret" }],
         telegramBotToken: null,
         telegramChatId: null,
       } as unknown as AppConfig;

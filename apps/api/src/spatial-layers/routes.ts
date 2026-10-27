@@ -1,3 +1,4 @@
+import { withResponseSignal } from "../app/response-signal.js";
 import { randomUUID } from "node:crypto";
 import type { Application, Request, Response } from "express";
 import type { SpatialContextEventKind, Vector3 } from "@climate-twin/spatial-layers";
@@ -198,18 +199,6 @@ function sendError(response: Response, error: unknown): void {
 
 function asyncRoute(handler: (request: Request, response: Response) => Promise<void>): (request: Request, response: Response) => void {
   return (request, response) => { void handler(request, response).catch((error: unknown) => sendError(response, error)); };
-}
-
-async function withClientAbort<T>(response: Response, operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
-  const controller = new AbortController();
-  const abort = (): void => controller.abort(new DOMException("Client disconnected", "AbortError"));
-  response.once("close", abort);
-  if (response.destroyed) abort();
-  try {
-    return await operation(controller.signal);
-  } finally {
-    response.off("close", abort);
-  }
 }
 
 async function current(
@@ -474,7 +463,7 @@ export function registerSpatialLayerRoutes(
     const collection = kind === "house" ? "houses" : "properties";
     const base = `${prefix}/${collection}/:id/layers`;
     app.get(`${base}/current`, asyncRoute(async (request, response) => {
-      const body = await withClientAbort(response, (signal) => current(
+      const body = await withResponseSignal(response, (signal) => current(
         requireRuntime(options.runtime),
         authorizedScope(options, kind, request, response),
         request,
@@ -490,7 +479,7 @@ export function registerSpatialLayerRoutes(
       } catch (error) { sendError(response, error); }
     });
     app.get(`${base}/config`, asyncRoute(async (request, response) => {
-      const body = await withClientAbort(response, (signal) => configuration(
+      const body = await withResponseSignal(response, (signal) => configuration(
         requireRuntime(options.runtime),
         authorizedScope(options, kind, request, response),
         signal,
@@ -498,7 +487,7 @@ export function registerSpatialLayerRoutes(
       if (!response.destroyed && !response.writableEnded) response.json(body);
     }));
     app.put(`${base}/config`, asyncRoute(async (request, response) => {
-      const body = await withClientAbort(response, (signal) => saveConfiguration(
+      const body = await withResponseSignal(response, (signal) => saveConfiguration(
         requireRuntime(options.runtime),
         authorizedMutationScope(options, kind, request, response),
         request,
@@ -560,7 +549,7 @@ export function registerSpatialLayerRoutes(
   } catch (error) { sendError(response, error); } });
   app.post(`${houseBase}/bindings`, asyncRoute(async (request, response) => {
     authorizedMutationScope(options, "house", request, response);
-    const binding = await withClientAbort(response, (signal) => addBinding(
+    const binding = await withResponseSignal(response, (signal) => addBinding(
       requireRuntime(options.runtime),
       pathId(request),
       request,

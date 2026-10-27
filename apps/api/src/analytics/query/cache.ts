@@ -1,3 +1,4 @@
+import { withSignal } from "@climate-twin/contracts";
 import { createHash } from "node:crypto";
 import type { AnalyticsQueryRequest, AnalyticsQueryResponse } from "@climate-twin/contracts";
 import { LruTtlCache, type CacheStats } from "../../cache.js";
@@ -78,7 +79,7 @@ export class AnalyticsQueryCache {
     const response = await this.#cache.getOrLoad(key, compute, {
       ttlMs: closed ? CLOSED_TTL_MS : OPEN_TTL_MS,
       serveStale: false,
-      ...(signal ? { signal } : {}),
+      ...withSignal(signal),
     });
     if (response.provenance.some((item) => item.archiveState === "failed" || item.archiveState === "not-ready")) {
       this.#cache.invalidate(key);

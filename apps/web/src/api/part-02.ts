@@ -32,10 +32,9 @@ import type {
   TrackingProfileManifest,
   TrackedEquipmentState,
 } from "@climate-twin/contracts";
-import { expectShape, isForecastSeriesResponse } from "@climate-twin/contracts";
+import { expectShape, isForecastSeriesResponse, withSignal } from "@climate-twin/contracts";
 import { API_BASE, completeCollection, entity, houseResponse, list, memberSummary, request, requestV2, sensorResponse, updateHouseGeoreference } from "./support";
 import type { CreateHouseInput, CreateSensorInput, HousePatch, OutdoorTemperatureHistoryPage, SensorPatch, TenantMembersResponse } from "./support";
-import { withSignal } from "./support/signal";
 
 
 

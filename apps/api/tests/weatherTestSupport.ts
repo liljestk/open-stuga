@@ -22,9 +22,8 @@ export const config: AppConfig = {
   tpLinkPollIntervalMs: 10_000,
   tpLinkPython: "python",
   tpLinkBridgeScript: "apps/api/python/tp_link_bridge.py",
-  alertWebhookUrl: null,
-  alertWebhookBearerToken: null,
   corsOrigin: null,
+  localAuthTestBypass: true,
 };
 
 export const location = { latitude: 60.1699, longitude: 24.9384, label: "Helsinki" };

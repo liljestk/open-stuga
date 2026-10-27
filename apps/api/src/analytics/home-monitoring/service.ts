@@ -14,7 +14,7 @@ import type {
   MeasurementSample,
   Sensor,
 } from "@climate-twin/contracts";
-import { HOME_MONITORING_ALGORITHM_VERSION } from "@climate-twin/contracts";
+import { HOME_MONITORING_ALGORITHM_VERSION, withSignal } from "@climate-twin/contracts";
 import type { ClimateDatabase } from "../../db.js";
 import type { HybridTelemetryReader } from "../../timeseries/read-facade.js";
 import {
@@ -105,7 +105,7 @@ export async function loadHomeMonitoringHistory(input: {
     to: input.evaluatedAt,
     resolution: "5m",
     qualities: ["good", "estimated", "stale"],
-    ...(input.signal ? { signal: input.signal } : {}),
+    ...withSignal(input.signal),
   });
   if (rollup) {
     const history: MeasurementHistory = {};

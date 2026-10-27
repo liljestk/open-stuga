@@ -1,5 +1,5 @@
 import type { SensorLabelDescriptor, SetupDoctorCheck, SetupDoctorReport } from "@climate-twin/contracts";
-import type { AppConfig } from "./config.js";
+import { configuredAlertWebhookDestinations, type AppConfig } from "./config.js";
 import type { ClimateDatabase } from "./db.js";
 import type { DataOperationsService } from "./data-operations.js";
 import type { RuntimeStatus } from "./services.js";
@@ -39,13 +39,18 @@ export class SetupDoctor {
     checks.push({ id: "integration", category: "integration", status: configured ? "pass" : "warning", title: "Live integration",
       detail: configured ? "At least one Home Assistant or TP-Link connection is configured." : "No live Home Assistant or TP-Link connection is configured.",
       action: configured ? null : "Run guided integration setup." });
-    const notificationsConfigured = Boolean(this.config.alertWebhookUrl || (this.config.telegramBotToken && this.config.telegramChatId));
+    const webhookDestinations = configuredAlertWebhookDestinations(this.config);
+    const notificationsConfigured = webhookDestinations.length > 0 || Boolean(this.config.telegramBotToken && this.config.telegramChatId);
     checks.push({ id: "notification-route", category: "notifications", status: notificationsConfigured ? "pass" : "warning",
       title: "Notification route", detail: notificationsConfigured ? "At least one outbound notification route is configured." : "No outbound alert destination is configured.",
       action: notificationsConfigured ? null : "Configure Telegram or a signed webhook." });
-    if (this.config.alertWebhookUrl) checks.push({ id: "webhook-signing", category: "security", status: this.config.alertWebhookSigningSecret ? "pass" : "warning",
-      title: "Webhook signing", detail: this.config.alertWebhookSigningSecret ? "Webhook requests are signed with HMAC-SHA256." : "Webhook signing is not configured.",
-      action: this.config.alertWebhookSigningSecret ? null : "Set a 32-byte ALERT_WEBHOOK_SIGNING_SECRET." });
+    const unsignedWebhooks = webhookDestinations.filter((destination) => !destination.signingSecret).map((destination) => destination.id);
+    if (webhookDestinations.length > 0) checks.push({ id: "webhook-signing", category: "security", status: unsignedWebhooks.length === 0 ? "pass" : "warning",
+      title: "Webhook signing",
+      detail: unsignedWebhooks.length === 0
+        ? "Every webhook destination signs its requests with HMAC-SHA256."
+        : `Webhook destination(s) without signing: ${unsignedWebhooks.join(", ")}.`,
+      action: unsignedWebhooks.length === 0 ? null : "Give each unsigned webhook destination a signing secret of at least 32 bytes." });
     const backup = this.dataOperations.backupStatus();
     const recentBackup = backup.latestVerifiedBackupAt && now.getTime() - Date.parse(backup.latestVerifiedBackupAt) < 48 * 3_600_000;
     checks.push({ id: "backup", category: "recovery", status: recentBackup ? "pass" : "warning", title: "Verified backup",

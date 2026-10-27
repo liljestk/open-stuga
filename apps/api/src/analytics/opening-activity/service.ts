@@ -1,10 +1,4 @@
-import {
-  OPENING_ACTIVITY_ALGORITHM_VERSION,
-  type House,
-  type OpeningActivityRequest,
-  type OpeningActivityResponse,
-  type OpeningStateObservation,
-} from "@climate-twin/contracts";
+import { OPENING_ACTIVITY_ALGORITHM_VERSION, type House, type OpeningActivityRequest, type OpeningActivityResponse, type OpeningStateObservation, withSignal } from "@climate-twin/contracts";
 import type { HybridTelemetryReader } from "../../timeseries/read-facade.js";
 import { deriveOpeningActivity } from "../temporal/opening-intervals.js";
 import { compareCodeUnits } from "../../text-order.js";
@@ -38,7 +32,7 @@ export async function getOpeningActivity(
     houseId: input.house.id,
     at: input.request.range.start,
     limit: OPENING_ACTIVITY_LIMIT,
-    ...(input.signal ? { signal: input.signal } : {}),
+    ...withSignal(input.signal),
   });
   const remaining = Math.max(
     1,
@@ -49,7 +43,7 @@ export async function getOpeningActivity(
     from: input.request.range.start,
     to: input.request.range.end,
     limit: remaining,
-    ...(input.signal ? { signal: input.signal } : {}),
+    ...withSignal(input.signal),
   });
   const observations = mergeObservations(initial.records, history.records);
   const truncated = initial.records.length >= OPENING_ACTIVITY_LIMIT

@@ -1,3 +1,4 @@
+import { withResponseSignal } from "../app/response-signal.js";
 import type express from "express";
 import type {
   AnalyticsAggregation,
@@ -285,21 +286,17 @@ export function registerAnalyticsRoutes(context: AnalyticsRouteContext): () => v
     }
     try {
       const startedAt = performance.now();
-      const abortController = new AbortController();
-      const abortOnClose = () => abortController.abort(new DOMException("Client disconnected", "AbortError"));
-      response.once("close", abortOnClose);
-      if (response.destroyed) abortOnClose();
-      const result = await context.analyticsWorkLimiter.run(
+      const result = await withResponseSignal(response, (signal) => context.analyticsWorkLimiter.run(
         "opening-activity",
         () => getOpeningActivity({
           house,
           request: input,
           telemetryReader: context.telemetryReader,
           generatedAt: new Date().toISOString(),
-          signal: abortController.signal,
+          signal,
         }),
-        abortController.signal,
-      ).finally(() => response.off("close", abortOnClose));
+        signal,
+      ));
       response.setHeader("cache-control", "no-store");
       response.setHeader(
         "server-timing",

@@ -20,7 +20,6 @@ export const config: AppConfig = {
   tpLinkPollIntervalMs: 10_000,
   tpLinkPython: "python",
   tpLinkBridgeScript: "apps/api/python/tp_link_bridge.py",
-  alertWebhookUrl: null,
-  alertWebhookBearerToken: null,
   corsOrigin: "http://localhost:5173",
+  localAuthTestBypass: true,
 };

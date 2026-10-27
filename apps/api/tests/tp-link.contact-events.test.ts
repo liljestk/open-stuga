@@ -50,7 +50,8 @@ describe("direct TP-Link contact events", () => {
       tpLinkHost: "192.0.2.12", tpLinkUsername: "local@example.test", tpLinkPassword: "secret",
       tpLinkDeviceMapFile: null, tpLinkPollIntervalMs: 2_000,
       tpLinkPython: process.execPath, tpLinkBridgeScript: helperPath,
-      alertWebhookUrl: null, alertWebhookBearerToken: null, corsOrigin: null,
+      corsOrigin: null,
+      localAuthTestBypass: true,
     };
     runtime = createApi({ config, startBackground: false });
     const house = runtime.database.getHouse("house-main")!;

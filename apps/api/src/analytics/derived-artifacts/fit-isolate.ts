@@ -1,3 +1,4 @@
+import { withSignal } from "@climate-twin/contracts";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { Worker } from "node:worker_threads";
@@ -43,11 +44,11 @@ async function sourceRuntimeFallback(
   }
   if (request.kind === "thermal-isolation") {
     return runThermalIsolationAsync(request.input, {
-      ...(signal ? { signal } : {}),
+      ...withSignal(signal),
       yieldEvery: 1,
     });
   }
-  return runMoistureResponseAsync(request.input, signal ? { signal } : {});
+  return runMoistureResponseAsync(request.input, withSignal(signal));
 }
 
 function runWorker(

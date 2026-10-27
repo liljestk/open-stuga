@@ -1,13 +1,4 @@
-import {
-  ELECTRICITY_INVOICE_TOLERANCE_PERCENT,
-  type AnalyticsBillEvidence,
-  type AnalyticsDiagnostics,
-  type AnalyticsForecastEvidence,
-  type AnalyticsLatencyEvidence,
-  type AnalyticsLatencyOperation,
-  type House,
-  type Sensor,
-} from "@climate-twin/contracts";
+import { ELECTRICITY_INVOICE_TOLERANCE_PERCENT, type AnalyticsBillEvidence, type AnalyticsDiagnostics, type AnalyticsForecastEvidence, type AnalyticsLatencyEvidence, type AnalyticsLatencyOperation, type House, type Sensor, withSignal } from "@climate-twin/contracts";
 import { median } from "@climate-twin/analytics-kernel";
 import type { ClimateDatabase } from "../../db.js";
 import type { EnergySummaryCache } from "../../energy-summary-cache.js";
@@ -125,7 +116,7 @@ export class AnalyticsDiagnosticsService {
       try {
         const { summary } = await this.summaries.get({
           houseId: house.id, propertyId: house.propertyId, timeZone: house.timezone, sensors, ...range,
-          ...(signal ? { signal } : {}),
+          ...withSignal(signal),
         });
         results.push(reconcileInvoice(invoice, summary));
       } catch {

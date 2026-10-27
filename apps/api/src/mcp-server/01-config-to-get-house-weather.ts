@@ -18,7 +18,7 @@ import type {
 } from "@climate-twin/contracts";
 import { loadConfig } from "../config.js";
 import { DataOperationsService } from "../data-operations.js";
-import { ClimateDatabase, outdoorLocationKey } from "../db.js";
+import { ClimateDatabase, ensureSqliteSpillDirectory, outdoorLocationKey } from "../db.js";
 import { EnergyCostService } from "../energy-cost.js";
 import { databaseTariffContext } from "../electricity/tariff-context.js";
 import { EnergyOptimizer } from "../energy-optimizer.js";
@@ -47,6 +47,7 @@ import type { StugubyService } from "../stuguby/service.js";
 import { StugubyStore } from "../stuguby/store.js";
 
 export const config = loadConfig();
+ensureSqliteSpillDirectory(config.databasePath);
 const mcpTimeseriesHost = config.timeseriesHost ?? "127.0.0.1";
 
 export const database = new ClimateDatabase(config.databasePath, false, { readOnly: true });

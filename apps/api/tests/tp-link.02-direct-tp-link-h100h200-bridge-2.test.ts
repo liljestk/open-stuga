@@ -52,8 +52,9 @@ describe("direct TP-Link H100/H200/H500 bridge", () => {
         { id: "cottage-meter", houseId: "house-cottage", host: "192.0.2.32", username: "u", password: "p" },
       ],
       tpLinkDeviceMapFile: null, tpLinkPollIntervalMs: 10_000,
-      tpLinkPython: process.execPath, tpLinkBridgeScript: helperPath,
-      alertWebhookUrl: null, alertWebhookBearerToken: null, corsOrigin: null,
+      tpLinkPython: process.execPath, tpLinkBridgeScript: helperPath, tpLinkDiscoveryTargets: ["192.168.71.255"],
+      corsOrigin: null,
+      localAuthTestBypass: true,
     };
     runtime = createApi({ config, startBackground: false });
     const main = runtime.database.getHouse("house-main")!;
@@ -112,8 +113,9 @@ describe("direct TP-Link H100/H200/H500 bridge", () => {
         { id: "other", houseId: "house-main", host: "192.0.2.42", username: "u", password: "p" },
       ],
       tpLinkDeviceMapFile: null, tpLinkPollIntervalMs: 10_000,
-      tpLinkPython: process.execPath, tpLinkBridgeScript: helperPath,
-      alertWebhookUrl: null, alertWebhookBearerToken: null, corsOrigin: null,
+      tpLinkPython: process.execPath, tpLinkBridgeScript: helperPath, tpLinkDiscoveryTargets: ["192.168.71.255"],
+      corsOrigin: null,
+      localAuthTestBypass: true,
     };
     runtime = createApi({ config, startBackground: false });
     runtime.database.updateSensor("sensor-01", { tpLinkDeviceId: "legacy-meter", tpLinkConnectionId: "legacy" });
@@ -163,8 +165,9 @@ describe("direct TP-Link H100/H200/H500 bridge", () => {
       haUrl: null, haToken: null, haEntityMapFile: null,
       tpLinkHost: "192.0.2.10", tpLinkUsername: "local@example.test", tpLinkPassword: "secret",
       tpLinkDeviceMapFile: join(temporaryDirectory, "optional-map-does-not-exist.json"), tpLinkPollIntervalMs: 50,
-      tpLinkPython: process.execPath, tpLinkBridgeScript: helperPath,
-      alertWebhookUrl: null, alertWebhookBearerToken: null, corsOrigin: null,
+      tpLinkPython: process.execPath, tpLinkBridgeScript: helperPath, tpLinkDiscoveryTargets: ["192.168.71.255"],
+      corsOrigin: null,
+      localAuthTestBypass: true,
     };
     runtime = createApi({ config, startBackground: false });
     expect(runtime.status.value.tpLink.configured).toBe(true);
@@ -241,7 +244,8 @@ describe("direct TP-Link H100/H200/H500 bridge", () => {
       }],
       tpLinkLegacyDisabled: true,
       tpLinkPollIntervalMs: 10_000, tpLinkPython: process.execPath, tpLinkBridgeScript: helperPath,
-      alertWebhookUrl: null, alertWebhookBearerToken: null, corsOrigin: null,
+      corsOrigin: null,
+      localAuthTestBypass: true,
     };
     runtime = createApi({ config, startBackground: false });
 
@@ -278,8 +282,9 @@ describe("direct TP-Link H100/H200/H500 bridge", () => {
       haUrl: null, haToken: null, haEntityMapFile: null,
       tpLinkHost: "192.168.1.50", tpLinkUsername: "user", tpLinkPassword: "password",
       tpLinkDeviceMapFile: null, tpLinkPollIntervalMs: 10_000,
-      tpLinkPython: process.execPath, tpLinkBridgeScript: helperPath,
-      alertWebhookUrl: null, alertWebhookBearerToken: null, corsOrigin: null,
+      tpLinkPython: process.execPath, tpLinkBridgeScript: helperPath, tpLinkDiscoveryTargets: ["192.168.71.255"],
+      corsOrigin: null,
+      localAuthTestBypass: true,
     };
     runtime = createApi({ config, startBackground: false });
     await expect(runtime.tpLink.testCredentials("192.168.1.50", "user", "password"))
@@ -323,7 +328,8 @@ describe("direct TP-Link H100/H200/H500 bridge", () => {
       ],
       tpLinkLegacyDisabled: true,
       tpLinkPollIntervalMs: 10_000, tpLinkPython: process.execPath, tpLinkBridgeScript: helperPath,
-      alertWebhookUrl: null, alertWebhookBearerToken: null, corsOrigin: null,
+      corsOrigin: null,
+      localAuthTestBypass: true,
     };
     runtime = createApi({ config, startBackground: false });
 
@@ -337,7 +343,6 @@ describe("direct TP-Link H100/H200/H500 bridge", () => {
   });
 
   it("passes LAN discovery targets to the live address-recovery helper", async () => {
-    vi.stubEnv("TP_LINK_DISCOVERY_TARGETS", "192.168.71.255");
     temporaryDirectory = mkdtempSync(join(tmpdir(), "climate-twin-tp-link-live-recovery-"));
     const helperPath = join(temporaryDirectory, "fake-live-recovery-helper.mjs");
     writeFileSync(helperPath, `
@@ -355,8 +360,9 @@ describe("direct TP-Link H100/H200/H500 bridge", () => {
       haUrl: null, haToken: null, haEntityMapFile: null,
       tpLinkHost: "192.168.68.54", tpLinkUsername: "user", tpLinkPassword: "password",
       tpLinkDeviceMapFile: null, tpLinkPollIntervalMs: 10_000,
-      tpLinkPython: process.execPath, tpLinkBridgeScript: helperPath,
-      alertWebhookUrl: null, alertWebhookBearerToken: null, corsOrigin: null,
+      tpLinkPython: process.execPath, tpLinkBridgeScript: helperPath, tpLinkDiscoveryTargets: ["192.168.71.255"],
+      corsOrigin: null,
+      localAuthTestBypass: true,
     };
     runtime = createApi({ config, startBackground: false });
     runtime.tpLink.start();

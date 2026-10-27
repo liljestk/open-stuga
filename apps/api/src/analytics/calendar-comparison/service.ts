@@ -13,7 +13,7 @@ import type {
   MeasurementDefinition,
   Sensor,
 } from "@climate-twin/contracts";
-import { CALENDAR_COMPARISON_ALGORITHM_VERSION } from "@climate-twin/contracts";
+import { CALENDAR_COMPARISON_ALGORITHM_VERSION, withSignal } from "@climate-twin/contracts";
 import type { HybridTelemetryReader } from "../../timeseries/read-facade.js";
 import { IncompleteTelemetryHistoryError } from "../../timeseries/read-facade.js";
 import { AnalyticsQueryError } from "../../analytics.js";
@@ -350,7 +350,7 @@ export async function compareCalendarPeriods(
   const coverage = await input.telemetryReader.measurementCoverage({
     sensorIds: input.sensors.map((sensor) => sensor.id),
     metrics: [input.definition.id],
-    ...(input.signal ? { signal: input.signal } : {}),
+    ...withSignal(input.signal),
   });
   if (!coverage.complete) {
     // `merged` with incomplete coverage is an internal reader failure, not
@@ -391,7 +391,7 @@ export async function compareCalendarPeriods(
       definitions: [input.definition],
       telemetryReader: input.telemetryReader,
       generatedAt: input.evaluatedAt,
-      ...(input.signal ? { signal: input.signal } : {}),
+      ...withSignal(input.signal),
     })
   )));
   const state = archiveState(coverage, responses);

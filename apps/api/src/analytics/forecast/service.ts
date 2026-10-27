@@ -1,10 +1,4 @@
-import {
-  MEASUREMENT_FORECAST_ALGORITHM_VERSION,
-  type House,
-  type MeasurementDefinition,
-  type MeasurementForecastEvaluation,
-  type MeasurementForecastPoint,
-} from "@climate-twin/contracts";
+import { MEASUREMENT_FORECAST_ALGORITHM_VERSION, type House, type MeasurementDefinition, type MeasurementForecastEvaluation, type MeasurementForecastPoint, withSignal } from "@climate-twin/contracts";
 import { outdoorLocationKey, type ClimateDatabase } from "../../db.js";
 import type { HybridTelemetryReader } from "../../timeseries/read-facade.js";
 import { backtestForecaster, BACKTEST_HORIZON_HOURS, pooledCoverage, type BacktestResult } from "./backtest.js";
@@ -127,7 +121,7 @@ export class MeasurementForecastService {
     const samples = this.telemetryReader
       ? (await this.telemetryReader.measurementHistoryBucketed({
         sensorId, metric, from, to, bucketSeconds: 3_600, limit: HISTORY_DAYS * 24 + 2,
-        ...(signal ? { signal } : {}),
+        ...withSignal(signal),
       })).records
       : this.database.measurementHistory(sensorId, metric, from, to, 50_000);
     return hourlyAverages(samples
@@ -145,7 +139,7 @@ export class MeasurementForecastService {
     const observed = this.telemetryReader
       ? (await this.telemetryReader.outdoorTemperatureHistory({
         houseId: house.id, locationKey, from, to: now.toISOString(), limit: 50_000,
-        ...(signal ? { signal } : {}),
+        ...withSignal(signal),
       })).records
       : this.database.outdoorTemperatureHistory(house.id, locationKey, from, now.toISOString(), 50_000);
     const past = hourlyAverages(observed.map((sample) => ({ time: Date.parse(sample.timestamp), value: sample.temperatureC })));

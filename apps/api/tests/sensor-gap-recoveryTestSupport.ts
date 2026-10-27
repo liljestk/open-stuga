@@ -15,9 +15,8 @@ export function sensorGapRecoveryConfig(overrides: Partial<AppConfig> = {}): App
     tpLinkPollIntervalMs: 10_000,
     tpLinkPython: "python",
     tpLinkBridgeScript: "apps/api/python/tp_link_bridge.py",
-    alertWebhookUrl: null,
-    alertWebhookBearerToken: null,
     corsOrigin: null,
+    localAuthTestBypass: true,
     ...overrides,
   };
 }

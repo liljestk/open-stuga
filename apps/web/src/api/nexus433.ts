@@ -1,3 +1,4 @@
+import { withSignal } from "@climate-twin/contracts";
 import type {
   Nexus433Binding,
   Nexus433BindingCreateInput,
@@ -8,7 +9,6 @@ import type {
   Sensor,
 } from "@climate-twin/contracts";
 import { request } from "./support/index";
-import { withSignal } from "./support/signal";
 
 export const nexus433Api = {
   nexus433Status: (houseId: string, signal?: AbortSignal) => request<Nexus433Status>(

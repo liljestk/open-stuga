@@ -12,7 +12,8 @@ const config: AppConfig = {
   haUrl: null, haToken: null, haEntityMapFile: null,
   tpLinkHost: null, tpLinkUsername: null, tpLinkPassword: null, tpLinkDeviceMapFile: null,
   tpLinkPollIntervalMs: 10_000, tpLinkPython: "python", tpLinkBridgeScript: "apps/api/python/tp_link_bridge.py",
-  alertWebhookUrl: null, alertWebhookBearerToken: null, corsOrigin: null,
+  corsOrigin: null,
+  localAuthTestBypass: true,
 };
 
 describe("daily analytics findings", () => {

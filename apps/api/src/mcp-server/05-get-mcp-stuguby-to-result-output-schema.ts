@@ -1,5 +1,5 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { resolvePlanElementOpeningState } from "@climate-twin/contracts";
+import { resolvePlanElementOpeningState, withSignal } from "@climate-twin/contracts";
 import { ClimateDatabase, outdoorLocationKey } from "../db.js";
 import { publicElectricityConfiguration } from "../electricity-prices.js";
 import { McpOperationTracker } from "../mcp-lifecycle.js";
@@ -333,7 +333,7 @@ export async function thermalIsolation(
     (await telemetryReader.measurementCoverage({
       sensorIds: sensorCandidates.map((sensor) => sensor.id),
       metrics: ["temperature"],
-      ...(signal ? { signal } : {}),
+      ...withSignal(signal),
     })).records.map((coverage) => coverage.sensorId),
   );
   signal?.throwIfAborted();
@@ -343,14 +343,14 @@ export async function thermalIsolation(
   const boundaryPaddingMs = 2 * 3_600_000;
   return runMcpThermalWork({
     subjects: sensors,
-    ...(signal ? { signal } : {}),
+    ...withSignal(signal),
     readOutdoor: (readSignal) => telemetryReader.outdoorTemperatureHistory({
       houseId: house.id,
       locationKey: outdoorLocationKey(house.location),
       from: new Date(Date.parse(from) - boundaryPaddingMs).toISOString(),
       to: new Date(Date.parse(to) + boundaryPaddingMs).toISOString(),
       limit: 50_000,
-      ...(readSignal ? { signal: readSignal } : {}),
+      ...withSignal(readSignal),
     }),
     readIndoor: (subject, readSignal) => telemetryReader.thermalMeasurementHistory({
       sensorId: subject.id,
@@ -359,7 +359,7 @@ export async function thermalIsolation(
       to,
       bucketMinutes: 5,
       limitPerMetric: 5_000,
-      ...(readSignal ? { signal: readSignal } : {}),
+      ...withSignal(readSignal),
     }),
     complete: ({ indoor, outdoor }, completionSignal) => {
       const heatPumpWindow = loadHeatPumpExclusionWindow(
@@ -382,7 +382,7 @@ export async function thermalIsolation(
         to,
         hvacExclusion: filtered.summary,
         ...(heatPumpWindow.summary.evidenceState === "not-present" ? {} : { passiveIntervals: heatPumpWindow.passiveIntervals }),
-      }, completionSignal ? { signal: completionSignal } : {});
+      }, withSignal(completionSignal));
     },
   });
 }

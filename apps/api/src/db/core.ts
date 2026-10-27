@@ -42,6 +42,9 @@ export interface DatabaseInternals {
  * directory that cannot be created (for example a read-only data mount) keeps
  * today's behavior. An operator-provided SQLITE_TMPDIR always wins, and the
  * Windows VFS ignores the variable entirely.
+ *
+ * SQLite reads the variable once, when the library initializes, so process
+ * entry points call this before the first database opens.
  */
 export function ensureSqliteSpillDirectory(databasePath: string): void {
   if (databasePath === ":memory:" || process.env.SQLITE_TMPDIR) return;
@@ -73,14 +76,11 @@ export class ClimateDatabaseCore {
       this.#databasePath = path;
       if (options.readOnly) {
         if (path === ":memory:") throw new Error("A read-only ClimateDatabase requires an existing database file");
-        // Read-only connections still create spill files for large sorts.
-        ensureSqliteSpillDirectory(path);
         this.db = new DatabaseSync(path, { readOnly: true });
         this.db.exec("PRAGMA query_only = ON; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
         return;
       }
       if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
-      ensureSqliteSpillDirectory(path);
       this.db = new DatabaseSync(path);
       this.db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
       this.migrateEquipmentPlacementTable();

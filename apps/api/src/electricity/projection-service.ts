@@ -1,11 +1,4 @@
-import {
-  HOME_ENERGY_PROJECTION_ALGORITHM_VERSION,
-  type AnalyticsQueryRequest,
-  type AnalyticsSeries,
-  type HomeEnergyProjection,
-  type House,
-  type Sensor,
-} from "@climate-twin/contracts";
+import { HOME_ENERGY_PROJECTION_ALGORITHM_VERSION, type AnalyticsQueryRequest, type AnalyticsSeries, type HomeEnergyProjection, type House, type Sensor, withSignal } from "@climate-twin/contracts";
 import { executeAnalyticsQuery } from "../analytics/query/execute.js";
 import { heatingBaseTemperature } from "../analytics/house-parameters.js";
 import type { DailyEnergy } from "../analytics/home-performance/energy-index.js";
@@ -90,7 +83,7 @@ export class EnergyProjectionService {
     const coverage = await this.telemetryReader.measurementCoverage({
       sensorIds: sensors.map((sensor) => sensor.id),
       metrics: ["energy", "power"],
-      ...(signal ? { signal } : {}),
+      ...withSignal(signal),
     });
     const sources = homeEnergySources(sensors, new Set(coverage.records.map((record) => record.sensorId)));
     const definitions = ["energy", "power"].flatMap((metric) => {
@@ -118,7 +111,7 @@ export class EnergyProjectionService {
       definitions,
       telemetryReader: this.telemetryReader,
       generatedAt: now.toISOString(),
-      ...(signal ? { signal } : {}),
+      ...withSignal(signal),
     });
     const perSource = sources.map((sensor) => sourceDays(response.series, sensor.id));
     const baseTemperatureC = heatingBaseTemperature(this.database.listParameters(house.id), house.id);
@@ -126,7 +119,7 @@ export class EnergyProjectionService {
     const observedWeather = locationKey
       ? dailyDegreeHours((await this.telemetryReader.outdoorTemperatureHistory({
         houseId: house.id, locationKey, from: new Date(historyStart).toISOString(), to: new Date(historyEnd).toISOString(), limit: 100_000,
-        ...(signal ? { signal } : {}),
+        ...withSignal(signal),
       })).records, baseTemperatureC)
       : new Map<number, number>();
     const history: DailyEnergy[] = [];
@@ -160,7 +153,7 @@ export class EnergyProjectionService {
       sensors,
       from: new Date(historyEnd - 30 * DAY_MS).toISOString(),
       to: new Date(historyEnd).toISOString(),
-      ...(signal ? { signal } : {}),
+      ...withSignal(signal),
     }).then((read) => read.summary).catch(() => null);
     const pricePerKwh = summary && summary.costEur !== null && summary.pricedConsumptionKwh !== null
       && summary.pricedConsumptionKwh > 0 && summary.priceCoveragePercent >= MIN_PRICE_COVERAGE_PERCENT

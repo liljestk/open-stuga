@@ -1,15 +1,5 @@
 import { minimum } from "@climate-twin/analytics-kernel";
-import {
-  HOME_ENERGY_SUMMARY_ALGORITHM_VERSION,
-  type EnergyMeterRole,
-  type HomeEnergyArchiveState,
-  type HomeEnergyConsumptionBasis,
-  type HomeEnergyCost,
-  type HomeEnergyCostQuality,
-  type HomeEnergySummary,
-  type ElectricityCostBreakdown,
-  type ElectricityTariffVersion,
-} from "@climate-twin/contracts";
+import { HOME_ENERGY_SUMMARY_ALGORITHM_VERSION, type EnergyMeterRole, type HomeEnergyArchiveState, type HomeEnergyConsumptionBasis, type HomeEnergyCost, type HomeEnergyCostQuality, type HomeEnergySummary, type ElectricityCostBreakdown, type ElectricityTariffVersion, withSignal } from "@climate-twin/contracts";
 import { costBreakdown, proratedMonthlyFeesEur, tariffCost, type TariffCost } from "./electricity/tariff-cost.js";
 import {
   HybridTelemetryReader,
@@ -167,7 +157,7 @@ export class EnergyCostService {
     const coverage = await this.telemetryReader.measurementCoverage({
       sensorIds: input.sensorIds,
       metrics: ["energy", "power"],
-      ...(input.signal ? { signal: input.signal } : {}),
+      ...withSignal(input.signal),
     });
     if (!coverage.complete) {
       throw new IncompleteTelemetryHistoryError(
@@ -312,7 +302,7 @@ export class EnergyCostService {
       propertyId: input.propertyId,
       from: input.from,
       to: input.to,
-      ...(input.signal ? { signal: input.signal } : {}),
+      ...withSignal(input.signal),
     };
     const aggregate = measurementBasis === "energy_counter"
       ? await this.telemetryReader.energyCostAggregate(query)

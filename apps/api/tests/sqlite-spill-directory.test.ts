@@ -39,12 +39,12 @@ describe("SQLite spill directory", () => {
     expect(process.env.SQLITE_TMPDIR).toBeUndefined();
   });
 
-  it("prepares the spill directory when a database opens", () => {
+  it("leaves the process environment to the entry point when a database opens", () => {
     const databasePath = join(workDirectory, "climate-twin.sqlite");
     const database = new ClimateDatabase(databasePath, false);
     try {
-      expect(existsSync(join(workDirectory, ".sqlite-tmp"))).toBe(true);
-      expect(process.env.SQLITE_TMPDIR).toBe(join(workDirectory, ".sqlite-tmp"));
+      expect(existsSync(join(workDirectory, ".sqlite-tmp"))).toBe(false);
+      expect(process.env.SQLITE_TMPDIR).toBeUndefined();
     } finally {
       database.db.close();
     }

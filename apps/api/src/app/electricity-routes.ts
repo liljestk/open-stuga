@@ -1,3 +1,4 @@
+import { withResponseSignal } from "./response-signal.js";
 import { DEFAULT_ELECTRICITY_PRICE_ENDPOINT } from "@climate-twin/contracts";
 import type { HomeElectricityPricePoint, PropertyElectricityConfigInput } from "@climate-twin/contracts";
 import {
@@ -187,27 +188,20 @@ export function registerElectricityRoutes(context: ElectricityRouteContext): () 
     }
     response.setHeader("cache-control", "no-store");
     const startedAt = performance.now();
-    const abortController = new AbortController();
-    const abortOnClose = () => abortController.abort();
-    response.once("close", abortOnClose);
-    try {
-      const cost = await context.analyticsWorkLimiter.run(
-        "energy-cost",
-        () => context.energyCost.calculate({
-          houseId,
-          propertyId: house.propertyId,
-          sensorId,
-          from,
-          to,
-          signal: abortController.signal,
-        }),
-        abortController.signal,
-      );
-      response.setHeader("server-timing", `energy-cost;dur=${(performance.now() - startedAt).toFixed(1)}`);
-      response.json({ cost });
-    } finally {
-      response.off("close", abortOnClose);
-    }
+    const cost = await withResponseSignal(response, (signal) => context.analyticsWorkLimiter.run(
+      "energy-cost",
+      () => context.energyCost.calculate({
+        houseId,
+        propertyId: house.propertyId,
+        sensorId,
+        from,
+        to,
+        signal,
+      }),
+      signal,
+    ));
+    response.setHeader("server-timing", `energy-cost;dur=${(performance.now() - startedAt).toFixed(1)}`);
+    response.json({ cost });
   });
   context.app.get(`${context.prefix}/houses/:id/energy-summary`, async (request, response) => {
     const houseId = request.params.id as string;
@@ -220,42 +214,32 @@ export function registerElectricityRoutes(context: ElectricityRouteContext): () 
       throw new HttpError(400, "INVALID_ENERGY_SUMMARY_RANGE", "Energy summary range must be greater than zero and at most 366 days");
     }
     const startedAt = performance.now();
-    const abortController = new AbortController();
-    const abortOnClose = () => abortController.abort();
-    response.once("close", abortOnClose);
-    try {
-      const { summary, source } = await energySummaryCache.get({
-        houseId,
-        propertyId: house.propertyId,
-        timeZone: house.timezone,
-        sensors: energySensors,
-        from,
-        to,
-        signal: abortController.signal,
-      });
-      response.setHeader("cache-control", "private, no-store");
-      response.setHeader("x-stugu-cache", source);
-      const operation = summaryLatencyOperation(durationMs);
-      if (operation) context.database.recordAnalyticsLatency({ houseId, operation, durationMs: performance.now() - startedAt });
-      response.setHeader(
-        "server-timing",
-        `energy-summary;dur=${(performance.now() - startedAt).toFixed(1)}`,
-      );
-      response.json({ summary });
-    } finally {
-      response.off("close", abortOnClose);
-    }
+    const { summary, source } = await withResponseSignal(response, (signal) => energySummaryCache.get({
+      houseId,
+      propertyId: house.propertyId,
+      timeZone: house.timezone,
+      sensors: energySensors,
+      from,
+      to,
+      signal,
+    }));
+    response.setHeader("cache-control", "private, no-store");
+    response.setHeader("x-stugu-cache", source);
+    const operation = summaryLatencyOperation(durationMs);
+    if (operation) context.database.recordAnalyticsLatency({ houseId, operation, durationMs: performance.now() - startedAt });
+    response.setHeader(
+      "server-timing",
+      `energy-summary;dur=${(performance.now() - startedAt).toFixed(1)}`,
+    );
+    response.json({ summary });
   });
   context.app.get(`${context.prefix}/houses/:id/energy-projection`, async (request, response) => {
     const houseId = request.params.id as string;
     const house = visibleHouse(houseId, response);
     const sensors = visibleEnergySensors(houseId, response);
-    const abortController = new AbortController();
-    const abortOnClose = () => abortController.abort();
-    response.once("close", abortOnClose);
     const startedAt = performance.now();
     try {
-      const projection = await projectionCache.get(house, sensors, abortController.signal);
+      const projection = await withResponseSignal(response, (signal) => projectionCache.get(house, sensors, signal));
       response.setHeader("cache-control", "private, no-store");
       response.setHeader("server-timing", `energy-projection;dur=${(performance.now() - startedAt).toFixed(1)}`);
       response.json({ projection });
@@ -264,8 +248,6 @@ export function registerElectricityRoutes(context: ElectricityRouteContext): () 
         throw new HttpError(503, "TELEMETRY_ARCHIVE_REQUIRED", "Complete telemetry history is temporarily unavailable");
       }
       throw error;
-    } finally {
-      response.off("close", abortOnClose);
     }
   });
   return () => { removeStats(); removeProjectionStats(); projectionCache.clear(); energySummaryCache.clear(); };

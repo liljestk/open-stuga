@@ -1,3 +1,4 @@
+import { withSignal } from "@climate-twin/contracts";
 import type {
   AlertRule,
   Floor,
@@ -57,7 +58,7 @@ export async function thermalSimulation(
   const boundaryPaddingMs = 2 * 3_600_000;
   return runMcpThermalWork({
     subjects: [sensor],
-    ...(signal ? { signal } : {}),
+    ...withSignal(signal),
     readIndoor: (subject, readSignal) => telemetryReader.thermalMeasurementHistory({
       sensorId: subject.id,
       metrics: ["temperature"],
@@ -65,7 +66,7 @@ export async function thermalSimulation(
       to,
       bucketMinutes: 5,
       limitPerMetric: 5_000,
-      ...(readSignal ? { signal: readSignal } : {}),
+      ...withSignal(readSignal),
     }),
     readOutdoor: (readSignal) => telemetryReader.outdoorTemperatureHistory({
       houseId,
@@ -73,7 +74,7 @@ export async function thermalSimulation(
       from: new Date(Date.parse(from) - boundaryPaddingMs).toISOString(),
       to: new Date(Date.parse(to) + boundaryPaddingMs).toISOString(),
       limit: 50_000,
-      ...(readSignal ? { signal: readSignal } : {}),
+      ...withSignal(readSignal),
     }),
     complete: ({ indoor, outdoor }, completionSignal) => {
       const heatPumpWindow = loadHeatPumpExclusionWindow(
@@ -96,7 +97,7 @@ export async function thermalSimulation(
         scenarioOutdoorTemperatureC,
         hvacExclusion: filtered.summary,
         ...(heatPumpWindow.summary.evidenceState === "not-present" ? {} : { passiveIntervals: heatPumpWindow.passiveIntervals }),
-      }, undefined, completionSignal ? { signal: completionSignal } : {});
+      }, undefined, withSignal(completionSignal));
     },
   });
 }

@@ -23,9 +23,8 @@ const config: AppConfig = {
   tpLinkPollIntervalMs: 10_000,
   tpLinkPython: "python",
   tpLinkBridgeScript: "apps/api/python/tp_link_bridge.py",
-  alertWebhookUrl: null,
-  alertWebhookBearerToken: null,
   corsOrigin: null,
+  localAuthTestBypass: true,
 };
 
 function comparison(overrides: Record<string, unknown> = {}) {

@@ -108,6 +108,8 @@ export interface AppConfig {
   tpLinkPollIntervalMs: number;
   tpLinkPython: string;
   tpLinkBridgeScript: string;
+  /** Directed broadcast targets passed to the TP-Link helper instead of ones derived from saved hosts. */
+  tpLinkDiscoveryTargets?: string[];
   /** Home-scoped local or EWPE-cloud Gree/Wilfa bindings. */
   greeConnections?: GreeConnectionSecret[];
   greePollIntervalMs?: number;
@@ -144,12 +146,11 @@ export interface AppConfig {
   /** Experimental, explicitly configured compatibility endpoint. Never enabled by default. */
   tapoHistoryPrivateEndpoint?: string | null;
   tapoHistoryPrivateToken?: string | null;
-  alertWebhookUrl: string | null;
-  alertWebhookBearerToken: string | null;
-  /** All effective webhook destinations. Legacy singleton fields above project the primary/first entry. */
+  /**
+   * All effective webhook destinations. Each may carry an HMAC-SHA256 signing key;
+   * receivers verify X-Stugu-Timestamp and X-Stugu-Signature.
+   */
   alertWebhookDestinations?: WebhookDestinationSecret[];
-  /** Optional HMAC-SHA256 signing key. Receivers verify X-Stugu-Timestamp and X-Stugu-Signature. */
-  alertWebhookSigningSecret?: string | null;
   /** Exact host allowlist; redirects are never followed. */
   alertWebhookAllowedHosts?: string[];
   /** Effective source, used only to mirror environment credentials into protected backup storage. */
@@ -199,18 +200,9 @@ export interface AppConfig {
 }
 
 export function configuredAlertWebhookDestinations(
-  config: Pick<AppConfig, "alertWebhookDestinations" | "alertWebhookUrl" | "alertWebhookBearerToken" | "alertWebhookSigningSecret">,
+  config: Pick<AppConfig, "alertWebhookDestinations">,
 ): WebhookDestinationSecret[] {
-  if (config.alertWebhookDestinations !== undefined) {
-    return config.alertWebhookDestinations.map((destination) => ({ ...destination }));
-  }
-  if (!config.alertWebhookUrl) return [];
-  return [{
-    id: "primary",
-    url: config.alertWebhookUrl,
-    ...(config.alertWebhookBearerToken ? { bearerToken: config.alertWebhookBearerToken } : {}),
-    ...(config.alertWebhookSigningSecret ? { signingSecret: config.alertWebhookSigningSecret } : {}),
-  }];
+  return (config.alertWebhookDestinations ?? []).map((destination) => ({ ...destination }));
 }
 
 export function optional(value: string | undefined): string | null {

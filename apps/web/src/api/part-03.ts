@@ -58,11 +58,10 @@ import type {
   TelegramDiscoveryResult,
   TpLinkDiscoveredDevice,
 } from "@climate-twin/contracts";
-import { expectShape, isAnalyticsDiagnostics, isNotificationDeliveryList, isNotificationDeliveryStatus } from "@climate-twin/contracts";
+import { expectShape, isAnalyticsDiagnostics, isNotificationDeliveryList, isNotificationDeliveryStatus, withSignal } from "@climate-twin/contracts";
 import { API_BASE, completeCollection, entity, list, observationResponse, request, requestV2 } from "./support";
 import type { AppleNotesSetupMetadata, CoordinateDefaults, LocationSuggestion, MaintenanceTaskFilters, TpLinkHistoryExportJob, TpLinkHistoryExportJobsResponse } from "./support";
 import { discoverIntegrationsInBackground, latestIntegrationDiscovery, resumeIntegrationDiscovery } from "./integration-discovery";
-import { withSignal } from "./support/signal";
 
 
 

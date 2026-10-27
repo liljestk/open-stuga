@@ -1,5 +1,5 @@
 import { dirname, join } from "node:path";
-import { configuredAlertWebhookDestinations, type AppConfig } from "./01-app-config-to-system-update-image-prefix.js";
+import type { AppConfig } from "./01-app-config-to-system-update-image-prefix.js";
 
 /** The AppConfig fields createApi fills in when a caller leaves them unset. */
 export type ApiDefaultedConfigKey =
@@ -10,7 +10,6 @@ export type ApiDefaultedConfigKey =
   | "apnsBundleId"
   | "apnsPrivateKey"
   | "alertWebhookSource"
-  | "alertWebhookSigningSecret"
   | "alertWebhookDestinations"
   | "alertWebhookAllowedHosts"
   | "dailyAnalyticsFindingsEnabled"
@@ -98,9 +97,8 @@ export function applyApiConfigDefaults(config: AppConfig): ApiConfig {
   config.apnsKeyId ??= null;
   config.apnsBundleId ??= null;
   config.apnsPrivateKey ??= null;
-  config.alertWebhookSource ??= config.alertWebhookUrl ? "environment" : null;
-  config.alertWebhookSigningSecret ??= null;
-  config.alertWebhookDestinations ??= configuredAlertWebhookDestinations(config);
+  config.alertWebhookDestinations ??= [];
+  config.alertWebhookSource ??= config.alertWebhookDestinations.length > 0 ? "environment" : null;
   config.alertWebhookAllowedHosts ??= config.alertWebhookDestinations
     .map((destination) => new URL(destination.url).hostname.toLowerCase());
   config.dailyAnalyticsFindingsEnabled ??= false;
@@ -135,9 +133,8 @@ export function applyApiConfigDefaults(config: AppConfig): ApiConfig {
   config.trackingSecretKeyFile ??= config.databasePath === ":memory:"
     ? null
     : join(dirname(config.databasePath), "tracking-secret.key");
-  // Older in-memory test fixtures predate local authentication. Preserve their
-  // trusted harness behavior without ever enabling the bypass outside tests.
-  config.localAuthTestBypass ??= process.env.NODE_ENV === "test";
+  // Only loadConfig (NODE_ENV=test) or an explicit test harness enables the bypass.
+  config.localAuthTestBypass ??= false;
   config.cloudflareAccessAccountId ??= null;
   config.cloudflareAccessGroupId ??= null;
   config.cloudflareAccessGroupName ??= null;
