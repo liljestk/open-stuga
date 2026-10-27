@@ -13,7 +13,7 @@ export interface LocalPowerProfileQuery extends MeasurementWindowQuery {
 /** The part of the local telemetry reader a power profile reads from. */
 export interface PowerProfileLocalReader {
   isRealDataMode(): boolean;
-  optimizerPowerProfileAsync?(query: LocalPowerProfileQuery): Promise<PowerProfile>;
+  optimizerPowerProfileAsync(query: LocalPowerProfileQuery): Promise<PowerProfile>;
 }
 
 export async function readPowerProfile(input: {
@@ -26,7 +26,7 @@ export async function readPowerProfile(input: {
   readWindow: () => Promise<{ records: Parameters<typeof propertyPowerProfile>[1] }>;
 }): Promise<PowerProfile> {
   input.query.signal?.throwIfAborted();
-  if (input.localOnly && input.local.optimizerPowerProfileAsync) {
+  if (input.localOnly) {
     if (!input.localComplete) throw new IncompleteTelemetryHistoryError("not-configured");
     return input.local.optimizerPowerProfileAsync({ ...input.query, sensors: input.sensors,
       profileFrom: input.profileFrom, excludeSynthetic: input.local.isRealDataMode() });

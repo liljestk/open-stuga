@@ -42,7 +42,7 @@ function readWith(options: {
   const result = readCostAggregate({
     query: { sensorId: "meter-1", propertyId: "property-1", from: FROM, to: options.to },
     metric: "energy",
-    local: { energyCostAggregate: local },
+    local: { costAggregateAsync: async (_metric: string, query: unknown) => local(query) },
     archive: {
       energyCostAggregate: vi.fn(async () => {
         throw options.archiveError;
@@ -112,7 +112,7 @@ describe("readCostAggregate fallback policy", () => {
     const reconcile = vi.fn();
     const base = {
       metric: "energy" as const,
-      local: { energyCostAggregate: local },
+      local: { costAggregateAsync: async (_metric: string, query: unknown) => local(query) },
       archive: { energyCostAggregate: vi.fn(async () => aggregate(0.9)) },
       archivePhase: "degraded",
       localHistoryComplete: true,
@@ -134,7 +134,7 @@ describe("readCostAggregate fallback policy", () => {
     await expect(readCostAggregate({
       query: { sensorId: "meter-1", propertyId: "property-1", from: FROM, to: LONG_TO },
       metric: "energy",
-      local: { energyCostAggregate: local },
+      local: { costAggregateAsync: async (_metric: string, query: unknown) => local(query) },
       archive: null,
       archivePhase: "ready",
       localHistoryComplete: true,

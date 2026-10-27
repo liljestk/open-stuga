@@ -91,15 +91,16 @@ export type { HybridMeasurementAnalyticsRollupResult } from "./read-analytics-ro
 export type { MeasurementWindowQuery } from "./types.js";
 
 /** The local SQLite reads needed by the facade, with optional worker isolation. */
+/** Local SQLite reads the hybrid reader needs; ClimateDatabase implements every one. */
 export interface LocalTelemetryReader {
   isRealDataMode(): boolean;
-  measurementWindowAsync?(query: MeasurementWindowQuery): Promise<MeasurementSample[]>;
-  optimizerPowerProfileAsync?(query: LocalPowerProfileQuery): Promise<PowerProfile>;
-  thermalMeasurementHistoryAsync?(query: ThermalMeasurementHistoryQuery): Promise<MeasurementSample[]>;
-  measurementHistoryBucketedAsync?(query: MeasurementHistoryBucketedQuery & { toExclusive?: boolean }): Promise<MeasurementSample[]>;
-  measurementBoundarySamples?(query: MeasurementBoundaryQuery): MeasurementSample[];
-  measurementCoverage?(sensorIds: string[], metrics: string[]): MeasurementCoverageRecord[];
-  measurementSampleGaps?(
+  measurementWindowAsync(query: MeasurementWindowQuery): Promise<MeasurementSample[]>;
+  optimizerPowerProfileAsync(query: LocalPowerProfileQuery): Promise<PowerProfile>;
+  thermalMeasurementHistoryAsync(query: ThermalMeasurementHistoryQuery): Promise<MeasurementSample[]>;
+  measurementHistoryBucketedAsync(query: MeasurementHistoryBucketedQuery & { toExclusive?: boolean }): Promise<MeasurementSample[]>;
+  measurementBoundarySamples(query: MeasurementBoundaryQuery): MeasurementSample[];
+  measurementCoverage(sensorIds: string[], metrics: string[]): MeasurementCoverageRecord[];
+  measurementSampleGaps(
     sensorId: string,
     metric: string,
     source: string,
@@ -126,14 +127,14 @@ export interface LocalTelemetryReader {
     excludeSynthetic?: boolean,
     toExclusive?: boolean,
   ): MeasurementSample[];
-  thermalTemperatureHistory?(
+  thermalTemperatureHistory(
     sensorId: string, from: string, to: string, bucketMinutes?: number, limit?: number,
   ): MeasurementSample[];
-  thermalClimateHistory?(
+  thermalClimateHistory(
     sensorId: string, from: string, to: string, bucketMinutes?: number, limitPerMetric?: number,
   ): MeasurementSample[];
   measurementWindow(sensorIds: string[], metrics: string[], from: string, to: string, limit?: number): MeasurementSample[];
-  measurementWindowPage?(
+  measurementWindowPage(
     sensorIds: string[],
     metrics: string[],
     from: string,
@@ -149,18 +150,18 @@ export interface LocalTelemetryReader {
     to: string,
     limit?: number,
   ): OutdoorTemperatureSample[];
-  listPropertyElectricityPrices?(propertyId: string, from: string, to: string): PropertyElectricityPricePoint[];
-  getPropertyElectricityTariff?(propertyId: string): PropertyElectricityTariff | null;
-  propertyElectricityTimeZone?(propertyId: string): string;
-  listOpeningStateObservations?(
+  listPropertyElectricityPrices(propertyId: string, from: string, to: string): PropertyElectricityPricePoint[];
+  getPropertyElectricityTariff(propertyId: string): PropertyElectricityTariff | null;
+  propertyElectricityTimeZone(propertyId: string): string;
+  listOpeningStateObservations(
     houseId: string, limit?: number, at?: string | number | Date,
   ): OpeningStateObservation[];
-  listOpeningStateObservationHistory?(
+  listOpeningStateObservationHistory(
     houseId: string, from: string | number | Date, to: string | number | Date, limit?: number,
   ): OpeningStateObservation[];
-  energyCostAggregate?(query: EnergyCostAggregateQuery): EnergyCostAggregateRecord;
-  powerCostAggregate?(query: PowerCostAggregateQuery): EnergyCostAggregateRecord;
-  costAggregateAsync?(metric: "energy" | "power", query: EnergyCostAggregateQuery): Promise<EnergyCostAggregateRecord>;
+  energyCostAggregate(query: EnergyCostAggregateQuery): EnergyCostAggregateRecord;
+  powerCostAggregate(query: PowerCostAggregateQuery): EnergyCostAggregateRecord;
+  costAggregateAsync(metric: "energy" | "power", query: EnergyCostAggregateQuery): Promise<EnergyCostAggregateRecord>;
 }
 
 /** Structural archive methods used by the hybrid reader. */
@@ -273,7 +274,6 @@ function qualityWeightedThermalBuckets(
  * window. Sized so one page stays around 100 ms on a Raspberry Pi; the
  * assembly loop yields between pages.
  */
-const LOCAL_WINDOW_PAGE_ROWS = 5_000;
 
 /** Records merged or partitioned between event-loop yields in bulk paths. */
 export const BULK_RECORDS_PER_SLICE = 25_000;
@@ -325,11 +325,10 @@ export class HybridTelemetryReader {
   }
 
   async measurementBoundarySamples(query: MeasurementBoundaryQuery): Promise<HybridTelemetryReadResult<MeasurementSample> | null> {
-    if (!this.#local.measurementBoundarySamples && !this.#archive?.measurementBoundarySamples) return null;
     const scoped = { ...query, excludeSynthetic: this.#local.isRealDataMode() };
     return this.#read({
       family: "measurement", from: query.from, to: query.to, limit: MAX_HISTORY_LIMIT,
-      local: () => this.#local.measurementBoundarySamples?.(scoped) ?? [],
+      local: () => this.#local.measurementBoundarySamples(scoped),
       signal: query.signal,
       archiveRead: async () => {
         if (!this.#archive?.measurementBoundarySamples) throw new Error("Archive boundary reads unavailable");
@@ -473,34 +472,13 @@ export class HybridTelemetryReader {
       const chunkFrom = new Date(Math.max(input.fromMs, chunkStartMs)).toISOString();
       const needed = input.limit - collected.length;
       const isNewestChunk = index === chunkStarts.length - 1;
-      const rows = this.#local.measurementHistoryBucketedAsync
-        ? await this.#local.measurementHistoryBucketedAsync({
-          sensorId: input.sensorId, metric: input.metric, from: chunkFrom,
-          to: isNewestChunk ? input.to : new Date(chunkStartMs + chunkMs).toISOString(),
-          bucketSeconds: input.bucketSeconds, limit: needed,
-          excludeSynthetic: input.excludeSynthetic, toExclusive: !isNewestChunk,
-          ...(input.signal ? { signal: input.signal } : {}),
-        })
-        : isNewestChunk
-        ? this.#local.measurementHistoryBucketed(
-          input.sensorId,
-          input.metric,
-          chunkFrom,
-          input.to,
-          input.bucketSeconds,
-          needed,
-          input.excludeSynthetic,
-        )
-        : this.#local.measurementHistoryBucketed(
-          input.sensorId,
-          input.metric,
-          chunkFrom,
-          new Date(chunkStartMs + chunkMs).toISOString(),
-          input.bucketSeconds,
-          needed,
-          input.excludeSynthetic,
-          true,
-        );
+      const rows = await this.#local.measurementHistoryBucketedAsync({
+        sensorId: input.sensorId, metric: input.metric, from: chunkFrom,
+        to: isNewestChunk ? input.to : new Date(chunkStartMs + chunkMs).toISOString(),
+        bucketSeconds: input.bucketSeconds, limit: needed,
+        excludeSynthetic: input.excludeSynthetic, toExclusive: !isNewestChunk,
+        ...(input.signal ? { signal: input.signal } : {}),
+      });
       const kept = input.bucketFilter ? rows.filter(input.bucketFilter) : rows;
       if (kept.length) collected = [...kept, ...collected];
       if (collected.length >= input.limit) break;
@@ -529,7 +507,7 @@ export class HybridTelemetryReader {
           || left.endedAt.localeCompare(right.endedAt))
         .slice(0, limit);
     };
-    const readLocal = () => bounded(this.#local.measurementSampleGaps?.(
+    const readLocal = () => bounded(this.#local.measurementSampleGaps(
       query.sensorId,
       query.metric,
       query.source,
@@ -537,7 +515,7 @@ export class HybridTelemetryReader {
       query.to,
       query.minimumGapMs,
       limit,
-    ) ?? []);
+    ));
     if (!this.#archive) {
       if (!complete) throw new IncompleteTelemetryHistoryError("not-configured");
       return readLocal();
@@ -574,31 +552,10 @@ export class HybridTelemetryReader {
     }
     if (metrics.length > 5) throw new RangeError("thermal history supports at most 5 metrics");
     const readLocal = async (): Promise<MeasurementSample[]> => {
-      if (metrics.every(metric => metric === "temperature" || metric === "humidity")
-        && this.#local.thermalMeasurementHistoryAsync) {
+      if (metrics.every(metric => metric === "temperature" || metric === "humidity")) {
         return this.#local.thermalMeasurementHistoryAsync({
           ...query, metrics, bucketMinutes, limitPerMetric,
         });
-      }
-      if (metrics.length === 1 && metrics[0] === "temperature" && this.#local.thermalTemperatureHistory) {
-        return this.#local.thermalTemperatureHistory(
-          query.sensorId,
-          query.from,
-          query.to,
-          bucketMinutes,
-          limitPerMetric,
-        );
-      }
-      if (metrics.every((metric) => metric === "temperature" || metric === "humidity")
-        && this.#local.thermalClimateHistory) {
-        const requestedMetrics = new Set<string>(metrics);
-        return this.#local.thermalClimateHistory(
-          query.sensorId,
-          query.from,
-          query.to,
-          bucketMinutes,
-          limitPerMetric,
-        ).filter((sample) => requestedMetrics.has(sample.metric));
       }
       return bucketMeasurementSamples(
         (await this.#localMeasurementWindow(
@@ -731,8 +688,8 @@ export class HybridTelemetryReader {
     if (cancellation) throw cancellation;
     const sensorIds = unique(query.sensorIds);
     const metrics = unique(query.metrics);
-    const local = this.#local.measurementCoverage?.(sensorIds, metrics) ?? [];
-    const localComplete = this.#localHistoryComplete === true && this.#local.measurementCoverage !== undefined;
+    const local = this.#local.measurementCoverage(sensorIds, metrics);
+    const localComplete = this.#localHistoryComplete === true;
     if (!this.#archive) return { records: local, archiveState: "not-configured", complete: localComplete };
     const phase = this.#archivePhase ? this.#safeArchivePhase() : "ready";
     if (phase !== "ready" && phase !== "syncing") {
@@ -819,7 +776,7 @@ export class HybridTelemetryReader {
       from: query.from,
       to: query.to,
       limit,
-      local: () => (this.#local.listPropertyElectricityPrices?.(query.propertyId, query.from, query.to) ?? [])
+      local: () => this.#local.listPropertyElectricityPrices(query.propertyId, query.from, query.to)
         .map((record) => ({ ...record, source: "sqlite" })),
       signal: query.signal,
       archiveRead: async () => this.#archive!.electricityPriceHistory
@@ -830,8 +787,8 @@ export class HybridTelemetryReader {
     });
     // Archived rows carry the margin snapshot from fetch time; effective
     // prices always come from the raw price and the tariff in force.
-    const tariff = this.#local.getPropertyElectricityTariff?.(query.propertyId) ?? null;
-    const timeZone = this.#local.propertyElectricityTimeZone?.(query.propertyId) ?? "UTC";
+    const tariff = this.#local.getPropertyElectricityTariff(query.propertyId);
+    const timeZone = this.#local.propertyElectricityTimeZone(query.propertyId);
     return {
       records: result.records.map(({ source: _source, ...record }) => (
         tariff ? withTariffPrice(record, tariff.versions, timeZone) : record
@@ -851,12 +808,12 @@ export class HybridTelemetryReader {
       from: query.from,
       to: query.to,
       limit,
-      local: () => this.#local.listOpeningStateObservationHistory?.(
+      local: () => this.#local.listOpeningStateObservationHistory(
         query.houseId,
         query.from,
         query.to,
         limit,
-      ) ?? [],
+      ),
       signal: query.signal,
       archiveRead: async () => {
         if (!this.#archive!.openingStateHistory) throw new Error("Opening-state archive reads are unavailable");
@@ -878,7 +835,7 @@ export class HybridTelemetryReader {
       from: "1970-01-01T00:00:00.000Z",
       to: query.at,
       limit,
-      local: () => this.#local.listOpeningStateObservations?.(query.houseId, limit, query.at) ?? [],
+      local: () => this.#local.listOpeningStateObservations(query.houseId, limit, query.at),
       signal: query.signal,
       archiveRead: async () => {
         if (!this.#archive!.openingStateSnapshot) throw new Error("Opening-state archive snapshots are unavailable");
@@ -936,37 +893,7 @@ export class HybridTelemetryReader {
     limit: number,
     signal: AbortSignal | undefined,
   ): Promise<MeasurementSample[]> {
-    if (this.#local.measurementWindowAsync) {
-      return this.#local.measurementWindowAsync({ sensorIds, metrics, from, to, limit, ...(signal ? { signal } : {}) });
-    }
-    const readPage = this.#local.measurementWindowPage;
-    if (!readPage) return this.#local.measurementWindow(sensorIds, metrics, from, to, limit);
-    const newestFirst: MeasurementSample[] = [];
-    let cursor: { timestamp: string; id: number } | null = null;
-    for (;;) {
-      const page: {
-        samples: MeasurementSample[];
-        next: { timestamp: string; id: number } | null;
-      } = readPage.call(
-        this.#local,
-        sensorIds,
-        metrics,
-        from,
-        to,
-        Math.min(LOCAL_WINDOW_PAGE_ROWS, limit - newestFirst.length),
-        cursor,
-      );
-      for (const sample of page.samples) newestFirst.push(sample);
-      cursor = page.next;
-      if (!cursor || newestFirst.length >= limit) break;
-      await yieldToEventLoop();
-      const cancellation = aborted(signal);
-      if (cancellation) throw cancellation;
-    }
-    // Pages descend from the newest sample, so the reversal reproduces the
-    // one-shot contract: the newest `limit` rows in ascending (timestamp, id)
-    // order.
-    return newestFirst.reverse();
+    return this.#local.measurementWindowAsync({ sensorIds, metrics, from, to, limit, ...(signal ? { signal } : {}) });
   }
 
   async #read<T extends { source: string }>(input: {

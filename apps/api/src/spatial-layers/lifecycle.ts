@@ -1,7 +1,7 @@
 import type { MeasurementSample } from "@climate-twin/contracts";
 import { createBuiltinSpatialLayerRegistry, type SpatialLayerEngineRegistry } from "@climate-twin/spatial-layers";
 import { ClimateDatabaseSpatialInputAdapter, type CoreClimateReader } from "./core-input.js";
-import { HybridTelemetryReader } from "../timeseries/read-facade.js";
+import { HybridTelemetryReader, type LocalTelemetryReader } from "../timeseries/read-facade.js";
 import { EngineHost, type SpatialEngineHostLogger } from "./engine-host.js";
 import {
   WorkerThreadSpatialEngineExecutor,
@@ -12,7 +12,8 @@ import { SpatialLayerScheduler, type SpatialInferenceAdmission } from "./schedul
 import { deriveSpatialStatePath, sourceDatabaseId, SpatialLayerStateStore } from "./state-store.js";
 import type { SpatialDataPartition } from "./types.js";
 
-export type SpatialRuntimeCoreReader = CoreClimateReader;
+/** The core database: spatial inputs, and the local half of the default hybrid telemetry reader. */
+export type SpatialRuntimeCoreReader = CoreClimateReader & LocalTelemetryReader;
 export type SpatialRuntimeTelemetryReader = Pick<HybridTelemetryReader, "measurementWindow" | "outdoorTemperatureHistory">;
 
 export interface LocalSpatialLayerRuntime {
