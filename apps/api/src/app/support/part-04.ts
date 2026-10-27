@@ -1,3 +1,4 @@
+import { roleCanManageWorkspace } from "@climate-twin/contracts";
 import { createHash, timingSafeEqual } from "node:crypto";
 import { type NextFunction, type Request, type Response } from "express";
 import type {
@@ -20,7 +21,6 @@ import {
   cloudflareSetupCallbackPath,
 } from "../../cloudflare-setup.js";
 import { HttpError } from "./http-error.js";
-import { roleCanManageWorkspace } from "../access-policy.js";
 import { compareCodeUnits } from "../../text-order.js";
 
 export function visibleCollectionPage<T>(

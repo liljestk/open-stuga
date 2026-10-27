@@ -1,23 +1,12 @@
 import { withResponseSignal } from "./response-signal.js";
-import { DEFAULT_ELECTRICITY_PRICE_ENDPOINT } from "@climate-twin/contracts";
+import { DEFAULT_ELECTRICITY_PRICE_ENDPOINT, roleCanAccessNonGuestConfiguration } from "@climate-twin/contracts";
 import type { HomeElectricityPricePoint, PropertyElectricityConfigInput } from "@climate-twin/contracts";
 import {
   ElectricityEndpointPolicyError,
   publicElectricityConfiguration,
   validateElectricityEndpointUrl,
 } from "../electricity-prices.js";
-import {
-  HttpError,
-  bodyObject,
-  dateValue,
-  enumValue,
-  optionalResourceQuery,
-  propertyText,
-  rejectUnknownFields,
-  requestPrincipal,
-  requiredNumber,
-  requiredString,
-} from "./support/index.js";
+import { HttpError, bodyObject, dateValue, enumValue, optionalResourceQuery, propertyText, rejectUnknownFields, requestPrincipal, requiredNumber, requiredString, requireVisibleHouse } from "./support/index.js";
 import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
 import { registerElectricityTariffRoutes } from "./electricity-tariff-routes.js";
 import { IncompleteTelemetryHistoryError } from "../timeseries/read-facade.js";
@@ -53,11 +42,6 @@ export function registerElectricityRoutes(context: ElectricityRouteContext): () 
     if (!property || !context.visibility(response).hasProperty(propertyId)) throw new HttpError(404, "NOT_FOUND", "Property not found");
     return property;
   };
-  const visibleHouse = (houseId: string, response: Parameters<ElectricityRouteContext["visibility"]>[0]) => {
-    const house = context.database.getHouse(houseId);
-    if (!house || !context.visibility(response).house(houseId)) throw new HttpError(404, "NOT_FOUND", "House not found");
-    return house;
-  };
   const visibleEnergySensors = (houseId: string, response: Parameters<ElectricityRouteContext["visibility"]>[0]) => {
     const access = context.visibility(response);
     return context.database.listSensors(houseId).filter((sensor) => sensor.enabled && access.sensor(sensor.id));
@@ -82,7 +66,7 @@ export function registerElectricityRoutes(context: ElectricityRouteContext): () 
       limit: 100_000,
     });
     response.json({
-      config: publicElectricityConfiguration(config, requestPrincipal(response).role === "guest"),
+      config: publicElectricityConfiguration(config, !roleCanAccessNonGuestConfiguration(requestPrincipal(response).role)),
       current: context.database.getCurrentPropertyElectricityPrice(propertyId),
       prices: history.records,
     });
@@ -135,7 +119,7 @@ export function registerElectricityRoutes(context: ElectricityRouteContext): () 
       const prices = await context.electricityPrices.refresh(propertyId);
       const savedConfig = context.database.getPropertyElectricityConfig(propertyId);
       response.json({
-        config: savedConfig ? publicElectricityConfiguration(savedConfig, requestPrincipal(response).role === "guest") : null,
+        config: savedConfig ? publicElectricityConfiguration(savedConfig, !roleCanAccessNonGuestConfiguration(requestPrincipal(response).role)) : null,
         current: context.database.getCurrentPropertyElectricityPrice(propertyId),
         prices,
       });
@@ -144,7 +128,7 @@ export function registerElectricityRoutes(context: ElectricityRouteContext): () 
     }
   });
   context.app.get(`${context.prefix}/houses/:id/electricity-price`, async (request, response) => {
-    const house = visibleHouse(request.params.id as string, response);
+    const house = requireVisibleHouse(context, response, request.params.id as string);
     const propertyPrice = context.database.getCurrentPropertyElectricityPrice(house.propertyId);
     const homePrice = (price: NonNullable<typeof propertyPrice>): HomeElectricityPricePoint => ({
       startAt: price.startAt,
@@ -173,7 +157,7 @@ export function registerElectricityRoutes(context: ElectricityRouteContext): () 
   });
   context.app.get(`${context.prefix}/houses/:id/energy-cost`, async (request, response) => {
     const houseId = request.params.id as string;
-    const house = visibleHouse(houseId, response);
+    const house = requireVisibleHouse(context, response, houseId);
     const sensorId = optionalResourceQuery(request.query.sensorId, "sensorId");
     if (!sensorId) throw new HttpError(400, "INVALID_FIELD", "sensorId is required");
     const sensor = context.database.getSensor(sensorId);
@@ -205,7 +189,7 @@ export function registerElectricityRoutes(context: ElectricityRouteContext): () 
   });
   context.app.get(`${context.prefix}/houses/:id/energy-summary`, async (request, response) => {
     const houseId = request.params.id as string;
-    const house = visibleHouse(houseId, response);
+    const house = requireVisibleHouse(context, response, houseId);
     const energySensors = visibleEnergySensors(houseId, response);
     const to = dateValue(request.query.to, new Date(), "to");
     const from = dateValue(request.query.from, new Date(Date.parse(to) - DEFAULT_ENERGY_RANGE_MS), "from");
@@ -235,7 +219,7 @@ export function registerElectricityRoutes(context: ElectricityRouteContext): () 
   });
   context.app.get(`${context.prefix}/houses/:id/energy-projection`, async (request, response) => {
     const houseId = request.params.id as string;
-    const house = visibleHouse(houseId, response);
+    const house = requireVisibleHouse(context, response, houseId);
     const sensors = visibleEnergySensors(houseId, response);
     const startedAt = performance.now();
     try {

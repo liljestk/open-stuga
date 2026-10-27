@@ -544,7 +544,7 @@ export function renderApp(context: ReturnType<typeof useAppPart03>) {
             streamConnection={climate.connection}
             tpLinkDevicesLoading={climate.tpLinkDevicesLoading}
             tpLinkDevicesError={climate.tpLinkDevicesError}
-            canManageTuya={canManagePeople}
+            canManageIntegrations={canManagePeople}
             onHouse={chooseHouse}
             onHouseUpdate={climate.updateHouse}
             onGeoreferenceChange={climate.setHouseGeoreference}

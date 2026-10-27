@@ -9,12 +9,7 @@ import { isThermalIsolationTemperatureSensor } from "../thermal-isolation.js";
 import { runThermalSimulationAsync } from "../thermal-simulation.js";
 import type { HybridTelemetryReader } from "../timeseries/read-facade.js";
 import { mapWithConcurrency } from "../timeseries/read-support.js";
-import {
-  HttpError,
-  dateValue,
-  optionalQueryNumber,
-  safeInteger,
-} from "../app/support/index.js";
+import { HttpError, dateValue, optionalQueryNumber, safeInteger, requireVisibleHouse } from "../app/support/index.js";
 import {
   runMoistureResponseIsolated,
   runThermalIsolationIsolated,
@@ -45,16 +40,6 @@ const DEFAULT_RANGE_MS = 7 * 24 * 3_600_000;
 const MAX_RANGE_MS = 14 * 24 * 3_600_000;
 const OUTDOOR_BOUNDARY_PADDING_MS = 2 * 3_600_000;
 const HEAT_PUMP_SETTLE_MS = 5 * 60_000;
-
-function visibleHouse(
-  context: ThermalAnalyticsRouteContext,
-  request: express.Request,
-  response: express.Response,
-): House {
-  const house = context.database.getHouse(request.params.id as string);
-  if (!house || !context.visibility(response).house(house.id)) throw new HttpError(404, "NOT_FOUND", "House not found");
-  return house;
-}
 
 /** Passive-response fits default to the last week and never exceed two weeks. */
 function calibrationRange(request: express.Request, label: string): { from: string; to: string } {
@@ -105,7 +90,7 @@ function passiveIntervals(window: HeatPumpExclusionWindow) {
 
 export function registerThermalAnalyticsRoutes(context: ThermalAnalyticsRouteContext): void {
   context.app.get(`${context.prefix}/houses/:id/thermal-simulation`, async (request, response) => {
-    const house = visibleHouse(context, request, response);
+    const house = requireVisibleHouse(context, response, request.params.id as string);
     if (typeof request.query.sensorId !== "string" || !request.query.sensorId) {
       throw new HttpError(400, "INVALID_FIELD", "sensorId is required");
     }
@@ -157,7 +142,7 @@ export function registerThermalAnalyticsRoutes(context: ThermalAnalyticsRouteCon
     response.json({ simulation: result });
   });
   context.app.get(`${context.prefix}/houses/:id/thermal-isolation`, async (request, response) => {
-    const house = visibleHouse(context, request, response);
+    const house = requireVisibleHouse(context, response, request.params.id as string);
     const { from, to } = calibrationRange(request, "thermal isolation");
     const sensorCandidates = context.database.listSensors(house.id)
       .filter((sensor) => sensor.enabled && context.visibility(response).sensor(sensor.id));
@@ -223,7 +208,7 @@ export function registerThermalAnalyticsRoutes(context: ThermalAnalyticsRouteCon
     response.json({ isolation: result });
   });
   context.app.get(`${context.prefix}/houses/:id/moisture-response`, async (request, response) => {
-    const house = visibleHouse(context, request, response);
+    const house = requireVisibleHouse(context, response, request.params.id as string);
     const { from, to } = calibrationRange(request, "moisture response");
     const sensorCandidates = context.database.listSensors(house.id)
       .filter((sensor) => sensor.enabled && context.visibility(response).sensor(sensor.id));

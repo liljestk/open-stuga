@@ -1,3 +1,4 @@
+import { roleCanAccessNonGuestConfiguration, roleCanManageWorkspace } from "@climate-twin/contracts";
 import type { Application } from "express";
 import { assessTrackingCompatibility } from "./profiles.js";
 import { trackingEvidenceBatch } from "./route-evidence.js";
@@ -151,13 +152,13 @@ export function registerTrackingCoreRoutes(app: Application, options: TrackingRo
   app.post(`${prefix}/tracking/observers/register`, (request, response) => {
     service.requireEnabled();
     const principal = options.principal(response);
-    if (!principal || principal.role === "guest") {
+    if (!principal || !roleCanAccessNonGuestConfiguration(principal.role)) {
       throw new TrackingError(403, "FORBIDDEN", "A Property member is required to register an observer");
     }
     const input = observerInput(request.body);
     requireProperty(options, response, input.propertyId);
     const mobile = input.type === "android-phone" || input.type === "ios-phone";
-    const administrator = principal.role === "owner" || principal.role === "admin";
+    const administrator = roleCanManageWorkspace(principal.role);
     if (mobile && !service.flags["tracking.mobileObserver.enabled"]) {
       throw new TrackingError(404, "MOBILE_OBSERVER_DISABLED", "Mobile observation is not enabled");
     }

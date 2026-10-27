@@ -53,11 +53,13 @@ afterEach(() => {
 });
 
 describe("Setup workspace", () => {
-  it("fails closed when Tuya management permission is omitted", () => {
+  it("hides credential forms from accounts that cannot manage integrations", () => {
     window.history.replaceState(null, "", "/setup/connections");
-    renderPage();
+    renderPage({ canManageIntegrations: false });
 
     expect(screen.queryByRole("heading", { name: "Tuya Wi-Fi" })).toBeNull();
+    expect(screen.queryByLabelText("Home Assistant URL")).toBeNull();
+    expect(screen.getAllByText("Only an Owner or Admin can change this connection's credentials.").length).toBeGreaterThan(0);
   });
 
   it("queues an eight-interval Tapo canary for a daily export configuration", async () => {
@@ -71,7 +73,7 @@ describe("Setup workspace", () => {
     vi.mocked(api.tpLinkDevices).mockResolvedValue([{ ...discoveredChild, mappedSensorId: "sensor-hall" }]);
     const createCanary = vi.spyOn(api, "createTpLinkHistoryExportCanary").mockResolvedValue({ job: {} as never });
     const user = userEvent.setup();
-    renderPage({ integration: connectedTpLink(), canManageTuya: true });
+    renderPage({ integration: connectedTpLink(), canManageIntegrations: true });
 
     const historyPanel = await screen.findByRole("heading", { name: "Automated Tapo history exports" });
     await user.click(historyPanel.closest("details")!.querySelector("summary")!);
@@ -165,7 +167,7 @@ describe("Setup workspace", () => {
     const retry = vi.spyOn(api, "retryTpLinkHistoryExportJob").mockResolvedValue(undefined);
     const cancel = vi.spyOn(api, "cancelTpLinkHistoryExportJob").mockResolvedValue(undefined);
     const user = userEvent.setup();
-    renderPage({ integration: connectedTpLink(), canManageTuya: true });
+    renderPage({ integration: connectedTpLink(), canManageIntegrations: true });
 
     const panel = await screen.findByRole("heading", { name: "Automated Tapo history exports" });
     const section = panel.closest("details")!;
@@ -206,7 +208,7 @@ describe("Setup workspace", () => {
     const retry = vi.spyOn(api, "retryTpLinkHistoryExportJob");
     const cancel = vi.spyOn(api, "cancelTpLinkHistoryExportJob");
     const user = userEvent.setup();
-    renderPage({ integration: connectedTpLink(), canManageTuya: false });
+    renderPage({ integration: connectedTpLink(), canManageIntegrations: false });
 
     const panel = await screen.findByRole("heading", { name: "Automated Tapo history exports" });
     const section = panel.closest("details")!;
@@ -239,7 +241,7 @@ describe("Setup workspace", () => {
     window.history.replaceState(null, "", "/setup/connections");
     const scan = vi.spyOn(api, "discoverIntegrations").mockResolvedValue({ tpLink: [], homeAssistant: [], warnings: [] });
     const onOpenSensors = vi.fn();
-    renderPage({ integration: connectedTpLink(), canManageTuya: true, onOpenSensors });
+    renderPage({ integration: connectedTpLink(), canManageIntegrations: true, onOpenSensors });
     await act(async () => { await Promise.resolve(); });
     const setupStatus = screen.getByRole("region", { name: "TP-Link setup status" });
     expect(within(setupStatus).getByRole("heading", { name: "TP-Link sources: 1 of 1 connected" })).not.toBeNull();

@@ -1,13 +1,6 @@
 import type { Sensor, SensorCreateInput } from "@climate-twin/contracts";
 import { Nexus433StoreError } from "../nexus433/index.js";
-import {
-  HttpError,
-  bodyObject,
-  optionalBoolean,
-  requiredNumber,
-  requiredString,
-  requireWorkspaceAdmin,
-} from "./support/index.js";
+import { HttpError, bodyObject, optionalBoolean, requiredNumber, requiredString, requireWorkspaceAdmin, requireVisibleHouse } from "./support/index.js";
 import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
 
 export type Nexus433RouteContext = Pick<
@@ -26,13 +19,6 @@ function houseIdFromQuery(value: unknown): string {
     throw new HttpError(400, "INVALID_FIELD", "houseId must identify one Home");
   }
   return value.trim();
-}
-
-function visibleHouse(context: Nexus433RouteContext, response: Parameters<Nexus433RouteContext["visibility"]>[0], houseId: string): void {
-  const house = context.database.getHouse(houseId);
-  if (!house || !context.visibility(response).house(houseId)) {
-    throw new HttpError(404, "NOT_FOUND", "Home not found");
-  }
 }
 
 function sensorInput(value: unknown, houseId: string): SensorCreateInput {
@@ -69,7 +55,7 @@ function routeError(error: unknown): unknown {
 export function registerNexus433Routes(context: Nexus433RouteContext): void {
   context.app.get(`${context.prefix}/integrations/nexus433/status`, (request, response) => {
     const houseId = houseIdFromQuery(request.query.houseId);
-    visibleHouse(context, response, houseId);
+    requireVisibleHouse(context, response, houseId);
     response.setHeader("cache-control", "no-store");
     response.json(context.nexus433.status(houseId));
   });
@@ -78,7 +64,7 @@ export function registerNexus433Routes(context: Nexus433RouteContext): void {
     try {
       const body = bodyObject(request.body);
       const houseId = requiredString(body, "houseId");
-      visibleHouse(context, response, houseId);
+      requireVisibleHouse(context, response, houseId);
       context.stuguby.assertHouseLocalAuthority(houseId);
       const enabled = optionalBoolean(body, "enabled");
       if (enabled === undefined) throw new HttpError(400, "INVALID_FIELD", "enabled must be a boolean");
@@ -100,14 +86,14 @@ export function registerNexus433Routes(context: Nexus433RouteContext): void {
 
   context.app.get(`${context.prefix}/integrations/nexus433/candidates`, requireWorkspaceAdmin, (request, response) => {
     const houseId = houseIdFromQuery(request.query.houseId);
-    visibleHouse(context, response, houseId);
+    requireVisibleHouse(context, response, houseId);
     response.setHeader("cache-control", "no-store");
     response.json({ candidates: context.nexus433.listCandidates(houseId) });
   });
 
   context.app.get(`${context.prefix}/integrations/nexus433/bindings`, requireWorkspaceAdmin, (request, response) => {
     const houseId = houseIdFromQuery(request.query.houseId);
-    visibleHouse(context, response, houseId);
+    requireVisibleHouse(context, response, houseId);
     response.setHeader("cache-control", "no-store");
     response.json({ bindings: context.nexus433.listBindings(houseId) });
   });
@@ -117,7 +103,7 @@ export function registerNexus433Routes(context: Nexus433RouteContext): void {
       const body = bodyObject(request.body);
       const houseId = requiredString(body, "houseId");
       const candidateId = requiredString(body, "candidateId");
-      visibleHouse(context, response, houseId);
+      requireVisibleHouse(context, response, houseId);
       context.stuguby.assertHouseLocalAuthority(houseId);
       const hasSensorId = typeof body.sensorId === "string" && Boolean(body.sensorId.trim());
       const hasSensor = body.sensor !== undefined;
@@ -150,7 +136,7 @@ export function registerNexus433Routes(context: Nexus433RouteContext): void {
       if (!Number.isInteger(expectedRevision) || expectedRevision < 1) {
         throw new HttpError(400, "INVALID_FIELD", "expectedRevision must be a positive integer");
       }
-      visibleHouse(context, response, houseId);
+      requireVisibleHouse(context, response, houseId);
       context.stuguby.assertHouseLocalAuthority(houseId);
       const sensorId = request.params.sensorId as string;
       const sensor = context.database.getSensor(sensorId);

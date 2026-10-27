@@ -3,7 +3,6 @@ import { randomUUID } from "node:crypto";
 import type { Application, Request, Response } from "express";
 import type { SpatialContextEventKind, Vector3 } from "@climate-twin/spatial-layers";
 import type { LocalSpatialLayerRuntime } from "./lifecycle.js";
-import { SpatialStateValidationError } from "./state-store.js";
 import type {
   SpatialCalibrationSession,
   SpatialEngineAssignment,
@@ -27,7 +26,7 @@ const PLACEMENT_RISKS: NonNullable<StoredSpatialSensorBinding["placementRisks"]>
 ];
 const MAX_LAYER_QUERY_IDS = 100;
 
-class SpatialRouteError extends Error {
+export class SpatialRouteError extends Error {
   constructor(readonly status: number, readonly code: string, message: string) {
     super(message);
   }
@@ -186,19 +185,6 @@ function requireRuntime(runtime: LocalSpatialLayerRuntime | null): LocalSpatialL
 
 function requireScope(runtime: LocalSpatialLayerRuntime, value: SpatialScope): void {
   if (!runtime.input.scopeExists(value)) throw new SpatialRouteError(404, "SPATIAL_SCOPE_NOT_FOUND", `${value.kind} ${value.id} does not exist`);
-}
-
-function sendError(response: Response, error: unknown): void {
-  if (response.destroyed || response.writableEnded) return;
-  if (error instanceof SpatialRouteError || error instanceof SpatialStateValidationError) {
-    response.status(error.status).json({ error: { code: error.code, message: error.message } });
-    return;
-  }
-  response.status(500).json({ error: { code: "SPATIAL_LAYER_ERROR", message: "The spatial layer request could not be completed" } });
-}
-
-function asyncRoute(handler: (request: Request, response: Response) => Promise<void>): (request: Request, response: Response) => void {
-  return (request, response) => { void handler(request, response).catch((error: unknown) => sendError(response, error)); };
 }
 
 async function current(
@@ -462,7 +448,7 @@ export function registerSpatialLayerRoutes(
   for (const kind of ["house", "property"] as const) {
     const collection = kind === "house" ? "houses" : "properties";
     const base = `${prefix}/${collection}/:id/layers`;
-    app.get(`${base}/current`, asyncRoute(async (request, response) => {
+    app.get(`${base}/current`, async (request, response) => {
       const body = await withResponseSignal(response, (signal) => current(
         requireRuntime(options.runtime),
         authorizedScope(options, kind, request, response),
@@ -470,23 +456,23 @@ export function registerSpatialLayerRoutes(
         signal,
       ));
       if (!response.destroyed && !response.writableEnded) response.json(body);
-    }));
-    app.get(`${base}/history`, (request, response) => { try { response.json(history(requireRuntime(options.runtime), authorizedScope(options, kind, request, response), request)); } catch (error) { sendError(response, error); } });
-    app.get(`${base}/health`, (request, response) => {
-      try {
-        const runtime = requireRuntime(options.runtime); const value = authorizedScope(options, kind, request, response); requireScope(runtime, value);
-        response.json({ partition: runtime.host.partition, scope: value, engines: runtime.host.health(value) });
-      } catch (error) { sendError(response, error); }
     });
-    app.get(`${base}/config`, asyncRoute(async (request, response) => {
+    app.get(`${base}/history`, (request, response) => { response.json(history(requireRuntime(options.runtime), authorizedScope(options, kind, request, response), request)); });
+    app.get(`${base}/health`, (request, response) => {
+      const runtime = requireRuntime(options.runtime);
+      const value = authorizedScope(options, kind, request, response);
+      requireScope(runtime, value);
+      response.json({ partition: runtime.host.partition, scope: value, engines: runtime.host.health(value) });
+    });
+    app.get(`${base}/config`, async (request, response) => {
       const body = await withResponseSignal(response, (signal) => configuration(
         requireRuntime(options.runtime),
         authorizedScope(options, kind, request, response),
         signal,
       ));
       if (!response.destroyed && !response.writableEnded) response.json(body);
-    }));
-    app.put(`${base}/config`, asyncRoute(async (request, response) => {
+    });
+    app.put(`${base}/config`, async (request, response) => {
       const body = await withResponseSignal(response, (signal) => saveConfiguration(
         requireRuntime(options.runtime),
         authorizedMutationScope(options, kind, request, response),
@@ -495,59 +481,52 @@ export function registerSpatialLayerRoutes(
         signal,
       ));
       if (!response.destroyed && !response.writableEnded) response.json(body);
-    }));
+    });
     app.get(`${base}/ground-truth`, (request, response) => {
-      try {
-        const runtime = requireRuntime(options.runtime); const value = authorizedScope(options, kind, request, response); requireScope(runtime, value);
-        response.json({ groundTruth: runtime.state.listGroundTruth(runtime.host.partition, value) });
-      } catch (error) { sendError(response, error); }
+      const runtime = requireRuntime(options.runtime);
+      const value = authorizedScope(options, kind, request, response);
+      requireScope(runtime, value);
+      response.json({ groundTruth: runtime.state.listGroundTruth(runtime.host.partition, value) });
     });
     app.post(`${base}/ground-truth`, (request, response) => {
-      try {
-        const runtime = requireRuntime(options.runtime); const value = authorizedMutationScope(options, kind, request, response); requireScope(runtime, value);
-        response.status(201).json({
-          groundTruth: addTruth(runtime, value, request, auditActor(options, request, response)),
-        });
-      } catch (error) { sendError(response, error); }
+      const runtime = requireRuntime(options.runtime);
+      const value = authorizedMutationScope(options, kind, request, response);
+      requireScope(runtime, value);
+      response.status(201).json({
+        groundTruth: addTruth(runtime, value, request, auditActor(options, request, response)),
+      });
     });
   }
 
   const houseBase = `${prefix}/houses/:id/layers`;
-  app.get(`${houseBase}/inference-session`, (request, response) => { try {
-    const runtime = requireRuntime(options.runtime);
-    const value = authorizedScope(options, "house", request, response);
-    requireScope(runtime, value);
-    response.json({ session: runtime.scheduler.houseSession(value.id) });
-  } catch (error) { sendError(response, error); } });
-  app.post(`${houseBase}/inference-session`, (request, response) => { try {
-    const runtime = requireRuntime(options.runtime);
-    const value = authorizedMutationScope(options, "house", request, response);
-    requireScope(runtime, value);
-    const body = bodyObject(request.body);
-    rejectUnknownFields(body, new Set(["durationMinutes", "cadenceMinutes"]), "Spatial inference session");
-    const durationMinutes = optionalInteger(body, "durationMinutes");
-    const cadenceMinutes = optionalInteger(body, "cadenceMinutes");
-    response.status(201).json({
-      session: runtime.scheduler.startHouseSession({
-        houseId: value.id,
-        ...(durationMinutes === undefined ? {} : { durationMinutes }),
-        ...(cadenceMinutes === undefined ? {} : { cadenceMinutes }),
-        createdBy: auditActor(options, request, response),
-      }),
-    });
-  } catch (error) { sendError(response, error); } });
-  app.delete(`${houseBase}/inference-session`, (request, response) => { try {
-    const runtime = requireRuntime(options.runtime);
-    const value = authorizedMutationScope(options, "house", request, response);
-    requireScope(runtime, value);
-    const stopped = runtime.scheduler.stopHouseSession(value.id);
-    response.json({ session: stopped ?? runtime.scheduler.houseSession(value.id) });
-  } catch (error) { sendError(response, error); } });
-  app.get(`${houseBase}/bindings`, (request, response) => { try {
-    const runtime = requireRuntime(options.runtime); requireScope(runtime, authorizedScope(options, "house", request, response));
-    response.json({ bindings: runtime.state.listBindings(runtime.host.partition, pathId(request)) });
-  } catch (error) { sendError(response, error); } });
-  app.post(`${houseBase}/bindings`, asyncRoute(async (request, response) => {
+  app.get(`${houseBase}/inference-session`, (request, response) => { const runtime = requireRuntime(options.runtime);
+                                                                     const value = authorizedScope(options, "house", request, response);
+                                                                     requireScope(runtime, value);
+                                                                     response.json({ session: runtime.scheduler.houseSession(value.id) }); });
+  app.post(`${houseBase}/inference-session`, (request, response) => { const runtime = requireRuntime(options.runtime);
+                                                                      const value = authorizedMutationScope(options, "house", request, response);
+                                                                      requireScope(runtime, value);
+                                                                      const body = bodyObject(request.body);
+                                                                      rejectUnknownFields(body, new Set(["durationMinutes", "cadenceMinutes"]), "Spatial inference session");
+                                                                      const durationMinutes = optionalInteger(body, "durationMinutes");
+                                                                      const cadenceMinutes = optionalInteger(body, "cadenceMinutes");
+                                                                      response.status(201).json({
+    session: runtime.scheduler.startHouseSession({
+      houseId: value.id,
+      ...(durationMinutes === undefined ? {} : { durationMinutes }),
+      ...(cadenceMinutes === undefined ? {} : { cadenceMinutes }),
+      createdBy: auditActor(options, request, response),
+    }),
+  }); });
+  app.delete(`${houseBase}/inference-session`, (request, response) => { const runtime = requireRuntime(options.runtime);
+                                                                        const value = authorizedMutationScope(options, "house", request, response);
+                                                                        requireScope(runtime, value);
+                                                                        const stopped = runtime.scheduler.stopHouseSession(value.id);
+                                                                        response.json({ session: stopped ?? runtime.scheduler.houseSession(value.id) }); });
+  app.get(`${houseBase}/bindings`, (request, response) => { const runtime = requireRuntime(options.runtime);
+                                                            requireScope(runtime, authorizedScope(options, "house", request, response));
+                                                            response.json({ bindings: runtime.state.listBindings(runtime.host.partition, pathId(request)) }); });
+  app.post(`${houseBase}/bindings`, async (request, response) => {
     authorizedMutationScope(options, "house", request, response);
     const binding = await withResponseSignal(response, (signal) => addBinding(
       requireRuntime(options.runtime),
@@ -556,57 +535,47 @@ export function registerSpatialLayerRoutes(
       signal,
     ));
     if (!response.destroyed && !response.writableEnded) response.status(201).json({ binding });
-  }));
-  app.get(`${houseBase}/calibrations`, (request, response) => { try {
-    const runtime = requireRuntime(options.runtime); requireScope(runtime, authorizedScope(options, "house", request, response));
-    response.json({ calibrations: runtime.state.listCalibrations(runtime.host.partition, pathId(request)) });
-  } catch (error) { sendError(response, error); } });
-  app.post(`${houseBase}/calibrations`, (request, response) => { try {
-    authorizedMutationScope(options, "house", request, response);
-    response.status(201).json({ calibration: addCalibration(requireRuntime(options.runtime), pathId(request), request.body) });
-  } catch (error) { sendError(response, error); } });
-  app.get(`${houseBase}/calibration-sessions`, (request, response) => { try {
-    const runtime = requireRuntime(options.runtime); requireScope(runtime, authorizedScope(options, "house", request, response));
-    response.json({ sessions: runtime.state.listCalibrationSessions(runtime.host.partition, pathId(request)) });
-  } catch (error) { sendError(response, error); } });
-  app.post(`${houseBase}/calibration-sessions`, (request, response) => { try {
-    const runtime = requireRuntime(options.runtime);
-    requireScope(runtime, authorizedMutationScope(options, "house", request, response));
-    const body = bodyObject(request.body);
-    rejectUnknownFields(body, new Set([
-      "id", "kind", "status", "startAt", "endAt", "intervention", "notes", "calibrations",
-    ]), "Spatial calibration session");
-    if (body.calibrations !== undefined && !Array.isArray(body.calibrations)) {
-      throw new SpatialRouteError(400, "INVALID_FIELD", "calibrations must be an array");
-    }
-    const now = new Date().toISOString();
-    const houseId = pathId(request);
-    const session: SpatialCalibrationSession = {
-      id: optionalString(body, "id") ?? randomUUID(), houseId,
-      kind: enumValue(body.kind, CALIBRATION_SESSION_KINDS, "kind"), status: enumValue(body.status === undefined ? "planned" : body.status, ["planned", "running", "completed", "cancelled"] as const, "status"),
-      startAt: isoTimestamp(body.startAt, "startAt", now), endAt: body.endAt === undefined || body.endAt === null ? null : isoTimestamp(body.endAt, "endAt"),
-      intervention: body.intervention === undefined ? {} : objectValue(body.intervention, "intervention"), notes: nullableString(body, "notes") ?? null,
-      createdAt: now, updatedAt: now,
-    };
-    // Parse and validate every child before the first write. The state store
-    // then commits the already-validated aggregate in one SQLite transaction.
-    const calibrationInputs = body.calibrations as unknown[] | undefined;
-    const pendingCalibrations = (calibrationInputs ?? []).map((item) => calibrationFromBody(runtime, houseId, item, now));
-    const saved = runtime.state.addCalibrationSessionBundle(runtime.host.partition, session, pendingCalibrations);
-    const house = runtime.input.core.getHouse(houseId);
-    runtime.scheduler.wakeHouse(houseId, house?.propertyId ?? null, now, "calibration-changed");
-    response.status(201).json(saved);
-  } catch (error) { sendError(response, error); } });
-  app.get(`${houseBase}/context-events`, (request, response) => { try {
-    const runtime = requireRuntime(options.runtime); requireScope(runtime, authorizedScope(options, "house", request, response));
-    const to = isoTimestamp(request.query.to, "to", new Date().toISOString()); const from = isoTimestamp(request.query.from, "from", new Date(Date.parse(to) - 24 * 60 * 60_000).toISOString());
-    response.json({ events: runtime.state.listContextEvents(runtime.host.partition, pathId(request), from, to) });
-  } catch (error) { sendError(response, error); } });
-  app.post(`${houseBase}/context-events`, (request, response) => { try {
-    const runtime = requireRuntime(options.runtime);
-    requireScope(runtime, authorizedMutationScope(options, "house", request, response));
-    response.status(201).json({ event: addContext(runtime, pathId(request), request) });
-  } catch (error) { sendError(response, error); } });
+  });
+  app.get(`${houseBase}/calibrations`, (request, response) => { const runtime = requireRuntime(options.runtime);
+                                                                requireScope(runtime, authorizedScope(options, "house", request, response));
+                                                                response.json({ calibrations: runtime.state.listCalibrations(runtime.host.partition, pathId(request)) }); });
+  app.post(`${houseBase}/calibrations`, (request, response) => { authorizedMutationScope(options, "house", request, response);
+                                                                 response.status(201).json({ calibration: addCalibration(requireRuntime(options.runtime), pathId(request), request.body) }); });
+  app.get(`${houseBase}/calibration-sessions`, (request, response) => { const runtime = requireRuntime(options.runtime);
+                                                                        requireScope(runtime, authorizedScope(options, "house", request, response));
+                                                                        response.json({ sessions: runtime.state.listCalibrationSessions(runtime.host.partition, pathId(request)) }); });
+  app.post(`${houseBase}/calibration-sessions`, (request, response) => { const runtime = requireRuntime(options.runtime);
+                                                                         requireScope(runtime, authorizedMutationScope(options, "house", request, response));
+                                                                         const body = bodyObject(request.body);
+                                                                         rejectUnknownFields(body, new Set([
+    "id", "kind", "status", "startAt", "endAt", "intervention", "notes", "calibrations",
+  ]), "Spatial calibration session");
+                                                                         if (body.calibrations !== undefined && !Array.isArray(body.calibrations)) {
+    throw new SpatialRouteError(400, "INVALID_FIELD", "calibrations must be an array");
+  }
+                                                                         const now = new Date().toISOString();
+                                                                         const houseId = pathId(request);
+                                                                         const session: SpatialCalibrationSession = {
+    id: optionalString(body, "id") ?? randomUUID(), houseId,
+    kind: enumValue(body.kind, CALIBRATION_SESSION_KINDS, "kind"), status: enumValue(body.status === undefined ? "planned" : body.status, ["planned", "running", "completed", "cancelled"] as const, "status"),
+    startAt: isoTimestamp(body.startAt, "startAt", now), endAt: body.endAt === undefined || body.endAt === null ? null : isoTimestamp(body.endAt, "endAt"),
+    intervention: body.intervention === undefined ? {} : objectValue(body.intervention, "intervention"), notes: nullableString(body, "notes") ?? null,
+    createdAt: now, updatedAt: now,
+  };
+                                                                         const calibrationInputs = body.calibrations as unknown[] | undefined;
+                                                                         const pendingCalibrations = (calibrationInputs ?? []).map((item) => calibrationFromBody(runtime, houseId, item, now));
+                                                                         const saved = runtime.state.addCalibrationSessionBundle(runtime.host.partition, session, pendingCalibrations);
+                                                                         const house = runtime.input.core.getHouse(houseId);
+                                                                         runtime.scheduler.wakeHouse(houseId, house?.propertyId ?? null, now, "calibration-changed");
+                                                                         response.status(201).json(saved); });
+  app.get(`${houseBase}/context-events`, (request, response) => { const runtime = requireRuntime(options.runtime);
+                                                                  requireScope(runtime, authorizedScope(options, "house", request, response));
+                                                                  const to = isoTimestamp(request.query.to, "to", new Date().toISOString());
+                                                                  const from = isoTimestamp(request.query.from, "from", new Date(Date.parse(to) - 24 * 60 * 60_000).toISOString());
+                                                                  response.json({ events: runtime.state.listContextEvents(runtime.host.partition, pathId(request), from, to) }); });
+  app.post(`${houseBase}/context-events`, (request, response) => { const runtime = requireRuntime(options.runtime);
+                                                                   requireScope(runtime, authorizedMutationScope(options, "house", request, response));
+                                                                   response.status(201).json({ event: addContext(runtime, pathId(request), request) }); });
 
   app.get(`${prefix}/layers/events`, (request, response) => {
     let releaseConnection = (): void => undefined;
@@ -694,7 +663,7 @@ export function registerSpatialLayerRoutes(
       response.once("close", close);
     } catch (error) {
       releaseConnection();
-      sendError(response, error);
+      throw error;
     }
   });
 }

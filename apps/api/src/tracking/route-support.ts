@@ -1,3 +1,4 @@
+import { roleIsWorkspacePerson, roleCanManageWorkspace, roleCanAccessNonGuestConfiguration, type TenantMemberRole } from "@climate-twin/contracts";
 import type { Request, Response } from "express";
 import type {
   EquipmentBorrowInput,
@@ -26,7 +27,7 @@ export const OBSERVER_STATUSES = ["online", "offline", "degraded", "disabled"] a
 export interface TrackingRoutePrincipal {
   userId: string;
   label: string;
-  role: "owner" | "admin" | "member" | "guest" | "service";
+  role: TenantMemberRole;
 }
 
 export interface TrackingRouteOptions {
@@ -337,7 +338,7 @@ export function memberLocationInput(value: unknown): PropertyMemberLocationInput
 
 export function requireMember(options: TrackingRouteOptions, response: Response): TrackingRoutePrincipal {
   const principal = options.principal(response);
-  if (!principal || principal.role === "guest" || principal.role === "service") {
+  if (!principal || !roleIsWorkspacePerson(principal.role)) {
     throw new TrackingError(403, "FORBIDDEN", "A Property member is required");
   }
   return principal;
@@ -345,7 +346,7 @@ export function requireMember(options: TrackingRouteOptions, response: Response)
 
 export function requireAdministrator(options: TrackingRouteOptions, response: Response): TrackingRoutePrincipal {
   const principal = options.principal(response);
-  if (!principal || (principal.role !== "owner" && principal.role !== "admin")) {
+  if (!principal || !roleCanManageWorkspace(principal.role)) {
     throw new TrackingError(403, "FORBIDDEN", "Tracking administration requires an Owner or Admin account");
   }
   return principal;
@@ -390,9 +391,9 @@ export function ingestionActor(options: TrackingRouteOptions, response: Response
   return {
     machineObserver,
     userId: principal?.userId ?? null,
-    administrator: principal?.role === "owner" || principal?.role === "admin",
+    administrator: principal !== null && roleCanManageWorkspace(principal.role),
     canWriteProperty: (propertyId) => Boolean(
-      principal && principal.role !== "guest" && options.authorizeProperty(response, propertyId)
+      principal && roleCanAccessNonGuestConfiguration(principal.role) && options.authorizeProperty(response, propertyId)
     ),
   };
 }

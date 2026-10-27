@@ -1,3 +1,4 @@
+import { hasBrowserCapability } from "../../accessPolicy";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   AreaEquipmentStatus,
@@ -24,7 +25,7 @@ export function usePropertyManagementPagePart01(context: { props: Readonly<Prope
   const now = useNow();
   const propertySummary = (homeCount: number, areaCount: number) => `${t(homeCount === 1 ? "properties.homeCountOne" : "properties.homeCountMany", { count: homeCount })} · ${t(areaCount === 1 ? "properties.areaCountOne" : "properties.areaCountMany", { count: areaCount })}`;
   const workspaceReadOnly = state.session.readOnly;
-  const canManageAccess = !workspaceReadOnly && (state.session.tenant.role === "owner" || state.session.tenant.role === "admin");
+  const canManageAccess = !workspaceReadOnly && hasBrowserCapability(state.session.tenant.role, "workspace-administration");
   const requestedInitialTab = props.initialTab ?? "map";
   const availableInitialTab = requestedInitialTab === "access" && !canManageAccess
     ? "overview"

@@ -224,6 +224,7 @@ export const enPart4 = {
   "setup.manualConnection": "Enter an address manually",
   "setup.manualHost": "Host, account and credentials",
   "setup.tpLinkManualFallback": "Automatic discovery did not provide a supported TP-Link source. For a first energy device, enter your TP-Link credentials below and run Find devices again, or enter its reserved IP address. If this is a local Node.js installation, make sure the Python helper dependencies are installed.",
+  "setup.integrationCredentialsAdminOnly": "Only an Owner or Admin can change this connection's credentials.",
   "setup.manualService": "URL and access token",
   "setup.foundCount": "{count} found",
   "setup.weatherConfigurationTitle": "Weather and system configuration",

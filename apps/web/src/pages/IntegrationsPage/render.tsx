@@ -28,12 +28,13 @@ import { SetupOperationsPanel } from "../SetupOperationsPanel";
 import { ConnectionSourceManager } from "./ConnectionSourceManager";
 import { ACTIVE_TP_LINK_EXPORT_STATUSES, RETRYABLE_TP_LINK_EXPORT_STATUSES, TP_LINK_EXPORT_PROVIDER_KEYS, TP_LINK_EXPORT_STATUS_KEYS, decimal, setupSectionOrder } from "./support";
 import { useIntegrationsPagePart06 } from "./part-06";
+import { CredentialControls } from "./CredentialControls";
 import { GreeSetupPanel } from "./GreeSetupPanel";
 import { TuyaSetupPanel } from "./TuyaSetupPanel";
 import { Nexus433SetupPanel } from "./Nexus433SetupPanel";
 import { SetupProviderGrid } from "./SetupProviderGrid";
 export function renderIntegrationsPage(context: ReturnType<typeof useIntegrationsPagePart06>) {
-  const { houses, connectionHouses, tpLinkDevicesError, canManageTuya, onIntegrationChange, onOpenSensors, onOpenLayout, locale, t, house, integration, activeSection, testing, result, testingDirect, directResult, discovering, discovery, discoveryOutcome, connectionSetupOpen, setConnectionSetupOpen, tpLinkSettingsOpen, setTpLinkSettingsOpen, tpLinkHost, tpLinkUsername, tpLinkPassword, reuseSavedTpLinkAccount, setReuseSavedTpLinkAccount, showTpLinkPassword, setShowTpLinkPassword, savingTpLink, tpLinkFeedback, setTpLinkFeedback, refreshingTpLinkInventory, tpLinkInventoryRefreshFailed, tpLinkExportEnabled, tpLinkExportJobs, tpLinkExportAutomation, tpLinkExportJobsLoading, tpLinkExportJobsError, busyTpLinkExportJobId, tpLinkCanaryTargets, tpLinkCanarySensorId, setTpLinkCanarySensorId, tpLinkCanaryMetric, setTpLinkCanaryMetric, tpLinkCanaryRunning, tpLinkChildDiscovery, haUrl, haToken, showHaToken, setShowHaToken, savingHomeAssistant, homeAssistantFeedback, busyAssignment, assignmentHouseDrafts, setAssignmentHouseDrafts, assignmentFeedback, latitude, setLatitude, longitude, setLongitude, locationLabel, setLocationLabel, timezone, setTimezone, savingLocation, locationFeedback, setLocationFeedback, localDateTime, homeAssistantAssignments, tpLinkAssignments, changeTpLinkDraft, changeHomeAssistantDraft, coordinateValidationVisible, timezoneValidationVisible, draftMapLocation, selectSetupHouse, disconnectHomeAssistantAssignment, disconnectTpLinkAssignment, moveHomeAssistantAssignment, moveTpLinkAssignment, testConnection, testDirectConnection, refreshTpLinkInventory, loadTpLinkExportJobs, runTpLinkCanary, retryTpLinkExportJob, cancelTpLinkExportJob, scanIntegrations, settleTpLinkChildren, saveTpLink, saveHomeAssistant, saveLocation, removeLocation, usePlacementForWeather, savePlacementForWeather, applyDiscoveredDefaults, discoveredCount, sensorSourceConfigured, sensorSourceConnected, tpLinkReadyDevices, assignmentCount, connectedSourceLabel, tpLinkHealthState, tpLinkHealthLabel, tpLinkStatusTitle, connectionWorkspaceActive, steps, completeCount, nextStepIndex, nextStep, selectedDiscoveredTpLink, selectedDiscoveredHomeAssistant, primarySetupSections, advancedSetupSections, activeSectionLabel, sectionHeading, sectionDescription, activateSection, handleSectionKeyDown, runRecommendedAction, recommendedActionLabel } = context;
+  const { houses, connectionHouses, tpLinkDevicesError, canManageIntegrations, onIntegrationChange, onOpenSensors, onOpenLayout, locale, t, house, integration, activeSection, testing, result, testingDirect, directResult, discovering, discovery, discoveryOutcome, connectionSetupOpen, setConnectionSetupOpen, tpLinkSettingsOpen, setTpLinkSettingsOpen, tpLinkHost, tpLinkUsername, tpLinkPassword, reuseSavedTpLinkAccount, setReuseSavedTpLinkAccount, showTpLinkPassword, setShowTpLinkPassword, savingTpLink, tpLinkFeedback, setTpLinkFeedback, refreshingTpLinkInventory, tpLinkInventoryRefreshFailed, tpLinkExportEnabled, tpLinkExportJobs, tpLinkExportAutomation, tpLinkExportJobsLoading, tpLinkExportJobsError, busyTpLinkExportJobId, tpLinkCanaryTargets, tpLinkCanarySensorId, setTpLinkCanarySensorId, tpLinkCanaryMetric, setTpLinkCanaryMetric, tpLinkCanaryRunning, tpLinkChildDiscovery, haUrl, haToken, showHaToken, setShowHaToken, savingHomeAssistant, homeAssistantFeedback, busyAssignment, assignmentHouseDrafts, setAssignmentHouseDrafts, assignmentFeedback, latitude, setLatitude, longitude, setLongitude, locationLabel, setLocationLabel, timezone, setTimezone, savingLocation, locationFeedback, setLocationFeedback, localDateTime, homeAssistantAssignments, tpLinkAssignments, changeTpLinkDraft, changeHomeAssistantDraft, coordinateValidationVisible, timezoneValidationVisible, draftMapLocation, selectSetupHouse, disconnectHomeAssistantAssignment, disconnectTpLinkAssignment, moveHomeAssistantAssignment, moveTpLinkAssignment, testConnection, testDirectConnection, refreshTpLinkInventory, loadTpLinkExportJobs, runTpLinkCanary, retryTpLinkExportJob, cancelTpLinkExportJob, scanIntegrations, settleTpLinkChildren, saveTpLink, saveHomeAssistant, saveLocation, removeLocation, usePlacementForWeather, savePlacementForWeather, applyDiscoveredDefaults, discoveredCount, sensorSourceConfigured, sensorSourceConnected, tpLinkReadyDevices, assignmentCount, connectedSourceLabel, tpLinkHealthState, tpLinkHealthLabel, tpLinkStatusTitle, connectionWorkspaceActive, steps, completeCount, nextStepIndex, nextStep, selectedDiscoveredTpLink, selectedDiscoveredHomeAssistant, primarySetupSections, advancedSetupSections, activeSectionLabel, sectionHeading, sectionDescription, activateSection, handleSectionKeyDown, runRecommendedAction, recommendedActionLabel } = context;
   const editingTpLinkConnection = tpLinkAssignments.find((connection) => connection.id === context.tpLinkEditingConnectionId.current);
   const inheritedPropertyWeather = house.location?.source === "property-location" && house.location.userOverridden !== true;
   const editingTpLinkSourceName = editingTpLinkConnection?.sourceAlias ?? editingTpLinkConnection?.sourceModel
@@ -236,12 +237,12 @@ export function renderIntegrationsPage(context: ReturnType<typeof useIntegration
               {tpLinkExportJobsError && <div className="tp-link-live-alert error" role="alert"><TriangleAlert size={17} aria-hidden="true" /><span><strong>{t("setup.tpLinkHistoryUnavailable")}</strong><small>{tpLinkExportJobsError}</small></span></div>}
               {tpLinkExportEnabled === null && tpLinkExportJobsLoading && <p className="tp-link-inventory-refresh" role="status"><LoaderCircle className="spin" size={16} aria-hidden="true" />{t("setup.tpLinkHistoryLoading")}</p>}
               {tpLinkExportEnabled === false && <p className="configured-note" aria-disabled="true"><CircleDot size={17} aria-hidden="true" />{t("setup.tpLinkHistoryDisabled")}</p>}
-              {tpLinkExportEnabled === true && tpLinkExportAutomation && canManageTuya && <div className="tp-link-live-actions" aria-label={t("setup.tpLinkHistoryCanaryControls")}>
+              {tpLinkExportEnabled === true && tpLinkExportAutomation && canManageIntegrations && <div className="tp-link-live-actions" aria-label={t("setup.tpLinkHistoryCanaryControls")}>
                 <label className="field"><span>{t("setup.tpLinkHistoryCanarySensor")}</span><select aria-label={t("setup.tpLinkHistoryCanarySensor")} value={tpLinkCanarySensorId} disabled={tpLinkCanaryRunning || tpLinkCanaryTargets.length === 0} onChange={(event) => setTpLinkCanarySensorId(event.target.value)}>{tpLinkCanaryTargets.length === 0 ? <option value="">{t("setup.tpLinkHistoryNoMappedTarget")}</option> : tpLinkCanaryTargets.map((target) => <option key={target.sensorId} value={target.sensorId}>{target.label}</option>)}</select></label>
                 <label className="field"><span>{t("common.metric")}</span><select aria-label={t("setup.tpLinkHistoryCanaryMetric")} value={tpLinkCanaryMetric} disabled={tpLinkCanaryRunning} onChange={(event) => setTpLinkCanaryMetric(event.target.value as "temperature" | "humidity")}><option value="temperature">{t("common.temperature")}</option><option value="humidity">{t("common.humidity")}</option></select></label>
                 <button type="button" className="primary-button" disabled={tpLinkCanaryRunning || !tpLinkCanarySensorId} onClick={() => void runTpLinkCanary()}>{tpLinkCanaryRunning ? <LoaderCircle className="spin" size={16} aria-hidden="true" /> : <ShieldCheck size={16} aria-hidden="true" />}{t("setup.tpLinkHistoryRunCanary")}</button>
               </div>}
-              {tpLinkExportEnabled === true && tpLinkExportAutomation && canManageTuya && <p className="setup-help">{t("setup.tpLinkHistoryCanaryHelp")}</p>}
+              {tpLinkExportEnabled === true && tpLinkExportAutomation && canManageIntegrations && <p className="setup-help">{t("setup.tpLinkHistoryCanaryHelp")}</p>}
               {tpLinkExportEnabled === true && !tpLinkExportJobsLoading && tpLinkExportJobs.length === 0 && <p className="setup-help">{t("setup.tpLinkHistoryNoJobs")}</p>}
                 {tpLinkExportEnabled === true && tpLinkExportJobs.length > 0 && <div className="table-scroll" tabIndex={0} aria-label={t("setup.tpLinkHistoryJobsLabel")}>
                 <table>
@@ -258,9 +259,9 @@ export function renderIntegrationsPage(context: ReturnType<typeof useIntegration
                       <td>{job.attemptCount} / {job.maxAttempts}</td>
                       <td>{problem ? <small>{problem}</small> : "—"}</td>
                       <td><div className="tp-link-live-actions">
-                        {canManageTuya && RETRYABLE_TP_LINK_EXPORT_STATUSES.has(job.status) && <button type="button" className="secondary-button" disabled={busyTpLinkExportJobId !== null} aria-label={t("setup.tpLinkHistoryRetryLabel", { device: deviceLabel })} onClick={() => void retryTpLinkExportJob(job)}>{busy ? <LoaderCircle className="spin" size={14} aria-hidden="true" /> : <RefreshCw size={14} aria-hidden="true" />}{t("setup.tpLinkHistoryRetry")}</button>}
-                        {canManageTuya && ACTIVE_TP_LINK_EXPORT_STATUSES.has(job.status) && <button type="button" className="danger-button" disabled={busyTpLinkExportJobId !== null} aria-label={t("setup.tpLinkHistoryCancelLabel", { device: deviceLabel })} onClick={() => void cancelTpLinkExportJob(job)}>{busy ? <LoaderCircle className="spin" size={14} aria-hidden="true" /> : <Trash2 size={14} aria-hidden="true" />}{t("common.cancel")}</button>}
-                        {(!canManageTuya || (!RETRYABLE_TP_LINK_EXPORT_STATUSES.has(job.status) && !ACTIVE_TP_LINK_EXPORT_STATUSES.has(job.status))) && <small>{t("setup.tpLinkHistoryNoAction")}</small>}
+                        {canManageIntegrations && RETRYABLE_TP_LINK_EXPORT_STATUSES.has(job.status) && <button type="button" className="secondary-button" disabled={busyTpLinkExportJobId !== null} aria-label={t("setup.tpLinkHistoryRetryLabel", { device: deviceLabel })} onClick={() => void retryTpLinkExportJob(job)}>{busy ? <LoaderCircle className="spin" size={14} aria-hidden="true" /> : <RefreshCw size={14} aria-hidden="true" />}{t("setup.tpLinkHistoryRetry")}</button>}
+                        {canManageIntegrations && ACTIVE_TP_LINK_EXPORT_STATUSES.has(job.status) && <button type="button" className="danger-button" disabled={busyTpLinkExportJobId !== null} aria-label={t("setup.tpLinkHistoryCancelLabel", { device: deviceLabel })} onClick={() => void cancelTpLinkExportJob(job)}>{busy ? <LoaderCircle className="spin" size={14} aria-hidden="true" /> : <Trash2 size={14} aria-hidden="true" />}{t("common.cancel")}</button>}
+                        {(!canManageIntegrations || (!RETRYABLE_TP_LINK_EXPORT_STATUSES.has(job.status) && !ACTIVE_TP_LINK_EXPORT_STATUSES.has(job.status))) && <small>{t("setup.tpLinkHistoryNoAction")}</small>}
                       </div></td>
                     </tr>;
                   })}</tbody>
@@ -292,9 +293,9 @@ export function renderIntegrationsPage(context: ReturnType<typeof useIntegration
               </div>
             </details>}
             {activeSection === "connections" && <SetupProviderGrid label={t("setup.connectionMethods")}>
-            <GreeSetupPanel house={house} integration={integration} devices={discovery?.gree ?? []} onIntegrationChange={onIntegrationChange} />
-            {canManageTuya && <TuyaSetupPanel house={house} integration={integration} onIntegrationChange={onIntegrationChange} />}
-            {canManageTuya && <Nexus433SetupPanel house={house} onOpenSensors={onOpenSensors} />}
+            <CredentialControls allowed={canManageIntegrations} explain={false}><GreeSetupPanel house={house} integration={integration} devices={discovery?.gree ?? []} onIntegrationChange={onIntegrationChange} /></CredentialControls>
+            {canManageIntegrations && <TuyaSetupPanel house={house} integration={integration} onIntegrationChange={onIntegrationChange} />}
+            {canManageIntegrations && <Nexus433SetupPanel house={house} onOpenSensors={onOpenSensors} />}
             <section className="panel connection-card connection-provider" aria-labelledby="direct-connection-heading">
               <div className="panel-header"><div><span className="eyebrow">{t("setup.directTitle")}</span><h2 id="direct-connection-heading">{t("setup.directConnectionTitle")}</h2></div><span className="ha-mark" aria-hidden="true"><Router size={22} /></span></div>
               <p className="connection-card-description">{t("setup.directDescription")}</p>
@@ -318,7 +319,7 @@ export function renderIntegrationsPage(context: ReturnType<typeof useIntegration
                 : editingTpLinkSourceName ? "setup.tpLinkSettingsDescription"
                   : integration.tpLink.configured ? "setup.addManualTpLinkDescription" : "setup.childDiscoveryExplainer")}</p>
               {!integration.tpLink.configured && (discoveryOutcome === "error" || (discovery && discovery.tpLink.length === 0)) && <p className="setup-help setup-manual-fallback">{t("setup.tpLinkManualFallback")}</p>}
-              {tpLinkSettingsOpen && <form className="connection-check guided-setup" onSubmit={(event) => void saveTpLink(
+              {tpLinkSettingsOpen && <CredentialControls allowed={canManageIntegrations}><form className="connection-check guided-setup" onSubmit={(event) => void saveTpLink(
                 event,
                 importingWithSavedTpLinkAccount ? reusableTpLinkCredentialSource?.id : undefined,
               )}>
@@ -376,7 +377,7 @@ export function renderIntegrationsPage(context: ReturnType<typeof useIntegration
                   {directResult && <p className={`test-result ${directResult}`} role={directResult === "failure" ? "alert" : "status"}>{directResult === "success" ? <ShieldCheck size={17} aria-hidden="true" /> : <CircleDot size={17} aria-hidden="true" />}{directResult === "success" ? t("setup.directTestSuccess") : t("setup.directTestFailure")}</p>}
                   <details className="advanced-setup"><summary>{t("setup.advanced")}</summary><pre className="env-example" aria-label={t("setup.directEnvironmentVariables")}><code>TP_LINK_HOST=192.0.2.10{"\n"}TP_LINK_USERNAME=user@example.com{"\n"}TP_LINK_PASSWORD=••••••••</code></pre></details>
                 </>}
-              </form>}
+              </form></CredentialControls>}
               </details>
             </section>
             <section className="panel connection-card connection-provider" aria-labelledby="connection-heading">
@@ -385,6 +386,7 @@ export function renderIntegrationsPage(context: ReturnType<typeof useIntegration
               <details className="setup-config-disclosure">
                 <summary><span><Home size={16} aria-hidden="true" />{selectedDiscoveredHomeAssistant?.name ?? t("setup.manualConnection")}</span><small>{selectedDiscoveredHomeAssistant ? selectedDiscoveredHomeAssistant.url : t("setup.manualService")}</small></summary>
               {discovery && discovery.homeAssistant.length > 0 && <fieldset className="discovery-results setup-found-results"><legend>{t("setup.selectHomeAssistant")}</legend>{discovery.homeAssistant.map((instance) => <label key={instance.url}><input type="radio" name="home-assistant-discovery" value={instance.url} checked={haUrl === instance.url} disabled={savingHomeAssistant} onChange={() => changeHomeAssistantDraft("url", instance.url)} /><span><strong>{instance.name}</strong><small>{instance.url}{instance.version ? ` · ${instance.version}` : ""}</small></span></label>)}</fieldset>}
+              <CredentialControls allowed={canManageIntegrations}>
               <form className="connection-check guided-setup" onSubmit={(event) => void saveHomeAssistant(event)}>
                 {integration.homeAssistant.configured && <p className="configured-note"><Check size={17} aria-hidden="true" />{t("setup.configured")}</p>}
                 <label className="field" htmlFor="home-assistant-url"><span>{t("setup.haUrl")}</span><input id="home-assistant-url" type="url" value={haUrl} maxLength={2048} placeholder={t("setup.haUrlPlaceholder")} aria-describedby="home-assistant-url-help" autoCapitalize="none" autoCorrect="off" disabled={savingHomeAssistant} onChange={(event) => changeHomeAssistantDraft("url", event.target.value)} required /></label>
@@ -399,6 +401,7 @@ export function renderIntegrationsPage(context: ReturnType<typeof useIntegration
                 {result && <p className={`test-result ${result}`} role={result === "failure" ? "alert" : "status"}>{result === "success" ? <ShieldCheck size={17} aria-hidden="true" /> : <CircleDot size={17} aria-hidden="true" />}{result === "success" ? t("setup.testSuccess") : t("setup.testFailure")}</p>}
                 <details className="advanced-setup"><summary>{t("setup.advanced")}</summary><pre className="env-example" aria-label={t("setup.homeAssistantEnvironmentVariables")}><code>HA_URL=http://homeassistant.local:8123{"\n"}HA_TOKEN=••••••••</code></pre></details>
               </form>
+              </CredentialControls>
                </details>
              </section>
             </SetupProviderGrid>}
@@ -513,7 +516,7 @@ export function renderIntegrationsPage(context: ReturnType<typeof useIntegration
           role="tabpanel"
           aria-labelledby="setup-tab-operations"
         >
-          <SetupOperationsPanel house={house} canManageSystem={canManageTuya === true} />
+          <SetupOperationsPanel house={house} canManageSystem={canManageIntegrations === true} />
         </section>}
 
         {setupSectionOrder.filter((section) => section !== activeSection).map((section) => (

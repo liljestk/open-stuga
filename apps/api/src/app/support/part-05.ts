@@ -1,3 +1,4 @@
+import { roleCanAccessNonGuestConfiguration } from "@climate-twin/contracts";
 import { createHash } from "node:crypto";
 import { isIP } from "node:net";
 import { type NextFunction, type Request, type Response } from "express";
@@ -20,7 +21,6 @@ import {
 import { HttpError } from "./http-error.js";
 import { keyMatches, requestPrincipal, trustedProxyRequest } from "./part-04.js";
 import type { LocalRequestPrincipal } from "./part-04.js";
-import { roleCanAccessNonGuestConfiguration } from "../access-policy.js";
 
 export function requireNonGuest(_request: Request, response: Response, next: NextFunction): void {
   if (!roleCanAccessNonGuestConfiguration(requestPrincipal(response).role)) {

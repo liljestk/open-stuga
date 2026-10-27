@@ -149,7 +149,7 @@ export function useIntegrationsPagePart03(context: ReturnType<typeof useIntegrat
         : targets[0]?.sensorId ?? "");
     };
   const loadTpLinkCanaryTargets = async () => {
-      if (!context.canManageTuya) return;
+      if (!context.canManageIntegrations) return;
       try {
         updateTpLinkCanaryTargets(await api.tpLinkDevices(house.id));
       } catch {
@@ -185,7 +185,7 @@ export function useIntegrationsPagePart03(context: ReturnType<typeof useIntegrat
         setTpLinkExportEnabled(result.enabled);
         setTpLinkExportAutomation(result.automation);
         setTpLinkExportJobs(result.jobs);
-        if (result.enabled && context.canManageTuya) void loadTpLinkCanaryTargets();
+        if (result.enabled && context.canManageIntegrations) void loadTpLinkCanaryTargets();
       } catch (error) {
         if (historyExportRequestGeneration.current !== generation) return;
         setTpLinkExportJobsError(errorMessage(error, t("setup.tpLinkHistoryLoadFailed")));
@@ -194,7 +194,7 @@ export function useIntegrationsPagePart03(context: ReturnType<typeof useIntegrat
       }
     };
   const runTpLinkCanary = async () => {
-      if (!context.canManageTuya || !tpLinkCanarySensorId) return;
+      if (!context.canManageIntegrations || !tpLinkCanarySensorId) return;
       setTpLinkCanaryRunning(true);
       setTpLinkExportJobsError(null);
       try {
@@ -216,7 +216,7 @@ export function useIntegrationsPagePart03(context: ReturnType<typeof useIntegrat
       }
     };
   const retryTpLinkExportJob = async (job: TpLinkHistoryExportJob) => {
-      if (!context.canManageTuya) return;
+      if (!context.canManageIntegrations) return;
       setBusyTpLinkExportJobId(job.id);
       setTpLinkExportJobsError(null);
       try {
@@ -229,7 +229,7 @@ export function useIntegrationsPagePart03(context: ReturnType<typeof useIntegrat
       }
     };
   const cancelTpLinkExportJob = async (job: TpLinkHistoryExportJob) => {
-      if (!context.canManageTuya) return;
+      if (!context.canManageIntegrations) return;
       if (!await confirmAction(t("setup.tpLinkHistoryCancelConfirm", { device: job.deviceName || job.deviceId }), t("confirmation.cancelJob"), false)) return;
       setBusyTpLinkExportJobId(job.id);
       setTpLinkExportJobsError(null);

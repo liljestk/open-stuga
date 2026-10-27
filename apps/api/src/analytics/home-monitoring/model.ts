@@ -1,6 +1,16 @@
 import type {
   AlertEvent,
   AlertRule,
+  HomeInsightConfidenceLevel,
+  HomeInsightEvidence,
+  HomeInsightFreshness,
+  HomeInsightFreshnessState,
+  HomeInsightKind,
+  HomeInsightSeverity,
+  HomeInsightTarget,
+  HomePulseCoverage,
+  HomePulseSensorCoverage,
+  HomePulseStatus,
   House,
   MeasurementSample,
   Metric,
@@ -178,7 +188,7 @@ export function unknownFreshness(): HomeInsightFreshness {
   return { state: "unknown", evidenceAt: null, ageMinutes: null };
 }
 
-export function confidenceForTrend(sample: MeasurementSample, window: WindowEvidence): HomeInsightConfidence {
+export function confidenceForTrend(sample: MeasurementSample, window: WindowEvidence): DerivedInsightConfidence {
   if (sample.quality === "estimated") {
     return confidence("low", "The latest reading is estimated; confirm it before making a major change.", 0.55);
   }
@@ -192,7 +202,7 @@ export function confidence(
   level: HomeInsightConfidenceLevel,
   reason: string,
   score = level === "high" ? 0.9 : level === "medium" ? 0.7 : 0.5,
-): HomeInsightConfidence {
+): DerivedInsightConfidence {
   return { level, score, reason };
 }
 
@@ -338,60 +348,13 @@ export const HOME_INSIGHT_THRESHOLDS = {
   temperatureImbalanceC: 3,
 } as const;
 
-export type HomeInsightConfidenceLevel = "high" | "medium" | "low";
-
-export type HomeInsightFreshnessState = "fresh" | "estimated" | "aging" | "stale" | "unknown";
-
-export type HomePulseStatus = "critical" | "attention" | "watch" | "steady" | "unknown";
-
-export interface HomeInsightTarget {
-  houseId: string;
-  sensorId?: string;
-  sensorName?: string;
-  floorId?: string;
-  floorName?: string;
-  room?: string;
-}
-
-/** A render-ready fact. Numeric values are kept numeric so the UI may localize them. */
-export interface HomeInsightEvidence {
-  label: string;
-  value: number | string;
-  unit?: string;
-  metric?: Metric;
-  sensorId?: string;
-  observedAt?: string;
-}
-
-export interface HomeInsightFreshness {
-  state: HomeInsightFreshnessState;
-  evidenceAt: string | null;
-  ageMinutes: number | null;
-}
-
-export interface HomeInsightConfidence {
+export interface DerivedInsightConfidence {
   level: HomeInsightConfidenceLevel;
   score: number;
   reason: string;
 }
 
-export interface HomePulseCoverage {
-  enabledSensors: number;
-  freshSensors: number;
-  estimatedSensors: number;
-  agingSensors: number;
-  staleSensors: number;
-  sensorsWithoutData: number;
-}
-
-export interface HomePulseSensorCoverage {
-  sensorId: string;
-  freshness: HomeInsightFreshness;
-  /** Enabled alert-rule metrics that must be current for this sensor to be considered covered. */
-  requiredMetrics: Metric[];
-}
-
-export type InsightCandidate = Omit<HomeInsight, "rank">;
+export type InsightCandidate = Omit<DerivedInsight, "rank">;
 
 export interface EngineContext {
   house: House;
@@ -446,18 +409,8 @@ export type LatestMeasurements = Record<string, Record<Metric, MeasurementSample
 
 export type MeasurementHistory = Record<string, Record<Metric, MeasurementSample[]>>;
 
-export type HomeInsightKind =
-  | "active-alert"
-  | "humidity"
-  | "indoor-air"
-  | "temperature"
-  | "temperature-balance"
-  | "sensor-coverage"
-  | "setup";
-
-export type HomeInsightSeverity = "critical" | "warning" | "notice" | "info";
-
-export interface HomeInsight {
+/** An insight as the engine derives it, in English; the service maps it onto the localisable wire HomeInsight. */
+export interface DerivedInsight {
   /** Stable across runs for the same underlying condition; suitable as a React key. */
   id: string;
   rank: number;
@@ -473,7 +426,7 @@ export interface HomeInsight {
   target: HomeInsightTarget;
   evidence: HomeInsightEvidence[];
   freshness: HomeInsightFreshness;
-  confidence: HomeInsightConfidence;
+  confidence: DerivedInsightConfidence;
   safetyNote?: string;
 }
 
@@ -507,7 +460,7 @@ export interface HomePulseResult {
   status: HomePulseStatus;
   coverage: HomePulseCoverage;
   sensorCoverage: HomePulseSensorCoverage[];
-  insights: HomeInsight[];
+  insights: DerivedInsight[];
   advisory: typeof HOME_INSIGHT_ADVISORY;
 }
 

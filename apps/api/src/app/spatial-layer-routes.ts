@@ -1,3 +1,4 @@
+import { roleCanAccessNonGuestConfiguration } from "@climate-twin/contracts";
 import { registerSpatialLayerRoutes } from "../spatial-layers/index.js";
 import { requestPrincipal } from "./support/index.js";
 import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
@@ -17,19 +18,17 @@ export function registerSpatialLayerApiRoutes(context: ApiRouteRegistrationConte
       // corresponding house layer endpoint.
       return scope.kind === "house" ? access.house(scope.id) : access.hasProperty(scope.id);
     },
+    // Stuguby authority failures keep their own status and code (for example a
+    // shared Home owned by its coordinator) instead of a generic 403.
     authorizeMutation: (_request, response, scope) => {
-      if (requestPrincipal(response).role === "guest") return false;
-      try {
-        if (scope.kind === "house") {
-          context.stuguby.assertHouseWriteAllowed(scope.id);
-          context.stuguby.assertHouseLocalAuthority(scope.id);
-        } else {
-          context.stuguby.assertPropertyWriteAllowed(scope.id);
-        }
-        return true;
-      } catch {
-        return false;
+      if (!roleCanAccessNonGuestConfiguration(requestPrincipal(response).role)) return false;
+      if (scope.kind === "house") {
+        context.stuguby.assertHouseWriteAllowed(scope.id);
+        context.stuguby.assertHouseLocalAuthority(scope.id);
+      } else {
+        context.stuguby.assertPropertyWriteAllowed(scope.id);
       }
+      return true;
     },
     auditActor: (_request, response) => requestPrincipal(response).userId,
     streamAuthorizationFingerprint: context.streamAuthorizationFingerprint,

@@ -108,6 +108,49 @@ describe("sensitive route authorization", () => {
     await expectAdministrativeRoutesDenied(noGrantGuest);
   });
 
+  it("limits integration credential lifecycle to Owner and Admin", async () => {
+    temporaryRoot = mkdtempSync(join(tmpdir(), "stugu-credential-routes-"));
+    runtime = createApi({
+      config: loadConfig({
+        NODE_ENV: "test",
+        DATABASE_PATH: ":memory:",
+        MOCK_ENABLED: "false",
+        LOCAL_AUTH_TEST_BYPASS: "false",
+        INTEGRATION_SECRETS_FILE: join(temporaryRoot, "integration-secrets.json"),
+      }),
+      startBackground: false,
+    });
+    const owner = await setupOwner(runtime);
+    const admin = await registerPrincipal(runtime, owner, "admin", "admin-credentials@example.test");
+    const member = await registerPrincipal(runtime, owner, "member", "member-credentials@example.test");
+    const credentialRoutes: Array<["put" | "post" | "patch" | "delete", string]> = [
+      ["post", "/api/v1/integrations/home-assistant/test-draft"],
+      ["put", "/api/v1/integrations/home-assistant/config"],
+      ["patch", "/api/v1/integrations/home-assistant/config/house-main"],
+      ["delete", "/api/v1/integrations/home-assistant/config/house-main"],
+      ["post", "/api/v1/integrations/tp-link/test-draft"],
+      ["put", "/api/v1/integrations/tp-link/config"],
+      ["patch", "/api/v1/integrations/tp-link/config/legacy"],
+      ["delete", "/api/v1/integrations/tp-link/config/legacy"],
+      ["post", "/api/v1/integrations/telegram/discover"],
+      ["put", "/api/v1/integrations/telegram/config"],
+      ["delete", "/api/v1/integrations/telegram/config"],
+      ["post", "/api/v1/integrations/apple-notes/grants"],
+      ["delete", "/api/v1/integrations/apple-notes/grants/grant-1"],
+      ["post", "/api/v1/integrations/discover"],
+      ["post", "/api/v1/integrations/discovery-jobs"],
+    ];
+    for (const [method, path] of credentialRoutes) {
+      const denied = await member.agent[method](path).set("x-csrf-token", member.csrf).send({}).expect(403);
+      expect(denied.body.error.code, `${method} ${path}`).toBe("FORBIDDEN");
+    }
+    // Admins reach validation instead of the role gate.
+    for (const [method, path] of credentialRoutes.filter(([method]) => method === "put" || method === "patch")) {
+      const reached = await admin.agent[method](path).set("x-csrf-token", admin.csrf).send({});
+      expect(reached.status, `${method} ${path}`).not.toBe(403);
+    }
+  });
+
   it("returns sensor labels only when the signed-in principal can see that sensor", async () => {
     temporaryRoot = mkdtempSync(join(tmpdir(), "stugu-sensor-label-routes-"));
     runtime = createApi({

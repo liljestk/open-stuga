@@ -3,7 +3,7 @@ import type {
   TelemetryEvent,
 } from "@climate-twin/contracts";
 import {
-  spatialLayerSnapshotEvent,
+  parseSpatialLayerSnapshotEvent,
   type SpatialLayerSnapshotEvent,
 } from "../../spatialLayers";
 import { API_BASE, API_V2_BASE, STREAM_STABILITY_DELAY_MS, authorizationChange, isPollingHeartbeat, notifyAuthorizationChange } from "./part-02";
@@ -79,7 +79,7 @@ export function subscribeToSpatialLayerEvents(
   const query = new URLSearchParams({ scopeKind: scope.kind, scopeId: scope.id });
   const consume = (message: MessageEvent<string>) => {
     try {
-      const event = spatialLayerSnapshotEvent(JSON.parse(message.data) as unknown);
+      const event = parseSpatialLayerSnapshotEvent(JSON.parse(message.data) as unknown);
       if (event && event.scope.kind === scope.kind && event.scope.id === scope.id) onSnapshot(event);
     } catch {
       // Experimental engines may be upgraded independently. Ignore malformed

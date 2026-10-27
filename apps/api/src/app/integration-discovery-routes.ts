@@ -1,7 +1,7 @@
 import { type Request } from "express";
 import { discoverHomeAssistant } from "../discovery.js";
 import { IntegrationDiscoveryJobs } from "../integration-discovery-jobs.js";
-import { HttpError, bodyObject, boundedSseWriter, credentialString, localAuthorizationFingerprint, requestPrincipal, requiredString } from "./support/index.js";
+import { HttpError, bodyObject, boundedSseWriter, credentialString, localAuthorizationFingerprint, requestPrincipal, requiredString, requireWorkspaceAdmin } from "./support/index.js";
 import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
 
 /** Network discovery of Home Assistant, TP-Link, Gree and Tuya devices, run inline or as background jobs. Returns the job registry so shutdown can stop running jobs. */
@@ -53,11 +53,11 @@ export function registerIntegrationDiscoveryRoutes(context: ApiRouteRegistration
       return { houseId, draftCredentials };
     };
   const integrationDiscoveryJobs = new IntegrationDiscoveryJobs();
-  context.app.post(`${context.prefix}/integrations/discover`, async (request, response) => {
+  context.app.post(`${context.prefix}/integrations/discover`, requireWorkspaceAdmin, async (request, response) => {
       const { houseId, draftCredentials } = discoveryInput(request);
       response.json(await integrationDiscovery(houseId, draftCredentials));
     });
-  context.app.post(`${context.prefix}/integrations/discovery-jobs`, (request, response) => {
+  context.app.post(`${context.prefix}/integrations/discovery-jobs`, requireWorkspaceAdmin, (request, response) => {
       const { houseId, draftCredentials } = discoveryInput(request);
       if (!houseId) throw new HttpError(400, "HOUSE_REQUIRED", "houseId is required for background discovery");
       const principal = requestPrincipal(response);

@@ -2,10 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   layerMetricText,
   layerStrength,
-  spatialCalibrationSessionResult,
-  spatialCalibrationSessions,
-  spatialLayerSnapshotEvent,
-  spatialLayerSnapshots,
+  parseSpatialCalibrationSessionResult,
+  parseSpatialCalibrationSessions,
+  parseSpatialLayerSnapshotEvent,
+  parseSpatialLayerSnapshots,
 } from "./spatialLayers";
 
 function canonicalSnapshot() {
@@ -56,7 +56,7 @@ function canonicalSnapshot() {
 
 describe("spatial layer browser contracts", () => {
   it("normalizes guided calibration sessions while ignoring incompatible records", () => {
-    const sessions = spatialCalibrationSessions({ sessions: [{
+    const sessions = parseSpatialCalibrationSessions({ sessions: [{
       id: "session-1",
       houseId: "house-1",
       kind: "empty-house-baseline",
@@ -74,14 +74,14 @@ describe("spatial layer browser contracts", () => {
       intervention: { awayMode: true },
     })]);
 
-    expect(spatialCalibrationSessionResult({ session: sessions[0], calibrations: [] })).toEqual({
+    expect(parseSpatialCalibrationSessionResult({ session: sessions[0], calibrations: [] })).toEqual({
       session: sessions[0],
       calibrations: [],
     });
   });
 
   it("retains snapshot-local frames, geometry, property tags, and cross-frame anchors", () => {
-    const [snapshot] = spatialLayerSnapshots({ layers: [canonicalSnapshot()] });
+    const [snapshot] = parseSpatialLayerSnapshots({ layers: [canonicalSnapshot()] });
 
     expect(snapshot).toMatchObject({ id: "snapshot-1", revision: 3, staleAfterSeconds: 120 });
     expect(snapshot?.coordinateFrames).toEqual([expect.objectContaining({ id: "site", kind: "property-local-3d", unit: "m" })]);
@@ -103,14 +103,14 @@ describe("spatial layer browser contracts", () => {
   });
 
   it("uses the canonical activity and propagation evidence metric names", () => {
-    const [snapshot] = spatialLayerSnapshots({ layers: [canonicalSnapshot()] });
+    const [snapshot] = parseSpatialLayerSnapshots({ layers: [canonicalSnapshot()] });
     expect(layerStrength(snapshot!.zones[0]!)).toBeCloseTo(0.72);
     expect(layerStrength(snapshot!.connections[0]!)).toBeCloseTo(0.64);
     expect(layerMetricText(snapshot!.layerId, snapshot!.zones[0]!, "en")).toBeNull();
   });
 
   it("accepts host snapshot notifications that carry snapshot IDs instead of a layer ID", () => {
-    expect(spatialLayerSnapshotEvent({
+    expect(parseSpatialLayerSnapshotEvent({
       partition: "live",
       scope: { kind: "house", id: "house-1" },
       snapshotIds: ["snapshot-1", "snapshot-2"],

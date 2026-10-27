@@ -17,12 +17,9 @@ import type {
 import { HOME_MONITORING_ALGORITHM_VERSION, withSignal } from "@climate-twin/contracts";
 import type { ClimateDatabase } from "../../db.js";
 import type { HybridTelemetryReader } from "../../timeseries/read-facade.js";
-import {
-  deriveHouseMonitoring,
-  type HouseMonitoringBlocker as DerivedBlocker,
-} from "./derive.js";
+import { deriveHomeMonitoringDraft, type HomeMonitoringDraftBlocker } from "./derive.js";
 import { deriveHomePulse } from "./insights.js";
-import { coverageFreshnessForSample, HOME_INSIGHT_THRESHOLDS, type HomeInsight as DerivedInsight, type LatestMeasurements, type MeasurementHistory, HOME_INSIGHT_ADVISORY } from "./model.js";
+import { coverageFreshnessForSample, HOME_INSIGHT_THRESHOLDS, type DerivedInsight, type LatestMeasurements, type MeasurementHistory, HOME_INSIGHT_ADVISORY } from "./model.js";
 import { HEAT_PUMP_SENSOR_TAG } from "../../heat-pump-measurements.js";
 
 const HISTORY_BUCKET_MINUTES = 5;
@@ -181,7 +178,7 @@ function evidence(
   };
 }
 
-function blocker(blocker: DerivedBlocker): HomeMonitoringBlocker {
+function blocker(blocker: HomeMonitoringDraftBlocker): HomeMonitoringBlocker {
   return {
     id: blocker.id,
     kind: blocker.kind,
@@ -255,7 +252,7 @@ function insight(item: DerivedInsight, input: ReturnType<typeof evidence>, evalu
 function summaryFrom(
   input: ReturnType<typeof evidence>,
 ): HomeMonitoringSummary {
-  const result = deriveHouseMonitoring(input);
+  const result = deriveHomeMonitoringDraft(input);
   return {
     houseId: result.houseId,
     generatedAt: result.generatedAt,

@@ -6,6 +6,8 @@ import { LocalAuthError } from "../local-auth.js";
 import { IncompleteTelemetryHistoryError } from "../timeseries/read-facade.js";
 import { RollupsMaterializingError } from "../timeseries/read-support.js";
 import { StugubyError } from "../stuguby/service.js";
+import { SpatialRouteError } from "../spatial-layers/routes.js";
+import { SpatialStateValidationError } from "../spatial-layers/state-store.js";
 import { TrackingError } from "../tracking/store.js";
 import { AnalyticsCapacityError } from "../analytics/work-limiter.js";
 import { LocalTelemetryTimeoutError } from "../timeseries/local-telemetry-worker.js";
@@ -27,6 +29,8 @@ const STATUS_CODED_ERRORS = [
   TrackingError,
   ClimateDataValidationError,
   StugubyError,
+  SpatialRouteError,
+  SpatialStateValidationError,
   TelemetryValidationError,
   MeasurementValidationError,
 ] as const;
@@ -89,10 +93,22 @@ function sendError(response: Response, { status, code, message, details, retryAf
 export function registerApiErrorHandling(context: ApiRouteRegistrationContext): void {
   context.app.use(`${context.prefix}`, (_request, _response, next) => next(new HttpError(404, "NOT_FOUND", "API endpoint not found")));
   context.app.use(`${context.v2Prefix}`, (_request, _response, next) => next(new HttpError(404, "NOT_FOUND", "API endpoint not found")));
-  context.app.use((error: unknown, _request: Request, response: Response, _next: NextFunction) => {
+  context.app.use(apiErrorMiddleware((error) => context.systemErrorLog.record({
+    source: "api",
+    code: error instanceof Error ? error.name : "UNEXPECTED_ERROR",
+    message: error instanceof Error ? error.message : "Unexpected error",
+  })));
+}
+
+/**
+ * The one error envelope for every route. `recordUnexpected` sees only faults
+ * that are neither a known error type nor a cancelled request.
+ */
+export function apiErrorMiddleware(recordUnexpected: (error: unknown) => void) {
+  return (error: unknown, _request: Request, response: Response, _next: NextFunction): void => {
     const mapped = knownErrorResponse(error) ?? infrastructureErrorResponse(error, response);
     if (mapped) {
-      sendError(response, mapped);
+      if (!response.headersSent && !response.writableEnded && !response.destroyed) sendError(response, mapped);
       return;
     }
     if (isRequestCancellation(error)) {
@@ -103,11 +119,8 @@ export function registerApiErrorHandling(context: ApiRouteRegistrationContext): 
       }
       return;
     }
-    context.systemErrorLog.record({
-      source: "api",
-      code: error instanceof Error ? error.name : "UNEXPECTED_ERROR",
-      message: error instanceof Error ? error.message : "Unexpected error",
-    });
+    recordUnexpected(error);
+    if (response.headersSent || response.writableEnded || response.destroyed) return;
     response.status(500).json({ error: { code: "INTERNAL_ERROR", message: "The request could not be completed" } });
-  });
+  };
 }

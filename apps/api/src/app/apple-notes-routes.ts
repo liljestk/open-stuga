@@ -2,7 +2,7 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import type { AppleNotesMaintenanceCaptureResult } from "@climate-twin/contracts";
 import { ClimateDatabase, ClimateDataValidationError } from "../db.js";
 import { updateIntegrationSecrets, type AppleNotesGrantSecret } from "../integration-secrets.js";
-import { HttpError, appleNotesCaptureInput, appleNotesCaptureMatches, appleNotesGrant, appleNotesGrantSummary, appleNotesSnapshot, bodyObject, refreshAppleNotesStatus, requestPrincipal, requiredString } from "./support/index.js";
+import { HttpError, appleNotesCaptureInput, appleNotesCaptureMatches, appleNotesGrant, appleNotesGrantSummary, appleNotesSnapshot, bodyObject, refreshAppleNotesStatus, requestPrincipal, requiredString, requireWorkspaceAdmin } from "./support/index.js";
 import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
 
 /** Apple Notes Shortcut grants, setup, snapshots and captures. */
@@ -15,7 +15,7 @@ export function registerAppleNotesRoutes(context: ApiRouteRegistrationContext): 
   context.app.get(`${context.prefix}/integrations/apple-notes/grants`, (_request, response) => response.json({
       grants: config.appleNotesGrants.map(appleNotesGrantSummary),
     }));
-  context.app.post(`${context.prefix}/integrations/apple-notes/grants`, (request, response) => {
+  context.app.post(`${context.prefix}/integrations/apple-notes/grants`, requireWorkspaceAdmin, (request, response) => {
       const body = bodyObject(request.body);
       const houseId = requiredString(body, "houseId");
       const deviceLabel = requiredString(body, "deviceLabel");
@@ -41,7 +41,7 @@ export function registerAppleNotesRoutes(context: ApiRouteRegistrationContext): 
       });
       response.status(201).json({ ...appleNotesGrantSummary(grant), token, integration: structuredClone(context.status.value) });
     });
-  context.app.delete(`${context.prefix}/integrations/apple-notes/grants/:id`, (request, response) => {
+  context.app.delete(`${context.prefix}/integrations/apple-notes/grants/:id`, requireWorkspaceAdmin, (request, response) => {
       const id = request.params.id as string;
       if (!config.appleNotesGrants.some((grant) => grant.id === id)) {
         throw new HttpError(404, "NOT_FOUND", "Apple Notes Shortcut grant not found");

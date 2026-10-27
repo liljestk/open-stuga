@@ -1,3 +1,4 @@
+import { roleCanAccessNonGuestConfiguration } from "@climate-twin/contracts";
 import express from "express";
 import {
   type LocalAuthSession,
@@ -13,7 +14,6 @@ import {
 import { HttpError, LOCAL_SESSION_COOKIE, SAFE_HTTP_METHODS, appleNotesGrant, cookieValue, isIOSNotificationRegistrationPath, isTrackingObserverHeartbeatPath, keyMatches, localCloudflareUiRequestAllowed, trackingObserverAttemptKeys } from "./support/index.js";
 import type { LocalRequestPrincipal } from "./support/index.js";
 import type { RuntimeCoordination } from "./runtime-coordination.js";
-import { roleCanAccessNonGuestConfiguration } from "./access-policy.js";
 
 
 

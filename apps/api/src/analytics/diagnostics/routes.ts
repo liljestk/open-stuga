@@ -1,3 +1,4 @@
+import { roleCanAccessNonGuestConfiguration } from "@climate-twin/contracts";
 import { withResponseSignal } from "../../app/response-signal.js";
 import type express from "express";
 import type { ClimateDatabase } from "../../db.js";
@@ -29,7 +30,7 @@ export function registerAnalyticsDiagnosticsRoutes(context: AnalyticsDiagnostics
     if (!house || !access.house(house.id)) {
       throw new HttpError(404, "ANALYTICS_SCOPE_NOT_FOUND", "Analytics house scope was not found");
     }
-    if (requestPrincipal(response).role === "guest") {
+    if (!roleCanAccessNonGuestConfiguration(requestPrincipal(response).role)) {
       throw new HttpError(403, "GUEST_READ_ONLY", "Guest accounts cannot read analytics diagnostics");
     }
     const sensors = context.database.listSensors(house.id).filter((sensor) => sensor.enabled && access.sensor(sensor.id));

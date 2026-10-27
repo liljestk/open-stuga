@@ -1,3 +1,4 @@
+import { roleCanAccessNonGuestConfiguration } from "@climate-twin/contracts";
 import { withResponseSignal } from "./response-signal.js";
 import type { ElectricityInvoiceInput, ElectricityTariffVersion } from "@climate-twin/contracts";
 import { invoiceRange, reconcileInvoice } from "../electricity/invoice-reconciliation.js";
@@ -42,7 +43,7 @@ export function registerElectricityTariffRoutes(
   },
 ): void {
   const nonGuest = (response: Parameters<ElectricityTariffRouteContext["visibility"]>[0]) => {
-    if (requestPrincipal(response).role === "guest") {
+    if (!roleCanAccessNonGuestConfiguration(requestPrincipal(response).role)) {
       throw new HttpError(403, "GUEST_READ_ONLY", "Guest accounts cannot access electricity invoices");
     }
   };

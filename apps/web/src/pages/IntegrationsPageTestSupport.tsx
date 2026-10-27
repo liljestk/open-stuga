@@ -93,6 +93,7 @@ export function renderPage(overrides: Partial<React.ComponentProps<typeof Integr
     onHouseUpdate: vi.fn().mockResolvedValue(undefined),
     onGeoreferenceChange: vi.fn().mockResolvedValue(undefined),
     onIntegrationChange: vi.fn(),
+    canManageIntegrations: true,
     ...overrides,
   };
   return { ...render(<I18nProvider><IntegrationsPage {...props} /></I18nProvider>), props };

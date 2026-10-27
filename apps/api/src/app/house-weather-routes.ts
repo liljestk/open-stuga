@@ -2,14 +2,13 @@ import { outdoorLocationKey } from "../db.js";
 import { WeatherRequestSupersededError, WeatherUnavailableError } from "../weather.js";
 import { prefersFmi } from "../open-meteo.js";
 import { WeatherEventSupersededError } from "../weather-events.js";
-import { HttpError, dateValue, safeInteger } from "./support/index.js";
+import { HttpError, dateValue, safeInteger, requireVisibleHouse } from "./support/index.js";
 import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
 
 /** Current weather and outdoor temperature history for a house. */
 export function registerHouseWeatherRoutes(context: ApiRouteRegistrationContext): void {
   context.app.get(`${context.prefix}/houses/:id/weather`, async (request, response) => {
-      const house = context.database.getHouse(request.params.id as string);
-      if (!house || !context.visibility(response).house(house.id)) throw new HttpError(404, "NOT_FOUND", "House not found");
+      const house = requireVisibleHouse(context, response, request.params.id as string);
       context.stuguby.assertHouseLocalAuthority(house.id);
       if (!house.location) {
         throw new HttpError(409, "HOUSE_LOCATION_REQUIRED", "Set the house location before requesting weather");
@@ -39,8 +38,7 @@ export function registerHouseWeatherRoutes(context: ApiRouteRegistrationContext)
       }
     });
   context.app.get(`${context.v2Prefix}/houses/:id/outdoor-temperature/history`, async (request, response) => {
-      const house = context.database.getHouse(request.params.id as string);
-      if (!house || !context.visibility(response).house(house.id)) throw new HttpError(404, "NOT_FOUND", "House not found");
+      const house = requireVisibleHouse(context, response, request.params.id as string);
       context.stuguby.assertHouseLocalAuthority(house.id);
       const to = dateValue(request.query.to, new Date(), "to");
       const from = dateValue(request.query.from, new Date(Date.parse(to) - 24 * 3_600_000), "from");

@@ -245,6 +245,7 @@ export const fiSupplementPart2 = {
   "setup.scanEmpty": "Haku valmistui — järjestelmiä ei löytynyt.",
   "setup.scanError": "Laitehakua ei voitu suorittaa loppuun.",
   "setup.tpLinkManualFallback": "Automaattinen haku ei löytänyt tuettua TP-Link-lähdettä. Kun lisäät ensimmäistä energialaitetta, syötä TP-Link-tunnukset alle ja suorita laitehaku uudelleen tai syötä laitteen varattu IP-osoite. Jos kyseessä on paikallinen Node.js-asennus, varmista Python-apurin riippuvuudet.",
+  "setup.integrationCredentialsAdminOnly": "Vain omistaja tai ylläpitäjä voi muuttaa tämän yhteyden tunnuksia.",
   "setup.host": "Keskittimen tai energialaitteen osoite",
   "setup.hostPlaceholder": "192.168.1.50 tai tapo-laite.local",
   "setup.hostHelp": "Valitse löydetty lähde tai syötä sen varattu IP-osoite tai paikallinen verkkonimi. Jos osoite muuttuu, Stugu yhdistää automaattisesti tunnistaessaan yhden vastaavan laitteen; käytä muussa tapauksessa tallennetun lähteen Päivitä osoite -toimintoa.",

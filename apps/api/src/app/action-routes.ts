@@ -1,5 +1,5 @@
 import type { ActionPlaybookInput } from "@climate-twin/contracts";
-import { HttpError, bodyObject, boundedQueryInteger, measurementId, optionalResourceQuery, parseActionPlaybookInput, parseActionRunStart, requireNonGuest, requiredString } from "./support/index.js";
+import { HttpError, bodyObject, boundedQueryInteger, measurementId, optionalResourceQuery, parseActionPlaybookInput, parseActionRunStart, requireNonGuest, requiredString, requireVisibleHouse } from "./support/index.js";
 import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
 
 /** Action playbooks and action runs, including the playbooks suggested for an alert. */
@@ -29,10 +29,7 @@ export function registerActionRoutes(context: ApiRouteRegistrationContext): void
   context.app.get(`${context.prefix}/action-runs`, (request, response) => {
       const access = context.visibility(response);
       const houseId = optionalResourceQuery(request.query.houseId, "houseId");
-      if (houseId) {
-        const house = context.database.getHouse(houseId);
-        if (!house || !access.house(houseId)) throw new HttpError(404, "NOT_FOUND", "House not found");
-      }
+      if (houseId) requireVisibleHouse(context, response, houseId);
       response.json({ runs: context.database.listActionRuns({
         ...(houseId ? { houseId } : {}),
         ...(typeof request.query.sensorId === "string" ? { sensorId: request.query.sensorId } : {}),

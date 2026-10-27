@@ -1,9 +1,10 @@
-import { co2Insight, coverageInsight, humidityGuidance, measureCoverage, metricGuidance, temperatureBalanceInsight, temperatureInsight, windowEvidence } from "./freshness.js";
-import { clampPriority, compareAlerts, compareCandidates, confidence, confidenceForTrend, coverageStateForSensor, freshnessForSample, freshnessForTimestamp, guidanceSafetyNote, isFreshUsable, metricLabel, metricPair, metricUnit, newestMetricSample, normalizeMaximum, numericEvidence, parseReferenceTime, pulseStatus, round, targetFor, targetLabel, EngineContext, HOME_INSIGHT_THRESHOLDS, HomeInsightEvidence, HomePulseSensorCoverage, InsightCandidate, HomeInsightSeverity, HomeInsight, HomeInsightInput, HomePulseResult, HOME_INSIGHT_ADVISORY } from "./model.js";
+import type { HomeInsightEvidence, HomeInsightSeverity, HomePulseSensorCoverage } from "@climate-twin/contracts";
+import { co2Insight, coverageInsight, humidityGuidance, measureCoverage, metricGuidance, temperatureBalanceInsight, temperatureInsight, windowEvidence } from "./insight-rules.js";
+import { clampPriority, compareAlerts, compareCandidates, confidence, confidenceForTrend, coverageStateForSensor, freshnessForSample, freshnessForTimestamp, guidanceSafetyNote, isFreshUsable, metricLabel, metricPair, metricUnit, newestMetricSample, normalizeMaximum, numericEvidence, parseReferenceTime, pulseStatus, round, targetFor, targetLabel, EngineContext, HOME_INSIGHT_THRESHOLDS, InsightCandidate, DerivedInsight, HomeInsightInput, HomePulseResult, HOME_INSIGHT_ADVISORY } from "./model.js";
 import { compareCodeUnits } from "../../text-order.js";
 
 /** Return the ranked insight list when a component does not need pulse metadata. */
-export function deriveHomeInsights(input: HomeInsightInput): HomeInsight[] {
+export function deriveHomeInsights(input: HomeInsightInput): DerivedInsight[] {
   return deriveHomePulse(input).insights;
 }
 

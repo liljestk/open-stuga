@@ -1,6 +1,6 @@
 import { hasLocalHouseAuthority } from "@climate-twin/contracts";
 import { updateIntegrationSecrets } from "../integration-secrets.js";
-import { HttpError, bodyObject, credentialString, networkHost, requestPrincipal, requiredString } from "./support/index.js";
+import { HttpError, bodyObject, credentialString, networkHost, requestPrincipal, requiredString, requireWorkspaceAdmin } from "./support/index.js";
 import {
   applySavedTpLinkConfiguration,
   identityKey,
@@ -18,7 +18,7 @@ import type { ApiRouteRegistrationContext } from "./route-registration-context.j
 /** TP-Link connection configuration, tests, device listing and setup. */
 export function registerTpLinkRoutes(context: ApiRouteRegistrationContext): void {
   const config = context.config;
-  context.app.post(`${context.prefix}/integrations/tp-link/test-draft`, async (request, response) => {
+  context.app.post(`${context.prefix}/integrations/tp-link/test-draft`, requireWorkspaceAdmin, async (request, response) => {
       response.setHeader("cache-control", "no-store");
       const body = bodyObject(request.body);
       const host = networkHost(credentialString(body, "host", 253, true));
@@ -26,7 +26,7 @@ export function registerTpLinkRoutes(context: ApiRouteRegistrationContext): void
       const password = credentialString(body, "password", 4_096);
       response.json(await context.tpLinkCredentialTester(host, username, password));
     });
-  context.app.put(`${context.prefix}/integrations/tp-link/config`, async (request, response) => {
+  context.app.put(`${context.prefix}/integrations/tp-link/config`, requireWorkspaceAdmin, async (request, response) => {
       const body = bodyObject(request.body);
       const host = networkHost(credentialString(body, "host", 253, true));
       const houseId = body.houseId === undefined
@@ -71,7 +71,7 @@ export function registerTpLinkRoutes(context: ApiRouteRegistrationContext): void
         integration: structuredClone(context.status.value),
       });
     });
-  context.app.patch(`${context.prefix}/integrations/tp-link/config/:connectionId`, (request, response) => {
+  context.app.patch(`${context.prefix}/integrations/tp-link/config/:connectionId`, requireWorkspaceAdmin, (request, response) => {
       const connectionId = request.params.connectionId as string;
       const targetHouseId = requiredString(bodyObject(request.body), "houseId");
       if (!context.database.getHouse(targetHouseId)) throw new HttpError(404, "NOT_FOUND", "Target house not found");
@@ -129,9 +129,15 @@ export function registerTpLinkRoutes(context: ApiRouteRegistrationContext): void
           : candidate);
         context.status.changed();
       }
+      context.recordSecurityAudit(requestPrincipal(response), {
+        eventType: "integration.credentials.configured",
+        subjectType: "integration",
+        subjectId: `tp-link:${connectionId}`,
+        details: { integration: "tp-link", connectionId, fromHouseId, houseId: targetHouseId },
+      });
       response.json({ ok: true, fromHouseId, houseId: targetHouseId, detachedSensorIds, integration: structuredClone(context.status.value) });
     });
-  context.app.delete(`${context.prefix}/integrations/tp-link/config/:connectionId`, (request, response) => {
+  context.app.delete(`${context.prefix}/integrations/tp-link/config/:connectionId`, requireWorkspaceAdmin, (request, response) => {
       const connectionId = request.params.connectionId as string;
       const existing = config.tpLinkConnections ?? [];
       const explicitConnection = existing.find((candidate) => candidate.id === connectionId);
@@ -146,6 +152,7 @@ export function registerTpLinkRoutes(context: ApiRouteRegistrationContext): void
         : null;
       const connection = explicitConnection ?? legacyConnection;
       if (!connection) throw new HttpError(404, "NOT_FOUND", "TP-Link connection not found");
+      context.stuguby.assertHouseLocalAuthority(connection.houseId);
       const disconnectingLegacy = explicitConnection === undefined && legacyConnection !== null;
       const connections = disconnectingLegacy ? [] : existing.filter((candidate) => candidate.id !== connectionId);
       updateIntegrationSecrets(config.integrationSecretsFile, {
@@ -174,7 +181,7 @@ export function registerTpLinkRoutes(context: ApiRouteRegistrationContext): void
   context.app.get(`${context.prefix}/integrations/tp-link/devices`, (request, response) => response.json({
       devices: context.tpLink.listDiscoveredDevices(typeof request.query.houseId === "string" ? request.query.houseId : undefined),
     }));
-  context.app.post(`${context.prefix}/integrations/tp-link/test`, (request, response) => {
+  context.app.post(`${context.prefix}/integrations/tp-link/test`, requireWorkspaceAdmin, (request, response) => {
       const houseStatus = context.integrationStatusForHouse(typeof request.query.houseId === "string" ? request.query.houseId : undefined).tpLink;
       response.json({
       ok: houseStatus.connected,

@@ -1,14 +1,7 @@
 import { minimum } from "@climate-twin/analytics-kernel";
-import type {
-  AlertRule,
-  MeasurementSample,
-  Metric,
-  OutdoorConditions,
-  Sensor,
-  WeatherWarning,
-} from "@climate-twin/contracts";
+import type { AlertRule, HomeInsightEvidence, HomePulseCoverage, HomePulseSensorCoverage, MeasurementSample, Metric, OutdoorConditions, Sensor, WeatherWarning } from "@climate-twin/contracts";
 import { isHomeRelevantWeatherWarning } from "@climate-twin/contracts";
-import { AGING_MS, EngineContext, FUTURE_TOLERANCE_MS, HOME_INSIGHT_THRESHOLDS, HomeInsightEvidence, HomePulseCoverage, HomePulseSensorCoverage, InsightCandidate, MINUTE_MS, OutdoorGuidance, TREND_MS, WindowEvidence, clampPriority, compareSamples, confidence, confidenceForTrend, coverageStateForSensor, dewPointC, finiteNumber, freshnessForSample, freshnessForTimestamp, isFreshUsable, metricPair, newestMetricSample, numericEvidence, preferredSample, round, targetFor, targetLabel, unknownFreshness, validSample } from "./model.js";
+import { AGING_MS, EngineContext, FUTURE_TOLERANCE_MS, HOME_INSIGHT_THRESHOLDS, InsightCandidate, MINUTE_MS, OutdoorGuidance, TREND_MS, WindowEvidence, clampPriority, compareSamples, confidence, confidenceForTrend, coverageStateForSensor, dewPointC, finiteNumber, freshnessForSample, freshnessForTimestamp, isFreshUsable, metricPair, newestMetricSample, numericEvidence, preferredSample, round, targetFor, targetLabel, unknownFreshness, validSample } from "./model.js";
 import { compareCodeUnits } from "../../text-order.js";
 
 export function co2Insight(context: EngineContext, coveredPairs: ReadonlySet<string>): InsightCandidate[] {

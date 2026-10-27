@@ -2,7 +2,7 @@ import { render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { createDemoState } from "../domain";
 import { I18nProvider } from "../i18n";
-import { spatialLayerSnapshots } from "../spatialLayers";
+import { parseSpatialLayerSnapshots } from "../spatialLayers";
 import { SpatialLayerOverlay2D } from "./SpatialLayerOverlay2D";
 import { SpatialLayerOverlay3D } from "./SpatialLayerOverlay3D";
 import { ExperimentalSensorCoverage2D, ExperimentalSensorCoverage3D } from "./ExperimentalSensorCoverage";
@@ -73,7 +73,7 @@ describe("snapshot-backed spatial render adapters", () => {
   it("renders snapshot-local room geometry on the matching 2D floor without topology state", () => {
     const state = createDemoState();
     const floor = state.houses[0]!.floors[1]!;
-    const [snapshot] = spatialLayerSnapshots({ layers: [rawSnapshot()] });
+    const [snapshot] = parseSpatialLayerSnapshots({ layers: [rawSnapshot()] });
     const view = render(<I18nProvider><svg><SpatialLayerOverlay2D floor={floor} snapshots={[snapshot!]} topology={null} scale={1} /></svg></I18nProvider>);
 
     expect(view.container.querySelectorAll(".spatial-zone-value polygon")).toHaveLength(1);
@@ -84,7 +84,7 @@ describe("snapshot-backed spatial render adapters", () => {
   it("stacks coincident 2D room labels instead of painting them on top of each other", () => {
     const state = createDemoState();
     const floor = state.houses[0]!.floors[1]!;
-    const snapshots = spatialLayerSnapshots({ layers: [rawSnapshot(), rawSnapshot("climate.relative-humidity")] });
+    const snapshots = parseSpatialLayerSnapshots({ layers: [rawSnapshot(), rawSnapshot("climate.relative-humidity")] });
     const view = render(<I18nProvider><svg><SpatialLayerOverlay2D floor={floor} snapshots={snapshots} topology={null} scale={1} /></svg></I18nProvider>);
     const labels = [...view.container.querySelectorAll<SVGTextElement>(".spatial-zone-value text")];
 
@@ -95,7 +95,7 @@ describe("snapshot-backed spatial render adapters", () => {
 
   it("uses absolute snapshot z coordinates in 3D and never renders activity as an exact trail or point", () => {
     const state = createDemoState();
-    const [snapshot] = spatialLayerSnapshots({ layers: [rawSnapshot("climate.unexplained-activity.research")] });
+    const [snapshot] = parseSpatialLayerSnapshots({ layers: [rawSnapshot("climate.unexplained-activity.research")] });
     const project = vi.fn((point: { x: number; y: number; z: number }) => ({ x: point.x, y: point.y, depth: point.z }));
     const view = render(<I18nProvider><svg><SpatialLayerOverlay3D house={state.houses[0]!} snapshots={[snapshot!]} topology={null} project={project} /></svg></I18nProvider>);
 

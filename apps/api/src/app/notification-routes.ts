@@ -1,3 +1,4 @@
+import { roleCanManageWorkspace } from "@climate-twin/contracts";
 import { apnsConfigured } from "../apns.js";
 import { HttpError, UUID_PATTERN, bodyObject, enumValue, optionalBoolean, requestPrincipal, requireWorkspaceAdmin, requiredString, safeInteger } from "./support/index.js";
 import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
@@ -72,7 +73,7 @@ export function registerNotificationRoutes(context: ApiRouteRegistrationContext)
   context.app.get(`${context.prefix}/notification-deliveries`, (request, response) => {
       const access = context.visibility(response);
       const principal = requestPrincipal(response);
-      const canManageDeliveries = principal.role === "owner" || principal.role === "admin";
+      const canManageDeliveries = roleCanManageWorkspace(principal.role);
       const limit = safeInteger(request.query.limit, 200, 1, 500);
       const deliveries = context.database.listNotificationDeliveries(limit * 2).filter((delivery) => {
         if (delivery.subjectKind !== "alert") return !access.restricted;

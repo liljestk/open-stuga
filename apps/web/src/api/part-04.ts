@@ -9,12 +9,12 @@ import type {
   ThermalSimulationResult,
 } from "@climate-twin/contracts";
 import {
-  spatialCalibrationSessionResult,
-  spatialCalibrationSessions,
-  spatialInferenceSession,
-  spatialLayerEngines,
-  spatialLayerHealth,
-  spatialLayerSnapshots,
+  parseSpatialCalibrationSessionResult,
+  parseSpatialCalibrationSessions,
+  parseSpatialInferenceSession,
+  parseSpatialLayerEngines,
+  parseSpatialLayerHealth,
+  parseSpatialLayerSnapshots,
   type SpatialLayerEngineHealth,
   type SpatialLayerEngineManifest,
   type SpatialLayerAssignment,
@@ -190,7 +190,7 @@ export const apiPart04 = {
       `/analytics/moisture-response?houseId=${encodeURIComponent(houseId)}&dataMode=${options.dataMode}&windowDays=${options.windowDays}`,
       { method: "POST", schedulingClass: "background", ...withSignal(signal) },
     ),
-  spatialLayerEngines: async (signal?: AbortSignal): Promise<SpatialLayerEngineManifest[]> => spatialLayerEngines(
+  spatialLayerEngines: async (signal?: AbortSignal): Promise<SpatialLayerEngineManifest[]> => parseSpatialLayerEngines(
       await request<unknown>("/layer-engines", withSignal(signal)),
     ),
   houseSpatialLayerConfig: async (houseId: string, signal?: AbortSignal): Promise<SpatialLayerConfigurationResponse> => spatialConfigurationResponse(
@@ -205,11 +205,11 @@ export const apiPart04 = {
       body: JSON.stringify(input),
       ...withSignal(signal),
     })),
-  houseSpatialInferenceSession: async (houseId: string, signal?: AbortSignal): Promise<SpatialInferenceSession | null> => spatialInferenceSession(
+  houseSpatialInferenceSession: async (houseId: string, signal?: AbortSignal): Promise<SpatialInferenceSession | null> => parseSpatialInferenceSession(
       await request<unknown>(`/houses/${encodeURIComponent(houseId)}/layers/inference-session`, withSignal(signal)),
     ),
   startHouseSpatialInferenceSession: async (houseId: string, input: SpatialInferenceSessionStartInput, signal?: AbortSignal): Promise<SpatialInferenceSession> => {
-      const session = spatialInferenceSession(await request<unknown>(`/houses/${encodeURIComponent(houseId)}/layers/inference-session`, {
+      const session = parseSpatialInferenceSession(await request<unknown>(`/houses/${encodeURIComponent(houseId)}/layers/inference-session`, {
         method: "POST",
         body: JSON.stringify(input),
         ...withSignal(signal),
@@ -217,7 +217,7 @@ export const apiPart04 = {
       if (!session) throw new ResponseShapeError("/houses/{id}/layers/inference-session");
       return session;
     },
-  stopHouseSpatialInferenceSession: async (houseId: string, signal?: AbortSignal): Promise<SpatialInferenceSession | null> => spatialInferenceSession(
+  stopHouseSpatialInferenceSession: async (houseId: string, signal?: AbortSignal): Promise<SpatialInferenceSession | null> => parseSpatialInferenceSession(
       await request<unknown>(`/houses/${encodeURIComponent(houseId)}/layers/inference-session`, { method: "DELETE", ...withSignal(signal) }),
     ),
   houseSpatialLayerBindings: async (houseId: string, signal?: AbortSignal): Promise<SpatialSensorBinding[]> => list<SpatialSensorBinding>(
@@ -236,11 +236,11 @@ export const apiPart04 = {
       await request<SpatialSensorCalibration | { calibration: SpatialSensorCalibration }>(`/houses/${encodeURIComponent(houseId)}/layers/calibrations`, { method: "POST", body: JSON.stringify(calibration), ...withSignal(signal) }),
       "calibration",
     ),
-  houseSpatialLayerCalibrationSessions: async (houseId: string, signal?: AbortSignal): Promise<SpatialCalibrationSession[]> => spatialCalibrationSessions(
+  houseSpatialLayerCalibrationSessions: async (houseId: string, signal?: AbortSignal): Promise<SpatialCalibrationSession[]> => parseSpatialCalibrationSessions(
       await request<unknown>(`/houses/${encodeURIComponent(houseId)}/layers/calibration-sessions`, withSignal(signal)),
     ),
   createHouseSpatialLayerCalibrationSession: async (houseId: string, input: SpatialCalibrationSessionInput, signal?: AbortSignal): Promise<SpatialCalibrationSessionResult> => {
-      const response = spatialCalibrationSessionResult(await request<unknown>(`/houses/${encodeURIComponent(houseId)}/layers/calibration-sessions`, {
+      const response = parseSpatialCalibrationSessionResult(await request<unknown>(`/houses/${encodeURIComponent(houseId)}/layers/calibration-sessions`, {
         method: "POST",
         body: JSON.stringify(input),
         ...withSignal(signal),
@@ -277,9 +277,9 @@ export const apiPart04 = {
         withSignal(signal),
       );
       return {
-        snapshots: spatialLayerSnapshots(payload),
+        snapshots: parseSpatialLayerSnapshots(payload),
         topology: spatialConfigurationResponse(payload).topology ?? null,
-        health: spatialLayerHealth(payload),
+        health: parseSpatialLayerHealth(payload),
       };
     },
   houseSpatialLayersHistory: async (
@@ -289,12 +289,12 @@ export const apiPart04 = {
     ): Promise<SpatialLayerSnapshot[]> => {
       const query = new URLSearchParams({ from: options.from, to: options.to, limit: String(options.limit ?? 1_000) });
       if (options.layerIds?.length) query.set("layers", options.layerIds.join(","));
-      return spatialLayerSnapshots(await request<unknown>(
+      return parseSpatialLayerSnapshots(await request<unknown>(
         `/houses/${encodeURIComponent(houseId)}/layers/history?${query.toString()}`,
         withSignal(signal),
       ));
     },
-  houseSpatialLayersHealth: async (houseId: string, signal?: AbortSignal): Promise<SpatialLayerEngineHealth[]> => spatialLayerHealth(
+  houseSpatialLayersHealth: async (houseId: string, signal?: AbortSignal): Promise<SpatialLayerEngineHealth[]> => parseSpatialLayerHealth(
       await request<unknown>(
         `/houses/${encodeURIComponent(houseId)}/layers/health`,
         withSignal(signal),
@@ -313,15 +313,15 @@ export const apiPart04 = {
         withSignal(signal),
       );
       return {
-        snapshots: spatialLayerSnapshots(payload),
+        snapshots: parseSpatialLayerSnapshots(payload),
         topology: spatialConfigurationResponse(payload).topology ?? null,
-        health: spatialLayerHealth(payload),
+        health: parseSpatialLayerHealth(payload),
       };
     },
   propertySpatialLayerConfig: async (propertyId: string, signal?: AbortSignal): Promise<SpatialLayerConfigurationResponse> => spatialConfigurationResponse(
       await request<unknown>(`/properties/${encodeURIComponent(propertyId)}/layers/config`, withSignal(signal)),
     ),
-  propertySpatialLayersHealth: async (propertyId: string, signal?: AbortSignal): Promise<SpatialLayerEngineHealth[]> => spatialLayerHealth(
+  propertySpatialLayersHealth: async (propertyId: string, signal?: AbortSignal): Promise<SpatialLayerEngineHealth[]> => parseSpatialLayerHealth(
       await request<unknown>(`/properties/${encodeURIComponent(propertyId)}/layers/health`, withSignal(signal)),
     ),
   propertySpatialLayersHistory: async (
@@ -331,7 +331,7 @@ export const apiPart04 = {
     ): Promise<SpatialLayerSnapshot[]> => {
       const query = new URLSearchParams({ from: options.from, to: options.to, limit: String(options.limit ?? 1_000) });
       if (options.layerIds?.length) query.set("layers", options.layerIds.join(","));
-      return spatialLayerSnapshots(await request<unknown>(
+      return parseSpatialLayerSnapshots(await request<unknown>(
         `/properties/${encodeURIComponent(propertyId)}/layers/history?${query.toString()}`,
         withSignal(signal),
       ));

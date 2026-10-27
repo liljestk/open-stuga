@@ -35,7 +35,7 @@ export interface IntegrationsPageProps {
   streamConnection: ConnectionState;
   tpLinkDevicesLoading?: boolean;
   tpLinkDevicesError?: string | null;
-  canManageTuya?: boolean;
+  canManageIntegrations?: boolean;
   onHouse: (houseId: string) => void;
   onHouseUpdate: (houseId: string, patch: HousePatch) => Promise<unknown>;
   onGeoreferenceChange: (houseId: string, patch: HouseGeoreferencePatch) => Promise<void>;

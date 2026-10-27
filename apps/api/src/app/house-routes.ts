@@ -1,7 +1,7 @@
 import { withResponseSignal } from "./response-signal.js";
 import { resolvePlanElementOpeningState, hasLocalHouseAuthority } from "@climate-twin/contracts";
 import type { Floor, House, OpeningStateObservationInput, HouseLocation, HouseMapPlacement } from "@climate-twin/contracts";
-import { HttpError, bodyObject, boundedQueryInteger, dateValue, houseLocationValue, houseMapPlacementValue, optionalResourceQuery, requiredNumber, requiredString, refreshAppleNotesStatus } from "./support/index.js";
+import { HttpError, bodyObject, boundedQueryInteger, dateValue, houseLocationValue, houseMapPlacementValue, optionalResourceQuery, requiredNumber, requiredString, refreshAppleNotesStatus, requireVisibleHouse } from "./support/index.js";
 import { commitCoordinatedIntegrationSecrets } from "../integration-secrets-coordinator.js";
 import type { IntegrationSecrets, IntegrationSecretsPatch } from "../integration-secrets.js";
 import type { ApiConfig } from "../config.js";
@@ -45,14 +45,12 @@ export function registerHouseRoutes(context: ApiRouteRegistrationContext): void 
       response.status(201).json({ house });
     });
   context.app.get(`${context.prefix}/houses/:id`, (request, response) => {
-      const house = context.database.getHouse(request.params.id as string);
-      if (!house || !context.visibility(response).house(house.id)) throw new HttpError(404, "NOT_FOUND", "House not found");
+      const house = requireVisibleHouse(context, response, request.params.id as string);
       response.json({ house });
     });
   context.app.get(`${context.prefix}/houses/:id/opening-states`, async (request, response) => {
       const houseId = request.params.id as string;
-      const house = context.database.getHouse(houseId);
-      if (!house || !context.visibility(response).house(houseId)) throw new HttpError(404, "NOT_FOUND", "House not found");
+      const house = requireVisibleHouse(context, response, houseId);
       const historical = request.query.at !== undefined
         || request.query.from !== undefined
         || request.query.to !== undefined;
@@ -124,8 +122,7 @@ export function registerHouseRoutes(context: ApiRouteRegistrationContext): void 
     });
   context.app.post(`${context.prefix}/houses/:id/opening-states`, (request, response) => {
       const houseId = request.params.id as string;
-      const house = context.database.getHouse(houseId);
-      if (!house || !context.visibility(response).house(houseId)) throw new HttpError(404, "NOT_FOUND", "House not found");
+      requireVisibleHouse(context, response, houseId);
       context.stuguby.assertHouseLocalAuthority(houseId);
       const body = bodyObject(request.body);
       const source = body.source === undefined ? "api" : requiredString(body, "source");

@@ -3,26 +3,26 @@ import type {
   SpatialLayerEngineManifest as CanonicalEngineManifest,
   SpatialLayerSnapshot as CanonicalLayerSnapshot,
 } from "@climate-twin/spatial-layers";
-import { SpatialCoordinateFrame, SpatialLayerConnection, SpatialLayerEngineHealth, SpatialLayerEngineManifest, SpatialLayerEvidence, SpatialLayerMetric, SpatialLayerPoint, SpatialLayerScopeKind, SpatialLayerSnapshot, SpatialLayerSnapshotEvent, SpatialLayerZone, arrayFromPayload, evidence, metrics, number, point, record, strings, style, zone, finiteUnit } from "./01-spatial-coordinate-frame-to-zone";
+import { SpatialCoordinateFrame, SpatialLayerConnection, SpatialLayerEngineHealth, SpatialLayerEngineManifest, SpatialLayerEvidence, SpatialLayerMetric, SpatialLayerPoint, SpatialLayerScopeKind, SpatialLayerSnapshot, SpatialLayerSnapshotEvent, SpatialLayerZone, arrayFromPayload, parseSpatialEvidence, parseSpatialMetrics, parseFiniteNumber, parseSpatialPoint, parseRecord, parseStringArray, parseSpatialStyle, parseSpatialZone, parseFiniteUnit } from "./01-spatial-coordinate-frame-to-zone";
 
-export function connection(value: unknown): SpatialLayerConnection | null {
-  const candidate = record(value);
+export function parseSpatialConnection(value: unknown): SpatialLayerConnection | null {
+  const candidate = parseRecord(value);
   if (!candidate || typeof candidate.connectionId !== "string") return null;
-  const metricValues = metrics(candidate.metrics);
-  const anchors = Array.isArray(candidate.anchors) ? candidate.anchors.flatMap((item) => point(item) ?? []) : [];
+  const metricValues = parseSpatialMetrics(candidate.metrics);
+  const anchors = Array.isArray(candidate.anchors) ? candidate.anchors.flatMap((item) => parseSpatialPoint(item) ?? []) : [];
   const rawState = candidate.state;
   const state = rawState === "bidirectional-evidence" || rawState === "bidirectional" ? "bidirectional"
     : rawState === "no-detectable-propagation" || rawState === "no_detectable_propagation" ? "no_detectable_propagation"
       : rawState === "insufficient-data" || rawState === "insufficient_data" ? "insufficient_data"
       : rawState === "directed" ? "directed" : "uncertain";
   const anchorRefs = Array.isArray(candidate.anchorRefs) ? candidate.anchorRefs.flatMap((item) => {
-    const anchor = record(item);
-    const position = point(anchor?.position);
+    const anchor = parseRecord(item);
+    const position = parseSpatialPoint(anchor?.position);
     return typeof anchor?.frameId === "string" && position ? [{ frameId: anchor.frameId, position }] : [];
   }) : [];
-  const from = anchors[0] ?? point(candidate.from);
-  const to = anchors.at(-1) ?? point(candidate.to);
-  const styleHint = style(candidate.style);
+  const from = anchors[0] ?? parseSpatialPoint(candidate.from);
+  const to = anchors.at(-1) ?? parseSpatialPoint(candidate.to);
+  const styleHint = parseSpatialStyle(candidate.style);
   return {
     connectionId: candidate.connectionId,
     ...(typeof candidate.frameId === "string" ? { frameId: candidate.frameId } : {}),
@@ -34,19 +34,19 @@ export function connection(value: unknown): SpatialLayerConnection | null {
     ...(anchorRefs.length ? { anchorRefs } : {}),
     state,
     metrics: metricValues,
-    evidence: evidence(candidate.evidence, metricValues),
+    evidence: parseSpatialEvidence(candidate.evidence, metricValues),
     ...(styleHint ? { style: styleHint } : {}),
-    reasonCodes: strings(candidate.reasonCodes),
+    reasonCodes: parseStringArray(candidate.reasonCodes),
   };
 }
 
-export function layerPoint(value: unknown): SpatialLayerPoint | null {
-  const candidate = record(value);
+export function parseSpatialLayerPoint(value: unknown): SpatialLayerPoint | null {
+  const candidate = parseRecord(value);
   const id = typeof candidate?.pointId === "string" ? candidate.pointId : typeof candidate?.id === "string" ? candidate.id : null;
-  const position = point(candidate?.position) ?? point(candidate);
+  const position = parseSpatialPoint(candidate?.position) ?? parseSpatialPoint(candidate);
   if (!candidate || !id || !position) return null;
-  const metricValues = metrics(candidate.metrics);
-  const styleHint = style(candidate.style);
+  const metricValues = parseSpatialMetrics(candidate.metrics);
+  const styleHint = parseSpatialStyle(candidate.style);
   return {
     id,
     ...(typeof candidate.frameId === "string" ? { frameId: candidate.frameId } : {}),
@@ -56,30 +56,30 @@ export function layerPoint(value: unknown): SpatialLayerPoint | null {
     ...(typeof candidate.label === "string" ? { label: candidate.label } : {}),
     ...position,
     metrics: metricValues,
-    evidence: evidence(candidate.evidence, metricValues),
+    evidence: parseSpatialEvidence(candidate.evidence, metricValues),
     ...(styleHint ? { style: styleHint } : {}),
-    reasonCodes: strings(candidate.reasonCodes),
+    reasonCodes: parseStringArray(candidate.reasonCodes),
   };
 }
 
-export function snapshot(value: unknown): SpatialLayerSnapshot | null {
-  const candidate = record(value);
-  const scope = record(candidate?.scope);
-  const model = record(candidate?.model);
+export function parseSpatialLayerSnapshot(value: unknown): SpatialLayerSnapshot | null {
+  const candidate = parseRecord(value);
+  const scope = parseRecord(candidate?.scope);
+  const model = parseRecord(candidate?.model);
   if (!candidate || typeof candidate.layerId !== "string" || typeof candidate.generatedAt !== "string"
     || (scope?.kind !== "house" && scope?.kind !== "property") || typeof scope.id !== "string") return null;
   const canonical = value as CanonicalLayerSnapshot;
-  const metadata = record(candidate.metadata);
+  const metadata = parseRecord(candidate.metadata);
   return {
     ...(typeof metadata?.snapshotId === "string" ? { id: metadata.snapshotId } : {}),
-    ...(number(metadata?.revision) !== undefined ? { revision: number(metadata?.revision)! } : {}),
+    ...(parseFiniteNumber(metadata?.revision) !== undefined ? { revision: parseFiniteNumber(metadata?.revision)! } : {}),
     scope: { kind: scope.kind, id: scope.id },
     coordinateFrames: Array.isArray(candidate.coordinateFrames) ? candidate.coordinateFrames.flatMap((item) => {
-      const frame = record(item);
+      const frame = parseRecord(item);
       if (!frame || typeof frame.id !== "string" || typeof frame.version !== "string"
         || (frame.kind !== "floor-plan-2d" && frame.kind !== "building-local-3d" && frame.kind !== "property-local-3d" && frame.kind !== "geographic")
         || (frame.unit !== "normalized" && frame.unit !== "m" && frame.unit !== "degrees")) return [];
-      const origin = point(frame.origin);
+      const origin = parseSpatialPoint(frame.origin);
       return [{
         id: frame.id,
         version: frame.version,
@@ -87,7 +87,7 @@ export function snapshot(value: unknown): SpatialLayerSnapshot | null {
         unit: frame.unit,
         ...(origin?.z !== undefined ? { origin: { x: origin.x, y: origin.y, z: origin.z } } : {}),
         ...(typeof frame.floorId === "string" ? { floorId: frame.floorId } : {}),
-        ...(number(frame.rotationDegrees) !== undefined ? { rotationDegrees: number(frame.rotationDegrees)! } : {}),
+        ...(parseFiniteNumber(frame.rotationDegrees) !== undefined ? { rotationDegrees: parseFiniteNumber(frame.rotationDegrees)! } : {}),
       } satisfies SpatialCoordinateFrame];
     }) : [],
     layerId: candidate.layerId,
@@ -102,29 +102,29 @@ export function snapshot(value: unknown): SpatialLayerSnapshot | null {
     status: canonical.status === "ready" || canonical.status === "warming_up" || canonical.status === "insufficient_data" ? canonical.status : "error",
     configVersion: typeof candidate.configVersion === "string" ? candidate.configVersion : "unknown",
     inputDigest: typeof candidate.inputDigest === "string" ? candidate.inputDigest : "",
-    qualityScore: finiteUnit(candidate.qualityScore) ?? 0,
-    ...(number(metadata?.staleAfterSeconds) !== undefined ? { staleAfterSeconds: number(metadata?.staleAfterSeconds)! } : {}),
-    warnings: strings(candidate.warnings),
-    reasonCodes: strings(candidate.reasonCodes),
-    zones: arrayFromPayload(candidate.zones, []).map(zone).filter((item): item is SpatialLayerZone => item !== null),
-    connections: arrayFromPayload(candidate.connections, []).map(connection).filter((item): item is SpatialLayerConnection => item !== null),
-    points: arrayFromPayload(candidate.points, []).map(layerPoint).filter((item): item is SpatialLayerPoint => item !== null),
+    qualityScore: parseFiniteUnit(candidate.qualityScore) ?? 0,
+    ...(parseFiniteNumber(metadata?.staleAfterSeconds) !== undefined ? { staleAfterSeconds: parseFiniteNumber(metadata?.staleAfterSeconds)! } : {}),
+    warnings: parseStringArray(candidate.warnings),
+    reasonCodes: parseStringArray(candidate.reasonCodes),
+    zones: arrayFromPayload(candidate.zones, []).map(parseSpatialZone).filter((item): item is SpatialLayerZone => item !== null),
+    connections: arrayFromPayload(candidate.connections, []).map(parseSpatialConnection).filter((item): item is SpatialLayerConnection => item !== null),
+    points: arrayFromPayload(candidate.points, []).map(parseSpatialLayerPoint).filter((item): item is SpatialLayerPoint => item !== null),
   };
 }
 
-export function spatialLayerSnapshots(value: unknown): SpatialLayerSnapshot[] {
+export function parseSpatialLayerSnapshots(value: unknown): SpatialLayerSnapshot[] {
   return arrayFromPayload(value, ["snapshots", "layers", "data"])
-    .map(snapshot)
+    .map(parseSpatialLayerSnapshot)
     .filter((item): item is SpatialLayerSnapshot => item !== null);
 }
 
-export function spatialLayerEngines(value: unknown): SpatialLayerEngineManifest[] {
+export function parseSpatialLayerEngines(value: unknown): SpatialLayerEngineManifest[] {
   return arrayFromPayload(value, ["engines", "data"]).flatMap((item) => {
-    const candidate = record(item);
+    const candidate = parseRecord(item);
     if (!candidate || typeof candidate.id !== "string" || typeof candidate.version !== "string") return [];
     const canonical = item as CanonicalEngineManifest;
-    const producedLayerIds = strings(candidate.producedLayerIds);
-    const legacyLayerIds = strings(candidate.layerIds);
+    const producedLayerIds = parseStringArray(candidate.producedLayerIds);
+    const legacyLayerIds = parseStringArray(candidate.layerIds);
     return [{
       id: candidate.id,
       version: candidate.version,
@@ -132,7 +132,7 @@ export function spatialLayerEngines(value: unknown): SpatialLayerEngineManifest[
       ...(typeof candidate.title === "string" ? { title: candidate.title, name: candidate.title } : {}),
       ...(typeof candidate.description === "string" ? { description: candidate.description } : {}),
       supportedScopes: Array.isArray(candidate.supportedScopes) ? candidate.supportedScopes.filter((scope): scope is SpatialLayerScopeKind => scope === "house" || scope === "property") : ["house"],
-      requiredMetrics: strings(candidate.requiredMetrics),
+      requiredMetrics: parseStringArray(candidate.requiredMetrics),
       layerIds: producedLayerIds.length ? producedLayerIds : legacyLayerIds.length ? legacyLayerIds : [candidate.id],
       ...(typeof candidate.enabled === "boolean" ? { enabled: candidate.enabled } : {}),
       ...(typeof candidate.defaultEnabled === "boolean" ? { defaultEnabled: candidate.defaultEnabled } : {}),
@@ -140,9 +140,9 @@ export function spatialLayerEngines(value: unknown): SpatialLayerEngineManifest[
   });
 }
 
-export function spatialLayerHealth(value: unknown): SpatialLayerEngineHealth[] {
+export function parseSpatialLayerHealth(value: unknown): SpatialLayerEngineHealth[] {
   return arrayFromPayload(value, ["engines", "health", "data"]).flatMap((item) => {
-    const candidate = record(item);
+    const candidate = parseRecord(item);
     if (!candidate || typeof candidate.engineId !== "string" || typeof candidate.state !== "string") return [];
     const canonical = item as CanonicalEngineHealth;
     const state = canonical.state === "available" || candidate.state === "healthy" ? "healthy"
@@ -156,15 +156,15 @@ export function spatialLayerHealth(value: unknown): SpatialLayerEngineHealth[] {
       ...(typeof candidate.layerId === "string" ? { layerId: candidate.layerId } : {}),
       ...(typeof candidate.checkedAt === "string" ? { checkedAt: candidate.checkedAt } : {}),
       ...(typeof candidate.message === "string" ? { message: candidate.message } : {}),
-      reasonCodes: strings(candidate.reasonCodes),
+      reasonCodes: parseStringArray(candidate.reasonCodes),
     }];
   });
 }
 
-export function spatialLayerSnapshotEvent(value: unknown): SpatialLayerSnapshotEvent | null {
-  const envelope = record(value);
-  const candidate = record(envelope?.data) ?? record(envelope?.snapshot) ?? envelope;
-  const explicitScope = record(candidate?.scope);
+export function parseSpatialLayerSnapshotEvent(value: unknown): SpatialLayerSnapshotEvent | null {
+  const envelope = parseRecord(value);
+  const candidate = parseRecord(envelope?.data) ?? parseRecord(envelope?.snapshot) ?? envelope;
+  const explicitScope = parseRecord(candidate?.scope);
   const scope = explicitScope ?? ((candidate?.scopeKind === "house" || candidate?.scopeKind === "property") && typeof candidate.scopeId === "string"
     ? { kind: candidate.scopeKind, id: candidate.scopeId }
     : null);
@@ -176,8 +176,8 @@ export function spatialLayerSnapshotEvent(value: unknown): SpatialLayerSnapshotE
     scope: { kind: scope.kind, id: scope.id },
     generatedAt,
     ...(typeof candidate.layerId === "string" ? { layerId: candidate.layerId } : {}),
-    ...(strings(candidate.snapshotIds).length ? { snapshotIds: strings(candidate.snapshotIds) } : {}),
-    ...(number(candidate.revision) !== undefined ? { revision: number(candidate.revision)! } : {}),
+    ...(parseStringArray(candidate.snapshotIds).length ? { snapshotIds: parseStringArray(candidate.snapshotIds) } : {}),
+    ...(parseFiniteNumber(candidate.revision) !== undefined ? { revision: parseFiniteNumber(candidate.revision)! } : {}),
   };
 }
 
@@ -194,15 +194,15 @@ export function metricNumber(
 }
 
 export function layerConfidence(value: { metrics?: Record<string, SpatialLayerMetric>; evidence?: SpatialLayerEvidence }): number {
-  return finiteUnit(value.evidence?.confidence)
-    ?? finiteUnit(value.evidence?.quality)
-    ?? finiteUnit(metricNumber(value, "confidence", "quality"))
+  return parseFiniteUnit(value.evidence?.confidence)
+    ?? parseFiniteUnit(value.evidence?.quality)
+    ?? parseFiniteUnit(metricNumber(value, "confidence", "quality"))
     ?? 0;
 }
 
 export function layerStrength(value: { metrics?: Record<string, SpatialLayerMetric>; evidence?: SpatialLayerEvidence }): number {
-  return finiteUnit(value.evidence?.strength)
-    ?? finiteUnit(metricNumber(value, "strength", "evidenceStrength", "propagationEvidenceStrength", "activityEvidenceScore", "activityProbability", "qualityScore", "value"))
+  return parseFiniteUnit(value.evidence?.strength)
+    ?? parseFiniteUnit(metricNumber(value, "strength", "evidenceStrength", "propagationEvidenceStrength", "activityEvidenceScore", "activityProbability", "qualityScore", "value"))
     ?? layerConfidence(value);
 }
 
@@ -213,11 +213,11 @@ export function layerVisualStrength(layerId: string, value: { metrics?: Record<s
         : layerId === "climate.humidity-ratio" ? metricNumber(value, "humidityRatioGKg")
           : layerId === "sensor.quality" ? metricNumber(value, "qualityScore") : null;
   if (metric === null) return layerStrength(value);
-  if (layerId === "climate.temperature") return finiteUnit((metric + 10) / 45) ?? 0;
-  if (layerId === "climate.relative-humidity") return finiteUnit(metric / 100) ?? 0;
-  if (layerId === "climate.absolute-humidity") return finiteUnit(metric / 30) ?? 0;
-  if (layerId === "climate.humidity-ratio") return finiteUnit(metric / 25) ?? 0;
-  return finiteUnit(metric) ?? 0;
+  if (layerId === "climate.temperature") return parseFiniteUnit((metric + 10) / 45) ?? 0;
+  if (layerId === "climate.relative-humidity") return parseFiniteUnit(metric / 100) ?? 0;
+  if (layerId === "climate.absolute-humidity") return parseFiniteUnit(metric / 30) ?? 0;
+  if (layerId === "climate.humidity-ratio") return parseFiniteUnit(metric / 25) ?? 0;
+  return parseFiniteUnit(metric) ?? 0;
 }
 
 export function layerMetricText(layerId: string, value: { metrics?: Record<string, SpatialLayerMetric> }, locale: string): string | null {

@@ -10,6 +10,7 @@ import request from "supertest";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { apiErrorMiddleware } from "../src/app/error-handling.js";
 import { ClimateDatabase } from "../src/db.js";
 
 import {
@@ -42,6 +43,7 @@ describe("local spatial layer API", () => {
     const app = express();
     app.use(express.json());
     registerSpatialLayerRoutes(app, { runtime, ...allowAllSpatialAccess });
+    app.use(apiErrorMiddleware(() => undefined));
 
     const houseConfig = await request(app).get(`/api/v1/houses/${house.id}/layers/config`).expect(200);
     expect(houseConfig.body.topology.scope).toEqual({ kind: "house", id: house.id });
@@ -86,6 +88,7 @@ describe("local spatial layer API", () => {
     const app = express();
     app.use(express.json());
     registerSpatialLayerRoutes(app, { runtime, ...allowAllSpatialAccess });
+    app.use(apiErrorMiddleware(() => undefined));
 
     await request(app)
       .get(`/api/v1/houses/${house.id}/layers/current`)
@@ -101,6 +104,7 @@ describe("local spatial layer API", () => {
     const app = express();
     app.use(express.json());
     registerSpatialLayerRoutes(app, { runtime, ...allowAllSpatialAccess });
+    app.use(apiErrorMiddleware(() => undefined));
 
     const retainedBefore = runtime.state.db.prepare(`SELECT
       (SELECT COUNT(*) FROM spatial_config_versions) AS configurations,
@@ -170,6 +174,7 @@ describe("local spatial layer API", () => {
     const app = express();
     app.use(express.json());
     registerSpatialLayerRoutes(app, { runtime, ...allowAllSpatialAccess });
+    app.use(apiErrorMiddleware(() => undefined));
     const overview = await runtime.host.describeScope({ kind: "house", id: house.id });
     const zone = overview.topology.zones[0]!;
     const frame = overview.topology.frames.find((candidate) => candidate.id === zone.frameId)!;
@@ -213,6 +218,7 @@ describe("local spatial layer API", () => {
     const app = express();
     app.use(express.json());
     registerSpatialLayerRoutes(app, { runtime, ...allowAllSpatialAccess });
+    app.use(apiErrorMiddleware(() => undefined));
     const now = new Date().toISOString();
 
     await request(app)
@@ -235,6 +241,7 @@ describe("local spatial layer API", () => {
     const app = express();
     app.use(express.json());
     registerSpatialLayerRoutes(app, { runtime, ...allowAllSpatialAccess });
+    app.use(apiErrorMiddleware(() => undefined));
 
     const created = await request(app)
       .post(`/api/v1/houses/${house.id}/layers/calibrations`)
@@ -265,6 +272,7 @@ describe("local spatial layer API", () => {
     const app = express();
     app.use(express.json());
     registerSpatialLayerRoutes(app, { runtime, ...allowAllSpatialAccess });
+    app.use(apiErrorMiddleware(() => undefined));
     const overview = await runtime.host.describeScope({ kind: "house", id: house.id });
     const zone = overview.topology.zones[0]!;
     const frame = overview.topology.frames.find((candidate) => candidate.id === zone.frameId)!;
@@ -319,6 +327,7 @@ describe("local spatial layer API", () => {
     const app = express();
     app.use(express.json());
     registerSpatialLayerRoutes(app, { runtime, ...allowAllSpatialAccess });
+    app.use(apiErrorMiddleware(() => undefined));
     const endpoint = `/api/v1/houses/${house.id}/layers/calibration-sessions`;
     const calibration = {
       sensorId: sensor.id,
@@ -366,6 +375,7 @@ describe("local spatial layer API", () => {
     const app = express();
     app.use(express.json());
     registerSpatialLayerRoutes(app, { runtime: null, ...allowAllSpatialAccess });
+    app.use(apiErrorMiddleware(() => undefined));
     await request(app).get("/api/v1/layer-engines").expect(200).expect({ enabled: false, engines: [] });
     await request(app).get("/api/v1/houses/house-main/layers/current").expect(503)
       .expect(({ body }) => expect(body.error.code).toBe("SPATIAL_LAYERS_UNAVAILABLE"));

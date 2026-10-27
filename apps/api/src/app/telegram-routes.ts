@@ -1,16 +1,16 @@
 import { updateIntegrationSecrets } from "../integration-secrets.js";
-import { HttpError, bodyObject, credentialString, requestPrincipal } from "./support/index.js";
+import { HttpError, bodyObject, credentialString, requestPrincipal, requireWorkspaceAdmin } from "./support/index.js";
 import { TelegramServiceError } from "../telegram.js";
 import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
 
 /** Telegram bot discovery, configuration and test messages. */
 export function registerTelegramRoutes(context: ApiRouteRegistrationContext): void {
   const config = context.config;
-  context.app.post(`${context.prefix}/integrations/telegram/discover`, async (request, response) => {
+  context.app.post(`${context.prefix}/integrations/telegram/discover`, requireWorkspaceAdmin, async (request, response) => {
       const body = bodyObject(request.body);
       response.json(await context.telegram.discover(credentialString(body, "botToken", 256, true)));
     });
-  context.app.put(`${context.prefix}/integrations/telegram/config`, async (request, response) => {
+  context.app.put(`${context.prefix}/integrations/telegram/config`, requireWorkspaceAdmin, async (request, response) => {
       const generation = ++context.runtimeState.telegramConfigurationGeneration;
       const body = bodyObject(request.body);
       const botToken = credentialString(body, "botToken", 256, true);
@@ -45,7 +45,7 @@ export function registerTelegramRoutes(context: ApiRouteRegistrationContext): vo
       });
       response.json({ ok: true, configured: true, integration: structuredClone(context.status.value) });
     });
-  context.app.post(`${context.prefix}/integrations/telegram/test`, async (_request, response) => {
+  context.app.post(`${context.prefix}/integrations/telegram/test`, requireWorkspaceAdmin, async (_request, response) => {
       if (!config.telegramBotToken || !config.telegramChatId) {
         throw new HttpError(409, "TELEGRAM_NOT_CONFIGURED", "Configure a Telegram bot and private chat before sending a test message");
       }
@@ -74,7 +74,7 @@ export function registerTelegramRoutes(context: ApiRouteRegistrationContext): vo
         throw error;
       }
     });
-  context.app.delete(`${context.prefix}/integrations/telegram/config`, (_request, response) => {
+  context.app.delete(`${context.prefix}/integrations/telegram/config`, requireWorkspaceAdmin, (_request, response) => {
       context.runtimeState.telegramConfigurationGeneration += 1;
       context.notificationOutbox.fenceTelegramConfigurationChange();
       updateIntegrationSecrets(config.integrationSecretsFile, { telegram: null });

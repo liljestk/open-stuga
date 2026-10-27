@@ -1,19 +1,19 @@
 import { updateIntegrationSecrets } from "../integration-secrets.js";
-import { HttpError, bodyObject, credentialString, homeAssistantUrl, requestPrincipal, requiredString } from "./support/index.js";
+import { HttpError, bodyObject, credentialString, homeAssistantUrl, requestPrincipal, requiredString, requireWorkspaceAdmin } from "./support/index.js";
 import { hasLocalHouseAuthority } from "@climate-twin/contracts";
 import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
 
 /** Home Assistant connection configuration, tests and setup. */
 export function registerHomeAssistantRoutes(context: ApiRouteRegistrationContext): void {
   const config = context.config;
-  context.app.post(`${context.prefix}/integrations/home-assistant/test-draft`, async (request, response) => {
+  context.app.post(`${context.prefix}/integrations/home-assistant/test-draft`, requireWorkspaceAdmin, async (request, response) => {
       response.setHeader("cache-control", "no-store");
       const body = bodyObject(request.body);
       const url = homeAssistantUrl(credentialString(body, "url", 2_048, true));
       const token = credentialString(body, "token", 8_192);
       response.json(await context.homeAssistantCredentialTester(url, token));
     });
-  context.app.put(`${context.prefix}/integrations/home-assistant/config`, async (request, response) => {
+  context.app.put(`${context.prefix}/integrations/home-assistant/config`, requireWorkspaceAdmin, async (request, response) => {
       const body = bodyObject(request.body);
       const houseId = body.houseId === undefined
         ? context.database.listHouses().find(hasLocalHouseAuthority)?.id
@@ -63,7 +63,7 @@ export function registerHomeAssistantRoutes(context: ApiRouteRegistrationContext
       });
       response.json({ ok: true, configured: true, houseId, integration: structuredClone(context.status.value) });
     });
-  context.app.patch(`${context.prefix}/integrations/home-assistant/config/:houseId`, (request, response) => {
+  context.app.patch(`${context.prefix}/integrations/home-assistant/config/:houseId`, requireWorkspaceAdmin, (request, response) => {
       const fromHouseId = request.params.houseId as string;
       const targetHouseId = requiredString(bodyObject(request.body), "houseId");
       if (!context.database.getHouse(targetHouseId)) throw new HttpError(404, "NOT_FOUND", "Target house not found");
@@ -113,9 +113,15 @@ export function registerHomeAssistantRoutes(context: ApiRouteRegistrationContext
           : candidate);
         context.status.changed();
       }
+      context.recordSecurityAudit(requestPrincipal(response), {
+        eventType: "integration.credentials.configured",
+        subjectType: "integration",
+        subjectId: `home-assistant:${targetHouseId}`,
+        details: { integration: "home-assistant", fromHouseId, houseId: targetHouseId },
+      });
       response.json({ ok: true, fromHouseId, houseId: targetHouseId, integration: structuredClone(context.status.value) });
     });
-  context.app.delete(`${context.prefix}/integrations/home-assistant/config/:houseId`, (request, response) => {
+  context.app.delete(`${context.prefix}/integrations/home-assistant/config/:houseId`, requireWorkspaceAdmin, (request, response) => {
       const houseId = request.params.houseId as string;
       const existing = config.homeAssistantConnections ?? [];
       const explicitConnection = existing.find((connection) => connection.houseId === houseId);
@@ -126,6 +132,7 @@ export function registerHomeAssistantRoutes(context: ApiRouteRegistrationContext
       if (!explicitConnection && !disconnectingLegacy) {
         throw new HttpError(404, "NOT_FOUND", "Home Assistant connection not found");
       }
+      context.stuguby.assertHouseLocalAuthority(houseId);
       const connections = disconnectingLegacy ? [] : existing.filter((connection) => connection.houseId !== houseId);
       updateIntegrationSecrets(config.integrationSecretsFile, {
         homeAssistant: null,
@@ -150,7 +157,7 @@ export function registerHomeAssistantRoutes(context: ApiRouteRegistrationContext
       });
       response.json({ ok: true, integration: structuredClone(context.status.value) });
     });
-  context.app.post(`${context.prefix}/integrations/home-assistant/test`, (request, response) => {
+  context.app.post(`${context.prefix}/integrations/home-assistant/test`, requireWorkspaceAdmin, (request, response) => {
       const houseId = typeof request.query.houseId === "string" ? request.query.houseId : undefined;
       const houseStatus = context.integrationStatusForHouse(houseId).homeAssistant;
       response.json({

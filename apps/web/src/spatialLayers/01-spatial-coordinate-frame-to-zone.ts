@@ -240,7 +240,7 @@ export interface SpatialCalibrationSessionResult {
   calibrations: SpatialSensorCalibration[];
 }
 
-export function record(value: unknown): Record<string, unknown> | null {
+export function parseRecord(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
     : null;
@@ -248,26 +248,26 @@ export function record(value: unknown): Record<string, unknown> | null {
 
 export function arrayFromPayload(value: unknown, keys: string[]): unknown[] {
   if (Array.isArray(value)) return value;
-  const candidate = record(value);
+  const candidate = parseRecord(value);
   if (!candidate) return [];
   for (const key of keys) if (Array.isArray(candidate[key])) return candidate[key] as unknown[];
   return [];
 }
 
-export function strings(value: unknown): string[] {
+export function parseStringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
 }
 
-export function number(value: unknown): number | undefined {
+export function parseFiniteNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
-export function calibrationSession(value: unknown): SpatialCalibrationSession | null {
-  const candidate = record(value);
+export function parseCalibrationSession(value: unknown): SpatialCalibrationSession | null {
+  const candidate = parseRecord(value);
   if (!candidate || typeof candidate.id !== "string" || typeof candidate.startAt !== "string") return null;
   if (candidate.kind !== "co-location" && candidate.kind !== "controlled-propagation" && candidate.kind !== "empty-house-baseline") return null;
   if (candidate.status !== "planned" && candidate.status !== "running" && candidate.status !== "completed" && candidate.status !== "cancelled") return null;
-  const intervention = record(candidate.intervention) ?? {};
+  const intervention = parseRecord(candidate.intervention) ?? {};
   return {
     id: candidate.id,
     ...(typeof candidate.houseId === "string" ? { houseId: candidate.houseId } : {}),
@@ -282,18 +282,18 @@ export function calibrationSession(value: unknown): SpatialCalibrationSession | 
   };
 }
 
-export function spatialCalibrationSessions(value: unknown): SpatialCalibrationSession[] {
+export function parseSpatialCalibrationSessions(value: unknown): SpatialCalibrationSession[] {
   return arrayFromPayload(value, ["sessions", "data"])
-    .map(calibrationSession)
+    .map(parseCalibrationSession)
     .filter((item): item is SpatialCalibrationSession => item !== null);
 }
 
-export function spatialCalibrationSessionResult(value: unknown): SpatialCalibrationSessionResult | null {
-  const payload = record(value);
-  const session = calibrationSession(payload?.session ?? value);
+export function parseSpatialCalibrationSessionResult(value: unknown): SpatialCalibrationSessionResult | null {
+  const payload = parseRecord(value);
+  const session = parseCalibrationSession(payload?.session ?? value);
   if (!session) return null;
   const calibrations = arrayFromPayload(value, ["calibrations"]).filter((item): item is SpatialSensorCalibration => {
-    const candidate = record(item);
+    const candidate = parseRecord(item);
     return typeof candidate?.sensorId === "string" && typeof candidate.validFrom === "string"
       && typeof candidate.temperatureOffsetC === "number" && typeof candidate.humidityOffsetPct === "number"
       && typeof candidate.confidence === "number" && typeof candidate.method === "string";
@@ -301,9 +301,9 @@ export function spatialCalibrationSessionResult(value: unknown): SpatialCalibrat
   return { session, calibrations };
 }
 
-export function spatialInferenceSession(value: unknown): SpatialInferenceSession | null {
-  const payload = record(value);
-  const candidate = record(payload && Object.hasOwn(payload, "session") ? payload.session : value);
+export function parseSpatialInferenceSession(value: unknown): SpatialInferenceSession | null {
+  const payload = parseRecord(value);
+  const candidate = parseRecord(payload && Object.hasOwn(payload, "session") ? payload.session : value);
   if (!candidate || typeof candidate.id !== "string" || typeof candidate.houseId !== "string") return null;
   if (candidate.status !== "active" && candidate.status !== "stopped" && candidate.status !== "expired") return null;
   if (typeof candidate.startedAt !== "string" || typeof candidate.expiresAt !== "string"
@@ -325,50 +325,50 @@ export function spatialInferenceSession(value: unknown): SpatialInferenceSession
   };
 }
 
-export function metrics(value: unknown): Record<string, SpatialLayerMetric> {
-  const candidate = record(value);
+export function parseSpatialMetrics(value: unknown): Record<string, SpatialLayerMetric> {
+  const candidate = parseRecord(value);
   if (!candidate) return {};
   return Object.fromEntries(Object.entries(candidate).flatMap(([key, raw]) => {
-    const metric = record(raw);
+    const metric = parseRecord(raw);
     if (!metric) return [];
     const metricValue = metric?.value;
     if (!(metricValue === null || typeof metricValue === "number" || typeof metricValue === "string" || typeof metricValue === "boolean")) return [];
     const result: SpatialLayerMetric = { value: metricValue };
     if (typeof metric.unit === "string") result.unit = metric.unit;
     if (typeof metric.label === "string") result.label = metric.label;
-    const quality = finiteUnit(metric.quality);
+    const quality = parseFiniteUnit(metric.quality);
     if (quality !== null) result.quality = quality;
-    const normalized = finiteUnit(metric.normalized);
+    const normalized = parseFiniteUnit(metric.normalized);
     if (normalized !== null) result.normalized = normalized;
     return [[key, result]];
   }));
 }
 
-export function evidence(value: unknown, metricValues: Record<string, SpatialLayerMetric>): SpatialLayerEvidence {
-  const entries = Array.isArray(value) ? value.map(record).filter((item): item is Record<string, unknown> => item !== null) : [record(value)].filter((item): item is Record<string, unknown> => item !== null);
-  const scores = entries.flatMap((item) => number(item.score) ?? number(item.confidence) ?? number(item.strength) ?? []);
+export function parseSpatialEvidence(value: unknown, metricValues: Record<string, SpatialLayerMetric>): SpatialLayerEvidence {
+  const entries = Array.isArray(value) ? value.map(parseRecord).filter((item): item is Record<string, unknown> => item !== null) : [parseRecord(value)].filter((item): item is Record<string, unknown> => item !== null);
+  const scores = entries.flatMap((item) => parseFiniteNumber(item.score) ?? parseFiniteNumber(item.confidence) ?? parseFiniteNumber(item.strength) ?? []);
   const qualities = Object.values(metricValues).flatMap((metric) => metric.quality ?? []);
-  const quality = finiteUnit(Math.max(0, ...qualities));
-  const strength = finiteUnit(Math.max(0, ...scores));
+  const quality = parseFiniteUnit(Math.max(0, ...qualities));
+  const strength = parseFiniteUnit(Math.max(0, ...scores));
   return {
-    confidence: finiteUnit(Math.max(0, ...scores, ...qualities)) ?? 0,
+    confidence: parseFiniteUnit(Math.max(0, ...scores, ...qualities)) ?? 0,
     ...(qualities.length && quality !== null ? { quality } : {}),
     ...(scores.length && strength !== null ? { strength } : {}),
-    reasonCodes: [...new Set(entries.flatMap((item) => strings(item.reasonCodes)))],
+    reasonCodes: [...new Set(entries.flatMap((item) => parseStringArray(item.reasonCodes)))],
   };
 }
 
-export function point(value: unknown): { x: number; y: number; z?: number } | undefined {
-  const candidate = record(value);
-  const x = number(candidate?.x);
-  const y = number(candidate?.y);
-  const z = number(candidate?.z);
+export function parseSpatialPoint(value: unknown): { x: number; y: number; z?: number } | undefined {
+  const candidate = parseRecord(value);
+  const x = parseFiniteNumber(candidate?.x);
+  const y = parseFiniteNumber(candidate?.y);
+  const z = parseFiniteNumber(candidate?.z);
   if (x === undefined || y === undefined) return undefined;
   return z === undefined ? { x, y } : { x, y, z };
 }
 
-export function style(value: unknown): SpatialLayerStyleHint | undefined {
-  const candidate = record(value);
+export function parseSpatialStyle(value: unknown): SpatialLayerStyleHint | undefined {
+  const candidate = parseRecord(value);
   if (!candidate) return undefined;
   const direction = candidate.direction === "a-to-b" ? "forward"
     : candidate.direction === "b-to-a" ? "reverse"
@@ -376,24 +376,24 @@ export function style(value: unknown): SpatialLayerStyleHint | undefined {
         : "none";
   const palette = candidate.palette === "air" ? "propagation" : candidate.palette;
   return {
-    ...(number(candidate.emphasis) !== undefined ? { emphasis: number(candidate.emphasis)! } : {}),
-    ...(finiteUnit(candidate.opacity) !== null ? { opacity: finiteUnit(candidate.opacity)! } : {}),
+    ...(parseFiniteNumber(candidate.emphasis) !== undefined ? { emphasis: parseFiniteNumber(candidate.emphasis)! } : {}),
+    ...(parseFiniteUnit(candidate.opacity) !== null ? { opacity: parseFiniteUnit(candidate.opacity)! } : {}),
     ...(candidate.lineStyle === "solid" || candidate.lineStyle === "dashed" || candidate.lineStyle === "dotted" ? { line: candidate.lineStyle } : {}),
     direction,
     ...(palette === "temperature" || palette === "humidity" || palette === "quality" || palette === "propagation" || palette === "activity" || palette === "neutral" ? { palette } : {}),
   };
 }
 
-export function zone(value: unknown): SpatialLayerZone | null {
-  const candidate = record(value);
+export function parseSpatialZone(value: unknown): SpatialLayerZone | null {
+  const candidate = parseRecord(value);
   if (!candidate || typeof candidate.zoneId !== "string") return null;
-  const metricValues = metrics(candidate.metrics);
-  const anchor = point(candidate.anchor ?? candidate.centroid);
+  const metricValues = parseSpatialMetrics(candidate.metrics);
+  const anchor = parseSpatialPoint(candidate.anchor ?? candidate.centroid);
   const polygon = Array.isArray(candidate.polygon) ? candidate.polygon.flatMap((item) => {
-    const positioned = point(item);
+    const positioned = parseSpatialPoint(item);
     return positioned ? [{ x: positioned.x, y: positioned.y }] : [];
   }) : undefined;
-  const styleHint = style(candidate.style);
+  const styleHint = parseSpatialStyle(candidate.style);
   return {
     zoneId: candidate.zoneId,
     ...(typeof candidate.frameId === "string" ? { frameId: candidate.frameId } : {}),
@@ -401,17 +401,17 @@ export function zone(value: unknown): SpatialLayerZone | null {
     ...(typeof candidate.roomId === "string" ? { roomId: candidate.roomId } : {}),
     ...(typeof candidate.houseId === "string" ? { houseId: candidate.houseId } : {}),
     ...(typeof candidate.name === "string" ? { label: candidate.name } : typeof candidate.label === "string" ? { label: candidate.label } : {}),
-    ...(strings(candidate.tags).length ? { tags: strings(candidate.tags) } : {}),
+    ...(parseStringArray(candidate.tags).length ? { tags: parseStringArray(candidate.tags) } : {}),
     ...(polygon?.length ? { polygon } : {}),
     ...(anchor ? { centroid: anchor } : {}),
     metrics: metricValues,
-    evidence: evidence(candidate.evidence, metricValues),
+    evidence: parseSpatialEvidence(candidate.evidence, metricValues),
     ...(styleHint ? { style: styleHint } : {}),
-    reasonCodes: strings(candidate.reasonCodes),
+    reasonCodes: parseStringArray(candidate.reasonCodes),
   };
 }
 
-export function finiteUnit(value: unknown): number | null {
+export function parseFiniteUnit(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value)
     ? Math.min(1, Math.max(0, value))
     : null;
