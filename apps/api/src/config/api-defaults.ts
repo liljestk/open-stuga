@@ -161,7 +161,7 @@ export function applyApiConfigDefaults(config: AppConfig): ApiConfig {
   config.timeseriesRequired ??= false;
   config.timeseriesHost ??= "127.0.0.1";
   config.timeseriesPort ??= 5432;
-  config.timeseriesDatabase ??= "stugu";
+  config.timeseriesDatabase ??= "stuga";
   config.timeseriesUser ??= "stuga_app";
   config.timeseriesPassword ??= "";
   config.timeseriesSslMode ??= "disable";

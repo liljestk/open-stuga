@@ -1,32 +1,6 @@
-import { confirmationProperty, floorSchema, houseLocationSchema, houseMapPlacementSchema, sensorProperties } from "./04-point-schema-to-summarize-mcp-stuguby.js";
+
 
 export const mcpToolDefinitionsPart02 = [
-  {
-        name: "update_house",
-        description: "Update house metadata, location, map placement, orientation, and/or its full floor layout.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            houseId: { type: "string" }, propertyId: { type: "string" }, name: { type: "string" }, timezone: { type: "string" },
-            location: { oneOf: [houseLocationSchema, { type: "null" }] },
-            mapPlacement: { oneOf: [houseMapPlacementSchema, { type: "null" }] },
-            orientationDegrees: { type: ["number", "null"], minimum: 0, exclusiveMaximum: 360 },
-            floors: { type: "array", maxItems: 100, items: floorSchema },
-          },
-          required: ["houseId"],
-          additionalProperties: false,
-        },
-      },
-  {
-        name: "replace_house_layout",
-        description: "Replace a house's complete validated floor collection.",
-        inputSchema: { type: "object", properties: { houseId: { type: "string" }, floors: { type: "array", maxItems: 100, items: floorSchema } }, required: ["houseId", "floors"], additionalProperties: false },
-      },
-  {
-        name: "replace_house_floor",
-        description: "Replace one existing floor; the nested floor id must match floorId.",
-        inputSchema: { type: "object", properties: { houseId: { type: "string" }, floorId: { type: "string" }, floor: floorSchema }, required: ["houseId", "floorId", "floor"], additionalProperties: false },
-      },
   {
         name: "search_locations",
         description: "Search worldwide place and timezone suggestions through Open-Meteo geocoding. The query is sent to that public service only when this tool is called.",
@@ -196,34 +170,6 @@ export const mcpToolDefinitionsPart02 = [
         name: "list_sensors",
         description: "Discover configured sensors, optionally scoped to one house.",
         inputSchema: { type: "object", properties: { houseId: { type: "string" } }, additionalProperties: false },
-      },
-  {
-        name: "create_sensor",
-        description: "Create and place a sensor, including optional Home Assistant and TP-Link bindings.",
-        inputSchema: {
-          type: "object",
-          properties: { id: { type: "string" }, ...sensorProperties },
-          required: ["houseId", "floorId", "name", "room", "model", "x", "y", "z"],
-          additionalProperties: false,
-        },
-      },
-  {
-        name: "update_sensor",
-        description: "Atomically update a sensor's metadata, placement, state, or integration bindings.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            sensorId: { type: "string" },
-            patch: { type: "object", properties: sensorProperties, minProperties: 1, additionalProperties: false },
-          },
-          required: ["sensorId", "patch"],
-          additionalProperties: false,
-        },
-      },
-  {
-        name: "delete_sensor",
-        description: "Permanently delete a sensor and dependent local data. Requires confirm=true.",
-        inputSchema: { type: "object", properties: { sensorId: { type: "string" }, ...confirmationProperty }, required: ["sensorId", "confirm"], additionalProperties: false },
       },
   {
         name: "list_measurement_definitions",

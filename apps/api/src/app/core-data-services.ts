@@ -1,4 +1,3 @@
-import { isIP } from "node:net";
 import type {
   TrackingFeatureFlags,
 } from "@climate-twin/contracts";
@@ -211,21 +210,6 @@ export function createCoreDataServices(context: ApiConfigContext) {
         );
       }
     };
-  const timeseriesSsl = config.timeseriesSslMode === "disable"
-      ? undefined
-      : config.timeseriesSslMode === "require"
-        ? { rejectUnauthorized: false }
-        : config.timeseriesSslMode === "verify-ca"
-          ? {
-            rejectUnauthorized: true,
-            ...(config.timeseriesSslCa ? { ca: config.timeseriesSslCa } : {}),
-            checkServerIdentity: () => undefined,
-          }
-          : {
-            rejectUnauthorized: true,
-            ...(config.timeseriesSslCa ? { ca: config.timeseriesSslCa } : {}),
-            ...(isIP(config.timeseriesHost) === 0 ? { servername: config.timeseriesHost } : {}),
-          };
   const runtimeState: ApiRuntimeState = {
     shutdownStarted: false,
     closed: false,
@@ -235,7 +219,7 @@ export function createCoreDataServices(context: ApiConfigContext) {
     telegramDeliveryGeneration: 0,
     telegramConfigurationGeneration: 0,
   };
-  const extended = Object.assign(context, { runtimeState, database, systemErrorLog, trackingFlags, trackingStore, tracking, systemUpdates, systemStorage, hostDatabaseMetrics, hostSystem, cloudflareSetup, dataOperations, energyOptimizer, integrationMetadata, localAuth, recordSecurityAudit, cloudflareAccess, authAbuseLimiter, trackingObserverAbuseLimiter, dataMode, bus, stuguby, assertSensorHouseMoveAllowed, timeseriesSsl });
+  const extended = Object.assign(context, { runtimeState, database, systemErrorLog, trackingFlags, trackingStore, tracking, systemUpdates, systemStorage, hostDatabaseMetrics, hostSystem, cloudflareSetup, dataOperations, energyOptimizer, integrationMetadata, localAuth, recordSecurityAudit, cloudflareAccess, authAbuseLimiter, trackingObserverAbuseLimiter, dataMode, bus, stuguby, assertSensorHouseMoveAllowed });
   return extended;
 }
 

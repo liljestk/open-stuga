@@ -1,4 +1,4 @@
-import { areaEquipmentMutableProperties, floorSchema, houseLocationSchema, houseMapPlacementSchema, propertyAreaMutableProperties } from "./04-point-schema-to-summarize-mcp-stuguby.js";
+
 import { CHATGPT_MCP_TOOL_NAMES, isChatgptMcpProfile } from "./chatgpt-profile.js";
 
 export const READ_ONLY_MCP_TOOL_NAMES: ReadonlySet<string> = new Set([
@@ -113,49 +113,11 @@ export const mcpToolDefinitionsPart01 = [
         },
       },
   {
-        name: "create_property",
-        description: "Create a property that can own houses, mapped areas, and equipment.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            id: { type: "string", minLength: 1, maxLength: 200 },
-            name: { type: "string", minLength: 1, maxLength: 200 },
-            description: { type: ["string", "null"], maxLength: 5_000 },
-            location: { oneOf: [houseLocationSchema, { type: "null" }] },
-          },
-          required: ["name"],
-          additionalProperties: false,
-        },
-      },
-  {
         name: "list_property_areas",
         description: "List compact mapped-area and fixed-asset summaries, optionally for one property. Exact coordinates and free-form descriptions are omitted.",
         inputSchema: {
           type: "object",
           properties: { propertyId: { type: "string", minLength: 1, maxLength: 200 } },
-          additionalProperties: false,
-        },
-      },
-  {
-        name: "create_property_area",
-        description: "Create a mapped polygon area or fixed-position asset on a property. Use an empty polygon for a point asset.",
-        inputSchema: {
-          type: "object",
-          properties: { id: { type: "string", minLength: 1, maxLength: 200 }, ...propertyAreaMutableProperties },
-          required: ["propertyId", "name", "kind", "polygon"],
-          additionalProperties: false,
-        },
-      },
-  {
-        name: "update_property_area",
-        description: "Update an area or fixed asset, including its position, or move its complete aggregate to another property.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            areaId: { type: "string", minLength: 1, maxLength: 200 },
-            patch: { type: "object", properties: propertyAreaMutableProperties, minProperties: 1, additionalProperties: false },
-          },
-          required: ["areaId", "patch"],
           additionalProperties: false,
         },
       },
@@ -168,29 +130,6 @@ export const mcpToolDefinitionsPart01 = [
             propertyId: { type: "string", minLength: 1, maxLength: 200 },
             areaId: { type: "string", minLength: 1, maxLength: 200 },
           },
-          additionalProperties: false,
-        },
-      },
-  {
-        name: "create_area_equipment",
-        description: "Create equipment in a mapped area; its property is derived from that area.",
-        inputSchema: {
-          type: "object",
-          properties: { id: { type: "string", minLength: 1, maxLength: 200 }, ...areaEquipmentMutableProperties },
-          required: ["areaId", "name", "kind"],
-          additionalProperties: false,
-        },
-      },
-  {
-        name: "update_area_equipment",
-        description: "Update equipment or move it to another area; its property follows the target area automatically.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            equipmentId: { type: "string", minLength: 1, maxLength: 200 },
-            patch: { type: "object", properties: areaEquipmentMutableProperties, minProperties: 1, additionalProperties: false },
-          },
-          required: ["equipmentId", "patch"],
           additionalProperties: false,
         },
       },
@@ -241,21 +180,6 @@ export const mcpToolDefinitionsPart01 = [
           type: "object",
           properties: { stugubyId: { type: "string", minLength: 1, maxLength: 200 } },
           required: ["stugubyId"],
-          additionalProperties: false,
-        },
-      },
-  {
-        name: "create_house",
-        description: "Create a house and validated floor layout.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            id: { type: "string" }, propertyId: { type: "string" }, name: { type: "string" }, timezone: { type: "string" },
-            location: houseLocationSchema, mapPlacement: houseMapPlacementSchema,
-            orientationDegrees: { type: "number", minimum: 0, exclusiveMaximum: 360 },
-            floors: { type: "array", maxItems: 100, items: floorSchema },
-          },
-          required: ["name", "timezone", "floors"],
           additionalProperties: false,
         },
       },

@@ -2,7 +2,7 @@ import type { McpToolHandler } from "../mcp-lifecycle.js";
 import {
   mcpToolAnnotations,
 } from "../mcp-validation.js";
-import { confirmationProperty, maintenanceTaskCreateProperties, maintenanceTaskPatchProperties, observationCreateProperties, observationPatchProperties } from "./04-point-schema-to-summarize-mcp-stuguby.js";
+
 import { resultOutputSchema } from "./05-get-mcp-stuguby-to-result-output-schema.js";
 import { ACTIVE_MCP_TOOL_NAMES, mcpToolDefinitionsPart01 } from "./06-read-only-mcp-tool-names-to-mcp-tool-definitions.js";
 import { mcpToolDefinitionsPart02 } from "./07-mcp-tool-definitions-part02.js";
@@ -25,36 +25,6 @@ export const mcpToolDefinitionsPart04 = [
         name: "list_static_parameters",
         description: "List static house, floor, room, and sensor context used to interpret readings.",
         inputSchema: { type: "object", properties: { houseId: { type: "string" } }, additionalProperties: false },
-      },
-  {
-        name: "create_observation",
-        description: "Record a manual leak, condensation, mould, ventilation, maintenance, or note observation.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            id: { type: "string" }, houseId: { type: "string" }, ...observationCreateProperties,
-          },
-          required: ["houseId", "floorId", "kind", "severity", "note"], additionalProperties: false,
-        },
-      },
-  {
-        name: "update_observation",
-        description: "Optimistically update observation evidence, resolve it with a required resolutionNote, or reopen it while preserving append-only revision snapshots.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            observationId: { type: "string", minLength: 1 },
-            baseRevision: { type: "integer", minimum: 1 },
-            patch: { type: "object", properties: observationPatchProperties, minProperties: 1, additionalProperties: false },
-          },
-          required: ["observationId", "baseRevision", "patch"],
-          additionalProperties: false,
-        },
-      },
-  {
-        name: "delete_observation",
-        description: "Permanently delete a manual observation. Requires confirm=true.",
-        inputSchema: { type: "object", properties: { observationId: { type: "string" }, ...confirmationProperty }, required: ["observationId", "confirm"], additionalProperties: false },
       },
   {
         name: "list_maintenance_tasks",
@@ -81,72 +51,6 @@ export const mcpToolDefinitionsPart04 = [
         },
       },
   {
-        name: "create_maintenance_task",
-        description: "Plan property-owned maintenance with optional house, floor, area, equipment, and observation evidence context.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            id: { type: "string" },
-            propertyId: { type: "string", minLength: 1, maxLength: 200 },
-            houseId: { type: ["string", "null"], minLength: 1, maxLength: 200 },
-            ...maintenanceTaskCreateProperties,
-          },
-          required: ["title", "basis"],
-          anyOf: [
-            { required: ["propertyId"] },
-            {
-              required: ["houseId"],
-              properties: { houseId: { type: "string", minLength: 1, maxLength: 200 } },
-            },
-          ],
-          additionalProperties: false,
-        },
-      },
-  {
-        name: "update_maintenance_task",
-        description: "Optimistically edit, complete, verify, replan, or cancel maintenance while preserving revision history.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            maintenanceTaskId: { type: "string", minLength: 1 },
-            baseRevision: { type: "integer", minimum: 1 },
-            patch: { type: "object", properties: maintenanceTaskPatchProperties, minProperties: 1, additionalProperties: false },
-          },
-          required: ["maintenanceTaskId", "baseRevision", "patch"],
-          additionalProperties: false,
-        },
-      },
-  {
-        name: "delete_maintenance_task",
-        description: "Permanently delete a maintenance task and its revision history. Requires confirm=true.",
-        inputSchema: {
-          type: "object",
-          properties: { maintenanceTaskId: { type: "string" }, ...confirmationProperty },
-          required: ["maintenanceTaskId", "confirm"],
-          additionalProperties: false,
-        },
-      },
-  {
-        name: "upsert_static_parameter",
-        description: "Create or update static house, floor, room, or sensor context.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            id: { type: "string" }, houseId: { type: "string" }, scopeType: { enum: ["house", "floor", "room", "sensor"] },
-            scopeId: { type: "string" }, key: { type: "string" },
-            value: { oneOf: [{ type: "string" }, { type: "number" }, { type: "boolean" }] },
-            unit: { type: ["string", "null"] }, label: { type: "string" },
-          },
-          required: ["houseId", "scopeType", "scopeId", "key", "value", "label"],
-          additionalProperties: false,
-        },
-      },
-  {
-        name: "delete_static_parameter",
-        description: "Permanently delete a static parameter. Requires confirm=true.",
-        inputSchema: { type: "object", properties: { parameterId: { type: "string" }, ...confirmationProperty }, required: ["parameterId", "confirm"], additionalProperties: false },
-      },
-  {
         name: "list_assets",
         description: "List floor-plan and 3D asset metadata without returning binary content.",
         inputSchema: { type: "object", properties: { houseId: { type: "string" } }, additionalProperties: false },
@@ -155,26 +59,6 @@ export const mcpToolDefinitionsPart04 = [
         name: "get_asset_metadata",
         description: "Get metadata for one stored asset without returning its potentially large binary content.",
         inputSchema: { type: "object", properties: { assetId: { type: "string" } }, required: ["assetId"], additionalProperties: false },
-      },
-  {
-        name: "upload_asset",
-        description: "Upload a trusted base64 PNG, JPEG, WebP, glTF, or GLB asset up to 10 MiB decoded.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            houseId: { type: "string" }, name: { type: "string" },
-            mimeType: { enum: ["image/png", "image/jpeg", "image/webp", "model/gltf+json", "model/gltf-binary"] },
-            kind: { enum: ["floor-plan", "model-3d", "other"] },
-            data: { type: "string", minLength: 1, maxLength: 14_000_000 },
-          },
-          required: ["houseId", "name", "mimeType", "kind", "data"],
-          additionalProperties: false,
-        },
-      },
-  {
-        name: "delete_asset",
-        description: "Permanently delete a stored asset. Requires confirm=true.",
-        inputSchema: { type: "object", properties: { assetId: { type: "string" }, ...confirmationProperty }, required: ["assetId", "confirm"], additionalProperties: false },
       },
   {
         name: "get_integration_status",
@@ -233,16 +117,6 @@ export const mcpToolDefinitionsPart05 = [
         inputSchema: { type: "object", properties: {}, additionalProperties: false },
       },
   {
-        name: "select_mock_scenario",
-        description: "Select a mock scenario. Rejected permanently once the shared database has entered real-data mode.",
-        inputSchema: { type: "object", properties: { scenario: { enum: ["normal", "shower", "leak", "cold-front", "heating-failure"] } }, required: ["scenario"], additionalProperties: false },
-      },
-  {
-        name: "generate_mock_tick",
-        description: "Generate and persist one mock reading tick. Rejected permanently in real-data mode.",
-        inputSchema: { type: "object", properties: {}, additionalProperties: false },
-      },
-  {
         name: "get_replay_status",
         description: "Get replay state for this MCP process's in-memory event bus.",
         inputSchema: { type: "object", properties: {}, additionalProperties: false },
@@ -255,23 +129,6 @@ export const mcpToolDefinitionsPart05 = [
   {
         name: "get_setup_doctor",
         description: "Run read-only SQLite integrity, sensor coverage, integration, notification, backup, and restore-drill readiness checks.",
-        inputSchema: { type: "object", properties: {}, additionalProperties: false },
-      },
-  {
-        name: "start_replay",
-        description: "Report that live replay is unavailable in the isolated MCP process; use the long-running API replay endpoint for observable SSE playback.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            sensorIds: { type: "array", items: { type: "string" } }, from: { type: "string", format: "date-time" },
-            to: { type: "string", format: "date-time" }, speed: { type: "number", minimum: 0.1, maximum: 10000, default: 60 },
-          },
-          additionalProperties: false,
-        },
-      },
-  {
-        name: "stop_replay",
-        description: "Stop replay on this MCP process's in-memory event bus.",
         inputSchema: { type: "object", properties: {}, additionalProperties: false },
       },
 ] as const;

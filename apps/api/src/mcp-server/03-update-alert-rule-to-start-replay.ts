@@ -1,120 +1,13 @@
-import { hasLocalHouseAuthority } from "@climate-twin/contracts";
 import type {
-  AlertRule,
   MaintenanceTask,
-  ManualObservation,
-  StaticParameter,
 } from "@climate-twin/contracts";
-import {
-  parseAlertRule,
-  parseMaintenanceTaskInput,
-  parseMaintenanceTaskPatch,
-  parseObservationInput,
-  parseObservationPatch,
-} from "../app.js";
 import { discoverHomeAssistant } from "../discovery.js";
-import {
-  mcpBoundedNumber,
-  mcpIsoDate,
-  requireMcpConfirmation,
-  requireMcpSensor,
-  validateMcpDateRange,
-} from "../mcp-validation.js";
-import {
-  MOCK_SCENARIOS,
-} from "../services.js";
-import { bus, database, enumString, mock, optionalString, optionalStringArray, replay, requiredObject, requiredString, status, stuguby, tpLink } from "./01-config-to-get-house-weather.js";
-
-export function updateAlertRule(args: Record<string, unknown>): AlertRule {
-  const ruleId = requiredString(args, "ruleId");
-  const current = database.getAlertRule(ruleId);
-  if (!current) throw new Error(`Unknown alert rule: ${ruleId}`);
-  const currentSensor = current.sensorId ? database.getSensor(current.sensorId) : null;
-  if (currentSensor) stuguby.assertHouseLocalAuthority(currentSensor.houseId);
-  const parsed = parseAlertRule({ ...current, ...requiredObject(args, "patch"), id: ruleId }, database);
-  const nextSensor = parsed.sensorId ? database.getSensor(parsed.sensorId) : null;
-  if (nextSensor) stuguby.assertHouseLocalAuthority(nextSensor.houseId);
-  const { id: _id, ...patch } = parsed;
-  const rule = database.updateAlertRule(ruleId, patch);
-  if (!rule) throw new Error(`Unknown alert rule: ${ruleId}`);
-  return rule;
-}
-
-export function deleteAlertRule(args: Record<string, unknown>): { deleted: true; ruleId: string } {
-  requireMcpConfirmation(args.confirm);
-  const ruleId = requiredString(args, "ruleId");
-  const current = database.getAlertRule(ruleId);
-  const sensor = current?.sensorId ? database.getSensor(current.sensorId) : null;
-  if (sensor) stuguby.assertHouseLocalAuthority(sensor.houseId);
-  if (!database.deleteAlertRule(ruleId)) throw new Error(`Unknown alert rule: ${ruleId}`);
-  return { deleted: true, ruleId };
-}
-
-export function acknowledgeAlert(args: Record<string, unknown>): unknown {
-  const alertId = requiredString(args, "alertId");
-  const event = database.acknowledgeAlert(alertId, new Date().toISOString());
-  if (!event) throw new Error(`Unknown alert event: ${alertId}`);
-  bus.publish({ type: "alert", data: event });
-  return event;
-}
-
-export function createObservation(args: Record<string, unknown>): ManualObservation {
-  const input = parseObservationInput(args);
-  stuguby.assertHouseWriteAllowed(input.houseId);
-  const observation = database.transaction(() => {
-    const created = database.createObservation(input, "local-mcp");
-    stuguby.captureHomeMutation(created.houseId);
-    return created;
-  });
-  return observation;
-}
-
-export function updateObservation(args: Record<string, unknown>): ManualObservation {
-  const observationId = requiredString(args, "observationId");
-  const current = database.getObservation(observationId);
-  if (!current) throw new Error(`Unknown observation: ${observationId}`);
-  stuguby.assertHouseWriteAllowed(current.houseId);
-  const observation = database.transaction(() => {
-    const updated = database.updateObservation(
-      observationId,
-      parseObservationPatch({ ...requiredObject(args, "patch"), baseRevision: args.baseRevision }),
-      "local-mcp",
-    );
-    if (!updated) throw new Error(`Unknown observation: ${observationId}`);
-    stuguby.captureHomeMutation(updated.houseId);
-    return updated;
-  });
-  return observation;
-}
+import { database, optionalString, requiredString, status, tpLink } from "./01-config-to-get-house-weather.js";
 
 export function listObservationRevisions(args: Record<string, unknown>): unknown[] {
   const observationId = requiredString(args, "observationId");
   if (!database.getObservation(observationId)) throw new Error(`Unknown observation: ${observationId}`);
   return database.listObservationRevisions(observationId);
-}
-
-export function deleteObservation(args: Record<string, unknown>): { deleted: true; observationId: string } {
-  requireMcpConfirmation(args.confirm);
-  const observationId = requiredString(args, "observationId");
-  const current = database.getObservation(observationId);
-  if (current) stuguby.assertHouseWriteAllowed(current.houseId);
-  database.transaction(() => {
-    if (!database.deleteObservation(observationId)) throw new Error(`Unknown observation: ${observationId}`);
-    if (current) stuguby.captureHomeMutation(current.houseId);
-  });
-  return { deleted: true, observationId };
-}
-
-export function createMaintenanceTask(args: Record<string, unknown>): MaintenanceTask {
-  const input = parseMaintenanceTaskInput(args);
-  const propertyId = input.propertyId ?? (input.houseId ? database.getHouse(input.houseId)?.propertyId : undefined);
-  if (propertyId) stuguby.assertPropertyWriteAllowed(propertyId);
-  const task = database.transaction(() => {
-    const created = database.createMaintenanceTask(input, "local-mcp");
-    stuguby.captureCurrentPropertyEntity(created.propertyId, "maintenance", created.id, "upsert");
-    return created;
-  });
-  return task;
 }
 
 export function listMaintenanceTasks(args: Record<string, unknown>): MaintenanceTask[] {
@@ -130,24 +23,6 @@ export function listMaintenanceTasks(args: Record<string, unknown>): Maintenance
   });
 }
 
-export function updateMaintenanceTask(args: Record<string, unknown>): MaintenanceTask {
-  const maintenanceTaskId = requiredString(args, "maintenanceTaskId");
-  const previous = database.getMaintenanceTask(maintenanceTaskId);
-  if (!previous) throw new Error(`Unknown maintenance task: ${maintenanceTaskId}`);
-  stuguby.assertPropertyWriteAllowed(previous.propertyId);
-  const task = database.transaction(() => {
-    const updated = database.updateMaintenanceTask(
-      maintenanceTaskId,
-      parseMaintenanceTaskPatch({ ...requiredObject(args, "patch"), baseRevision: args.baseRevision }),
-      "local-mcp",
-    );
-    if (!updated) throw new Error(`Unknown maintenance task: ${maintenanceTaskId}`);
-    stuguby.captureCurrentPropertyEntity(updated.propertyId, "maintenance", updated.id, "upsert");
-    return updated;
-  });
-  return task;
-}
-
 export function listMaintenanceTaskRevisions(args: Record<string, unknown>): unknown[] {
   const maintenanceTaskId = requiredString(args, "maintenanceTaskId");
   if (!database.getMaintenanceTask(maintenanceTaskId)) {
@@ -155,50 +30,6 @@ export function listMaintenanceTaskRevisions(args: Record<string, unknown>): unk
   }
   return database.listMaintenanceTaskRevisions(maintenanceTaskId);
 }
-
-export function deleteMaintenanceTask(args: Record<string, unknown>): { deleted: true; maintenanceTaskId: string } {
-  requireMcpConfirmation(args.confirm);
-  const maintenanceTaskId = requiredString(args, "maintenanceTaskId");
-  const previous = database.getMaintenanceTask(maintenanceTaskId);
-  if (previous) stuguby.assertPropertyWriteAllowed(previous.propertyId);
-  database.transaction(() => {
-    if (!database.deleteMaintenanceTask(maintenanceTaskId)) {
-      throw new Error(`Unknown maintenance task: ${maintenanceTaskId}`);
-    }
-    if (previous) stuguby.captureCurrentPropertyEntity(previous.propertyId, "maintenance", maintenanceTaskId, "delete");
-  });
-  return { deleted: true, maintenanceTaskId };
-}
-
-export function upsertStaticParameter(args: Record<string, unknown>): StaticParameter {
-  const value = args.value;
-  if (typeof value !== "string" && typeof value !== "number" && typeof value !== "boolean") {
-    throw new Error("value must be a string, number, or boolean");
-  }
-  const houseId = requiredString(args, "houseId");
-  stuguby.assertHouseLocalAuthority(houseId);
-  return database.saveParameter({
-    ...(args.id === undefined ? {} : { id: requiredString(args, "id") }),
-    houseId,
-    scopeType: enumString(args, "scopeType", ["house", "floor", "room", "sensor"] as const),
-    scopeId: requiredString(args, "scopeId"),
-    key: requiredString(args, "key"),
-    value,
-    unit: args.unit === null || args.unit === undefined ? null : requiredString(args, "unit"),
-    label: requiredString(args, "label"),
-  });
-}
-
-export function deleteStaticParameter(args: Record<string, unknown>): { deleted: true; parameterId: string } {
-  requireMcpConfirmation(args.confirm);
-  const parameterId = requiredString(args, "parameterId");
-  const current = database.listParameters().find((parameter) => parameter.id === parameterId);
-  if (current) stuguby.assertHouseLocalAuthority(current.houseId);
-  if (!database.deleteParameter(parameterId)) throw new Error(`Unknown static parameter: ${parameterId}`);
-  return { deleted: true, parameterId };
-}
-
-export const safeAssetMimeTypes = new Set(["image/png", "image/jpeg", "image/webp", "model/gltf+json", "model/gltf-binary"]);
 
 export function assetMetadata(asset: { id: string; houseId: string; name: string; mimeType: string; kind: string; size: number; createdAt: string }): object {
   return {
@@ -210,36 +41,6 @@ export function assetMetadata(asset: { id: string; houseId: string; name: string
     size: asset.size,
     createdAt: asset.createdAt,
   };
-}
-
-export function uploadAsset(args: Record<string, unknown>): object {
-  const houseId = requiredString(args, "houseId");
-  stuguby.assertHouseLocalAuthority(houseId);
-  const mimeType = requiredString(args, "mimeType").toLowerCase();
-  if (!safeAssetMimeTypes.has(mimeType)) throw new Error("mimeType must be PNG, JPEG, WebP, glTF, or GLB");
-  const encoded = requiredString(args, "data").replace(/^data:[^;]+;base64,/, "");
-  if (!encoded || encoded.length % 4 === 1 || !/^[A-Za-z0-9+/]*={0,2}$/.test(encoded)) {
-    throw new Error("data must contain valid base64 bytes");
-  }
-  const data = Buffer.from(encoded, "base64");
-  if (data.length === 0) throw new Error("data must contain valid base64 bytes");
-  if (data.length > 10 * 1024 * 1024) throw new Error("decoded assets are limited to 10 MiB");
-  return assetMetadata(database.createAsset({
-    houseId,
-    name: requiredString(args, "name"),
-    mimeType,
-    kind: enumString(args, "kind", ["floor-plan", "model-3d", "other"] as const),
-    data,
-  }));
-}
-
-export function deleteAsset(args: Record<string, unknown>): { deleted: true; assetId: string } {
-  requireMcpConfirmation(args.confirm);
-  const assetId = requiredString(args, "assetId");
-  const current = database.getAsset(assetId);
-  if (current) stuguby.assertHouseLocalAuthority(current.houseId);
-  if (!database.deleteAsset(assetId)) throw new Error(`Unknown asset: ${assetId}`);
-  return { deleted: true, assetId };
 }
 
 export async function discoverIntegrations(): Promise<object> {
@@ -323,40 +124,5 @@ export function tpLinkConnectionTest(): object {
     available: false,
     runtimeScope: "mcp-process",
     message: "Live TP-Link connection testing belongs to the long-running API process and is unavailable in the isolated MCP process.",
-  };
-}
-
-export function selectMockScenario(args: Record<string, unknown>): object {
-  const scenario = enumString(args, "scenario", MOCK_SCENARIOS.map((item) => item.id));
-  mock.setScenario(scenario);
-  return { active: mock.scenario };
-}
-
-export function startReplay(args: Record<string, unknown>): object {
-  const sensorIds = optionalStringArray(args, "sensorIds", database.listSensors()
-    .filter((sensor) => {
-      const house = database.getHouse(sensor.houseId);
-      return Boolean(house && hasLocalHouseAuthority(house));
-    })
-    .map((sensor) => sensor.id));
-  for (const sensorId of sensorIds) {
-    requireMcpSensor(database, sensorId);
-    const sensor = database.getSensor(sensorId)!;
-    const house = database.getHouse(sensor.houseId);
-    if (house && !hasLocalHouseAuthority(house)) {
-      throw new Error(`Sensor ${sensorId} belongs to a remote Stuguby Home`);
-    }
-  }
-  const to = args.to === undefined ? new Date().toISOString() : mcpIsoDate(requiredString(args, "to"), "to");
-  const from = args.from === undefined
-    ? new Date(Date.parse(to) - 3_600_000).toISOString()
-    : mcpIsoDate(requiredString(args, "from"), "from");
-  validateMcpDateRange(from, to);
-  if (args.speed !== undefined) mcpBoundedNumber(args.speed, "speed", 0.1, 10_000);
-  return {
-    available: false,
-    replay: { ...replay.state, count: 0 },
-    runtimeScope: "mcp-process",
-    note: "No replay was started because the isolated MCP process has no observable live event consumer; use the API replay endpoint.",
   };
 }

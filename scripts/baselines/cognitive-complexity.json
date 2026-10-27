@@ -1,7 +1,7 @@
 {
   "rule": "sonarjs/cognitive-complexity (S3776)",
   "threshold": 15,
-  "functions": 304,
+  "functions": 302,
   "files": {
     "apps/api/src/analytics-rollup.ts": [23],
     "apps/api/src/analytics.ts": [74, 18],
@@ -20,7 +20,6 @@
     "apps/api/src/analytics/relaxation-fit.ts": [35, 17],
     "apps/api/src/analytics/temporal/opening-intervals.ts": [25],
     "apps/api/src/analytics/work-limiter.ts": [16],
-    "apps/api/src/app/core-data-services.ts": [30],
     "apps/api/src/app/integration-bridges.ts": [29],
     "apps/api/src/app/request-pipeline.ts": [50],
     "apps/api/src/app/support/part-03.ts": [17, 17],
@@ -64,7 +63,6 @@
     "apps/api/src/host-system.ts": [27],
     "apps/api/src/integration-secrets-lock.ts": [41],
     "apps/api/src/integration-secrets.ts": [44, 28, 23, 19, 18],
-    "apps/api/src/mcp-server/02-thermal-simulation-to-create-alert-rule.ts": [21],
     "apps/api/src/moisture-response-model.ts": [20],
     "apps/api/src/scheduled-data-exports.ts": [35, 34, 23],
     "apps/api/src/setup-doctor.ts": [49],

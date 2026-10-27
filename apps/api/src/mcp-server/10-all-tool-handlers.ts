@@ -19,9 +19,9 @@ import {
   forecastMeasurement,
   MOCK_SCENARIOS,
 } from "../services.js";
-import { createAreaEquipment, createProperty, createPropertyArea, dataMode, database, energyOptimizer, getHouseWeather, homeAssistant, locationDiscovery, measurementSnapshot, mock, objectArguments, optionalBoolean, optionalString, replay, requiredString, setupDoctor, status, stugubyStore, telemetryReader, timeseries, tpLink, updateAreaEquipment, updatePropertyArea } from "./01-config-to-get-house-weather.js";
-import { createAlertRule, createHouse, createMeasurementDefinition, createSensor, deleteSensor, disableMeasurementDefinition, importMeasurements, ingestMeasurements, ingestReadings, queryMeasurementHistory, querySensorHistory, replaceHouseFloor, replaceHouseLayout, thermalSimulation, updateHouse, updateMeasurementDefinition, updateSensor } from "./02-thermal-simulation-to-create-alert-rule.js";
-import { acknowledgeAlert, assetMetadata, createMaintenanceTask, createObservation, deleteAlertRule, deleteAsset, deleteMaintenanceTask, deleteObservation, deleteStaticParameter, discoverIntegrations, homeAssistantConnectionTest, homeAssistantSetup, listMaintenanceTaskRevisions, listMaintenanceTasks, listObservationRevisions, selectMockScenario, startReplay, tpLinkConnectionTest, tpLinkSetup, updateAlertRule, updateMaintenanceTask, updateObservation, uploadAsset, upsertStaticParameter } from "./03-update-alert-rule-to-start-replay.js";
+import { dataMode, database, energyOptimizer, getHouseWeather, homeAssistant, locationDiscovery, measurementSnapshot, mock, objectArguments, optionalBoolean, optionalString, replay, requiredString, setupDoctor, status, stugubyStore, telemetryReader, timeseries, tpLink } from "./01-config-to-get-house-weather.js";
+import { queryMeasurementHistory, querySensorHistory, thermalSimulation } from "./02-thermal-simulation-to-create-alert-rule.js";
+import { assetMetadata, discoverIntegrations, homeAssistantConnectionTest, homeAssistantSetup, listMaintenanceTaskRevisions, listMaintenanceTasks, listObservationRevisions, tpLinkConnectionTest, tpLinkSetup } from "./03-update-alert-rule-to-start-replay.js";
 import { summarizeMcpStuguby } from "./04-point-schema-to-summarize-mcp-stuguby.js";
 import { backupStatus, createMcpServer, dailyAnalyticsFindings, getMcpStuguby, houseElectricityPrice, houseEnergyCost, houseEnergySummary, houseOpeningStates, listPropertyNotes, openingActivity, operations, outdoorTemperatureHistory, propertyElectricity, sensorDataGaps, thermalIsolation } from "./05-get-mcp-stuguby-to-result-output-schema.js";
 import { ACTIVE_MCP_TOOL_NAMES } from "./06-read-only-mcp-tool-names-to-mcp-tool-definitions.js";
@@ -47,27 +47,18 @@ export const allToolHandlers: Record<string, ToolHandler> = {
     requiredString(args, "propertyId"),
     mcpBoundedInteger(args.windowHours, "windowHours", 2, 1, 12),
   ),
-  create_property: createProperty,
   list_property_areas: (args) => database.listPropertyAreas(optionalString(args, "propertyId"))
     .map(summarizeMcpPropertyArea),
-  create_property_area: createPropertyArea,
-  update_property_area: updatePropertyArea,
   list_area_equipment: (args) => database.listAreaEquipment({
     ...(args.propertyId === undefined ? {} : { propertyId: requiredString(args, "propertyId") }),
     ...(args.areaId === undefined ? {} : { areaId: requiredString(args, "areaId") }),
   }).map(summarizeMcpAreaEquipment),
-  create_area_equipment: createAreaEquipment,
-  update_area_equipment: updateAreaEquipment,
   list_property_notes: listPropertyNotes,
   list_houses: (args) => database.listHouses(args.propertyId === undefined ? undefined : requiredString(args, "propertyId")).map(summarizeMcpHouse),
   get_house: (args) => requireMcpHouse(database, requiredString(args, "houseId")),
   get_daily_analytics_findings: dailyAnalyticsFindings,
   list_stugubys: () => stugubyStore.listStugubys().map(summarizeMcpStuguby),
   get_stuguby: getMcpStuguby,
-  create_house: createHouse,
-  update_house: updateHouse,
-  replace_house_layout: replaceHouseLayout,
-  replace_house_floor: replaceHouseFloor,
   search_locations: (args) => locationDiscovery.search(
     mcpLocationQuery(args.query),
     mcpLanguage(args.language),
@@ -94,18 +85,9 @@ export const allToolHandlers: Record<string, ToolHandler> = {
   run_thermal_simulation: thermalSimulation,
   get_house_thermal_isolation: thermalIsolation,
   list_sensors: (args) => database.listSensors(optionalString(args, "houseId")),
-  create_sensor: createSensor,
-  update_sensor: updateSensor,
-  delete_sensor: deleteSensor,
   list_measurement_definitions: (args) => database.listMeasurementDefinitions(
     optionalBoolean(args, "includeDisabled", true),
   ),
-  create_measurement_definition: createMeasurementDefinition,
-  update_measurement_definition: updateMeasurementDefinition,
-  disable_measurement_definition: disableMeasurementDefinition,
-  ingest_measurements: ingestMeasurements,
-  import_measurements: importMeasurements,
-  ingest_readings: ingestReadings,
   get_measurement_snapshot: (args) => measurementSnapshot(optionalString(args, "houseId")),
   query_measurement_history: queryMeasurementHistory,
   summarize_home_measurements: homeMeasurementSummary,
@@ -140,9 +122,6 @@ export const allToolHandlers: Record<string, ToolHandler> = {
   },
   list_active_alerts: () => database.listAlertEvents(200, true),
   list_alert_rules: () => database.listAlertRules(),
-  create_alert_rule: createAlertRule,
-  update_alert_rule: updateAlertRule,
-  delete_alert_rule: deleteAlertRule,
   list_alert_events: (args) => database.listAlertEvents(
     mcpBoundedInteger(args.limit, "limit", 200, 1, 1_000),
     optionalBoolean(args, "activeOnly", false),
@@ -161,20 +140,11 @@ export const allToolHandlers: Record<string, ToolHandler> = {
     activeOnly: optionalBoolean(args, "activeOnly", false),
     limit: mcpBoundedInteger(args.limit, "limit", 500, 1, 500),
   }),
-  acknowledge_alert: acknowledgeAlert,
   list_observations: (args) => database.listObservations(optionalString(args, "houseId")),
   list_observation_revisions: listObservationRevisions,
-  create_observation: createObservation,
-  update_observation: updateObservation,
-  delete_observation: deleteObservation,
   list_maintenance_tasks: listMaintenanceTasks,
   list_maintenance_task_revisions: listMaintenanceTaskRevisions,
-  create_maintenance_task: createMaintenanceTask,
-  update_maintenance_task: updateMaintenanceTask,
-  delete_maintenance_task: deleteMaintenanceTask,
   list_static_parameters: (args) => database.listParameters(optionalString(args, "houseId")),
-  upsert_static_parameter: upsertStaticParameter,
-  delete_static_parameter: deleteStaticParameter,
   list_assets: (args) => database.listAssets(optionalString(args, "houseId")),
   get_asset_metadata: (args) => {
     const assetId = requiredString(args, "assetId");
@@ -182,8 +152,6 @@ export const allToolHandlers: Record<string, ToolHandler> = {
     if (!asset) throw new Error(`Unknown asset: ${assetId}`);
     return assetMetadata(asset);
   },
-  upload_asset: uploadAsset,
-  delete_asset: deleteAsset,
   get_integration_status: () => {
     dataMode.synchronize();
     return {
@@ -209,13 +177,9 @@ export const allToolHandlers: Record<string, ToolHandler> = {
     dataMode.synchronize();
     return { scenarios: MOCK_SCENARIOS, active: mock.scenario, enabled: status.value.mock.enabled };
   },
-  select_mock_scenario: selectMockScenario,
-  generate_mock_tick: () => ({ readings: mock.generate(), scenario: mock.scenario }),
   get_replay_status: () => ({ available: false, replay: { ...replay.state, count: 0 }, runtimeScope: "mcp-process" }),
   get_backup_status: backupStatus,
   get_setup_doctor: () => setupDoctor.report(),
-  start_replay: startReplay,
-  stop_replay: () => ({ available: false, replay: replay.stop(), runtimeScope: "mcp-process" }),
 };
 
 export const toolHandlers = Object.fromEntries(

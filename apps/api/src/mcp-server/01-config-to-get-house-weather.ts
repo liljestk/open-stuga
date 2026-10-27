@@ -1,20 +1,11 @@
-import { isIP } from "node:net";
+import { applyApiConfigDefaults } from "../config/api-defaults.js";
+import { timeseriesPoolConfig } from "../timeseries/pool-options.js";
 import { isLocalTelemetryHistoryComplete } from "../timeseries/read-support.js";
 import { hasLocalHouseAuthority } from "@climate-twin/contracts";
 import type {
-  AreaEquipment,
-  AreaEquipmentInput,
-  AreaEquipmentPatch,
-  GeoCoordinate,
-  HouseLocation,
   HouseWeather,
   MeasurementSample,
   MeasurementSnapshotEntry,
-  Property,
-  PropertyArea,
-  PropertyAreaInput,
-  PropertyAreaPatch,
-  PropertyCreateInput,
 } from "@climate-twin/contracts";
 import { loadConfig } from "../config.js";
 import { DataOperationsService } from "../data-operations.js";
@@ -43,12 +34,11 @@ import { HybridTelemetryReader } from "../timeseries/read-facade.js";
 import { TimeseriesStore } from "../timeseries/store.js";
 import { TpLinkBridge } from "../tp-link.js";
 import { FmiWeatherProvider, WeatherRequestSupersededError, WeatherService } from "../weather.js";
-import type { StugubyService } from "../stuguby/service.js";
 import { StugubyStore } from "../stuguby/store.js";
 
-export const config = loadConfig();
+// The same defaults createApi applies, so both entry points see one normalized config.
+export const config = applyApiConfigDefaults(loadConfig());
 ensureSqliteSpillDirectory(config.databasePath);
-const mcpTimeseriesHost = config.timeseriesHost ?? "127.0.0.1";
 
 export const database = new ClimateDatabase(config.databasePath, false, { readOnly: true });
 
@@ -58,57 +48,27 @@ export const bus = new TelemetryBus();
 
 export const stugubyStore = new StugubyStore(database.db, "mcp-read-only", { readOnly: true });
 
-export const stuguby = new Proxy({} as StugubyService, {
-  get: () => () => {
-    throw new Error("The Stugu MCP server is read-only");
-  },
-});
-
 export const dataMode = new DataModeCoordinator(database);
 
 export const status = new RuntimeStatus(config, bus, database);
 
 export const dataOperations = new DataOperationsService(database, config);
 
-const timeseriesSsl = config.timeseriesSslMode === "disable"
-  ? undefined
-  : config.timeseriesSslMode === "require"
-    ? { rejectUnauthorized: false }
-    : config.timeseriesSslMode === "verify-ca"
-      ? {
-        rejectUnauthorized: true,
-        ...(config.timeseriesSslCa ? { ca: config.timeseriesSslCa } : {}),
-        checkServerIdentity: () => undefined,
-      }
-      : {
-        rejectUnauthorized: true,
-        ...(config.timeseriesSslCa ? { ca: config.timeseriesSslCa } : {}),
-        ...(isIP(mcpTimeseriesHost) === 0 ? { servername: mcpTimeseriesHost } : {}),
-      };
-
 export const timeseries = config.timeseriesEnabled ? new TimeseriesStore({
-  poolConfig: {
-    host: mcpTimeseriesHost,
-    port: config.timeseriesPort ?? 5432,
-    database: config.timeseriesDatabase ?? "stuga",
-    user: config.timeseriesUser ?? "stuga_app",
-    password: config.timeseriesPassword ?? "",
-    options: "-c max_parallel_workers_per_gather=0",
-    ...(timeseriesSsl ? { ssl: timeseriesSsl } : {}),
-  },
-  maxConnections: config.timeseriesPoolMax ?? 6,
-  connectionTimeoutMs: config.timeseriesConnectTimeoutMs ?? 5_000,
-  statementTimeoutMs: config.timeseriesStatementTimeoutMs ?? 15_000,
+  poolConfig: timeseriesPoolConfig(config),
+  maxConnections: config.timeseriesPoolMax,
+  connectionTimeoutMs: config.timeseriesConnectTimeoutMs,
+  statementTimeoutMs: config.timeseriesStatementTimeoutMs,
 }) : null;
 
 export const telemetryReader = new HybridTelemetryReader({
   local: database,
   archive: timeseries,
-  localHistoryComplete: timeseries === null || (config.retentionDays ?? 0) === 0
+  localHistoryComplete: timeseries === null || config.retentionDays === 0
     ? true
     : (query) => isLocalTelemetryHistoryComplete({
         timeseriesEnabled: true,
-        retentionDays: config.retentionDays ?? 0,
+        retentionDays: config.retentionDays,
         from: query.from,
       }),
 });
@@ -172,186 +132,11 @@ export function optionalString(args: Record<string, unknown>, key: string): stri
   return value;
 }
 
-export function nullableString(args: Record<string, unknown>, key: string): string | null {
-  const value = args[key];
-  if (value === null) return null;
-  if (typeof value !== "string") throw new Error(`${key} must be a string or null`);
-  return value;
-}
-
-export function requiredNumber(args: Record<string, unknown>, key: string): number {
-  const value = args[key];
-  if (typeof value !== "number" || !Number.isFinite(value)) throw new Error(`${key} must be a finite number`);
-  return value;
-}
-
 export function optionalBoolean(args: Record<string, unknown>, key: string, fallback: boolean): boolean {
   const value = args[key];
   if (value === undefined) return fallback;
   if (typeof value !== "boolean") throw new Error(`${key} must be a boolean`);
   return value;
-}
-
-export function requiredObject(args: Record<string, unknown>, key: string): Record<string, unknown> {
-  const value = args[key];
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${key} must be an object`);
-  return value as Record<string, unknown>;
-}
-
-export function requiredArray(args: Record<string, unknown>, key: string, maximum: number, minimum = 1): unknown[] {
-  const value = args[key];
-  if (!Array.isArray(value) || value.length < minimum || value.length > maximum) {
-    throw new Error(`${key} must contain between ${minimum} and ${maximum} items`);
-  }
-  return value;
-}
-
-export function optionalStringArray(args: Record<string, unknown>, key: string, fallback: string[]): string[] {
-  const value = args[key];
-  if (value === undefined) return fallback;
-  if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string" || !entry)) {
-    throw new Error(`${key} must be an array of non-empty strings`);
-  }
-  return value as string[];
-}
-
-export function enumString<T extends string>(args: Record<string, unknown>, key: string, values: readonly T[]): T {
-  const value = args[key];
-  if (typeof value !== "string" || !values.includes(value as T)) {
-    throw new Error(`${key} must be one of: ${values.join(", ")}`);
-  }
-  return value as T;
-}
-
-export const propertyAreaKinds = [
-  "well", "beach", "garage", "plantation", "garden", "field", "forest",
-  "shoreline", "dock", "road", "yard", "building", "other",
-] as const;
-
-export const areaEquipmentStatuses = ["active", "out-of-service", "retired"] as const;
-
-export function createProperty(args: Record<string, unknown>): Property {
-  const input: PropertyCreateInput = {
-    ...(args.id === undefined ? {} : { id: requiredString(args, "id") }),
-    name: requiredString(args, "name"),
-    ...(args.description === undefined ? {} : { description: nullableString(args, "description") }),
-    ...(args.location === undefined
-      ? {}
-      : { location: args.location === null ? null : requiredObject(args, "location") as unknown as HouseLocation }),
-  };
-  return database.createProperty(input);
-}
-
-export function createPropertyArea(args: Record<string, unknown>): PropertyArea {
-  const input: PropertyAreaInput = {
-    ...(args.id === undefined ? {} : { id: requiredString(args, "id") }),
-    propertyId: requiredString(args, "propertyId"),
-    name: requiredString(args, "name"),
-    kind: enumString(args, "kind", propertyAreaKinds),
-    ...(args.description === undefined ? {} : { description: nullableString(args, "description") }),
-    ...(args.location === undefined || args.location === null
-      ? {}
-      : { location: requiredObject(args, "location") as unknown as GeoCoordinate }),
-    polygon: requiredArray(args, "polygon", 500, 0) as GeoCoordinate[],
-  };
-  stuguby.assertPropertyWriteAllowed(input.propertyId);
-  const area = database.transaction(() => {
-    const created = database.createPropertyArea(input);
-    stuguby.captureCurrentPropertyEntity(created.propertyId, "area", created.id, "upsert");
-    return created;
-  });
-  return area;
-}
-
-export function updatePropertyArea(args: Record<string, unknown>): PropertyArea {
-  const areaId = requiredString(args, "areaId");
-  const previous = database.getPropertyArea(areaId);
-  if (!previous) throw new Error(`Unknown property area: ${areaId}`);
-  stuguby.assertPropertyWriteAllowed(previous.propertyId);
-  const values = requiredObject(args, "patch");
-  const patch: PropertyAreaPatch = {};
-  if (values.propertyId !== undefined) patch.propertyId = requiredString(values, "propertyId");
-  if (values.name !== undefined) patch.name = requiredString(values, "name");
-  if (values.kind !== undefined) patch.kind = enumString(values, "kind", propertyAreaKinds);
-  if (values.description !== undefined) patch.description = nullableString(values, "description");
-  if (values.location !== undefined) patch.location = values.location === null
-    ? null
-    : requiredObject(values, "location") as unknown as GeoCoordinate;
-  if (values.polygon !== undefined) patch.polygon = requiredArray(values, "polygon", 500, 0) as GeoCoordinate[];
-  if (Object.keys(patch).length === 0) throw new Error("patch must contain at least one mutable field");
-  if (patch.propertyId && patch.propertyId !== previous.propertyId) stuguby.assertPropertyWriteAllowed(patch.propertyId);
-  const area = database.transaction(() => {
-    const updated = database.updatePropertyArea(areaId, patch, "local-mcp");
-    if (!updated) throw new Error(`Unknown property area: ${areaId}`);
-    if (updated.propertyId !== previous.propertyId) {
-      stuguby.captureCurrentPropertyEntity(previous.propertyId, "area", updated.id, "delete");
-      stuguby.captureCurrentPropertyEntity(updated.propertyId, "area", updated.id, "upsert");
-    } else {
-      stuguby.captureCurrentPropertyEntity(updated.propertyId, "area", updated.id, "upsert",
-        Object.keys(patch).filter((field) => field !== "propertyId"));
-    }
-    return updated;
-  });
-  return area;
-}
-
-export function createAreaEquipment(args: Record<string, unknown>): AreaEquipment {
-  const areaId = requiredString(args, "areaId");
-  const input: AreaEquipmentInput = {
-    ...(args.id === undefined ? {} : { id: requiredString(args, "id") }),
-    areaId,
-    name: requiredString(args, "name"),
-    kind: requiredString(args, "kind"),
-    ...(args.manufacturer === undefined ? {} : { manufacturer: nullableString(args, "manufacturer") }),
-    ...(args.model === undefined ? {} : { model: nullableString(args, "model") }),
-    ...(args.serialNumber === undefined ? {} : { serialNumber: nullableString(args, "serialNumber") }),
-    ...(args.status === undefined ? {} : { status: enumString(args, "status", areaEquipmentStatuses) }),
-    ...(args.notes === undefined ? {} : { notes: nullableString(args, "notes") }),
-  };
-  const area = database.getPropertyArea(areaId);
-  if (!area) throw new Error(`Unknown property area: ${areaId}`);
-  stuguby.assertPropertyWriteAllowed(area.propertyId);
-  const equipment = database.transaction(() => {
-    const created = database.createAreaEquipment(input);
-    stuguby.captureCurrentPropertyEntity(created.propertyId, "equipment", created.id, "upsert");
-    return created;
-  });
-  return equipment;
-}
-
-export function updateAreaEquipment(args: Record<string, unknown>): AreaEquipment {
-  const equipmentId = requiredString(args, "equipmentId");
-  const previous = database.getAreaEquipment(equipmentId);
-  if (!previous) throw new Error(`Unknown area equipment: ${equipmentId}`);
-  stuguby.assertPropertyWriteAllowed(previous.propertyId);
-  const values = requiredObject(args, "patch");
-  const patch: AreaEquipmentPatch = {};
-  if (values.areaId !== undefined) patch.areaId = requiredString(values, "areaId");
-  if (values.name !== undefined) patch.name = requiredString(values, "name");
-  if (values.kind !== undefined) patch.kind = requiredString(values, "kind");
-  if (values.manufacturer !== undefined) patch.manufacturer = nullableString(values, "manufacturer");
-  if (values.model !== undefined) patch.model = nullableString(values, "model");
-  if (values.serialNumber !== undefined) patch.serialNumber = nullableString(values, "serialNumber");
-  if (values.status !== undefined) patch.status = enumString(values, "status", areaEquipmentStatuses);
-  if (values.notes !== undefined) patch.notes = nullableString(values, "notes");
-  if (Object.keys(patch).length === 0) throw new Error("patch must contain at least one mutable field");
-  if (patch.areaId) {
-    const targetArea = database.getPropertyArea(patch.areaId);
-    if (!targetArea) throw new Error(`Unknown property area: ${patch.areaId}`);
-    if (targetArea.propertyId !== previous.propertyId) stuguby.assertPropertyWriteAllowed(targetArea.propertyId);
-  }
-  const equipment = database.transaction(() => {
-    const updated = database.updateAreaEquipment(equipmentId, patch, "local-mcp");
-    if (!updated) throw new Error(`Unknown area equipment: ${equipmentId}`);
-    if (updated.propertyId !== previous.propertyId) {
-      stuguby.captureCurrentPropertyEntity(previous.propertyId, "equipment", updated.id, "delete");
-      stuguby.captureCurrentPropertyEntity(updated.propertyId, "equipment", updated.id, "upsert");
-    } else {
-      stuguby.captureCurrentPropertyEntity(updated.propertyId, "equipment", updated.id, "upsert", Object.keys(patch));
-    }
-    return updated;
-  });
-  return equipment;
 }
 
 export function measurementSnapshot(houseId?: string): MeasurementSnapshotEntry[] {

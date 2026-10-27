@@ -1,3 +1,4 @@
+import { timeseriesPoolConfig } from "../timeseries/pool-options.js";
 import { EnergyProjectionCache } from "../electricity/projection-cache.js";
 import { EnergySummaryCache } from "../energy-summary-cache.js";
 import type {
@@ -38,18 +39,7 @@ import type { CoreDataServices } from "./core-data-services.js";
 export function createTelemetryServices(context: CoreDataServices) {
   const config = context.config;
   const timeseries = config.timeseriesEnabled ? context.options.timeseriesStore ?? new TimeseriesStore({
-      poolConfig: {
-        host: config.timeseriesHost,
-        port: config.timeseriesPort,
-        database: config.timeseriesDatabase,
-        user: config.timeseriesUser,
-        password: config.timeseriesPassword,
-        // Heavy analytics are already admitted in-process. Disabling backend
-        // query parallelism prevents two admitted reads from consuming every
-        // Raspberry Pi core through PostgreSQL worker fan-out.
-        options: "-c max_parallel_workers_per_gather=0",
-        ...(context.timeseriesSsl ? { ssl: context.timeseriesSsl } : {}),
-      },
+      poolConfig: timeseriesPoolConfig(config),
       maxConnections: config.timeseriesPoolMax,
       connectionTimeoutMs: config.timeseriesConnectTimeoutMs,
       statementTimeoutMs: config.timeseriesStatementTimeoutMs,
