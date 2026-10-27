@@ -189,7 +189,7 @@ export function response(series: AnalyticsSeries[], resolution: "15m" | "1h"): A
     provenance: series.map((item) => item.provenance),
     warnings: [],
     generatedAt: to,
-    cache: { hit: false, keyVersion: "analytics-query-v1" },
+    cache: { hit: false, keyVersion: "analytics-query-v2" },
   };
 }
 

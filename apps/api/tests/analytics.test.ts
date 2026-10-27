@@ -124,7 +124,7 @@ describe("analytics query API", () => {
       requestId: "analytics-test",
       dataMode: "live",
       resolution: "5m",
-      cache: { hit: false, keyVersion: "analytics-query-v1" },
+      cache: { hit: false, keyVersion: "analytics-query-v2" },
       quality: { seriesCount: 1, sampleCount: 3 },
       series: [{
         entityId: "sensor-01",

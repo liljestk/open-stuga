@@ -327,7 +327,8 @@ describe("HybridTelemetryReader", () => {
       limit: 2,
     });
 
-    expect(calls).toEqual(["local", "archive"]);
+    // The archive query starts first so it runs while SQLite reads.
+    expect(calls).toEqual(["archive", "local"]);
     expect(result.records.map(({ timestamp, value }) => ({ timestamp, value }))).toEqual([
       { timestamp: overlapAt, value: 22 },
       { timestamp: "2026-07-18T00:30:00.000Z", value: 23 },

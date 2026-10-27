@@ -2,6 +2,14 @@
 
 All notable Stugu releases are recorded here.
 
+## 0.48.0
+
+- Repeated analytics queries are answered from a server cache. A chart reopened in another tab or by another household member no longer recomputes, and the response reports whether it came from the cache. Ranges that ended more than two hours ago are kept for up to an hour; an import of older history makes them recompute. Ranges reaching the present are kept for 30 seconds.
+- Raw history reads ask the time-series archive and the local database at the same time instead of one after the other. While the archive is up to date, the local database only reads the last 24 hours.
+- The Energy page and the energy optimizer share one summary cache. A summary still waiting for some meters is shared for 15 seconds instead of being recomputed for every request. Optimizer reports are no longer thrown away on every door, heat-pump or device event, only when a Property, Home or sensor changes.
+- The release checks now measure analytics speed on a year of readings, for 24-hour, 7-day, 30-day and 365-day charts and the 30-day energy summary. `scripts/benchmark-analytics.mjs` runs the same check against an appliance.
+- Upgrade impact: application-only update with an automatic SQLite schema addition (`telemetry_history_revision` and its trigger). Database archive, configuration, Compose and host trust are unchanged.
+
 ## 0.47.0
 
 - Analytics summaries (median, percentiles, extremes, spread) no longer change with the chart resolution. They are computed from fixed 1-minute, 15-minute or hourly buckets depending on the range, weighted by time where the measurement is a level, and each summary card says which base it used. Coverage is now measured against each sensor's usual reporting interval (the median gap over the last three days), so a sensor that lost half its readings shows about 50% instead of looking complete.

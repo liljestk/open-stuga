@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
-  "projectVersion": "0.47.0",
+  "projectVersion": "0.48.0",
   "executionStatus": "not-run",
   "source": {
     "documents": {
       "v1": {
         "path": "apps/api/src/openapi.ts",
-        "sha256": "045c26685368c788c4f2a099e84120edb061434052e39ec6563d1955db14386d"
+        "sha256": "008530a8495f6f8f9c59822c25d4b270bcfeed6f665c77ec328cd49b13f30272"
       },
       "v2": {
         "path": "apps/api/src/openapi.ts",
-        "sha256": "a331edb374128954fda03f931942156c774ed573ca7d0f74eb1bc813cdf85f88"
+        "sha256": "db81e56a0a092d155ffd4f306592d07267c049d029be2311537db7b51e0f4499"
       }
     },
     "supplementalSourceHashes": {
@@ -4401,10 +4401,10 @@
             ],
             "properties": {
               "hit": {
-                "const": false
+                "type": "boolean"
               },
               "keyVersion": {
-                "const": "analytics-query-v1"
+                "const": "analytics-query-v2"
               }
             }
           }

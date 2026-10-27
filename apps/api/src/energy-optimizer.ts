@@ -1,3 +1,4 @@
+import type { EnergySummaryCache } from "./energy-summary-cache.js";
 import type {
   EnergyOptimizationInsight,
   EnergyOptimizationReport,
@@ -62,6 +63,7 @@ function rankedWindows(
 
 export class EnergyOptimizer {
   private telemetryReader: HybridTelemetryReader | null;
+  private summaryCache: EnergySummaryCache | null = null;
 
   constructor(private readonly database: ClimateDatabase, telemetryReader?: HybridTelemetryReader | null) {
     this.telemetryReader = telemetryReader ?? null;
@@ -69,6 +71,11 @@ export class EnergyOptimizer {
 
   setTelemetryReader(telemetryReader: HybridTelemetryReader): void {
     this.telemetryReader = telemetryReader;
+  }
+
+  /** Daily summaries then come from the same cache as the Energy page's. */
+  setSummaryCache(summaryCache: EnergySummaryCache): void {
+    this.summaryCache = summaryCache;
   }
 
   async report(
@@ -84,7 +91,9 @@ export class EnergyOptimizer {
     const priceUntil = new Date(now.getTime() + 72 * 3_600_000).toISOString();
     const houses = this.database.listHouses(propertyId);
     const sensors = houses.flatMap((house) => this.database.listSensors(house.id)).filter((sensor) => sensor.enabled);
-    const from = new Date(now.getTime() - 24 * 3_600_000).toISOString();
+    // Minute-aligned like the Energy page's rolling windows, so both share one summary.
+    const summaryTo = new Date(Math.floor(now.getTime() / 60_000) * 60_000);
+    const from = new Date(summaryTo.getTime() - 24 * 3_600_000).toISOString();
     const reader = this.telemetryReader ?? new HybridTelemetryReader({ local: this.database });
     const costService = new EnergyCostService(
       reader,
@@ -113,14 +122,27 @@ export class EnergyOptimizer {
           limit: POWER_SAMPLE_LIMIT,
           ...(signal ? { signal } : {}),
         }, from)),
-        Promise.allSettled(houses.map((house) => costService.summarize({
-          houseId: house.id,
-          propertyId,
-          sensorIds: sensors.filter((sensor) => sensor.houseId === house.id).map((sensor) => sensor.id),
-          from,
-          to: now.toISOString(),
-          ...(signal ? { signal } : {}),
-        }))),
+        Promise.allSettled(houses.map((house) => {
+          const houseSensors = sensors.filter((sensor) => sensor.houseId === house.id);
+          return this.summaryCache
+            ? this.summaryCache.get({
+              houseId: house.id,
+              propertyId,
+              timeZone: house.timezone,
+              sensors: houseSensors,
+              from,
+              to: summaryTo.toISOString(),
+              ...(signal ? { signal } : {}),
+            }).then((result) => result.summary)
+            : costService.summarize({
+              houseId: house.id,
+              propertyId,
+              sensorIds: houseSensors.map((sensor) => sensor.id),
+              from,
+              to: summaryTo.toISOString(),
+              ...(signal ? { signal } : {}),
+            });
+        })),
       ]);
     const futurePrices = prices.filter((price) => Number.isFinite(price.effectivePriceCentsPerKwh)
       && Number.isFinite(Date.parse(price.startAt)) && Number.isFinite(Date.parse(price.endAt))

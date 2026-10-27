@@ -359,7 +359,7 @@ describe("EnergyPage", () => {
       resolvedRange: input.range, resolution: input.resolution === "auto" ? "5m" : input.resolution,
       series: [], summaries: [], provenance: [], warnings: [], generatedAt: input.range.end,
       quality: { coverage: 0, seriesCount: 0, sampleCount: 0, excludedSampleCount: 0, includedQualities: ["good"], lowCoverageSeries: 0 },
-      cache: { hit: false, keyVersion: "analytics-query-v1" },
+      cache: { hit: false, keyVersion: "analytics-query-v2" },
     }));
 
     render(<I18nProvider><EnergyPage state={state} house={house} units="metric" onLoadSeries={onLoadSeries} onOpenSensors={onOpenSensors} onOpenAlerts={onOpenAlerts} /></I18nProvider>);

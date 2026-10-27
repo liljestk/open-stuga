@@ -1,8 +1,5 @@
-import { createHash } from "node:crypto";
 import { DEFAULT_ELECTRICITY_PRICE_ENDPOINT } from "@climate-twin/contracts";
 import type { HomeElectricityPricePoint, PropertyElectricityConfigInput } from "@climate-twin/contracts";
-import { LruTtlCache } from "../cache.js";
-import type { EnergyCostService } from "../energy-cost.js";
 import {
   ElectricityEndpointPolicyError,
   publicElectricityConfiguration,
@@ -33,22 +30,16 @@ export type ElectricityRouteContext = Pick<
   | "telemetryReader"
   | "electricityPrices"
   | "energyCost"
+  | "energySummaries"
   | "analyticsWorkLimiter"
 >;
 
 const MAX_ENERGY_RANGE_MS = 366 * 86_400_000;
 const DEFAULT_ENERGY_RANGE_MS = 30 * 86_400_000;
-const ENERGY_SUMMARY_TTL_MS = 60_000;
 
 /** Property price configuration and history, plus per-home energy cost and summaries. */
 export function registerElectricityRoutes(context: ElectricityRouteContext): () => void {
-  const energySummaryCache = new LruTtlCache<
-    Awaited<ReturnType<EnergyCostService["summarize"]>>
-  >({
-    maxEntries: 128,
-    maxBytes: 16 * 1024 * 1024,
-    defaultTtlMs: ENERGY_SUMMARY_TTL_MS,
-  });
+  const energySummaryCache = context.energySummaries;
   const removeStats = context.analyticsWorkLimiter.registerCache("energy-summary", () => energySummaryCache.stats());
 
   const visibleProperty = (propertyId: string, response: Parameters<ElectricityRouteContext["visibility"]>[0]) => {
@@ -217,51 +208,28 @@ export function registerElectricityRoutes(context: ElectricityRouteContext): () 
     const houseId = request.params.id as string;
     const house = visibleHouse(houseId, response);
     const energySensors = visibleEnergySensors(houseId, response);
-    const sensorIds = energySensors.map((sensor) => sensor.id);
     const to = dateValue(request.query.to, new Date(), "to");
     const from = dateValue(request.query.from, new Date(Date.parse(to) - DEFAULT_ENERGY_RANGE_MS), "from");
     const durationMs = Date.parse(to) - Date.parse(from);
     if (durationMs <= 0 || durationMs > MAX_ENERGY_RANGE_MS) {
       throw new HttpError(400, "INVALID_ENERGY_SUMMARY_RANGE", "Energy summary range must be greater than zero and at most 366 days");
     }
-    const key = createHash("sha256").update(JSON.stringify([
-      "energy-summary-v3",
-      houseId,
-      house.propertyId,
-      context.database.getPropertyElectricityTariff(house.propertyId)?.revision ?? 0,
-      house.timezone,
-      energySensors.map((sensor) => [sensor.id, sensor.energyMeterRole ?? "standalone"]),
-      from,
-      to,
-    ])).digest("hex");
-    const hit = energySummaryCache.has(key);
-    const coalesced = !hit && energySummaryCache.isLoading(key);
     const startedAt = performance.now();
     const abortController = new AbortController();
     const abortOnClose = () => abortController.abort();
     response.once("close", abortOnClose);
     try {
-      const summary = await energySummaryCache.getOrLoad(key, (signal) => (
-        context.analyticsWorkLimiter.run(
-          "energy-summary",
-          () => context.energyCost.summarize({
-            houseId,
-            propertyId: house.propertyId,
-            sensorIds,
-            from,
-            to,
-            signal,
-          }),
-          signal,
-        )
-      ), {
-        serveStale: false,
-        ttlMs: ENERGY_SUMMARY_TTL_MS,
+      const { summary, source } = await energySummaryCache.get({
+        houseId,
+        propertyId: house.propertyId,
+        timeZone: house.timezone,
+        sensors: energySensors,
+        from,
+        to,
         signal: abortController.signal,
       });
-      if (!summary.complete) energySummaryCache.invalidate(key);
       response.setHeader("cache-control", "private, no-store");
-      response.setHeader("x-stugu-cache", hit ? "hit" : coalesced ? "coalesced" : "miss");
+      response.setHeader("x-stugu-cache", source);
       response.setHeader(
         "server-timing",
         `energy-summary;dur=${(performance.now() - startedAt).toFixed(1)}`,

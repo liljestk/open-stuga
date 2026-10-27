@@ -309,14 +309,15 @@ export class HybridTelemetryReader {
       from: query.from,
       to: query.to,
       limit,
-      local: () => this.#local.measurementHistory(
+      local: (from) => this.#local.measurementHistory(
         query.sensorId,
         query.metric,
-        query.from,
+        from,
         query.to,
         limit,
         query.before,
       ),
+      hotTail: true,
       signal: query.signal,
       archiveRead: async () => (await this.#archive!.measurementHistory({ ...query, limit })).map(archivedMeasurement),
       key: measurementKey,
@@ -420,11 +421,8 @@ export class HybridTelemetryReader {
     // most one reconcile pass; without a freshness provider the local copy is
     // always read over the full window.
     const now = this.#now();
-    const lastSuccessAt = this.#safeArchiveLastSuccessAt();
-    const lastSuccessMs = typeof lastSuccessAt === "string" ? Date.parse(lastSuccessAt) : Number.NaN;
-    const archiveFresh = Number.isFinite(lastSuccessMs) && lastSuccessMs <= now && now - lastSuccessMs <= ARCHIVE_FRESH_WINDOW_MS;
     const hotTailStart = Math.floor((now - LOCAL_HOT_TAIL_MS) / (query.bucketSeconds * 1_000)) * query.bucketSeconds * 1_000;
-    const local = await readLocal(archiveFresh ? Math.max(fromMs, hotTailStart) : fromMs);
+    const local = await readLocal(this.#archiveFresh(now) ? Math.max(fromMs, hotTailStart) : fromMs);
     const filteredArchive = realMode ? archived.filter((record) => !isSyntheticSource(record.source)) : archived;
     const result = await this.#mergeRecords({ limit, key, compare: compareMeasurements }, {
       complete,
@@ -977,7 +975,13 @@ export class HybridTelemetryReader {
     from: string;
     to: string;
     limit: number;
-    local: () => T[] | Promise<T[]>;
+    /** Reads SQLite from `from`, which is the window start unless the hot-tail shortcut applies. */
+    local: (from: string) => T[] | Promise<T[]>;
+    /**
+     * The archive holds this family's history older than the hot tail once a
+     * reconcile pass is fresh, so SQLite may read only the tail.
+     */
+    hotTail?: boolean;
     signal: AbortSignal | undefined;
     archiveRead: () => Promise<T[]>;
     key: (record: T) => string;
@@ -989,42 +993,57 @@ export class HybridTelemetryReader {
     if (cancellation) throw cancellation;
     const complete = this.#isLocalHistoryComplete({ family: input.family, from: input.from, to: input.to });
     const realMode = this.#local.isRealDataMode();
+    const phase = !this.#archive ? null : this.#archivePhase ? this.#safeArchivePhase() : "ready";
+    const archiveUsable = phase === "ready" || phase === "syncing";
+    // Started before the synchronous SQLite read, so the archive query runs
+    // while SQLite works instead of after it.
+    const archivePending = archiveUsable
+      ? input.archiveRead().then(
+        (records) => ({ records, error: null }),
+        (error: unknown) => ({ records: [] as T[], error: error ?? new Error("Archive read failed") }),
+      )
+      : null;
+    const localFrom = archiveUsable && input.hotTail ? this.#hotTailFrom(input.from) : input.from;
     // The synchronous SQLite read can fail on its own — a wide window sort can
     // exhaust spill space, or the file can be briefly locked. The archive holds
     // the same history, so a local failure only ends the request when no
     // archive read can stand in for it; then the original error propagates
     // instead of being disguised as an empty result.
-    let local: T[] = [];
-    let localReadError: unknown = null;
-    try {
-      local = await input.local();
-    } catch (error) {
-      localReadError = error;
-    }
-    const filteredLocal = realMode ? local.filter((record) => !isSyntheticSource(record.source)) : local;
-    const localFilteredCount = local.length - filteredLocal.length;
-    const localOnlyInput = { limit: input.limit, local, compare: input.compare };
+    const readLocal = async (from: string): Promise<{ records: T[]; error: unknown }> => {
+      try {
+        return { records: await input.local(from), error: null };
+      } catch (error) {
+        return { records: [], error };
+      }
+    };
+    let { records: local, error: localReadError } = await readLocal(localFrom);
+    const localOnly = (archiveState: "not-configured" | "not-ready" | "failed") => {
+      const filtered = realMode ? local.filter((record) => !isSyntheticSource(record.source)) : local;
+      return this.#localOnly(
+        { limit: input.limit, local, compare: input.compare },
+        filtered,
+        local.length - filtered.length,
+        complete,
+        archiveState,
+      );
+    };
 
-    if (!this.#archive) {
+    if (!archivePending) {
       if (localReadError !== null) throw localReadError;
-      return this.#localOnly(localOnlyInput, filteredLocal, localFilteredCount, complete, "not-configured");
+      return localOnly(this.#archive ? "not-ready" : "not-configured");
     }
-    const phase = this.#archivePhase ? this.#safeArchivePhase() : "ready";
-    if (phase !== "ready" && phase !== "syncing") {
-      if (localReadError !== null) throw localReadError;
-      return this.#localOnly(localOnlyInput, filteredLocal, localFilteredCount, complete, "not-ready");
-    }
-
-    let archived: T[];
-    try {
-      archived = await input.archiveRead();
-    } catch (error) {
+    const archiveResult = await archivePending;
+    if (archiveResult.error !== null) {
       const afterFailureCancellation = aborted(input.signal);
       if (afterFailureCancellation) throw afterFailureCancellation;
       this.#requestReconciliation();
+      // Without the archive, the shortcut's older history must come from SQLite after all.
+      if (localFrom !== input.from) ({ records: local, error: localReadError } = await readLocal(input.from));
       if (localReadError !== null) throw localReadError;
-      return this.#localOnly(localOnlyInput, filteredLocal, localFilteredCount, complete, "failed");
+      return localOnly("failed");
     }
+    const archived = archiveResult.records;
+    const filteredLocal = realMode ? local.filter((record) => !isSyntheticSource(record.source)) : local;
     const afterArchiveCancellation = aborted(input.signal);
     if (afterArchiveCancellation) throw afterArchiveCancellation;
     const filteredArchive = realMode ? archived.filter((record) => !isSyntheticSource(record.source)) : archived;
@@ -1137,6 +1156,23 @@ export class HybridTelemetryReader {
     } catch {
       return null;
     }
+  }
+
+  /** A reconcile pass completed this recently proves everything older than the hot tail is archived. */
+  #archiveFresh(now: number): boolean {
+    const lastSuccessAt = this.#safeArchiveLastSuccessAt();
+    const lastSuccessMs = typeof lastSuccessAt === "string" ? Date.parse(lastSuccessAt) : Number.NaN;
+    return Number.isFinite(lastSuccessMs) && lastSuccessMs <= now && now - lastSuccessMs <= ARCHIVE_FRESH_WINDOW_MS;
+  }
+
+  /** Where SQLite must start for a hot-tail read: the tail when the archive is fresh, otherwise `from`. */
+  #hotTailFrom(from: string): string {
+    const now = this.#now();
+    const fromMs = Date.parse(from);
+    const tailStart = now - LOCAL_HOT_TAIL_MS;
+    return this.#archiveFresh(now) && Number.isFinite(fromMs) && tailStart > fromMs
+      ? new Date(tailStart).toISOString()
+      : from;
   }
 
   #requestReconciliation(): void {

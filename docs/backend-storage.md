@@ -47,6 +47,18 @@ Ingestion commits to SQLite first. A reconciliation worker pages six telemetry f
 
 Raw-history APIs, MCP, forecasting, energy/thermal analytics, recovery workers, daily findings, and experimental spatial inference share `HybridTelemetryReader` rather than copying historical data between subsystems. It merges the SQLite outbox/current tail with matching Timescale rows by natural key, deterministically orders and bounds results, and filters synthetic `mock`/`replay` rows in real-data mode. Exact local duplicates win; opening snapshots choose the newest state across both stores. If a requested range predates the bounded local cache and TimeDB cannot answer, the read fails closed instead of silently returning a shortened series.
 
+The archive query starts before the synchronous SQLite read, so the two overlap. When a reconcile pass finished within the last 15 minutes, everything older than the 24-hour hot tail is known to be archived, so raw and bucketed measurement reads ask SQLite only for that tail. If the archive read then fails, SQLite is read again over the whole window before answering with `archiveState: "failed"`.
+
+`/api/v2/analytics/query` answers are shared through an in-process cache. The key covers:
+
+- the request without its id
+- the visible sensors and each series' reporting interval
+- the Home and registry revisions
+- a late-history revision, which a SQLite trigger bumps whenever a measurement older than two hours is stored (imports, peer publications, delayed uploads)
+- the release
+
+A range that ended more than two hours ago is shared for up to an hour; one that reaches the open tail is shared for 30 seconds. Answers built without the merged archive are not shared, and the response's `cache.hit` and the `x-stugu-cache` header say which answers came from the cache. Energy summaries and the optimizer share one summary cache, and incomplete summaries are kept for 15 seconds rather than recomputed for every caller. Optimizer reports are dropped only when a Property, Home or sensor changes, not on live device events.
+
 Generic measurement analytics no longer scale with the number of raw samples in
 the requested range. Mergeable operations (`mean`, `sum`, `min`, `max`, and
 `last`) read quality-, source-, and unit-aware continuous aggregates at 1-minute,
