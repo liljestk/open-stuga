@@ -19,6 +19,7 @@ export const fiAnalyticsQuality = {
   "energy.outlook.methodRecent": "Toistaa viimeiset 30 päivää, mikä osui säämallia paremmin {origins} aiemmalla 30 päivän jaksolla testattuna (keskivirhe {error} %).",
   "energy.outlook.methodUntested": "Toistaa viimeiset 30 päivää. Säämallin testaamiseen tarvitaan pidempi historia, joten vaihteluväli on leveä oletus.",
   "analytics.health.title": "Analytiikan kunto tällä laitteella",
+  "analytics.health.summary": "Vasteajat, ennusteiden ja arvion osuvuus sekä laskujen tarkistus tällä laitteella mitattuna.",
   "analytics.health.description": "Miten analytiikka toimi tässä kodissa viimeisten {days} päivän aikana, mitattuna tällä laitteella. Tieto ei lähde laitteelta.",
   "analytics.health.loading": "Kootaan tietoja…",
   "analytics.health.failed": "Tietoja ei voitu lukea.",

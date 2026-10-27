@@ -625,9 +625,9 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
         </table></div></details> : (analytics || selectedSensors.length === 0) && !loading && !analyticsError && !historyError ? <p className="analytics-no-gaps">{t("analytics.noRecordedGaps")}</p> : null}
           </section>
         </details>
-      </div>
 
-      {!props.readOnly && <AnalyticsHealthPanel house={props.house} definitions={definitions} />}
+        {!props.readOnly && <AnalyticsHealthPanel house={props.house} definitions={definitions} />}
+      </div>
     </>
   );
 }

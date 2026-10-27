@@ -273,6 +273,30 @@
 
 .analytics-tool-content { min-width: 0; overflow: hidden; }
 
+.analytics-health-body { display: grid; gap: 16px; padding: 16px 18px 18px; }
+
+.analytics-health-intro, .analytics-health-note { margin: 0; color: var(--muted); line-height: 1.5; }
+
+.analytics-health-group { min-width: 0; display: grid; gap: 8px; }
+
+.analytics-health-group h3 { margin: 0; color: var(--muted); font: 700 13px/1.3 "Manrope", sans-serif; letter-spacing: .06em; text-transform: uppercase; }
+
+.analytics-health-rows { margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--line); }
+
+.analytics-health-rows li { display: grid; grid-template-columns: minmax(9rem, 13rem) minmax(0, 1fr) auto; align-items: baseline; gap: 4px 14px; padding: 9px 0; border-bottom: 1px solid var(--line); line-height: 1.45; }
+
+.analytics-health-rows li > strong { font-weight: 700; }
+
+.analytics-health-rows li > span:not(.status-badge) { min-width: 0; color: var(--muted); }
+
+.analytics-health-note { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; }
+
+.analytics-health-body .status-badge { justify-self: end; white-space: nowrap; }
+
+.analytics-health-body .status-badge.analytics-health-met { color: var(--positive); background: var(--positive-soft); }
+
+.analytics-health-body .status-badge.analytics-health-missed { color: var(--yellow); background: var(--yellow-soft); }
+
 .analytics-primary-tool-content { min-width: 0; overflow: hidden; }
 
 .analytics-primary-tool-content > .panel { margin: 0; border: 0; border-radius: 0; box-shadow: none; }

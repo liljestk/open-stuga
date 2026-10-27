@@ -39,67 +39,78 @@ export function AnalyticsHealthPanel(props: Readonly<AnalyticsHealthPanelProps>)
     return definition ? measurementLabel(definition, locale) : metric;
   };
 
-  return <details className="panel analytics-health" open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
+  return <details className="analytics-tool analytics-health" open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
     <summary>
-      <span><ShieldCheck size={17} aria-hidden="true" />{t("analytics.health.title")}</span>
-      <ChevronDown size={17} aria-hidden="true" />
+      <span className="analytics-tool-icon"><ShieldCheck size={18} aria-hidden="true" /></span>
+      <span className="analytics-tool-copy"><strong>{t("analytics.health.title")}</strong><small>{t("analytics.health.summary")}</small></span>
+      <ChevronDown className="analytics-tool-chevron" size={18} aria-hidden="true" />
     </summary>
-    {open && <div className="analytics-health-body">
+    {open && <section className="analytics-health-body analytics-tool-content" aria-label={t("analytics.health.title")}>
       {query.isLoading && <output aria-live="polite">{t("analytics.health.loading")}</output>}
       {query.error && <p className="inline-error" role="alert">{t("analytics.health.failed")}</p>}
       {diagnostics && <>
-        <p>{t("analytics.health.description", { days: diagnostics.windowDays })}</p>
-        <h3>{t("analytics.health.latencyTitle")}</h3>
-        <ul>{diagnostics.latency.map((item) => <li key={item.operation}>
-          <strong>{t(`analytics.health.operation_${item.operation}`)}</strong>
-          <span>{item.p95Ms === null
-            ? t("analytics.health.latencyNone")
-            : t("analytics.health.latencyRow", { requests: number(item.requests), p95: number(item.p95Ms), target: number(item.targetP95Ms) })}</span>
-          {badge(item.meetsTarget)}
-        </li>)}</ul>
+        <p className="analytics-health-intro">{t("analytics.health.description", { days: diagnostics.windowDays })}</p>
+        <section className="analytics-health-group">
+          <h3>{t("analytics.health.latencyTitle")}</h3>
+          <ul className="analytics-health-rows">{diagnostics.latency.map((item) => <li key={item.operation}>
+            <strong>{t(`analytics.health.operation_${item.operation}`)}</strong>
+            <span>{item.p95Ms === null
+              ? t("analytics.health.latencyNone")
+              : t("analytics.health.latencyRow", { requests: number(item.requests), p95: number(item.p95Ms), target: number(item.targetP95Ms) })}</span>
+            {badge(item.meetsTarget)}
+          </li>)}</ul>
+        </section>
 
-        <h3>{t("analytics.health.forecastTitle")}</h3>
-        {diagnostics.forecasts.length === 0 ? <p>{t("analytics.health.forecastNone")}</p> : <ul>{diagnostics.forecasts.map((item) => <li key={item.metric}>
-          <strong>{metricName(item.metric)}</strong>
-          <span>{t("analytics.health.forecastRow", {
-            skill6h: item.medianSkill6h === null ? "—" : number(item.medianSkill6h, 2),
-            skill24h: item.medianSkill24h === null ? "—" : number(item.medianSkill24h, 2),
-            coverage: item.medianCoverage90 === null ? "—" : number(item.medianCoverage90 * 100),
-            evaluations: number(item.evaluations),
-          })}</span>
-          {badge(item.meetsTarget)}
-        </li>)}</ul>}
+        <section className="analytics-health-group">
+          <h3>{t("analytics.health.forecastTitle")}</h3>
+          {diagnostics.forecasts.length === 0 ? <p className="analytics-health-note">{t("analytics.health.forecastNone")}</p> : <ul className="analytics-health-rows">{diagnostics.forecasts.map((item) => <li key={item.metric}>
+            <strong>{metricName(item.metric)}</strong>
+            <span>{t("analytics.health.forecastRow", {
+              skill6h: item.medianSkill6h === null ? "—" : number(item.medianSkill6h, 2),
+              skill24h: item.medianSkill24h === null ? "—" : number(item.medianSkill24h, 2),
+              coverage: item.medianCoverage90 === null ? "—" : number(item.medianCoverage90 * 100),
+              evaluations: number(item.evaluations),
+            })}</span>
+            {badge(item.meetsTarget)}
+          </li>)}</ul>}
+        </section>
 
-        <h3>{t("analytics.health.billsTitle")}</h3>
-        <p>{diagnostics.bills.invoices === 0
-          ? t("analytics.health.billsNone")
-          : t("analytics.health.billsRow", {
-              reconciled: number(diagnostics.bills.reconciled),
-              invoices: number(diagnostics.bills.invoices),
-              tolerance: number(diagnostics.bills.tolerancePercent, 1),
-              error: diagnostics.bills.medianAbsoluteErrorPercent === null ? "—" : number(diagnostics.bills.medianAbsoluteErrorPercent, 1),
-            })} {badge(diagnostics.bills.meetsTarget)}</p>
+        <section className="analytics-health-group">
+          <h3>{t("analytics.health.billsTitle")}</h3>
+          <p className="analytics-health-note"><span>{diagnostics.bills.invoices === 0
+            ? t("analytics.health.billsNone")
+            : t("analytics.health.billsRow", {
+                reconciled: number(diagnostics.bills.reconciled),
+                invoices: number(diagnostics.bills.invoices),
+                tolerance: number(diagnostics.bills.tolerancePercent, 1),
+                error: diagnostics.bills.medianAbsoluteErrorPercent === null ? "—" : number(diagnostics.bills.medianAbsoluteErrorPercent, 1),
+              })}</span>{badge(diagnostics.bills.meetsTarget)}</p>
+        </section>
 
-        <h3>{t("analytics.health.projectionTitle")}</h3>
-        <p>{!diagnostics.projection || diagnostics.projection.meanAbsolutePercentError === null
-          ? t("analytics.health.projectionNone")
-          : t("analytics.health.projectionRow", {
-              error: number(diagnostics.projection.meanAbsolutePercentError, 1),
-              origins: number(diagnostics.projection.origins),
-              baseline: diagnostics.projection.baselineMeanAbsolutePercentError === null
-                ? "—" : number(diagnostics.projection.baselineMeanAbsolutePercentError, 1),
-            })} {badge(diagnostics.projection?.meetsTarget ?? null)}</p>
+        <section className="analytics-health-group">
+          <h3>{t("analytics.health.projectionTitle")}</h3>
+          <p className="analytics-health-note"><span>{!diagnostics.projection || diagnostics.projection.meanAbsolutePercentError === null
+            ? t("analytics.health.projectionNone")
+            : t("analytics.health.projectionRow", {
+                error: number(diagnostics.projection.meanAbsolutePercentError, 1),
+                origins: number(diagnostics.projection.origins),
+                baseline: diagnostics.projection.baselineMeanAbsolutePercentError === null
+                  ? "—" : number(diagnostics.projection.baselineMeanAbsolutePercentError, 1),
+              })}</span>{badge(diagnostics.projection?.meetsTarget ?? null)}</p>
+        </section>
 
-        <h3>{t("analytics.health.findingsTitle")}</h3>
-        <p>{!diagnostics.findings
-          ? t("analytics.health.findingsNone")
-          : t("analytics.health.findingsRow", {
-              findings: number(diagnostics.findings.findings),
-              series: diagnostics.findings.seriesTested === null ? "—" : number(diagnostics.findings.seriesTested),
-              date: diagnostics.findings.evaluatedThrough,
-              rate: diagnostics.findings.falseDiscoveryRate === null ? "—" : number(diagnostics.findings.falseDiscoveryRate * 100),
-            })}</p>
+        <section className="analytics-health-group">
+          <h3>{t("analytics.health.findingsTitle")}</h3>
+          <p className="analytics-health-note"><span>{!diagnostics.findings
+            ? t("analytics.health.findingsNone")
+            : t("analytics.health.findingsRow", {
+                findings: number(diagnostics.findings.findings),
+                series: diagnostics.findings.seriesTested === null ? "—" : number(diagnostics.findings.seriesTested),
+                date: diagnostics.findings.evaluatedThrough,
+                rate: diagnostics.findings.falseDiscoveryRate === null ? "—" : number(diagnostics.findings.falseDiscoveryRate * 100),
+              })}</span></p>
+        </section>
       </>}
-    </div>}
+    </section>}
   </details>;
 }

@@ -19,6 +19,7 @@ export const svAnalyticsQuality = {
   "energy.outlook.methodRecent": "Upprepar de senaste 30 dagarna, vilket träffade bättre än en vädermodell när det testades på {origins} tidigare 30-dagarsperioder ({error} % genomsnittligt fel).",
   "energy.outlook.methodUntested": "Upprepar de senaste 30 dagarna. Det behövs längre historik för att testa en vädermodell, så intervallet är ett brett standardvärde.",
   "analytics.health.title": "Analysens hälsa på den här enheten",
+  "analytics.health.summary": "Svarstider, prognosernas och projektionens träffsäkerhet samt fakturakontroller, mätta på den här enheten.",
   "analytics.health.description": "Hur analysen fungerade för det här hemmet de senaste {days} dagarna, mätt här. Uppgifterna lämnar aldrig enheten.",
   "analytics.health.loading": "Samlar underlaget…",
   "analytics.health.failed": "Underlaget kunde inte läsas.",
