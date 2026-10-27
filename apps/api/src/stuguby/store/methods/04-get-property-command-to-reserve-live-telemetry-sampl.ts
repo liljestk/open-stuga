@@ -1,3 +1,4 @@
+import type { StugubyAuthorityTransfer, StugubyHomeProjection } from "@climate-twin/contracts";
 import { randomUUID } from "node:crypto";
 import {
   type JsonValue,
@@ -8,7 +9,7 @@ import {
   type StugubyPropertyConflict,
   type StugubyPropertyEntityKind,
 } from "@climate-twin/stuguby-protocol";
-import { StugubyAuthorityTransfer, StugubyHomeProjection, StugubyStoredHomeCommand, StugubyStoredPropertyCommand, boundedLimit } from "../support/01-stuguby-row-to-event-blob-digests.js";
+import { StugubyStoredHomeCommand, StugubyStoredPropertyCommand, boundedLimit } from "../support/01-stuguby-row-to-event-blob-digests.js";
 import { registerStugubyStoreMethods, stugubyStoreState, type StugubyStoreInternals } from "../core.js";
 
 registerStugubyStoreMethods({

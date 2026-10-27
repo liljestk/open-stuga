@@ -1,10 +1,4 @@
-import type {
-  Floor,
-  MeasurementDefinition,
-  MeasurementSample,
-  Sensor,
-} from "@climate-twin/contracts";
-import { SensorDataGapSource } from "../support/02-equipment-attachment-row-to-sensor-data-gap-state.js";
+import type { Floor, MeasurementDefinition, MeasurementSample, Sensor, SensorDataGapSource } from "@climate-twin/contracts";
 import "../core.js";
 
 declare module "../core.js" {

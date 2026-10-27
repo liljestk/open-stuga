@@ -1,15 +1,8 @@
 import { randomUUID } from "node:crypto";
-import type {
-  MaintenanceTask,
-  MaintenanceTaskChangedField,
-  MaintenanceTaskPatch,
-  MaintenanceTaskRevisionActor,
-  PropertyArea,
-  StaticParameter,
-} from "@climate-twin/contracts";
+import type { AssetRecord, MaintenanceTask, MaintenanceTaskChangedField, MaintenanceTaskPatch, MaintenanceTaskRevisionActor, PropertyArea, StaticParameter } from "@climate-twin/contracts";
 import { MAINTENANCE_TASK_CHANGED_FIELDS } from "../support/01-json-value-to-area-equipment-row.js";
 import { LocalMaintenanceTaskRevisionActor, StaticParameterRow } from "../support/02-equipment-attachment-row-to-sensor-data-gap-state.js";
-import { AssetRecord, ClimateDataValidationError } from "../support/03-sensor-data-gap-row-to-canonical-json-value.js";
+import { ClimateDataValidationError } from "../support/03-sensor-data-gap-row-to-canonical-json-value.js";
 import { canonicalMaintenanceLifecycle, canonicalMaintenanceObservationIds, maintenanceDate } from "../support/05-action-run-from-row-to-canonical-observation-create-.js";
 import { parameterFromRow } from "../support/06-canonical-observation-patch-time-to-outdoor-location.js";
 import { registerDatabaseMethods } from "../core.js";

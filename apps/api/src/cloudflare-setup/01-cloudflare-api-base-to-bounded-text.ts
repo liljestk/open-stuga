@@ -1,3 +1,4 @@
+import type { CloudflareSetupOperation, CloudflareSetupPhase } from "@climate-twin/contracts";
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import {
   existsSync,
@@ -30,63 +31,6 @@ export const ACTIVE_PHASES = new Set(["awaiting-approval", "queued", "provisioni
 export const BASE_SCOPES = ["access.write", "argotunnel.write", "dns.write"] as const;
 
 export const ALLOWED_CLIENT_SCOPES = [...BASE_SCOPES, "zone.read"] as const;
-
-export type CloudflareSetupMode = "remote-ui" | "stuguby-coordinator";
-
-export type CloudflareSetupPhase =
-  | "awaiting-approval"
-  | "queued"
-  | "provisioning"
-  | "applying"
-  | "verifying"
-  | "complete"
-  | "failed";
-
-export interface CloudflareSetupOperation {
-  id: string;
-  mode: CloudflareSetupMode;
-  hostname: string;
-  phase: CloudflareSetupPhase;
-  requestedAt: string;
-  completedAt: string | null;
-  detail: string | null;
-}
-
-export interface CloudflareSetupStatus {
-  capability: {
-    available: boolean;
-    agentLastSeenAt: string | null;
-    reason: "ready" | "agent-not-connected" | "not-configured" | "agent-upgrade-required";
-  };
-  configuration: {
-    configured: boolean;
-    mode: CloudflareSetupMode | null;
-    hostname: string | null;
-    suggestedZone: string | null;
-    accountIdKnown: boolean;
-    zoneIdKnown: boolean;
-    oauthClientConfigured: boolean;
-    runtimeTokenAvailable: boolean;
-    ownerEmail: string | null;
-  };
-  operation: CloudflareSetupOperation | null;
-}
-
-export interface CloudflareSetupStartInput {
-  mode: CloudflareSetupMode;
-  hostname: string;
-  zone: string;
-  ownerEmail: string;
-  accountId?: string | null;
-  zoneId?: string | null;
-  oauthClientToken?: string | null;
-  runtimeToken?: string | null;
-}
-
-export interface CloudflareSetupStartResult {
-  operation: CloudflareSetupOperation;
-  authorizationUrl: string;
-}
 
 export interface CloudflareSetupClaim {
   schema: "stugu-cloudflare-setup-claim/v1";

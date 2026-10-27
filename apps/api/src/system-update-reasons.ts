@@ -146,19 +146,6 @@ const CURRENT_SYSTEM_UPDATE_REASON_MAP: Readonly<Record<string, CanonicalSystemU
     )),
   );
 
-/**
- * Canonical reasons that describe the remote update feed rather than this
- * machine. While one of these is active, host updates are paused but
- * application container updates remain available: they are pulled from the
- * container registry and never consult the TUF metadata that is failing.
- * The web equivalent lives beside SystemUpdateBlockReason in
- * apps/web/src/api/support/part-02.ts; keep the two lists identical.
- */
-export const FEED_SCOPED_SYSTEM_UPDATE_REASONS: ReadonlySet<string> = new Set([
-  "feed-trust-stale",
-  "metadata-unavailable",
-]);
-
 export function canonicalSystemUpdateReason(reason: string | null | undefined): string | null {
   if (!reason) return null;
   return Object.prototype.hasOwnProperty.call(CURRENT_SYSTEM_UPDATE_REASON_MAP, reason)

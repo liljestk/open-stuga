@@ -1,11 +1,11 @@
+import type { HostUpdateReadyToRestart } from "@climate-twin/contracts";
 import { RotateCw, ShieldCheck } from "lucide-react";
 import { useEffect, useRef } from "react";
-import type { HostReadyToRestartBinding } from "../api";
 import { useI18n } from "../i18n";
 
 interface RestartInstallDialogProps {
   open: boolean;
-  binding: HostReadyToRestartBinding | null;
+  binding: HostUpdateReadyToRestart | null;
   busy: boolean;
   onCancel: () => void;
   onConfirm: () => void;

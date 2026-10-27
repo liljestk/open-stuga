@@ -1,12 +1,5 @@
-import type {
-  MaintenanceTask,
-  MaintenanceTaskChangedField,
-  MaintenanceTaskPatch,
-  MaintenanceTaskRevisionActor,
-  StaticParameter,
-} from "@climate-twin/contracts";
+import type { AssetRecord, MaintenanceTask, MaintenanceTaskChangedField, MaintenanceTaskPatch, MaintenanceTaskRevisionActor, StaticParameter } from "@climate-twin/contracts";
 import { LocalMaintenanceTaskRevisionActor } from "../support/02-equipment-attachment-row-to-sensor-data-gap-state.js";
-import { AssetRecord } from "../support/03-sensor-data-gap-row-to-canonical-json-value.js";
 import "../core.js";
 
 declare module "../core.js" {

@@ -1,9 +1,6 @@
 import { maximum, minimum } from "@climate-twin/analytics-kernel";
-import type {
-  AnalyticsQueryResponse,
-  AnalyticsSeries,
-} from "@climate-twin/contracts";
-import { HOME_PERFORMANCE_ALGORITHM_VERSION, HomePerformanceInput, HomePerformanceLimitation, HomePerformanceResult, HomePerformanceSensorHealth, HomePerformanceSensorIssue, exposureResult, median, recoveryEvidenceBySensor, round } from "./model.js";
+import type { AnalyticsQueryResponse, AnalyticsSeries, HomePerformanceLimitation, HomePerformanceSensorHealth, HomePerformanceSensorIssue } from "@climate-twin/contracts";
+import { HOME_PERFORMANCE_ALGORITHM_VERSION, HomePerformanceInput, HomePerformanceResult, exposureResult, median, recoveryEvidenceBySensor, round } from "./model.js";
 import { definitionFor, energyResult, maintenanceResult, moistureRecoveryResult, openingEffectivenessResult, sampleMedian } from "./derive-support.js";
 import { compareCodeUnits } from "../../text-order.js";
 

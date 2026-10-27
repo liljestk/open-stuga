@@ -1,3 +1,4 @@
+import type { SystemStorageLocation, SystemStorageLocationKind, SystemStorageSettings, SystemStorageStatus } from "@climate-twin/contracts";
 import {
   ArchiveRestore,
   ArrowRight,
@@ -12,14 +13,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import {
-  api,
-  ApiRequestError,
-  type SystemStorageLocation,
-  type SystemStorageLocationKind,
-  type SystemStorageSettings,
-  type SystemStorageStatus,
-} from "../api";
+import { api, ApiRequestError } from "../api";
 import { confirmAction } from "../components/ConfirmationProvider";
 import { useI18n, type TranslationKey } from "../i18n";
 import "./SystemStoragePanel.css";

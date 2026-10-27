@@ -1,20 +1,6 @@
 import { useCallback } from "react";
-import type {
-  AlertRule,
-  AlertRulePatch,
-  House,
-  ManualObservation,
-  ManualObservationInput,
-  ManualObservationPatch,
-  MaintenanceTask,
-  MaintenanceTaskInput,
-  MaintenanceTaskPatch,
-  MockScenario,
-} from "@climate-twin/contracts";
-import {
-  api,
-  type HousePatch,
-} from "../../api";
+import type { AlertRule, AlertRulePatch, House, HousePatch, MaintenanceTask, MaintenanceTaskInput, MaintenanceTaskPatch, ManualObservation, ManualObservationInput, ManualObservationPatch, MockScenario } from "@climate-twin/contracts";
+import { api } from "../../api";
 import { preferredHouseForProperty } from "../../domain";
 import { replayHouseMutations, replayMaintenanceTaskMutation, synchronizeSensorRoomLabels, withoutSensorIds } from "./support";
 import type { HouseMutationBuffer } from "./support";

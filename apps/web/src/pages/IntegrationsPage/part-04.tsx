@@ -1,17 +1,13 @@
 import { useEffect,useRef,type FormEvent } from "react";
-import type {
-IntegrationStatus
-} from "@climate-twin/contracts";
-import { api, type IntegrationDiscoveryResult, errorMessage } from "../../api";
+import type { IntegrationDiscoveryResult, IntegrationStatus, TpLinkConnectionStatus, TpLinkDiscoveredSource } from "@climate-twin/contracts";
+import { api, errorMessage } from "../../api";
 import { confirmAction } from "../../components/ConfirmationProvider";
 import { type TranslationKey } from "../../i18n";
 import { forgetIntegrationDiscovery, rememberIntegrationDiscovery, rememberedIntegrationDiscovery, validTimeZone } from "./support";
 import type { DiscoveryOutcome } from "./support";
 import { useIntegrationsPagePart03 } from "./part-03";
 
-type TpLinkDiscoveredSource = IntegrationDiscoveryResult["tpLink"][number];
 type ConfiguredTpLink = Awaited<ReturnType<typeof api.configureTpLink>>;
-type TpLinkConnectionStatus = NonNullable<IntegrationStatus["tpLink"]["connections"]>[number];
 type TpLinkHubModel = "H100" | "H200" | "H500";
 
 interface CompletedTpLinkSave {

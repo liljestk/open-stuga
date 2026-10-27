@@ -1,7 +1,4 @@
-import type {
-  AnalyticsAggregation,
-  AnalyticsSeries,
-} from "@climate-twin/contracts";
+import type { AnalyticsAggregation, AnalyticsSeries, CalendarComparisonAnchor, CalendarComparisonBucket, CalendarComparisonPeriod, CalendarComparisonUnit, CalendarComparisonValue } from "@climate-twin/contracts";
 import {
   addLocalDays,
   localDate,
@@ -11,27 +8,6 @@ import {
 } from "@climate-twin/analytics-kernel";
 
 export const CALENDAR_COMPARISON_UNITS = ["day", "week", "month", "year", "decade"] as const;
-export type CalendarComparisonUnit = typeof CALENDAR_COMPARISON_UNITS[number];
-
-export interface CalendarComparisonAnchor {
-  month: number;
-  day: number;
-  week: number;
-}
-
-export interface CalendarComparisonPeriod {
-  key: string;
-  unit: CalendarComparisonUnit;
-  start: string;
-  end: string;
-  naturalEnd: string;
-  year: number;
-  month: number | null;
-  day: number | null;
-  week: number | null;
-  decade: number | null;
-  partial: boolean;
-}
 
 function pad2(value: number): string {
   return String(value).padStart(2, "0");
@@ -135,16 +111,6 @@ export function calendarComparisonPeriods(input: {
 
   return candidates.filter((period): period is CalendarComparisonPeriod => period !== null)
     .sort((left, right) => left.start.localeCompare(right.start));
-}
-
-export interface CalendarComparisonBucket {
-  key: string;
-  slot: string;
-  order: number;
-  index: number;
-  start: string;
-  end: string;
-  partial: boolean;
 }
 
 function comparisonBucket(
@@ -376,14 +342,6 @@ export function appendAnalyticsSeries(
     }
   }
   return accumulator;
-}
-
-export interface CalendarComparisonValue {
-  value: number;
-  minimum: number | null;
-  maximum: number | null;
-  sampleCount: number;
-  coverage: number;
 }
 
 export function calendarAccumulatorValue(accumulator: CalendarValueAccumulator): CalendarComparisonValue | null {

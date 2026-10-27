@@ -490,7 +490,7 @@ describe("Setup workspace", () => {
           host: "192.168.1.64",
           model: "P110",
           alias: "Laundry plug",
-          sourceType: "energy-device",
+          sourceType: "energy-device", deviceId: null,
         }],
         homeAssistant: [],
         warnings: [],
@@ -527,7 +527,7 @@ describe("Setup workspace", () => {
     await waitFor(() => expect(scan).toHaveBeenCalledWith(house.id, undefined, expect.any(Function), expect.any(AbortSignal)));
     rendered.rerender(<I18nProvider><IntegrationsPage {...rendered.props} house={secondHouse} houses={[house, secondHouse]} /></I18nProvider>);
     pending.resolve({
-      tpLink: [{ host: "192.168.1.42", model: "H200", alias: "Old Home hub" }],
+      tpLink: [{ host: "192.168.1.42", model: "H200", alias: "Old Home hub", sourceType: "hub", deviceId: null }],
       homeAssistant: [],
       warnings: [],
     });

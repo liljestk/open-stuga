@@ -1,27 +1,7 @@
 import { useCallback } from "react";
-import type {
-  AreaEquipment,
-  AreaEquipmentInput,
-  AreaEquipmentPatch,
-  Floor,
-  House,
-  Property,
-  PropertyArea,
-  PropertyAreaInput,
-  PropertyAreaPatch,
-  PropertyCreateInput,
-  PropertyNote,
-  PropertyNoteInput,
-  PropertyNotePatch,
-  PropertyPatch,
-} from "@climate-twin/contracts";
+import type { AreaEquipment, AreaEquipmentInput, AreaEquipmentPatch, Floor, House, HousePatch, Property, PropertyArea, PropertyAreaInput, PropertyAreaPatch, PropertyCreateInput, PropertyNote, PropertyNoteInput, PropertyNotePatch, PropertyPatch } from "@climate-twin/contracts";
 import { automaticWeatherLocation, hasLocalHouseAuthority, isAutomaticWeatherLocation } from "@climate-twin/contracts";
-import {
-  api,
-  type CreateHouseInput,
-  type HousePatch,
-  type HouseGeoreferencePatch,
-} from "../../api";
+import { api, type CreateHouseInput, type HouseGeoreferencePatch } from "../../api";
 import { preferredHouseForProperty } from "../../domain";
 import { replaceFloor, settleInBackground, synchronizeSensorRoomLabels } from "./support";
 import type { PropertyActions, SensorContext } from "./pipelineTypes";

@@ -1,6 +1,4 @@
-import type {
-  Floor,
-} from "@climate-twin/contracts";
+import type { Floor, StugubyHomeProjection } from "@climate-twin/contracts";
 import {
   type StugubyDataset,
   type StugubyHomeDirectoryPayload,
@@ -13,9 +11,6 @@ import {
   type StugubyHomeStructurePayload,
   type StugubySensorCatalogPayload,
 } from "@climate-twin/stuguby-protocol";
-import {
-  type StugubyHomeProjection,
-} from "../../store.js";
 import { grantAudienceIncludes, grantExpired, recoveryAssetReferences } from "../support/01-stuguby-error-to-without-local-grant-identity.js";
 import { registerStugubyServiceMethods, type StugubyServiceInternals } from "../core.js";
 import { compareCodeUnits } from "../../../text-order.js";

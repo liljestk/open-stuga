@@ -10,7 +10,7 @@ import type {
 import { type ClimateState } from "../../domain";
 import { routeFromLocation } from "../../routing";
 import { aggregateConnection, blankState, houseMutationKey, withoutDemoTelemetry } from "./support";
-import type { BootstrapStatus, BufferedHouseMutation, BufferedLiveTelemetry, BufferedSeriesTelemetry, DataMode, HouseInventoryMutation, HouseMutationBuffer, SeriesCommit, SeriesLoadState, StreamConnections } from "./support";
+import type { BootstrapStatus, BufferedHouseMutation, BufferedLiveTelemetry, BufferedSeriesTelemetry, ClientDataMode, HouseInventoryMutation, HouseMutationBuffer, SeriesCommit, SeriesLoadState, StreamConnections } from "./support";
 export function useClimateDataStore(context: Record<string, never>) {
   // Telemetry starts empty until the API positively confirms that this database
     // is still allowed to use demo data. This prevents a real installation from
@@ -28,7 +28,7 @@ export function useClimateDataStore(context: Record<string, never>) {
   const [bootstrapStatus, setBootstrapStatus] = useState<BootstrapStatus>("loading");
   const [bootstrapError, setBootstrapError] = useState<string | null>(null);
   const [bootstrapAttempt, setBootstrapAttempt] = useState(0);
-  const [dataMode, setDataMode] = useState<DataMode>("unknown");
+  const [dataMode, setDataMode] = useState<ClientDataMode>("unknown");
   const [streamConnections, setStreamConnections] = useState<StreamConnections>({
       legacy: "offline",
       measurements: "offline",
@@ -45,7 +45,7 @@ export function useClimateDataStore(context: Record<string, never>) {
   const [tpLinkDevicesError, setTpLinkDevicesError] = useState<string | null>(null);
   const tick = useRef(0);
   const apiAvailable = useRef(false);
-  const dataModeRef = useRef<DataMode>("unknown");
+  const dataModeRef = useRef<ClientDataMode>("unknown");
   const stateRef = useRef(state);
   const streamConnectionsRef = useRef(streamConnections);
   const hasReachedLiveConnection = useRef(false);

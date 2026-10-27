@@ -1,3 +1,4 @@
+import type { StugubyAuthorityTransfer, StugubyHomeProjection } from "@climate-twin/contracts";
 import {
   type JsonValue,
   type StugubyHomeCommand,
@@ -6,7 +7,7 @@ import {
   type StugubyPropertyConflict,
   type StugubyPropertyEntityKind,
 } from "@climate-twin/stuguby-protocol";
-import { StugubyAuthorityTransfer, StugubyHomeProjection, StugubyStoredHomeCommand, StugubyStoredPropertyCommand } from "../support/01-stuguby-row-to-event-blob-digests.js";
+import { StugubyStoredHomeCommand, StugubyStoredPropertyCommand } from "../support/01-stuguby-row-to-event-blob-digests.js";
 import "../core.js";
 
 declare module "../core.js" {

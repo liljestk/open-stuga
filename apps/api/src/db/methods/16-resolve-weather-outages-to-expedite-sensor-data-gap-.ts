@@ -1,10 +1,6 @@
-import type {
-  WeatherBackfillState,
-  WeatherOutageComponent,
-  WeatherProviderName,
-} from "@climate-twin/contracts";
+import type { SensorDataGapSource, SensorDataGapState, WeatherBackfillState, WeatherOutageComponent, WeatherProviderName } from "@climate-twin/contracts";
 import { TP_LINK_LEGACY_CLIMATE_HISTORY_ERROR, TP_LINK_LOCAL_CLIMATE_HISTORY_REARM_KEY, TP_LINK_LOCAL_CLIMATE_HISTORY_RETENTION_MS } from "../support/01-json-value-to-area-equipment-row.js";
-import { SensorDataGapSource, SensorDataGapState, WeatherOutageRecord, WeatherOutageRow } from "../support/02-equipment-attachment-row-to-sensor-data-gap-state.js";
+import { WeatherOutageRecord, WeatherOutageRow } from "../support/02-equipment-attachment-row-to-sensor-data-gap-state.js";
 import type { HistoricalTelemetryGap } from "../telemetry-gap-types.js";
 import { ClimateDataValidationError, SensorDataGapRecord, SensorDataGapRow } from "../support/03-sensor-data-gap-row-to-canonical-json-value.js";
 import { normalizedTapoHistoryText, normalizedTapoHistoryTimestamp, sensorDataGapFromRow, weatherOutageFromRow } from "../support/06-canonical-observation-patch-time-to-outdoor-location.js";

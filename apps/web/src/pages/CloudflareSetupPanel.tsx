@@ -1,6 +1,7 @@
+import type { CloudflareSetupOperation, CloudflareSetupPhase, CloudflareSetupStatusResponse } from "@climate-twin/contracts";
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type FormEvent } from "react";
 import { CircleHelp, ExternalLink, LoaderCircle, ShieldCheck } from "lucide-react";
-import { api, type CloudflareSetupOperation, type CloudflareSetupPhase, type CloudflareSetupStatus, errorMessage } from "../api";
+import { api, errorMessage } from "../api";
 import { useI18n, type TranslationKey } from "../i18n";
 
 interface CloudflareSetupPanelProps {
@@ -54,7 +55,7 @@ export function CloudflareSetupPanel({
 }: Readonly<CloudflareSetupPanelProps>) {
   const { t } = useI18n();
   const initialHostname = useMemo(() => hostnameFromOrigin(suggestedOrigin), [suggestedOrigin]);
-  const [status, setStatus] = useState<CloudflareSetupStatus | null>(null);
+  const [status, setStatus] = useState<CloudflareSetupStatusResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);

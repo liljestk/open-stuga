@@ -1,3 +1,5 @@
+import { SYSTEM_UPDATE_REPLACEABLE_WORKFLOW_PHASES } from "@climate-twin/contracts";
+import type { HostUpdateReadyToRestart, SystemUpdateDay, SystemUpdateOperation, SystemUpdateSettings, SystemUpdateStatus } from "@climate-twin/contracts";
 import {
   CalendarClock,
   CheckCircle2,
@@ -11,16 +13,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  api,
-  subscribeToSystemUpdateEvents,
-  type HostReadyToRestartBinding,
-  type SystemUpdateDay,
-  type SystemUpdateLiveStatus,
-  type SystemUpdateOperation,
-  type SystemUpdateSettings,
-  type SystemUpdateStatus,
-} from "../api";
+import { api, subscribeToSystemUpdateEvents, type SystemUpdateLiveStatus } from "../api";
 import { formatInTimeZone, twentyFourHourInputLocale } from "../dateTime";
 import { confirmAction } from "../components/ConfirmationProvider";
 import { useI18n } from "../i18n";
@@ -43,9 +36,6 @@ const progressSteps = [
 type ProgressPhase = typeof progressSteps[number]["phase"];
 type StreamState = SystemUpdateStreamState;
 
-const replaceableWorkflowPhases = new Set([
-  "complete", "cancelled", "failed", "returned", "host-returned",
-]);
 
 function message(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
@@ -120,7 +110,7 @@ function mergeSystemUpdateStatus(
         return current;
       }
     } else {
-      const currentCanBeReplaced = replaceableWorkflowPhases.has(currentWorkflow.phase)
+      const currentCanBeReplaced = SYSTEM_UPDATE_REPLACEABLE_WORKFLOW_PHASES.has(currentWorkflow.phase)
         && currentWorkflow.recoveryRequired !== true
         && currentWorkflow.reason !== "recovery-required";
       const currentRequestedAt = Date.parse(currentWorkflow.requestedAt);
@@ -351,7 +341,7 @@ export function SystemUpdatesPage() {
     }
   };
 
-  const activateHost = async (binding: HostReadyToRestartBinding) => {
+  const activateHost = async (binding: HostUpdateReadyToRestart) => {
     const workflow = status?.workflow;
     if (!workflow
       || status.revision === undefined
@@ -385,7 +375,7 @@ export function SystemUpdatesPage() {
     }
   };
 
-  const cancelHost = async (binding: HostReadyToRestartBinding) => {
+  const cancelHost = async (binding: HostUpdateReadyToRestart) => {
     const workflow = status?.workflow;
     if (!workflow
       || status.revision === undefined

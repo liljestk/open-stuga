@@ -153,9 +153,9 @@ export interface TpLinkDiscoveredSource {
   host: string;
   model: string;
   alias: string | null;
-  sourceType?: "hub" | "energy-device";
+  sourceType: "hub" | "energy-device";
   /** Stable local source identity when the device exposes one. */
-  deviceId?: string | null;
+  deviceId: string | null;
   /** Present when this physical source already has a saved Stugu connection. */
   configuredConnectionId?: string;
 }

@@ -1,11 +1,6 @@
-import type {
-  Floor,
-  MeasurementDefinition,
-  MeasurementSample,
-  Sensor,
-} from "@climate-twin/contracts";
+import type { Floor, MeasurementDefinition, MeasurementSample, Sensor, SensorDataGapSource } from "@climate-twin/contracts";
 import { DEMO_TELEMETRY_SOURCES } from "../support/01-json-value-to-area-equipment-row.js";
-import { MeasurementDefinitionRow, MeasurementSampleRow, SensorDataGapSource } from "../support/02-equipment-attachment-row-to-sensor-data-gap-state.js";
+import { MeasurementDefinitionRow, MeasurementSampleRow } from "../support/02-equipment-attachment-row-to-sensor-data-gap-state.js";
 import { ClimateDataValidationError } from "../support/03-sensor-data-gap-row-to-canonical-json-value.js";
 import { measurementDefinitionFromRow, measurementSampleFromRow } from "../support/04-canonical-json-value-to-action-playbook-from-row.js";
 import { registerDatabaseMethods } from "../core.js";

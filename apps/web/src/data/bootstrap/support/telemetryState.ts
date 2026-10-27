@@ -17,7 +17,7 @@ import { api } from "../../../api";
 import { nextMockReading, type ClimateState, type TimeRange } from "../../../domain";
 import { appendHistory, readingSamples, upsertLatest } from "../../../measurements";
 
-export type DataMode = IntegrationStatus["mock"]["mode"] | "unknown";
+export type ClientDataMode = IntegrationStatus["mock"]["mode"] | "unknown";
 
 export type BootstrapStatus = "loading" | "setup-required" | "login-required" | "ready" | "empty" | "unavailable" | "incompatible";
 

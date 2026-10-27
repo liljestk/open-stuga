@@ -1,44 +1,5 @@
-import type {
-  AlertRule,
-  AlertRulePatch,
-  ConnectionState,
-  Floor,
-  House,
-  MaintenanceTask,
-  MaintenanceTaskInput,
-  MaintenanceTaskPatch,
-  ManualObservation,
-  ManualObservationInput,
-  ManualObservationPatch,
-  MeasurementSample,
-  MockScenario,
-  Point,
-  Property,
-  PropertyArea,
-  PropertyAreaInput,
-  PropertyAreaPatch,
-  PropertyCreateInput,
-  PropertyNote,
-  PropertyNoteInput,
-  PropertyNotePatch,
-  PropertyPatch,
-  AreaEquipment,
-  AreaEquipmentInput,
-  AreaEquipmentPatch,
-  Sensor,
-  StaticParameter,
-  TelemetryEvent,
-  TpLinkDiscoveredDevice,
-} from "@climate-twin/contracts";
-import {
-  api,
-  type CreateHouseInput,
-  type CreateSensorInput,
-  type HouseGeoreferencePatch,
-  type HousePatch,
-  type MeasurementHistoryPage,
-  type SensorPatch,
-} from "../../api";
+import type { AlertRule, AlertRulePatch, AreaEquipment, AreaEquipmentInput, AreaEquipmentPatch, ConnectionState, Floor, House, HousePatch, MaintenanceTask, MaintenanceTaskInput, MaintenanceTaskPatch, ManualObservation, ManualObservationInput, ManualObservationPatch, MeasurementSample, MockScenario, Point, Property, PropertyArea, PropertyAreaInput, PropertyAreaPatch, PropertyCreateInput, PropertyNote, PropertyNoteInput, PropertyNotePatch, PropertyPatch, Sensor, SensorPatch, StaticParameter, TelemetryEvent, TpLinkDiscoveredDevice } from "@climate-twin/contracts";
+import { api, type CreateHouseInput, type CreateSensorInput, type HouseGeoreferencePatch, type MeasurementHistoryPage } from "../../api";
 import type { TimeRange } from "../../domain";
 import type {
   HistoricalSeriesWindow,

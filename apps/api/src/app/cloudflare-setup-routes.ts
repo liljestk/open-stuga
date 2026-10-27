@@ -1,7 +1,6 @@
-import {
-  CloudflareSetupError,
-  type CloudflareSetupStartInput,
-} from "../cloudflare-setup.js";
+import type { CloudflareSetupStatusResponse } from "@climate-twin/contracts";
+import type { CloudflareSetupStartInput } from "@climate-twin/contracts";
+import { CloudflareSetupError } from "../cloudflare-setup.js";
 import {
   HttpError,
   bodyObject,
@@ -34,7 +33,7 @@ export function registerCloudflareSetupRoutes(context: CloudflareSetupRouteConte
         ...status.configuration,
         ownerEmail: status.configuration.ownerEmail ?? principal.email,
       },
-    });
+    } satisfies CloudflareSetupStatusResponse);
   });
   context.app.post(`${context.prefix}/cloudflare/setup/start`, requireWorkspaceAdmin, async (request, response, next) => {
     try {

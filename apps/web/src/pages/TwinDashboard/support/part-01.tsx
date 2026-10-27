@@ -1,3 +1,4 @@
+import type { SensorPatch } from "@climate-twin/contracts";
 import { lazy } from "react";
 import { Droplets, Gauge, Thermometer, Wind } from "lucide-react";
 import { type ConnectionState, type Floor, type House, type ManualObservation, type ManualObservationInput, type ManualObservationPatch, type MeasurementDefinition, type Metric, type MockScenario, type ObservationConfidence, type ObservationRevision, type ObservationSource, type ObservationTimePrecision, type OpeningStateObservation, type Point, type Sensor, type StaticParameter, type UnitSystem } from "@climate-twin/contracts";
@@ -5,8 +6,8 @@ import "../../../components/decisionLayer.css";
 import "../../OperationsPages.css";
 import { type ClimateState, type TimeRange, type ViewMode } from "../../../domain";
 import type { CreateHouseInput } from "../../../components/StructureEditor";
-import type { DataMode } from "../../../useClimateData";
-import { type MeasurementHistoryPage, type SensorPatch } from "../../../api";
+import type { ClientDataMode } from "../../../useClimateData";
+import { type MeasurementHistoryPage } from "../../../api";
 import {
   type ExperimentalVisualizationId,
 } from "../../../experimentalSpatialLayers";
@@ -40,7 +41,7 @@ export interface TwinDashboardProps {
   selectedSensorId: string | null;
   saveState: "idle" | "saving" | "saved" | "error";
   scenario: MockScenario["id"];
-  dataMode?: DataMode;
+  dataMode?: ClientDataMode;
   connection?: ConnectionState;
   readOnly?: boolean;
   /** Connected-device control and placement require an Owner or Admin account. */

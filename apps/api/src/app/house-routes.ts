@@ -1,6 +1,6 @@
 import { withResponseSignal } from "./response-signal.js";
 import { resolvePlanElementOpeningState, hasLocalHouseAuthority } from "@climate-twin/contracts";
-import type { Floor, House, OpeningStateObservationInput, HouseLocation, HouseMapPlacement } from "@climate-twin/contracts";
+import type { Floor, House, HousePatch, OpeningStateObservationInput } from "@climate-twin/contracts";
 import { HttpError, bodyObject, boundedQueryInteger, dateValue, houseLocationValue, houseMapPlacementValue, optionalResourceQuery, requiredNumber, requiredString, refreshAppleNotesStatus, requireVisibleHouse } from "./support/index.js";
 import { commitCoordinatedIntegrationSecrets } from "../integration-secrets-coordinator.js";
 import type { IntegrationSecrets, IntegrationSecretsPatch } from "../integration-secrets.js";
@@ -222,16 +222,6 @@ export function registerHouseRoutes(context: ApiRouteRegistrationContext): void 
       context.status.refreshWeatherConfiguration();
       response.status(204).end();
     });
-}
-
-interface HousePatch {
-  name?: string;
-  timezone?: string;
-  propertyId?: string;
-  orientationDegrees?: number | null;
-  floors?: Floor[];
-  location?: HouseLocation | null;
-  mapPlacement?: HouseMapPlacement | null;
 }
 
 function parseHousePatch(body: Record<string, unknown>): HousePatch {

@@ -1,5 +1,5 @@
 import { HttpError, alertDurationSeconds, bodyObject, enumValue, measurementId, optionalBoolean, parseAlertDeliveryPolicy, parseAlertRule, requiredNumber, requiredString, safeInteger, visibleCollectionPage } from "./support/index.js";
-import type { AlertRule } from "@climate-twin/contracts";
+import type { AlertRulePatch } from "@climate-twin/contracts";
 import type { ClimateDatabase } from "../db.js";
 import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
 
@@ -81,8 +81,6 @@ export function registerAlertRoutes(context: ApiRouteRegistrationContext): void 
       response.json(event);
     });
 }
-
-type AlertRulePatch = Partial<Omit<AlertRule, "id">>;
 
 /** Validated alert-rule patch; only the fields present in the body change. */
 function parseAlertRulePatch(database: ClimateDatabase, body: Record<string, unknown>, currentSensorId: string | null): AlertRulePatch {

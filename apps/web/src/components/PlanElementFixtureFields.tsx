@@ -1,9 +1,7 @@
-import type { FireEscapeVariant, Floor, PlanElement } from "@climate-twin/contracts";
+import type { FireEscapeVariant, FixturePlanElement, Floor } from "@climate-twin/contracts";
 import { fireplaceChimneyDimensions } from "../architecturalGeometry";
 import { defaultFireEscapeProjection, effectivePlanElementHeight, planElementWidthBounds } from "../planElementGeometry";
 import { useI18n, type TranslationKey } from "../i18n";
-
-export type FixturePlanElement = Extract<PlanElement, { kind: "fireplace" | "fireEscape" }>;
 
 export interface FixturePlanElementPatch {
   label?: string | undefined;

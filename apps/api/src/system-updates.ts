@@ -1,14 +1,8 @@
+import { SYSTEM_UPDATE_DAYS, SYSTEM_UPDATE_PHASES } from "@climate-twin/contracts";
 import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
-import type {
-  HostUpdatePhase,
-  SystemUpdateApplicationProjection,
-  SystemUpdateHostProjection,
-  SystemUpdateOperationRequest,
-  SystemUpdateWorkflowPhase,
-  SystemUpdateWorkflowProjection,
-} from "@climate-twin/contracts";
+import type { HostUpdatePhase, SystemRelease, SystemUpdateActivity, SystemUpdateApplicationProjection, SystemUpdateDay, SystemUpdateHostProjection, SystemUpdateOperation, SystemUpdateOperationRequest, SystemUpdatePhase, SystemUpdateSettings, SystemUpdateStatus, SystemUpdateWorkflowPhase } from "@climate-twin/contracts";
 import {
   BRIDGE_REQUEST_SCHEMA,
   bridgeStatusFromJson,
@@ -33,17 +27,6 @@ import { canonicalSystemUpdateReason } from "./system-update-reasons.js";
 
 const NEXT_WINDOW_CACHE_MS = 60_000;
 const NEXT_WINDOW_SEARCH_MINUTES = 8 * 24 * 60;
-const SYSTEM_UPDATE_PHASES = [
-  "queued",
-  "preparing",
-  "backup",
-  "pulling",
-  "applying",
-  "verifying",
-  "complete",
-  "failed",
-  "rolling-back",
-] as const;
 const ACTIVE_PHASES = new Set<SystemUpdatePhase>([
   "queued",
   "preparing",
@@ -56,51 +39,6 @@ const ACTIVE_PHASES = new Set<SystemUpdatePhase>([
 const ACTIVE_STORAGE_PHASES = new Set([
   "queued", "validating", "backing-up", "quiescing", "copying", "applying", "verifying", "rolling-back", "manual-intervention",
 ]);
-const DAY_NAMES = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"] as const;
-
-export type SystemUpdateDay = typeof DAY_NAMES[number];
-export type SystemUpdateMode = "manual" | "automatic";
-export type SystemUpdatePhase = typeof SYSTEM_UPDATE_PHASES[number];
-
-export interface SystemUpdateSettings {
-  mode: SystemUpdateMode;
-  includePrereleases: boolean;
-  checkIntervalHours: 6 | 12 | 24 | 168;
-  updateTime: string;
-  updateDays: SystemUpdateDay[];
-  timezone: string;
-}
-
-export interface SystemRelease {
-  version: string;
-  tagName: string;
-  name: string;
-  notes: string;
-  publishedAt: string;
-  url: string;
-  prerelease: boolean;
-}
-
-export interface SystemUpdateOperation {
-  id: string;
-  version: string;
-  tagName: string;
-  phase: SystemUpdatePhase;
-  requestedAt: string;
-  startedAt: string | null;
-  completedAt: string | null;
-  updatedAt: string;
-  phaseStartedAt: string;
-  detail: string | null;
-  previousVersion: string;
-  activity: SystemUpdateActivity[];
-}
-
-export interface SystemUpdateActivity {
-  phase: SystemUpdatePhase;
-  at: string;
-  detail: string;
-}
 
 interface ReleaseCache {
   checkedAt: string;
@@ -118,30 +56,6 @@ interface GitHubRelease {
   draft?: unknown;
 }
 
-export interface SystemUpdateStatus {
-  schema: "stugu-system-updates/v2";
-  revision: number;
-  currentVersion: string;
-  latestVersion: string | null;
-  updateAvailable: boolean;
-  latestRelease: SystemRelease | null;
-  releases: SystemRelease[];
-  lastCheckedAt: string | null;
-  checkError: string | null;
-  settings: SystemUpdateSettings;
-  nextUpdateWindowAt: string | null;
-  capability: {
-    available: boolean;
-    runtime: "docker" | "raspberry-pi" | null;
-    agentLastSeenAt: string | null;
-    reason: string;
-    detail?: string | null;
-  };
-  operation: SystemUpdateOperation | null;
-  application: SystemUpdateApplicationProjection;
-  host: SystemUpdateHostProjection;
-  workflow: SystemUpdateWorkflowProjection | null;
-}
 
 interface SystemUpdateServiceOptions {
   currentVersion: string;
@@ -220,7 +134,7 @@ function normalizedSettings(value: unknown): SystemUpdateSettings {
   if (!value || typeof value !== "object") return { ...DEFAULT_SETTINGS, updateDays: [...DEFAULT_SETTINGS.updateDays] };
   const input = value as Partial<SystemUpdateSettings>;
   const updateDays = Array.isArray(input.updateDays)
-    ? [...new Set(input.updateDays.filter((day): day is SystemUpdateDay => DAY_NAMES.includes(day as SystemUpdateDay)))]
+    ? [...new Set(input.updateDays.filter((day): day is SystemUpdateDay => SYSTEM_UPDATE_DAYS.includes(day as SystemUpdateDay)))]
     : [];
   return {
     mode: input.mode === "automatic" ? "automatic" : "manual",
@@ -334,7 +248,7 @@ function nextWindow(
       localNow.month - 1,
       localNow.date + dayOffset,
     ));
-    const localDay = DAY_NAMES[localCalendarDay.getUTCDay()]!;
+    const localDay = SYSTEM_UPDATE_DAYS[localCalendarDay.getUTCDay()]!;
     if (!settings.updateDays.includes(localDay)) continue;
     const candidates = matchingInstants(
       localCalendarDay.getUTCFullYear(),
@@ -1172,4 +1086,3 @@ export class SystemUpdateError extends Error {
   }
 }
 
-export const systemUpdateDays = DAY_NAMES;

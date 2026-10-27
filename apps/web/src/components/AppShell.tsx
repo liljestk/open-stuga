@@ -6,7 +6,7 @@ import type { ConnectionState, House as Home, Property, UnitSystem } from "@clim
 import { StuguMark } from "./StuguMark";
 import { HomeOriginIndicator, isRemoteHome, type HomeOriginScope } from "./HomeOriginIndicator";
 import { formatInTimeZone } from "../dateTime";
-import type { DataMode } from "../useClimateData";
+import type { ClientDataMode } from "../useClimateData";
 import { locationForRoute } from "../routing";
 import { readLocalStorage, subscribeToAccountStorageScope, writeLocalStorage } from "../browserStorage";
 import { BugReportDialog } from "./BugReportDialog";
@@ -19,7 +19,7 @@ interface AppShellProps {
   onUnits: (units: UnitSystem) => void;
   lastUpdated: string | null;
   freshnessLabel?: string | undefined;
-  dataMode: DataMode;
+  dataMode: ClientDataMode;
   pollingFallback?: boolean;
   resourceErrors?: string[];
   canManagePeople?: boolean;

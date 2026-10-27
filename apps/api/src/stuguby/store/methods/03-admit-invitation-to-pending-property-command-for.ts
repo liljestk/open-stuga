@@ -1,3 +1,4 @@
+import type { StugubyPropertyAdoption } from "@climate-twin/contracts";
 import { randomUUID } from "node:crypto";
 import {
   type StugubyMember,
@@ -7,7 +8,7 @@ import {
   type StugubyShareGrant,
   type StugubySharedProperty,
 } from "@climate-twin/stuguby-protocol";
-import { GrantRow, InvitationRow, JoinAdmissionRow, ProjectionResourceType, PublicationResourceType, SharedPropertyRow, StugubyInvitationAdmission, StugubyPropertyAdoption, StugubyStoredPropertyCommand, invitationFromRow } from "../support/01-stuguby-row-to-event-blob-digests.js";
+import { GrantRow, InvitationRow, JoinAdmissionRow, ProjectionResourceType, PublicationResourceType, SharedPropertyRow, StugubyInvitationAdmission, StugubyStoredPropertyCommand, invitationFromRow } from "../support/01-stuguby-row-to-event-blob-digests.js";
 import { registerStugubyStoreMethods, stugubyStoreState, type StugubyStoreInternals } from "../core.js";
 import { withStugubySavepoint } from "../savepoint.js";
 

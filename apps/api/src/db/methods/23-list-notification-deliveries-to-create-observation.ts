@@ -1,19 +1,7 @@
 import { validateActionPlaybook } from "../action-playbook-validation.js";
 import { randomUUID } from "node:crypto";
-import type {
-  ActionPlaybook,
-  ActionPlaybookInput,
-  ActionRun,
-  ActionRunStartInput,
-  NotificationDeliveryStage,
-  NotificationDeliveryStatus,
-  NotificationSubjectKind,
-  ManualObservation,
-  ManualObservationInput,
-  MeasurementSample,
-  ObservationRevision,
-} from "@climate-twin/contracts";
-import { NotificationChannel, OBSERVATION_CHANGED_FIELDS, boundedCollectionLimit } from "../support/01-json-value-to-area-equipment-row.js";
+import type { ActionPlaybook, ActionPlaybookInput, ActionRun, ActionRunStartInput, ManualObservation, ManualObservationInput, MeasurementSample, NotificationChannel, NotificationDeliveryStage, NotificationDeliveryStatus, NotificationSubjectKind, ObservationRevision } from "@climate-twin/contracts";
+import { OBSERVATION_CHANGED_FIELDS, boundedCollectionLimit } from "../support/01-json-value-to-area-equipment-row.js";
 import { ActionPlaybookRow, ActionRunRow, LocalObservationRevisionActor, ObservationRevisionRow, ObservationRow, StoredObservation } from "../support/02-equipment-attachment-row-to-sensor-data-gap-state.js";
 import { ClimateDataValidationError } from "../support/03-sensor-data-gap-row-to-canonical-json-value.js";
 import { actionPlaybookFromRow } from "../support/04-canonical-json-value-to-action-playbook-from-row.js";

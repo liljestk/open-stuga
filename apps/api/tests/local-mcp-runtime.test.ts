@@ -1,3 +1,4 @@
+import type { LocalMcpRuntimeStatus } from "@climate-twin/contracts";
 import { EventEmitter, once } from "node:events";
 import { fork, type ChildProcess } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -10,11 +11,7 @@ import express from "express";
 import request from "supertest";
 import { describe, expect, it, vi } from "vitest";
 import { ClimateDatabase } from "../src/db.js";
-import {
-  LocalMcpRuntimeError,
-  LocalMcpRuntimeService,
-  type LocalMcpRuntimeStatus,
-} from "../src/local-mcp-runtime.js";
+import { LocalMcpRuntimeError, LocalMcpRuntimeService } from "../src/local-mcp-runtime.js";
 import {
   registerLocalMcpRuntimeRoutes,
   registerLocalMcpTransportRoute,

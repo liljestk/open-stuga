@@ -1,40 +1,8 @@
 import type { ApiReadSchedulingClass } from "./support/requestScheduler";
-import type {
-  EquipmentAttachment,
-  EquipmentAttachmentUploadInput,
-  EquipmentLink,
-  EquipmentLinkInput,
-  EquipmentLinkPatch,
-  AlertRule,
-  ForecastPoint,
-  House,
-  HouseLocation,
-  HouseWeather,
-  OpeningStateObservation,
-  OpeningStateObservationInput,
-  OpeningStateSnapshot,
-  OutdoorTemperatureSample,
-  Reading,
-  Sensor,
-  SensorLabelDescriptor,
-  SensorSnapshot,
-  GuestAccessGrant,
-  PropertyNote,
-  PropertyNoteInput,
-  PropertyNotePatch,
-  TenantMemberSummary,
-  TenantInvitationCreated,
-  EquipmentTrackingBinding,
-  TrackingCapabilities,
-  TrackingMapSnapshot,
-  TrackingEndpoint,
-  TrackingEndpointEnrollmentInput,
-  TrackingProfileManifest,
-  TrackedEquipmentState,
-} from "@climate-twin/contracts";
+import type { AlertRule, EquipmentAttachment, EquipmentAttachmentUploadInput, EquipmentLink, EquipmentLinkInput, EquipmentLinkPatch, EquipmentTrackingBinding, ForecastPoint, GuestAccessGrant, House, HouseLocation, HousePatch, HouseWeather, OpeningStateObservation, OpeningStateObservationInput, OpeningStateSnapshot, OutdoorTemperatureSample, PropertyNote, PropertyNoteInput, PropertyNotePatch, Reading, Sensor, SensorLabelDescriptor, SensorPatch, SensorSnapshot, TenantInvitationCreated, TenantMemberSummary, TenantMembersResponse, TrackedEquipmentState, TrackingCapabilities, TrackingEndpoint, TrackingEndpointEnrollmentInput, TrackingMapSnapshot, TrackingProfileManifest } from "@climate-twin/contracts";
 import { expectShape, isForecastSeriesResponse, withSignal } from "@climate-twin/contracts";
 import { API_BASE, completeCollection, entity, houseResponse, list, memberSummary, request, requestV2, sensorResponse, updateHouseGeoreference } from "./support";
-import type { CreateHouseInput, CreateSensorInput, HousePatch, OutdoorTemperatureHistoryPage, SensorPatch, TenantMembersResponse } from "./support";
+import type { CreateHouseInput, CreateSensorInput, OutdoorTemperatureHistoryPage } from "./support";
 
 
 

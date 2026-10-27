@@ -1,3 +1,4 @@
+import type { StugubyPropertyAdoption } from "@climate-twin/contracts";
 import {
   type StugubyJoinRequest,
   type StugubyJoinResponse,
@@ -8,10 +9,7 @@ import {
   type StugubySharedProperty,
 } from "@climate-twin/stuguby-protocol";
 import type { ClimateDatabase } from "../../../db.js";
-import {
-  type StugubyLocalMember,
-  type StugubyPropertyAdoption,
-} from "../../store.js";
+import { type StugubyLocalMember } from "../../store.js";
 import { SharedPropertyInput } from "../support/01-stuguby-error-to-without-local-grant-identity.js";
 import "../core.js";
 

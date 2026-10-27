@@ -1,28 +1,5 @@
 import { ApiRequestError } from "./support/request-error";
-import type {
-  AppSession,
-  AreaEquipment,
-  AreaEquipmentInput,
-  AreaEquipmentPatch,
-  HomeElectricityPricePoint,
-  HomeEnergyCost,
-  HomeEnergySummary,
-  HomeEnergyProjection,
-  HostSystemHealth,
-  LocalInvitationRegistrationInput,
-  LocalLoginInput,
-  LocalOwnerSetupInput,
-  Property,
-  PropertyArea,
-  PropertyAreaInput,
-  PropertyAreaPatch,
-  PropertyCreateInput,
-  PropertyPatch,
-  PropertyElectricityConfig,
-  PropertyElectricityConfigInput,
-  PropertyElectricityPricePoint,
-  PropertyInventorySnapshot,
-} from "@climate-twin/contracts";
+import type { AppSession, AreaEquipment, AreaEquipmentInput, AreaEquipmentPatch, CloudflareSetupStartInput, CloudflareSetupStartResult, CloudflareSetupStatusResponse, HomeElectricityPricePoint, HomeEnergyCost, HomeEnergyProjection, HomeEnergySummary, HostSystemHealth, LocalInvitationRegistrationInput, LocalLoginInput, LocalMcpRuntimeStartResult, LocalMcpRuntimeStatus, LocalOwnerSetupInput, Property, PropertyArea, PropertyAreaInput, PropertyAreaPatch, PropertyCreateInput, PropertyElectricityConfig, PropertyElectricityConfigInput, PropertyElectricityPricePoint, PropertyInventorySnapshot, PropertyPatch, StugubyPropertyAdoption, SystemStorageSettings, SystemStorageStatus, SystemUpdateSettings, SystemUpdateStatus } from "@climate-twin/contracts";
 import type {
   StugubyDatasetGrant,
   StugubyGrantAudience,
@@ -36,24 +13,7 @@ import type {
 import { publishAuthEpoch } from "../authEpoch";
 import { expectShape, isHomeEnergyProjection, withSignal } from "@climate-twin/contracts";
 import { apiClientState, completeAuthentication, completeCollection, entity, rememberSession, request } from "./support";
-import type { CloudflareSetupStartInput, CloudflareSetupStartResult, CloudflareSetupStatus, StugubyDetailResponse, StugubyInvitationCreated, StugubyListResponse, StugubyLocalMember, StugubyLocalPublicationCatalog, StugubyPropertyAdoption, StugubyRemoteTelemetrySample, SystemUpdateOperationInput, SystemUpdateSettings, SystemUpdateStatus } from "./support";
-import type { SystemStorageSettings, SystemStorageStatus } from "./support";
-
-export interface LocalMcpRuntimeStatus {
-  state: "stopped" | "starting" | "running" | "stopping" | "error";
-  endpointPath: "/api/v1/mcp";
-  pid: number | null;
-  startedAt: string | null;
-  toolCount: number | null;
-  serverVersion: string | null;
-  errorCode: "build_missing" | "start_failed" | "unexpected_exit" | "stop_failed" | null;
-}
-
-export interface LocalMcpRuntimeStartResult extends LocalMcpRuntimeStatus {
-  accessToken: string | null;
-}
-
-
+import type { StugubyDetailResponse, StugubyInvitationCreated, StugubyListResponse, StugubyLocalMember, StugubyLocalPublicationCatalog, StugubyRemoteTelemetrySample, SystemUpdateOperationInput } from "./support";
 
 export const apiPart01 = {
   session: async () => rememberSession(await request<AppSession>("/session")),
@@ -84,7 +44,7 @@ export const apiPart01 = {
       method: "PUT",
       body: JSON.stringify(input),
     }),
-  cloudflareSetupStatus: () => request<CloudflareSetupStatus>("/cloudflare/setup"),
+  cloudflareSetupStatus: () => request<CloudflareSetupStatusResponse>("/cloudflare/setup"),
   startCloudflareSetup: (input: CloudflareSetupStartInput) => request<CloudflareSetupStartResult>("/cloudflare/setup/start", {
       method: "POST",
       body: JSON.stringify(input),

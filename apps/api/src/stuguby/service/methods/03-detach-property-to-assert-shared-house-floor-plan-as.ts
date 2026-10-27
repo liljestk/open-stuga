@@ -1,16 +1,10 @@
-import type {
-  Floor,
-  House,
-} from "@climate-twin/contracts";
+import type { Floor, House, StugubyPropertyAdoption } from "@climate-twin/contracts";
 import { hasLocalHouseAuthority } from "@climate-twin/contracts";
 import {
   type JsonObject,
   type StugubyHomeRecoveryKind,
   type StugubyHomeRecoveryPayload,
 } from "@climate-twin/stuguby-protocol";
-import {
-  type StugubyPropertyAdoption,
-} from "../../store.js";
 import { StugubyError } from "../support/01-stuguby-error-to-without-local-grant-identity.js";
 import { registerStugubyServiceMethods, type StugubyServiceInternals } from "../core.js";
 

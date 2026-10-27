@@ -1,18 +1,8 @@
 import {
   lazy,
 } from "react";
-import type {
-  Floor,
-  House,
-  HousePatch,
-  IntegrationStatus,
-  MeasurementSample,
-  Metric,
-  Sensor,
-  TpLinkDiscoveredDevice,
-  UnitSystem,
-} from "@climate-twin/contracts";
-import { type CreateSensorInput, type HistoricalImportResult, type SensorPatch } from "../../../api";
+import type { Floor, House, HousePatch, IntegrationStatus, MeasurementSample, Metric, Sensor, SensorPatch, TpLinkDiscoveredDevice, UnitSystem } from "@climate-twin/contracts";
+import { type CreateSensorInput, type HistoricalImportResult } from "../../../api";
 import type { ClimateState, TimeRange } from "../../../domain";
 import { type TranslationKey } from "../../../i18n";
 import { isTpLinkContactDevice } from "../../../tpLinkDeviceClassification";

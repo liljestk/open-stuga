@@ -1,7 +1,4 @@
-import type {
-  Property,
-  StugubyHouseLink,
-} from "@climate-twin/contracts";
+import type { Property, StugubyHouseLink, StugubyPropertyAdoption } from "@climate-twin/contracts";
 import {
   assertSafeFederationPayload,
   validateSharedProperty,
@@ -16,10 +13,7 @@ import {
   type StugubySummary,
 } from "@climate-twin/stuguby-protocol";
 import type { ClimateDatabase } from "../../../db.js";
-import {
-  type StugubyLocalMember,
-  type StugubyPropertyAdoption,
-} from "../../store.js";
+import { type StugubyLocalMember } from "../../store.js";
 import { SharedPropertyInput, StugubyError, grantAudienceIncludes, grantExpired, joinSigningValue, localLabel, recordValue, requiredText, sha256, validatedNodeIdentity } from "../support/01-stuguby-error-to-without-local-grant-identity.js";
 import { registerStugubyServiceMethods, type StugubyServiceInternals } from "../core.js";
 

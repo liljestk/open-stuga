@@ -1,10 +1,6 @@
 import { useMutation } from "@tanstack/react-query";
-import type { Point, Sensor } from "@climate-twin/contracts";
-import {
-  api,
-  type CreateSensorInput,
-  type SensorPatch,
-} from "../../api";
+import type { Point, Sensor, SensorPatch } from "@climate-twin/contracts";
+import { api, type CreateSensorInput } from "../../api";
 import { queryClient } from "../queryClient";
 
 export const sensorMutationKeys = {

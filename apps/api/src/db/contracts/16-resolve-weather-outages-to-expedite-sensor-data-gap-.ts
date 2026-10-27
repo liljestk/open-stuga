@@ -1,9 +1,5 @@
-import type {
-  WeatherBackfillState,
-  WeatherOutageComponent,
-  WeatherProviderName,
-} from "@climate-twin/contracts";
-import { SensorDataGapSource, SensorDataGapState, WeatherOutageRecord } from "../support/02-equipment-attachment-row-to-sensor-data-gap-state.js";
+import type { SensorDataGapSource, SensorDataGapState, WeatherBackfillState, WeatherOutageComponent, WeatherProviderName } from "@climate-twin/contracts";
+import { WeatherOutageRecord } from "../support/02-equipment-attachment-row-to-sensor-data-gap-state.js";
 import type { HistoricalTelemetryGap } from "../telemetry-gap-types.js";
 import { SensorDataGapRecord } from "../support/03-sensor-data-gap-row-to-canonical-json-value.js";
 import "../core.js";

@@ -1,7 +1,7 @@
 import { type ChildProcess } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { networkInterfaces } from "node:os";
-import type { OpeningStateObservation, TpLinkDiscoveredDevice } from "@climate-twin/contracts";
+import type { OpeningStateObservation, TpLinkDiscoveredDevice, TpLinkDiscoveredSource } from "@climate-twin/contracts";
 import type { ClimateDatabase } from "../../db.js";
 import type {
   SensorHistoryRecoveryResult,
@@ -147,15 +147,6 @@ export function mergeTpLinkHistoryRecovery(
     samples: [...samples.values()].sort((left, right) => left.timestamp.localeCompare(right.timestamp)),
     error: [local.error, fallback.error].filter(Boolean).join("; ") || null,
   };
-}
-
-export interface TpLinkDiscoveredSource {
-  host: string;
-  model: string;
-  alias: string | null;
-  sourceType: "hub" | "energy-device";
-  deviceId: string | null;
-  configuredConnectionId?: string;
 }
 
 export interface TpLinkSourceDiscoveryResult {

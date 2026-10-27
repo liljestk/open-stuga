@@ -70,7 +70,7 @@ export type { StoredDailyAnalyticsFindings } from "./db/support/01-json-value-to
 export type { PropertyMigrationResult } from "./db/support/01-json-value-to-area-equipment-row.js";
 export type { OpeningStateActivityRecord } from "./db/support/01-json-value-to-area-equipment-row.js";
 export type { SecurityAuditEventInput } from "./db/support/01-json-value-to-area-equipment-row.js";
-export type { NotificationChannel } from "./db/support/01-json-value-to-area-equipment-row.js";
+export type { NotificationChannel } from "@climate-twin/contracts";
 export type { NotificationOutboxItem } from "./db/support/01-json-value-to-area-equipment-row.js";
 export type { AlertTransition } from "./db/support/01-json-value-to-area-equipment-row.js";
 export type { DueAlertCondition } from "./db/support/01-json-value-to-area-equipment-row.js";
@@ -85,9 +85,9 @@ export type { TelemetryArchiveMutableTable } from "./db/support/01-json-value-to
 export type { TelemetryArchiveWatermarks } from "./db/support/01-json-value-to-area-equipment-row.js";
 export type { WeatherOutageRecord } from "./db/support/02-equipment-attachment-row-to-sensor-data-gap-state.js";
 export type { StoredWeatherSnapshot } from "./db/weather-snapshot-types.js";
-export type { SensorDataGapSource } from "./db/support/02-equipment-attachment-row-to-sensor-data-gap-state.js";
-export type { SensorDataGapState } from "./db/support/02-equipment-attachment-row-to-sensor-data-gap-state.js";
-export type { SensorDataGapCompleteness } from "./db/support/02-equipment-attachment-row-to-sensor-data-gap-state.js";
+export type { SensorDataGapSource } from "@climate-twin/contracts";
+export type { SensorDataGapState } from "@climate-twin/contracts";
+export type { SensorDataGapCompleteness } from "@climate-twin/contracts";
 export type { SensorDataGapRecord } from "./db/support/03-sensor-data-gap-row-to-canonical-json-value.js";
 export type { TapoHistoryExportProvider } from "./db/tapo-history-export-types.js";
 export type { TapoHistoryExportJobStatus } from "./db/tapo-history-export-types.js";
@@ -104,7 +104,7 @@ export type { TapoHistoryExportStageResult } from "./db/tapo-history-export-type
 export type { TapoHistoryExportCompletionOptions } from "./db/tapo-history-export-types.js";
 export type { TapoHistoryClaimOptions } from "./db/tapo-history-export-types.js";
 export type { HistoricalTelemetryGap } from "./db/telemetry-gap-types.js";
-export type { AssetRecord } from "./db/support/03-sensor-data-gap-row-to-canonical-json-value.js";
+export type { AssetRecord } from "@climate-twin/contracts";
 export { ClimateDataValidationError } from "./db/support/03-sensor-data-gap-row-to-canonical-json-value.js";
 export type { SensorUpdate } from "./db/support/03-sensor-data-gap-row-to-canonical-json-value.js";
 export { outdoorLocationKey } from "./db/support/06-canonical-observation-patch-time-to-outdoor-location.js";

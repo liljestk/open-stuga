@@ -1,23 +1,4 @@
-import type {
-  AreaEquipment,
-  AlertEvent,
-  AlertDeliveryPolicy,
-  AlertRule,
-  DailyAnalyticsFindingsSnapshot,
-  NotificationDeliveryStage,
-  NotificationSubjectKind,
-  MaintenanceTaskChangedField,
-  MeasurementSample,
-  ObservationChangedField,
-  OpeningStateObservation,
-  PropertyElectricityConfig,
-  PropertyArea,
-  PropertyNote,
-  SecurityAuditEvent,
-  SecurityAuditEventType,
-  SecurityAuditOutcome,
-  SecurityAuditSubjectType,
-} from "@climate-twin/contracts";
+import type { AlertDeliveryPolicy, AlertEvent, AlertRule, AreaEquipment, DailyAnalyticsFindingsSnapshot, MaintenanceTaskChangedField, MeasurementSample, NotificationChannel, NotificationDeliveryStage, NotificationSubjectKind, ObservationChangedField, OpeningStateObservation, PropertyArea, PropertyElectricityConfig, PropertyNote, SecurityAuditEvent, SecurityAuditEventType, SecurityAuditOutcome, SecurityAuditSubjectType } from "@climate-twin/contracts";
 
 export type JsonValue = string | number | boolean;
 
@@ -118,8 +99,6 @@ export interface SecurityAuditEventInput {
   details?: SecurityAuditEvent["details"];
   createdAt?: string;
 }
-
-export type NotificationChannel = "webhook" | "telegram" | "apns";
 
 export interface NotificationOutboxItem {
   id: string;

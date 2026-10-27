@@ -1,3 +1,4 @@
+import type { StugubyPropertyAdoption } from "@climate-twin/contracts";
 import {
   type StugubyNodeIdentity,
   type StugubyPropertyCommand,
@@ -5,7 +6,7 @@ import {
   type StugubyShareGrant,
   type StugubySharedProperty,
 } from "@climate-twin/stuguby-protocol";
-import { ProjectionResourceType, PublicationResourceType, StugubyInvitationAdmission, StugubyPropertyAdoption, StugubyStoredPropertyCommand } from "../support/01-stuguby-row-to-event-blob-digests.js";
+import { ProjectionResourceType, PublicationResourceType, StugubyInvitationAdmission, StugubyStoredPropertyCommand } from "../support/01-stuguby-row-to-event-blob-digests.js";
 import "../core.js";
 
 declare module "../core.js" {

@@ -1,3 +1,4 @@
+import { SYSTEM_UPDATE_WORKFLOW_PHASES } from "@climate-twin/contracts";
 import { randomUUID } from "node:crypto";
 import {
   closeSync,
@@ -179,12 +180,7 @@ const HOST_UPDATE_PHASES = new Set<HostUpdatePhase>([
   "recovery-needed",
 ]);
 
-const WORKFLOW_PHASES = new Set<SystemUpdateWorkflowPhase>([
-  "preparing", "backup-active", "backup-complete", "host-stage-requested", "host-stage-queueing",
-  "host-staging", "awaiting-restart", "restarting", "host-verifying", "host-complete",
-  "application-queueing", "application-queued", "application-updating", "application-failed",
-  "complete", "failed", "cancelled", "returned", "recovery-needed",
-]);
+const WORKFLOW_PHASES: ReadonlySet<string> = new Set(SYSTEM_UPDATE_WORKFLOW_PHASES);
 
 const APPLICATION_PHASES = new Set([
   "pending", "queued", "preparing", "backup", "pulling", "applying", "verifying", "complete",

@@ -1,12 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type {
-  AlertEvent,
-  AlertDeliveryPolicy,
-  AlertRule,
-  NotificationDeliveryStage,
-  NotificationSubjectKind,
-  MeasurementSample,
-} from "@climate-twin/contracts";
+import type { AlertDeliveryPolicy, AlertEvent, AlertRule, MeasurementSample, NotificationChannel, NotificationDeliveryStage, NotificationSubjectKind } from "@climate-twin/contracts";
 import {
   apnsNotificationSnapshot,
   alertNotificationBindings,
@@ -21,7 +14,7 @@ import {
   policyFromJson,
   policyJson,
 } from "../../notification-policy.js";
-import { AlertTransition, DueAlertCondition, NotificationChannel, NotificationOutboxItem, boundedCollectionLimit } from "../support/01-json-value-to-area-equipment-row.js";
+import { AlertTransition, DueAlertCondition, NotificationOutboxItem, boundedCollectionLimit } from "../support/01-json-value-to-area-equipment-row.js";
 import { AlertEventRow, AlertRuleRow, MeasurementSampleRow } from "../support/02-equipment-attachment-row-to-sensor-data-gap-state.js";
 import { eventFromRow, measurementSampleFromRow, ruleFromRow } from "../support/04-canonical-json-value-to-action-playbook-from-row.js";
 import { registerDatabaseMethods } from "../core.js";

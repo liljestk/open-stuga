@@ -1,15 +1,7 @@
-import type {
-  AnalyticsPoint,
-  AnalyticsQueryResponse,
-  House,
-  MeasurementDefinition,
-  OpeningStateObservation,
-  OutdoorTemperatureSample,
-  Sensor,
-} from "@climate-twin/contracts";
+import type { AnalyticsPoint, AnalyticsQueryResponse, HomePerformanceEnergy, HomePerformanceMaintenance, HomePerformanceOpeningEffectiveness, HomePerformanceRecovery, House, MeasurementDefinition, OpeningStateObservation, OutdoorTemperatureSample, Sensor } from "@climate-twin/contracts";
 import { DEFAULT_HEATING_BASE_TEMPERATURE_C, heatingBaseTemperature } from "../house-parameters.js";
 import { dailyEnergy, heatingRegression, slopeComparison, studentT95 } from "./energy-index.js";
-import { ENERGY_MIN_BUCKET_COVERAGE, HOUR_MS, HomePerformanceEnergy, HomePerformanceInput, HomePerformanceMaintenance, HomePerformanceOpeningEffectiveness, HomePerformanceRecovery, RECOVERY_MAX_POINT_GAP_MS, RECOVERY_MIN_BUCKET_COVERAGE, RecoveryEvidence, ValuePoint, contiguousRecoveryEvidence, median, resolutionHours, round, seriesFor } from "./model.js";
+import { ENERGY_MIN_BUCKET_COVERAGE, HOUR_MS, HomePerformanceInput, RECOVERY_MAX_POINT_GAP_MS, RECOVERY_MIN_BUCKET_COVERAGE, RecoveryEvidence, ValuePoint, contiguousRecoveryEvidence, median, resolutionHours, round, seriesFor } from "./model.js";
 import { averageWattsToKwh, minimum as kernelMinimum } from "@climate-twin/analytics-kernel";
 import { deriveOpeningActivity } from "../temporal/opening-intervals.js";
 import { compareCodeUnits } from "../../text-order.js";

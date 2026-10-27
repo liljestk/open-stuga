@@ -15,11 +15,8 @@ export type { StugubyOutboxItem } from "./store/support/01-stuguby-row-to-event-
 export type { StugubyLocalMember } from "./store/support/01-stuguby-row-to-event-blob-digests.js";
 export type { StugubyLocalInvitation } from "./store/support/01-stuguby-row-to-event-blob-digests.js";
 export type { StugubyEventLogPage } from "./store/support/01-stuguby-row-to-event-blob-digests.js";
-export type { StugubyPropertyAdoption } from "./store/support/01-stuguby-row-to-event-blob-digests.js";
 export type { StugubyStoredPropertyCommand } from "./store/support/01-stuguby-row-to-event-blob-digests.js";
 export type { StugubyStoredHomeCommand } from "./store/support/01-stuguby-row-to-event-blob-digests.js";
-export type { StugubyHomeProjection } from "./store/support/01-stuguby-row-to-event-blob-digests.js";
-export type { StugubyAuthorityTransfer } from "./store/support/01-stuguby-row-to-event-blob-digests.js";
 export type { StugubyInvitationAdmission } from "./store/support/01-stuguby-row-to-event-blob-digests.js";
 export type { StugubyDeletionReceiptResult } from "./store/support/01-stuguby-row-to-event-blob-digests.js";
 export type { RemoteTelemetryQuery } from "./store/support/01-stuguby-row-to-event-blob-digests.js";

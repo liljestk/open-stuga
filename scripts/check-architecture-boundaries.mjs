@@ -98,11 +98,10 @@ for (const path of await filesBelow(join(root, "apps", "api", "src"))) {
 
 // A type or constant that two workspaces share lives once in
 // @climate-twin/contracts; a hand-copied twin "kept identical" drifts silently.
-const legacyHandCopiedTwins = new Set(["apps/web/src/api/support/part-02.ts"]);
-const keepIdenticalComment = /\bkeep\s+(?:(?:this|these|it|them)\s+)?(?:identical|in\s+sync)\b/iu;
+// "keep identical", "keep these in sync", "keep the two lists identical", ...
+const keepIdenticalComment = /\bkeep\b[^.\n]{0,40}?\b(?:identical|in\s+sync)\b/iu;
 for (const sourceRoot of ["apps", "packages"]) {
   for (const path of await filesBelow(join(root, sourceRoot))) {
-    if (legacyHandCopiedTwins.has(projectPath(path))) continue;
     if (keepIdenticalComment.test(await readFile(path, "utf8"))) {
       report(path, "shared types and constants belong in @climate-twin/contracts, not in a copy kept identical by hand");
     }

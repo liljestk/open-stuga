@@ -97,15 +97,6 @@ export interface StugubyEventLogPage {
   hasMore: boolean;
 }
 
-export interface StugubyPropertyAdoption {
-  stugubyId: string;
-  localPropertyId: string;
-  state: "adopted" | "detached";
-  adoptedAt: string;
-  detachedAt: string | null;
-  lastMaterializedRevision: number;
-}
-
 export interface StugubyStoredPropertyCommand {
   command: StugubyPropertyCommand;
   status: "pending" | "applied" | "conflict" | "cancelled";
@@ -131,36 +122,6 @@ export type ProjectionResourceType =
 
 export type PublicationResourceType =
   | "home" | "floor" | "room" | "wall" | "plan-element" | "sensor" | "note" | "observation";
-
-export interface StugubyHomeProjection {
-  stugubyId: string;
-  authorityNodeId: string;
-  publicationId: string;
-  localHouseId: string;
-  editPolicy: "read-only" | "editable";
-  recoveryMode: "none" | "full";
-  recoveryState: "not-enabled" | "syncing" | "ready" | "incomplete";
-  designatedSuccessorNodeId: string | null;
-  recoverySyncedThrough: string | null;
-  authorityEpoch: number;
-  detachedAt: string | null;
-  updatedAt: string;
-}
-
-export interface StugubyAuthorityTransfer {
-  id: string;
-  stugubyId: string;
-  scope: "property" | "home";
-  resourceId: string;
-  fromNodeId: string;
-  toNodeId: string;
-  fromEpoch: number;
-  toEpoch: number;
-  status: "prepared" | "completed" | "cancelled";
-  snapshotHash: string;
-  requestedAt: string;
-  completedAt: string | null;
-}
 
 export type StugubyInvitationAdmission =
   | {

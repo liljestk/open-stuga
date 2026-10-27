@@ -1,9 +1,5 @@
-import type {
-  Sensor,
-  SecurityAuditEvent,
-} from "@climate-twin/contracts";
+import type { SecurityAuditEvent, Sensor, SensorDataGapCompleteness, SensorDataGapSource, SensorDataGapState } from "@climate-twin/contracts";
 import { SecurityAuditEventRow } from "./01-json-value-to-area-equipment-row.js";
-import { SensorDataGapCompleteness, SensorDataGapSource, SensorDataGapState } from "./02-equipment-attachment-row-to-sensor-data-gap-state.js";
 
 export interface SensorDataGapRow {
   id: number;
@@ -39,16 +35,6 @@ export interface SensorDataGapRecord {
   lastAttemptAt: string | null;
   nextAttemptAt: string | null;
   recoveryError: string | null;
-}
-
-export interface AssetRecord {
-  id: string;
-  houseId: string;
-  name: string;
-  mimeType: string;
-  kind: "floor-plan" | "model-3d" | "other";
-  size: number;
-  createdAt: string;
 }
 
 export class ClimateDataValidationError extends Error {

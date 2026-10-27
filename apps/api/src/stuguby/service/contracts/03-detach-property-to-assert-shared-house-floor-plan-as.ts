@@ -1,10 +1,4 @@
-import type {
-  Floor,
-  House,
-} from "@climate-twin/contracts";
-import {
-  type StugubyPropertyAdoption,
-} from "../../store.js";
+import type { Floor, House, StugubyPropertyAdoption } from "@climate-twin/contracts";
 import "../core.js";
 
 declare module "../core.js" {

@@ -1,27 +1,9 @@
+import type { CoordinateDefaults, DiscoveredLocation } from "@climate-twin/contracts";
 import { SYSTEM_VERSION } from "./version.js";
 
 const GEOCODING_URL = "https://geocoding-api.open-meteo.com/v1/search";
 const FORECAST_URL = "https://api.open-meteo.com/v1/forecast";
 const MAX_RESPONSE_BYTES = 512 * 1024;
-
-export interface DiscoveredLocation {
-  id: string;
-  name: string;
-  label: string;
-  latitude: number;
-  longitude: number;
-  timezone: string;
-  countryCode: string | null;
-  country: string | null;
-  region: string | null;
-  source: "open-meteo-geocoding";
-  confidence: "high" | "medium";
-}
-
-export interface CoordinateDefaults {
-  timezone: string;
-  source: "open-meteo-coordinate";
-}
 
 interface OpenMeteoPlace {
   id?: unknown;

@@ -1,10 +1,8 @@
 import {
   type FormEvent,
 } from "react";
-import type {
-  Sensor,
-} from "@climate-twin/contracts";
-import { type CreateSensorInput, type SensorPatch, errorMessage } from "../../api";
+import type { Sensor, SensorPatch } from "@climate-twin/contracts";
+import { type CreateSensorInput, errorMessage } from "../../api";
 import { confirmAction } from "../../components/ConfirmationProvider";
 import { UNPLACED_TAG, hasRealBinding, normalizedMeasurementEntityIds, roomCenter, rounded, sameMeasurementEntityIds, sensorMeasurementEntityIds, stableRoomId, validationErrors } from "./support";
 import type { AddStep, DraftErrors, SensorDraft } from "./support";

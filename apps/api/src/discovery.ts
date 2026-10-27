@@ -1,12 +1,5 @@
+import type { HomeAssistantDiscoveredInstance } from "@climate-twin/contracts";
 import Bonjour from "bonjour-service";
-
-export interface HomeAssistantDiscoveredInstance {
-  name: string;
-  url: string;
-  host: string;
-  port: number;
-  version: string | null;
-}
 
 export interface HomeAssistantServiceRecord {
   name?: string;

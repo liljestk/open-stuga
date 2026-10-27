@@ -1,14 +1,9 @@
+import type { SystemStorageSettings } from "@climate-twin/contracts";
 import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import {
-  normalizedSystemStorageSettings,
-  SystemStorageError,
-  SystemStorageService,
-  systemStorageRevision,
-  type SystemStorageSettings,
-} from "../src/system-storage.js";
+import { normalizedSystemStorageSettings, SystemStorageError, SystemStorageService, systemStorageRevision } from "../src/system-storage.js";
 
 const managed: SystemStorageSettings = {
   timeseries: { kind: "managed", path: null },

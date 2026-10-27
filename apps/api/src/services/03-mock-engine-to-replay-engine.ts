@@ -1,8 +1,4 @@
-import type {
-  MockScenario,
-  Reading,
-  Sensor,
-} from "@climate-twin/contracts";
+import type { MockScenario, Reading, ReplayState, Sensor } from "@climate-twin/contracts";
 import { hasLocalHouseAuthority } from "@climate-twin/contracts";
 import { type AppConfig } from "../config.js";
 import { ClimateDatabase } from "../db.js";
@@ -121,15 +117,6 @@ export class MockEngine {
     }
     return this.telemetry.ingestBatch(generated);
   }
-}
-
-export interface ReplayState {
-  active: boolean;
-  count: number;
-  emitted: number;
-  speed: number;
-  from: string | null;
-  to: string | null;
 }
 
 export class ReplayEngine {

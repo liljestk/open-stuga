@@ -1,13 +1,10 @@
 import type {
-  GreeDiscoveredDevice,
   House,
   HouseLocation,
   HouseMapPlacement,
   MeasurementSample,
   OutdoorTemperatureSample,
   Sensor,
-  TenantMemberSummary,
-  TuyaDiscoveredDevice,
 } from "@climate-twin/contracts";
 import type {
   StugubyInvitation,
@@ -26,14 +23,7 @@ export interface HouseGeoreferencePatch {
 export type CreateHouseInput = Pick<House, "name" | "timezone" | "floors">
   & Partial<Pick<House, "propertyId" | "location" | "mapPlacement" | "orientationDegrees">>;
 
-export type HousePatch = Partial<Pick<House, "propertyId" | "name" | "timezone" | "floors">> & HouseGeoreferencePatch;
-
 export type CreateSensorInput = Omit<Sensor, "id">;
-
-export type SensorPatch = Partial<Omit<Sensor, "id" | "tpLinkDeviceId" | "tpLinkConnectionId">> & {
-  tpLinkDeviceId?: string | null;
-  tpLinkConnectionId?: string | null;
-};
 
 export interface MaintenanceTaskFilters {
   propertyId?: string;
@@ -67,31 +57,6 @@ export interface OutdoorTemperatureHistoryPage {
   from: string;
   to: string;
   truncated: boolean;
-}
-
-export interface HomeAssistantDiscoveredInstance {
-  name: string;
-  url: string;
-  host: string;
-  port: number;
-  version: string | null;
-}
-
-export interface TpLinkDiscoveredSource {
-  host: string;
-  model: string;
-  alias: string | null;
-  sourceType?: "hub" | "energy-device";
-  deviceId?: string | null;
-  configuredConnectionId?: string;
-}
-
-export interface IntegrationDiscoveryResult {
-  homeAssistant: HomeAssistantDiscoveredInstance[];
-  tpLink: TpLinkDiscoveredSource[];
-  gree?: GreeDiscoveredDevice[];
-  tuya?: TuyaDiscoveredDevice[];
-  warnings: string[];
 }
 
 export type TpLinkHistoryExportProvider = "appium" | "private-cloud";
@@ -178,22 +143,12 @@ export interface LocationSuggestion {
   confidence: "high" | "medium";
 }
 
-export interface CoordinateDefaults {
-  timezone: string;
-  source: "open-meteo-coordinate";
-}
-
 export interface AppleNotesSetupMetadata {
   available?: boolean;
   snapshotPath?: string;
   capturePath?: string;
   limitations?: string[];
   steps?: string[];
-}
-
-export interface TenantMembersResponse {
-  members: TenantMemberSummary[];
-  invitations: TenantMemberSummary[];
 }
 
 export interface StugubyListResponse {
@@ -212,63 +167,6 @@ export interface StugubyLocalInvitation extends StugubyInvitation {
   localLabel: string | null;
 }
 
-export type CloudflareSetupPhase =
-  | "awaiting-approval"
-  | "queued"
-  | "provisioning"
-  | "applying"
-  | "verifying"
-  | "complete"
-  | "failed";
-
-export interface CloudflareSetupOperation {
-  id: string;
-  mode: "remote-ui" | "stuguby-coordinator";
-  hostname: string;
-  phase: CloudflareSetupPhase;
-  requestedAt: string;
-  completedAt: string | null;
-  detail: string | null;
-}
-
-export interface CloudflareSetupStatus {
-  canConfigure: boolean;
-  localConfigureUrl: string;
-  capability: {
-    available: boolean;
-    agentLastSeenAt: string | null;
-    reason: "ready" | "agent-not-connected" | "not-configured" | "agent-upgrade-required";
-  };
-  configuration: {
-    configured: boolean;
-    mode: "remote-ui" | "stuguby-coordinator" | null;
-    hostname: string | null;
-    suggestedZone: string | null;
-    accountIdKnown: boolean;
-    zoneIdKnown: boolean;
-    oauthClientConfigured: boolean;
-    runtimeTokenAvailable: boolean;
-    ownerEmail: string | null;
-  };
-  operation: CloudflareSetupOperation | null;
-}
-
-export interface CloudflareSetupStartInput {
-  mode: "remote-ui" | "stuguby-coordinator";
-  hostname: string;
-  zone: string;
-  ownerEmail: string;
-  accountId: string | null;
-  zoneId: string | null;
-  oauthClientToken: string | null;
-  runtimeToken: string | null;
-}
-
-export interface CloudflareSetupStartResult {
-  operation: CloudflareSetupOperation;
-  authorizationUrl: string;
-}
-
 export interface StugubyInvitationCreated extends StugubyLocalInvitation {
   joinSecret: string;
   joinUrl: string;
@@ -277,13 +175,4 @@ export interface StugubyInvitationCreated extends StugubyLocalInvitation {
 export interface StugubyLocalPublicationCatalog {
   house: { localHouseId: string; publicationId: string; name: string };
   sensors: Array<{ localSensorId: string; sensorPublicationId: string; name: string; metricIds: string[] }>;
-}
-
-export interface StugubyPropertyAdoption {
-  stugubyId: string;
-  localPropertyId: string;
-  state: "adopted" | "detached";
-  adoptedAt: string;
-  detachedAt: string | null;
-  lastMaterializedRevision: number;
 }

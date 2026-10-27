@@ -1,3 +1,4 @@
+import type { SensorPatch } from "@climate-twin/contracts";
 import { useEffect, useState, type FormEvent } from "react";
 import { BatteryMedium, Home } from "lucide-react";
 import { type Floor, type House, type MeasurementDefinition, type MeasurementSample, type Metric, type Reading, type Sensor, type UnitSystem } from "@climate-twin/contracts";
@@ -8,7 +9,6 @@ import { clamp, round, type ClimateState } from "../../../domain";
 import { useI18n, type TranslationKey } from "../../../i18n";
 import { formatMeasurement, measurementLabel, measurementValue } from "../../../measurements";
 import { isEnergyDeviceSensor } from "../../../energyDeviceMap";
-import { type SensorPatch } from "../../../api";
 import { MeasurementGlyph } from "./part-01";
 
 export function sensorSupportsMeasurement(state: ClimateState, sensor: Sensor, metric: Metric): boolean {

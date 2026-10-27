@@ -1,9 +1,6 @@
+import type { IntegrationDiscoveryResult } from "@climate-twin/contracts";
 import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  type IntegrationDiscoveryResult,
-  type TpLinkHistoryExportJob,
-  type TpLinkHistoryExportJobsResponse,
-} from "../../api";
+import { type TpLinkHistoryExportJob, type TpLinkHistoryExportJobsResponse } from "../../api";
 import { useI18n } from "../../i18n";
 import { integrationForHouse } from "../../integrationScope";
 import { dateTime, setupSectionFromPath } from "./support";

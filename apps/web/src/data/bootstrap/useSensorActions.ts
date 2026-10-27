@@ -1,10 +1,7 @@
 import { apiErrorStatus, errorMessage } from "../../api/support/request-error";
 import { useCallback } from "react";
-import type {
-  Point,
-  Sensor,
-} from "@climate-twin/contracts";
-import { api, type CreateSensorInput, type MeasurementHistoryPage, type SensorPatch } from "../../api";
+import type { Point, Sensor, SensorPatch } from "@climate-twin/contracts";
+import { api, type CreateSensorInput, type MeasurementHistoryPage } from "../../api";
 import { useSensorMutations } from "../sensors/sensorMutations";
 import { MAX_SERIES_SAMPLES, replaceMeasurementSeriesWindow, seriesStateKey, settleInBackground, withoutSensorIds } from "./support";
 import type { BufferedSeriesTelemetry, HistoricalSeriesWindow } from "./support";

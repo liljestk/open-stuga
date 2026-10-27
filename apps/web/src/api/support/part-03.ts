@@ -1,3 +1,4 @@
+import { SYSTEM_UPDATE_WORKFLOW_PHASES } from "@climate-twin/contracts";
 import type {
   AppSession,
   House,
@@ -234,15 +235,7 @@ export function observationResponse(value: ManualObservation | { observation: Ma
   return "observation" in value ? value.observation : value;
 }
 
-const systemUpdateWorkflowPhases = new Set<string>([
-  "preparing", "backup-active", "backup-complete", "host-stage-requested", "host-stage-queueing",
-  "host-staging", "awaiting-restart", "restarting", "host-verifying", "host-complete",
-  "application-queueing", "application-queued", "application-updating", "application-failed",
-  "complete", "failed", "cancelled", "returned", "recovery-needed",
-  // Pre-v2 development aliases remain readable during a rolling local upgrade.
-  "queued", "backing-up", "staging-host", "activating-host", "verifying-host",
-  "updating-application", "verifying-application", "rolling-back-application", "host-returned",
-]);
+const systemUpdateWorkflowPhases: ReadonlySet<string> = new Set(SYSTEM_UPDATE_WORKFLOW_PHASES);
 
 export function subscribeToSystemUpdateEvents(
   onStatus: (status: SystemUpdateLiveStatus) => void,
