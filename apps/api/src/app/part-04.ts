@@ -5,7 +5,6 @@ import type {
   Reading,
   Sensor,
 } from "@climate-twin/contracts";
-import { type AppConfig } from "../config.js";
 import {
   outdoorLocationKey,
   type TelemetryCascadeScope,
@@ -36,11 +35,10 @@ type DeferredContext = {
   spatialLayers: LocalSpatialLayerRuntime | null;
 };
 
-type NormalizedApiConfig = { [Key in keyof AppConfig]-?: Exclude<AppConfig[Key], undefined> };
 
 export function configureApiPart04(context: ReturnType<typeof configureApiPart03>) {
   const deferred = context as typeof context & DeferredContext;
-  const config = context.config as NormalizedApiConfig;
+  const config = context.config;
   const electricityPrices = new ElectricityPriceService(
       context.database,
       context.options.electricityPriceFetcher ?? fetch,

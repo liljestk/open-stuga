@@ -5,7 +5,6 @@ import type {
   MeasurementSample,
   Reading,
 } from "@climate-twin/contracts";
-import { type AppConfig } from "../config.js";
 import { HomeAssistantBridge } from "../home-assistant.js";
 import { mergeTpLinkHistoryRecovery, TpLinkBridge, type TpLinkConnectionUpdate } from "../tp-link.js";
 import { GreeBridge } from "../gree.js";
@@ -63,7 +62,6 @@ type DeferredContext = {
   notifyOpeningStateRecorded: (observation: OpeningStateObservation) => void;
 };
 
-type NormalizedApiConfig = { [Key in keyof AppConfig]-?: Exclude<AppConfig[Key], undefined> };
 
 type PendingTpLinkConnectionUpdate = Omit<TpLinkConnectionUpdate, "previousHost">;
 
@@ -100,7 +98,7 @@ function tpLinkConnectionsConflict(connections: TpLinkConnectionSecret[]): boole
 
 export function configureApiPart03(context: ReturnType<typeof configureApiPart02>) {
   const deferred = context as typeof context & DeferredContext;
-  const config = context.config as NormalizedApiConfig;
+  const config = context.config;
   const timeseries = config.timeseriesEnabled ? context.options.timeseriesStore ?? new TimeseriesStore({
       poolConfig: {
         host: config.timeseriesHost,
@@ -188,7 +186,7 @@ export function configureApiPart03(context: ReturnType<typeof configureApiPart02
       telemetryReader,
       systemStorage: context.systemStorage,
       dataOperations: context.dataOperations,
-      operationsDirectory: config.backupOperationsDirectory,
+      operationsDirectory: config.backupOperationsDirectory ?? null,
     });
   const measurementSnapshotCache = new LruTtlCache<MeasurementSample[]>({
       maxEntries: 64,

@@ -1,13 +1,10 @@
 import { withResponseSignal } from "./response-signal.js";
-import type {
-  MeasurementSample,
-  Property,
-} from "@climate-twin/contracts";
-import { HttpError, boundedQueryInteger, boundedSseWriter, collectionPage, dateValue, localAuthorizationFingerprint, measurementId, parsePropertyInput, parsePropertyPatch, queryList, requestPrincipal, safeInteger, visibleCollectionPage } from "./support/index.js";
+import type { MeasurementSample } from "@climate-twin/contracts";
+import { HttpError, boundedQueryInteger, boundedSseWriter, dateValue, localAuthorizationFingerprint, measurementId, queryList, requestPrincipal, safeInteger } from "./support/index.js";
 import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
 
-
-export function configureApiPart11(context: ApiRouteRegistrationContext) {
+/** v2 raw and bucketed measurement history, per-sensor measurement listings and the measurement event stream. */
+export function registerMeasurementHistoryRoutes(context: ApiRouteRegistrationContext): void {
   context.app.get(`${context.v2Prefix}/measurements/history`, async (request, response) => {
       if (typeof request.query.sensorId !== "string") throw new HttpError(400, "INVALID_FIELD", "sensorId is required");
       if (!context.database.getSensor(request.query.sensorId) || !context.visibility(response).sensor(request.query.sensorId)) {
@@ -20,32 +17,16 @@ export function configureApiPart11(context: ApiRouteRegistrationContext) {
       if (Date.parse(from) > Date.parse(to)) throw new HttpError(400, "INVALID_RANGE", "from must be before to");
       const limit = safeInteger(request.query.limit, 20_000, 1, 50_000);
       const bucketSeconds = boundedQueryInteger(request.query.bucketSeconds, "bucketSeconds", 1, 86_400);
-      let before: { timestamp: string; source: string } | undefined;
-      if (typeof request.query.cursor === "string" && request.query.cursor) {
-        if (bucketSeconds !== null) {
-          throw new HttpError(400, "INVALID_CURSOR", "cursor is supported only for raw history");
-        }
-        try {
-          const decoded = JSON.parse(Buffer.from(request.query.cursor, "base64url").toString("utf8")) as unknown;
-          if (!Array.isArray(decoded) || decoded.length !== 2
-            || typeof decoded[0] !== "string" || !Number.isFinite(Date.parse(decoded[0]))
-            || typeof decoded[1] !== "string" || decoded[1].length === 0 || decoded[1].length > 200) {
-            throw new Error();
-          }
-          before = { timestamp: new Date(decoded[0]).toISOString(), source: decoded[1] };
-        } catch {
-          throw new HttpError(400, "INVALID_CURSOR", "cursor is invalid");
-        }
+      const cursor = typeof request.query.cursor === "string" && request.query.cursor ? request.query.cursor : null;
+      if (cursor !== null && bucketSeconds !== null) {
+        throw new HttpError(400, "INVALID_CURSOR", "cursor is supported only for raw history");
       }
+      const before = cursor === null ? undefined : rawHistoryCursor(cursor);
       // Bucketed reads cover the whole requested window regardless of length:
       // the hybrid reader tiles local SQLite work into day-scale statements and
       // lets the archive aggregate long histories, so the response is bounded
       // by buckets rather than by a raw-row cap that silently drops coverage.
-      const abortController = new AbortController();
-      const abortOnClose = () => abortController.abort(new DOMException("Client disconnected", "AbortError"));
-      response.once("close", abortOnClose);
-      if (response.destroyed) abortOnClose();
-      const readSamples = (await context.analyticsWorkLimiter.run(
+      const readSamples = (await withResponseSignal(response, (signal) => context.analyticsWorkLimiter.run(
         "measurement-history",
         () => bucketSeconds === null
           ? context.telemetryReader.measurementHistory({
@@ -54,7 +35,7 @@ export function configureApiPart11(context: ApiRouteRegistrationContext) {
               from,
               to,
               limit: limit + 1,
-              signal: abortController.signal,
+              signal,
               ...(before ? { before } : {}),
             })
           : context.telemetryReader.measurementHistoryBucketed({
@@ -64,10 +45,10 @@ export function configureApiPart11(context: ApiRouteRegistrationContext) {
               to,
               bucketSeconds,
               limit: limit + 1,
-              signal: abortController.signal,
+              signal,
             }),
-        abortController.signal,
-      ).finally(() => response.off("close", abortOnClose))).records;
+        signal,
+      ))).records;
       const truncated = readSamples.length > limit;
       const samples = truncated ? readSamples.slice(-limit) : readSamples;
       const nextCursor = bucketSeconds === null && truncated && samples[0]
@@ -137,63 +118,20 @@ export function configureApiPart11(context: ApiRouteRegistrationContext) {
         releaseStream,
       );
     });
-  context.app.get(`${context.prefix}/properties`, (request, response) => {
-      const page = collectionPage(request.query);
-      const access = context.visibility(response);
-      const properties = visibleCollectionPage(
-        (limit, offset) => context.database.listProperties(limit, offset),
-        (property) => access.property(property) !== null,
-        page,
-      ).map((property) => access.property(property) as Property);
-      response.json({ properties });
-    });
-  context.app.post(`${context.prefix}/properties`, (request, response) => {
-      const property = context.database.createProperty(parsePropertyInput(request.body));
-      context.notifySpatial((runtime) => runtime.scheduler.enqueueScope(
-        { kind: "property", id: property.id },
-        new Date().toISOString(),
-        "property-context-changed",
-        true,
-      ));
-      response.status(201).json({ property });
-    });
-  context.app.get(`${context.prefix}/properties/:id`, (request, response) => {
-      const candidate = context.database.getProperty(request.params.id as string);
-      const property = candidate ? context.visibility(response).property(candidate) : null;
-      if (!property) throw new HttpError(404, "NOT_FOUND", "Property not found");
-      response.json({ property });
-    });
-  context.app.patch(`${context.prefix}/properties/:id`, (request, response) => {
-      const propertyId = request.params.id as string;
-      context.stuguby.assertPropertyWriteAllowed(propertyId);
-      const patch = parsePropertyPatch(request.body);
-      const property = context.database.transaction(() => {
-        const updated = context.database.updateProperty(propertyId, patch);
-        if (!updated) throw new HttpError(404, "NOT_FOUND", "Property not found");
-        const sharedFields = Object.keys(patch).filter((field) => field !== "defaultHouseId");
-        if (sharedFields.length > 0) {
-          context.stuguby.captureCurrentPropertyEntity(updated.id, "property", updated.id, "upsert", sharedFields);
-        }
-        return updated;
-      });
-      context.notifySpatial((runtime) => runtime.scheduler.enqueueScope(
-        { kind: "property", id: property.id },
-        new Date().toISOString(),
-        "property-context-changed",
-        true,
-      ));
-      response.json({ property });
-    });
-  context.app.delete(`${context.prefix}/properties/:id`, async (request, response) => {
-      const propertyId = request.params.id as string;
-      const property = context.database.getProperty(propertyId);
-      if (property?.stuguby && property.stuguby.syncState !== "detached") {
-        throw new HttpError(409, "STUGBY_DISCONNECT_REQUIRED", "Disconnect the Stuguby Property explicitly before deleting it");
-      }
-      context.requireImmutableTelemetryLineage("property", propertyId);
-      if (!context.database.deleteProperty(propertyId)) throw new HttpError(404, "NOT_FOUND", "Property not found");
-      response.status(204).end();
-    });
-  const extended = Object.assign(context, {  });
-  return extended;
+}
+
+/** Decodes a raw-history page cursor: base64url JSON of [timestamp, source]. */
+function rawHistoryCursor(cursor: string): { timestamp: string; source: string } {
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8"));
+  } catch {
+    throw new HttpError(400, "INVALID_CURSOR", "cursor is invalid");
+  }
+  if (!Array.isArray(decoded) || decoded.length !== 2
+    || typeof decoded[0] !== "string" || !Number.isFinite(Date.parse(decoded[0]))
+    || typeof decoded[1] !== "string" || decoded[1].length === 0 || decoded[1].length > 200) {
+    throw new HttpError(400, "INVALID_CURSOR", "cursor is invalid");
+  }
+  return { timestamp: new Date(decoded[0]).toISOString(), source: decoded[1] };
 }

@@ -1,4 +1,3 @@
-import type { AppConfig } from "../config.js";
 import {
   CloudflareSetupError,
   type CloudflareSetupStartInput,
@@ -15,7 +14,6 @@ import {
 } from "./support/index.js";
 import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
 
-type NormalizedApiConfig = { [Key in keyof AppConfig]-?: Exclude<AppConfig[Key], undefined> };
 
 export type CloudflareSetupRouteContext = Pick<
   ApiRouteRegistrationContext,
@@ -23,7 +21,7 @@ export type CloudflareSetupRouteContext = Pick<
 >;
 
 export function registerCloudflareSetupRoutes(context: CloudflareSetupRouteContext): void {
-  const config = context.config as NormalizedApiConfig;
+  const config = context.config;
   context.app.get(`${context.prefix}/cloudflare/setup`, requireWorkspaceAdmin, (request, response) => {
     const status = context.cloudflareSetup.status();
     const principal = requestPrincipal(response);

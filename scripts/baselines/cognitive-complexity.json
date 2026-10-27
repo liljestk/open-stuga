@@ -1,7 +1,7 @@
 {
   "rule": "sonarjs/cognitive-complexity (S3776)",
   "threshold": 15,
-  "functions": 319,
+  "functions": 309,
   "files": {
     "apps/api/src/analytics-rollup.ts": [23],
     "apps/api/src/analytics.ts": [74, 18],
@@ -24,14 +24,6 @@
     "apps/api/src/app/part-02.ts": [30],
     "apps/api/src/app/part-03.ts": [29, 23],
     "apps/api/src/app/part-06.ts": [50],
-    "apps/api/src/app/part-11.ts": [16],
-    "apps/api/src/app/part-15.ts": [28],
-    "apps/api/src/app/part-16.ts": [20],
-    "apps/api/src/app/part-17.ts": [18, 17],
-    "apps/api/src/app/part-18.ts": [22, 19],
-    "apps/api/src/app/part-20.ts": [19],
-    "apps/api/src/app/part-24.ts": [78],
-    "apps/api/src/app/part-27.ts": [27],
     "apps/api/src/app/support/part-03.ts": [19, 17, 17],
     "apps/api/src/app/support/part-07.ts": [24, 21],
     "apps/api/src/app/support/part-08.ts": [32],

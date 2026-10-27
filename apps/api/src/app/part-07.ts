@@ -2,7 +2,6 @@ import { type NextFunction, type Request, type Response } from "express";
 import type {
   AppSession,
 } from "@climate-twin/contracts";
-import { type AppConfig } from "../config.js";
 import { openApiV1Document, openApiV2Document } from "../openapi.js";
 import { SYSTEM_VERSION } from "../version.js";
 import { registerStugubyLocalRoutes } from "../stuguby/routes.js";
@@ -11,10 +10,9 @@ import type { LocalRequestPrincipal } from "./support/index.js";
 import { configureApiPart06 } from "./part-06.js";
 
 
-type NormalizedApiConfig = { [Key in keyof AppConfig]-?: Exclude<AppConfig[Key], undefined> };
 
 export function configureApiPart07(context: ReturnType<typeof configureApiPart06>) {
-  const config = context.config as NormalizedApiConfig;
+  const config = context.config;
   context.app.use((request, response, next) => {
       // Authentication endpoints were parsed above because their credentials are
       // themselves needed for authentication and abuse limiting. Everything else

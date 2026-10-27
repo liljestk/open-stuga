@@ -1,99 +1,13 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import type {
-  AppleNotesMaintenanceCaptureResult,
-} from "@climate-twin/contracts";
-import { type AppConfig } from "../config.js";
-import {
-  ClimateDatabase,
-  ClimateDataValidationError,
-} from "../db.js";
-import {
-  updateIntegrationSecrets,
-  type AppleNotesGrantSecret,
-} from "../integration-secrets.js";
-import { TelegramServiceError } from "../telegram.js";
-import { HttpError, appleNotesCaptureInput, appleNotesCaptureMatches, appleNotesGrant, appleNotesGrantSummary, appleNotesSnapshot, bodyObject, credentialString, homeAssistantUrl, refreshAppleNotesStatus, requestPrincipal, requiredString } from "./support/index.js";
-import { configureApiPart21 } from "./part-21.js";
+import type { AppleNotesMaintenanceCaptureResult } from "@climate-twin/contracts";
+import { ClimateDatabase, ClimateDataValidationError } from "../db.js";
+import { updateIntegrationSecrets, type AppleNotesGrantSecret } from "../integration-secrets.js";
+import { HttpError, appleNotesCaptureInput, appleNotesCaptureMatches, appleNotesGrant, appleNotesGrantSummary, appleNotesSnapshot, bodyObject, refreshAppleNotesStatus, requestPrincipal, requiredString } from "./support/index.js";
+import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
 
-
-type NormalizedApiConfig = { [Key in keyof AppConfig]-?: Exclude<AppConfig[Key], undefined> };
-
-export function configureApiPart22(context: ReturnType<typeof configureApiPart21>) {
-  const config = context.config as NormalizedApiConfig;
-  context.app.post(`${context.prefix}/integrations/telegram/test`, async (_request, response) => {
-      if (!config.telegramBotToken || !config.telegramChatId) {
-        throw new HttpError(409, "TELEGRAM_NOT_CONFIGURED", "Configure a Telegram bot and private chat before sending a test message");
-      }
-      const botToken = config.telegramBotToken;
-      const chatId = config.telegramChatId;
-      const telegramStatus = context.status.value.telegram!;
-      try {
-        const identity = await context.telegram.verify(botToken, chatId);
-        context.integrationMetadata.saveTelegramIdentity({
-          botUsername: identity.botUsername,
-          chatLabel: identity.chatLabel,
-          reason: "identity-refreshed",
-        });
-        await context.telegram.sendTest(botToken, chatId);
-        telegramStatus.connected = true;
-        telegramStatus.botUsername = identity.botUsername;
-        telegramStatus.chatLabel = identity.chatLabel;
-        telegramStatus.lastDeliveryAt = new Date().toISOString();
-        telegramStatus.error = null;
-        context.status.changed();
-        response.json({ ok: true, message: "The Telegram test message was delivered." });
-      } catch (error) {
-        telegramStatus.connected = false;
-        telegramStatus.error = error instanceof TelegramServiceError ? error.message : "Telegram test delivery failed";
-        context.status.changed();
-        throw error;
-      }
-    });
-  context.app.delete(`${context.prefix}/integrations/telegram/config`, (_request, response) => {
-      context.telegramConfigurationGeneration += 1;
-      context.notificationOutbox.fenceTelegramConfigurationChange();
-      updateIntegrationSecrets(config.integrationSecretsFile, { telegram: null });
-      context.integrationMetadata.retireTelegram();
-      config.telegramBotToken = null;
-      config.telegramChatId = null;
-      context.telegramDeliveryGeneration += 1;
-      const telegramStatus = context.status.value.telegram!;
-      telegramStatus.configured = false;
-      telegramStatus.connected = false;
-      telegramStatus.botUsername = null;
-      telegramStatus.chatLabel = null;
-      telegramStatus.lastDeliveryAt = null;
-      telegramStatus.error = null;
-      context.status.changed();
-      context.recordSecurityAudit(requestPrincipal(response), {
-        eventType: "integration.credentials.revoked",
-        subjectType: "integration",
-        subjectId: "telegram",
-        details: { integration: "telegram" },
-      });
-      response.json({ ok: true, integration: structuredClone(context.status.value) });
-    });
-  context.app.get(`${context.prefix}/integrations/telegram/setup`, (_request, response) => response.json({
-      available: true,
-      configured: context.status.value.telegram!.configured,
-      privateChatsOnly: true,
-      steps: [
-        "Open @BotFather in Telegram, create a bot, and copy its bot token.",
-        "Open the new bot from the intended private Telegram account and send /start.",
-        "Enter the bot token in Stugu, discover private chats, select the recipient, and save.",
-        "Send a test message, then enable Telegram on each alert rule that should notify this chat.",
-      ],
-      privacy: [
-        "The bot token is write-only through the API and is stored in the protected local integration secrets file, never SQLite.",
-        "Alert messages contain only the house and sensor labels, rule, metric, value, threshold, severity, and time; Telegram content protection is enabled.",
-        "Mock and replay data never trigger Telegram delivery. Informational alerts are delivered silently.",
-      ],
-      limitations: [
-        "Only one private chat can be configured in this local Stugu instance.",
-        "Groups, channels, topics, attachments, and Telegram account credentials are not supported.",
-        "Telegram has no idempotency key for Bot API sends. Durable retries are at-least-once, so an ambiguous crash or network failure can produce a duplicate alert.",
-      ],
-    }));
+/** Apple Notes Shortcut grants, setup, snapshots and captures. */
+export function registerAppleNotesRoutes(context: ApiRouteRegistrationContext): void {
+  const config = context.config;
   context.app.use(`${context.prefix}/integrations/apple-notes`, (_request, response, next) => {
       response.setHeader("cache-control", "no-store");
       next();
@@ -211,13 +125,4 @@ export function configureApiPart22(context: ReturnType<typeof configureApiPart21
       context.status.changed();
       response.status(deduplicated ? 200 : 201).json(result);
     });
-  context.app.post(`${context.prefix}/integrations/home-assistant/test-draft`, async (request, response) => {
-      response.setHeader("cache-control", "no-store");
-      const body = bodyObject(request.body);
-      const url = homeAssistantUrl(credentialString(body, "url", 2_048, true));
-      const token = credentialString(body, "token", 8_192);
-      response.json(await context.homeAssistantCredentialTester(url, token));
-    });
-  const extended = Object.assign(context, {  });
-  return extended;
 }

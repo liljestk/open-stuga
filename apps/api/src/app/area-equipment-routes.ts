@@ -1,8 +1,52 @@
-import { HttpError, assertEquipmentAttachmentMediaType, collectionPage, equipmentAttachmentData, equipmentAttachmentDisposition, optionalResourceQuery, parseAreaEquipmentPatch, parseEquipmentAttachmentUpload, parseEquipmentLinkInput, parseEquipmentLinkPatch, parsePropertyNoteInput, visibleCollectionPage } from "./support/index.js";
-import { configureApiPart12 } from "./part-12.js";
+import { HttpError, collectionPage, optionalResourceQuery, parseAreaEquipmentInput, visibleCollectionPage, assertEquipmentAttachmentMediaType, equipmentAttachmentData, equipmentAttachmentDisposition, parseAreaEquipmentPatch, parseEquipmentAttachmentUpload, parseEquipmentLinkInput, parseEquipmentLinkPatch } from "./support/index.js";
+import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
 
-
-export function configureApiPart13(context: ReturnType<typeof configureApiPart12>) {
+/** Area equipment, its attachments and its links to sensors and houses. */
+export function registerAreaEquipmentRoutes(context: ApiRouteRegistrationContext): void {
+  context.app.get(`${context.prefix}/area-equipment`, (request, response) => {
+      const propertyId = optionalResourceQuery(request.query.propertyId, "propertyId");
+      const areaId = optionalResourceQuery(request.query.areaId, "areaId");
+      const houseId = optionalResourceQuery(request.query.houseId, "houseId");
+      const page = collectionPage(request.query);
+      const access = context.visibility(response);
+      response.json({
+        equipment: visibleCollectionPage(
+          (limit, offset) => context.database.listAreaEquipment({
+            ...(propertyId ? { propertyId } : {}),
+            ...(areaId ? { areaId } : {}),
+            ...(houseId ? { houseId } : {}),
+            limit,
+            offset,
+          }),
+          (equipment) => access.equipment(equipment),
+          page,
+        ),
+      });
+    });
+  context.app.post(`${context.prefix}/area-equipment`, (request, response) => {
+      const input = parseAreaEquipmentInput(request.body);
+      const area = input.areaId ? context.database.getPropertyArea(input.areaId) : null;
+      const house = input.houseId ? context.database.getHouse(input.houseId) : null;
+      const propertyId = area?.propertyId ?? house?.propertyId ?? input.propertyId;
+      if (propertyId) context.stuguby.assertPropertyWriteAllowed(propertyId);
+      const equipment = context.database.transaction(() => {
+        const created = context.database.createAreaEquipment(input);
+        context.stuguby.captureCurrentPropertyEntity(created.propertyId, "equipment", created.id, "upsert");
+        return created;
+      });
+      context.notifySpatial((runtime) => runtime.scheduler.enqueueScope(
+        { kind: "property", id: equipment.propertyId },
+        new Date().toISOString(),
+        "property-context-changed",
+        true,
+      ));
+      response.status(201).json({ equipment });
+    });
+  context.app.get(`${context.prefix}/area-equipment/:id`, (request, response) => {
+      const equipment = context.database.getAreaEquipment(request.params.id as string);
+      if (!equipment || !context.visibility(response).equipment(equipment)) throw new HttpError(404, "NOT_FOUND", "Area equipment not found");
+      response.json({ equipment });
+    });
   context.app.patch(`${context.prefix}/area-equipment/:id`, (request, response) => {
       const equipmentId = request.params.id as string;
       const previous = context.database.getAreaEquipment(equipmentId);
@@ -164,46 +208,4 @@ export function configureApiPart13(context: ReturnType<typeof configureApiPart12
       }
       response.status(204).end();
     });
-  context.app.get(`${context.prefix}/property-notes`, (request, response) => {
-      const propertyId = optionalResourceQuery(request.query.propertyId, "propertyId");
-      const houseId = optionalResourceQuery(request.query.houseId, "houseId");
-      const areaId = optionalResourceQuery(request.query.areaId, "areaId");
-      const equipmentId = optionalResourceQuery(request.query.equipmentId, "equipmentId");
-      const page = collectionPage(request.query);
-      const access = context.visibility(response);
-      response.json({
-        notes: visibleCollectionPage(
-          (limit, offset) => context.database.listPropertyNotes({
-            ...(propertyId ? { propertyId } : {}),
-            ...(houseId ? { houseId } : {}),
-            ...(areaId ? { areaId } : {}),
-            ...(equipmentId ? { equipmentId } : {}),
-            limit,
-            offset,
-          }),
-          (note) => access.note(note),
-          page,
-        ),
-      });
-    });
-  context.app.post(`${context.prefix}/property-notes`, (request, response) => {
-      const input = parsePropertyNoteInput(request.body);
-      if (input.houseId) context.stuguby.assertHouseWriteAllowed(input.houseId);
-      else context.stuguby.assertPropertyWriteAllowed(input.propertyId);
-      const note = context.database.transaction(() => {
-        const created = context.database.createPropertyNote(input);
-        const sharedHouse = created.houseId ? context.database.getHouse(created.houseId)?.stuguby : null;
-        if (created.houseId && sharedHouse && sharedHouse.syncState !== "detached") context.stuguby.captureHomeMutation(created.houseId);
-        else context.stuguby.captureCurrentPropertyEntity(created.propertyId, "note", created.id, "upsert");
-        return created;
-      });
-      response.status(201).json({ note });
-    });
-  context.app.get(`${context.prefix}/property-notes/:id`, (request, response) => {
-      const note = context.database.getPropertyNote(request.params.id as string);
-      if (!note || !context.visibility(response).note(note)) throw new HttpError(404, "NOT_FOUND", "Property note not found");
-      response.json({ note });
-    });
-  const extended = Object.assign(context, {  });
-  return extended;
 }

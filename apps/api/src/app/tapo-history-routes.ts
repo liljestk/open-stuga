@@ -1,42 +1,11 @@
-import { type AppConfig } from "../config.js";
-import {
-  TAPO_CANARY_APPROVAL_MAX_AGE_MS,
-  TapoHistoryCanaryError,
-} from "../tapo-history-export.js";
+import { TAPO_CANARY_APPROVAL_MAX_AGE_MS, TapoHistoryCanaryError } from "../tapo-history-export.js";
 import { HttpError, bodyObject, enumValue, publicTapoHistoryExportJob, rejectUnknownFields, requireWorkspaceAdmin, requiredString, workerTapoHistoryExportJob } from "./support/index.js";
-import { configureApiPart25 } from "./part-25.js";
+import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
 
-
-type NormalizedApiConfig = { [Key in keyof AppConfig]-?: Exclude<AppConfig[Key], undefined> };
-
-export function configureApiPart26(context: ReturnType<typeof configureApiPart25>) {
-  const config = context.config as NormalizedApiConfig;
+/** Tapo history export canary, backfill and jobs, plus the internal worker mailbox. */
+export function registerTapoHistoryRoutes(context: ApiRouteRegistrationContext): void {
+  const config = context.config;
   const sensorGapRecovery = context.sensorGapRecovery!;
-  context.app.get(`${context.prefix}/integrations/home-assistant/setup`, (request, response) => response.json({
-      configured: context.integrationStatusForHouse(typeof request.query.houseId === "string" ? request.query.houseId : undefined).homeAssistant.configured,
-      steps: [
-        "Create a Home Assistant long-lived access token for a dedicated local user.",
-        "Use the setup page to discover Home Assistant or enter its local URL, then save the token.",
-        "Map each Stugu sensor to legacy climate keys and/or a measurements object keyed by registry id.",
-        "Verify /api/v1/integrations/status reports connected=true.",
-      ],
-      entityMapSchema: {
-        entities: [{
-          sensorId: "sensor-01", temperature: "sensor.living_room_temperature", humidity: "sensor.living_room_humidity",
-          battery: "sensor.living_room_battery", measurements: { co2: "sensor.living_room_co2" },
-        }],
-      },
-      notes: [
-        "All entity keys are optional, but each mapping needs at least one entity.",
-        "Generic string bindings require the exact canonical unit; use {entityId, unit, scale, offset} for explicit conversions such as ppb to ppm.",
-        "Saved credentials are write-only through the API and stored in the protected integration secrets file, outside SQLite.",
-        "HA_URL and HA_TOKEN environment variables remain advanced overrides.",
-        "Saving a real integration permanently disables mock telemetry for this database and purges existing demo samples and mock-derived alert events.",
-      ],
-    }));
-  context.app.get(`${context.prefix}/integrations/tp-link/devices`, (request, response) => response.json({
-      devices: context.tpLink.listDiscoveredDevices(typeof request.query.houseId === "string" ? request.query.houseId : undefined),
-    }));
   context.app.post(`${context.prefix}/integrations/tp-link/history-export/canary`, requireWorkspaceAdmin, (request, response) => {
       const body = bodyObject(request.body);
       rejectUnknownFields(body, new Set(["sensorId", "metric", "from", "to"]), "Tapo history canary");
@@ -197,17 +166,4 @@ export function configureApiPart26(context: ReturnType<typeof configureApiPart25
       if (!job) throw new HttpError(409, "TAPO_EXPORT_LEASE_LOST", "The Tapo export worker lease is no longer active");
       response.json({ job: workerTapoHistoryExportJob(job) });
     });
-  context.app.post(`${context.prefix}/integrations/tp-link/test`, (request, response) => {
-      const houseStatus = context.integrationStatusForHouse(typeof request.query.houseId === "string" ? request.query.houseId : undefined).tpLink;
-      response.json({
-      ok: houseStatus.connected,
-      message: houseStatus.connected
-        ? `TP-Link ${houseStatus.hubModel ?? "energy device"} is connected; ${houseStatus.discoveredDevices} devices discovered and ${houseStatus.mappedDevices} mapped.`
-        : houseStatus.configured
-          ? houseStatus.error ?? "TP-Link credentials are configured, but discovery has not connected yet."
-          : "Use the setup page to discover or enter the hub or energy device, then save the TP-Link account credentials.",
-      });
-    });
-  const extended = Object.assign(context, {  });
-  return extended;
 }

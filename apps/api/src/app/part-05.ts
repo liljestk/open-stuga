@@ -2,7 +2,6 @@ import { type Request, type Response } from "express";
 import type {
   IntegrationStatus,
 } from "@climate-twin/contracts";
-import { type AppConfig } from "../config.js";
 import { SYSTEM_VERSION } from "../version.js";
 import { HttpError, MAX_EVENT_STREAMS_GLOBAL, MAX_EVENT_STREAMS_PER_USER, SAFE_HTTP_METHODS, browserOriginAllowed, normalizedOrigin, requestPrincipal } from "./support/index.js";
 import { configureApiPart04 } from "./part-04.js";
@@ -13,11 +12,10 @@ type DeferredContext = {
   shutdownStarted: boolean;
 };
 
-type NormalizedApiConfig = { [Key in keyof AppConfig]-?: Exclude<AppConfig[Key], undefined> };
 
 export function configureApiPart05(context: ReturnType<typeof configureApiPart04>) {
   const deferred = context as typeof context & DeferredContext;
-  const config = context.config as NormalizedApiConfig;
+  const config = context.config;
   const removeSnapshotMutationWake = context.bus.subscribe((event) => {
       if (event.type === "mutation") context.invalidateSnapshotCaches();
     });

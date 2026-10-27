@@ -2,7 +2,6 @@ import { isIP } from "node:net";
 import type {
   TrackingFeatureFlags,
 } from "@climate-twin/contracts";
-import { type AppConfig } from "../config.js";
 import {
   ClimateDatabase,
   type SecurityAuditEventInput,
@@ -43,18 +42,8 @@ import { AuthAbuseLimiter, HttpError, initializeIntegrationMetadata } from "./su
 import { configureApiPart01 } from "./part-01.js";
 
 
-type NormalizedApiConfig = { [Key in keyof AppConfig]-?: Exclude<AppConfig[Key], undefined> };
-
 export function configureApiPart02(context: ReturnType<typeof configureApiPart01>) {
-  const config = context.config as NormalizedApiConfig;
-  config.timeseriesPassword ??= "";
-  config.timeseriesSslMode ??= "disable";
-  config.timeseriesSslCa ??= null;
-  config.timeseriesPoolMax ??= 6;
-  config.timeseriesConnectTimeoutMs ??= 5_000;
-  config.timeseriesStatementTimeoutMs ??= 15_000;
-  config.timeseriesBatchSize ??= 1_000;
-  config.timeseriesColumnstoreAfterDays ??= 7;
+  const config = context.config;
   if (config.timeseriesRequired && !config.timeseriesEnabled) {
       throw new Error("timeseriesRequired=true requires timeseriesEnabled=true");
     }

@@ -1,5 +1,4 @@
 import express from "express";
-import { type AppConfig } from "../config.js";
 import {
   type LocalAuthSession,
 } from "../local-auth.js";
@@ -17,10 +16,9 @@ import { configureApiPart05 } from "./part-05.js";
 import { roleCanAccessNonGuestConfiguration } from "./access-policy.js";
 
 
-type NormalizedApiConfig = { [Key in keyof AppConfig]-?: Exclude<AppConfig[Key], undefined> };
 
 export function configureApiPart06(context: ReturnType<typeof configureApiPart05>) {
-  const config = context.config as NormalizedApiConfig;
+  const config = context.config;
   context.app.get(cloudflareSetupCallbackPath, async (request, response, next) => {
       try {
         if (!localCloudflareUiRequestAllowed(request, config)) {

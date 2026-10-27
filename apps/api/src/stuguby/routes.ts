@@ -32,7 +32,11 @@ function rawBody(request: Request): Buffer {
 function rawJson(request: Request): unknown {
   const body = rawBody(request);
   if (!body.byteLength) throw new StugubyError(400, "INVALID_BODY", "A JSON request body is required");
-  return JSON.parse(body.toString("utf8")) as unknown;
+  try {
+    return JSON.parse(body.toString("utf8")) as unknown;
+  } catch {
+    throw new StugubyError(400, "INVALID_JSON", "Request body is not valid JSON");
+  }
 }
 
 function stringValue(value: unknown, label: string): string {
