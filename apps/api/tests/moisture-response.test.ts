@@ -136,6 +136,22 @@ describe("moisture response comparison", () => {
     expect(calibration.quality.medianOutdoorVaporPressureHpa).toBeLessThan(9);
   });
 
+  it("recovers the response time from many short heat-pump-off stretches and reports its interval", () => {
+    const series = syntheticSeries("climate", 30, 0.62, 5.4);
+    const start = Date.parse(series.indoor[0]!.timestamp);
+    // A heat pump running 2 h of every 6 leaves only 4-hour passive stretches.
+    const passiveIntervals = Array.from({ length: 32 }, (_, cycle) => ({
+      fromMs: start + (cycle * 6 + 2) * 3_600_000,
+      toMs: start + (cycle * 6 + 6) * 3_600_000,
+    }));
+    const calibration = calibrateMoistureResponse(series.indoor, series.outdoor, undefined, passiveIntervals);
+    expect(calibration.quality.stretchesUsed).toBe(32);
+    expect(Math.abs(calibration.parameters!.responseTimeHours / 30 - 1)).toBeLessThanOrEqual(0.1);
+    expect(calibration.parameters!.outdoorCoupling).toBeCloseTo(0.62, 1);
+    expect(calibration.quality.responseTimeLowHours).toBeLessThanOrEqual(calibration.parameters!.responseTimeHours);
+    expect(calibration.quality.responseTimeHighHours).toBeGreaterThanOrEqual(calibration.parameters!.responseTimeHours);
+  });
+
   it("aggregates room and floor medians while preserving missing room evidence", () => {
     const living = syntheticSeries("living", 36, 0.55);
     const bedroom = syntheticSeries("bedroom", 12, 0.8);

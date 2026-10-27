@@ -131,6 +131,8 @@ function sensorEntry(
       outdoorRangeHpa: calibration.quality.outdoorRangeHpa,
       validationMaeHpa: calibration.quality.validationMaeHpa,
       persistenceMaeHpa: calibration.quality.persistenceMaeHpa,
+      responseTimeLowHours: calibration.quality.responseTimeLowHours,
+      responseTimeHighHours: calibration.quality.responseTimeHighHours,
     },
     warnings: [
       ...calibration.warnings,
@@ -239,6 +241,8 @@ function aggregateEntry(
       outdoorRangeHpa: metricMedian((entry) => entry.quality.outdoorRangeHpa) ?? 0,
       validationMaeHpa: metricMedian((entry) => entry.quality.validationMaeHpa),
       persistenceMaeHpa: metricMedian((entry) => entry.quality.persistenceMaeHpa),
+      responseTimeLowHours: metricMedian((entry) => entry.quality.responseTimeLowHours ?? null),
+      responseTimeHighHours: metricMedian((entry) => entry.quality.responseTimeHighHours ?? null),
     },
     warnings,
   };

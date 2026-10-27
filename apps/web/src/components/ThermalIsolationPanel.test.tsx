@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { SYSTEM_VERSION, type ThermalIsolationEntry, type ThermalIsolationResult } from "@climate-twin/contracts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createDemoState } from "../domain";
@@ -116,7 +116,9 @@ describe("ThermalIsolationPanel", () => {
     expect(screen.getByText("Ground floor")).not.toBeNull();
     expect(screen.getAllByText("Living room").length).toBeGreaterThan(0);
     expect(screen.getByText("Fastest-reacting room")).not.toBeNull();
-    expect(screen.getByRole("table", { name: "Thermal isolation comparison by floor and room" })).not.toBeNull();
+    const comparison = screen.getByRole("table", { name: "Thermal isolation comparison by floor and room" });
+    // Scores carry their 90% interval.
+    expect(within(comparison).getAllByTitle("Score with its 90% interval")[0]!.textContent).toMatch(/^\d+ \(\d+–\d+\)$/);
     await waitFor(() => expect(mocks.run).toHaveBeenCalledTimes(1));
 
     fireEvent.click(screen.getByText("Show sensor-level evidence (1)"));
@@ -181,7 +183,7 @@ describe("ThermalIsolationPanel", () => {
     evidence.quality.durationHours = 17.5;
     mocks.result = limited;
     render(<I18nProvider><ThermalIsolationPanel house={createDemoState().houses[0]!} units="metric" dataMode="real" /></I18nProvider>);
-    expect(screen.getByText("Usable continuous evidence: 17.5 h")).toBeInTheDocument();
+    expect(screen.getByText("Usable heat-pump-off evidence: 17.5 h")).toBeInTheDocument();
     expect(screen.getByText(/Gaps and excluded heat-pump periods can split/)).toBeInTheDocument();
     expect(screen.getByText(/Evidence period:/)).toBeInTheDocument();
   });

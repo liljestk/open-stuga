@@ -1,6 +1,7 @@
 import type { MeasurementSample } from "@climate-twin/contracts";
 import { describe, expect, it } from "vitest";
 import {
+  appendEvidenceRun,
   buildHeatPumpExclusionWindow,
   filterHeatPumpAffectedSamples,
   isPassiveHeatPumpTime,
@@ -38,6 +39,72 @@ function sample(timestamp: string): MeasurementSample {
     quality: "good",
   };
 }
+
+describe("heat-pump evidence runs", () => {
+  const classes = ["off", "confirmed-active", "possible-active", "unknown"] as const;
+
+  /** Seeded generator for reproducible poll sequences. */
+  function generator(seed: number): () => number {
+    let state = seed;
+    return () => {
+      state = (state * 1_103_515_245 + 12_345) % 2_147_483_648;
+      return state / 2_147_483_648;
+    };
+  }
+
+  it.each(Array.from({ length: 40 }, (_, seed) => seed + 1))(
+    "gives the same window from runs as from every poll (sequence %i)",
+    (seed) => {
+      const random = generator(seed);
+      const points: HeatPumpEvidencePoint[] = [];
+      for (const connectionId of ["heat-pump-1", "heat-pump-2"]) {
+        let time = Date.parse(FROM) - 40 * MINUTE_MS;
+        let classification: HeatPumpEvidencePoint["classification"] = "off";
+        while (time < Date.parse(TO) + 10 * MINUTE_MS) {
+          // Mostly steady polling with occasional state changes, blips and outages.
+          if (random() < 0.15) classification = classes[Math.floor(random() * classes.length)]!;
+          const blip = random() < 0.05;
+          points.push({ connectionId, time, classification: blip ? "unknown" : classification });
+          time += random() < 0.04 ? (6 + random() * 20) * MINUTE_MS : (0.5 + random() * 2) * MINUTE_MS;
+        }
+      }
+      const runs = new Map<string, HeatPumpEvidencePoint[]>();
+      for (const point of [...points].sort((left, right) => left.time - right.time)) {
+        const series = runs.get(point.connectionId) ?? [];
+        runs.set(point.connectionId, series);
+        appendEvidenceRun(series, point);
+      }
+      const common = { from: FROM, to: TO, connectionIds: ["heat-pump-1", "heat-pump-2"] };
+      const fromPolls = buildHeatPumpExclusionWindow({ ...common, points });
+      const fromRuns = buildHeatPumpExclusionWindow({ ...common, points: [...runs.values()].flat() });
+      expect(fromRuns).toEqual(fromPolls);
+      expect([...runs.values()].flat().length).toBeLessThan(points.length);
+    },
+  );
+
+  it("reads polls in time order and finds the same passive time as before", () => {
+    const database = new ClimateDatabase(":memory:");
+    try {
+      const insert = database.db.prepare(`INSERT INTO heat_pump_state_history
+        (connection_id, house_id, observed_at, received_at, state_json) VALUES (?, 'house-main', ?, ?, ?)`);
+      // Inserted newest first: the read must not depend on insertion order.
+      for (let minute = 280; minute >= -40; minute -= 1) {
+        const observedAt = new Date(Date.parse(FROM) + minute * MINUTE_MS).toISOString();
+        const running = minute >= 60 && minute < 90;
+        insert.run("heat-pump-1", observedAt, observedAt, JSON.stringify({ available: true, power: running ? 1 : 0, compressorFrequencyHz: running ? 40 : 0 }));
+      }
+      const window = loadHeatPumpExclusionWindow(database, "house-main", FROM, TO, ["heat-pump-1"]);
+      expect(window.summary.truncated).toBe(false);
+      expect(window.summary.confirmedActiveHours).toBe(0.5);
+      expect(window.passiveIntervals).toEqual([
+        { fromMs: Date.parse(FROM), toMs: Date.parse(FROM) + 55 * MINUTE_MS },
+        { fromMs: Date.parse(FROM) + 120 * MINUTE_MS, toMs: Date.parse(TO) },
+      ]);
+    } finally {
+      database.close();
+    }
+  });
+});
 
 describe("heat-pump passive analytics evidence", () => {
   it("keeps an unconfigured Home unchanged", () => {

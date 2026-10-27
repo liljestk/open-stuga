@@ -38,8 +38,14 @@ function climate() {
   return { indoor, outdoor, window, filtered: filterHeatPumpAffectedSamples(indoor, window) };
 }
 
+// The pump runs 18:00–18:15; with 5 min padding before and 30 min after,
+// about 0.8 h is excluded. Both sides count as separate passive stretches,
+// but no fitted step may bridge the exclusion.
+const EXCLUDED_FROM = START + 18 * HOUR - 5 * 60_000;
+const EXCLUDED_TO = START + 18.25 * HOUR + 30 * 60_000;
+
 describe("passive model interval boundaries", () => {
-  it("does not reconnect a pump exclusion into a 36-hour thermal calibration", async () => {
+  it("fits both sides of a pump exclusion without reconnecting them in a thermal calibration", async () => {
     const data = climate();
     expect(data.window.summary.evidenceState).toBe("partial");
     const input = {
@@ -49,18 +55,25 @@ describe("passive model interval boundaries", () => {
       hvacExclusion: data.filtered.summary, passiveIntervals: data.window.passiveIntervals,
     };
     for (const result of [runThermalSimulation(input), await runThermalSimulationAsync(input)]) {
-      expect(result.calibration.status).toBe("insufficient-data");
-      expect(result.calibration.quality.durationHours).toBeLessThan(18);
-      expect(result.calibration.warnings).toContain("CALIBRATION_WINDOW_TOO_SHORT");
+      expect(result.calibration.status).toBe("provisional");
+      expect(result.calibration.quality.stretchesUsed).toBe(2);
+      expect(result.calibration.quality.durationHours).toBeGreaterThan(34.5);
+      expect(result.calibration.quality.durationHours).toBeLessThanOrEqual(36 - (EXCLUDED_TO - EXCLUDED_FROM) / HOUR);
+      expect(result.calibration.warnings).toContain("HVAC_ACTIVE_OR_UNVERIFIED_PERIODS_EXCLUDED");
+      expect(result.points.filter((point) => point.phase === "fit").every((point) => {
+        const time = Date.parse(point.timestamp);
+        return time <= EXCLUDED_FROM || time >= EXCLUDED_TO;
+      })).toBe(true);
     }
   });
 
-  it("does not reconnect a pump exclusion into a 36-hour moisture calibration", () => {
+  it("fits both sides of a pump exclusion without reconnecting them in a moisture calibration", () => {
     const data = climate();
     const result = calibrateMoistureResponse(data.filtered.samples, data.outdoor, undefined, data.window.passiveIntervals);
-    expect(result.status).toBe("insufficient-data");
-    expect(result.quality.durationHours).toBeLessThan(18);
-    expect(result.warnings).toContain("MOISTURE_WINDOW_TOO_SHORT");
+    expect(result.status).not.toBe("insufficient-data");
+    expect(result.quality.stretchesUsed).toBe(2);
+    expect(result.quality.durationHours).toBeGreaterThan(34.5);
+    expect(result.quality.durationHours).toBeLessThanOrEqual(36 - (EXCLUDED_TO - EXCLUDED_FROM) / HOUR);
   });
 
   it("excludes a five-minute average straddling the start of a pump exclusion", () => {
@@ -112,8 +125,9 @@ describe("passive model interval boundaries", () => {
         });
         if (!("entries" in result)) throw new Error("Expected a comparison result");
         const sensor = result.entries.find((entry) => entry.scope.type === "sensor")!;
-        expect(sensor.calibrationStatus).toBe("insufficient-data");
-        expect(sensor.quality.durationHours).toBeLessThan(18);
+        expect(sensor.calibrationStatus).not.toBe("insufficient-data");
+        expect(sensor.quality.durationHours).toBeGreaterThan(34.5);
+        expect(sensor.quality.durationHours).toBeLessThanOrEqual(36 - (EXCLUDED_TO - EXCLUDED_FROM) / HOUR);
         expect(result.methodology.hvacExclusion?.excludedSampleCount).toBeGreaterThan(0);
       } finally {
         db.close();

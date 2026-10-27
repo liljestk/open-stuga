@@ -2,6 +2,16 @@
 
 All notable Stugu releases are recorded here.
 
+## 0.44.0
+
+- Thermal and moisture models now learn from every period the heat pump was off, not just the single longest one. With a heat pump that cycles through the day, rooms that previously stayed "collecting" can now be calibrated. Each stretch must last at least two hours, and together they must cover at least 24 hours.
+- The time constant (and the moisture response time) is now searched continuously from minutes up to 1,000 hours instead of on a fixed grid capped at 240 hours, so well-insulated homes are no longer cut off. A fit at either end of the range is flagged.
+- Both models add a daily cycle for regular daytime gains from sun and occupancy when the data shows one. This keeps those gains from distorting the base estimate.
+- Isolation scores and time constants now come with a real 90% interval from a block bootstrap, shown next to each room and sensor score. The moisture response time reports its interval too.
+- Heat-pump evidence is read in time order and condensed into on/off runs, so long windows no longer hit a fixed 50,000-row limit that could drop arbitrary polls.
+- Thermal and moisture models now share one fitting framework instead of two copies.
+- Upgrade impact: application-only update. Stored nightly thermal-isolation and moisture-response results are recalculated once, because their algorithm version changed. Thermal models report version 1.1.0, with optional `parameters.dailyCycle` and `quality.stretchesUsed`. Moisture quality adds `responseTimeLowHours` and `responseTimeHighHours`. Database, configuration, Compose and host trust are unchanged.
+
 ## 0.43.0
 
 - Electricity contracts are now dated tariff versions. Each version sets the energy price (spot plus margin, or a fixed price that can be flat, day/night or seasonal), an optional transfer charge with the same schedule choices, electricity tax, and retailer and network monthly fees. A new version applies from its start date, so earlier periods keep the terms they were billed with. Edit them under **Property → Electricity → Tariff**.

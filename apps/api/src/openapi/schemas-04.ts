@@ -234,11 +234,11 @@ export const schemasPart04 = {
           required: ["method", "version", "scope", "trainedFrom", "trainedTo", "parameters", "applicability", "sensitivity"],
           properties: {
             method: { const: "first-order-lumped-v1" },
-            version: { const: "1.0.0" },
+            version: { enum: ["1.0.0", "1.1.0"], description: "1.1.0 fits every heat-pump-off stretch, searches the time constant up to 1,000 h, and reports a 90% block-bootstrap interval in sensitivity." },
             scope: { type: "object", required: ["houseId", "sensorIds"], properties: { houseId: { type: "string" }, sensorIds: { type: "array", items: { type: "string" } } } },
             trainedFrom: { type: "string", format: "date-time" },
             trainedTo: { type: "string", format: "date-time" },
-            parameters: { type: "object", required: ["timeConstantHours", "effectiveEquilibriumLiftC"], properties: { timeConstantHours: { type: "number" }, effectiveEquilibriumLiftC: { type: "number" } } },
+            parameters: { type: "object", required: ["timeConstantHours", "effectiveEquilibriumLiftC"], properties: { timeConstantHours: { type: "number" }, effectiveEquilibriumLiftC: { type: "number" }, dailyCycle: { type: "object", required: ["amplitudeC", "peakHourUtc"], properties: { amplitudeC: { type: "number" }, peakHourUtc: { type: "number", minimum: 0, maximum: 24 } }, description: "Daily swing of the equilibrium from sun and occupancy, when the data shows one." } } },
             applicability: { type: "object", additionalProperties: { type: "number" } },
             sensitivity: { type: "object", additionalProperties: { type: "number" } },
           },

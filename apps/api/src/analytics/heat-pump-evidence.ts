@@ -11,7 +11,8 @@ const PADDING_BEFORE_MS = 5 * MINUTE_MS;
 const PADDING_AFTER_MS = 30 * MINUTE_MS;
 const MIN_CLASSIFIED_PERCENT = 90;
 const MIN_USABLE_PERCENT = 50;
-const MAX_HISTORY_ROWS = 50_000;
+/** No integration polls a heat pump faster than this; it bounds a read by the window length. */
+const FASTEST_POLL_MS = 5_000;
 
 type EvidenceClass = "off" | "confirmed-active" | "possible-active" | "unknown";
 
@@ -27,6 +28,11 @@ export interface HeatPumpEvidencePoint {
   connectionId: string;
   time: number;
   classification: EvidenceClass;
+  /**
+   * Last report of a run of identical reports, each within the state gap of
+   * the previous one. A run reaches exactly as far as its reports would.
+   */
+  untilTime?: number;
 }
 
 export interface PassiveInterval {
@@ -164,7 +170,7 @@ function withoutBridgedUnavailabilityBlips(
     const next = points[end];
     const bridged = previous?.classification === "off"
       && next?.classification === "off"
-      && next.time - previous.time <= MAX_STATE_GAP_MS;
+      && next.time - (previous.untilTime ?? previous.time) <= MAX_STATE_GAP_MS;
     if (!bridged) result.push(...points.slice(index, end));
     index = end;
   }
@@ -180,7 +186,7 @@ function pointClassSegments(
   for (let index = 0; index < points.length; index += 1) {
     const point = points[index]!;
     const next = points[index + 1];
-    const end = Math.min(toMs, point.time + MAX_STATE_GAP_MS, next?.time ?? toMs);
+    const end = Math.min(toMs, (point.untilTime ?? point.time) + MAX_STATE_GAP_MS, next?.time ?? toMs);
     const start = Math.max(fromMs, point.time);
     if (end > start) result.push({ fromMs: start, toMs: end, classification: point.classification });
   }
@@ -260,7 +266,8 @@ export function buildHeatPumpExclusionWindow(input: {
   const expandedTo = toMs + PADDING_BEFORE_MS;
   const byConnection = new Map(connectionIds.map((id) => [id, [] as HeatPumpEvidencePoint[]]));
   for (const point of input.points) {
-    if (!Number.isFinite(point.time) || point.time < expandedFrom - MAX_STATE_GAP_MS || point.time > expandedTo) continue;
+    if (!Number.isFinite(point.time) || (point.untilTime ?? point.time) < expandedFrom - MAX_STATE_GAP_MS
+      || point.time > expandedTo) continue;
     const series = byConnection.get(point.connectionId);
     if (series) series.push(point);
   }
@@ -362,6 +369,21 @@ export function buildHeatPumpExclusionWindow(input: {
   };
 }
 
+/**
+ * Adds one time-ordered report to a connection's runs: it extends the last
+ * run when it repeats that classification within the state gap.
+ */
+export function appendEvidenceRun(series: HeatPumpEvidencePoint[], point: HeatPumpEvidencePoint): void {
+  const current = series.at(-1);
+  const currentEnd = current ? current.untilTime ?? current.time : null;
+  if (current && currentEnd !== null && current.classification === point.classification
+    && point.time >= currentEnd && point.time - currentEnd <= MAX_STATE_GAP_MS) {
+    current.untilTime = point.time;
+  } else {
+    series.push({ ...point, untilTime: point.time });
+  }
+}
+
 export function loadHeatPumpExclusionWindow(
   database: ClimateDatabase,
   houseId: string,
@@ -371,8 +393,13 @@ export function loadHeatPumpExclusionWindow(
 ): HeatPumpExclusionWindow {
   const fromMs = finiteTime(from, "from");
   const toMs = finiteTime(to, "to");
-  const queryFrom = new Date(fromMs - PADDING_AFTER_MS - MAX_STATE_GAP_MS).toISOString();
-  const queryTo = new Date(toMs + PADDING_BEFORE_MS).toISOString();
+  const queryFromMs = fromMs - PADDING_AFTER_MS - MAX_STATE_GAP_MS;
+  const queryToMs = toMs + PADDING_BEFORE_MS;
+  // Polls are stored as they arrive, so read them in time order and keep only
+  // runs of identical classifications. Memory follows state changes, not the
+  // poll rate, and the scan is bounded by the fastest plausible polling.
+  const maximumRows = Math.ceil((queryToMs - queryFromMs) / FASTEST_POLL_MS + 1)
+    * Math.max(1, configuredConnectionIds.length) * 2;
   const rows = database.db.prepare(`
     SELECT connection_id, observed_at,
       CAST(json_extract(state_json, '$.available') AS INTEGER) AS available,
@@ -380,24 +407,29 @@ export function loadHeatPumpExclusionWindow(
       CAST(json_extract(state_json, '$.compressorFrequencyHz') AS REAL) AS compressor_frequency_hz
     FROM heat_pump_state_history
     WHERE house_id = ? AND observed_at >= ? AND observed_at <= ?
-    LIMIT ?
-  `).all(houseId, queryFrom, queryTo, MAX_HISTORY_ROWS + 1) as unknown as EvidenceRow[];
-  const truncated = rows.length > MAX_HISTORY_ROWS;
-  const bounded = truncated ? rows.slice(0, MAX_HISTORY_ROWS) : rows;
-  const connectionIds = [
-    ...configuredConnectionIds,
-    ...bounded.map((row) => row.connection_id),
-  ];
+    ORDER BY observed_at, connection_id
+  `).iterate(houseId, new Date(queryFromMs).toISOString(), new Date(queryToMs).toISOString()) as Iterable<EvidenceRow>;
+  const runs = new Map<string, HeatPumpEvidencePoint[]>();
+  let rowCount = 0;
+  let truncated = false;
+  for (const row of rows) {
+    rowCount += 1;
+    if (rowCount > maximumRows) {
+      truncated = true;
+      break;
+    }
+    const time = Date.parse(row.observed_at);
+    if (!Number.isFinite(time)) continue;
+    const series = runs.get(row.connection_id) ?? [];
+    if (!runs.has(row.connection_id)) runs.set(row.connection_id, series);
+    appendEvidenceRun(series, { connectionId: row.connection_id, time, classification: classify(row) });
+  }
   return buildHeatPumpExclusionWindow({
     from,
     to,
-    connectionIds,
+    connectionIds: [...configuredConnectionIds, ...runs.keys()],
     configuredConnectionIds,
-    points: bounded.map((row) => ({
-      connectionId: row.connection_id,
-      time: Date.parse(row.observed_at),
-      classification: classify(row),
-    })),
+    points: [...runs.values()].flat(),
     truncated,
   });
 }

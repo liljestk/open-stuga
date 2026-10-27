@@ -1,6 +1,6 @@
 {
   "name": "@climate-twin/web",
-  "version": "0.43.0",
+  "version": "0.44.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -13,9 +13,9 @@
     "typecheck": "tsc -b --pretty false"
   },
   "dependencies": {
-    "@climate-twin/contracts": "0.43.0",
-    "@climate-twin/spatial-layers": "0.43.0",
-    "@climate-twin/stuguby-protocol": "0.43.0",
+    "@climate-twin/contracts": "0.44.0",
+    "@climate-twin/spatial-layers": "0.44.0",
+    "@climate-twin/stuguby-protocol": "0.44.0",
     "@fontsource/dm-sans": "^5.3.0",
     "@fontsource/manrope": "^5.3.0",
     "@tanstack/react-query": "5.101.4",

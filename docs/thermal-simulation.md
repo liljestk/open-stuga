@@ -41,13 +41,33 @@ from provisional solely on duration. The engine:
   SQLite before fitting, bounding synchronous work and chart output;
 - linearly aligns timestamped outdoor observations only across gaps of at most
   two hours;
-- selects the longest continuous usable span, so disconnected fragments cannot
-  fake the 24-hour readiness gate;
+- fits every heat-pump-off stretch of at least two hours, so a cycling heat
+  pump still leaves enough evidence; each stretch is simulated from its own
+  first reading and the 24-hour gate counts their total length;
 - accepts irregular canonical intervals from five minutes to two hours;
 - uses chronological training/tuning/untouched-validation partitions and
-  robust fitting;
+  robust (iteratively reweighted) fitting;
+- searches the time constant continuously on a log scale from 2 to 1,000
+  hours and warns with `TIME_CONSTANT_AT_SEARCH_LIMIT` when the best fit is at
+  either end;
+- adds a daily (24-hour) cycle term for sun and occupancy when it lowers the
+  selection error by at least 2%, so the constant lift no longer absorbs it;
+- reports a 90% moving-block bootstrap interval (6-hour blocks, 200 resamples,
+  seeded by the data so it is reproducible) for the time constant, and the
+  lift refitted at its ends;
 - compares validation error with a persistence baseline;
-- reports weak parameter identification and out-of-range scenarios.
+- reports weak parameter identification (an interval wider than 4×) and
+  out-of-range scenarios.
+
+The moisture-response model uses the same fitting framework (response time from
+0.5 to 1,000 hours, outdoor coupling and offset, optional daily cycle) and
+reports its response-time interval in `quality.responseTimeLowHours` and
+`quality.responseTimeHighHours`.
+
+Heat-pump evidence is read in time order and collapsed into runs of identical
+states, so a long window costs memory per state change rather than per poll.
+The read is bounded by the fastest plausible poll rate instead of a fixed row
+count.
 
 Until the gates are met, the endpoint returns an `insufficient-data` result
 with counts and reason codes. It never substitutes the current outdoor value
@@ -101,7 +121,8 @@ an outdoor-temperature step under the model assumptions. Higher means slower
 weather response. It is accompanied by the effective time constant, the 50%
 response time (`tau * ln(2)`), the modeled 24-hour outdoor response, validation
 skill relative to last-value persistence, synchronized sensor temperature
-spread, confidence, and sensitivity bounds.
+spread, confidence, and the score's 90% interval (from the time-constant
+interval).
 
 Sensor scores are combined with medians: sensor → room, room → floor, and floor
 → house. This prevents one densely instrumented room from dominating a floor or

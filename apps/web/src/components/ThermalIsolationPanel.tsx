@@ -50,8 +50,15 @@ function temperatureSpread(value: number | null, locale: string, units: UnitSyst
   return `${numeric(converted, locale, 2)} ${units === "imperial" ? "°F" : "°C"}`;
 }
 
-function scoreLabel(entry: ThermalIsolationEntry, locale: string): string {
-  return entry.score === null ? "—" : new Intl.NumberFormat(locale, { maximumFractionDigits: 0 }).format(entry.score);
+/** With `t`, the score carries its 90% bootstrap interval when the bounds differ after rounding. */
+function scoreLabel(entry: ThermalIsolationEntry, locale: string, t?: ReturnType<typeof useI18n>["t"]): string {
+  if (entry.score === null) return "—";
+  const format = new Intl.NumberFormat(locale, { maximumFractionDigits: 0 });
+  const { scoreLow, scoreHigh } = entry.quality;
+  const score = format.format(entry.score);
+  return t && scoreLow !== null && scoreHigh !== null && format.format(scoreLow) !== format.format(scoreHigh)
+    ? t("isolation.scoreInterval", { score, low: format.format(scoreLow), high: format.format(scoreHigh) })
+    : score;
 }
 
 function evidenceReason(entry: ThermalIsolationEntry): TranslationKey {
@@ -117,7 +124,7 @@ function ComparisonRows({
       </tr></thead>
       <tbody>{rows.map((entry) => <tr key={entry.scope.id} className={entry.scope.type}>
         <th scope="row"><span className="isolation-scope-label">{entry.scope.type === "floor" ? <Layers3 size={14} aria-hidden="true" /> : <span className="isolation-room-indent" aria-hidden="true">↳</span>}<span>{entry.scope.label}</span>{entry.scope.type === "room" && entry.rank !== null && <small>#{entry.rank}</small>}</span></th>
-        <td><span className={`isolation-score-pill ${entry.rating ?? "unavailable"}`}>{scoreLabel(entry, locale)}</span></td>
+        <td><span className={`isolation-score-pill ${entry.rating ?? "unavailable"}`} title={t("isolation.scoreIntervalHint")}>{scoreLabel(entry, locale, t)}</span></td>
         <td>{entry.metrics.effectiveTimeConstantHours === null ? "—" : t("isolation.hours", { value: numeric(entry.metrics.effectiveTimeConstantHours, locale, 1) })}</td>
         <td>{entry.metrics.outdoorResponseAfter24HoursPct === null ? "—" : `${numeric(entry.metrics.outdoorResponseAfter24HoursPct, locale, 1)}%`}</td>
         <td>{temperatureSpread(entry.metrics.typicalTemperatureSpreadC, locale, units)}</td>
@@ -214,7 +221,7 @@ export function ThermalIsolationPanel({ house, units, dataMode, embedded = false
         <summary>{t("isolation.sensorDetails", { count: sensorEntries.length })}</summary>
         <div className="isolation-table-wrap"><table className="isolation-table sensor-table">
           <thead><tr><th scope="col">{t("isolation.sensor")}</th><th scope="col">{t("isolation.room")}</th><th scope="col">{t("isolation.score")}</th><th scope="col">{t("isolation.timeConstant")}</th><th scope="col">{t("isolation.validationMae")}</th><th scope="col">{t("isolation.confidence")}</th></tr></thead>
-          <tbody>{sensorEntries.map((entry) => <tr key={entry.scope.id}><th scope="row">{entry.scope.label}</th><td>{entry.scope.parentId ? entryById.get(entry.scope.parentId)?.scope.label ?? "—" : "—"}</td><td>{scoreLabel(entry, locale)}</td><td>{entry.metrics.effectiveTimeConstantHours === null ? "—" : t("isolation.hours", { value: numeric(entry.metrics.effectiveTimeConstantHours, locale, 1) })}</td><td>{entry.quality.validationMaeC === null ? "—" : temperatureSpread(entry.quality.validationMaeC, locale, units)}</td><td><span className={`isolation-confidence ${entry.confidence}`}>{t(`isolation.confidence.${entry.confidence}`)}</span></td></tr>)}</tbody>
+          <tbody>{sensorEntries.map((entry) => <tr key={entry.scope.id}><th scope="row">{entry.scope.label}</th><td>{entry.scope.parentId ? entryById.get(entry.scope.parentId)?.scope.label ?? "—" : "—"}</td><td>{scoreLabel(entry, locale, t)}</td><td>{entry.metrics.effectiveTimeConstantHours === null ? "—" : t("isolation.hours", { value: numeric(entry.metrics.effectiveTimeConstantHours, locale, 1) })}</td><td>{entry.quality.validationMaeC === null ? "—" : temperatureSpread(entry.quality.validationMaeC, locale, units)}</td><td><span className={`isolation-confidence ${entry.confidence}`}>{t(`isolation.confidence.${entry.confidence}`)}</span></td></tr>)}</tbody>
         </table></div>
       </details>}
 

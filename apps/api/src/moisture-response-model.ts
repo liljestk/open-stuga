@@ -2,6 +2,14 @@ import type { MeasurementSample, OutdoorTemperatureSample, ThermalCalibrationSta
 import { saturationVaporPressureOverWaterHpa } from "@climate-twin/spatial-layers";
 import { mean, median, range, round } from "./thermal-math.js";
 import { isTransitionWithinPassiveIntervals, type PassiveInterval } from "./analytics/heat-pump-evidence.js";
+import {
+  calibrateRelaxationSteps,
+  dailyCycleFromHarmonics,
+  meanAbsolute,
+  runSteps,
+  usableStretches,
+  type RelaxationTransition,
+} from "./analytics/relaxation-fit.js";
 
 const HOUR_MS = 3_600_000;
 const MIN_INTERVAL_HOURS = 5 / 60;
@@ -9,12 +17,10 @@ const MAX_INTERVAL_HOURS = 2;
 const MAX_OUTDOOR_GAP_MS = 2 * HOUR_MS;
 const MIN_TRANSITIONS = 48;
 const MIN_DURATION_HOURS = 24;
+const MIN_STRETCH_HOURS = 2;
 const DURATION_EDGE_TOLERANCE_HOURS = 0.25;
-const TAU_CANDIDATES = [
-  0.5,
-  ...Array.from({ length: 48 }, (_, index) => index + 1),
-  ...Array.from({ length: 48 }, (_, index) => 52 + index * 4),
-];
+const MIN_RESPONSE_HOURS = 0.5;
+const MAX_RESPONSE_HOURS = 1_000;
 
 interface IndoorMoisturePoint {
   timestamp: string;
@@ -33,24 +39,12 @@ interface AlignedMoisturePoint extends IndoorMoisturePoint {
   outdoorVaporPressureHpa: number;
 }
 
-interface MoistureTransition {
-  fromTime: number;
-  toTime: number;
-  indoorHpa: number;
-  nextIndoorHpa: number;
-  outdoorHpa: number;
-  dtHours: number;
-  weight: number;
-}
-
 interface MoistureParameters {
   responseTimeHours: number;
   outdoorCoupling: number;
   equilibriumOffsetHpa: number;
-}
-
-interface Candidate extends MoistureParameters {
-  selectionMaeHpa: number;
+  /** Daily (24 h) swing of the moisture equilibrium, when the data shows one. */
+  dailyCycle?: { amplitudeHpa: number; peakHourUtc: number };
 }
 
 export interface PreparedOutdoorMoistureBoundary {
@@ -63,6 +57,7 @@ export interface MoistureCalibrationQuality {
   outdoorSamples: number;
   alignedSamples: number;
   transitionsUsed: number;
+  stretchesUsed: number;
   durationHours: number;
   indoorRangeHpa: number;
   outdoorRangeHpa: number;
@@ -73,6 +68,9 @@ export interface MoistureCalibrationQuality {
   medianIndoorVaporPressureHpa: number | null;
   medianOutdoorVaporPressureHpa: number | null;
   medianMoistureExcessHpa: number | null;
+  /** 90% block-bootstrap interval of the response time. */
+  responseTimeLowHours: number | null;
+  responseTimeHighHours: number | null;
 }
 
 export interface MoistureCalibration {
@@ -210,8 +208,9 @@ function align(
   });
 }
 
-function transitionsFrom(points: AlignedMoisturePoint[], passiveIntervals?: readonly PassiveInterval[]): MoistureTransition[] {
-  const transitions: MoistureTransition[] = [];
+/** Passive steps as relaxation transitions with a fitted outdoor coupling and offset. */
+function transitionsFrom(points: AlignedMoisturePoint[], passiveIntervals?: readonly PassiveInterval[]): RelaxationTransition[] {
+  const transitions: RelaxationTransition[] = [];
   for (let index = 1; index < points.length; index += 1) {
     const previous = points[index - 1];
     const current = points[index];
@@ -222,9 +221,10 @@ function transitionsFrom(points: AlignedMoisturePoint[], passiveIntervals?: read
     transitions.push({
       fromTime: previous.time,
       toTime: current.time,
-      indoorHpa: previous.vaporPressureHpa,
-      nextIndoorHpa: current.vaporPressureHpa,
-      outdoorHpa: previous.outdoorVaporPressureHpa,
+      value: previous.vaporPressureHpa,
+      nextValue: current.vaporPressureHpa,
+      knownDrive: 0,
+      regressors: [previous.outdoorVaporPressureHpa, 1],
       dtHours,
       weight: Math.min(1, dtHours / 0.5) * Math.min(previous.weight, current.weight),
     });
@@ -232,114 +232,12 @@ function transitionsFrom(points: AlignedMoisturePoint[], passiveIntervals?: read
   return transitions;
 }
 
-function longestSegment(transitions: MoistureTransition[]): MoistureTransition[] {
-  if (!transitions.length) return [];
-  let best: MoistureTransition[] = [];
-  let bestHours = -1;
-  let segment: MoistureTransition[] = [];
-  let segmentHours = 0;
-  const commit = () => {
-    if (segmentHours >= bestHours) {
-      best = segment;
-      bestHours = segmentHours;
-    }
-  };
-  for (const transition of transitions) {
-    if (segment.length && segment.at(-1)?.toTime !== transition.fromTime) {
-      commit();
-      segment = [];
-      segmentHours = 0;
-    }
-    segment.push(transition);
-    segmentHours += transition.dtHours;
-  }
-  commit();
-  return best;
-}
-
-function fitParameters(
-  transitions: MoistureTransition[],
-  responseTimeHours: number,
-): MoistureParameters | null {
-  if (!transitions.length) return null;
-  const terms = transitions.map((transition) => {
-    const memory = Math.exp(-transition.dtHours / responseTimeHours);
-    const relaxation = 1 - memory;
-    return {
-      outside: relaxation * transition.outdoorHpa,
-      offset: relaxation,
-      y: transition.nextIndoorHpa - memory * transition.indoorHpa,
-      weight: transition.weight,
-    };
-  });
-  let robustWeights = transitions.map(() => 1);
-  let outdoorCoupling = 0;
-  let equilibriumOffsetHpa = 0;
-  for (let iteration = 0; iteration < 5; iteration += 1) {
-    let outsideSquared = 0;
-    let cross = 0;
-    let offsetSquared = 0;
-    let outsideY = 0;
-    let offsetY = 0;
-    for (let index = 0; index < terms.length; index += 1) {
-      const term = terms[index];
-      if (!term) continue;
-      const weight = term.weight * (robustWeights[index] ?? 1);
-      outsideSquared += weight * term.outside * term.outside;
-      cross += weight * term.outside * term.offset;
-      offsetSquared += weight * term.offset * term.offset;
-      outsideY += weight * term.outside * term.y;
-      offsetY += weight * term.offset * term.y;
-    }
-    const determinant = outsideSquared * offsetSquared - cross * cross;
-    if (Math.abs(determinant) <= 1e-12) return null;
-    outdoorCoupling = (outsideY * offsetSquared - offsetY * cross) / determinant;
-    equilibriumOffsetHpa = (outsideSquared * offsetY - cross * outsideY) / determinant;
-    if (!Number.isFinite(outdoorCoupling) || !Number.isFinite(equilibriumOffsetHpa)) return null;
-    if (iteration === 4) break;
-    const residuals = terms.map((term) =>
-      term.y - outdoorCoupling * term.outside - equilibriumOffsetHpa * term.offset);
-    const center = median(residuals);
-    const scale = Math.max(0.02, 1.4826 * median(residuals.map((residual) => Math.abs(residual - center))));
-    robustWeights = residuals.map((residual) =>
-      Math.min(1, 1.5 * scale / Math.max(Math.abs(residual - center), 1e-12)));
-  }
-  return { responseTimeHours, outdoorCoupling, equilibriumOffsetHpa };
-}
-
-function step(indoorHpa: number, outdoorHpa: number, dtHours: number, parameters: MoistureParameters): number {
-  const memory = Math.exp(-dtHours / parameters.responseTimeHours);
-  return memory * indoorHpa
-    + (1 - memory) * (parameters.outdoorCoupling * outdoorHpa + parameters.equilibriumOffsetHpa);
-}
-
-function rollout(
-  transitions: MoistureTransition[],
-  parameters: MoistureParameters,
-): { residuals: number[]; persistence: number[] } {
-  const residuals: number[] = [];
-  const persistence: number[] = [];
-  let simulated: number | null = null;
-  let persistent: number | null = null;
-  let previousEnd: number | null = null;
-  for (const transition of transitions) {
-    if (previousEnd !== transition.fromTime || simulated === null || persistent === null) {
-      simulated = transition.indoorHpa;
-      persistent = transition.indoorHpa;
-    }
-    simulated = step(simulated, transition.outdoorHpa, transition.dtHours, parameters);
-    residuals.push(transition.nextIndoorHpa - simulated);
-    persistence.push(transition.nextIndoorHpa - persistent);
-    previousEnd = transition.toTime;
-  }
-  return { residuals, persistence };
-}
-
 function initialQuality(
   indoor: IndoorMoisturePoint[],
   outdoor: OutdoorMoisturePoint[],
   aligned: AlignedMoisturePoint[],
-  transitions: MoistureTransition[],
+  transitions: RelaxationTransition[],
+  stretches: number,
 ): MoistureCalibrationQuality {
   const indoorValues = aligned.map((point) => point.vaporPressureHpa);
   const outdoorValues = aligned.map((point) => point.outdoorVaporPressureHpa);
@@ -349,6 +247,7 @@ function initialQuality(
     outdoorSamples: outdoor.length,
     alignedSamples: aligned.length,
     transitionsUsed: transitions.length,
+    stretchesUsed: stretches,
     durationHours: round(transitions.reduce((sum, transition) => sum + transition.dtHours, 0), 2),
     indoorRangeHpa: round(range(indoorValues), 3),
     outdoorRangeHpa: round(range(outdoorValues), 3),
@@ -359,6 +258,8 @@ function initialQuality(
     medianIndoorVaporPressureHpa: indoorValues.length ? round(median(indoorValues), 3) : null,
     medianOutdoorVaporPressureHpa: outdoorValues.length ? round(median(outdoorValues), 3) : null,
     medianMoistureExcessHpa: excess.length ? round(median(excess), 3) : null,
+    responseTimeLowHours: null,
+    responseTimeHighHours: null,
   };
 }
 
@@ -371,13 +272,11 @@ export function calibrateMoistureResponse(
   const indoor = indoorPoints(indoorSamples);
   const outdoor = preparedOutdoor ?? prepareOutdoorMoistureBoundary(outdoorSamples);
   const allAligned = align(indoor, outdoor);
-  const transitions = longestSegment(transitionsFrom(allAligned, passiveIntervals));
-  const firstUsedTime = transitions[0]?.fromTime;
-  const lastUsedTime = transitions.at(-1)?.toTime;
-  const aligned = firstUsedTime === undefined || lastUsedTime === undefined
-    ? allAligned
-    : allAligned.filter((point) => point.time >= firstUsedTime && point.time <= lastUsedTime);
-  const quality = initialQuality(indoor, outdoor.points, aligned, transitions);
+  const usable = usableStretches(transitionsFrom(allAligned, passiveIntervals), MIN_STRETCH_HOURS);
+  const transitions = usable.transitions;
+  const used = new Set(transitions.flatMap((transition) => [transition.fromTime, transition.toTime]));
+  const aligned = used.size ? allAligned.filter((point) => used.has(point.time)) : allAligned;
+  const quality = initialQuality(indoor, outdoor.points, aligned, transitions, usable.stretches);
   if (!indoor.length) {
     return { status: "insufficient-data", parameters: null, quality, warnings: ["INSUFFICIENT_PAIRED_INDOOR_DATA"] };
   }
@@ -401,61 +300,45 @@ export function calibrateMoistureResponse(
     };
   }
 
-  const trainingEnd = Math.max(1, Math.min(transitions.length - 2, Math.floor(transitions.length * 0.6)));
-  const tuningEnd = Math.max(trainingEnd + 1, Math.min(transitions.length - 1, Math.floor(transitions.length * 0.8)));
-  const training = transitions.slice(0, trainingEnd);
-  const tuning = transitions.slice(trainingEnd, tuningEnd);
-  const prevalidation = transitions.slice(0, tuningEnd);
-  const validation = transitions.slice(tuningEnd);
-  const candidates: Candidate[] = [];
-  for (const responseTimeHours of TAU_CANDIDATES) {
-    const parameters = fitParameters(training, responseTimeHours);
-    if (!parameters) continue;
-    const residuals = rollout(tuning, parameters).residuals;
-    if (residuals.length) candidates.push({
-      ...parameters,
-      selectionMaeHpa: mean(residuals.map(Math.abs)),
-    });
-  }
-  candidates.sort((left, right) =>
-    left.selectionMaeHpa - right.selectionMaeHpa || left.responseTimeHours - right.responseTimeHours);
-  const selected = candidates[0];
-  if (!selected) {
+  const fit = runSteps(calibrateRelaxationSteps(transitions, {
+    minimumTauHours: MIN_RESPONSE_HOURS,
+    maximumTauHours: MAX_RESPONSE_HOURS,
+    scaleFloor: 0.02,
+  }));
+  if (!fit) {
     return { status: "insufficient-data", parameters: null, quality, warnings: ["MOISTURE_MODEL_NOT_IDENTIFIABLE"] };
   }
-  const validationParameters = fitParameters(prevalidation, selected.responseTimeHours);
-  const finalParameters = fitParameters(transitions, selected.responseTimeHours);
-  if (!validationParameters || !finalParameters) {
-    return { status: "insufficient-data", parameters: null, quality, warnings: ["MOISTURE_MODEL_NOT_IDENTIFIABLE"] };
-  }
-  const validationRollout = rollout(validation, validationParameters);
-  const mae = mean(validationRollout.residuals.map(Math.abs));
-  const persistenceMae = mean(validationRollout.persistence.map(Math.abs));
-  const bias = mean(validationRollout.residuals);
+  const [outdoorCoupling = 0, equilibriumOffsetHpa = 0, sinCoefficient, cosCoefficient] = fit.parameters.coefficients;
+  const mae = meanAbsolute(fit.validation.residuals);
+  const persistenceMae = meanAbsolute(fit.validation.persistence);
+  const bias = mean(fit.validation.residuals);
   const modelSkillPct = persistenceMae <= 0
     ? null
     : round(Math.max(-100, Math.min(100, (1 - mae / persistenceMae) * 100)), 1);
-  const tolerance = selected.selectionMaeHpa + Math.max(0.02, selected.selectionMaeHpa * 0.1);
-  const profile = candidates.filter((candidate) => candidate.selectionMaeHpa <= tolerance);
-  const responseLow = Math.min(...profile.map((candidate) => candidate.responseTimeHours));
-  const responseHigh = Math.max(...profile.map((candidate) => candidate.responseTimeHours));
+  const responseLow = fit.interval?.low ?? fit.parameters.tauHours;
+  const responseHigh = fit.interval?.high ?? fit.parameters.tauHours;
   const warnings: string[] = [];
   if (outdoorSamples.some((sample) => sample.source === "mock")) warnings.push("SYNTHETIC_OUTDOOR_MOISTURE");
   if (quality.durationHours + DURATION_EDGE_TOLERANCE_HOURS < 7 * 24) warnings.push("SHORT_MOISTURE_EVIDENCE_WINDOW");
   if (quality.outdoorRangeHpa < 0.8) warnings.push("LOW_OUTDOOR_MOISTURE_VARIATION");
-  if (responseLow === 0.5 || responseHigh === 240 || responseHigh / Math.max(responseLow, 0.5) > 4) {
+  if (fit.search.atLowerLimit || fit.search.atUpperLimit) warnings.push("RESPONSE_TIME_AT_SEARCH_LIMIT");
+  if (!fit.interval || responseHigh / Math.max(responseLow, MIN_RESPONSE_HOURS) > 4) {
     warnings.push("WEAK_MOISTURE_RESPONSE_IDENTIFICATION");
   }
   if (Math.abs(bias) > 0.35) warnings.push("HIGH_MOISTURE_VALIDATION_BIAS");
   if (mae >= persistenceMae) warnings.push("MOISTURE_MODEL_WORSE_THAN_PERSISTENCE");
-  if (finalParameters.outdoorCoupling <= 0) warnings.push("NON_POSITIVE_OUTDOOR_MOISTURE_COUPLING");
-  if (finalParameters.outdoorCoupling > 2.5) warnings.push("IMPLAUSIBLE_OUTDOOR_MOISTURE_COUPLING");
+  if (outdoorCoupling <= 0) warnings.push("NON_POSITIVE_OUTDOOR_MOISTURE_COUPLING");
+  if (outdoorCoupling > 2.5) warnings.push("IMPLAUSIBLE_OUTDOOR_MOISTURE_COUPLING");
+  const cycle = fit.dailyCycle && sinCoefficient !== undefined && cosCoefficient !== undefined
+    ? dailyCycleFromHarmonics(sinCoefficient, cosCoefficient)
+    : null;
   return {
     status: warnings.length ? "provisional" : "ready",
     parameters: {
-      responseTimeHours: round(finalParameters.responseTimeHours, 2),
-      outdoorCoupling: round(finalParameters.outdoorCoupling, 4),
-      equilibriumOffsetHpa: round(finalParameters.equilibriumOffsetHpa, 4),
+      responseTimeHours: round(fit.parameters.tauHours, 2),
+      outdoorCoupling: round(outdoorCoupling, 4),
+      equilibriumOffsetHpa: round(equilibriumOffsetHpa, 4),
+      ...(cycle ? { dailyCycle: { amplitudeHpa: round(cycle.amplitude, 4), peakHourUtc: round(cycle.peakHourUtc, 2) } } : {}),
     },
     quality: {
       ...quality,
@@ -463,6 +346,8 @@ export function calibrateMoistureResponse(
       persistenceMaeHpa: round(persistenceMae, 3),
       validationBiasHpa: round(bias, 3),
       modelSkillPct,
+      responseTimeLowHours: round(responseLow, 2),
+      responseTimeHighHours: round(responseHigh, 2),
     },
     warnings,
   };

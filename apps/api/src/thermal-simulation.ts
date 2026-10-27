@@ -8,14 +8,27 @@ import type {
   ThermalSimulationPoint,
   ThermalSimulationResult,
 } from "@climate-twin/contracts";
-import { mean, median, percentile, range, round } from "./thermal-math.js";
+import { mean, percentile, range, round } from "./thermal-math.js";
 import { SYSTEM_VERSION } from "./version.js";
 import { isTransitionWithinPassiveIntervals, type PassiveInterval } from "./analytics/heat-pump-evidence.js";
+import {
+  calibrateRelaxationSteps,
+  dailyCycleFromHarmonics,
+  dailyCycleValue,
+  meanAbsolute,
+  runSteps,
+  runStepsAsync,
+  usableStretches,
+  type DailyCycle,
+  type RelaxationCalibration,
+  type RelaxationTransition,
+} from "./analytics/relaxation-fit.js";
 
 const HOUR_MS = 3_600_000;
 const CALIBRATION_INTERVAL_MS = 5 * 60_000;
 const MIN_TRANSITIONS = 48;
 const MIN_DURATION_HOURS = 24;
+const MIN_STRETCH_HOURS = 2;
 const DURATION_EDGE_TOLERANCE_HOURS = 0.25;
 const MIN_INTERVAL_HOURS = 5 / 60;
 const MAX_INTERVAL_HOURS = 2;
@@ -23,6 +36,8 @@ const MAX_OUTDOOR_GAP_MS = 2 * HOUR_MS;
 const MAX_HORIZON_HOURS = 72;
 const MODEL_MAX_HORIZON_HOURS = 48;
 const MAX_SCENARIO_ANCHOR_AGE_HOURS = 2;
+const MIN_TAU_HOURS = 2;
+const MAX_TAU_HOURS = 1_000;
 
 interface IndoorPoint {
   timestamp: string;
@@ -46,21 +61,6 @@ interface AlignedPoint extends IndoorPoint {
   outdoorTemperatureC: number;
 }
 
-interface Transition {
-  fromTime: number;
-  toTime: number;
-  indoorC: number;
-  nextIndoorC: number;
-  outdoorC: number;
-  dtHours: number;
-  weight: number;
-}
-
-interface Candidate {
-  tauHours: number;
-  selectionMaeC: number;
-}
-
 export interface ThermalSimulationInput {
   houseId: string;
   sensorId: string;
@@ -76,9 +76,9 @@ export interface ThermalSimulationInput {
   passiveIntervals?: readonly PassiveInterval[];
 }
 
-function thermalStep(indoorC: number, outdoorC: number, dtHours: number, tauHours: number, liftC: number): number {
+function thermalStep(indoorC: number, outdoorC: number, dtHours: number, tauHours: number, liftC: number, cycleC = 0): number {
   const memory = Math.exp(-dtHours / tauHours);
-  return memory * indoorC + (1 - memory) * (outdoorC + liftC);
+  return memory * indoorC + (1 - memory) * (outdoorC + liftC + cycleC);
 }
 
 /** Exact discrete first-order step, exported for deterministic physics tests. */
@@ -202,8 +202,9 @@ function align(indoor: IndoorPoint[], outdoor: PreparedThermalOutdoorBoundary): 
   });
 }
 
-function transitionsFrom(points: AlignedPoint[], passiveIntervals?: readonly PassiveInterval[]): Transition[] {
-  const transitions: Transition[] = [];
+/** Passive steps as relaxation transitions: outdoor temperature is the known drive, the lift the fitted offset. */
+function transitionsFrom(points: AlignedPoint[], passiveIntervals?: readonly PassiveInterval[]): RelaxationTransition[] {
+  const transitions: RelaxationTransition[] = [];
   for (let index = 1; index < points.length; index += 1) {
     const previous = points[index - 1];
     const current = points[index];
@@ -214,10 +215,11 @@ function transitionsFrom(points: AlignedPoint[], passiveIntervals?: readonly Pas
     transitions.push({
       fromTime: previous.time,
       toTime: current.time,
-      indoorC: previous.temperatureC,
-      nextIndoorC: current.temperatureC,
+      value: previous.temperatureC,
+      nextValue: current.temperatureC,
       // A zero-order hold matches how discrete weather observations are consumed.
-      outdoorC: previous.outdoorTemperatureC,
+      knownDrive: previous.outdoorTemperatureC,
+      regressors: [1],
       dtHours,
       weight: Math.min(1, dtHours / 0.5) * Math.min(previous.weight, current.weight),
     });
@@ -225,91 +227,13 @@ function transitionsFrom(points: AlignedPoint[], passiveIntervals?: readonly Pas
   return transitions;
 }
 
-/** Select one continuous usable span; disconnected fragments cannot fake 24h coverage. */
-function longestTransitionSegment(transitions: Transition[]): Transition[] {
-  if (!transitions.length) return [];
-  let best: Transition[] = [];
-  let bestHours = -1;
-  let segment: Transition[] = [];
-  let segmentHours = 0;
-  const commit = () => {
-    if (segmentHours >= bestHours) {
-      best = segment;
-      bestHours = segmentHours;
-    }
-  };
-  for (const transition of transitions) {
-    if (segment.length && segment.at(-1)?.toTime !== transition.fromTime) {
-      commit();
-      segment = [];
-      segmentHours = 0;
-    }
-    segment.push(transition);
-    segmentHours += transition.dtHours;
-  }
-  commit();
-  return best;
-}
-
-function fitLift(transitions: Transition[], tauHours: number): number | null {
-  if (!transitions.length) return null;
-  const terms = transitions.map((transition) => {
-    const memory = Math.exp(-transition.dtHours / tauHours);
-    const z = 1 - memory;
-    return {
-      y: transition.nextIndoorC - memory * transition.indoorC - z * transition.outdoorC,
-      z,
-      weight: transition.weight,
-    };
-  });
-  let robustWeights = transitions.map(() => 1);
-  let lift = 0;
-  for (let iteration = 0; iteration < 5; iteration += 1) {
-    let numerator = 0;
-    let denominator = 0;
-    for (let index = 0; index < terms.length; index += 1) {
-      const term = terms[index];
-      if (!term) continue;
-      const weight = term.weight * (robustWeights[index] ?? 1);
-      numerator += weight * term.z * term.y;
-      denominator += weight * term.z * term.z;
-    }
-    if (denominator <= 1e-10) return null;
-    lift = numerator / denominator;
-    if (iteration === 4) break;
-    const residuals = terms.map((term) => term.y - term.z * lift);
-    const center = median(residuals);
-    const scale = Math.max(0.03, 1.4826 * median(residuals.map((residual) => Math.abs(residual - center))));
-    robustWeights = residuals.map((residual) => Math.min(1, 1.5 * scale / Math.max(Math.abs(residual), 1e-12)));
-  }
-  return Number.isFinite(lift) ? lift : null;
-}
-
-function rolloutResiduals(transitions: Transition[], tauHours: number, liftC: number): { residuals: number[]; persistence: number[] } {
-  const residuals: number[] = [];
-  const persistence: number[] = [];
-  let simulatedC: number | null = null;
-  let persistentC: number | null = null;
-  let previousEnd: number | null = null;
-  for (const transition of transitions) {
-    if (previousEnd !== transition.fromTime || simulatedC === null || persistentC === null) {
-      simulatedC = transition.indoorC;
-      persistentC = transition.indoorC;
-    }
-    simulatedC = thermalStep(simulatedC, transition.outdoorC, transition.dtHours, tauHours, liftC);
-    residuals.push(transition.nextIndoorC - simulatedC);
-    persistence.push(transition.nextIndoorC - persistentC);
-    previousEnd = transition.toTime;
-  }
-  return { residuals, persistence };
-}
-
-const TAU_CANDIDATES = [
-  ...Array.from({ length: 47 }, (_, index) => index + 2),
-  ...Array.from({ length: 48 }, (_, index) => 52 + index * 4),
-];
-
-function emptyQuality(indoor: IndoorPoint[], outdoor: OutdoorPoint[], aligned: AlignedPoint[], transitions: Transition[]): ThermalCalibrationQuality {
+function emptyQuality(
+  indoor: IndoorPoint[],
+  outdoor: OutdoorPoint[],
+  aligned: AlignedPoint[],
+  transitions: RelaxationTransition[],
+  stretches: number,
+): ThermalCalibrationQuality {
   return {
     indoorSamples: indoor.length,
     outdoorSamples: outdoor.length,
@@ -323,13 +247,15 @@ function emptyQuality(indoor: IndoorPoint[], outdoor: OutdoorPoint[], aligned: A
     validationBiasC: null,
     persistenceMaeC: null,
     residualP90C: null,
+    stretchesUsed: stretches,
   };
 }
 
 function assumptions(): string[] {
   return [
     "The sensor is treated as one well-mixed thermal zone.",
-    "The effective equilibrium lift combines average HVAC, occupants, appliances, and solar gains.",
+    "The effective equilibrium lift combines average HVAC, occupants, appliances, and solar gains; a daily cycle term captures their regular 24-hour swing when the data shows one.",
+    "Only heat-pump-off stretches are fitted, each simulated from its own first reading.",
     "The fitted parameters are empirical and are not wall U-values, leakage rates, or material properties.",
     "No indoor airflow or moisture transport is simulated.",
   ];
@@ -342,149 +268,76 @@ function insufficient(
   return { status: "insufficient-data", model: null, quality, warnings, assumptions: assumptions() };
 }
 
-interface CalibrationContext {
+interface CalibrationInput {
   houseId: string;
   sensorId: string;
   indoor: IndoorPoint[];
   outdoor: OutdoorPoint[];
   aligned: AlignedPoint[];
-  transitions: Transition[];
+  transitions: RelaxationTransition[];
+  stretches: number;
   sources: OutdoorTemperatureSample[];
-  initialQuality: ThermalCalibrationQuality;
-  training: Transition[];
-  tuning: Transition[];
-  prevalidation: Transition[];
-  validation: Transition[];
 }
 
-interface CalibrationSelection {
-  selected: Candidate;
-  validationLift: number;
-  finalLift: number;
-  validationRollout: ReturnType<typeof rolloutResiduals>;
-  profile: Candidate[];
-}
-
-function prepareCalibration(
-  houseId: string,
-  sensorId: string,
-  indoor: IndoorPoint[],
-  outdoor: OutdoorPoint[],
-  aligned: AlignedPoint[],
-  transitions: Transition[],
-  sources: OutdoorTemperatureSample[],
-): CalibrationContext | ThermalCalibrationResult {
-  const initialQuality = emptyQuality(indoor, outdoor, aligned, transitions);
-  if (transitions.length < MIN_TRANSITIONS) {
-    return insufficient(initialQuality, ["INSUFFICIENT_OVERLAP", `REQUIRES_${MIN_TRANSITIONS}_TRANSITIONS`]);
+function precheck(input: CalibrationInput): ThermalCalibrationQuality | ThermalCalibrationResult {
+  const quality = emptyQuality(input.indoor, input.outdoor, input.aligned, input.transitions, input.stretches);
+  if (input.transitions.length < MIN_TRANSITIONS) {
+    return insufficient(quality, ["INSUFFICIENT_OVERLAP", `REQUIRES_${MIN_TRANSITIONS}_TRANSITIONS`]);
   }
-  if (initialQuality.durationHours + DURATION_EDGE_TOLERANCE_HOURS < MIN_DURATION_HOURS) {
-    return insufficient(initialQuality, ["CALIBRATION_WINDOW_TOO_SHORT", `REQUIRES_${MIN_DURATION_HOURS}_HOURS`]);
+  if (quality.durationHours + DURATION_EDGE_TOLERANCE_HOURS < MIN_DURATION_HOURS) {
+    return insufficient(quality, ["CALIBRATION_WINDOW_TOO_SHORT", `REQUIRES_${MIN_DURATION_HOURS}_HOURS`]);
   }
-
-  // Keep the final chronological holdout untouched by parameter selection.
-  const trainingEnd = Math.max(1, Math.min(transitions.length - 2, Math.floor(transitions.length * 0.6)));
-  const tuningEnd = Math.max(trainingEnd + 1, Math.min(transitions.length - 1, Math.floor(transitions.length * 0.8)));
-  const training = transitions.slice(0, trainingEnd);
-  const tuning = transitions.slice(trainingEnd, tuningEnd);
-  const prevalidation = transitions.slice(0, tuningEnd);
-  const validation = transitions.slice(tuningEnd);
-  return {
-    houseId,
-    sensorId,
-    indoor,
-    outdoor,
-    aligned,
-    transitions,
-    sources,
-    initialQuality,
-    training,
-    tuning,
-    prevalidation,
-    validation,
-  };
+  return quality;
 }
 
-function isCalibrationResult(
-  value: CalibrationContext | ThermalCalibrationResult | CalibrationSelection,
-): value is ThermalCalibrationResult {
+function isCalibrationResult(value: ThermalCalibrationQuality | ThermalCalibrationResult): value is ThermalCalibrationResult {
   return "status" in value;
 }
 
-function calibrationCandidate(context: CalibrationContext, tauHours: number): Candidate | null {
-  const liftC = fitLift(context.training, tauHours);
-  if (liftC === null) return null;
-  const selectionResiduals = rolloutResiduals(context.tuning, tauHours, liftC).residuals;
-  if (!selectionResiduals.length) return null;
-  return {
-    tauHours,
-    selectionMaeC: mean(selectionResiduals.map(Math.abs)),
-  };
-}
-
-function selectCalibration(
-  context: CalibrationContext,
-  candidates: Candidate[],
-): CalibrationSelection | ThermalCalibrationResult {
-  candidates.sort((first, second) => first.selectionMaeC - second.selectionMaeC || first.tauHours - second.tauHours);
-  const selected = candidates[0];
-  if (!selected) return insufficient(context.initialQuality, ["MODEL_NOT_IDENTIFIABLE"]);
-  const validationLift = fitLift(context.prevalidation, selected.tauHours);
-  if (validationLift === null) return insufficient(context.initialQuality, ["MODEL_NOT_IDENTIFIABLE"]);
-  const finalLift = fitLift(context.transitions, selected.tauHours);
-  if (finalLift === null) return insufficient(context.initialQuality, ["MODEL_NOT_IDENTIFIABLE"]);
-  const validationRollout = rolloutResiduals(context.validation, selected.tauHours, validationLift);
-  const tolerance = selected.selectionMaeC + Math.max(0.03, selected.selectionMaeC * 0.1);
-  const profile = candidates.filter((candidate) => candidate.selectionMaeC <= tolerance);
-  return { selected, validationLift, finalLift, validationRollout, profile };
+function cycleOf(coefficients: readonly number[] | null, dailyCycle: boolean): DailyCycle | null {
+  if (!coefficients || !dailyCycle) return null;
+  return dailyCycleFromHarmonics(coefficients[1] ?? 0, coefficients[2] ?? 0);
 }
 
 function completeCalibration(
-  context: CalibrationContext,
-  selection: CalibrationSelection,
-  liftValues: number[],
+  input: CalibrationInput,
+  initialQuality: ThermalCalibrationQuality,
+  fit: RelaxationCalibration | null,
 ): ThermalCalibrationResult {
-  const {
-    houseId,
-    sensorId,
-    aligned,
-    transitions,
-    sources,
-    initialQuality,
-  } = context;
-  const {
-    selected,
-    finalLift,
-    validationRollout,
-    profile,
-  } = selection;
-  const residuals = validationRollout.residuals;
-  const maeC = mean(residuals.map(Math.abs));
+  if (!fit) return insufficient(initialQuality, ["MODEL_NOT_IDENTIFIABLE"]);
+  const { aligned, transitions, sources } = input;
+  const residuals = fit.validation.residuals;
+  const maeC = meanAbsolute(residuals);
   const rmseC = Math.sqrt(mean(residuals.map((residual) => residual * residual)));
   const biasC = mean(residuals);
-  const persistenceMaeC = mean(validationRollout.persistence.map(Math.abs));
-  const lowCandidate = profile.reduce((best, candidate) => candidate.tauHours < best.tauHours ? candidate : best, profile[0] ?? selected);
-  const highCandidate = profile.reduce((best, candidate) => candidate.tauHours > best.tauHours ? candidate : best, profile[0] ?? selected);
-  const tauLow = lowCandidate.tauHours;
-  const tauHigh = highCandidate.tauHours;
+  const persistenceMaeC = meanAbsolute(fit.validation.persistence);
+  const tauHours = fit.parameters.tauHours;
+  const finalLift = fit.parameters.coefficients[0] ?? 0;
+  const tauLow = fit.interval?.low ?? tauHours;
+  const tauHigh = fit.interval?.high ?? tauHours;
+  const lifts = [finalLift, fit.intervalCoefficients.low?.[0], fit.intervalCoefficients.high?.[0]]
+    .filter((value): value is number => value !== undefined && Number.isFinite(value));
+  const cycle = cycleOf(fit.parameters.coefficients, fit.dailyCycle);
   const warnings: string[] = [];
   if (sources.some((sample) => sample.source === "mock")) warnings.push("SYNTHETIC_OUTDOOR_BOUNDARY");
   if (initialQuality.durationHours + DURATION_EDGE_TOLERANCE_HOURS < 7 * 24) warnings.push("SHORT_CALIBRATION_WINDOW");
   if (initialQuality.outdoorRangeC < 3) warnings.push("LOW_THERMAL_DRIVE_VARIATION");
-  if (tauLow === 2 || tauHigh === 240 || tauHigh / Math.max(tauLow, 1) > 4) warnings.push("WEAK_PARAMETER_IDENTIFICATION");
+  if (fit.search.atLowerLimit || fit.search.atUpperLimit) warnings.push("TIME_CONSTANT_AT_SEARCH_LIMIT");
+  if (!fit.interval || tauHigh / Math.max(tauLow, MIN_TAU_HOURS) > 4) warnings.push("WEAK_PARAMETER_IDENTIFICATION");
   if (Math.abs(biasC) > 0.3) warnings.push("HIGH_VALIDATION_BIAS");
   if (maeC >= persistenceMaeC) warnings.push("MODEL_WORSE_THAN_PERSISTENCE");
   if (finalLift < 0) warnings.push("NEGATIVE_EFFECTIVE_EQUILIBRIUM_LIFT");
 
   const model: ThermalModelV1 = {
     method: "first-order-lumped-v1",
-    version: "1.0.0",
-    scope: { houseId, sensorIds: [sensorId] },
+    version: "1.1.0",
+    scope: { houseId: input.houseId, sensorIds: [input.sensorId] },
     trainedFrom: new Date(transitions[0]?.fromTime ?? 0).toISOString(),
     trainedTo: new Date(transitions.at(-1)?.toTime ?? 0).toISOString(),
     parameters: {
-      timeConstantHours: round(selected.tauHours, 2),
+      timeConstantHours: round(tauHours, 2),
       effectiveEquilibriumLiftC: round(finalLift, 3),
+      ...(cycle ? { dailyCycle: { amplitudeC: round(cycle.amplitude, 3), peakHourUtc: round(cycle.peakHourUtc, 2) } } : {}),
     },
     applicability: {
       indoorMinC: round(Math.min(...aligned.map((point) => point.temperatureC)), 3),
@@ -496,8 +349,8 @@ function completeCalibration(
     sensitivity: {
       timeConstantLowHours: round(tauLow, 2),
       timeConstantHighHours: round(tauHigh, 2),
-      liftLowC: round(Math.min(...liftValues, finalLift), 3),
-      liftHighC: round(Math.max(...liftValues, finalLift), 3),
+      liftLowC: round(Math.min(...lifts), 3),
+      liftHighC: round(Math.max(...lifts), 3),
     },
   };
   const quality: ThermalCalibrationQuality = {
@@ -517,28 +370,12 @@ function completeCalibration(
   };
 }
 
-function calibrate(
-  houseId: string,
-  sensorId: string,
-  indoor: IndoorPoint[],
-  outdoor: OutdoorPoint[],
-  aligned: AlignedPoint[],
-  transitions: Transition[],
-  sources: OutdoorTemperatureSample[],
-): ThermalCalibrationResult {
-  const prepared = prepareCalibration(houseId, sensorId, indoor, outdoor, aligned, transitions, sources);
-  if (isCalibrationResult(prepared)) return prepared;
-  const candidates: Candidate[] = [];
-  for (const tauHours of TAU_CANDIDATES) {
-    const candidate = calibrationCandidate(prepared, tauHours);
-    if (candidate) candidates.push(candidate);
-  }
-  const selection = selectCalibration(prepared, candidates);
-  if (isCalibrationResult(selection)) return selection;
-  const liftValues = selection.profile
-    .map((candidate) => fitLift(prepared.transitions, candidate.tauHours))
-    .filter((value): value is number => value !== null);
-  return completeCalibration(prepared, selection, liftValues);
+const FIT_OPTIONS = { minimumTauHours: MIN_TAU_HOURS, maximumTauHours: MAX_TAU_HOURS, scaleFloor: 0.03 };
+
+function calibrate(input: CalibrationInput): ThermalCalibrationResult {
+  const quality = precheck(input);
+  if (isCalibrationResult(quality)) return quality;
+  return completeCalibration(input, quality, runSteps(calibrateRelaxationSteps(input.transitions, FIT_OPTIONS)));
 }
 
 export interface ThermalSimulationAsyncOptions {
@@ -552,61 +389,50 @@ async function yieldThermalWork(signal?: AbortSignal): Promise<void> {
 }
 
 async function calibrateAsync(
-  houseId: string,
-  sensorId: string,
-  indoor: IndoorPoint[],
-  outdoor: OutdoorPoint[],
-  aligned: AlignedPoint[],
-  transitions: Transition[],
-  sources: OutdoorTemperatureSample[],
+  input: CalibrationInput,
   options: ThermalSimulationAsyncOptions,
 ): Promise<ThermalCalibrationResult> {
   options.signal?.throwIfAborted();
-  const prepared = prepareCalibration(houseId, sensorId, indoor, outdoor, aligned, transitions, sources);
-  if (isCalibrationResult(prepared)) return prepared;
-  const yieldEvery = Math.max(1, Math.floor(options.yieldEveryCandidates ?? 4));
-  const candidates: Candidate[] = [];
-  for (let index = 0; index < TAU_CANDIDATES.length; index += 1) {
-    if (index % yieldEvery === 0) await yieldThermalWork(options.signal);
-    const tauHours = TAU_CANDIDATES[index];
-    if (tauHours === undefined) continue;
-    const candidate = calibrationCandidate(prepared, tauHours);
-    if (candidate) candidates.push(candidate);
-  }
-  const selection = selectCalibration(prepared, candidates);
-  if (isCalibrationResult(selection)) return selection;
-  const liftValues: number[] = [];
-  for (let index = 0; index < selection.profile.length; index += 1) {
-    if (index % yieldEvery === 0) await yieldThermalWork(options.signal);
-    const candidate = selection.profile[index];
-    if (!candidate) continue;
-    const lift = fitLift(prepared.transitions, candidate.tauHours);
-    if (lift !== null) liftValues.push(lift);
-  }
+  const quality = precheck(input);
+  if (isCalibrationResult(quality)) return quality;
+  const fit = await runStepsAsync(calibrateRelaxationSteps(input.transitions, FIT_OPTIONS), {
+    ...(options.signal ? { signal: options.signal } : {}),
+    yieldEvery: options.yieldEveryCandidates ?? 4,
+  });
   options.signal?.throwIfAborted();
-  return completeCalibration(prepared, selection, liftValues);
+  return completeCalibration(input, quality, fit);
 }
 
+function modelCycle(model: ThermalModelV1): DailyCycle | null {
+  const cycle = model.parameters.dailyCycle;
+  return cycle ? { amplitude: cycle.amplitudeC, peakHourUtc: cycle.peakHourUtc } : null;
+}
+
+/** Reconstructs each fitted stretch from its first reading; points between stretches are not simulated. */
 function historicalPoints(
   aligned: AlignedPoint[],
+  transitions: RelaxationTransition[],
   model: ThermalModelV1,
   empiricalBandC: number,
 ): ThermalSimulationPoint[] {
+  const steps = new Map(transitions.map((transition) => [transition.toTime, transition.fromTime]));
+  const used = new Set(transitions.flatMap((transition) => [transition.fromTime, transition.toTime]));
+  const cycle = modelCycle(model);
   const points: ThermalSimulationPoint[] = [];
   let simulatedC: number | null = null;
   let previous: AlignedPoint | null = null;
   for (const point of aligned) {
-    if (!previous || simulatedC === null) {
+    if (!used.has(point.time)) continue;
+    if (!previous || simulatedC === null || steps.get(point.time) !== previous.time) {
       simulatedC = point.temperatureC;
     } else {
-      const dtHours = (point.time - previous.time) / HOUR_MS;
-      if (dtHours < MIN_INTERVAL_HOURS || dtHours > MAX_INTERVAL_HOURS) simulatedC = point.temperatureC;
-      else simulatedC = thermalStep(
+      simulatedC = thermalStep(
         simulatedC,
         previous.outdoorTemperatureC,
-        dtHours,
+        (point.time - previous.time) / HOUR_MS,
         model.parameters.timeConstantHours,
         model.parameters.effectiveEquilibriumLiftC,
+        dailyCycleValue(cycle, previous.time),
       );
     }
     points.push({
@@ -633,6 +459,7 @@ function scenarioPoints(
   scenarioStartTime: number,
 ): ThermalSimulationPoint[] {
   if (!anchor || horizonHours <= 0) return [];
+  const cycle = modelCycle(model);
   const outdoorTemperatureC = scenarioOutdoorTemperatureC ?? anchor.outdoorTemperatureC;
   const anchorGapHours = Math.max(0, (scenarioStartTime - anchor.time) / HOUR_MS);
   let simulatedC = thermalStep(
@@ -641,6 +468,7 @@ function scenarioPoints(
     anchorGapHours,
     model.parameters.timeConstantHours,
     model.parameters.effectiveEquilibriumLiftC,
+    dailyCycleValue(cycle, anchor.time),
   );
   const points: ThermalSimulationPoint[] = [];
   for (let hour = 1; hour <= horizonHours; hour += 1) {
@@ -650,6 +478,7 @@ function scenarioPoints(
       1,
       model.parameters.timeConstantHours,
       model.parameters.effectiveEquilibriumLiftC,
+      dailyCycleValue(cycle, scenarioStartTime + (hour - 1) * HOUR_MS),
     );
     const band = empiricalBandC * Math.min(3, Math.sqrt(1 + hour / 12));
     points.push({
@@ -666,12 +495,9 @@ function scenarioPoints(
   return points;
 }
 
-interface PreparedThermalSimulationRun {
-  indoor: IndoorPoint[];
-  outdoor: PreparedThermalOutdoorBoundary;
+interface PreparedThermalSimulationRun extends CalibrationInput {
+  boundary: PreparedThermalOutdoorBoundary;
   allAligned: AlignedPoint[];
-  transitions: Transition[];
-  aligned: AlignedPoint[];
 }
 
 function prepareThermalSimulationRun(
@@ -679,15 +505,26 @@ function prepareThermalSimulationRun(
   preparedOutdoor?: PreparedThermalOutdoorBoundary,
 ): PreparedThermalSimulationRun {
   const indoor = indoorPoints(input.indoorSamples);
-  const outdoor = preparedOutdoor ?? prepareThermalOutdoorBoundary(input.outdoorSamples);
-  const allAligned = align(indoor, outdoor);
-  const transitions = longestTransitionSegment(transitionsFrom(allAligned, input.passiveIntervals));
-  const firstUsedTime = transitions[0]?.fromTime;
-  const lastUsedTime = transitions.at(-1)?.toTime;
+  const boundary = preparedOutdoor ?? prepareThermalOutdoorBoundary(input.outdoorSamples);
+  const allAligned = align(indoor, boundary);
+  const usable = usableStretches(transitionsFrom(allAligned, input.passiveIntervals), MIN_STRETCH_HOURS);
+  const firstUsedTime = usable.transitions[0]?.fromTime;
+  const lastUsedTime = usable.transitions.at(-1)?.toTime;
   const aligned = firstUsedTime === undefined || lastUsedTime === undefined
     ? allAligned
     : allAligned.filter((point) => point.time >= firstUsedTime && point.time <= lastUsedTime);
-  return { indoor, outdoor, allAligned, transitions, aligned };
+  return {
+    houseId: input.houseId,
+    sensorId: input.sensorId,
+    indoor,
+    outdoor: boundary.points,
+    boundary,
+    allAligned,
+    aligned,
+    transitions: usable.transitions,
+    stretches: usable.stretches,
+    sources: input.outdoorSamples,
+  };
 }
 
 function completeThermalSimulation(
@@ -703,8 +540,8 @@ function completeThermalSimulation(
     calibration.warnings.push("LONG_SCENARIO_HORIZON");
     calibration.status = "provisional";
   }
-  // Fit against the longest continuous span, but initialize a scenario from
-  // the latest aligned observation even when it belongs to a newer short span.
+  // Fit against every passive stretch, but initialize a scenario from the
+  // latest aligned observation even when it falls outside them.
   const scenarioAnchor = calibration.model ? prepared.allAligned.at(-1) ?? null : null;
   const scenarioAnchorTimestamp = scenarioAnchor?.timestamp ?? null;
   const effectiveScenarioOutdoorC = scenarioOutdoorTemperatureC ?? scenarioAnchor?.outdoorTemperatureC ?? null;
@@ -732,7 +569,7 @@ function completeThermalSimulation(
   const empiricalBandC = Math.max(0.1, calibration.quality.residualP90C ?? calibration.quality.validationRmseC ?? 0.5);
   const points = calibration.model
     ? [
-      ...historicalPoints(prepared.aligned, calibration.model, empiricalBandC),
+      ...historicalPoints(prepared.aligned, prepared.transitions, calibration.model, empiricalBandC),
       ...scenarioPoints(
         scenarioAnchor,
         calibration.model,
@@ -765,16 +602,7 @@ export function runThermalSimulation(
   preparedOutdoor?: PreparedThermalOutdoorBoundary,
 ): ThermalSimulationResult {
   const prepared = prepareThermalSimulationRun(input, preparedOutdoor);
-  const calibration = calibrate(
-    input.houseId,
-    input.sensorId,
-    prepared.indoor,
-    prepared.outdoor.points,
-    prepared.aligned,
-    prepared.transitions,
-    input.outdoorSamples,
-  );
-  return completeThermalSimulation(input, prepared, calibration);
+  return completeThermalSimulation(input, prepared, calibrate(prepared));
 }
 
 export async function runThermalSimulationAsync(
@@ -786,16 +614,7 @@ export async function runThermalSimulationAsync(
   await yieldThermalWork(options.signal);
   const prepared = prepareThermalSimulationRun(input, preparedOutdoor);
   await yieldThermalWork(options.signal);
-  const calibration = await calibrateAsync(
-    input.houseId,
-    input.sensorId,
-    prepared.indoor,
-    prepared.outdoor.points,
-    prepared.aligned,
-    prepared.transitions,
-    input.outdoorSamples,
-    options,
-  );
+  const calibration = await calibrateAsync(prepared, options);
   await yieldThermalWork(options.signal);
   return completeThermalSimulation(input, prepared, calibration);
 }
