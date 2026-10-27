@@ -1,6 +1,5 @@
 import type { Sensor } from "@climate-twin/contracts";
 import { propertyPowerProfile } from "../energy-optimizer-power.js";
-import type { LocalTelemetryReader } from "./read-facade.js";
 import type { MeasurementWindowQuery } from "./types.js";
 import { IncompleteTelemetryHistoryError } from "./read-support.js";
 
@@ -11,8 +10,14 @@ export interface LocalPowerProfileQuery extends MeasurementWindowQuery {
   excludeSynthetic: boolean;
 }
 
+/** The part of the local telemetry reader a power profile reads from. */
+export interface PowerProfileLocalReader {
+  isRealDataMode(): boolean;
+  optimizerPowerProfileAsync?(query: LocalPowerProfileQuery): Promise<PowerProfile>;
+}
+
 export async function readPowerProfile(input: {
-  local: LocalTelemetryReader;
+  local: PowerProfileLocalReader;
   localOnly: boolean;
   localComplete: boolean;
   query: MeasurementWindowQuery;

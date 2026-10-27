@@ -5,8 +5,8 @@ import type {
   SensorHistoryRecoveryResult,
   SensorMetricAvailability,
 } from "../../sensor-gap-recovery.js";
-import { AUTOMATIC_ELECTRICITY_METRICS, EntityTarget, HA_HANDSHAKE_TIMEOUT_MS, HA_HISTORY_CHUNK_MS, HaState, HomeAssistantEntityMapping, OpeningTarget, normalizeHomeAssistantElectricityMeasurement, normalizeHomeAssistantTemperature, websocketUrl } from "../support/01-home-assistant-measurement-binding-to-validate-entit.js";
-import { importEntityMappingFile, mappedEntityIds, mappingFingerprint, mappingMetricKeys, parseHaMessage, sensorMetricKey, validateEntityMappings } from "../support/02-validate-entity-mappings-to-home-assistant-bridge.js";
+import { AUTOMATIC_ELECTRICITY_METRICS, EntityTarget, HA_HANDSHAKE_TIMEOUT_MS, HA_HISTORY_CHUNK_MS, HaState, HomeAssistantEntityMapping, OpeningTarget, normalizeHomeAssistantElectricityMeasurement, normalizeHomeAssistantTemperature, websocketUrl, parseHaMessage } from "../support/01-home-assistant-measurement-binding-to-validate-entit.js";
+import { importEntityMappingFile, mappedEntityIds, mappingFingerprint, mappingMetricKeys, sensorMetricKey, validateEntityMappings } from "../support/02-validate-entity-mappings-to-home-assistant-bridge.js";
 import { registerHomeAssistantConnectionBridgeMethods, homeAssistantConnectionBridgeState, type HomeAssistantConnectionBridgeInternals } from "../core.js";
 import { assertHomeAssistantHistoryChunkLimit, boundedHomeAssistantHistoryJson, storeBoundedHomeAssistantHistorySample } from "../history-limits.js";
 import { compareCodeUnits } from "../../text-order.js";

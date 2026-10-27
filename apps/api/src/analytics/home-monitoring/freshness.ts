@@ -8,8 +8,7 @@ import type {
   WeatherWarning,
 } from "@climate-twin/contracts";
 import { isHomeRelevantWeatherWarning } from "@climate-twin/contracts";
-import { AGING_MS, EngineContext, FUTURE_TOLERANCE_MS, HOME_INSIGHT_THRESHOLDS, HomeInsightEvidence, HomePulseCoverage, HomePulseSensorCoverage, InsightCandidate, MINUTE_MS, OutdoorGuidance, TREND_MS, WindowEvidence } from "./insights.js";
-import { clampPriority, compareSamples, compareText, confidence, confidenceForTrend, coverageStateForSensor, dewPointC, finiteNumber, freshnessForSample, freshnessForTimestamp, isFreshUsable, metricPair, newestMetricSample, numericEvidence, preferredSample, round, targetFor, targetLabel, unknownFreshness, validSample } from "./model.js";
+import { AGING_MS, EngineContext, FUTURE_TOLERANCE_MS, HOME_INSIGHT_THRESHOLDS, HomeInsightEvidence, HomePulseCoverage, HomePulseSensorCoverage, InsightCandidate, MINUTE_MS, OutdoorGuidance, TREND_MS, WindowEvidence, clampPriority, compareSamples, compareText, confidence, confidenceForTrend, coverageStateForSensor, dewPointC, finiteNumber, freshnessForSample, freshnessForTimestamp, isFreshUsable, metricPair, newestMetricSample, numericEvidence, preferredSample, round, targetFor, targetLabel, unknownFreshness, validSample } from "./model.js";
 
 export function co2Insight(context: EngineContext, coveredPairs: ReadonlySet<string>): InsightCandidate[] {
   const options = context.enabledSensors.flatMap((sensor) => {

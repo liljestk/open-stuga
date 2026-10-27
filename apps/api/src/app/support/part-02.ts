@@ -12,7 +12,8 @@ import type {
   PropertyNotePatch,
   PropertyPatch,
 } from "@climate-twin/contracts";
-import { AREA_EQUIPMENT_STATUSES, HttpError, PROPERTY_AREA_KINDS, PROPERTY_NOTE_KINDS, bodyObject, enumValue, houseLocationValue, requiredNumber, requiredString } from "./part-01.js";
+import { HttpError } from "./http-error.js";
+import { AREA_EQUIPMENT_STATUSES, PROPERTY_AREA_KINDS, PROPERTY_NOTE_KINDS, bodyObject, enumValue, houseLocationValue, requiredNumber, requiredString } from "./part-01.js";
 
 export function propertyText(
   body: Record<string, unknown>,

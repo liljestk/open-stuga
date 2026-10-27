@@ -9,7 +9,7 @@ import type {
   SensorMetricAvailability,
 } from "../../sensor-gap-recovery.js";
 import type { MeasurementService, RuntimeStatus, TelemetryService } from "../../services.js";
-import { HaMessage, HomeAssistantBridgeOptions, HomeAssistantEntityMapping, validateEntityMapping } from "./01-home-assistant-measurement-binding-to-validate-entit.js";
+import { HomeAssistantBridgeOptions, HomeAssistantEntityMapping, validateEntityMapping, HomeAssistantStatusHost } from "./01-home-assistant-measurement-binding-to-validate-entit.js";
 import { HomeAssistantConnectionBridgeCore as HomeAssistantConnectionBridge } from "../core.js";
 import { compareCodeUnits } from "../../text-order.js";
 
@@ -96,14 +96,6 @@ export function mappingFingerprint(mappings: HomeAssistantEntityMapping[]): stri
   return JSON.stringify(normalized);
 }
 
-export function parseHaMessage(raw: string): HaMessage | null {
-  try {
-    return JSON.parse(raw) as HaMessage;
-  } catch {
-    return null;
-  }
-}
-
 export function loadEntityMappings(path: string): HomeAssistantEntityMapping[] {
   const parsed = JSON.parse(readFileSync(resolve(path), "utf8")) as { entities?: unknown };
   return validateEntityMappings(parsed.entities);
@@ -113,11 +105,6 @@ export function importEntityMappingFile(database: ClimateDatabase, path: string)
   const mappings = loadEntityMappings(path);
   database.saveIntegrationMappingSet("home-assistant", mappings);
   return mappings;
-}
-
-export interface HomeAssistantStatusHost {
-  value: RuntimeStatus["value"];
-  changed(): void;
 }
 
 /** Maintains one independent Home Assistant WebSocket session per house. */

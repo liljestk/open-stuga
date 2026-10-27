@@ -1,9 +1,8 @@
 import { createHash } from "node:crypto";
 import { readFileSync, readdirSync } from "node:fs";
-import { dirname, join, relative } from "node:path";
+import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { MeasurementSample } from "@climate-twin/contracts";
-import { parsedDateParts } from "./02-finite-csv-number-to-gmail-header.js";
 
 export const MAX_CSV_BYTES = 8 * 1024 * 1024;
 
@@ -55,7 +54,14 @@ export const TAPO_HISTORY_CSV_PARSER_VERSION = "tapo-history-csv-v2";
  */
 export const TAPO_HISTORY_ACCEPTANCE_REVISION = "tapo-history-acceptance-2026-07-19-v1";
 
-export function apiImplementationSha256(directory = dirname(fileURLToPath(import.meta.url))): string {
+/**
+ * Root of the API build (`src/` under tests, `dist/` in production), two levels
+ * above this module. The canary fence must hash the whole API, not only the
+ * Tapo export folder this file happens to live in.
+ */
+export const TAPO_HISTORY_API_ROOT_DIRECTORY = fileURLToPath(new URL("../../", import.meta.url));
+
+export function apiImplementationSha256(directory = TAPO_HISTORY_API_ROOT_DIRECTORY): string {
   const files: string[] = [];
   const visit = (current: string): void => {
     for (const entry of readdirSync(current, { withFileTypes: true })) {
@@ -314,4 +320,16 @@ export function tapoCsvSchemaSignature(
     timestampForm: timestampForm(timestampText, splitDateAndTime),
   };
   return createHash("sha256").update(JSON.stringify(signature), "utf8").digest("hex");
+}
+
+export function parsedDateParts(value: string): number[] | null {
+  const text = value.trim();
+  const match = text.match(/^(\d{1,4})[.\-/](\d{1,2})[.\-/](\d{1,4})(?:[ T](\d{1,2})(?::(\d{1,2}))?(?::(\d{1,2})(?:[.,]\d+)?)?)?$/);
+  if (!match) return null;
+  const first = Number(match[1]);
+  const second = Number(match[2]);
+  const third = Number(match[3]);
+  const [year, month, day] = first > 999 ? [first, second, third]
+    : third > 999 ? [third, second, first] : [first, second, third];
+  return [year, month, day, Number(match[4] ?? 0), Number(match[5] ?? 0), Number(match[6] ?? 0)];
 }

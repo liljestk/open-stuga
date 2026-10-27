@@ -8,7 +8,6 @@ import { clamp, median, pearson, robustScale } from './math.js';
 
 import { type PreparedSpatialWindow } from './series.js';
 
-import { connectionOpenFractionThroughout } from "./propagation-analysis.js";
 
 export const PROPAGATION_CONFOUNDERS = new Set([
   'hvac-change',
@@ -291,4 +290,43 @@ export function segmentCorrelation(
     right.push((target.adjusted[targetIndex] ?? 0) - (target.adjusted[targetIndex - 1] ?? 0));
   }
   return pearson(left, right);
+}
+
+export function intervalOpenFraction(interval: SpatialConnectionStateInterval): number {
+  return interval.enabled ? clamp(interval.openFraction ?? 1) : 0;
+}
+
+/** Parsed bounds of a state interval, or null when they are not a forward span. */
+function intervalBounds(interval: SpatialConnectionStateInterval): { start: number; end: number } | null {
+  const start = Date.parse(interval.startAt);
+  const end = Date.parse(interval.endAt);
+  return Number.isFinite(start) && Number.isFinite(end) && end > start ? { start, end } : null;
+}
+
+/**
+ * Returns the minimum effective aperture over the complete transit interval.
+ * Missing coverage is treated as closed: API-supplied histories promise full
+ * coverage, and conservative handling is safer for malformed external input.
+ */
+export function connectionOpenFractionThroughout(
+  intervals: readonly SpatialConnectionStateInterval[] | undefined,
+  fallbackEnabled: boolean,
+  startAt: string,
+  endAt: string,
+): number {
+  if (intervals === undefined) return fallbackEnabled ? 1 : 0;
+  let cursor = Date.parse(startAt);
+  const end = Date.parse(endAt);
+  if (!Number.isFinite(cursor) || !Number.isFinite(end) || end < cursor) return 0;
+  let fraction = 1;
+  for (const interval of intervals) {
+    const bounds = intervalBounds(interval);
+    if (!bounds || bounds.end <= cursor) continue;
+    if (bounds.start > cursor) return 0;
+    fraction = Math.min(fraction, intervalOpenFraction(interval));
+    if (fraction <= 0) return 0;
+    cursor = Math.max(cursor, bounds.end);
+    if (cursor >= end) return fraction;
+  }
+  return cursor >= end ? fraction : 0;
 }

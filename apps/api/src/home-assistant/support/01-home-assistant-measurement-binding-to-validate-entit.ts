@@ -3,7 +3,7 @@ import { Agent as HttpsAgent } from "node:https";
 import type { Socket } from "node:net";
 import WebSocket from "ws";
 import type { OpeningStateObservation } from "@climate-twin/contracts";
-import { parseHaMessage } from "./02-validate-entity-mappings-to-home-assistant-bridge.js";
+import type { RuntimeStatus } from "../../services.js";
 
 export interface HomeAssistantMeasurementBinding {
   entityId: string;
@@ -341,4 +341,17 @@ function normalizedMeasurementMapping(configured: HomeAssistantMeasurementMappin
   if (configured.scale !== undefined) binding.scale = configured.scale;
   if (configured.offset !== undefined) binding.offset = configured.offset;
   return binding;
+}
+
+export function parseHaMessage(raw: string): HaMessage | null {
+  try {
+    return JSON.parse(raw) as HaMessage;
+  } catch {
+    return null;
+  }
+}
+
+export interface HomeAssistantStatusHost {
+  value: RuntimeStatus["value"];
+  changed(): void;
 }

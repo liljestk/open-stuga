@@ -31,7 +31,7 @@ export { spatialLayerSnapshots } from "./spatialLayers/02-connection-to-latest-s
 export { spatialLayerEngines } from "./spatialLayers/02-connection-to-latest-snapshot-per-layer";
 export { spatialLayerHealth } from "./spatialLayers/02-connection-to-latest-snapshot-per-layer";
 export { spatialLayerSnapshotEvent } from "./spatialLayers/02-connection-to-latest-snapshot-per-layer";
-export { finiteUnit } from "./spatialLayers/02-connection-to-latest-snapshot-per-layer";
+export { finiteUnit } from "./spatialLayers/01-spatial-coordinate-frame-to-zone";
 export { metricNumber } from "./spatialLayers/02-connection-to-latest-snapshot-per-layer";
 export { layerConfidence } from "./spatialLayers/02-connection-to-latest-snapshot-per-layer";
 export { layerStrength } from "./spatialLayers/02-connection-to-latest-snapshot-per-layer";

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { MeasurementSample } from "@climate-twin/contracts";
-import { MAX_CSV_BYTES, MAX_TAPO_HISTORY_RAW_DATA_ROWS_PER_JOB, TapoHistoryCsvCoverageRequest, TapoHistoryCsvOptions, TapoHistoryCsvResult, TapoHistoryFormatError, detectDelimiter, findColumns, parseCsvRows, tapoCsvSchemaSignature } from "./01-max-csv-bytes-to-tapo-csv-schema-signature.js";
+import { MAX_CSV_BYTES, MAX_TAPO_HISTORY_RAW_DATA_ROWS_PER_JOB, TapoHistoryCsvCoverageRequest, TapoHistoryCsvOptions, TapoHistoryCsvResult, TapoHistoryFormatError, detectDelimiter, findColumns, parseCsvRows, tapoCsvSchemaSignature, parsedDateParts } from "./01-max-csv-bytes-to-tapo-csv-schema-signature.js";
 
 export function finiteCsvNumber(value: string): number | null {
   const normalized = value.trim().replace(/\s/g, "").replace(/,(?=\d+$)/, ".");
@@ -50,18 +50,6 @@ export function localTimeCandidates(parts: number[], timeZone: string): number[]
   return [...offsets].map((offset) => nominal - offset)
     .filter((candidate) => sameParts(zonedParts(candidate, timeZone), parts))
     .sort((left, right) => left - right);
-}
-
-export function parsedDateParts(value: string): number[] | null {
-  const text = value.trim();
-  const match = text.match(/^(\d{1,4})[.\-/](\d{1,2})[.\-/](\d{1,4})(?:[ T](\d{1,2})(?::(\d{1,2}))?(?::(\d{1,2})(?:[.,]\d+)?)?)?$/);
-  if (!match) return null;
-  const first = Number(match[1]);
-  const second = Number(match[2]);
-  const third = Number(match[3]);
-  const [year, month, day] = first > 999 ? [first, second, third]
-    : third > 999 ? [third, second, first] : [first, second, third];
-  return [year, month, day, Number(match[4] ?? 0), Number(match[5] ?? 0), Number(match[6] ?? 0)];
 }
 
 export function parseTapoTimestamp(value: string, timeZone: string, previous: number | null): number | null {

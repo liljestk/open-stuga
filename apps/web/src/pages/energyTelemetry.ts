@@ -1,6 +1,8 @@
 import type { MeasurementSample, Sensor } from "@climate-twin/contracts";
 import type { ClimateState } from "../domain";
-import type { ElectricityMetric } from "./ElectricityHistory";
+
+export const ELECTRICITY_METRICS = ["power", "energy", "electricity_price"] as const;
+export type ElectricityMetric = typeof ELECTRICITY_METRICS[number];
 
 export interface MetricSource {
   sensor: Sensor;

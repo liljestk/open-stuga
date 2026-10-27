@@ -5,7 +5,8 @@ import type {
   ManualObservationInput,
   ManualObservationPatch,
 } from "@climate-twin/contracts";
-import { HttpError, bodyObject, enumValue, requiredString } from "./part-01.js";
+import { HttpError } from "./http-error.js";
+import { bodyObject, enumValue, requiredString } from "./part-01.js";
 import { OBSERVATION_CONFIDENCES, OBSERVATION_CREATE_FIELDS, OBSERVATION_KINDS, OBSERVATION_PATCH_FIELDS, OBSERVATION_SEVERITIES, OBSERVATION_SOURCES, OBSERVATION_STATUSES, OBSERVATION_TIME_PRECISIONS, propertyText, rejectUnknownFields } from "./part-02.js";
 
 export function optionalNullableString(

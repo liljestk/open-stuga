@@ -17,7 +17,7 @@ import {
 import {
   RuntimeStatus,
 } from "../../services.js";
-import { HttpError } from "./part-01.js";
+import { HttpError } from "./http-error.js";
 import { keyMatches, requestPrincipal, trustedProxyRequest } from "./part-04.js";
 import type { LocalRequestPrincipal } from "./part-04.js";
 import { roleCanAccessNonGuestConfiguration } from "../access-policy.js";

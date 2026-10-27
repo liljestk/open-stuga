@@ -6,7 +6,7 @@ import {
   rejectUnknownFields,
   requestPrincipal,
 } from "./support/index.js";
-import type { ElectricityRouteContext } from "./electricity-routes.js";
+import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
 
 const INVOICE_FIELDS = new Set([
   "houseId", "periodStart", "periodEnd", "totalEur", "consumptionKwh",
@@ -26,16 +26,21 @@ function stringField(body: Record<string, unknown>, key: string): string {
   return value;
 }
 
+export type ElectricityTariffRouteContext = Pick<
+  ApiRouteRegistrationContext,
+  "app" | "prefix" | "database" | "visibility" | "energyCost" | "analyticsWorkLimiter"
+>;
+
 /** Dated tariff versions, manually entered invoices, and their reconciliation against calculated costs. */
 export function registerElectricityTariffRoutes(
-  context: ElectricityRouteContext,
+  context: ElectricityTariffRouteContext,
   access: {
-    visibleProperty: (propertyId: string, response: Parameters<ElectricityRouteContext["visibility"]>[0]) => unknown;
-    houseSensorIds: (houseId: string, response: Parameters<ElectricityRouteContext["visibility"]>[0]) => string[];
+    visibleProperty: (propertyId: string, response: Parameters<ElectricityTariffRouteContext["visibility"]>[0]) => unknown;
+    houseSensorIds: (houseId: string, response: Parameters<ElectricityTariffRouteContext["visibility"]>[0]) => string[];
     invalidateSummaries: () => void;
   },
 ): void {
-  const nonGuest = (response: Parameters<ElectricityRouteContext["visibility"]>[0]) => {
+  const nonGuest = (response: Parameters<ElectricityTariffRouteContext["visibility"]>[0]) => {
     if (requestPrincipal(response).role === "guest") {
       throw new HttpError(403, "GUEST_READ_ONLY", "Guest accounts cannot access electricity invoices");
     }

@@ -5,11 +5,8 @@ import type {
 
 import { describe, expect, it } from "vitest";
 
-import {
-  deriveHomeInsights,
-  deriveHomePulse,
-  HOME_INSIGHT_ADVISORY,
-} from "../src/analytics/home-monitoring/insights.js";
+import { deriveHomeInsights, deriveHomePulse } from "../src/analytics/home-monitoring/insights.js";
+import { HOME_INSIGHT_ADVISORY } from "../src/analytics/home-monitoring/model.js";
 
 import { NOW, baseInput, house, sample, sensor, warning } from "./home-monitoring-test-support.js";
 

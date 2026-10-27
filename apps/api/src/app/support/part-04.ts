@@ -19,7 +19,7 @@ import {
 import {
   cloudflareSetupCallbackPath,
 } from "../../cloudflare-setup.js";
-import { HttpError } from "./part-01.js";
+import { HttpError } from "./http-error.js";
 import { roleCanManageWorkspace } from "../access-policy.js";
 import { compareCodeUnits } from "../../text-order.js";
 

@@ -3,7 +3,7 @@ import type {
   SpatialLayerEngineManifest as CanonicalEngineManifest,
   SpatialLayerSnapshot as CanonicalLayerSnapshot,
 } from "@climate-twin/spatial-layers";
-import { SpatialCoordinateFrame, SpatialLayerConnection, SpatialLayerEngineHealth, SpatialLayerEngineManifest, SpatialLayerEvidence, SpatialLayerMetric, SpatialLayerPoint, SpatialLayerScopeKind, SpatialLayerSnapshot, SpatialLayerSnapshotEvent, SpatialLayerZone, arrayFromPayload, evidence, metrics, number, point, record, strings, style, zone } from "./01-spatial-coordinate-frame-to-zone";
+import { SpatialCoordinateFrame, SpatialLayerConnection, SpatialLayerEngineHealth, SpatialLayerEngineManifest, SpatialLayerEvidence, SpatialLayerMetric, SpatialLayerPoint, SpatialLayerScopeKind, SpatialLayerSnapshot, SpatialLayerSnapshotEvent, SpatialLayerZone, arrayFromPayload, evidence, metrics, number, point, record, strings, style, zone, finiteUnit } from "./01-spatial-coordinate-frame-to-zone";
 
 export function connection(value: unknown): SpatialLayerConnection | null {
   const candidate = record(value);
@@ -179,12 +179,6 @@ export function spatialLayerSnapshotEvent(value: unknown): SpatialLayerSnapshotE
     ...(strings(candidate.snapshotIds).length ? { snapshotIds: strings(candidate.snapshotIds) } : {}),
     ...(number(candidate.revision) !== undefined ? { revision: number(candidate.revision)! } : {}),
   };
-}
-
-export function finiteUnit(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value)
-    ? Math.min(1, Math.max(0, value))
-    : null;
 }
 
 export function metricNumber(

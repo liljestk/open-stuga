@@ -1,17 +1,12 @@
 import {
-  configuredPlanElementOpeningState,
-  type Floor,
   type House,
   type OpeningStateObservation,
-  type PlanElement,
-  type Point,
   type Sensor,
 } from "@climate-twin/contracts";
 import type { OutdoorBoundaryContext } from "../outdoorContext";
-import { effectivePlanElementHeight, planElementBottomOffset } from "../planElementGeometry";
 import { type SpatialFreshnessOptions } from "../spatialFreshness";
-import { AirflowDataSupport, AirflowEvidence, AirflowPath2D, AirflowPath3D, AirflowPoint2D, AirflowPoint3D, BuildGridInput, BuildingAirflowEstimate, ClimateSampleMatrix, FIELD_EPSILON, FloorAirflowEstimate, NormalizedPoint3D, SolverGrid, blockedByWall, ceilingHeight, clamp, elementWidth, openingIsActive, pointInPolygon } from "./01-climate-sample-matrix-to-line-of-sight-penalty";
-import { buildGrid, chooseSeeds, emptyEvidence, fluidAt, velocityAt } from "./02-interpolate-scalars-to-choose-seeds";
+import { AirflowDataSupport, AirflowEvidence, AirflowPath2D, AirflowPath3D, AirflowPoint2D, AirflowPoint3D, BuildGridInput, BuildingAirflowEstimate, ClimateSampleMatrix, FIELD_EPSILON, FloorAirflowEstimate, NormalizedPoint3D, SolverGrid, blockedByWall, ceilingHeight, clamp } from "./01-climate-sample-matrix-to-line-of-sight-penalty";
+import { buildGrid, chooseSeeds, emptyEvidence, fluidAt, velocityAt, naturalDoorCounterflow } from "./02-interpolate-scalars-to-choose-seeds";
 
 export function trace2DDirection(grid: SolverGrid, seed: NormalizedPoint3D, direction: -1 | 1): AirflowPoint2D[] {
   const points: AirflowPoint2D[] = [];
@@ -113,68 +108,6 @@ export function volumePaths(grid: SolverGrid, maximum: number): AirflowPath3D[] 
       hasVerticalComponent: Math.max(...zValues) - Math.min(...zValues) > ceilingHeight(grid.floor) * .045,
     }];
   }).slice(0, maximum);
-}
-
-export function naturalDoorCounterflow(grid: SolverGrid): { paths: AirflowPath3D[]; openings: number } {
-  const floor = grid.floor;
-  const doors = (floor.planElements ?? []).filter((element): element is Extract<PlanElement, { kind: "door" }> => element.kind === "door" && openingIsActive(element));
-  const paths: AirflowPath3D[] = [];
-  let openings = 0;
-  for (const door of doors) {
-    const wall = floor.walls.find((candidate) => candidate.id === door.wallId);
-    if (!wall) continue;
-    const dx = wall.to.x - wall.from.x;
-    const dy = wall.to.y - wall.from.y;
-    const length = Math.hypot(dx, dy);
-    if (length <= FIELD_EPSILON) continue;
-    const normal = { x: -dy / length, y: dx / length };
-    const span = Math.max(floor.width, floor.height);
-    let sides: { a: Point; b: Point; roomA: Floor["rooms"][number]; roomB: Floor["rooms"][number] } | null = null;
-    for (const distance of [Math.max(elementWidth(door, floor) * .62, span * .015), span * .035, span * .065]) {
-      const a = { x: door.position.x + normal.x * distance, y: door.position.y + normal.y * distance };
-      const b = { x: door.position.x - normal.x * distance, y: door.position.y - normal.y * distance };
-      const roomA = floor.rooms.find((room) => room.points.length >= 3 && pointInPolygon(a, room.points));
-      const roomB = floor.rooms.find((room) => room.points.length >= 3 && pointInPolygon(b, room.points));
-      if (roomA && roomB && roomA.id !== roomB.id) {
-        sides = { a, b, roomA, roomB };
-        break;
-      }
-    }
-    if (!sides) continue;
-    const roomTemperature = (room: Floor["rooms"][number]) => {
-      const anchors = grid.anchors.filter((anchor) => pointInPolygon({ x: anchor.x * floor.width, y: anchor.y * floor.height }, room.points));
-      if (!anchors.length) return null;
-      const weight = anchors.reduce((sum, anchor) => sum + anchor.weight, 0);
-      return { value: anchors.reduce((sum, anchor) => sum + anchor.temperatureC * anchor.weight, 0) / Math.max(FIELD_EPSILON, weight), count: anchors.length };
-    };
-    const temperatureA = roomTemperature(sides.roomA);
-    const temperatureB = roomTemperature(sides.roomB);
-    if (!temperatureA || !temperatureB || Math.abs(temperatureA.value - temperatureB.value) < .15) continue;
-    const aIsWarmer = temperatureA.value > temperatureB.value;
-    const warm = aIsWarmer ? sides.a : sides.b;
-    const cool = aIsWarmer ? sides.b : sides.a;
-    const effective = configuredPlanElementOpeningState(door);
-    const bottom = planElementBottomOffset(floor, door);
-    const height = effectivePlanElementHeight(floor, door);
-    const lowerZ = floor.elevation + bottom + height * .16;
-    const upperZ = floor.elevation + bottom + height * .84;
-    const support = clamp(.35 + Math.min(temperatureA.count, temperatureB.count) * .16, .35, .82);
-    const relativeSpeed = clamp(Math.abs(temperatureA.value - temperatureB.value) / 4, .16, .86) * Math.sqrt(effective.openFraction);
-    const across = (from: Point, to: Point, z: number): AirflowPoint3D[] => [0, .25, .5, .75, 1].map((progress) => ({
-      x: from.x + (to.x - from.x) * progress,
-      y: from.y + (to.y - from.y) * progress,
-      z,
-    }));
-    paths.push({
-      id: `${floor.id}-${door.id}-counterflow-low`, floorId: floor.id,
-      points: across(cool, warm, lowerZ), relativeSpeed, support, hasVerticalComponent: false,
-    }, {
-      id: `${floor.id}-${door.id}-counterflow-high`, floorId: floor.id,
-      points: across(warm, cool, upperZ), relativeSpeed, support, hasVerticalComponent: false,
-    });
-    openings += 1;
-  }
-  return { paths, openings };
 }
 
 export function mergeEvidence(items: AirflowEvidence[]): AirflowEvidence {

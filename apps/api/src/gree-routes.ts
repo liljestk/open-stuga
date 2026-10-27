@@ -1,7 +1,8 @@
 import type express from "express";
 import type { AppConfig } from "./config.js";
 import type { ClimateDatabase } from "./db.js";
-import { GreeBridge, type GreeBindingResult } from "./gree.js";
+import { GreeBridge } from "./gree.js";
+import type { GreeBindingResult } from "./gree-protocol.js";
 import type { HeatPumpStateStore } from "./heat-pump-state.js";
 import type { IntegrationStatus } from "@climate-twin/contracts";
 import {

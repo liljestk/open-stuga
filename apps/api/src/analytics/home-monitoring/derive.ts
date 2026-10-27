@@ -1,5 +1,6 @@
 import type { AlertEvent, AlertRule, House, IntegrationStatus, Sensor } from "@climate-twin/contracts";
-import { deriveHomePulse, type HomePulseCoverage, type HomePulseSensorCoverage, type LatestMeasurements, type MeasurementHistory } from "./insights.js";
+import { deriveHomePulse } from "./insights.js";
+import { type HomePulseCoverage, type HomePulseSensorCoverage, type LatestMeasurements, type MeasurementHistory } from "./model.js";
 import { compareCodeUnits } from "../../text-order.js";
 
 export type HouseMonitoringStatus =

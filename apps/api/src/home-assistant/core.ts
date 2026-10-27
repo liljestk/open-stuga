@@ -7,8 +7,7 @@ import {
   installRegisteredMethods,
   type RegisteredMethodSet,
 } from "../method-registry.js";
-import { CachedSensorState, EntityTarget, HaState, HomeAssistantBridgeOptions, OpeningTarget } from "./support/01-home-assistant-measurement-binding-to-validate-entit.js";
-import { HomeAssistantStatusHost } from "./support/02-validate-entity-mappings-to-home-assistant-bridge.js";
+import { CachedSensorState, EntityTarget, HaState, HomeAssistantBridgeOptions, OpeningTarget, HomeAssistantStatusHost } from "./support/01-home-assistant-measurement-binding-to-validate-entit.js";
 
 export const homeAssistantConnectionBridgeState = Symbol("HomeAssistantConnectionBridge.state");
 

@@ -1,5 +1,5 @@
 import { STUGBY_MAX_BLOB_BYTES, STUGBY_MAX_EVENT_BYTES, STUGBY_PROTOCOL_VERSION } from "./protocol-contracts.js";
-import type { JsonObject, JsonValue, StugubyDataset, StugubyDatasetPayload, StugubyHomeRecoveryKind, StugubySignedEvent, StugubyWireEvent } from "./protocol-contracts.js";
+import type { JsonObject, JsonValue, StugubyDataset, StugubyDatasetPayload, StugubyHomeRecoveryKind, StugubySignedEvent, StugubyWireEvent, StugubyHomeCommand } from "./protocol-contracts.js";
 
 import { eventPayloadForHash, legacySigningEnvelope, normalizeLegacySignedEvent, rememberLegacySignedEvent } from "./legacy-wire.js";
 import { ENVELOPE_SCHEMA_SET, EVENT_KIND_SET, assertSafeFederationPayload, coordinate, fail, isObject, isStugubyDataset, isStugubyRole, onlyKeys, optionalString, point, requireArray, requireBoolean, requireEnumString, requireFiniteNumber, requireIdentifier, requireInteger, requireIsoDate, requireNullableFiniteNumber, requireNullableString, requireString, requireStringArray, validateShareGrant, validateSharedProperty } from "./validation.js";
@@ -468,4 +468,42 @@ export function requestSigningValue(input: {
   nodeId: string;
 }): string {
   return [input.method.toUpperCase(), input.path, input.bodyHash, input.timestamp, input.requestId, input.nodeId, STUGBY_PROTOCOL_VERSION].join("\n");
+}
+
+export function validateHomeCommand(value: unknown): StugubyHomeCommand {
+  assertSafeFederationPayload(value);
+  if (!isObject(value)) fail("Home command must be an object");
+  onlyKeys(value, [
+    "id", "stugubyId", "actorNodeId", "authorityNodeId", "publicationId", "grantId", "grantEpoch",
+    "authorityEpoch", "baseRevision", "snapshot", "createdAt",
+  ], "Home command");
+  for (const key of ["id", "stugubyId", "actorNodeId", "authorityNodeId", "publicationId", "grantId"] as const) {
+    requireString(value, key);
+  }
+  requireInteger(value, "grantEpoch", 1);
+  requireInteger(value, "authorityEpoch", 1);
+  requireInteger(value, "baseRevision", 1);
+  requireIsoDate(value.createdAt, "createdAt");
+  if (!isObject(value.snapshot)) fail("Home command snapshot must be an object");
+  onlyKeys(value.snapshot, ["directory", "location", "structure", "sensorCatalog", "notes", "observations"], "Home command snapshot");
+  validateDatasetPayload("home.directory.v1", value.snapshot.directory);
+  if (value.snapshot.location !== null) validateDatasetPayload("home.location.v1", value.snapshot.location);
+  validateDatasetPayload("home.structure.v1", value.snapshot.structure);
+  validateDatasetPayload("home.sensor-catalog.v1", value.snapshot.sensorCatalog);
+  validateDatasetPayload("home.notes.v1", value.snapshot.notes);
+  validateDatasetPayload("home.observations.v1", value.snapshot.observations);
+  const publicationId = String(value.publicationId);
+  for (const payload of [
+    value.snapshot.directory,
+    value.snapshot.location,
+    value.snapshot.structure,
+    value.snapshot.sensorCatalog,
+    value.snapshot.notes,
+    value.snapshot.observations,
+  ]) {
+    if (payload !== null && isObject(payload) && payload.publicationId !== publicationId) {
+      fail("Home command snapshot publication ids must match");
+    }
+  }
+  return value as unknown as StugubyHomeCommand;
 }

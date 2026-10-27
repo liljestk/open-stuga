@@ -1,7 +1,5 @@
 import { STUGBY_DATASETS } from "./protocol-contracts.js";
-import type { JsonValue, StugubyDataset, StugubyDatasetGrant, StugubyHomeCommand, StugubyHomeCommandResult, StugubyPropertyCommand, StugubyPropertyCommandResult, StugubyRole, StugubyShareGrant, StugubySharedProperty } from "./protocol-contracts.js";
-
-import { validateDatasetPayload } from "./wire-validation.js";
+import type { JsonValue, StugubyDataset, StugubyDatasetGrant, StugubyHomeCommandResult, StugubyPropertyCommand, StugubyPropertyCommandResult, StugubyRole, StugubyShareGrant, StugubySharedProperty } from "./protocol-contracts.js";
 
 export const DATASET_SET = new Set<string>(STUGBY_DATASETS);
 
@@ -446,44 +444,6 @@ export function validatePropertyCommandResult(value: unknown): StugubyPropertyCo
   if (value.status === "conflict" && value.conflict === null) fail("conflict result requires conflict details");
   if (value.status === "applied" && value.conflict !== null) fail("applied result cannot include conflict details");
   return value as unknown as StugubyPropertyCommandResult;
-}
-
-export function validateHomeCommand(value: unknown): StugubyHomeCommand {
-  assertSafeFederationPayload(value);
-  if (!isObject(value)) fail("Home command must be an object");
-  onlyKeys(value, [
-    "id", "stugubyId", "actorNodeId", "authorityNodeId", "publicationId", "grantId", "grantEpoch",
-    "authorityEpoch", "baseRevision", "snapshot", "createdAt",
-  ], "Home command");
-  for (const key of ["id", "stugubyId", "actorNodeId", "authorityNodeId", "publicationId", "grantId"] as const) {
-    requireString(value, key);
-  }
-  requireInteger(value, "grantEpoch", 1);
-  requireInteger(value, "authorityEpoch", 1);
-  requireInteger(value, "baseRevision", 1);
-  requireIsoDate(value.createdAt, "createdAt");
-  if (!isObject(value.snapshot)) fail("Home command snapshot must be an object");
-  onlyKeys(value.snapshot, ["directory", "location", "structure", "sensorCatalog", "notes", "observations"], "Home command snapshot");
-  validateDatasetPayload("home.directory.v1", value.snapshot.directory);
-  if (value.snapshot.location !== null) validateDatasetPayload("home.location.v1", value.snapshot.location);
-  validateDatasetPayload("home.structure.v1", value.snapshot.structure);
-  validateDatasetPayload("home.sensor-catalog.v1", value.snapshot.sensorCatalog);
-  validateDatasetPayload("home.notes.v1", value.snapshot.notes);
-  validateDatasetPayload("home.observations.v1", value.snapshot.observations);
-  const publicationId = String(value.publicationId);
-  for (const payload of [
-    value.snapshot.directory,
-    value.snapshot.location,
-    value.snapshot.structure,
-    value.snapshot.sensorCatalog,
-    value.snapshot.notes,
-    value.snapshot.observations,
-  ]) {
-    if (payload !== null && isObject(payload) && payload.publicationId !== publicationId) {
-      fail("Home command snapshot publication ids must match");
-    }
-  }
-  return value as unknown as StugubyHomeCommand;
 }
 
 export function validateHomeCommandResult(value: unknown): StugubyHomeCommandResult {

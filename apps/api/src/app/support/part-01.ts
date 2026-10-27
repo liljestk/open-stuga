@@ -5,12 +5,7 @@ import type {
 } from "@climate-twin/contracts";
 import { type AppConfig } from "../../config.js";
 import { trustedProxyRequest } from "./part-04.js";
-
-export class HttpError extends Error {
-  constructor(readonly status: number, readonly code: string, message: string, readonly details?: unknown) {
-    super(message);
-  }
-}
+import { HttpError } from "./http-error.js";
 
 /**
  * True when work was explicitly aborted for the caller. Server-owned deadlines

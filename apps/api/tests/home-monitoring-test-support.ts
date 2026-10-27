@@ -5,9 +5,7 @@ import type {
   WeatherWarning,
 } from "@climate-twin/contracts";
 
-import {
-  type HomeInsightInput,
-} from "../src/analytics/home-monitoring/insights.js";
+import { type HomeInsightInput } from "../src/analytics/home-monitoring/model.js";
 
 export const NOW = "2026-07-14T12:00:00.000Z";
 

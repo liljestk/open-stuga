@@ -24,14 +24,11 @@ import { definitionFor, formatMeasurement, measurementLabel } from "../measureme
 import { useI18n } from "../i18n";
 import { useNow } from "../useNow";
 import { seriesStateKey, type SeriesLoadState } from "../useClimateData";
-import { sensorsForHomeTotal } from "./energyTelemetry";
+import { ELECTRICITY_METRICS, sensorsForHomeTotal, type ElectricityMetric } from "./energyTelemetry";
 import { aggregateCumulativeSeries, consumptionHistorySeries, holdSeriesForBuckets } from "./energyAnalysis";
 import { useElectricityHistoryQuery } from "../data/energy/electricityHistoryQuery";
 import { historyIsPreparing } from "../data/energy/historyPreparation";
 import { electricityHistoryLocation, writeElectricityHistoryLocation, type ElectricityChartMode } from "./electricityHistoryLocation";
-
-export const ELECTRICITY_METRICS = ["power", "energy", "electricity_price"] as const;
-export type ElectricityMetric = typeof ELECTRICITY_METRICS[number];
 
 interface ElectricityHistoryProps {
   state: ClimateState;

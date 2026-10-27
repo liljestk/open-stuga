@@ -3,7 +3,6 @@ import type {
   SpatialSensorCalibration,
   SpatialTopology,
 } from "@climate-twin/spatial-layers";
-import { finiteUnit } from "./02-connection-to-latest-snapshot-per-layer";
 
 export type SpatialCoordinateFrame = CanonicalCoordinateFrame;
 
@@ -410,4 +409,10 @@ export function zone(value: unknown): SpatialLayerZone | null {
     ...(styleHint ? { style: styleHint } : {}),
     reasonCodes: strings(candidate.reasonCodes),
   };
+}
+
+export function finiteUnit(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value)
+    ? Math.min(1, Math.max(0, value))
+    : null;
 }

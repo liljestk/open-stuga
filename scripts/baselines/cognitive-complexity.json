@@ -1,7 +1,7 @@
 {
   "rule": "sonarjs/cognitive-complexity (S3776)",
   "threshold": 15,
-  "functions": 321,
+  "functions": 319,
   "files": {
     "apps/api/src/analytics-rollup.ts": [23],
     "apps/api/src/analytics.ts": [74, 18],
@@ -132,7 +132,6 @@
     "apps/web/src/App/render.tsx": [157],
     "apps/web/src/airflowSimulation/01-climate-sample-matrix-to-line-of-sight-penalty.ts": [20, 19],
     "apps/web/src/airflowSimulation/02-interpolate-scalars-to-choose-seeds.ts": [73, 34, 31],
-    "apps/web/src/airflowSimulation/03-trace2-ddirection-to-simulate-building-airflow.ts": [19],
     "apps/web/src/api/support/part-03.ts": [31, 20],
     "apps/web/src/components/AppShell.tsx": [75],
     "apps/web/src/components/BuildingScene/part-01.tsx": [27],
@@ -213,7 +212,7 @@
     "packages/contracts/src/electricity-tariffs.ts": [43],
     "packages/contracts/src/tracking-profile.ts": [21],
     "packages/spatial-layers/src/activity.ts": [18],
-    "packages/spatial-layers/src/propagation-analysis.ts": [19, 16],
+    "packages/spatial-layers/src/propagation-analysis.ts": [19],
     "packages/spatial-layers/src/propagation-signals.ts": [26],
     "packages/spatial-layers/src/quality.ts": [30],
     "packages/spatial-layers/src/simulator.ts": [68],

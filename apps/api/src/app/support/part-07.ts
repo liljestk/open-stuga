@@ -72,7 +72,8 @@ import {
 } from "../../timeseries/read-facade.js";
 import { StugubyService } from "../../stuguby/service.js";
 import { TrackingService } from "../../tracking/service.js";
-import { HttpError, bodyObject, enumValue, optionalBoolean, requiredNumber, requiredString } from "./part-01.js";
+import { HttpError } from "./http-error.js";
+import { bodyObject, enumValue, optionalBoolean, requiredNumber, requiredString } from "./part-01.js";
 import { dateValue } from "./part-02.js";
 import { alertDurationSeconds } from "./part-04.js";
 import { measurementId, measurementNumberMap, measurementStringMap, measurementUnits, nullableFinite, stringMap, validateMeasurementDefinition } from "./part-06.js";
