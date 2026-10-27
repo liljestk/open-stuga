@@ -22,6 +22,35 @@ function hasLocalSensorAuthority(state: HomeAssistantConnectionBridgeInternals, 
   return Boolean(sensor?.enabled && house && hasLocalHouseAuthority(house));
 }
 
+type NormalizedLiveValue = { value: number } | { error: string };
+
+// Converts a live entity state to the canonical unit, or explains why it was rejected.
+function normalizedLiveValue(
+  bridge: HomeAssistantConnectionBridgeInternals,
+  target: EntityTarget,
+  entityId: string,
+  rawValue: number,
+  haUnit: string | undefined,
+): NormalizedLiveValue {
+  if (target.metric === "temperature") {
+    const value = normalizeHomeAssistantTemperature(rawValue, haUnit);
+    return value === null ? { error: `Unsupported temperature unit for entity ${entityId}` } : { value };
+  }
+  if (target.legacy || target.metric === "battery") return { value: rawValue };
+  if (target.automaticElectricityUnitConversion) {
+    const value = normalizeHomeAssistantElectricityMeasurement(target.metric, rawValue, haUnit);
+    return value === null ? { error: `Unsupported unit ${haUnit ?? "(missing)"} for ${target.metric} entity ${entityId}` } : { value };
+  }
+  const definition = bridge[homeAssistantConnectionBridgeState].database.getMeasurementDefinition(target.metric);
+  if (!definition) return { error: `Unknown measurement metric ${target.metric} for entity ${entityId}` };
+  const expectedUnit = target.expectedUnit ?? definition.unit;
+  if (!haUnit || haUnit !== expectedUnit) return { error: `Unit for entity ${entityId} must be ${expectedUnit}` };
+  if (expectedUnit !== definition.unit && target.scale === undefined && target.offset === undefined) {
+    return { error: `Entity ${entityId} requires an explicit scale or offset to convert ${expectedUnit} to ${definition.unit}` };
+  }
+  return { value: rawValue * (target.scale ?? 1) + (target.offset ?? 0) };
+}
+
 registerHomeAssistantConnectionBridgeMethods({
   handleResult(this: HomeAssistantConnectionBridgeInternals, message: HaMessage): void {
       if (message.id === 1) {
@@ -187,43 +216,13 @@ registerHomeAssistantConnectionBridgeMethods({
       const rawValue = Number(state.state);
       if (!Number.isFinite(rawValue)) return null;
       const haUnit = state.attributes?.unit_of_measurement?.trim();
-      let value: number | null;
-      if (target.metric === "temperature") {
-        value = normalizeHomeAssistantTemperature(rawValue, haUnit);
-      } else if (target.legacy || target.metric === "battery") {
-        value = rawValue;
-      } else if (target.automaticElectricityUnitConversion) {
-        value = normalizeHomeAssistantElectricityMeasurement(target.metric, rawValue, haUnit);
-        if (value === null) {
-          this[homeAssistantConnectionBridgeState].status.value.homeAssistant.error = `Unsupported unit ${haUnit ?? "(missing)"} for ${target.metric} entity ${state.entity_id}`;
-          this[homeAssistantConnectionBridgeState].status.changed();
-          return null;
-        }
-      } else {
-        const definition = this[homeAssistantConnectionBridgeState].database.getMeasurementDefinition(target.metric);
-        if (!definition) {
-          this[homeAssistantConnectionBridgeState].status.value.homeAssistant.error = `Unknown measurement metric ${target.metric} for entity ${state.entity_id}`;
-          this[homeAssistantConnectionBridgeState].status.changed();
-          return null;
-        }
-        const expectedUnit = target.expectedUnit ?? definition.unit;
-        if (!haUnit || haUnit !== expectedUnit) {
-          this[homeAssistantConnectionBridgeState].status.value.homeAssistant.error = `Unit for entity ${state.entity_id} must be ${expectedUnit}`;
-          this[homeAssistantConnectionBridgeState].status.changed();
-          return null;
-        }
-        if (expectedUnit !== definition.unit && target.scale === undefined && target.offset === undefined) {
-          this[homeAssistantConnectionBridgeState].status.value.homeAssistant.error = `Entity ${state.entity_id} requires an explicit scale or offset to convert ${expectedUnit} to ${definition.unit}`;
-          this[homeAssistantConnectionBridgeState].status.changed();
-          return null;
-        }
-        value = rawValue * (target.scale ?? 1) + (target.offset ?? 0);
-      }
-      if (value === null) {
-        this[homeAssistantConnectionBridgeState].status.value.homeAssistant.error = `Unsupported temperature unit for entity ${state.entity_id}`;
+      const normalized = normalizedLiveValue(this, target, state.entity_id, rawValue, haUnit);
+      if ("error" in normalized) {
+        this[homeAssistantConnectionBridgeState].status.value.homeAssistant.error = normalized.error;
         this[homeAssistantConnectionBridgeState].status.changed();
         return null;
       }
+      const value = normalized.value;
       const timestamp = normalizeHomeAssistantTimestamp(state.last_updated, fallbackTimestamp);
       const cached = this[homeAssistantConnectionBridgeState].cache.get(target.sensorId) ?? {};
       if (target.metric === "temperature" || target.metric === "humidity" || target.metric === "battery") {

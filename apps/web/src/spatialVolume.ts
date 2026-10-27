@@ -340,17 +340,9 @@ function estimateVolumeFlowAt(
   };
 }
 
-export function estimateVolumeFlows(
-  volume: SpatialVolume,
-  definition: MeasurementDefinition,
-  maximumVectors = 10,
-): VolumeFlowEstimate[] {
-  if (!definition.spatialInterpolation || volume.sampleCount < 3 || !volume.cells.length
-    || volume.columns < 3 || volume.rows < 3 || volume.layers < 3 || maximumVectors < 1) return [];
-  const pathLength = .24;
-  const minimumDifference = Math.max(10 ** -definition.precision * .2, definition.interpolationDelta * .16);
+// Flow candidates for every cell with a neighbour on each side.
+function interiorVolumeFlows(volume: SpatialVolume, pathLength: number, minimumDifference: number): VolumeFlowEstimate[] {
   const candidates: VolumeFlowEstimate[] = [];
-
   for (let layer = 1; layer < volume.layers - 1; layer += 1) {
     for (let row = 1; row < volume.rows - 1; row += 1) {
       for (let column = 1; column < volume.columns - 1; column += 1) {
@@ -366,7 +358,19 @@ export function estimateVolumeFlows(
       }
     }
   }
+  return candidates;
+}
 
+export function estimateVolumeFlows(
+  volume: SpatialVolume,
+  definition: MeasurementDefinition,
+  maximumVectors = 10,
+): VolumeFlowEstimate[] {
+  if (!definition.spatialInterpolation || volume.sampleCount < 3 || !volume.cells.length
+    || volume.columns < 3 || volume.rows < 3 || volume.layers < 3 || maximumVectors < 1) return [];
+  const pathLength = .24;
+  const minimumDifference = Math.max(10 ** -definition.precision * .2, definition.interpolationDelta * .16);
+  const candidates = interiorVolumeFlows(volume, pathLength, minimumDifference);
   candidates.sort((a, b) => b.strength - a.strength || b.difference - a.difference);
   const chosen: VolumeFlowEstimate[] = [];
   for (const candidate of candidates) {

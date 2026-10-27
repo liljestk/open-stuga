@@ -1,62 +1,18 @@
-import { useCallback, useEffect, useRef, useState, type SetStateAction } from "react";
+import { useCallback,useEffect } from "react";
 import type {
-  AppSession,
-  AreaEquipment,
-  AreaEquipmentInput,
-  AreaEquipmentPatch,
-  AlertRule,
-  AlertRulePatch,
-  ConnectionState,
-  Floor,
-  House,
-  IntegrationStatus,
-  ManualObservation,
-  ManualObservationInput,
-  ManualObservationPatch,
-  MaintenanceTask,
-  MaintenanceTaskInput,
-  MaintenanceTaskPatch,
-  MeasurementSample,
-  MockScenario,
-  Point,
-  Property,
-  PropertyArea,
-  PropertyAreaInput,
-  PropertyAreaPatch,
-  PropertyCreateInput,
-  PropertyNote,
-  PropertyNoteInput,
-  PropertyNotePatch,
-  PropertyPatch,
-  Reading,
-  Sensor,
-  SensorSnapshot,
-  StaticParameter,
-  TelemetryEvent,
-  TpLinkDiscoveredDevice,
+AppSession,ConnectionState,House,MeasurementSample,Sensor,TelemetryEvent
 } from "@climate-twin/contracts";
 import {
-  api,
-  cancelPendingApiRequests,
-  subscribeToApiAuthorizationChanges,
-  type CreateHouseInput,
-  type CreateSensorInput,
-  type HousePatch,
-  type HouseGeoreferencePatch,
-  type MeasurementHistoryPage,
-  type SensorPatch,
+api,
+cancelPendingApiRequests
 } from "../../api";
-import { ApiVersionMismatchError, subscribeToApiVersionMismatch } from "../../apiRuntimeVersion";
-import { subscribeToAuthEpoch } from "../../authEpoch";
-import { createDemoState, nextMockReading, snapshotToReadings, timeRangeHours, type ClimateState, type TimeRange } from "../../domain";
-import { appendHistory, enabledDefinitions, legacyForecastSamples, readingSamples, upsertLatest } from "../../measurements";
-import { routeFromLocation } from "../../routing";
-import { publishHouseWeatherUpdate } from "../../useHouseWeather";
-import { activateAccountStorage, deactivateAccountStorage } from "../../browserStorage";
+import { ApiVersionMismatchError,subscribeToApiVersionMismatch } from "../../apiRuntimeVersion";
+import { type ClimateState } from "../../domain";
+import { activateAccountStorage,deactivateAccountStorage } from "../../browserStorage";
 import { LiveEventCoordinator } from "../live/LiveEventCoordinator";
-import { HEARTBEAT_POLL_MIN_INTERVAL_MS, LIVE_TELEMETRY_BUFFER_LIMIT, MAX_SERIES_SAMPLES, STREAM_BOOTSTRAP_WAIT_MS, advanceMockTelemetry, aggregateConnection, apiStatus, blankState, bufferLiveTelemetry, bufferSeriesValue, canonicalSeries, errorMessage, houseMutationKey, isDemoSource, isPollingCompatibilityHeartbeat, legacySeries, mergeLegacySeries, mergeMeasurementSeries, metricForecastSamples, metricHistorySamples, optionalForecast, preserveMutatedSensorTelemetry, preserveSeriesCommittedDuringLoad, replaceFloor, replaceHouseSensors, replaceLoadedHouseTelemetry, replayBufferedLiveTelemetry, replayHouseInventory, replayHouseMutations, replayMaintenanceTaskMutation, sensorsFromSnapshots, seriesBucketSeconds, seriesLimit, seriesStateKey, settleInBackground, synchronizeSensorRoomLabels, unauthenticatedSession, withoutDemoTelemetry, withoutSensorIds } from "./support";
-import type { BootstrapStatus, BufferedHouseMutation, BufferedLiveTelemetry, BufferedSeriesTelemetry, DataMode, HistoricalSeriesWindow, HouseInventoryMutation, HouseMutationBuffer, LoadedTelemetryState, SeriesCommit, SeriesLoadState, SeriesLoadStatus, StreamConnections } from "./support";
-import type { SessionLifecycleActions, WorkspaceHydrationContext } from "./pipelineTypes";
+import { HEARTBEAT_POLL_MIN_INTERVAL_MS,STREAM_BOOTSTRAP_WAIT_MS,aggregateConnection,apiStatus,blankState,isPollingCompatibilityHeartbeat,replayHouseInventory,replayHouseMutations,settleInBackground,withoutDemoTelemetry } from "./support";
+import type { HouseInventoryMutation,HouseMutationBuffer,StreamConnections } from "./support";
+import type { SessionLifecycleActions,WorkspaceHydrationContext } from "./pipelineTypes";
 type DeferredContext = {
   handleTelemetry: (event: TelemetryEvent) => void;
   handleMeasurement: (sample: MeasurementSample) => void;
@@ -71,6 +27,53 @@ function replayWorkspaceSensors(houses: readonly House[], sensors: readonly Sens
   }, mutations).sensors);
 }
 
+// Scoped maintenance and workspace sensors may fail on their own without failing the bootstrap.
+async function loadWorkspaceInventory() {
+  const [properties, rawHouses, propertyAreas, areaEquipment, propertyNotes, scopedMaintenance, workspaceSensors] = await Promise.all([
+    api.properties(),
+    api.houses(),
+    api.propertyAreas(),
+    api.areaEquipment(),
+    api.propertyNotes(),
+    api.maintenanceTasks().then(
+      (tasks) => ({ tasks, error: null as unknown }),
+      (error: unknown) => ({ tasks: null, error }),
+    ),
+    api.sensors().then(
+      (sensors) => ({ sensors, error: null as unknown }),
+      (error: unknown) => ({ sensors: null, error }),
+    ),
+  ]);
+  return { properties, rawHouses, propertyAreas, areaEquipment, propertyNotes, scopedMaintenance, workspaceSensors };
+}
+
+type WorkspaceInventory = Awaited<ReturnType<typeof loadWorkspaceInventory>>;
+
+function hydratedWorkspaceSensors(
+  current: ClimateState,
+  { houses, workspaceSensors, sensorMutations }: {
+    houses: House[];
+    workspaceSensors: Sensor[] | null;
+    sensorMutations: HouseMutationBuffer;
+  },
+): Sensor[] {
+  if (workspaceSensors === null) {
+    const accessibleHouseIds = new Set(houses.map((house) => house.id));
+    return current.sensors.filter((sensor) => accessibleHouseIds.has(sensor.houseId));
+  }
+  return replayWorkspaceSensors(houses, workspaceSensors, sensorMutations);
+}
+
+// Keep the Home already on screen, then the one the URL asked for, then the first.
+function activeHouseFor(houses: House[], currentHouseId: string | null, requestedHouseId: string | null): House {
+  const currentHouse = currentHouseId
+    ? houses.find((house) => house.id === currentHouseId)
+    : undefined;
+  const requestedHouse = requestedHouseId
+    ? houses.find((house) => house.id === requestedHouseId)
+    : undefined;
+  return currentHouse ?? requestedHouse ?? houses[0]!;
+}
 export function useSessionLifecycle(
   context: WorkspaceHydrationContext,
 ): WorkspaceHydrationContext & SessionLifecycleActions {
@@ -142,6 +145,198 @@ export function useSessionLifecycle(
       let unsubscribeStreams: (() => void) | undefined;
       let streamGateTimer: number | null = null;
       let releaseStreamGate: (() => void) | undefined;
+      const showSignedOutWorkspace = (session: AppSession) => {
+        deactivateAccountStorage({ purge: true });
+        apiAvailable.current = false;
+        const locked = !session.setupRequired;
+        sessionLockedRef.current = locked;
+        setSessionLocked(locked);
+        const cleared = blankState(session);
+        stateRef.current = cleared;
+        setStateInternal(cleared);
+        setDataMode("unknown");
+        dataModeRef.current = "unknown";
+        resetStreamConnections();
+        setBootstrapStatus(session.setupRequired ? "setup-required" : "login-required");
+      };
+      const showHouselessWorkspace = (session: AppSession, workspace: WorkspaceInventory) => {
+        setState((current) => ({
+          ...withoutDemoTelemetry(current, true),
+          session,
+          properties: workspace.properties,
+          propertyAreas: workspace.propertyAreas,
+          areaEquipment: workspace.areaEquipment,
+          propertyNotes: workspace.propertyNotes,
+          houses: [],
+          sensors: [],
+          observations: [],
+          maintenanceTasks: workspace.scopedMaintenance.tasks ?? current.maintenanceTasks,
+          staticParameters: [],
+        }));
+        setDataMode("unknown");
+        dataModeRef.current = "unknown";
+        resetStreamConnections();
+        setBootstrapStatus(workspace.properties.length === 0 && !session.readOnly ? "empty" : "ready");
+      };
+      const showWorkspaceInventory = (
+        session: AppSession,
+        workspace: WorkspaceInventory,
+        houses: House[],
+        sensorMutations: HouseMutationBuffer,
+      ) => {
+        setState((current) => ({
+          ...current,
+          session,
+          properties: workspace.properties,
+          propertyAreas: workspace.propertyAreas,
+          areaEquipment: workspace.areaEquipment,
+          propertyNotes: workspace.propertyNotes,
+          maintenanceTasks: workspace.scopedMaintenance.tasks ?? current.maintenanceTasks,
+          houses,
+          // Replay inside the updater so mutations buffered until React applies it are included.
+          sensors: hydratedWorkspaceSensors(current, {
+            houses,
+            workspaceSensors: workspace.workspaceSensors.sensors,
+            sensorMutations,
+          }),
+        }));
+      };
+      // The gate opens once both streams are listening, or after the bootstrap wait.
+      const openStreamGate = () => {
+        let legacyStreamOpened = false;
+        let measurementStreamOpened = false;
+        const streamReady = new Promise<void>((resolve) => {
+          let released = false;
+          const release = () => {
+            if (released) return;
+            released = true;
+            activeStreamGateReleases.current.delete(release);
+            resolve();
+          };
+          releaseStreamGate = release;
+          activeStreamGateReleases.current.add(release);
+        });
+        const markStreamOpen = (stream: keyof StreamConnections) => {
+          if (invalidated()) return;
+          if (stream === "legacy") legacyStreamOpened = true;
+          else measurementStreamOpened = true;
+          if (legacyStreamOpened && measurementStreamOpened) releaseStreamGate?.();
+        };
+        return { streamReady, markStreamOpen };
+      };
+      const subscribeToLiveEvents = (markStreamOpen: (stream: keyof StreamConnections) => void) => {
+        const coordinator = new LiveEventCoordinator();
+        unsubscribeStreams = coordinator.start({
+          onTelemetry: (event) => {
+            if (invalidated()) return;
+            deferred.handleTelemetry(event);
+            if (event.type === "heartbeat") handleHeartbeat(event.data);
+          },
+          onMeasurement: (sample) => {
+            if (!invalidated()) deferred.handleMeasurement(sample);
+          },
+          onConnection: (stream, nextConnection) => {
+            if (!invalidated()) updateStreamConnection(stream, nextConnection);
+          },
+          onOpen: markStreamOpen,
+          onResume: () => {
+            if (invalidated()) return;
+            // Visibility resume takes the authoritative workspace bootstrap
+            // path. Cancel the aggregate stream reconnect's narrower house
+            // resync so the same Home is not hydrated twice.
+            if (reconnectResyncTimer.current !== null) {
+              window.clearTimeout(reconnectResyncTimer.current);
+              reconnectResyncTimer.current = null;
+            }
+            setBootstrapAttempt((attempt) => attempt + 1);
+          },
+          houseIdForSensor: (sensorId) => (
+            stateRef.current.sensors.find((sensor) => sensor.id === sensorId)?.houseId ?? null
+          ),
+        });
+        activeStreamUnsubscribers.current.add(unsubscribeStreams);
+      };
+      const hydrateActiveHouse = async (session: AppSession, activeHouse: House) => {
+        // Register the replay buffers first, establish both event listeners,
+        // then request snapshots. This closes the snapshot/subscribe race while
+        // retaining events delivered during hydration.
+        const { streamReady, markStreamOpen } = openStreamGate();
+        streamGateTimer = window.setTimeout(() => releaseStreamGate?.(), STREAM_BOOTSTRAP_WAIT_MS);
+        const activeHouseLoad = loadHouseData(activeHouse.id, true, streamReady, !session.readOnly);
+        // A synchronous subscription setup failure must not leave a later load
+        // rejection unobserved; the awaited branch still drives normal errors.
+        settleInBackground(activeHouseLoad);
+        subscribeToLiveEvents(markStreamOpen);
+        await activeHouseLoad;
+        if (streamGateTimer !== null) window.clearTimeout(streamGateTimer);
+        streamGateTimer = null;
+      };
+      const hydrateWorkspace = async (
+        session: AppSession,
+        inventoryMutations: Map<string, HouseInventoryMutation>,
+        workspaceSensorMutations: HouseMutationBuffer,
+      ) => {
+        activateAccountStorage(session);
+        const workspace = await loadWorkspaceInventory();
+        const houses = replayHouseInventory(workspace.rawHouses, inventoryMutations);
+        if (invalidated()) return;
+        recordResourceError("maintenance:scoped", workspace.scopedMaintenance.error);
+        recordResourceError("sensors:workspace", workspace.workspaceSensors.error);
+        apiAvailable.current = true;
+        if (houses.length === 0) {
+          showHouselessWorkspace(session, workspace);
+          return;
+        }
+        showWorkspaceInventory(session, workspace, houses, workspaceSensorMutations);
+        await hydrateActiveHouse(session, activeHouseFor(houses, activeHouseId.current, initialHouseId.current));
+        if (invalidated()) return;
+        hasHydratedActiveHouse.current = true;
+        if (!session.readOnly) settleInBackground(refreshTpLinkDevices());
+        setBootstrapStatus("ready");
+      };
+      const lockExpiredSession = () => {
+        deactivateAccountStorage({ purge: true });
+        sessionLockedRef.current = true;
+        setSessionLocked(true);
+        setBootstrapError(null);
+        setDataMode("unknown");
+        dataModeRef.current = "unknown";
+        const cleared = blankState();
+        stateRef.current = cleared;
+        setStateInternal(cleared);
+        setBootstrapStatus("login-required");
+      };
+      const showInitializationFailure = (error: unknown, hadInventory: boolean) => {
+        if (error instanceof ApiVersionMismatchError) {
+          enterIncompatibleState(error);
+          return;
+        }
+        apiAvailable.current = false;
+        resetStreamConnections();
+        if (apiStatus(error) === 401) {
+          lockExpiredSession();
+          return;
+        }
+        setBootstrapError(error instanceof Error && error.message.trim() ? error.message : "The Stugu service could not be reached.");
+        if (hadInventory) {
+          // Keep the last confirmed real snapshot visible and mark transport
+          // failure separately; a retry must not turn a transient outage into
+          // an empty installation or erase the user's spatial context.
+          setState((current) => withoutDemoTelemetry(current));
+          setBootstrapStatus("ready");
+        } else {
+          dataModeRef.current = "unknown";
+          setDataMode("unknown");
+          setState((current) => ({
+            ...withoutDemoTelemetry(current, true),
+            houses: [],
+            sensors: [],
+            observations: [],
+            staticParameters: [],
+          }));
+          setBootstrapStatus("unavailable");
+        }
+      };
       const initialize = async () => {
         const hadInventory = stateRef.current.houses.length > 0;
         if (!hadInventory) {
@@ -161,192 +356,15 @@ export function useSessionLifecycle(
           const session = await api.session();
           if (invalidated()) return;
           if (!session.authenticated || session.setupRequired) {
-            deactivateAccountStorage({ purge: true });
-            apiAvailable.current = false;
-            const locked = !session.setupRequired;
-            sessionLockedRef.current = locked;
-            setSessionLocked(locked);
-            const cleared = blankState(session);
-            stateRef.current = cleared;
-            setStateInternal(cleared);
-            setDataMode("unknown");
-            dataModeRef.current = "unknown";
-            resetStreamConnections();
-            setBootstrapStatus(session.setupRequired ? "setup-required" : "login-required");
+            showSignedOutWorkspace(session);
             return;
           }
-          activateAccountStorage(session);
-          const [properties, rawHouses, propertyAreas, areaEquipment, propertyNotes, scopedMaintenanceResult, workspaceSensorsResult] = await Promise.all([
-            api.properties(),
-            api.houses(),
-            api.propertyAreas(),
-            api.areaEquipment(),
-            api.propertyNotes(),
-            api.maintenanceTasks().then(
-              (tasks) => ({ tasks, error: null as unknown }),
-              (error: unknown) => ({ tasks: null, error }),
-            ),
-            api.sensors().then(
-              (sensors) => ({ sensors, error: null as unknown }),
-              (error: unknown) => ({ sensors: null, error }),
-            ),
-          ]);
-          const houses = replayHouseInventory(rawHouses, inventoryMutations);
-          if (invalidated()) return;
-          recordResourceError("maintenance:scoped", scopedMaintenanceResult.error);
-          recordResourceError("sensors:workspace", workspaceSensorsResult.error);
-          const workspaceSensors = workspaceSensorsResult.sensors;
-          const accessibleHouseIds = new Set(houses.map((house) => house.id));
-          apiAvailable.current = true;
-          if (houses.length === 0) {
-            setState((current) => ({
-              ...withoutDemoTelemetry(current, true),
-              session,
-              properties,
-              propertyAreas,
-              areaEquipment,
-              propertyNotes,
-              houses: [],
-              sensors: [],
-              observations: [],
-              maintenanceTasks: scopedMaintenanceResult.tasks ?? current.maintenanceTasks,
-              staticParameters: [],
-            }));
-            setDataMode("unknown");
-            dataModeRef.current = "unknown";
-            resetStreamConnections();
-            setBootstrapStatus(properties.length === 0 && !session.readOnly ? "empty" : "ready");
-            return;
-          }
-          setState((current) => ({
-            ...current,
-            session,
-            properties,
-            propertyAreas,
-            areaEquipment,
-            propertyNotes,
-            maintenanceTasks: scopedMaintenanceResult.tasks ?? current.maintenanceTasks,
-            houses,
-            // Replay inside the updater so mutations buffered until React applies it are included.
-            sensors: workspaceSensors === null
-              ? current.sensors.filter((sensor) => accessibleHouseIds.has(sensor.houseId))
-              : replayWorkspaceSensors(houses, workspaceSensors, workspaceSensorMutations),
-          }));
-          const currentHouse = activeHouseId.current
-            ? houses.find((house) => house.id === activeHouseId.current)
-            : undefined;
-          const requestedHouse = initialHouseId.current
-            ? houses.find((house) => house.id === initialHouseId.current)
-            : undefined;
-          const activeHouse = currentHouse ?? requestedHouse ?? houses[0]!;
-          // Register the replay buffers first, establish both event listeners,
-          // then request snapshots. This closes the snapshot/subscribe race while
-          // retaining events delivered during hydration.
-          let legacyStreamOpened = false;
-          let measurementStreamOpened = false;
-          const streamReady = new Promise<void>((resolve) => {
-            let released = false;
-            const release = () => {
-              if (released) return;
-              released = true;
-              activeStreamGateReleases.current.delete(release);
-              resolve();
-            };
-            releaseStreamGate = release;
-            activeStreamGateReleases.current.add(release);
-          });
-          const markStreamOpen = (stream: keyof StreamConnections) => {
-            if (invalidated()) return;
-            if (stream === "legacy") legacyStreamOpened = true;
-            else measurementStreamOpened = true;
-            if (legacyStreamOpened && measurementStreamOpened) releaseStreamGate?.();
-          };
-          streamGateTimer = window.setTimeout(() => releaseStreamGate?.(), STREAM_BOOTSTRAP_WAIT_MS);
-          const activeHouseLoad = loadHouseData(activeHouse.id, true, streamReady, !session.readOnly);
-          // A synchronous subscription setup failure must not leave a later load
-          // rejection unobserved; the awaited branch still drives normal errors.
-          settleInBackground(activeHouseLoad);
-          const coordinator = new LiveEventCoordinator();
-          unsubscribeStreams = coordinator.start({
-            onTelemetry: (event) => {
-              if (invalidated()) return;
-              deferred.handleTelemetry(event);
-              if (event.type === "heartbeat") handleHeartbeat(event.data);
-            },
-            onMeasurement: (sample) => {
-              if (!invalidated()) deferred.handleMeasurement(sample);
-            },
-            onConnection: (stream, nextConnection) => {
-              if (!invalidated()) updateStreamConnection(stream, nextConnection);
-            },
-            onOpen: markStreamOpen,
-            onResume: () => {
-              if (invalidated()) return;
-              // Visibility resume takes the authoritative workspace bootstrap
-              // path. Cancel the aggregate stream reconnect's narrower house
-              // resync so the same Home is not hydrated twice.
-              if (reconnectResyncTimer.current !== null) {
-                window.clearTimeout(reconnectResyncTimer.current);
-                reconnectResyncTimer.current = null;
-              }
-              setBootstrapAttempt((attempt) => attempt + 1);
-            },
-            houseIdForSensor: (sensorId) => (
-              stateRef.current.sensors.find((sensor) => sensor.id === sensorId)?.houseId ?? null
-            ),
-          });
-          activeStreamUnsubscribers.current.add(unsubscribeStreams);
-          await activeHouseLoad;
-          if (streamGateTimer !== null) window.clearTimeout(streamGateTimer);
-          streamGateTimer = null;
-          if (invalidated()) return;
-          hasHydratedActiveHouse.current = true;
-          if (!session.readOnly) settleInBackground(refreshTpLinkDevices());
-          setBootstrapStatus("ready");
+          await hydrateWorkspace(session, inventoryMutations, workspaceSensorMutations);
         } catch (error) {
           if (unsubscribeStreams) activeStreamUnsubscribers.current.delete(unsubscribeStreams);
           unsubscribeStreams?.();
           unsubscribeStreams = undefined;
-          if (error instanceof ApiVersionMismatchError) {
-            if (!invalidated()) enterIncompatibleState(error);
-            return;
-          }
-          if (!invalidated()) {
-            apiAvailable.current = false;
-            resetStreamConnections();
-            if (apiStatus(error) === 401) {
-              deactivateAccountStorage({ purge: true });
-              sessionLockedRef.current = true;
-              setSessionLocked(true);
-              setBootstrapError(null);
-              setDataMode("unknown");
-              dataModeRef.current = "unknown";
-              const cleared = blankState();
-              stateRef.current = cleared;
-              setStateInternal(cleared);
-              setBootstrapStatus("login-required");
-              return;
-            }
-            setBootstrapError(error instanceof Error && error.message.trim() ? error.message : "The Stugu service could not be reached.");
-            if (hadInventory) {
-              // Keep the last confirmed real snapshot visible and mark transport
-              // failure separately; a retry must not turn a transient outage into
-              // an empty installation or erase the user's spatial context.
-              setState((current) => withoutDemoTelemetry(current));
-              setBootstrapStatus("ready");
-            } else {
-              dataModeRef.current = "unknown";
-              setDataMode("unknown");
-              setState((current) => ({
-                ...withoutDemoTelemetry(current, true),
-                houses: [],
-                sensors: [],
-                observations: [],
-                staticParameters: [],
-              }));
-              setBootstrapStatus("unavailable");
-            }
-          }
+          if (!invalidated()) showInitializationFailure(error, hadInventory);
         } finally {
           activeInventoryMutationBuffers.current.delete(inventoryMutations);
           activeHouseMutationBuffers.current.delete(workspaceSensorMutations);

@@ -52,6 +52,43 @@ import { SetupOperationsPanel } from "../SetupOperationsPanel";
 import { ACTIVE_TP_LINK_EXPORT_STATUSES, HouseLocationMap, RETRYABLE_TP_LINK_EXPORT_STATUSES, TP_LINK_EXPORT_PROVIDER_KEYS, TP_LINK_EXPORT_STATUS_KEYS, connectionError, dateTime, decimal, defaultFootprintWidthMeters, floorPlanSize, footprintFloorFor, mapLocation, placementForm, setupSectionFromPath, setupSectionOrder, validTimeZone, writeSetupSection } from "./support";
 import type { DiscoveryOutcome, Feedback, HouseFloor, IntegrationsPageProps, SetupSection, TpLinkChildDiscovery } from "./support";
 import { useIntegrationsPagePart04 } from "./part-04";
+
+type Translate = ReturnType<typeof useI18n>["t"];
+type TpLinkHealthState = "connected" | "warning" | "error" | "reconnecting";
+
+function connectedSourceLabelFor(
+  integration: IntegrationStatus,
+  connectedSourceCount: number,
+  greeConnected: boolean,
+  t: Translate,
+): string {
+  if (connectedSourceCount > 1) return t("setup.sourcesConnected", { count: connectedSourceCount });
+  if (integration.tpLink.connected) return t("setup.tpLinkConnectedShort");
+  if (integration.homeAssistant.connected) return t("setup.homeAssistantConnectedShort");
+  return greeConnected ? t("setup.greeConnectedShort") : t("common.notConnected");
+}
+
+function tpLinkHealthStateFor(tpLink: IntegrationStatus["tpLink"]): TpLinkHealthState {
+  if (tpLink.error) return tpLink.connected ? "warning" : "error";
+  return tpLink.connected ? "connected" : "reconnecting";
+}
+
+function tpLinkHealthLabelFor(state: TpLinkHealthState, t: Translate): string {
+  if (state === "connected") return t("common.connected");
+  return state === "warning" ? t("setup.tpLinkWarning") : t("common.notConnected");
+}
+
+function setupSectionHeading(activeSection: SetupSection, activeSectionLabel: string, t: Translate): string {
+  if (activeSection === "overview") return t("setup.title");
+  if (activeSection === "connections") return t("setup.connectionsTitle");
+  return activeSection === "weather" ? t("setup.workspaceWeather") : activeSectionLabel;
+}
+
+function setupSectionDescription(activeSection: SetupSection, t: Translate): string {
+  if (activeSection === "connections") return t("setup.connectionsDescription");
+  return activeSection === "weather" ? t("placement.weatherDescription") : t("setup.description");
+}
+
 export function useIntegrationsPagePart05(context: ReturnType<typeof useIntegrationsPagePart04>) {
   const { aggregateIntegration, initialHouse, houses, connectionHouses, streamConnection, tpLinkDevicesLoading, tpLinkDevicesError, onHouse, onHouseUpdate, onGeoreferenceChange, onIntegrationChange, onRefreshTpLinkDevices, onDisconnectHomeAssistant, onDisconnectTpLink, onMoveHomeAssistant, onMoveTpLink, onOpenSensors, onOpenLayout, locale, t, setupHouseId, setSetupHouseId, house, integration, activeSection, setActiveSection, mapLoaded, setMapLoaded, testing, setTesting, result, setResult, homeAssistantTestGeneration, discoveryGeneration, automaticallyScannedHouseId, inventoryRefreshGeneration, historyExportRequestGeneration, testingDirect, setTestingDirect, directResult, setDirectResult, tpLinkTestGeneration, validatedTpLinkDraft, setValidatedTpLinkDraft, discovering, setDiscovering, discovery, setDiscovery, discoveryOutcome, setDiscoveryOutcome, tpLinkSettingsOpen, setTpLinkSettingsOpen, tpLinkHost, setTpLinkHost, tpLinkHostDraft, tpLinkUsername, setTpLinkUsername, tpLinkPassword, setTpLinkPassword, showTpLinkPassword, setShowTpLinkPassword, savingTpLink, setSavingTpLink, tpLinkFeedback, setTpLinkFeedback, refreshingTpLinkInventory, setRefreshingTpLinkInventory, tpLinkInventoryRefreshFailed, setTpLinkInventoryRefreshFailed, tpLinkExportEnabled, setTpLinkExportEnabled, tpLinkExportJobs, setTpLinkExportJobs, tpLinkExportAutomation, setTpLinkExportAutomation, tpLinkExportJobsLoading, setTpLinkExportJobsLoading, tpLinkExportJobsError, setTpLinkExportJobsError, busyTpLinkExportJobId, setBusyTpLinkExportJobId, tpLinkCanaryTargets, setTpLinkCanaryTargets, tpLinkCanarySensorId, setTpLinkCanarySensorId, tpLinkCanaryMetric, setTpLinkCanaryMetric, tpLinkCanaryRunning, setTpLinkCanaryRunning, tpLinkChildDiscovery, setTpLinkChildDiscovery, tpLinkChildDiscoveryAbort, tpLinkChildDiscoveryKey, tpLinkChildDiscoveryRunning, haUrl, setHaUrl, haToken, setHaToken, showHaToken, setShowHaToken, savingHomeAssistant, setSavingHomeAssistant, homeAssistantFeedback, setHomeAssistantFeedback, busyAssignment, setBusyAssignment, assignmentHouseDrafts, setAssignmentHouseDrafts, assignmentFeedback, setAssignmentFeedback, validatedHomeAssistantDraft, setValidatedHomeAssistantDraft, latitude, setLatitude, longitude, setLongitude, locationLabel, setLocationLabel, timezone, setTimezone, locationValidationAttempted, setLocationValidationAttempted, placementLatitude, setPlacementLatitude, placementLongitude, setPlacementLongitude, footprintFloorId, setFootprintFloorId, footprintWidthMeters, setFootprintWidthMeters, placementEditing, setPlacementEditing, mapViewport, setMapViewport, orientation, setOrientation, savingLocation, setSavingLocation, locationFeedback, setLocationFeedback, savingPlacement, setSavingPlacement, placementFeedback, setPlacementFeedback, activeSetupHouseId, locationRequestGeneration, placementRequestGeneration, localDateTime, managedHouseIds, homeAssistantAssignments, tpLinkAssignments, beginLocationRequest, isCurrentLocationRequest, beginPlacementRequest, isCurrentPlacementRequest, stopTpLinkChildDiscovery, tpLinkDraftKey, homeAssistantDraftKey, changeTpLinkDraft, changeHomeAssistantDraft, draftLocation, coordinateValidationVisible, timezoneValidationVisible, selectedFootprintFloor, selectedPlanSize, draftMapLocation, draftPlacement, draftOrientation, footprintDepthMeters, mapItems, orientationDirection, orientationExplanation, selectSetupHouse, disconnectHomeAssistantAssignment, disconnectTpLinkAssignment, moveHomeAssistantAssignment, moveTpLinkAssignment, testConnection, testDirectConnection, updateTpLinkCanaryTargets, loadTpLinkCanaryTargets, refreshTpLinkInventory, loadTpLinkExportJobs, runTpLinkCanary, retryTpLinkExportJob, cancelTpLinkExportJob, scanIntegrations, settleTpLinkChildren, saveTpLink, saveHomeAssistant, saveLocation, removeLocation } = context;
   const resetPlacementDraft = () => {
@@ -216,24 +253,10 @@ export function useIntegrationsPagePart05(context: ReturnType<typeof useIntegrat
       + Number(integration.homeAssistant.connected)
       + Number(greeConnected);
   const assignmentCount = homeAssistantAssignments.length + tpLinkAssignments.length;
-  const connectedSourceLabel = connectedSourceCount > 1
-      ? t("setup.sourcesConnected", { count: connectedSourceCount })
-      : integration.tpLink.connected
-        ? t("setup.tpLinkConnectedShort")
-        : integration.homeAssistant.connected
-          ? t("setup.homeAssistantConnectedShort")
-          : greeConnected
-            ? t("setup.greeConnectedShort")
-            : t("common.notConnected");
+  const connectedSourceLabel = connectedSourceLabelFor(integration, connectedSourceCount, greeConnected, t);
   const streamStatusLabel = t(`setup.stream.${streamConnection}`);
-  const tpLinkHealthState = integration.tpLink.error
-      ? integration.tpLink.connected ? "warning" : "error"
-      : integration.tpLink.connected ? "connected" : "reconnecting";
-  const tpLinkHealthLabel = tpLinkHealthState === "connected"
-      ? t("common.connected")
-      : tpLinkHealthState === "warning"
-        ? t("setup.tpLinkWarning")
-        : t("common.notConnected");
+  const tpLinkHealthState = tpLinkHealthStateFor(integration.tpLink);
+  const tpLinkHealthLabel = tpLinkHealthLabelFor(tpLinkHealthState, t);
   const tpLinkStatusTitle = t("setup.tpLinkSourcesStatusTitle", {
       connected: connectedTpLinkSourceCount,
       count: tpLinkSourceCount,
@@ -263,18 +286,8 @@ export function useIntegrationsPagePart05(context: ReturnType<typeof useIntegrat
   const primarySetupSections = setupSections.filter((section) => section.id !== "weather" && section.id !== "operations" && section.id !== "automations");
   const advancedSetupSections = setupSections.filter((section) => section.id === "weather" || section.id === "operations" || section.id === "automations");
   const activeSectionLabel = setupSections.find((section) => section.id === activeSection)?.label ?? t("setup.workspaceOverview");
-  const sectionHeading = activeSection === "overview"
-      ? t("setup.title")
-      : activeSection === "connections"
-        ? t("setup.connectionsTitle")
-        : activeSection === "weather"
-          ? t("setup.workspaceWeather")
-        : activeSectionLabel;
-  const sectionDescription = activeSection === "connections"
-      ? t("setup.connectionsDescription")
-      : activeSection === "weather"
-        ? t("placement.weatherDescription")
-        : t("setup.description");
+  const sectionHeading = setupSectionHeading(activeSection, activeSectionLabel, t);
+  const sectionDescription = setupSectionDescription(activeSection, t);
   const activateSection = (section: SetupSection) => {
       setActiveSection(section);
       writeSetupSection(section);

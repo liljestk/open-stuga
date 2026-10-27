@@ -4,6 +4,7 @@ import {
   AlertRule,
   ForecastPoint,
   IntegrationStatus,
+  type MaintenanceTask,
   MeasurementForecastPoint,
   MeasurementSample,
   MockScenario,
@@ -289,25 +290,35 @@ export class AlertEngine {
       if (event.acknowledgedAt || event.resolvedAt) continue;
       const rule = this.database.getAlertRule(event.ruleId);
       if (!rule || !rule.enabled) continue;
-      const policy = rule.deliveryPolicy;
-      if (!policy) continue;
-      const elapsedSeconds = Math.max(0, Math.floor((now.getTime() - Date.parse(event.startedAt)) / 1_000));
-      const sensor = this.database.getSensor(event.sensorId);
-      const house = sensor ? this.database.getHouse(sensor.houseId) : null;
-      const bindings = alertNotificationBindings(this.config, {
-        houseLabel: house?.name ?? null,
-        sensorLabel: sensor?.name ?? null,
-      });
-      let inserted = 0;
-      if (policy.escalationAfterSeconds && elapsedSeconds >= policy.escalationAfterSeconds) {
-        inserted += this.database.enqueueAlertFollowup(event, rule, "escalation", 0, bindings, now);
+      if (rule.deliveryPolicy && this.enqueueDueFollowups(event, rule, rule.deliveryPolicy, now) > 0) {
+        this.bus.publish({ type: "alert", data: event });
       }
-      if (policy.reminderIntervalSeconds && elapsedSeconds >= policy.reminderIntervalSeconds) {
-        const sequence = Math.floor(elapsedSeconds / policy.reminderIntervalSeconds);
-        inserted += this.database.enqueueAlertFollowup(event, rule, "reminder", sequence, bindings, now);
-      }
-      if (inserted > 0) this.bus.publish({ type: "alert", data: event });
     }
+  }
+
+  // Returns how many escalation or reminder deliveries were newly queued for one open alert.
+  private enqueueDueFollowups(
+    event: AlertEvent,
+    rule: AlertRule,
+    policy: NonNullable<AlertRule["deliveryPolicy"]>,
+    now: Date,
+  ): number {
+    const elapsedSeconds = Math.max(0, Math.floor((now.getTime() - Date.parse(event.startedAt)) / 1_000));
+    const sensor = this.database.getSensor(event.sensorId);
+    const house = sensor ? this.database.getHouse(sensor.houseId) : null;
+    const bindings = alertNotificationBindings(this.config, {
+      houseLabel: house?.name ?? null,
+      sensorLabel: sensor?.name ?? null,
+    });
+    let inserted = 0;
+    if (policy.escalationAfterSeconds && elapsedSeconds >= policy.escalationAfterSeconds) {
+      inserted += this.database.enqueueAlertFollowup(event, rule, "escalation", 0, bindings, now);
+    }
+    if (policy.reminderIntervalSeconds && elapsedSeconds >= policy.reminderIntervalSeconds) {
+      const sequence = Math.floor(elapsedSeconds / policy.reminderIntervalSeconds);
+      inserted += this.database.enqueueAlertFollowup(event, rule, "reminder", sequence, bindings, now);
+    }
+    return inserted;
   }
 
   private enqueueMaintenanceReminders(now: Date): void {
@@ -318,28 +329,34 @@ export class AlertEngine {
     for (const task of this.database.listMaintenanceTasks({ limit: 500 })) {
       if (!["planned", "in-progress"].includes(task.status)) continue;
       const dueDate = task.dueBy ?? task.plannedFor;
-      if (!dueDate) continue;
-      const house = task.houseId ? this.database.getHouse(task.houseId) : null;
-      const localToday = localCalendarDate(now, house?.timezone ?? "UTC");
-      if (dueDate > localToday) continue;
-      const property = this.database.getProperty(task.propertyId);
-      const overdue = dueDate < localToday;
-      this.database.enqueueOperationalNotification({
-        subjectKind: "maintenance",
-        subjectId: task.id,
-        stage: "due",
-        sequence: 0,
-        policy: { ...DEFAULT_ALERT_DELIVERY_POLICY, timeZone: house?.timezone ?? "UTC" },
-        severity: overdue || task.priority === "urgent" ? "critical" : "warning",
-        webhookEnabled,
-        telegramEnabled,
-        config: this.config,
-        type: "maintenance.due",
-        text: `${overdue ? "OVERDUE" : "DUE"} — ${task.title} (${property?.name ?? house?.name ?? "Property"}, ${dueDate})`,
-        data: { task, overdue, dueDate },
-        now,
-      });
+      if (dueDate) this.enqueueMaintenanceReminder(task, dueDate, { webhookEnabled, telegramEnabled, config: this.config }, now);
     }
+  }
+
+  private enqueueMaintenanceReminder(
+    task: MaintenanceTask,
+    dueDate: string,
+    channels: { webhookEnabled: boolean; telegramEnabled: boolean; config: AppConfig },
+    now: Date,
+  ): void {
+    const house = task.houseId ? this.database.getHouse(task.houseId) : null;
+    const localToday = localCalendarDate(now, house?.timezone ?? "UTC");
+    if (dueDate > localToday) return;
+    const property = this.database.getProperty(task.propertyId);
+    const overdue = dueDate < localToday;
+    this.database.enqueueOperationalNotification({
+      subjectKind: "maintenance",
+      subjectId: task.id,
+      stage: "due",
+      sequence: 0,
+      policy: { ...DEFAULT_ALERT_DELIVERY_POLICY, timeZone: house?.timezone ?? "UTC" },
+      severity: overdue || task.priority === "urgent" ? "critical" : "warning",
+      ...channels,
+      type: "maintenance.due",
+      text: `${overdue ? "OVERDUE" : "DUE"} — ${task.title} (${property?.name ?? house?.name ?? "Property"}, ${dueDate})`,
+      data: { task, overdue, dueDate },
+      now,
+    });
   }
 
   private enqueueActionVerification(run: import("@climate-twin/contracts").ActionRun, now: Date): void {

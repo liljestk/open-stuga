@@ -55,6 +55,91 @@ import { deactivateAccountStorage } from "../../browserStorage";
 import { HEARTBEAT_POLL_MIN_INTERVAL_MS, LIVE_SERIES_SAMPLES, LIVE_TELEMETRY_BUFFER_LIMIT, PORTFOLIO_LOAD_CONCURRENCY, STREAM_BOOTSTRAP_WAIT_MS, advanceMockTelemetry, aggregateConnection, apiStatus, blankState, bufferLiveTelemetry, bufferSeriesValue, canonicalSeries, errorMessage, houseMutationKey, isDemoSource, isPollingCompatibilityHeartbeat, isRemoteSharedDemoTelemetry, legacySeries, loadPortfolioInBackground, mergeLegacySeries, mergeMeasurementSeries, metricForecastSamples, metricHistorySamples, optionalForecast, preserveMutatedSensorTelemetry, preserveSeriesCommittedDuringLoad, replaceFloor, replaceHouseSensors, replaceLoadedHouseTelemetry, replayBufferedLiveTelemetry, replayHouseInventory, replayHouseMutations, replayMaintenanceTaskMutation, sensorsFromSnapshots, seriesBucketSeconds, seriesLimit, seriesStateKey, settleInBackground, synchronizeSensorRoomLabels, unauthenticatedSession, withoutDemoTelemetry, withoutSensorIds } from "./support";
 import type { BootstrapStatus, BufferedHouseMutation, BufferedLiveTelemetry, BufferedSeriesTelemetry, DataMode, HistoricalSeriesWindow, HouseInventoryMutation, HouseMutationBuffer, LoadedTelemetryState, SeriesCommit, SeriesLoadState, SeriesLoadStatus, StreamConnections } from "./support";
 import type { LiveTelemetryActions, SessionLifecycleContext } from "./pipelineTypes";
+
+// Live values only count for the active Home's sensors, and never as demo data in a real workspace.
+function acceptsLiveValue(
+  current: ClimateState,
+  knownSensorIds: ReadonlySet<string>,
+  value: { sensorId: string; source: Reading["source"] | MeasurementSample["source"] },
+): boolean {
+  return knownSensorIds.has(value.sensorId)
+    && (current.integration.mock.mode !== "real" || !isDemoSource(value.source))
+    && !isRemoteSharedDemoTelemetry(current, value.sensorId, value.source);
+}
+
+// The newest reading per sensor becomes its latest value; every reading joins its history.
+function withLiveReadings(
+  current: ClimateState,
+  acceptedReadings: readonly Reading[],
+): Pick<ClimateState, "readings" | "history"> {
+  if (!acceptedReadings.length) return { readings: current.readings, history: current.history };
+  const readingsState = { ...current.readings };
+  const historyState = { ...current.history };
+  const readingsBySensor = new Map<string, Reading[]>();
+  for (const reading of acceptedReadings) {
+    const sensorReadings = readingsBySensor.get(reading.sensorId) ?? [];
+    sensorReadings.push(reading);
+    readingsBySensor.set(reading.sensorId, sensorReadings);
+  }
+  for (const [sensorId, sensorReadings] of readingsBySensor) {
+    readingsState[sensorId] = newestReading(readingsState[sensorId], sensorReadings);
+    const existing = current.history[sensorId] ?? [];
+    historyState[sensorId] = mergeLegacySeries(
+      existing,
+      sensorReadings,
+      Math.max(LIVE_SERIES_SAMPLES, existing.length),
+    );
+  }
+  return { readings: readingsState, history: historyState };
+}
+
+function newestReading(previous: Reading | undefined, readings: readonly Reading[]): Reading {
+  let latest = previous;
+  for (const reading of readings) {
+    const previousTime = latest ? Date.parse(latest.timestamp) : Number.NEGATIVE_INFINITY;
+    const incomingTime = Date.parse(reading.timestamp);
+    if (!latest || !Number.isFinite(previousTime) || !Number.isFinite(incomingTime) || incomingTime >= previousTime) {
+      latest = reading;
+    }
+  }
+  return latest!;
+}
+
+function withLiveTelemetry(
+  current: ClimateState,
+  currentHouseId: string | null,
+  readings: readonly Reading[],
+  streamedSamples: readonly MeasurementSample[],
+): ClimateState {
+  const knownSensorIds = new Set(current.sensors
+    .filter((sensor) => sensor.houseId === currentHouseId)
+    .map((sensor) => sensor.id));
+  const acceptedReadings = readings.filter((reading) => acceptsLiveValue(current, knownSensorIds, reading));
+  const acceptedSamplesByKey = new Map<string, MeasurementSample>();
+  for (const sample of [
+    ...acceptedReadings.flatMap((reading) => readingSamples(reading, current.measurementDefinitions)),
+    ...streamedSamples,
+  ]) {
+    if (!acceptsLiveValue(current, knownSensorIds, sample)) continue;
+    acceptedSamplesByKey.set(
+      `${sample.sensorId}\u0000${sample.metric}\u0000${sample.timestamp}`,
+      sample,
+    );
+  }
+  const acceptedSamples = [...acceptedSamplesByKey.values()];
+  if (!acceptedReadings.length && !acceptedSamples.length) return current;
+  return {
+    ...current,
+    ...withLiveReadings(current, acceptedReadings),
+    latestMeasurements: upsertLatest(current.latestMeasurements, acceptedSamples),
+    measurementHistory: appendLiveHistory(
+      current.measurementHistory,
+      acceptedSamples,
+      LIVE_SERIES_SAMPLES,
+    ),
+  };
+}
+
 export function useLiveTelemetry(
   context: SessionLifecycleContext,
 ): SessionLifecycleContext & LiveTelemetryActions {
@@ -185,122 +270,65 @@ export function useLiveTelemetry(
         `${sample.sensorId}\u0000${sample.metric}\u0000${sample.timestamp}`,
         sample,
       ])).values()];
-      setState((current) => {
-        const currentHouseId = activeHouseId.current;
-        const knownSensorIds = new Set(current.sensors
-          .filter((sensor) => sensor.houseId === currentHouseId)
-          .map((sensor) => sensor.id));
-        const acceptedReadings = readings.filter((reading) => knownSensorIds.has(reading.sensorId)
-          && (current.integration.mock.mode !== "real" || !isDemoSource(reading.source))
-          && !isRemoteSharedDemoTelemetry(current, reading.sensorId, reading.source));
-        const acceptedSamplesByKey = new Map<string, MeasurementSample>();
-        for (const sample of [
-          ...acceptedReadings.flatMap((reading) => readingSamples(reading, current.measurementDefinitions)),
-          ...streamedSamples,
-        ]) {
-          if (!knownSensorIds.has(sample.sensorId)
-            || (current.integration.mock.mode === "real" && isDemoSource(sample.source))
-            || isRemoteSharedDemoTelemetry(current, sample.sensorId, sample.source)) continue;
-          acceptedSamplesByKey.set(
-            `${sample.sensorId}\u0000${sample.metric}\u0000${sample.timestamp}`,
-            sample,
-          );
-        }
-        const acceptedSamples = [...acceptedSamplesByKey.values()];
-        if (!acceptedReadings.length && !acceptedSamples.length) return current;
-
-        let readingsState = current.readings;
-        let historyState = current.history;
-        if (acceptedReadings.length) {
-          readingsState = { ...current.readings };
-          historyState = { ...current.history };
-          const readingsBySensor = new Map<string, Reading[]>();
-          for (const reading of acceptedReadings) {
-            const sensorReadings = readingsBySensor.get(reading.sensorId) ?? [];
-            sensorReadings.push(reading);
-            readingsBySensor.set(reading.sensorId, sensorReadings);
-          }
-          for (const [sensorId, sensorReadings] of readingsBySensor) {
-            let latest = readingsState[sensorId];
-            for (const reading of sensorReadings) {
-              const previousTime = latest ? Date.parse(latest.timestamp) : Number.NEGATIVE_INFINITY;
-              const incomingTime = Date.parse(reading.timestamp);
-              if (!latest || !Number.isFinite(previousTime) || !Number.isFinite(incomingTime) || incomingTime >= previousTime) {
-                latest = reading;
-              }
-            }
-            readingsState[sensorId] = latest!;
-            const existing = current.history[sensorId] ?? [];
-            historyState[sensorId] = mergeLegacySeries(
-              existing,
-              sensorReadings,
-              Math.max(LIVE_SERIES_SAMPLES, existing.length),
-            );
-          }
-        }
-
-        return {
-          ...current,
-          readings: readingsState,
-          history: historyState,
-          latestMeasurements: upsertLatest(current.latestMeasurements, acceptedSamples),
-          measurementHistory: appendLiveHistory(
-            current.measurementHistory,
-            acceptedSamples,
-            LIVE_SERIES_SAMPLES,
-          ),
-        };
-      });
+      setState((current) => withLiveTelemetry(current, activeHouseId.current, readings, streamedSamples));
     }, []);
+  const scheduleMutationRefresh = useCallback(() => {
+      if (mutationRefreshTimer.current !== null) window.clearTimeout(mutationRefreshTimer.current);
+      mutationRefreshTimer.current = window.setTimeout(() => {
+        mutationRefreshTimer.current = null;
+        if (!sessionLockedRef.current) setBootstrapAttempt((attempt) => attempt + 1);
+      }, 350);
+    }, []);
+  const queueLiveReading = useCallback((reading: Reading) => {
+      if (!isActiveHouseSensor(reading.sensorId)
+        || (dataModeRef.current === "real" && isDemoSource(reading.source))
+        || isRemoteSharedDemoTelemetry(stateRef.current, reading.sensorId, reading.source)) return;
+      for (const buffer of activeTelemetryLoadBuffers.current) {
+        bufferLiveTelemetry(buffer, { type: "reading", data: reading });
+      }
+      for (const buffer of activeSeriesTelemetryBuffers.current) {
+        if (buffer.sensorId === reading.sensorId) bufferSeriesValue(buffer.readings, reading.timestamp, reading);
+      }
+      pendingLegacyReadings.current.push(reading);
+      if (measurementFlushTimer.current === null) {
+        measurementFlushTimer.current = window.setTimeout(flushMeasurements, 16);
+      }
+    }, [flushMeasurements, isActiveHouseSensor]);
+  // A TP-Link poll that moved on may have found new child devices.
+  const applyLiveIntegration = useCallback((integration: ClimateState["integration"]) => {
+      const previousTpLinkPollStatus = tpLinkPollStatus.current;
+      const tpLinkPollAdvanced = previousTpLinkPollStatus !== null && (
+        previousTpLinkPollStatus.lastPollAt !== integration.tpLink.lastPollAt
+        || previousTpLinkPollStatus.discoveredDevices !== integration.tpLink.discoveredDevices
+      );
+      tpLinkPollStatus.current = {
+        lastPollAt: integration.tpLink.lastPollAt,
+        discoveredDevices: integration.tpLink.discoveredDevices,
+      };
+      applyIntegrationStatus(integration);
+      if (tpLinkPollAdvanced) settleInBackground(refreshTpLinkDevices());
+    }, [applyIntegrationStatus, refreshTpLinkDevices]);
   const handleTelemetry = useCallback((event: TelemetryEvent) => {
       if (event.type === "heartbeat") {
         setState((current) => ({ ...current, latestTelemetryHeartbeatAt: Date.now() }));
       } else if (event.type === "mutation") {
-        if (mutationRefreshTimer.current !== null) window.clearTimeout(mutationRefreshTimer.current);
-        mutationRefreshTimer.current = window.setTimeout(() => {
-          mutationRefreshTimer.current = null;
-          if (!sessionLockedRef.current) setBootstrapAttempt((attempt) => attempt + 1);
-        }, 350);
+        scheduleMutationRefresh();
       } else if (event.type === "opening") {
         setState((current) => current.houses.some((house) => house.id === event.data.houseId)
           ? { ...current, latestOpeningStateObservation: event.data }
           : current);
       } else if (event.type === "reading" && "temperature" in event.data && "humidity" in event.data) {
-        const reading = event.data;
-        if (!isActiveHouseSensor(reading.sensorId)
-          || (dataModeRef.current === "real" && isDemoSource(reading.source))
-          || isRemoteSharedDemoTelemetry(stateRef.current, reading.sensorId, reading.source)) return;
-        for (const buffer of activeTelemetryLoadBuffers.current) {
-          bufferLiveTelemetry(buffer, { type: "reading", data: reading });
-        }
-        for (const buffer of activeSeriesTelemetryBuffers.current) {
-          if (buffer.sensorId === reading.sensorId) bufferSeriesValue(buffer.readings, reading.timestamp, reading);
-        }
-        pendingLegacyReadings.current.push(reading);
-        if (measurementFlushTimer.current === null) {
-          measurementFlushTimer.current = window.setTimeout(flushMeasurements, 16);
-        }
+        queueLiveReading(event.data);
       } else if (event.type === "alert" && "ruleId" in event.data) {
         const alert = event.data;
         globalFieldVersions.current.alerts += 1;
         setState((current) => ({ ...current, alerts: [alert, ...current.alerts.filter((item) => item.id !== alert.id)] }));
       } else if (event.type === "integration" && "homeAssistant" in event.data) {
-        const integration = event.data as ClimateState["integration"];
-        const previousTpLinkPollStatus = tpLinkPollStatus.current;
-        const tpLinkPollAdvanced = previousTpLinkPollStatus !== null && (
-          previousTpLinkPollStatus.lastPollAt !== integration.tpLink.lastPollAt
-          || previousTpLinkPollStatus.discoveredDevices !== integration.tpLink.discoveredDevices
-        );
-        tpLinkPollStatus.current = {
-          lastPollAt: integration.tpLink.lastPollAt,
-          discoveredDevices: integration.tpLink.discoveredDevices,
-        };
-        applyIntegrationStatus(integration);
-        if (tpLinkPollAdvanced) settleInBackground(refreshTpLinkDevices());
+        applyLiveIntegration(event.data as ClimateState["integration"]);
       } else if (event.type === "weather" && event.data.type === "weather.snapshot") {
         publishHouseWeatherUpdate(event.data);
       }
-    }, [applyIntegrationStatus, flushMeasurements, isActiveHouseSensor, refreshTpLinkDevices]);
+    }, [applyLiveIntegration, queueLiveReading, scheduleMutationRefresh]);
   const handleMeasurement = useCallback((sample: MeasurementSample) => {
       if (!isActiveHouseSensor(sample.sensorId)
         || (dataModeRef.current === "real" && isDemoSource(sample.source))

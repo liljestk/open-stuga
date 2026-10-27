@@ -4,7 +4,7 @@ import { Agent as HttpsAgent } from "node:https";
 import type { Socket } from "node:net";
 import { resolve } from "node:path";
 import WebSocket from "ws";
-import { hasLocalHouseAuthority, type MeasurementSample, type OpeningState, type OpeningStateObservation, type Reading } from "@climate-twin/contracts";
+import { hasLocalHouseAuthority, type MeasurementSample, type OpeningState, type OpeningStateObservation, type Reading, type Sensor } from "@climate-twin/contracts";
 import type { AppConfig } from "../../config.js";
 import type { ClimateDatabase } from "../../db.js";
 import type {
@@ -18,6 +18,145 @@ import { importEntityMappingFile, mappedEntityIds, mappingFingerprint, mappingMe
 import { registerHomeAssistantConnectionBridgeMethods, homeAssistantConnectionBridgeState, type HomeAssistantConnectionBridgeInternals } from "../core.js";
 import { assertHomeAssistantHistoryChunkLimit, boundedHomeAssistantHistoryJson, storeBoundedHomeAssistantHistorySample } from "../history-limits.js";
 import { compareCodeUnits } from "../../text-order.js";
+
+interface HistoryWindow {
+  sensorId: string;
+  metric: string;
+  entityId: string;
+  target: EntityTarget;
+  startMs: number;
+  endMs: number;
+}
+
+// Returns the recorder history groups for one chunk, or null when the recorder is unavailable.
+async function fetchHistoryChunk(
+  bridge: HomeAssistantConnectionBridgeInternals,
+  entityId: string,
+  cursor: number,
+  chunkEnd: number,
+): Promise<unknown[] | null> {
+  const state = bridge[homeAssistantConnectionBridgeState];
+  const endpoint = new URL(state.config.haUrl as string);
+  endpoint.pathname = `${endpoint.pathname.replace(/\/$/, "")}/api/history/period/${encodeURIComponent(new Date(cursor).toISOString())}`;
+  endpoint.search = new URLSearchParams({
+    end_time: new Date(chunkEnd).toISOString(),
+    filter_entity_id: entityId,
+  }).toString();
+  endpoint.hash = "";
+  const response = await (state.options.fetcher ?? fetch)(endpoint, {
+    headers: { authorization: `Bearer ${state.config.haToken}`, accept: "application/json" },
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (response.status === 404) return null;
+  if (!response.ok) throw new Error(`Home Assistant history request failed with status ${response.status}`);
+  const body = await boundedHomeAssistantHistoryJson(response);
+  if (!Array.isArray(body)) throw new Error("Home Assistant history returned an invalid response");
+  return body;
+}
+
+function historySample(
+  bridge: HomeAssistantConnectionBridgeInternals,
+  window: HistoryWindow,
+  candidate: unknown,
+): MeasurementSample | null {
+  if (!candidate || typeof candidate !== "object") return null;
+  const state = { ...(candidate as HaState), entity_id: window.entityId };
+  const value = bridge.normalizeHistoryValue(window.target, state);
+  const sourceTimestamp = [state.last_updated, state.last_changed]
+    .find((timestamp) => timestamp && Number.isFinite(Date.parse(timestamp)));
+  if (!sourceTimestamp) return null;
+  const timestamp = new Date(sourceTimestamp).toISOString();
+  if (value === null || Date.parse(timestamp) < window.startMs || Date.parse(timestamp) > window.endMs) return null;
+  const definition = bridge[homeAssistantConnectionBridgeState].database.getMeasurementDefinition(window.metric);
+  if (!definition?.enabled) return null;
+  return {
+    sensorId: window.sensorId,
+    metric: window.metric,
+    value,
+    canonicalUnit: definition.unit,
+    timestamp,
+    source: "home-assistant",
+    quality: "good",
+  };
+}
+
+function collectHistorySamples(
+  bridge: HomeAssistantConnectionBridgeInternals,
+  window: HistoryWindow,
+  body: unknown[],
+  samples: Map<string, MeasurementSample>,
+): void {
+  for (const group of body) {
+    if (!Array.isArray(group)) continue;
+    for (const candidate of group) {
+      const sample = historySample(bridge, window, candidate);
+      if (sample) storeBoundedHomeAssistantHistorySample(samples, sample);
+    }
+  }
+}
+
+// Sensor metrics and entity ids that the compatibility map already owns.
+interface EntityClaims {
+  metrics: Set<string>;
+  entities: Set<string>;
+}
+
+function legacyEntityMappings(
+  bridge: HomeAssistantConnectionBridgeInternals,
+  scopedHouseId: string | undefined,
+): HomeAssistantEntityMapping[] {
+  const state = bridge[homeAssistantConnectionBridgeState];
+  const path = state.config.haEntityMapFile;
+  let fileMappings: HomeAssistantEntityMapping[];
+  if (path && existsSync(path)) {
+    fileMappings = importEntityMappingFile(state.database, path);
+  } else {
+    const stored = state.database.getIntegrationMappingSet<unknown>("home-assistant");
+    fileMappings = stored ? validateEntityMappings(stored.mappings) : [];
+  }
+  fileMappings = fileMappings.filter((mapping) => {
+    const sensor = state.database.getSensor(mapping.sensorId);
+    const house = sensor
+      ? state.database.getHouse(sensor.houseId)
+      : null;
+    return Boolean(
+      sensor
+      && (!scopedHouseId || sensor.houseId === scopedHouseId)
+      && house
+      && hasLocalHouseAuthority(house),
+    );
+  });
+  const unavailableSensorIds = [...new Set(fileMappings
+    .filter((mapping) => !state.database.getSensor(mapping.sensorId)?.enabled)
+    .map((mapping) => mapping.sensorId))].sort(compareCodeUnits);
+  state.mappingWarning = unavailableSensorIds.length > 0
+    ? `Ignored Home Assistant mappings for unknown or disabled sensors: ${unavailableSensorIds.join(", ")}`
+    : null;
+  // Existing disabled sensors keep their entity/metric ownership in the caller,
+  // but only enabled sensors are registered for ingestion.
+  return fileMappings;
+}
+
+function persistedSensorMapping(sensor: Sensor, claims: EntityClaims): HomeAssistantEntityMapping {
+  const persisted: Record<string, string> = sensor.measurementEntityIds ?? {};
+  const mapping: HomeAssistantEntityMapping = { sensorId: sensor.id };
+  const unclaimed = (metric: string, entityId: string) => !claims.metrics.has(sensorMetricKey(sensor.id, metric))
+    && !claims.entities.has(entityId.trim());
+  const temperature = persisted.temperature ?? sensor.temperatureEntityId;
+  const humidity = persisted.humidity ?? sensor.humidityEntityId;
+  const battery = persisted.battery ?? sensor.batteryEntityId;
+  if (temperature && unclaimed("temperature", temperature)) mapping.temperature = temperature;
+  if (humidity && unclaimed("humidity", humidity)) mapping.humidity = humidity;
+  if (battery && unclaimed("battery", battery)) mapping.battery = battery;
+  for (const [metric, entityId] of Object.entries(persisted)) {
+    // Legacy climate/battery fields above preserve flexible temperature
+    // conversion and avoid registering normalized bindings twice.
+    if (["temperature", "humidity", "battery"].includes(metric) || !unclaimed(metric, entityId)) continue;
+    mapping.measurements ??= {};
+    mapping.measurements[metric] = entityId;
+  }
+  return mapping;
+}
 
 registerHomeAssistantConnectionBridgeMethods({
   start(this: HomeAssistantConnectionBridgeInternals): void {
@@ -69,50 +208,14 @@ registerHomeAssistantConnectionBridgeMethods({
         return { state: "complete", samples: [], error: null };
       }
       assertHomeAssistantHistoryChunkLimit(startMs, endMs);
+      const window: HistoryWindow = { sensorId, metric, entityId, target, startMs, endMs };
       const samples = new Map<string, MeasurementSample>();
       for (let cursor = startMs; cursor < endMs; cursor += HA_HISTORY_CHUNK_MS) {
-        const chunkEnd = Math.min(endMs, cursor + HA_HISTORY_CHUNK_MS);
-        const endpoint = new URL(this[homeAssistantConnectionBridgeState].config.haUrl);
-        endpoint.pathname = `${endpoint.pathname.replace(/\/$/, "")}/api/history/period/${encodeURIComponent(new Date(cursor).toISOString())}`;
-        endpoint.search = new URLSearchParams({
-          end_time: new Date(chunkEnd).toISOString(),
-          filter_entity_id: entityId,
-        }).toString();
-        endpoint.hash = "";
-        const response = await (this[homeAssistantConnectionBridgeState].options.fetcher ?? fetch)(endpoint, {
-          headers: { authorization: `Bearer ${this[homeAssistantConnectionBridgeState].config.haToken}`, accept: "application/json" },
-          signal: AbortSignal.timeout(15_000),
-        });
-        if (response.status === 404) {
+        const body = await fetchHistoryChunk(this, entityId, cursor, Math.min(endMs, cursor + HA_HISTORY_CHUNK_MS));
+        if (!body) {
           return { state: "not-supported", samples: [], error: "Home Assistant recorder history is not available" };
         }
-        if (!response.ok) throw new Error(`Home Assistant history request failed with status ${response.status}`);
-        const body = await boundedHomeAssistantHistoryJson(response);
-        if (!Array.isArray(body)) throw new Error("Home Assistant history returned an invalid response");
-        for (const group of body) {
-          if (!Array.isArray(group)) continue;
-          for (const candidate of group) {
-            if (!candidate || typeof candidate !== "object") continue;
-            const state = { ...(candidate as HaState), entity_id: entityId };
-            const value = this.normalizeHistoryValue(target, state);
-            const sourceTimestamp = [state.last_updated, state.last_changed]
-              .find((timestamp) => timestamp && Number.isFinite(Date.parse(timestamp)));
-            if (!sourceTimestamp) continue;
-            const timestamp = new Date(sourceTimestamp).toISOString();
-            if (value === null || Date.parse(timestamp) < startMs || Date.parse(timestamp) > endMs) continue;
-            const definition = this[homeAssistantConnectionBridgeState].database.getMeasurementDefinition(metric);
-            if (!definition?.enabled) continue;
-            storeBoundedHomeAssistantHistorySample(samples, {
-              sensorId,
-              metric,
-              value,
-              canonicalUnit: definition.unit,
-              timestamp,
-              source: "home-assistant",
-              quality: "good",
-            });
-          }
-        }
+        collectHistorySamples(this, window, body, samples);
       }
       return { state: "complete", samples: [...samples.values()].sort((left, right) => left.timestamp.localeCompare(right.timestamp)), error: null };
     },
@@ -133,71 +236,27 @@ registerHomeAssistantConnectionBridgeMethods({
       return rawValue * (target.scale ?? 1) + (target.offset ?? 0);
     },
   configuredMappings(this: HomeAssistantConnectionBridgeInternals): HomeAssistantEntityMapping[] {
-      let fileMappings: HomeAssistantEntityMapping[] = [];
       const scopedHouseId = this[homeAssistantConnectionBridgeState].houseId;
       // The compatibility map is workspace-global and must never leak into a
       // house-scoped UI connection. For the one legacy connection, an existing
       // file is an explicit bootstrap/update and SQLite is the durable fallback.
-      if (this[homeAssistantConnectionBridgeState].houseId === undefined) {
-        const path = this[homeAssistantConnectionBridgeState].config.haEntityMapFile;
-        if (path && existsSync(path)) {
-          fileMappings = importEntityMappingFile(this[homeAssistantConnectionBridgeState].database, path);
-        } else {
-          const stored = this[homeAssistantConnectionBridgeState].database.getIntegrationMappingSet<unknown>("home-assistant");
-          fileMappings = stored ? validateEntityMappings(stored.mappings) : [];
-        }
-        fileMappings = fileMappings.filter((mapping) => {
-          const sensor = this[homeAssistantConnectionBridgeState].database.getSensor(mapping.sensorId);
-          const house = sensor
-            ? this[homeAssistantConnectionBridgeState].database.getHouse(sensor.houseId)
-            : null;
-          return Boolean(
-            sensor
-            && (!scopedHouseId || sensor.houseId === scopedHouseId)
-            && house
-            && hasLocalHouseAuthority(house),
-          );
-        });
-        const unavailableSensorIds = [...new Set(fileMappings
-          .filter((mapping) => !this[homeAssistantConnectionBridgeState].database.getSensor(mapping.sensorId)?.enabled)
-          .map((mapping) => mapping.sensorId))].sort(compareCodeUnits);
-        this[homeAssistantConnectionBridgeState].mappingWarning = unavailableSensorIds.length > 0
-          ? `Ignored Home Assistant mappings for unknown or disabled sensors: ${unavailableSensorIds.join(", ")}`
-          : null;
-        // Existing disabled sensors keep their entity/metric ownership below,
-        // but only enabled sensors are registered for ingestion.
-      }
+      const fileMappings = this[homeAssistantConnectionBridgeState].houseId === undefined
+        ? legacyEntityMappings(this, scopedHouseId)
+        : [];
       const claimMappings = fileMappings.filter((mapping) => this[homeAssistantConnectionBridgeState].database.getSensor(mapping.sensorId));
       const activeFileMappings = fileMappings.filter((mapping) => this[homeAssistantConnectionBridgeState].database.getSensor(mapping.sensorId)?.enabled);
-      const fileClaims = new Set(claimMappings.flatMap((mapping) => (
-        mappingMetricKeys(mapping).map((metric) => sensorMetricKey(mapping.sensorId, metric))
-      )));
-      const fileEntityClaims = new Set(claimMappings.flatMap(mappedEntityIds).map((entityId) => entityId.trim()));
+      const claims: EntityClaims = {
+        metrics: new Set(claimMappings.flatMap((mapping) => (
+          mappingMetricKeys(mapping).map((metric) => sensorMetricKey(mapping.sensorId, metric))
+        ))),
+        entities: new Set(claimMappings.flatMap(mappedEntityIds).map((entityId) => entityId.trim())),
+      };
       const persistedMappings: HomeAssistantEntityMapping[] = [];
       for (const sensor of this[homeAssistantConnectionBridgeState].database.listSensors(scopedHouseId)) {
         const house = this[homeAssistantConnectionBridgeState].database.getHouse(sensor.houseId);
         if (!house || !hasLocalHouseAuthority(house)) continue;
         if (!sensor.enabled) continue;
-        const persisted = sensor.measurementEntityIds ?? {};
-        const mapping: HomeAssistantEntityMapping = { sensorId: sensor.id };
-        const temperature = persisted.temperature ?? sensor.temperatureEntityId;
-        const humidity = persisted.humidity ?? sensor.humidityEntityId;
-        const battery = persisted.battery ?? sensor.batteryEntityId;
-        if (temperature && !fileClaims.has(sensorMetricKey(sensor.id, "temperature"))
-          && !fileEntityClaims.has(temperature.trim())) mapping.temperature = temperature;
-        if (humidity && !fileClaims.has(sensorMetricKey(sensor.id, "humidity"))
-          && !fileEntityClaims.has(humidity.trim())) mapping.humidity = humidity;
-        if (battery && !fileClaims.has(sensorMetricKey(sensor.id, "battery"))
-          && !fileEntityClaims.has(battery.trim())) mapping.battery = battery;
-        for (const [metric, entityId] of Object.entries(persisted)) {
-          // Legacy climate/battery fields above preserve flexible temperature
-          // conversion and avoid registering normalized bindings twice.
-          if (["temperature", "humidity", "battery"].includes(metric)
-            || fileClaims.has(sensorMetricKey(sensor.id, metric))
-            || fileEntityClaims.has(entityId.trim())) continue;
-          mapping.measurements ??= {};
-          mapping.measurements[metric] = entityId;
-        }
+        const mapping = persistedSensorMapping(sensor, claims);
         if (mappedEntityIds(mapping).length > 0) persistedMappings.push(mapping);
       }
       return [...activeFileMappings, ...persistedMappings];

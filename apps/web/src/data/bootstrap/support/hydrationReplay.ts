@@ -52,7 +52,7 @@ import { appendHistory, enabledDefinitions, legacyForecastSamples, readingSample
 import { routeFromLocation } from "../../../routing";
 import { publishHouseWeatherUpdate } from "../../../useHouseWeather";
 import { MAX_SERIES_SAMPLES, optionalForecast, seriesLimit, withoutSensorIds } from "./telemetryState";
-import type { BufferedLiveTelemetry, HouseMutationBuffer, LoadedTelemetryState, SeriesCommit } from "./telemetryState";
+import type { BufferedHouseMutation, BufferedLiveTelemetry, HouseMutationBuffer, LoadedTelemetryState, SeriesCommit } from "./telemetryState";
 import { mergeLegacySeries, mergeMeasurementSeries } from "./bootstrapState";
 
 export async function legacySeries(
@@ -221,51 +221,78 @@ export function replayHouseMutations<T extends {
   maintenanceTasks: MaintenanceTask[];
   staticParameters: StaticParameter[];
 }>(houseId: string | null, loaded: T, buffered: HouseMutationBuffer): T & { deletedSensorIds: Set<string> } {
-  let sensors = loaded.sensors;
-  let observations = loaded.observations;
-  let maintenanceTasks = loaded.maintenanceTasks;
-  let staticParameters = loaded.staticParameters;
-  const deletedSensorIds = new Set<string>();
+  const replay: ReplayedHouseResources = {
+    sensors: loaded.sensors,
+    observations: loaded.observations,
+    maintenanceTasks: loaded.maintenanceTasks,
+    staticParameters: loaded.staticParameters,
+    deletedSensorIds: new Set<string>(),
+  };
   for (const mutation of buffered.values()) {
     if (mutation.houseId !== houseId) continue;
-    if (mutation.resource === "sensor") {
-      if (mutation.action === "delete") {
-        sensors = sensors.filter((sensor) => sensor.id !== mutation.id);
-        observations = observations.map((observation) => observation.sensorId === mutation.id
-          ? { ...observation, sensorId: null }
-          : observation);
-        staticParameters = staticParameters.filter((parameter) => !(
-          parameter.scopeType === "sensor" && parameter.scopeId === mutation.id
-        ));
-        deletedSensorIds.add(mutation.id);
-      } else {
-        sensors = [...sensors.filter((sensor) => sensor.id !== mutation.value.id), mutation.value];
-        deletedSensorIds.delete(mutation.value.id);
-      }
-    } else if (mutation.resource === "observation") {
-      observations = mutation.action === "replace"
-        ? mutation.values
-        : [...observations.filter((item) => item.id !== mutation.value.id), mutation.value];
-    } else if (mutation.resource === "maintenance") {
-      maintenanceTasks = mutation.action === "replace"
-        ? mutation.values
-        : mutation.action === "delete"
-        ? maintenanceTasks.filter((item) => item.id !== mutation.id)
-        : [...maintenanceTasks.filter((item) => item.id !== mutation.value.id), mutation.value];
-    } else {
-      if (mutation.action === "delete") {
-        staticParameters = staticParameters.filter((item) => item.id !== mutation.id);
-      } else {
-        const value = mutation.value;
-        staticParameters = [
-          ...staticParameters.filter((item) => !(item.scopeType === value.scopeType
-            && item.scopeId === value.scopeId && item.key === value.key)),
-          value,
-        ];
-      }
-    }
+    if (mutation.resource === "sensor") replaySensorMutation(replay, mutation);
+    else if (mutation.resource === "observation") replayObservationMutation(replay, mutation);
+    else if (mutation.resource === "maintenance") replayMaintenanceMutation(replay, mutation);
+    else replayStaticParameterMutation(replay, mutation);
   }
-  return { ...loaded, sensors, observations, maintenanceTasks, staticParameters, deletedSensorIds };
+  return { ...loaded, ...replay };
+}
+
+interface ReplayedHouseResources {
+  sensors: Sensor[];
+  observations: ManualObservation[];
+  maintenanceTasks: MaintenanceTask[];
+  staticParameters: StaticParameter[];
+  deletedSensorIds: Set<string>;
+}
+
+type MutationFor<Resource extends BufferedHouseMutation["resource"]> = Extract<BufferedHouseMutation, { resource: Resource }>;
+
+// Deleting a sensor detaches its observations and drops its sensor-scoped parameters.
+function replaySensorMutation(replay: ReplayedHouseResources, mutation: MutationFor<"sensor">): void {
+  if (mutation.action === "delete") {
+    replay.sensors = replay.sensors.filter((sensor) => sensor.id !== mutation.id);
+    replay.observations = replay.observations.map((observation) => observation.sensorId === mutation.id
+      ? { ...observation, sensorId: null }
+      : observation);
+    replay.staticParameters = replay.staticParameters.filter((parameter) => !(
+      parameter.scopeType === "sensor" && parameter.scopeId === mutation.id
+    ));
+    replay.deletedSensorIds.add(mutation.id);
+    return;
+  }
+  replay.sensors = [...replay.sensors.filter((sensor) => sensor.id !== mutation.value.id), mutation.value];
+  replay.deletedSensorIds.delete(mutation.value.id);
+}
+
+function replayObservationMutation(replay: ReplayedHouseResources, mutation: MutationFor<"observation">): void {
+  replay.observations = mutation.action === "replace"
+    ? mutation.values
+    : [...replay.observations.filter((item) => item.id !== mutation.value.id), mutation.value];
+}
+
+function replayMaintenanceMutation(replay: ReplayedHouseResources, mutation: MutationFor<"maintenance">): void {
+  if (mutation.action === "replace") {
+    replay.maintenanceTasks = mutation.values;
+  } else if (mutation.action === "delete") {
+    replay.maintenanceTasks = replay.maintenanceTasks.filter((item) => item.id !== mutation.id);
+  } else {
+    replay.maintenanceTasks = [...replay.maintenanceTasks.filter((item) => item.id !== mutation.value.id), mutation.value];
+  }
+}
+
+// A static parameter is keyed by its scope and key, so an upsert replaces any value at that slot.
+function replayStaticParameterMutation(replay: ReplayedHouseResources, mutation: MutationFor<"static">): void {
+  if (mutation.action === "delete") {
+    replay.staticParameters = replay.staticParameters.filter((item) => item.id !== mutation.id);
+    return;
+  }
+  const value = mutation.value;
+  replay.staticParameters = [
+    ...replay.staticParameters.filter((item) => !(item.scopeType === value.scopeType
+      && item.scopeId === value.scopeId && item.key === value.key)),
+    value,
+  ];
 }
 
 export function replayMaintenanceTaskMutation(
@@ -324,14 +351,28 @@ export function preserveSeriesCommittedDuringLoad(
       };
     }
     if (commit.legacy) {
-      if (current.history[sensorId] !== undefined) {
-        history = {
-          ...history,
-          [sensorId]: mergeLegacySeries(current.history[sensorId], history[sensorId] ?? [], MAX_SERIES_SAMPLES),
-        };
-      }
-      if (current.forecasts[sensorId] !== undefined) forecasts = { ...forecasts, [sensorId]: current.forecasts[sensorId] };
+      const legacy = withCommittedLegacySeries(history, forecasts, current, sensorId);
+      history = legacy.history;
+      forecasts = legacy.forecasts;
     }
   }
   return { ...loaded, measurementHistory, measurementForecasts, history, forecasts };
+}
+
+function withCommittedLegacySeries(
+  history: LoadedTelemetryState["history"],
+  forecasts: LoadedTelemetryState["forecasts"],
+  current: ClimateState,
+  sensorId: string,
+): Pick<LoadedTelemetryState, "history" | "forecasts"> {
+  let nextHistory = history;
+  let nextForecasts = forecasts;
+  if (current.history[sensorId] !== undefined) {
+    nextHistory = {
+      ...history,
+      [sensorId]: mergeLegacySeries(current.history[sensorId], history[sensorId] ?? [], MAX_SERIES_SAMPLES),
+    };
+  }
+  if (current.forecasts[sensorId] !== undefined) nextForecasts = { ...forecasts, [sensorId]: current.forecasts[sensorId] };
+  return { history: nextHistory, forecasts: nextForecasts };
 }

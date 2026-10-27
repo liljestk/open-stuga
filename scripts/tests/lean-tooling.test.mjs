@@ -231,6 +231,9 @@ test("fast verification selects bounded affected tests", () => {
   const tooling = affectedTestPlan(["scripts/release-verify.mjs"], "a".repeat(40));
   assert.ok(tooling.some((step) => step.args.join(" ").includes("test:lean-tooling")));
   assert.ok(tooling.some((step) => step.args.join(" ").includes("test:rpi-ota")));
+
+  const complexityGate = affectedTestPlan(["scripts/check-cognitive-complexity.mjs"], "a".repeat(40));
+  assert.ok(complexityGate.some((step) => step.args.join(" ").includes("test:lean-tooling")));
 });
 
 function healthyEvidence() {
