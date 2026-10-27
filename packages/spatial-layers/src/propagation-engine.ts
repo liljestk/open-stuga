@@ -44,69 +44,13 @@ export function connectionValue(
   const contextFactor = 1 - 0.75 * contextPenalty;
   const forwardScore = forward.evidenceScore * contextFactor;
   const reverseScore = reverse.evidenceScore * contextFactor;
-  const enoughForward =
-    forwardScore >= config.displayEvidenceThreshold &&
-    forward.matchedEventCount >= config.minimumDistinctEvents;
-  const enoughReverse =
-    reverseScore >= config.displayEvidenceThreshold &&
-    reverse.matchedEventCount >= config.minimumDistinctEvents;
-  let state: ConnectionLayerValue['state'] = 'uncertain';
-  let fromZoneId: string | null = null;
-  let toZoneId: string | null = null;
-  let direction: NonNullable<ConnectionLayerValue['style']>['direction'] = 'none';
-  const reasons: string[] = [];
-  if (edge.endpointCoverage < config.minimumCoverage) {
-    state = 'insufficient-data';
-    reasons.push('insufficient-endpoint-coverage');
-  } else if (
-    enoughForward &&
-    enoughReverse &&
-    Math.abs(forwardScore - reverseScore) < config.directionMargin
-  ) {
-    state = 'bidirectional-evidence';
-    direction = 'both';
-    reasons.push('distinct-events-support-both-directions');
-  } else if (enoughForward && forwardScore >= reverseScore + config.directionMargin) {
-    state = 'directed';
-    fromZoneId = forward.fromZoneId;
-    toZoneId = forward.toZoneId;
-    direction = 'a-to-b';
-    reasons.push('repeated-delayed-propagation-evidence');
-  } else if (enoughReverse && reverseScore >= forwardScore + config.directionMargin) {
-    state = 'directed';
-    fromZoneId = reverse.fromZoneId;
-    toZoneId = reverse.toZoneId;
-    direction = 'b-to-a';
-    reasons.push('repeated-delayed-propagation-evidence');
-  } else if (forward.sourceEventCount + reverse.sourceEventCount >= config.minimumDistinctEvents) {
-    state = 'no-detectable-propagation';
-    reasons.push('events-present-without-repeatable-edge-propagation');
-  } else {
-    reasons.push('no-distinct-qualifying-events');
-  }
+  const { state, fromZoneId, toZoneId, direction, reasons } = classifyPropagation(edge, config, forwardScore, reverseScore);
   if (contextPenalty > 0) reasons.push('known-source-context-penalty');
   const dominant = forwardScore >= reverseScore ? forward : reverse;
   const strongestScore = Math.max(forwardScore, reverseScore);
-  const zoneA = input.topology.zones.find((zone) => zone.id === connection.zoneAId);
-  const zoneB = input.topology.zones.find((zone) => zone.id === connection.zoneBId);
-  const sharedFrame = zoneA?.frameId === zoneB?.frameId ? zoneA?.frameId : undefined;
-  const anchors = connection.anchors ??
-    (zoneA !== undefined && zoneB !== undefined ? [zoneA.centroid, zoneB.centroid] : undefined);
-  const anchorRefs = connection.anchors !== undefined
-    ? sharedFrame === undefined
-      ? undefined
-      : connection.anchors.map((position) => ({ frameId: sharedFrame, position }))
-    : zoneA !== undefined && zoneB !== undefined
-      ? [
-          { frameId: zoneA.frameId, position: zoneA.centroid },
-          { frameId: zoneB.frameId, position: zoneB.centroid },
-        ]
-      : undefined;
   return {
     connectionId: connection.id,
-    ...(sharedFrame === undefined ? {} : { frameId: sharedFrame }),
-    ...(anchors === undefined ? {} : { anchors }),
-    ...(anchorRefs === undefined ? {} : { anchorRefs }),
+    ...connectionGeometry(input, connection),
     fromZoneId,
     toZoneId,
     state,
@@ -166,13 +110,95 @@ export function connectionValue(
       },
     ],
     reasonCodes: reasons,
-    style: {
-      palette: state === 'insufficient-data' ? 'neutral' : 'air',
-      direction,
-      lineStyle: state === 'directed' ? 'solid' : state === 'bidirectional-evidence' ? 'dashed' : 'dotted',
-      emphasis: strongestScore,
-      opacity: state === 'insufficient-data' ? 0.25 : clamp(0.25 + strongestScore * 0.75),
-    },
+    style: connectionStyle(state, direction, strongestScore),
+  };
+}
+
+type PropagationDirection = NonNullable<NonNullable<ConnectionLayerValue['style']>['direction']>;
+
+interface PropagationClassification {
+  state: ConnectionLayerValue['state'];
+  fromZoneId: string | null;
+  toZoneId: string | null;
+  direction: PropagationDirection;
+  reasons: string[];
+}
+
+function classifyPropagation(
+  edge: EdgePropagationEvidence,
+  config: PropagationConfig,
+  forwardScore: number,
+  reverseScore: number,
+): PropagationClassification {
+  const { forward, reverse } = edge;
+  const enoughForward =
+    forwardScore >= config.displayEvidenceThreshold &&
+    forward.matchedEventCount >= config.minimumDistinctEvents;
+  const enoughReverse =
+    reverseScore >= config.displayEvidenceThreshold &&
+    reverse.matchedEventCount >= config.minimumDistinctEvents;
+  const undirected = (state: ConnectionLayerValue['state'], direction: PropagationDirection, reason: string): PropagationClassification => (
+    { state, fromZoneId: null, toZoneId: null, direction, reasons: [reason] }
+  );
+  const directed = (evidence: EdgePropagationEvidence['forward'], direction: PropagationDirection): PropagationClassification => ({
+    state: 'directed',
+    fromZoneId: evidence.fromZoneId,
+    toZoneId: evidence.toZoneId,
+    direction,
+    reasons: ['repeated-delayed-propagation-evidence'],
+  });
+  if (edge.endpointCoverage < config.minimumCoverage) {
+    return undirected('insufficient-data', 'none', 'insufficient-endpoint-coverage');
+  }
+  if (enoughForward && enoughReverse && Math.abs(forwardScore - reverseScore) < config.directionMargin) {
+    return undirected('bidirectional-evidence', 'both', 'distinct-events-support-both-directions');
+  }
+  if (enoughForward && forwardScore >= reverseScore + config.directionMargin) return directed(forward, 'a-to-b');
+  if (enoughReverse && reverseScore >= forwardScore + config.directionMargin) return directed(reverse, 'b-to-a');
+  if (forward.sourceEventCount + reverse.sourceEventCount >= config.minimumDistinctEvents) {
+    return undirected('no-detectable-propagation', 'none', 'events-present-without-repeatable-edge-propagation');
+  }
+  return undirected('uncertain', 'none', 'no-distinct-qualifying-events');
+}
+
+// Where to draw the edge: the configured anchors, or the two zone centroids.
+function connectionGeometry(
+  input: SpatialLayerEngineInput,
+  connection: SpatialConnection,
+): Pick<ConnectionLayerValue, 'frameId' | 'anchors' | 'anchorRefs'> {
+  const zoneA = input.topology.zones.find((zone) => zone.id === connection.zoneAId);
+  const zoneB = input.topology.zones.find((zone) => zone.id === connection.zoneBId);
+  const sharedFrame = zoneA?.frameId === zoneB?.frameId ? zoneA?.frameId : undefined;
+  const anchors = connection.anchors ??
+    (zoneA !== undefined && zoneB !== undefined ? [zoneA.centroid, zoneB.centroid] : undefined);
+  const anchorRefs = connection.anchors !== undefined
+    ? sharedFrame === undefined
+      ? undefined
+      : connection.anchors.map((position) => ({ frameId: sharedFrame, position }))
+    : zoneA !== undefined && zoneB !== undefined
+      ? [
+          { frameId: zoneA.frameId, position: zoneA.centroid },
+          { frameId: zoneB.frameId, position: zoneB.centroid },
+        ]
+      : undefined;
+  return {
+    ...(sharedFrame === undefined ? {} : { frameId: sharedFrame }),
+    ...(anchors === undefined ? {} : { anchors }),
+    ...(anchorRefs === undefined ? {} : { anchorRefs }),
+  };
+}
+
+function connectionStyle(
+  state: ConnectionLayerValue['state'],
+  direction: PropagationDirection,
+  strongestScore: number,
+): NonNullable<ConnectionLayerValue['style']> {
+  return {
+    palette: state === 'insufficient-data' ? 'neutral' : 'air',
+    direction,
+    lineStyle: state === 'directed' ? 'solid' : state === 'bidirectional-evidence' ? 'dashed' : 'dotted',
+    emphasis: strongestScore,
+    opacity: state === 'insufficient-data' ? 0.25 : clamp(0.25 + strongestScore * 0.75),
   };
 }
 

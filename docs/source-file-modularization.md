@@ -67,6 +67,16 @@ resources that import the legacy bootstrap chain. `useClimateData.ts` is now a
 compatibility facade over named ownership modules; the former `part-01` through
 `part-10` ReturnType chain is deleted.
 
+`npm run check:cognitive-complexity` ratchets function-level complexity. It
+reimplements SonarJS rule S3776 (the "Sonar way comprehensive" cognitive
+complexity rule, threshold 15) on the TypeScript AST, so it needs no ESLint
+toolchain. When it was introduced in 0.42.9 it matched `eslint-plugin-sonarjs`
+4.2.2 score for score on every scored function in the tree. `scripts/baselines/cognitive-complexity.json`
+lists the remaining offenders per file, worst first. The check fails when a
+file gains an offender or when its i-th worst function scores above the i-th
+baseline entry. `-- --update` only lowers entries; moving an existing offender
+into a new file means editing the baseline by hand in the same change.
+
 ## Ongoing refactoring plan
 
 1. Treat 600 lines as the cohesion-review threshold and 1,200 as the emergency

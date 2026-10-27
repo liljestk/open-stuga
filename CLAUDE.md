@@ -79,6 +79,12 @@ checks only run on macOS.
 - **Confirmation census** — `ConfirmationProvider.test.tsx` counts
   `confirmAction(` call sites; `window.confirm` is banned.
 - **Source size** — 600 lines advisory, 1200 hard ceiling (`npm run check:file-size`).
+- **Cognitive complexity** — `npm run check:cognitive-complexity` scores every
+  function in `apps/` and `packages/` with SonarJS rule S3776 (threshold 15)
+  against `scripts/baselines/cognitive-complexity.json`. A file may not gain a
+  function over 15, and no listed function may get worse. Split new logic into
+  named helpers. After a reduction, run `-- --update` and commit the lowered
+  baseline.
 - **Architecture boundaries** — `npm run check:architecture` (prototype
   registries, workspace dependency direction, no new numbered modules,
   feature-owned analytics/electricity routes, no hand-copied shared types, and

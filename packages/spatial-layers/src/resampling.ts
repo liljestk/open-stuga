@@ -53,6 +53,121 @@ function deduplicate(samples: readonly SpatialClimateSample[]): SpatialClimateSa
   return [...byKey.values()];
 }
 
+function sampleRejectionReasons(sample: SpatialClimateSample): string[] {
+  const reasons: string[] = [];
+  if (isoTime(sample.observedAt) === null) reasons.push('invalid-timestamp');
+  if (!Number.isFinite(sample.temperatureC)) reasons.push('invalid-temperature');
+  if (!Number.isFinite(sample.relativeHumidityPct) || sample.relativeHumidityPct < 0 || sample.relativeHumidityPct > 100) {
+    reasons.push('invalid-humidity');
+  }
+  return reasons;
+}
+
+interface CalibratedObservation {
+  sample: SpatialClimateSample;
+  converted: CalibratedPsychrometricSample;
+  appliedResponseLagSeconds: number;
+  effectiveObservedAt: number;
+}
+
+// Calibrated samples ordered by when the sensor actually saw them, after its response lag.
+function calibratedObservations(
+  samples: readonly SpatialClimateSample[],
+  calibrations: readonly SpatialSensorCalibration[],
+  options: ResamplingOptions,
+): CalibratedObservation[] {
+  return samples.map((sample) => {
+    const converted = calibrateAndConvert(sample, calibrations, {
+      ...(options.configuredPressureHpa === undefined ? {} : { configuredPressureHpa: options.configuredPressureHpa }),
+    });
+    const appliedResponseLagSeconds = converted.responseLagSeconds * converted.calibrationConfidence;
+    return {
+      sample,
+      converted,
+      appliedResponseLagSeconds,
+      effectiveObservedAt: Date.parse(sample.observedAt) - appliedResponseLagSeconds * 1_000,
+    };
+  }).sort((left, right) => left.effectiveObservedAt - right.effectiveObservedAt);
+}
+
+function carryForwardLimitSeconds(cadence: number | null, bucketSeconds: number, options: ResamplingOptions): number {
+  const dynamicCarry = Math.max(
+    options.minimumCarryForwardSeconds ?? bucketSeconds * 2,
+    cadence === null ? bucketSeconds * 3 : cadence * 3,
+  );
+  return options.maximumCarryForwardSeconds === undefined
+    ? dynamicCarry
+    : Math.min(dynamicCarry, options.maximumCarryForwardSeconds);
+}
+
+interface SensorResampling {
+  sensorId: string;
+  cadence: number | null;
+  bucketSeconds: number;
+  carryLimit: number;
+  rejectOnce: (sensorId: string, observedAt: string, reasons: string[]) => void;
+}
+
+// The point a bucket carries for one sensor, or null when the latest sample is too old or physically invalid.
+function resampledPoint(
+  sensor: SensorResampling,
+  latest: CalibratedObservation,
+  bucket: number,
+  observedInBucket: boolean,
+): ResampledClimatePoint | null {
+  const { carryLimit, bucketSeconds } = sensor;
+  const ageSeconds = Math.max(0, (bucket - latest.effectiveObservedAt) / 1000);
+  if (ageSeconds > carryLimit) return null;
+  const { converted } = latest;
+  if (!converted.psychrometrics.valid) {
+    sensor.rejectOnce(sensor.sensorId, latest.sample.observedAt, converted.psychrometrics.reasons);
+    return null;
+  }
+  const interpolation = observedInBucket && ageSeconds <= bucketSeconds ? 'observed' : 'carried';
+  const sourceQuality = clamp(latest.sample.sourceQuality ?? 1);
+  const agePenalty = carryLimit <= 0 ? 0 : clamp(1 - ageSeconds / carryLimit);
+  const calibrationQuality = converted.calibrationMethod === 'none'
+    ? 0.75
+    : 0.5 + 0.5 * converted.calibrationConfidence;
+  return {
+    ...converted,
+    bucketAt: new Date(bucket).toISOString(),
+    interpolation,
+    ageSeconds,
+    observedCadenceSeconds: sensor.cadence,
+    appliedResponseLagSeconds: latest.appliedResponseLagSeconds,
+    pointQuality:
+      sourceQuality *
+      calibrationQuality *
+      (interpolation === 'observed' ? 1 : Math.max(0.25, agePenalty)),
+  };
+}
+
+// Walks the buckets once, carrying each sensor's latest observation forward until it ages out.
+function resampledSensorPoints(
+  sensor: SensorResampling,
+  ordered: readonly CalibratedObservation[],
+  buckets: { firstBucket: number; end: number; bucketMs: number },
+): ResampledClimatePoint[] {
+  const { firstBucket, end, bucketMs } = buckets;
+  const points: ResampledClimatePoint[] = [];
+  let cursor = 0;
+  let latest: CalibratedObservation | undefined;
+  for (let bucket = firstBucket; bucket <= end; bucket += bucketMs) {
+    let observedInBucket = false;
+    while (cursor < ordered.length) {
+      const candidate = ordered[cursor];
+      if (candidate === undefined || candidate.effectiveObservedAt > bucket) break;
+      latest = candidate;
+      observedInBucket = candidate.effectiveObservedAt > bucket - bucketMs;
+      cursor += 1;
+    }
+    const point = latest === undefined ? null : resampledPoint(sensor, latest, bucket, observedInBucket);
+    if (point) points.push(point);
+  }
+  return points;
+}
+
 export function resampleClimateWindow(
   samples: readonly SpatialClimateSample[],
   calibrations: readonly SpatialSensorCalibration[] = [],
@@ -75,13 +190,7 @@ export function resampleClimateWindow(
     rejected.push({ sensorId, observedAt, reasons });
   };
   for (const sample of deduplicate(samples)) {
-    const timestamp = isoTime(sample.observedAt);
-    const reasons: string[] = [];
-    if (timestamp === null) reasons.push('invalid-timestamp');
-    if (!Number.isFinite(sample.temperatureC)) reasons.push('invalid-temperature');
-    if (!Number.isFinite(sample.relativeHumidityPct) || sample.relativeHumidityPct < 0 || sample.relativeHumidityPct > 100) {
-      reasons.push('invalid-humidity');
-    }
+    const reasons = sampleRejectionReasons(sample);
     if (reasons.length > 0) {
       rejectOnce(sample.sensorId, sample.observedAt, reasons);
       continue;
@@ -99,63 +208,15 @@ export function resampleClimateWindow(
   for (const [sensorId, unordered] of sensorSamples) {
     const cadence = observedMedianCadenceSeconds(unordered);
     cadences[sensorId] = cadence;
-    const ordered = unordered.map((sample) => {
-      const converted = calibrateAndConvert(sample, calibrations, {
-        ...(options.configuredPressureHpa === undefined ? {} : { configuredPressureHpa: options.configuredPressureHpa }),
-      });
-      const appliedResponseLagSeconds = converted.responseLagSeconds * converted.calibrationConfidence;
-      return {
-        sample,
-        converted,
-        appliedResponseLagSeconds,
-        effectiveObservedAt: Date.parse(sample.observedAt) - appliedResponseLagSeconds * 1_000,
-      };
-    }).sort((left, right) => left.effectiveObservedAt - right.effectiveObservedAt);
-    const dynamicCarry = Math.max(
-      options.minimumCarryForwardSeconds ?? bucketSeconds * 2,
-      cadence === null ? bucketSeconds * 3 : cadence * 3,
-    );
-    const carryLimit = options.maximumCarryForwardSeconds === undefined
-      ? dynamicCarry
-      : Math.min(dynamicCarry, options.maximumCarryForwardSeconds);
-    let cursor = 0;
-    let latest: (typeof ordered)[number] | undefined;
-    for (let bucket = firstBucket; bucket <= end; bucket += bucketMs) {
-      let observedInBucket = false;
-      while (cursor < ordered.length) {
-        const candidate = ordered[cursor];
-        if (candidate === undefined || candidate.effectiveObservedAt > bucket) break;
-        latest = candidate;
-        observedInBucket = candidate.effectiveObservedAt > bucket - bucketMs;
-        cursor += 1;
-      }
-      if (latest === undefined) continue;
-      const ageSeconds = Math.max(0, (bucket - latest.effectiveObservedAt) / 1000);
-      if (ageSeconds > carryLimit) continue;
-      const { converted } = latest;
-      if (!converted.psychrometrics.valid) {
-        rejectOnce(sensorId, latest.sample.observedAt, converted.psychrometrics.reasons);
-        continue;
-      }
-      const interpolation = observedInBucket && ageSeconds <= bucketSeconds ? 'observed' : 'carried';
-      const sourceQuality = clamp(latest.sample.sourceQuality ?? 1);
-      const agePenalty = carryLimit <= 0 ? 0 : clamp(1 - ageSeconds / carryLimit);
-      const calibrationQuality = converted.calibrationMethod === 'none'
-        ? 0.75
-        : 0.5 + 0.5 * converted.calibrationConfidence;
-      points.push({
-        ...converted,
-        bucketAt: new Date(bucket).toISOString(),
-        interpolation,
-        ageSeconds,
-        observedCadenceSeconds: cadence,
-        appliedResponseLagSeconds: latest.appliedResponseLagSeconds,
-        pointQuality:
-          sourceQuality *
-          calibrationQuality *
-          (interpolation === 'observed' ? 1 : Math.max(0.25, agePenalty)),
-      });
-    }
+    const sensor: SensorResampling = {
+      sensorId,
+      cadence,
+      bucketSeconds,
+      carryLimit: carryForwardLimitSeconds(cadence, bucketSeconds, options),
+      rejectOnce,
+    };
+    const ordered = calibratedObservations(unordered, calibrations, options);
+    for (const point of resampledSensorPoints(sensor, ordered, { firstBucket, end, bucketMs })) points.push(point);
   }
 
   return {

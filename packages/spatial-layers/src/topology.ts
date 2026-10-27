@@ -49,10 +49,20 @@ function intervalsOverlap(left: SpatialSensorBinding, right: SpatialSensorBindin
 }
 
 export function validateTopology(topology: SpatialTopology): TopologyValidationResult {
-  const issues: TopologyIssue[] = [];
   const frameIds = new Set(topology.frames.map((frame) => frame.id));
   const zoneIds = new Set(topology.zones.map((zone) => zone.id));
+  const issues: TopologyIssue[] = [
+    ...duplicateIdIssues(topology),
+    ...zoneIssues(topology, frameIds),
+    ...connectionIssues(topology, zoneIds),
+    ...sensorBindingIssues(topology, zoneIds, frameIds),
+    ...unboundZoneIssues(topology),
+  ];
+  return { valid: issues.every((issue) => issue.severity !== 'error'), issues };
+}
 
+function duplicateIdIssues(topology: SpatialTopology): TopologyIssue[] {
+  const issues: TopologyIssue[] = [];
   for (const id of duplicates(topology.frames.map((frame) => frame.id))) {
     issues.push({ severity: 'error', code: 'duplicate-frame', entityId: id, message: `Duplicate frame ${id}` });
   }
@@ -67,7 +77,11 @@ export function validateTopology(topology: SpatialTopology): TopologyValidationR
       message: `Duplicate connection ${id}`,
     });
   }
+  return issues;
+}
 
+function zoneIssues(topology: SpatialTopology, frameIds: ReadonlySet<string>): TopologyIssue[] {
+  const issues: TopologyIssue[] = [];
   for (const zone of topology.zones) {
     if (!frameIds.has(zone.frameId)) {
       issues.push({
@@ -86,7 +100,11 @@ export function validateTopology(topology: SpatialTopology): TopologyValidationR
       });
     }
   }
+  return issues;
+}
 
+function connectionIssues(topology: SpatialTopology, zoneIds: ReadonlySet<string>): TopologyIssue[] {
+  const issues: TopologyIssue[] = [];
   for (const connection of topology.connections) {
     if (!zoneIds.has(connection.zoneAId) || !zoneIds.has(connection.zoneBId)) {
       issues.push({
@@ -105,35 +123,18 @@ export function validateTopology(topology: SpatialTopology): TopologyValidationR
       });
     }
   }
+  return issues;
+}
 
+function sensorBindingIssues(
+  topology: SpatialTopology,
+  zoneIds: ReadonlySet<string>,
+  frameIds: ReadonlySet<string>,
+): TopologyIssue[] {
+  const issues: TopologyIssue[] = [];
   const bindingsBySensor = new Map<string, SpatialSensorBinding[]>();
   for (const binding of topology.sensorBindings) {
-    if (!zoneIds.has(binding.zoneId)) {
-      issues.push({
-        severity: 'error',
-        code: 'unknown-zone',
-        entityId: binding.sensorId,
-        message: `Sensor ${binding.sensorId} references unknown zone ${binding.zoneId}`,
-      });
-    }
-    if (!frameIds.has(binding.frameId)) {
-      issues.push({
-        severity: 'error',
-        code: 'unknown-frame',
-        entityId: binding.sensorId,
-        message: `Sensor ${binding.sensorId} references unknown frame ${binding.frameId}`,
-      });
-    }
-    const start = Date.parse(binding.activeFrom);
-    const end = binding.activeTo === undefined ? Number.POSITIVE_INFINITY : Date.parse(binding.activeTo);
-    if (!Number.isFinite(start) || Number.isNaN(end) || end <= start) {
-      issues.push({
-        severity: 'error',
-        code: 'invalid-validity-interval',
-        entityId: binding.sensorId,
-        message: `Sensor ${binding.sensorId} has an invalid binding interval`,
-      });
-    }
+    issues.push(...bindingReferenceIssues(binding, zoneIds, frameIds));
     const existing = bindingsBySensor.get(binding.sensorId) ?? [];
     for (const other of existing) {
       if (intervalsOverlap(binding, other)) {
@@ -148,7 +149,46 @@ export function validateTopology(topology: SpatialTopology): TopologyValidationR
     existing.push(binding);
     bindingsBySensor.set(binding.sensorId, existing);
   }
+  return issues;
+}
 
+function bindingReferenceIssues(
+  binding: SpatialSensorBinding,
+  zoneIds: ReadonlySet<string>,
+  frameIds: ReadonlySet<string>,
+): TopologyIssue[] {
+  const issues: TopologyIssue[] = [];
+  if (!zoneIds.has(binding.zoneId)) {
+    issues.push({
+      severity: 'error',
+      code: 'unknown-zone',
+      entityId: binding.sensorId,
+      message: `Sensor ${binding.sensorId} references unknown zone ${binding.zoneId}`,
+    });
+  }
+  if (!frameIds.has(binding.frameId)) {
+    issues.push({
+      severity: 'error',
+      code: 'unknown-frame',
+      entityId: binding.sensorId,
+      message: `Sensor ${binding.sensorId} references unknown frame ${binding.frameId}`,
+    });
+  }
+  const start = Date.parse(binding.activeFrom);
+  const end = binding.activeTo === undefined ? Number.POSITIVE_INFINITY : Date.parse(binding.activeTo);
+  if (!Number.isFinite(start) || Number.isNaN(end) || end <= start) {
+    issues.push({
+      severity: 'error',
+      code: 'invalid-validity-interval',
+      entityId: binding.sensorId,
+      message: `Sensor ${binding.sensorId} has an invalid binding interval`,
+    });
+  }
+  return issues;
+}
+
+function unboundZoneIssues(topology: SpatialTopology): TopologyIssue[] {
+  const issues: TopologyIssue[] = [];
   const boundZoneIds = new Set(topology.sensorBindings.map((binding) => binding.zoneId));
   for (const zone of topology.zones) {
     if (zone.kind !== 'outdoor' && !boundZoneIds.has(zone.id)) {
@@ -160,8 +200,7 @@ export function validateTopology(topology: SpatialTopology): TopologyValidationR
       });
     }
   }
-
-  return { valid: issues.every((issue) => issue.severity !== 'error'), issues };
+  return issues;
 }
 
 export function validateEngineInput(input: SpatialLayerEngineInput): TopologyValidationResult {

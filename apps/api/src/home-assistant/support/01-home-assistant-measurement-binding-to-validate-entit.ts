@@ -302,6 +302,15 @@ export function validateMeasurementMappings(value: unknown, index: number): void
   }
 }
 
+function validateLegacyEntityIds(entry: Partial<HomeAssistantEntityMapping>, index: number): void {
+  for (const key of ["temperature", "humidity", "battery"] as const) {
+    const entityId = entry[key];
+    if (entityId !== undefined && (typeof entityId !== "string" || !entityId.trim())) {
+      throw new Error(`Invalid ${key} mapping at index ${index}`);
+    }
+  }
+}
+
 export function validateEntityMapping(value: unknown, index: number): HomeAssistantEntityMapping {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error(`Invalid Home Assistant entity mapping at index ${index}`);
@@ -310,12 +319,7 @@ export function validateEntityMapping(value: unknown, index: number): HomeAssist
   if (typeof entry.sensorId !== "string" || !entry.sensorId.trim()) {
     throw new Error(`Invalid Home Assistant entity mapping at index ${index}`);
   }
-  for (const key of ["temperature", "humidity", "battery"] as const) {
-    const entityId = entry[key];
-    if (entityId !== undefined && (typeof entityId !== "string" || !entityId.trim())) {
-      throw new Error(`Invalid ${key} mapping at index ${index}`);
-    }
-  }
+  validateLegacyEntityIds(entry, index);
   validateMeasurementMappings(entry.measurements, index);
   if (!entry.temperature && !entry.humidity && !entry.battery
     && Object.keys(entry.measurements ?? {}).length === 0) {
@@ -325,20 +329,26 @@ export function validateEntityMapping(value: unknown, index: number): HomeAssist
   if (entry.temperature !== undefined) mapping.temperature = entry.temperature.trim();
   if (entry.humidity !== undefined) mapping.humidity = entry.humidity.trim();
   if (entry.battery !== undefined) mapping.battery = entry.battery.trim();
-  if (entry.measurements !== undefined) {
-    mapping.measurements = {};
-    for (const [metric, configured] of Object.entries(entry.measurements)
-      .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)) {
-      if (typeof configured === "string") {
-        mapping.measurements[metric] = configured.trim();
-        continue;
-      }
-      const binding: HomeAssistantMeasurementBinding = { entityId: configured.entityId.trim() };
-      if (configured.unit !== undefined) binding.unit = configured.unit.trim();
-      if (configured.scale !== undefined) binding.scale = configured.scale;
-      if (configured.offset !== undefined) binding.offset = configured.offset;
-      mapping.measurements[metric] = binding;
-    }
-  }
+  if (entry.measurements !== undefined) mapping.measurements = normalizedMeasurementMappings(entry.measurements);
   return mapping;
+}
+
+function normalizedMeasurementMappings(
+  measurements: Record<string, HomeAssistantMeasurementMapping>,
+): Record<string, HomeAssistantMeasurementMapping> {
+  const normalized: Record<string, HomeAssistantMeasurementMapping> = {};
+  for (const [metric, configured] of Object.entries(measurements)
+    .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)) {
+    normalized[metric] = normalizedMeasurementMapping(configured);
+  }
+  return normalized;
+}
+
+function normalizedMeasurementMapping(configured: HomeAssistantMeasurementMapping): HomeAssistantMeasurementMapping {
+  if (typeof configured === "string") return configured.trim();
+  const binding: HomeAssistantMeasurementBinding = { entityId: configured.entityId.trim() };
+  if (configured.unit !== undefined) binding.unit = configured.unit.trim();
+  if (configured.scale !== undefined) binding.scale = configured.scale;
+  if (configured.offset !== undefined) binding.offset = configured.offset;
+  return binding;
 }

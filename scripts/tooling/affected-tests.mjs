@@ -79,7 +79,7 @@ export function affectedTestPlan(files, mergeBase) {
 
   if (any(/^apps\/ios\//u)) add(npmTest("TEST_NATIVE_READINESS", "Native readiness tests", "test:native-readiness"));
 
-  if (packageMetadata || any(/^scripts\/(?:tooling\/|verify-local\.mjs$|release-verify\.mjs$|rpi-doctor\.mjs$|tests\/lean-tooling\.test\.mjs$)/u)) {
+  if (packageMetadata || any(/^scripts\/(?:tooling\/|verify-local\.mjs$|release-verify\.mjs$|rpi-doctor\.mjs$|check-cognitive-complexity\.mjs$|tests\/lean-tooling\.test\.mjs$)/u)) {
     add(npmTest("TEST_LEAN_TOOLING", "Lean tooling tests", "test:lean-tooling"));
   }
 

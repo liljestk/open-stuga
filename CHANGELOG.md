@@ -2,6 +2,13 @@
 
 All notable Stugu releases are recorded here.
 
+## 0.51.1
+
+- Simplify 23 of the most complex functions in the API, the web app and the spatial-layer engines without changing what they do. They include TP-Link and Home Assistant ingestion, Home Assistant history recovery, the spatial inference scheduler and engine host, notification delivery, alert follow-ups, the integrations setup page, and the web app's session start-up and live telemetry. Each now scores 15 or less on SonarCloud's cognitive-complexity rule (S3776), and the number of functions over that limit drops by 23.
+- `npm run typecheck` now runs `npm run check:cognitive-complexity`. It scores functions the way SonarJS 4.2 does and fails when a file gains a function over 15 or an existing one gets more complex, compared with a committed per-file baseline. It uses the TypeScript compiler the repository already depends on, so no new dependency is added.
+- New tests cover TP-Link snapshot errors, Home Assistant unit conversion and recorder history, spatial-inference failures, alert escalation and reminders, APNs delivery failures, spatial propagation classification and hydration replay.
+- Upgrade impact: none. API responses, live updates, configuration, database, Compose and host trust are unchanged.
+
 ## 0.51.0
 
 - The Data & analytics page has a new **Analytics health on this appliance** section. It shows how the analytics actually performed for the Home over the last 30 days, measured on the appliance:

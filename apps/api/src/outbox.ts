@@ -34,6 +34,37 @@ async function discardResponseBody(response: Response): Promise<void> {
   try { await response.body.cancel(); } catch { /* The status still determines delivery outcome. */ }
 }
 
+type WebhookDestination = ReturnType<typeof configuredAlertWebhookDestinations>[number];
+
+// One claimed outbox row plus the destination and Telegram credentials it was claimed against.
+interface Delivery {
+  item: NotificationOutboxItem;
+  signal: AbortSignal;
+  telegram: { generation: number; token: string | null; chatId: string | null };
+  webhookDestination: WebhookDestination | undefined;
+  apnsDestination: ReturnType<ClimateDatabase["getIOSPushDestinationForAlert"]>;
+}
+
+// "stopped" means the row was already released or settled and the status needs no further change.
+type DeliveryStep = "continue" | "stopped";
+
+function webhookHeaders(item: NotificationOutboxItem, destination: WebhookDestination): Record<string, string> {
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+    "idempotency-key": `stugu-${item.subjectKind}-${item.subjectId}-${item.stage}-${item.sequence}-${item.destinationId}`,
+  };
+  if (destination.bearerToken) headers.authorization = `Bearer ${destination.bearerToken}`;
+  if (destination.signingSecret) {
+    const timestamp = Math.floor(Date.now() / 1_000).toString();
+    const signature = createHmac("sha256", destination.signingSecret)
+      .update(`${timestamp}.${item.payloadJson}`, "utf8")
+      .digest("hex");
+    headers["x-stugu-timestamp"] = timestamp;
+    headers["x-stugu-signature"] = `sha256=${signature}`;
+  }
+  return headers;
+}
+
 abstract class DurableWorker {
   #timer: NodeJS.Timeout | null = null;
   #active: Promise<void> | null = null;
@@ -119,145 +150,155 @@ export class NotificationOutboxWorker extends DurableWorker {
   }
 
   private async deliver(item: NotificationOutboxItem, signal: AbortSignal): Promise<void> {
-    const telegramGeneration = this.telegramConfigurationGeneration();
-    const telegramToken = this.config.telegramBotToken;
-    const telegramChatId = this.config.telegramChatId;
-    const webhookDestination = item.channel === "webhook"
-      ? configuredAlertWebhookDestinations(this.config).find((destination) => destination.id === item.destinationId)
-      : undefined;
-    const apnsDestination = item.channel === "apns" && item.eventId
-      ? this.database.getIOSPushDestinationForAlert(item.destinationId, item.eventId)
-      : null;
+    const delivery: Delivery = {
+      item,
+      signal,
+      telegram: {
+        generation: this.telegramConfigurationGeneration(),
+        token: this.config.telegramBotToken,
+        chatId: this.config.telegramChatId,
+      },
+      webhookDestination: item.channel === "webhook"
+        ? configuredAlertWebhookDestinations(this.config).find((destination) => destination.id === item.destinationId)
+        : undefined,
+      apnsDestination: item.channel === "apns" && item.eventId
+        ? this.database.getIOSPushDestinationForAlert(item.destinationId, item.eventId)
+        : null,
+    };
     try {
-      const currentDestinationRef = item.channel === "apns"
-        ? apnsNotificationDestinationRef(apnsProviderRef(this.config), apnsDestination)
-        : notificationDestinationRef(item.channel, this.config, item.destinationId);
-      if (item.destinationRef !== currentDestinationRef) {
-        this.database.abandonNotificationOutbox(
-          item.id,
-          item.lockToken,
-          "Notification destination configuration changed after this item was queued",
-        );
-        this.status.changed();
-        return;
-      }
-      if (item.channel === "webhook") {
-        const destination = webhookDestination;
-        if (!destination) {
-          this.database.abandonNotificationOutbox(
-            item.id,
-            item.lockToken,
-            "Notification destination configuration was removed after this item was queued",
-          );
-          this.status.changed();
-          return;
-        }
-        const webhookHost = new URL(destination.url).hostname.toLowerCase();
-        if (!(this.config.alertWebhookAllowedHosts ?? []).includes(webhookHost)) {
-          throw new Error("Alert webhook destination is not on the configured allowlist");
-        }
-        const headers: Record<string, string> = {
-          "content-type": "application/json",
-          "idempotency-key": `stugu-${item.subjectKind}-${item.subjectId}-${item.stage}-${item.sequence}-${item.destinationId}`,
-        };
-        if (destination.bearerToken) headers.authorization = `Bearer ${destination.bearerToken}`;
-        if (destination.signingSecret) {
-          const timestamp = Math.floor(Date.now() / 1_000).toString();
-          const signature = createHmac("sha256", destination.signingSecret)
-            .update(`${timestamp}.${item.payloadJson}`, "utf8")
-            .digest("hex");
-          headers["x-stugu-timestamp"] = timestamp;
-          headers["x-stugu-signature"] = `sha256=${signature}`;
-        }
-        const response = await this.fetchImpl(destination.url, {
-          method: "POST",
-          headers,
-          body: item.payloadJson,
-          redirect: "error",
-          signal: AbortSignal.any([signal, AbortSignal.timeout(10_000)]),
-        });
-        await discardResponseBody(response);
-        if (signal.aborted) {
-          this.database.releaseNotificationOutbox(item.id, item.lockToken);
-          return;
-        }
-        if (!response.ok) throw new Error(`Webhook returned HTTP ${response.status}`);
-        this.updateWebhookStatus(item.destinationId, new Date().toISOString(), null);
-      } else if (item.channel === "telegram") {
-        if (!telegramToken || !telegramChatId) throw new Error("Telegram is not configured");
-        const payload = parseTelegramNotificationPayload(item.payloadJson);
-        await this.telegram.sendRenderedAlert(telegramToken, telegramChatId, payload.text, payload.silent, signal);
-        if (signal.aborted) {
-          this.database.releaseNotificationOutbox(item.id, item.lockToken);
-          return;
-        }
-        if (telegramGeneration !== this.telegramConfigurationGeneration()
-          || telegramToken !== this.config.telegramBotToken || telegramChatId !== this.config.telegramChatId) {
-          this.database.releaseNotificationOutbox(item.id, item.lockToken);
-          return;
-        }
-        const telegramStatus = this.status.value.telegram!;
-        telegramStatus.connected = true;
-        telegramStatus.lastDeliveryAt = new Date().toISOString();
-        telegramStatus.error = null;
-      } else {
-        if (!apnsDestination) {
-          throw new APNSDeliveryError("iOS notification registration is no longer active", true);
-        }
-        await this.apns.send(
-          this.config,
-          apnsDestination,
-          item.payloadJson,
-          AbortSignal.any([signal, AbortSignal.timeout(10_000)]),
-          item.id,
-        );
-        if (signal.aborted) {
-          this.database.releaseNotificationOutbox(item.id, item.lockToken);
-          return;
-        }
-      }
+      if (await this.send(delivery) === "stopped") return;
       this.database.completeNotificationOutbox(item.id, item.lockToken);
     } catch (error) {
-      if (signal.aborted) {
-        this.database.releaseNotificationOutbox(item.id, item.lockToken);
-        return;
-      }
-      if (item.channel === "telegram" && (telegramGeneration !== this.telegramConfigurationGeneration()
-        || telegramToken !== this.config.telegramBotToken || telegramChatId !== this.config.telegramChatId)) {
-        this.database.releaseNotificationOutbox(item.id, item.lockToken);
-        return;
-      }
-      const message = error instanceof Error ? error.message : "Notification delivery failed";
-      const terminal = item.attempts + 1 >= item.maxAttempts
-        || (item.channel === "apns" && error instanceof APNSDeliveryError && error.terminal);
-      if (item.attempts === 0 || terminal) {
-        this.onDeliveryFailure?.({ channel: item.channel, subjectKind: item.subjectKind, message, terminal });
-      }
-      if (item.channel === "apns" && error instanceof APNSDeliveryError && error.terminal) {
-        if (["BadDeviceToken", "DeviceTokenNotForTopic", "Unregistered"].includes(error.reason ?? "")) {
-          this.database.disableIOSNotificationRegistration(item.destinationId);
-        }
-        this.database.deadLetterNotificationOutbox(item.id, item.lockToken, message);
-        this.status.changed();
-        return;
-      }
-      if (item.attempts + 1 >= item.maxAttempts) {
-        this.database.deadLetterNotificationOutbox(item.id, item.lockToken, message);
-      } else {
-        this.database.failNotificationOutbox(
-          item.id,
-          item.lockToken,
-          message,
-          new Date(Date.now() + retryDelay(item.attempts)),
-        );
-      }
-      if (item.channel === "webhook") this.updateWebhookStatus(item.destinationId, null, message);
-      else if (item.channel === "telegram") {
-        this.status.value.telegram!.connected = false;
-        this.status.value.telegram!.error = "Telegram alert delivery failed";
-      }
+      if (this.recordDeliveryFailure(delivery, error) === "stopped") return;
     }
     this.status.changed();
+  }
+
+  private async send(delivery: Delivery): Promise<DeliveryStep> {
+    const { item } = delivery;
+    const currentDestinationRef = item.channel === "apns"
+      ? apnsNotificationDestinationRef(apnsProviderRef(this.config), delivery.apnsDestination)
+      : notificationDestinationRef(item.channel, this.config, item.destinationId);
+    if (item.destinationRef !== currentDestinationRef) {
+      this.abandon(item, "Notification destination configuration changed after this item was queued");
+      return "stopped";
+    }
+    if (item.channel === "webhook") return this.sendWebhook(delivery);
+    if (item.channel === "telegram") return this.sendTelegram(delivery);
+    return this.sendApns(delivery);
+  }
+
+  private abandon(item: NotificationOutboxItem, reason: string): void {
+    this.database.abandonNotificationOutbox(item.id, item.lockToken, reason);
+    this.status.changed();
+  }
+
+  // An aborted worker hands the claimed row back untouched for the next run.
+  private releaseIfAborted({ item, signal }: Delivery): DeliveryStep {
+    if (!signal.aborted) return "continue";
+    this.database.releaseNotificationOutbox(item.id, item.lockToken);
+    return "stopped";
+  }
+
+  private async sendWebhook(delivery: Delivery): Promise<DeliveryStep> {
+    const { item, signal, webhookDestination: destination } = delivery;
+    if (!destination) {
+      this.abandon(item, "Notification destination configuration was removed after this item was queued");
+      return "stopped";
+    }
+    const webhookHost = new URL(destination.url).hostname.toLowerCase();
+    if (!(this.config.alertWebhookAllowedHosts ?? []).includes(webhookHost)) {
+      throw new Error("Alert webhook destination is not on the configured allowlist");
+    }
+    const response = await this.fetchImpl(destination.url, {
+      method: "POST",
+      headers: webhookHeaders(item, destination),
+      body: item.payloadJson,
+      redirect: "error",
+      signal: AbortSignal.any([signal, AbortSignal.timeout(10_000)]),
+    });
+    await discardResponseBody(response);
+    if (this.releaseIfAborted(delivery) === "stopped") return "stopped";
+    if (!response.ok) throw new Error(`Webhook returned HTTP ${response.status}`);
+    this.updateWebhookStatus(item.destinationId, new Date().toISOString(), null);
+    return "continue";
+  }
+
+  private async sendTelegram(delivery: Delivery): Promise<DeliveryStep> {
+    const { item, signal, telegram } = delivery;
+    if (!telegram.token || !telegram.chatId) throw new Error("Telegram is not configured");
+    const payload = parseTelegramNotificationPayload(item.payloadJson);
+    await this.telegram.sendRenderedAlert(telegram.token, telegram.chatId, payload.text, payload.silent, signal);
+    if (this.releaseIfAborted(delivery) === "stopped") return "stopped";
+    if (this.telegramConfigurationChanged(telegram)) {
+      this.database.releaseNotificationOutbox(item.id, item.lockToken);
+      return "stopped";
+    }
+    const telegramStatus = this.status.value.telegram!;
+    telegramStatus.connected = true;
+    telegramStatus.lastDeliveryAt = new Date().toISOString();
+    telegramStatus.error = null;
+    return "continue";
+  }
+
+  private async sendApns(delivery: Delivery): Promise<DeliveryStep> {
+    const { item, signal, apnsDestination } = delivery;
+    if (!apnsDestination) {
+      throw new APNSDeliveryError("iOS notification registration is no longer active", true);
+    }
+    await this.apns.send(
+      this.config,
+      apnsDestination,
+      item.payloadJson,
+      AbortSignal.any([signal, AbortSignal.timeout(10_000)]),
+      item.id,
+    );
+    return this.releaseIfAborted(delivery);
+  }
+
+  private telegramConfigurationChanged(snapshot: Delivery["telegram"]): boolean {
+    return snapshot.generation !== this.telegramConfigurationGeneration()
+      || snapshot.token !== this.config.telegramBotToken || snapshot.chatId !== this.config.telegramChatId;
+  }
+
+  private recordDeliveryFailure(delivery: Delivery, error: unknown): DeliveryStep {
+    const { item } = delivery;
+    if (this.releaseIfAborted(delivery) === "stopped") return "stopped";
+    if (item.channel === "telegram" && this.telegramConfigurationChanged(delivery.telegram)) {
+      this.database.releaseNotificationOutbox(item.id, item.lockToken);
+      return "stopped";
+    }
+    const message = error instanceof Error ? error.message : "Notification delivery failed";
+    const terminalApnsError = item.channel === "apns" && error instanceof APNSDeliveryError && error.terminal ? error : null;
+    const exhausted = item.attempts + 1 >= item.maxAttempts;
+    const terminal = exhausted || terminalApnsError !== null;
+    if (item.attempts === 0 || terminal) {
+      this.onDeliveryFailure?.({ channel: item.channel, subjectKind: item.subjectKind, message, terminal });
+    }
+    if (terminalApnsError) {
+      if (["BadDeviceToken", "DeviceTokenNotForTopic", "Unregistered"].includes(terminalApnsError.reason ?? "")) {
+        this.database.disableIOSNotificationRegistration(item.destinationId);
+      }
+      this.database.deadLetterNotificationOutbox(item.id, item.lockToken, message);
+      this.status.changed();
+      return "stopped";
+    }
+    if (exhausted) {
+      this.database.deadLetterNotificationOutbox(item.id, item.lockToken, message);
+    } else {
+      this.database.failNotificationOutbox(
+        item.id,
+        item.lockToken,
+        message,
+        new Date(Date.now() + retryDelay(item.attempts)),
+      );
+    }
+    if (item.channel === "webhook") this.updateWebhookStatus(item.destinationId, null, message);
+    else if (item.channel === "telegram") {
+      this.status.value.telegram!.connected = false;
+      this.status.value.telegram!.error = "Telegram alert delivery failed";
+    }
+    return "continue";
   }
 
   private updateWebhookStatus(destinationId: string, deliveredAt: string | null, error: string | null): void {

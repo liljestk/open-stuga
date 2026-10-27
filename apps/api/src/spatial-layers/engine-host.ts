@@ -188,6 +188,50 @@ function validateOutputs(
 
 export class SpatialDataModeChangedError extends Error {}
 
+// Shared state while one scope runs its execution plan, engine by engine.
+interface ScopeInference {
+  scope: SpatialScope;
+  partition: SpatialDataPartition;
+  partitionGeneration: number;
+  cancellationKey: string;
+  cancellationGeneration: number;
+  bucketAt: string;
+  configuration: SpatialConfigurationVersion;
+  requestedLayerIds: string[];
+  persisted: PersistedSpatialLayerSnapshot[];
+  failures: SpatialEngineRunReport["failures"];
+  outputsByEngine: Map<string, SpatialLayerSnapshot[]>;
+  statusByEngine: Map<string, "succeeded" | "failed" | "skipped">;
+}
+
+interface PlanItemAttempt {
+  item: SpatialExecutionPlanItem;
+  runId: string;
+  startedAt: Date;
+  controller: AbortController;
+  inputDigest: string | null;
+}
+
+// An aborted input load means the session ended; an abort after a data-mode switch is reported as that switch.
+function normalizedEngineError(error: unknown, inputAborted: boolean, dataModeChanged: boolean): unknown {
+  const cancellationError = inputAborted
+    ? new SpatialExecutionAbortedError("Spatial inference session ended during input loading")
+    : error;
+  return cancellationError instanceof SpatialExecutionAbortedError && dataModeChanged
+    ? new SpatialDataModeChangedError("Spatial data mode changed during inference")
+    : cancellationError;
+}
+
+function isSkippedEngineError(error: unknown): boolean {
+  return error instanceof SpatialDependencyExecutionError || error instanceof SpatialDataModeChangedError
+    || error instanceof SpatialExecutionAbortedError;
+}
+
+function failedRunStatus(error: unknown): "skipped" | "timed_out" | "failed" {
+  if (isSkippedEngineError(error)) return "skipped";
+  return error instanceof SpatialExecutionTimeoutError ? "timed_out" : "failed";
+}
+
 export class EngineHost {
   readonly #controllers = new Map<AbortController, SpatialScope>();
   readonly #scopeCancellationGenerations = new Map<string, number>();
@@ -323,156 +367,168 @@ export class EngineHost {
     if (plan.items.length === 0 && plan.failures.length === 0) {
       return { scope, bucketAt: normalizedBucketAt, status: "disabled", snapshots: [], failures: [] };
     }
-    const persisted: PersistedSpatialLayerSnapshot[] = [];
-    const failures: Array<{ engineId: string; code: string; message: string }> = [...plan.failures];
-    const outputsByEngine = new Map<string, SpatialLayerSnapshot[]>();
-    const statusByEngine = new Map<string, "succeeded" | "failed" | "skipped">();
-    for (const item of plan.items) {
-      const { assignment, manifest } = item;
-      const startedAt = this.now();
-      const run = this.dependencies.state.startRun({
-        partition,
-        scope,
-        engineId: assignment.engineId,
-        engineVersion: assignment.engineVersion,
-        bucketAt: normalizedBucketAt,
-        configVersion: configuration.version,
-        startedAt: startedAt.toISOString(),
-      });
-      let inputDigest: string | null = null;
-      const controller = new AbortController();
-      this.#controllers.set(controller, scope);
-      try {
-        if (cancellationGeneration !== (this.#scopeCancellationGenerations.get(cancellationKey) ?? 0)) {
-          throw new SpatialExecutionAbortedError("Spatial inference session ended before input loading");
-        }
-        const unavailableDependencies = (manifest.dependencies ?? []).filter(
-          (dependencyId) => statusByEngine.get(dependencyId) !== "succeeded" || (outputsByEngine.get(dependencyId)?.length ?? 0) === 0,
-        );
-        if (unavailableDependencies.length > 0) {
-          throw new SpatialDependencyExecutionError(
-            `Engine ${manifest.id} was skipped because prerequisite output failed or was unavailable: ${unavailableDependencies.join(", ")}`,
-          );
-        }
-        if (!manifest.supportedScopes.includes(scope.kind)) throw new Error(`Engine ${manifest.id} does not support ${scope.kind}`);
-        const windowMinutes = configuredWindow(configuration, assignment.engineId);
-        const from = new Date(Date.parse(normalizedBucketAt) - windowMinutes * 60_000).toISOString();
-        const houses = this.dependencies.coreInput.housesForScope(scope);
-        const bindings = houses.flatMap((house) => this.dependencies.state.listBindings(partition, house.id, from, normalizedBucketAt));
-        const calibrations = houses.flatMap((house) => this.dependencies.state.listCalibrations(partition, house.id, from, normalizedBucketAt));
-        const contextEvents = houses.flatMap((house) => this.dependencies.state.listContextEvents(partition, house.id, from, normalizedBucketAt));
-        const dataset = await this.dependencies.coreInput.load({
-          partition,
-          scope,
-          bucketAt: normalizedBucketAt,
-          windowMinutes,
-          requiredMetrics: manifest.requiredMetrics,
-          configuration,
-          bindings,
-          calibrations,
-          contextEvents,
-          signal: controller.signal,
-        });
-        if (partitionGeneration !== this.#partitionGeneration) throw new SpatialDataModeChangedError("Spatial data mode changed during input loading");
-        if (cancellationGeneration !== (this.#scopeCancellationGenerations.get(cancellationKey) ?? 0)) {
-          throw new SpatialExecutionAbortedError("Spatial inference session ended during input loading");
-        }
-        const dependencySnapshots = immutableDependencySnapshots(
-          (manifest.dependencies ?? []).flatMap((dependencyId) => outputsByEngine.get(dependencyId) ?? []),
-        );
-        const timeoutMs = Math.max(100, this.dependencies.timeoutMs ?? 10_000);
-        const inferred = await this.dependencies.executor.execute({
-          engineId: manifest.id,
-          input: { ...dataset.engineInput, dependencySnapshots },
-          timeoutMs,
-          signal: controller.signal,
-        });
-        if (partitionGeneration !== this.#partitionGeneration) throw new SpatialDataModeChangedError("Spatial data mode changed before persistence");
-        if (cancellationGeneration !== (this.#scopeCancellationGenerations.get(cancellationKey) ?? 0)) {
-          throw new SpatialExecutionAbortedError("Spatial inference session ended before persistence");
-        }
-        const outputs = validateOutputs(manifest, assignment, scope, normalizedBucketAt, inferred)
-          .map((snapshot) => ({
-            ...snapshot,
-            warnings: [...new Set([...snapshot.warnings, ...dataset.warnings])],
-            reasonCodes: [...new Set([...snapshot.reasonCodes, ...dataset.warnings.map(() => "topology-configuration-warning")])],
-          }));
-        inputDigest = outputs[0]?.inputDigest ?? null;
-        outputsByEngine.set(manifest.id, outputs);
-        statusByEngine.set(manifest.id, "succeeded");
-        const persistenceOutputs = item.persistOutputs
-          ? outputs.filter((snapshot) => requestedLayerIds.length === 0 || requestedLayerIds.includes(snapshot.layerId))
-          : [];
-        const snapshots = this.dependencies.state.persistSnapshots(partition, persistenceOutputs, this.now().toISOString());
-        persisted.push(...snapshots);
-        this.dependencies.state.finishRun(partition, run.id, {
-          status: "succeeded",
-          finishedAt: this.now().toISOString(),
-          inputDigest,
-          snapshotIds: snapshots.map((snapshot) => snapshot.id),
-          durationMs: this.now().getTime() - startedAt.getTime(),
-        });
-        if (snapshots.length > 0) {
-          this.dependencies.notifier.publish({
-            partition,
-            scope,
-            snapshotIds: snapshots.map((snapshot) => snapshot.id),
-            bucketAt: normalizedBucketAt,
-            emittedAt: this.now().toISOString(),
-          });
-        }
-      } catch (error) {
-        const inputAborted = controller.signal.aborted;
-        const cancellationError = inputAborted
-          ? new SpatialExecutionAbortedError("Spatial inference session ended during input loading")
-          : error;
-        const normalizedError = cancellationError instanceof SpatialExecutionAbortedError && partitionGeneration !== this.#partitionGeneration
-          ? new SpatialDataModeChangedError("Spatial data mode changed during inference")
-          : cancellationError;
-        const details = errorDetails(normalizedError);
-        failures.push({ engineId: assignment.engineId, ...details });
-        statusByEngine.set(
-          assignment.engineId,
-          normalizedError instanceof SpatialDependencyExecutionError || normalizedError instanceof SpatialDataModeChangedError
-            || normalizedError instanceof SpatialExecutionAbortedError
-            ? "skipped"
-            : "failed",
-        );
-        const status = normalizedError instanceof SpatialDataModeChangedError
-          ? "skipped"
-          : normalizedError instanceof SpatialDependencyExecutionError
-            ? "skipped"
-            : normalizedError instanceof SpatialExecutionAbortedError
-              ? "skipped"
-            : normalizedError instanceof SpatialExecutionTimeoutError ? "timed_out" : "failed";
-        this.dependencies.state.finishRun(partition, run.id, {
-          status,
-          finishedAt: this.now().toISOString(),
-          inputDigest,
-          errorCode: details.code,
-          errorMessage: details.message,
-          durationMs: this.now().getTime() - startedAt.getTime(),
-        });
-        if (!(normalizedError instanceof SpatialExecutionAbortedError)) {
-          this.dependencies.logger?.warn?.({
-            scopeKind: scope.kind,
-            scopeId: scope.id,
-            dataMode: partition.dataMode,
-            engineId: assignment.engineId,
-            errorCode: details.code,
-          }, "Spatial layer engine failed in isolation");
-        }
-      } finally {
-        this.#controllers.delete(controller);
-      }
-    }
+    const run: ScopeInference = {
+      scope, partition, partitionGeneration, cancellationKey, cancellationGeneration,
+      bucketAt: normalizedBucketAt, configuration, requestedLayerIds,
+      persisted: [], failures: [...plan.failures], outputsByEngine: new Map(), statusByEngine: new Map(),
+    };
+    for (const item of plan.items) await this.runPlanItem(run, item);
     return {
       scope,
       bucketAt: normalizedBucketAt,
-      status: failures.length === 0 ? "succeeded" : persisted.length > 0 ? "partial" : "failed",
-      snapshots: persisted,
-      failures,
+      status: run.failures.length === 0 ? "succeeded" : run.persisted.length > 0 ? "partial" : "failed",
+      snapshots: run.persisted,
+      failures: run.failures,
     };
+  }
+
+  private async runPlanItem(run: ScopeInference, item: SpatialExecutionPlanItem): Promise<void> {
+    const { assignment } = item;
+    const startedAt = this.now();
+    const record = this.dependencies.state.startRun({
+      partition: run.partition,
+      scope: run.scope,
+      engineId: assignment.engineId,
+      engineVersion: assignment.engineVersion,
+      bucketAt: run.bucketAt,
+      configVersion: run.configuration.version,
+      startedAt: startedAt.toISOString(),
+    });
+    const attempt: PlanItemAttempt = { item, runId: record.id, startedAt, controller: new AbortController(), inputDigest: null };
+    this.#controllers.set(attempt.controller, run.scope);
+    try {
+      await this.executePlanItem(run, attempt);
+    } catch (error) {
+      this.recordPlanItemFailure(run, attempt, error);
+    } finally {
+      this.#controllers.delete(attempt.controller);
+    }
+  }
+
+  private assertScopeActive(run: ScopeInference, message: string): void {
+    if (run.cancellationGeneration !== (this.#scopeCancellationGenerations.get(run.cancellationKey) ?? 0)) {
+      throw new SpatialExecutionAbortedError(message);
+    }
+  }
+
+  private assertPartitionCurrent(run: ScopeInference, message: string): void {
+    if (run.partitionGeneration !== this.#partitionGeneration) throw new SpatialDataModeChangedError(message);
+  }
+
+  private async executePlanItem(run: ScopeInference, attempt: PlanItemAttempt): Promise<void> {
+    const { assignment, manifest } = attempt.item;
+    this.assertScopeActive(run, "Spatial inference session ended before input loading");
+    const unavailableDependencies = (manifest.dependencies ?? []).filter(
+      (dependencyId) => run.statusByEngine.get(dependencyId) !== "succeeded" || (run.outputsByEngine.get(dependencyId)?.length ?? 0) === 0,
+    );
+    if (unavailableDependencies.length > 0) {
+      throw new SpatialDependencyExecutionError(
+        `Engine ${manifest.id} was skipped because prerequisite output failed or was unavailable: ${unavailableDependencies.join(", ")}`,
+      );
+    }
+    if (!manifest.supportedScopes.includes(run.scope.kind)) throw new Error(`Engine ${manifest.id} does not support ${run.scope.kind}`);
+    const dataset = await this.loadPlanItemDataset(run, attempt);
+    this.assertPartitionCurrent(run, "Spatial data mode changed during input loading");
+    this.assertScopeActive(run, "Spatial inference session ended during input loading");
+    const dependencySnapshots = immutableDependencySnapshots(
+      (manifest.dependencies ?? []).flatMap((dependencyId) => run.outputsByEngine.get(dependencyId) ?? []),
+    );
+    const timeoutMs = Math.max(100, this.dependencies.timeoutMs ?? 10_000);
+    const inferred = await this.dependencies.executor.execute({
+      engineId: manifest.id,
+      input: { ...dataset.engineInput, dependencySnapshots },
+      timeoutMs,
+      signal: attempt.controller.signal,
+    });
+    this.assertPartitionCurrent(run, "Spatial data mode changed before persistence");
+    this.assertScopeActive(run, "Spatial inference session ended before persistence");
+    const outputs = validateOutputs(manifest, assignment, run.scope, run.bucketAt, inferred)
+      .map((snapshot) => ({
+        ...snapshot,
+        warnings: [...new Set([...snapshot.warnings, ...dataset.warnings])],
+        reasonCodes: [...new Set([...snapshot.reasonCodes, ...dataset.warnings.map(() => "topology-configuration-warning")])],
+      }));
+    attempt.inputDigest = outputs[0]?.inputDigest ?? null;
+    run.outputsByEngine.set(manifest.id, outputs);
+    run.statusByEngine.set(manifest.id, "succeeded");
+    this.persistPlanItemOutputs(run, attempt, outputs);
+  }
+
+  private async loadPlanItemDataset(run: ScopeInference, attempt: PlanItemAttempt): Promise<SpatialCoreDataset> {
+    const { assignment, manifest } = attempt.item;
+    const { partition, scope, bucketAt } = run;
+    const windowMinutes = configuredWindow(run.configuration, assignment.engineId);
+    const from = new Date(Date.parse(bucketAt) - windowMinutes * 60_000).toISOString();
+    const houses = this.dependencies.coreInput.housesForScope(scope);
+    const bindings = houses.flatMap((house) => this.dependencies.state.listBindings(partition, house.id, from, bucketAt));
+    const calibrations = houses.flatMap((house) => this.dependencies.state.listCalibrations(partition, house.id, from, bucketAt));
+    const contextEvents = houses.flatMap((house) => this.dependencies.state.listContextEvents(partition, house.id, from, bucketAt));
+    return this.dependencies.coreInput.load({
+      partition,
+      scope,
+      bucketAt,
+      windowMinutes,
+      requiredMetrics: manifest.requiredMetrics,
+      configuration: run.configuration,
+      bindings,
+      calibrations,
+      contextEvents,
+      signal: attempt.controller.signal,
+    });
+  }
+
+  private persistPlanItemOutputs(run: ScopeInference, attempt: PlanItemAttempt, outputs: SpatialLayerSnapshot[]): void {
+    const { partition, requestedLayerIds } = run;
+    const persistenceOutputs = attempt.item.persistOutputs
+      ? outputs.filter((snapshot) => requestedLayerIds.length === 0 || requestedLayerIds.includes(snapshot.layerId))
+      : [];
+    const snapshots = this.dependencies.state.persistSnapshots(partition, persistenceOutputs, this.now().toISOString());
+    run.persisted.push(...snapshots);
+    this.dependencies.state.finishRun(partition, attempt.runId, {
+      status: "succeeded",
+      finishedAt: this.now().toISOString(),
+      inputDigest: attempt.inputDigest,
+      snapshotIds: snapshots.map((snapshot) => snapshot.id),
+      durationMs: this.now().getTime() - attempt.startedAt.getTime(),
+    });
+    if (snapshots.length > 0) {
+      this.dependencies.notifier.publish({
+        partition,
+        scope: run.scope,
+        snapshotIds: snapshots.map((snapshot) => snapshot.id),
+        bucketAt: run.bucketAt,
+        emittedAt: this.now().toISOString(),
+      });
+    }
+  }
+
+  private recordPlanItemFailure(run: ScopeInference, attempt: PlanItemAttempt, error: unknown): void {
+    const { assignment } = attempt.item;
+    const normalizedError = normalizedEngineError(
+      error,
+      attempt.controller.signal.aborted,
+      run.partitionGeneration !== this.#partitionGeneration,
+    );
+    const details = errorDetails(normalizedError);
+    run.failures.push({ engineId: assignment.engineId, ...details });
+    run.statusByEngine.set(assignment.engineId, isSkippedEngineError(normalizedError) ? "skipped" : "failed");
+    this.dependencies.state.finishRun(run.partition, attempt.runId, {
+      status: failedRunStatus(normalizedError),
+      finishedAt: this.now().toISOString(),
+      inputDigest: attempt.inputDigest,
+      errorCode: details.code,
+      errorMessage: details.message,
+      durationMs: this.now().getTime() - attempt.startedAt.getTime(),
+    });
+    if (!(normalizedError instanceof SpatialExecutionAbortedError)) {
+      this.dependencies.logger?.warn?.({
+        scopeKind: run.scope.kind,
+        scopeId: run.scope.id,
+        dataMode: run.partition.dataMode,
+        engineId: assignment.engineId,
+        errorCode: details.code,
+      }, "Spatial layer engine failed in isolation");
+    }
   }
 
   health(scope: SpatialScope, currentSnapshots?: readonly PersistedSpatialLayerSnapshot[]): SpatialEngineHealth[] {

@@ -143,116 +143,145 @@ export class SpatialLayerScheduler {
   private async runTick(): Promise<void> {
     this.initialize();
     const partition = this.dependencies.host.partition;
-    const now = this.now().toISOString();
-    let hasActiveSessions = this.dependencies.state.hasActiveInferenceSessions(partition);
-    if (hasActiveSessions) {
-      for (const session of this.dependencies.state.expireInferenceSessions(partition, now)) {
-        this.dependencies.host.cancelScope({ kind: "house", id: session.houseId });
-      }
-      hasActiveSessions = this.dependencies.state.hasActiveInferenceSessions(partition);
-      if (hasActiveSessions) this.dependencies.state.scheduleDueInferenceSessions(partition, now, 10);
-    }
+    const hasActiveSessions = this.refreshActiveSessions(partition, this.now().toISOString());
     // One scheduler-owned inference at a time is the safe local default. A
     // shared host governor can additionally withhold the admission lease.
     const jobs = hasActiveSessions
       ? this.dependencies.state.claimDueJobs(partition, this.now().toISOString(), 1)
       : [];
     for (const job of jobs) {
-      if (!job.lockToken) continue;
-      const session = job.sessionId ? this.dependencies.state.getInferenceSession(partition, job.sessionId) : null;
-      if (!session || session.status !== "active" || session.houseId !== job.scope.id
-          || Date.parse(session.expiresAt) <= this.now().getTime()) {
-        if (job.sessionId) this.dependencies.state.cancelOutstandingJobsForSession(partition, job.sessionId, this.now().toISOString());
-        else this.dependencies.state.cancelLegacyOutstandingJobs(partition, this.now().toISOString());
-        continue;
+      if (job.lockToken) await this.runClaimedJob(partition, job, job.lockToken);
+    }
+  }
+
+  private refreshActiveSessions(partition: SpatialDataPartition, now: string): boolean {
+    if (!this.dependencies.state.hasActiveInferenceSessions(partition)) return false;
+    for (const session of this.dependencies.state.expireInferenceSessions(partition, now)) {
+      this.dependencies.host.cancelScope({ kind: "house", id: session.houseId });
+    }
+    const hasActiveSessions = this.dependencies.state.hasActiveInferenceSessions(partition);
+    if (hasActiveSessions) this.dependencies.state.scheduleDueInferenceSessions(partition, now, 10);
+    return hasActiveSessions;
+  }
+
+  private async runClaimedJob(partition: SpatialDataPartition, job: SpatialInferenceJob, lockToken: string): Promise<void> {
+    const session = job.sessionId ? this.dependencies.state.getInferenceSession(partition, job.sessionId) : null;
+    if (!session || session.status !== "active" || session.houseId !== job.scope.id
+        || Date.parse(session.expiresAt) <= this.now().getTime()) {
+      if (job.sessionId) this.dependencies.state.cancelOutstandingJobsForSession(partition, job.sessionId, this.now().toISOString());
+      else this.dependencies.state.cancelLegacyOutstandingJobs(partition, this.now().toISOString());
+      return;
+    }
+    const lease = await this.acquireAdmission(job, session);
+    if (!lease) {
+      this.dependencies.state.deferJob(
+        partition,
+        job.id,
+        lockToken,
+        new Date(this.now().getTime() + Math.max(1_000, this.dependencies.admissionRetryMs ?? 15_000)).toISOString(),
+        this.now().toISOString(),
+      );
+      return;
+    }
+    let expiryTimer: ReturnType<typeof setTimeout> | null = null;
+    try {
+      const admittedSession = job.sessionId ? this.dependencies.state.getInferenceSession(partition, job.sessionId) : null;
+      expiryTimer = setTimeout(
+        () => this.dependencies.host.cancelScope(job.scope),
+        Math.max(0, Date.parse(admittedSession?.expiresAt ?? session.expiresAt) - this.now().getTime()),
+      );
+      expiryTimer.unref();
+      await this.runAdmittedJob(partition, job, lockToken, admittedSession);
+    } catch (error) {
+      this.recordJobFailure(partition, job, lockToken, error);
+    } finally {
+      if (expiryTimer) clearTimeout(expiryTimer);
+      await this.releaseAdmission(job, lease);
+    }
+  }
+
+  private async acquireAdmission(
+    job: SpatialInferenceJob,
+    session: SpatialInferenceSession,
+  ): Promise<SpatialInferenceAdmissionLease | null> {
+    try {
+      return await (this.dependencies.admission ?? LOCAL_ADMISSION).acquire({
+        job,
+        session,
+        now: this.now().toISOString(),
+      });
+    } catch (error) {
+      this.dependencies.logger?.warn?.({
+        scopeKind: job.scope.kind,
+        scopeId: job.scope.id,
+        error: error instanceof Error ? error.message : "Unknown admission error",
+      }, "Spatial inference admission check failed");
+      return null;
+    }
+  }
+
+  private async releaseAdmission(job: SpatialInferenceJob, lease: SpatialInferenceAdmissionLease): Promise<void> {
+    try {
+      await lease.release();
+    } catch (error) {
+      this.dependencies.logger?.warn?.({
+        scopeKind: job.scope.kind,
+        scopeId: job.scope.id,
+        error: error instanceof Error ? error.message : "Unknown admission release error",
+      }, "Spatial inference admission lease release failed");
+    }
+  }
+
+  private async runAdmittedJob(
+    partition: SpatialDataPartition,
+    job: SpatialInferenceJob,
+    lockToken: string,
+    admittedSession: SpatialInferenceSession | null,
+  ): Promise<void> {
+    if (!admittedSession || admittedSession.status !== "active"
+        || Date.parse(admittedSession.expiresAt) <= this.now().getTime()) {
+      if (job.sessionId) {
+        this.dependencies.state.cancelOutstandingJobsForSession(partition, job.sessionId, this.now().toISOString());
       }
-      let lease: SpatialInferenceAdmissionLease | null = null;
-      try {
-        lease = await (this.dependencies.admission ?? LOCAL_ADMISSION).acquire({
-          job,
-          session,
-          now: this.now().toISOString(),
-        });
-      } catch (error) {
-        this.dependencies.logger?.warn?.({
-          scopeKind: job.scope.kind,
-          scopeId: job.scope.id,
-          error: error instanceof Error ? error.message : "Unknown admission error",
-        }, "Spatial inference admission check failed");
-      }
-      if (!lease) {
-        this.dependencies.state.deferJob(
-          partition,
-          job.id,
-          job.lockToken,
-          new Date(this.now().getTime() + Math.max(1_000, this.dependencies.admissionRetryMs ?? 15_000)).toISOString(),
-          this.now().toISOString(),
-        );
-        continue;
-      }
-      let expiryTimer: ReturnType<typeof setTimeout> | null = null;
-      try {
-        const admittedSession = job.sessionId ? this.dependencies.state.getInferenceSession(partition, job.sessionId) : null;
-        expiryTimer = setTimeout(
-          () => this.dependencies.host.cancelScope(job.scope),
-          Math.max(0, Date.parse(admittedSession?.expiresAt ?? session.expiresAt) - this.now().getTime()),
-        );
-        expiryTimer.unref();
-        if (!admittedSession || admittedSession.status !== "active"
-            || Date.parse(admittedSession.expiresAt) <= this.now().getTime()) {
-          if (job.sessionId) {
-            this.dependencies.state.cancelOutstandingJobsForSession(partition, job.sessionId, this.now().toISOString());
-          }
-          continue;
-        }
-        // A mode activation cancels old jobs. Never run the old partition under the new host.
-        const active = this.dependencies.host.partition;
-        if (active.sourceDbId !== job.partition.sourceDbId || active.dataMode !== job.partition.dataMode) continue;
-        const report = await this.dependencies.host.inferScope(job.scope, job.bucketAt);
-        if (report.status === "failed") throw new Error(report.failures.map((failure) => `${failure.engineId}:${failure.code}`).join(", "));
-        this.dependencies.state.completeJob(job.partition, job.id, job.lockToken, this.now().toISOString());
-        this.dependencies.state.putCheckpoint(job.partition, job.scope, "watermark", {
-          bucketAt: job.bucketAt,
-          completedAt: this.now().toISOString(),
-        }, this.now().toISOString());
-      } catch (error) {
-        const currentJob = this.dependencies.state.getJob(partition, job.id);
-        const currentSession = job.sessionId ? this.dependencies.state.getInferenceSession(partition, job.sessionId) : null;
-        if (currentSession?.status === "active" && Date.parse(currentSession.expiresAt) <= this.now().getTime()) {
-          for (const expired of this.dependencies.state.expireInferenceSessions(partition, this.now().toISOString())) {
-            this.dependencies.host.cancelScope({ kind: "house", id: expired.houseId });
-          }
-        }
-        if (currentJob?.status === "cancelled" || currentSession?.status !== "active"
-            || Date.parse(currentSession.expiresAt) <= this.now().getTime()) continue;
-        const message = error instanceof Error ? error.message : "Unknown scheduler error";
-        this.dependencies.state.failJob(
-          job.partition,
-          job.id,
-          job.lockToken,
-          message,
-          retryAt(job.attempts, this.now()),
-          this.dependencies.maximumAttempts ?? 5,
-        );
-        this.dependencies.logger?.warn?.({
-          scopeKind: job.scope.kind,
-          scopeId: job.scope.id,
-          dataMode: job.partition.dataMode,
-          attempts: job.attempts,
-        }, "Spatial inference job failed");
-      } finally {
-        if (expiryTimer) clearTimeout(expiryTimer);
-        try {
-          await lease.release();
-        } catch (error) {
-          this.dependencies.logger?.warn?.({
-            scopeKind: job.scope.kind,
-            scopeId: job.scope.id,
-            error: error instanceof Error ? error.message : "Unknown admission release error",
-          }, "Spatial inference admission lease release failed");
-        }
+      return;
+    }
+    // A mode activation cancels old jobs. Never run the old partition under the new host.
+    const active = this.dependencies.host.partition;
+    if (active.sourceDbId !== job.partition.sourceDbId || active.dataMode !== job.partition.dataMode) return;
+    const report = await this.dependencies.host.inferScope(job.scope, job.bucketAt);
+    if (report.status === "failed") throw new Error(report.failures.map((failure) => `${failure.engineId}:${failure.code}`).join(", "));
+    this.dependencies.state.completeJob(job.partition, job.id, lockToken, this.now().toISOString());
+    this.dependencies.state.putCheckpoint(job.partition, job.scope, "watermark", {
+      bucketAt: job.bucketAt,
+      completedAt: this.now().toISOString(),
+    }, this.now().toISOString());
+  }
+
+  private recordJobFailure(partition: SpatialDataPartition, job: SpatialInferenceJob, lockToken: string, error: unknown): void {
+    const currentJob = this.dependencies.state.getJob(partition, job.id);
+    const currentSession = job.sessionId ? this.dependencies.state.getInferenceSession(partition, job.sessionId) : null;
+    if (currentSession?.status === "active" && Date.parse(currentSession.expiresAt) <= this.now().getTime()) {
+      for (const expired of this.dependencies.state.expireInferenceSessions(partition, this.now().toISOString())) {
+        this.dependencies.host.cancelScope({ kind: "house", id: expired.houseId });
       }
     }
+    if (currentJob?.status === "cancelled" || currentSession?.status !== "active"
+        || Date.parse(currentSession.expiresAt) <= this.now().getTime()) return;
+    const message = error instanceof Error ? error.message : "Unknown scheduler error";
+    this.dependencies.state.failJob(
+      job.partition,
+      job.id,
+      lockToken,
+      message,
+      retryAt(job.attempts, this.now()),
+      this.dependencies.maximumAttempts ?? 5,
+    );
+    this.dependencies.logger?.warn?.({
+      scopeKind: job.scope.kind,
+      scopeId: job.scope.id,
+      dataMode: job.partition.dataMode,
+      attempts: job.attempts,
+    }, "Spatial inference job failed");
   }
 
   start(): void {
