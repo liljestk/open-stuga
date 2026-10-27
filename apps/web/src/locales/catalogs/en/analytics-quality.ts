@@ -15,4 +15,7 @@ export const enAnalyticsQuality = {
   "performance.energy.regression": "Base load {base} kWh a day plus {slope} kWh per heating degree-hour below {temperature} °C (90% interval {low}–{high}).",
   "performance.energy.comparison": "The heating slope changed {change}% between the two halves of the period (90% interval {low}% to {high}%).",
   "performance.exposure.excluded": "Left out of comfort exposure: {rooms}.",
+  "energy.outlook.methodRegression": "Base load plus heating, driven by the weather forecast and then recent weather. Tested on {origins} past 30-day periods, it missed by {error}% on average, against {baseline}% for repeating the last 30 days.",
+  "energy.outlook.methodRecent": "Repeats the last 30 days, which did better than a weather model when tested on {origins} past 30-day periods ({error}% average miss).",
+  "energy.outlook.methodUntested": "Repeats the last 30 days. More history is needed to test a weather model, so the range is a wide default.",
 } as const;

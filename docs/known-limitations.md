@@ -21,6 +21,11 @@ system described in the roadmap.
   outdoor temperature, not for occupancy, tariffs or equipment changes. With one
   or two peer years the year-to-year spread is assumed rather than measured.
   Findings are not diagnoses or causal explanations.
+- The thirty-day energy projection holds weather beyond the stored forecast's
+  reach, so a sudden cold spell later in the month is not anticipated. Its
+  backtest uses observed weather in place of past forecasts, which flatters the
+  first ten days slightly. Optimizer savings assume a device's measured runs can
+  move to the cheapest window; they do not know whether that is convenient.
 - A daily Home run examines at most 80 recorded sensor/measurement series and
   retains at most 16 ranked findings. Electricity series are prioritized and
   the UI warns when the scope bound excluded other series.

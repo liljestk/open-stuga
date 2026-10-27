@@ -251,6 +251,7 @@ export const schemasPart07 = {
             suggestedWindows: { type: "array", items: { type: "object", additionalProperties: false, required: ["startAt", "endAt", "averagePriceCentsPerKwh", "relativeToAveragePercent", "rank"], properties: { startAt: { type: "string", format: "date-time" }, endAt: { type: "string", format: "date-time" }, averagePriceCentsPerKwh: { type: "number" }, relativeToAveragePercent: { type: "number" }, rank: { enum: ["best", "good", "expensive"] } } } },
             recentDailyConsumptionKwh: { type: ["number", "null"] }, estimatedDailyCostEur: { type: ["number", "null"] }, baselinePowerWatts: { type: ["number", "null"] }, peakPowerWatts: { type: ["number", "null"] },
             insights: { type: "array", items: { type: "object", additionalProperties: false, required: ["id", "severity", "title", "explanation", "estimatedSavingsEur"], properties: { id: { type: "string" }, severity: { enum: ["info", "opportunity", "warning"] }, title: { type: "string" }, explanation: { type: "string" }, estimatedSavingsEur: { type: ["number", "null"] } } } },
+            flexibleLoads: { type: "array", items: { $ref: "#/components/schemas/EnergyFlexibleLoad" } },
             limitations: { type: "array", items: { type: "string" } },
           },
         },

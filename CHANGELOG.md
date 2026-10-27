@@ -2,6 +2,13 @@
 
 All notable Stugu releases are recorded here.
 
+## 0.49.0
+
+- The Energy page's 30-day outlook is now calculated by the server and tested against the Home's own history. It models daily use as a base load plus heating that follows the weather forecast. It is used only if, on past months, it predicted better than simply repeating the last 30 days; otherwise the outlook says it repeats the last 30 days. The range and confidence now come from how far those past predictions were off, not from how much data there is, and the outlook says how it did.
+- The energy optimizer measures each device's own runs over the last week, such as a dishwasher or a water heater, and estimates the daily saving from moving them to the cheapest upcoming window of the same length. The baseload tip no longer shows a savings figure it could not measure.
+- New endpoint `GET /api/v1/houses/{id}/energy-projection`. The optimizer report adds `flexibleLoads`.
+- Upgrade impact: application-only update. Database, configuration, Compose and host trust are unchanged.
+
 ## 0.48.0
 
 - Repeated analytics queries are answered from a server cache. A chart reopened in another tab or by another household member no longer recomputes, and the response reports whether it came from the cache. Ranges that ended more than two hours ago are kept for up to an hour; an import of older history makes them recompute. Ranges reaching the present are kept for 30 seconds.

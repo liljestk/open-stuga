@@ -1,20 +1,20 @@
 # API endpoint combinations for testing
 
-This is a testing list for Stugu 0.48.0: **348 local API operations** (322 v1 and 26 v2), plus **one optional bug-report relay operation**. Each operation is a method and path, so GET and POST on the same path are separate entries.
+This is a testing list for Stugu 0.49.0: **349 local API operations** (323 v1 and 26 v2), plus **one optional bug-report relay operation**. Each operation is a method and path, so GET and POST on the same path are separate entries.
 
-The files cover endpoint inputs, applicable account/resource/runtime states, and multi-endpoint workflows. **All 121,801 ordered two-operation pairs are listed**, including repeats, reverse order, both versions and the relay. Arbitrary payload values, subsets of all endpoints and sequences of unrestricted length cannot be fully listed. These are proposed tests, not executed results.
+The files cover endpoint inputs, applicable account/resource/runtime states, and multi-endpoint workflows. **All 122,500 ordered two-operation pairs are listed**, including repeats, reverse order, both versions and the relay. Arbitrary payload values, subsets of all endpoints and sequences of unrestricted length cannot be fully listed. These are proposed tests, not executed results.
 
 ## Testing files
 
 | File | Contents |
 | --- | --- |
 | [api-endpoint-matrix.json](api-endpoint-matrix.json) | Every operation, resolved parameters, body schemas, response contracts, security alternatives, compact input factors and common profiles |
-| [api-input-cases.ndjson](api-input-cases.ndjson) | 18,815 individual schema, boundary, omission, null, enum, nested branch and invalid-input cases |
-| [api-query-combinations.ndjson](api-query-combinations.ndjson) | 1,405 combinations of query presence, enums and booleans; other values use synthetic fixtures |
-| [api-endpoint-pairs.ndjson](api-endpoint-pairs.ndjson) | 121,801 rows of [first operation key, second operation key] |
+| [api-input-cases.ndjson](api-input-cases.ndjson) | 18,822 individual schema, boundary, omission, null, enum, nested branch and invalid-input cases |
+| [api-query-combinations.ndjson](api-query-combinations.ndjson) | 1,406 combinations of query presence, enums and booleans; other values use synthetic fixtures |
+| [api-endpoint-pairs.ndjson](api-endpoint-pairs.ndjson) | 122,500 rows of [first operation key, second operation key] |
 | [api-workflows.json](api-workflows.json) | 40 ordered workflows with prerequisites, assertions and negative cases |
 
-Operation keys include the version because operationId alone is not unique across documents. Look up each key in the matrix to find its method, path and contract. Relay paths use their separate configured service origin. Local-only pair coverage is 121,104; filtering pairs to first key less than second key gives 60,726 distinct unordered pairs across all services.
+Operation keys include the version because operationId alone is not unique across documents. Look up each key in the matrix to find its method, path and contract. Relay paths use their separate configured service origin. Local-only pair coverage is 121,801; filtering pairs to first key less than second key gives 61,075 distinct unordered pairs across all services.
 
 ## How to use the combinations
 
@@ -291,6 +291,7 @@ Parameter markers: * required, ? optional. The JSON expands references and lists
 | `v1:getHouseElectricityPrice` | GET `/api/v1/houses/{id}/electricity-price` | path:id*, query:from?, query:to? | — | localSession | 200, 404 |
 | `v1:getHouseEnergyCost` | GET `/api/v1/houses/{id}/energy-cost` | path:id*, query:sensorId*, query:from?, query:to? | — | localSession | 200, 400, 404, 503 |
 | `v1:getHouseEnergySummary` | GET `/api/v1/houses/{id}/energy-summary` | path:id*, query:from?, query:to? | — | localSession | 200, 400, 404, 503 |
+| `v1:getHouseEnergyProjection` | GET `/api/v1/houses/{id}/energy-projection` | path:id* | — | localSession | 200, 404, 503 |
 | `v1:getHouseWeather` | GET `/api/v1/houses/{id}/weather` | path:id*, query:hours? | — | localSession | 200, 404, 409, 503 |
 | `v1:runThermalSimulation` | GET `/api/v1/houses/{id}/thermal-simulation` | path:id*, query:sensorId*, query:from?, query:to?, query:horizonHours?, query:scenarioOutdoorTemperatureC? | — | localSession | 200, 400, 404, 409 |
 | `v1:compareThermalIsolation` | GET `/api/v1/houses/{id}/thermal-isolation` | path:id*, query:from?, query:to? | — | localSession | 200, 400, 404, 422 |

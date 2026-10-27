@@ -205,8 +205,6 @@ export const fiSupplementPart2 = {
   "energy.outlook.range": "Suunnitteluväli {low}–{high} {unit}",
   "energy.outlook.priceMissing": "Lisää kiinteistön hinta kustannusarviota varten",
   "energy.outlook.observedDays": "Perustuu {days} päivän havaittuun kulutukseen",
-  "energy.outlook.observedHours": "Perustuu {hours} tunnin havaittuun kulutukseen",
-  "energy.outlook.method": "Ennuste yhdistää pidemmän kulutustahdin viimeisiin 24 tuntiin. Suunnitteluväli kasvaa, kun historiaa on vähän tai viimeaikainen kulutus poikkeaa pidemmästä mallista; se ei ole todennäköisyysväli.",
   "energy.consumer.title": "Suurimmat sähkönkuluttajat",
   "energy.consumer.period": "Kumulatiivinen kulutus · viimeiset 30 päivää",
   "energy.consumer.pattern.steady": "Tasainen kuorma",

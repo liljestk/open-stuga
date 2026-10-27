@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
-  "projectVersion": "0.48.0",
+  "projectVersion": "0.49.0",
   "executionStatus": "not-run",
   "source": {
     "documents": {
       "v1": {
         "path": "apps/api/src/openapi.ts",
-        "sha256": "008530a8495f6f8f9c59822c25d4b270bcfeed6f665c77ec328cd49b13f30272"
+        "sha256": "efc156f58b8fcc133e291f29a23355bb015fcf1663a2d55f065b810d9384f653"
       },
       "v2": {
         "path": "apps/api/src/openapi.ts",
-        "sha256": "db81e56a0a092d155ffd4f306592d07267c049d029be2311537db7b51e0f4499"
+        "sha256": "f667429955f87d1c7a3b21c0b95c5da8b8a8a7eaea7d35bafc836cc14501ffa9"
       }
     },
     "supplementalSourceHashes": {
@@ -22,16 +22,16 @@
   },
   "scope": "All local documented method/path operations plus the optional report-relay operation. Endpoint pairs are exhaustive only for sequences of length two. Values and longer sequences are unbounded.",
   "counts": {
-    "localOperations": 348,
-    "v1": 322,
+    "localOperations": 349,
+    "v1": 323,
     "v2": 26,
     "supplementalRelayOperations": 1,
-    "allOperations": 349,
-    "orderedPairsIncludingSelf": 121801,
-    "localOrderedPairsIncludingSelf": 121104,
-    "unorderedDistinctPairs": 60726,
-    "queryCombinations": 1405,
-    "inputCases": 18815,
+    "allOperations": 350,
+    "orderedPairsIncludingSelf": 122500,
+    "localOrderedPairsIncludingSelf": 121801,
+    "unorderedDistinctPairs": 61075,
+    "queryCombinations": 1406,
+    "inputCases": 18822,
     "workflows": 40
   },
   "combinationRules": {
@@ -14474,6 +14474,12 @@
               }
             }
           },
+          "flexibleLoads": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EnergyFlexibleLoad"
+            }
+          },
           "limitations": {
             "type": "array",
             "items": {
@@ -20527,6 +20533,235 @@
           "calculatedAt": {
             "type": "string",
             "format": "date-time"
+          }
+        }
+      },
+      "HomeEnergyProjection": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "houseId",
+          "generatedAt",
+          "algorithmVersion",
+          "horizonStart",
+          "horizonDays",
+          "method",
+          "next30DaysKwh",
+          "lowKwh",
+          "highKwh",
+          "dailyKwh",
+          "baseLoadKwhPerDay",
+          "heatingSlopeKwhPerDegreeHour",
+          "heatingBaseTemperatureC",
+          "forecastDays",
+          "observedDays",
+          "confidence",
+          "backtest",
+          "estimatedCostEur",
+          "lowCostEur",
+          "highCostEur",
+          "priceBasis"
+        ],
+        "properties": {
+          "houseId": {
+            "type": "string"
+          },
+          "generatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "algorithmVersion": {
+            "const": "energy-projection/v1"
+          },
+          "horizonStart": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "horizonDays": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "method": {
+            "enum": [
+              "weather-regression",
+              "recent-average"
+            ]
+          },
+          "next30DaysKwh": {
+            "type": "number",
+            "minimum": 0
+          },
+          "lowKwh": {
+            "type": "number",
+            "minimum": 0
+          },
+          "highKwh": {
+            "type": "number",
+            "minimum": 0
+          },
+          "dailyKwh": {
+            "type": "number",
+            "minimum": 0
+          },
+          "baseLoadKwhPerDay": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "heatingSlopeKwhPerDegreeHour": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "heatingBaseTemperatureC": {
+            "type": "number"
+          },
+          "forecastDays": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "observedDays": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "confidence": {
+            "enum": [
+              "low",
+              "medium",
+              "high"
+            ]
+          },
+          "backtest": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "origins",
+              "meanAbsolutePercentError",
+              "baselineMeanAbsolutePercentError",
+              "skill"
+            ],
+            "properties": {
+              "origins": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "meanAbsolutePercentError": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "baselineMeanAbsolutePercentError": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "skill": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            }
+          },
+          "estimatedCostEur": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "lowCostEur": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "highCostEur": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "priceBasis": {
+            "enum": [
+              "historical",
+              "unavailable"
+            ]
+          }
+        }
+      },
+      "EnergyFlexibleLoad": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "sensorId",
+          "sensorName",
+          "runsPerDay",
+          "dailyKwh",
+          "typicalRunMinutes",
+          "paidCentsPerKwh",
+          "cheapestWindow",
+          "estimatedDailySavingsEur"
+        ],
+        "properties": {
+          "sensorId": {
+            "type": "string"
+          },
+          "sensorName": {
+            "type": "string"
+          },
+          "runsPerDay": {
+            "type": "number",
+            "minimum": 0
+          },
+          "dailyKwh": {
+            "type": "number",
+            "minimum": 0
+          },
+          "typicalRunMinutes": {
+            "type": "number",
+            "minimum": 0
+          },
+          "paidCentsPerKwh": {
+            "type": "number"
+          },
+          "cheapestWindow": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "startAt",
+                  "endAt",
+                  "averagePriceCentsPerKwh"
+                ],
+                "properties": {
+                  "startAt": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "endAt": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "averagePriceCentsPerKwh": {
+                    "type": "number"
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "estimatedDailySavingsEur": {
+            "type": [
+              "number",
+              "null"
+            ]
           }
         }
       }
@@ -38652,6 +38887,78 @@
       ],
       "documentedErrorCodes": [
         "400",
+        "404",
+        "503"
+      ]
+    },
+    {
+      "key": "v1:getHouseEnergyProjection",
+      "service": "local",
+      "version": "v1",
+      "operationId": "getHouseEnergyProjection",
+      "method": "GET",
+      "path": "/api/v1/houses/{id}/energy-projection",
+      "tags": [
+        "Energy"
+      ],
+      "summary": "getHouseEnergyProjection",
+      "description": "Projects the Home's next thirty days of consumption and cost. A weather regression on heating degree-hours, driven by the stored forecast and then recent weather, is used only when it beat repeating the last thirty days in a rolling backtest; the interval and confidence come from that backtest. Null when no source stands for the whole Home.",
+      "securityAlternatives": [
+        {
+          "localSession": []
+        }
+      ],
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "requestBodies": [],
+      "queryFactors": [],
+      "queryCombinationCount": "1",
+      "responses": {
+        "200": {
+          "description": "Backtested thirty-day projection",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "projection"
+                ],
+                "properties": {
+                  "projection": {
+                    "oneOf": [
+                      {
+                        "$ref": "#/components/schemas/HomeEnergyProjection"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "404": {
+          "$ref": "#/components/responses/NotFound"
+        },
+        "503": {
+          "description": "Complete archived telemetry is temporarily unavailable"
+        }
+      },
+      "successCodes": [
+        "200"
+      ],
+      "documentedErrorCodes": [
         "404",
         "503"
       ]

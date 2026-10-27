@@ -129,6 +129,18 @@ export const pathsPart02 = {
           },
         },
       },
+  "/houses/{id}/energy-projection": {
+        get: {
+          tags: ["Energy"], operationId: "getHouseEnergyProjection",
+          description: "Projects the Home's next thirty days of consumption and cost. A weather regression on heating degree-hours, driven by the stored forecast and then recent weather, is used only when it beat repeating the last thirty days in a rolling backtest; the interval and confidence come from that backtest. Null when no source stands for the whole Home.",
+          parameters: [{ $ref: "#/components/parameters/Id" }],
+          responses: {
+            "200": { description: "Backtested thirty-day projection", content: { "application/json": { schema: { type: "object", additionalProperties: false, required: ["projection"], properties: { projection: { oneOf: [{ $ref: "#/components/schemas/HomeEnergyProjection" }, { type: "null" }] } } } } } },
+            "404": { $ref: "#/components/responses/NotFound" },
+            "503": { description: "Complete archived telemetry is temporarily unavailable" },
+          },
+        },
+      },
   "/houses/{id}/weather": {
         get: {
           tags: ["Weather"],

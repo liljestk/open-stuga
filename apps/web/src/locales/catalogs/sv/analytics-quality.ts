@@ -15,4 +15,7 @@ export const svAnalyticsQuality = {
   "performance.energy.regression": "Grundlast {base} kWh per dygn plus {slope} kWh per gradtimme under {temperature} °C (90 % intervall {low}–{high}).",
   "performance.energy.comparison": "Uppvärmningslutningen ändrades {change} % mellan periodens två halvor (90 % intervall {low} % till {high} %).",
   "performance.exposure.excluded": "Utelämnade från komfortexponeringen: {rooms}.",
+  "energy.outlook.methodRegression": "Grundlast plus uppvärmning, styrd av väderprognosen och sedan det senaste vädret. Testad på {origins} tidigare 30-dagarsperioder missade den i snitt med {error} %, mot {baseline} % för att upprepa de senaste 30 dagarna.",
+  "energy.outlook.methodRecent": "Upprepar de senaste 30 dagarna, vilket träffade bättre än en vädermodell när det testades på {origins} tidigare 30-dagarsperioder ({error} % genomsnittligt fel).",
+  "energy.outlook.methodUntested": "Upprepar de senaste 30 dagarna. Det behövs längre historik för att testa en vädermodell, så intervallet är ett brett standardvärde.",
 } as const;

@@ -16,6 +16,8 @@ const HOUR = 3_600_000;
 const DAYS = 21;
 /** Houses check up to 80 series a day; this is how many tests share one false-discovery control. */
 const SERIES_PER_RUN = 80;
+/** The simulation gates evaluate thousands of synthetic months; coverage instrumentation slows them several-fold. */
+const SIMULATION_TIMEOUT_MS = 60_000;
 
 function random(seed: number): () => number {
   let state = seed >>> 0;
@@ -114,11 +116,11 @@ describe("daily finding statistics", () => {
     expect(noisyYears).toBeLessThanOrEqual(0.01);
     // With two baseline years the year-to-year spread is unknown, so this is the weakest case.
     expect(fewYears).toBeLessThanOrEqual(0.05);
-  });
+  }, SIMULATION_TIMEOUT_MS);
 
   it("detects a real shift well beyond the years' normal spread (gate: detection rate ≥ 90%)", () => {
     expect(flaggedRate(21, 3, { effect: 3, yearSd: 0.6, daySd: 0.8, persistence: 0.6 }, false)).toBeGreaterThanOrEqual(0.9);
-  });
+  }, SIMULATION_TIMEOUT_MS);
 
   it("does not report a cold month as more electricity once weather is adjusted", () => {
     // 0.02 kWh per degree-hour per day, current month 8 °C colder than its peers, as in a hard winter.
@@ -129,7 +131,7 @@ describe("daily finding statistics", () => {
     expect(adjusted).toBeLessThanOrEqual(0.02);
     // A real increase on top of the cold is still found.
     expect(flaggedRate(32, 3, { ...scenario, effect: 3 }, true)).toBeGreaterThanOrEqual(0.9);
-  });
+  }, SIMULATION_TIMEOUT_MS);
 
   it("adjusts with a slope fitted on the baseline days and reports it", () => {
     const next = random(41);

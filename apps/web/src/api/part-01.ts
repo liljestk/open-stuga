@@ -6,6 +6,7 @@ import type {
   HomeElectricityPricePoint,
   HomeEnergyCost,
   HomeEnergySummary,
+  HomeEnergyProjection,
   HostSystemHealth,
   LocalInvitationRegistrationInput,
   LocalLoginInput,
@@ -245,6 +246,10 @@ export const apiPart01 = {
       `/houses/${encodeURIComponent(houseId)}/energy-summary?${new URLSearchParams({ from, to })}`,
       withSignal(signal),
     ), "summary"),
+  houseEnergyProjection: async (houseId: string, signal?: AbortSignal) => (await request<{ projection: HomeEnergyProjection | null }>(
+      `/houses/${encodeURIComponent(houseId)}/energy-projection`,
+      signal ? { signal } : {},
+    )).projection,
   configurePropertyElectricity: (propertyId: string, configuration: PropertyElectricityConfigInput) => request<{ config: PropertyElectricityConfig }>(
       `/properties/${encodeURIComponent(propertyId)}/electricity/config`,
       { method: "PUT", body: JSON.stringify(configuration) },

@@ -242,8 +242,6 @@ export const enPart2 = {
   "energy.outlook.range": "Planning range {low}–{high} {unit}",
   "energy.outlook.priceMissing": "Add a Property price to estimate cost",
   "energy.outlook.observedDays": "Based on {days} days of observed use",
-  "energy.outlook.observedHours": "Based on {hours} hours of observed use",
-  "energy.outlook.method": "The projection blends the trailing usage pace with the latest 24 hours. The planning range widens when history is short or recent use differs from the longer pattern; it is not a probability interval.",
   "energy.consumer.title": "Biggest electricity consumers",
   "energy.consumer.period": "Cumulative use · last 30 days",
   "energy.consumer.pattern.steady": "Steady load",
