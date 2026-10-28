@@ -2,7 +2,7 @@
 
 All notable Stugu releases are recorded here.
 
-## 0.52.2
+## 0.52.7
 
 Electricity costs and analytics answer much faster, especially late in the day.
 
@@ -18,6 +18,12 @@ Electricity costs and analytics answer much faster, especially late in the day.
   - The electricity history chart no longer shows a loading note on background refreshes.
 - Repeated Analytics and export previews within the same minute reuse the server's cached answer.
 - Upgrade impact: application-only update. The TimescaleDB archive gains two nullable columns (`sealed_until` on the ordered-state tables, schema migration 9), applied automatically when the API starts. Today's states are built in the background, so the first visit after an update or after midnight UTC still reads today raw until they are ready. Nothing waits for them.
+
+## 0.52.5
+
+- Long chart ranges load much faster. The dashboard, sensor details and electricity charts, replay, per-sensor forecasts and the optimizer's flexible-load profiles now read their history buckets from the TimescaleDB continuous aggregates. Raw samples are read only for the partial periods at the range edges and for the newest period the aggregate has not finished. On a Raspberry Pi, the history of a power plug reporting every 2 seconds took 2.0 s for 30 days and 6.2 s for a year; it now takes 0.13 s and 0.32 s. A 14-day forecast history went from 0.20 s to 0.03 s.
+- Chart values are unchanged: each bucket keeps the same mean and the latest reading's source, quality and unit. The 6-hour chart's 15-second buckets and installs without TimescaleDB still group raw samples.
+- Upgrade impact: application-only update; no schema, Compose, configuration or host-trust change. The aggregates already exist on every TimescaleDB install.
 
 ## 0.52.1
 

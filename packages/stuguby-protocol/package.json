@@ -1,6 +1,6 @@
 {
   "name": "@climate-twin/stuguby-protocol",
-  "version": "0.52.2",
+  "version": "0.52.7",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
