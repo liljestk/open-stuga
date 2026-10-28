@@ -23,7 +23,7 @@ import { DAILY_ANALYTICS_ALGORITHM_VERSION } from "../daily-analytics-findings.j
 import { SYSTEM_VERSION } from "../version.js";
 import { config, dataOperations, database, energyCost, optionalToolString, requiredToolString, stugubyStore, telemetryReader } from "./01-config-to-get-house-weather.js";
 import { activeStugubyGrant, recommendedOverviewGrant, stugubySide, summarizeMcpStuguby } from "./04-point-schema-to-summarize-mcp-stuguby.js";
-import { chatgptMcpServerInstructions, isChatgptMcpProfile } from "./chatgpt-profile.js";
+import { chatgptMcpServerInstructions, type McpProfile } from "./chatgpt-profile.js";
 import { runMcpThermalWork } from "./thermal-work.js";
 import {
   configuredHeatPumpConnectionIds,
@@ -403,12 +403,12 @@ export function sensorDataGaps(args: Record<string, unknown>): unknown {
   ).filter((gap) => !houseId || database.getSensor(gap.sensorId)?.houseId === houseId);
 }
 
-export function createMcpServer(): Server {
+export function createMcpServer(profile: McpProfile): Server {
   return new Server(
-    { name: isChatgptMcpProfile ? "stugu-chatgpt" : "stugu-local", version: SYSTEM_VERSION },
+    { name: profile === "chatgpt" ? "stugu-chatgpt" : "stugu-local", version: SYSTEM_VERSION },
     {
       capabilities: { tools: {} },
-      instructions: isChatgptMcpProfile
+      instructions: profile === "chatgpt"
         ? chatgptMcpServerInstructions
         : [
             "This Stugu MCP is a read-only inspection surface over its configured local SQLite workspace.",

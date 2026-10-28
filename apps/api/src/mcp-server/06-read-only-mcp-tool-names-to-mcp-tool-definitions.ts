@@ -1,5 +1,5 @@
 
-import { CHATGPT_MCP_TOOL_NAMES, isChatgptMcpProfile } from "./chatgpt-profile.js";
+import { CHATGPT_MCP_TOOL_NAMES, type McpProfile } from "./chatgpt-profile.js";
 
 export const READ_ONLY_MCP_TOOL_NAMES: ReadonlySet<string> = new Set([
   "list_properties",
@@ -65,9 +65,9 @@ export const READ_ONLY_MCP_TOOL_NAMES: ReadonlySet<string> = new Set([
   "get_setup_doctor",
 ]);
 
-export const ACTIVE_MCP_TOOL_NAMES = isChatgptMcpProfile
-  ? CHATGPT_MCP_TOOL_NAMES
-  : READ_ONLY_MCP_TOOL_NAMES;
+export function activeMcpToolNames(profile: McpProfile): ReadonlySet<string> {
+  return profile === "chatgpt" ? CHATGPT_MCP_TOOL_NAMES : READ_ONLY_MCP_TOOL_NAMES;
+}
 
 export const mcpToolDefinitionsPart01 = [
   {

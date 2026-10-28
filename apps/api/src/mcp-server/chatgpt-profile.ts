@@ -1,4 +1,5 @@
-export const isChatgptMcpProfile = process.env.STUGA_MCP_PROFILE === "chatgpt";
+/** Which tool set and presentation an MCP server offers: the full local inspection surface or the ChatGPT app. */
+export type McpProfile = "local" | "chatgpt";
 
 export const CHATGPT_MCP_TOOL_NAMES: ReadonlySet<string> = new Set([
   "list_houses",

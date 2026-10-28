@@ -24,8 +24,9 @@ import { queryMeasurementHistory, querySensorHistory, thermalSimulation } from "
 import { assetMetadata, discoverIntegrations, homeAssistantConnectionTest, homeAssistantSetup, listMaintenanceTaskRevisions, listMaintenanceTasks, listObservationRevisions, tpLinkConnectionTest, tpLinkSetup } from "./03-update-alert-rule-to-start-replay.js";
 import { summarizeMcpStuguby } from "./04-point-schema-to-summarize-mcp-stuguby.js";
 import { backupStatus, createMcpServer, dailyAnalyticsFindings, getMcpStuguby, houseElectricityPrice, houseEnergyCost, houseEnergySummary, houseOpeningStates, listPropertyNotes, openingActivity, operations, outdoorTemperatureHistory, propertyElectricity, sensorDataGaps, thermalIsolation } from "./05-get-mcp-stuguby-to-result-output-schema.js";
-import { ACTIVE_MCP_TOOL_NAMES } from "./06-read-only-mcp-tool-names-to-mcp-tool-definitions.js";
-import { ToolHandler, mcpTools } from "./09-mcp-tool-definitions-part04-to-tool-handler.js";
+import { activeMcpToolNames } from "./06-read-only-mcp-tool-names-to-mcp-tool-definitions.js";
+import { ToolHandler, buildMcpTools } from "./09-mcp-tool-definitions-part04-to-tool-handler.js";
+import type { McpProfile } from "./chatgpt-profile.js";
 import {
   calendarComparison,
   homeMonitoring,
@@ -173,23 +174,29 @@ export const allToolHandlers: Record<string, ToolHandler> = {
   get_setup_doctor: () => setupDoctor.report(),
 };
 
-export const toolHandlers = Object.fromEntries(
-  Object.entries(allToolHandlers).filter(([name]) => ACTIVE_MCP_TOOL_NAMES.has(name)),
-) as Record<string, ToolHandler>;
-
-validateMcpToolRegistry(mcpTools.map((tool) => tool.name), Object.keys(toolHandlers));
+/** Each profile's listed tools and the handlers that answer them, checked against each other at load. */
+const profiles = new Map((["local", "chatgpt"] as const).map((profile) => {
+  const active = activeMcpToolNames(profile);
+  const tools = buildMcpTools(profile);
+  const handlers = Object.fromEntries(
+    Object.entries(allToolHandlers).filter(([name]) => active.has(name)),
+  ) as Record<string, ToolHandler>;
+  validateMcpToolRegistry(tools.map((tool) => tool.name), Object.keys(handlers));
+  return [profile, { tools, handlers }];
+}));
 
 export type ConnectedMcpServer = ReturnType<typeof createMcpServer>;
 export type McpTransport = Parameters<ConnectedMcpServer["connect"]>[0];
 
 const connectedServers = new Set<ConnectedMcpServer>();
 
-function registerMcpRequestHandlers(server: ConnectedMcpServer): void {
-  server.setRequestHandler(ListToolsRequestSchema, () => ({ tools: mcpTools }));
+function registerMcpRequestHandlers(server: ConnectedMcpServer, profile: McpProfile): void {
+  const { tools, handlers } = profiles.get(profile)!;
+  server.setRequestHandler(ListToolsRequestSchema, () => ({ tools }));
   server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
     const result = await runMcpToolRequest(
       operations,
-      toolHandlers,
+      handlers,
       request.params.name,
       objectArguments(request.params.arguments),
       extra.signal,
@@ -201,9 +208,9 @@ function registerMcpRequestHandlers(server: ConnectedMcpServer): void {
   });
 }
 
-export async function connectMcpTransport(transport: McpTransport): Promise<ConnectedMcpServer> {
-  const server = createMcpServer();
-  registerMcpRequestHandlers(server);
+export async function connectMcpTransport(transport: McpTransport, profile: McpProfile = "local"): Promise<ConnectedMcpServer> {
+  const server = createMcpServer(profile);
+  registerMcpRequestHandlers(server, profile);
   server.onclose = () => connectedServers.delete(server);
   connectedServers.add(server);
   try {

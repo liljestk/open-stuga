@@ -4,11 +4,11 @@ import {
 } from "../mcp-validation.js";
 
 import { resultOutputSchema } from "./05-get-mcp-stuguby-to-result-output-schema.js";
-import { ACTIVE_MCP_TOOL_NAMES, mcpToolDefinitionsPart01 } from "./06-read-only-mcp-tool-names-to-mcp-tool-definitions.js";
+import { activeMcpToolNames, mcpToolDefinitionsPart01 } from "./06-read-only-mcp-tool-names-to-mcp-tool-definitions.js";
 import { mcpToolDefinitionsPart02 } from "./07-mcp-tool-definitions-part02.js";
 import { mcpToolDefinitionsPart03 } from "./08-mcp-tool-definitions-part03.js";
 import { derivedAnalyticsToolDefinitions } from "./11-derived-analytics-tools.js";
-import { isChatgptMcpProfile, presentationForChatgptTool } from "./chatgpt-profile.js";
+import { presentationForChatgptTool, type McpProfile } from "./chatgpt-profile.js";
 
 export const mcpToolDefinitionsPart04 = [
   {
@@ -142,13 +142,17 @@ export const mcpToolDefinitions = [
   ...derivedAnalyticsToolDefinitions,
 ] as const;
 
-export const mcpTools = mcpToolDefinitions.filter((tool) => ACTIVE_MCP_TOOL_NAMES.has(tool.name)).map((tool) => ({
+/** The tools a server with this profile lists, with the ChatGPT app's titles when it is that profile. */
+export function buildMcpTools(profile: McpProfile) {
+  const active = activeMcpToolNames(profile);
+  return mcpToolDefinitions.filter((tool) => active.has(tool.name)).map((tool) => ({
     ...tool,
-    ...(isChatgptMcpProfile ? presentationForChatgptTool(tool.name) : {}),
+    ...(profile === "chatgpt" ? presentationForChatgptTool(tool.name) : {}),
     outputSchema: resultOutputSchema,
     annotations: {
       ...mcpToolAnnotations(tool.name),
     },
   }));
+}
 
 export type ToolHandler = McpToolHandler;

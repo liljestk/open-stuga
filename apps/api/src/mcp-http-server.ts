@@ -4,7 +4,7 @@ import type { AddressInfo } from "node:net";
 import { createMcpExpressApp } from "@modelcontextprotocol/sdk/server/express.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import "./mcp-server/01-config-to-get-house-weather.js";
-import { mcpTools } from "./mcp-server/09-mcp-tool-definitions-part04-to-tool-handler.js";
+import { buildMcpTools } from "./mcp-server/09-mcp-tool-definitions-part04-to-tool-handler.js";
 import {
   close,
   connectMcpTransport,
@@ -87,7 +87,7 @@ const address = httpServer.address() as AddressInfo;
 process.send?.({
   type: "ready",
   port: address.port,
-  toolCount: mcpTools.length,
+  toolCount: buildMcpTools("local").length,
   serverVersion: SYSTEM_VERSION,
 });
 
