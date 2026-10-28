@@ -2,6 +2,12 @@
 
 All notable Stugu releases are recorded here.
 
+## 0.52.5
+
+- Long chart ranges load much faster. The dashboard, sensor details and electricity charts, replay, per-sensor forecasts and the optimizer's flexible-load profiles now read their history buckets from the TimescaleDB continuous aggregates. Raw samples are read only for the partial periods at the range edges and for the newest period the aggregate has not finished. On a Raspberry Pi, the history of a power plug reporting every 2 seconds took 2.0 s for 30 days and 6.2 s for a year; it now takes 0.13 s and 0.32 s. A 14-day forecast history went from 0.20 s to 0.03 s.
+- Chart values are unchanged: each bucket keeps the same mean and the latest reading's source, quality and unit. The 6-hour chart's 15-second buckets and installs without TimescaleDB still group raw samples.
+- Upgrade impact: application-only update; no schema, Compose, configuration or host-trust change. The aggregates already exist on every TimescaleDB install.
+
 ## 0.52.1
 
 - Document that 433 MHz (Nexus433) readings sent while the API is stopped, restarting or reconnecting to its private MQTT broker are not queued or replayed. Nexus packets carry no clock, so a replayed reading would get the wrong time; the Sensor shows a gap as long as the outage instead. The Nexus433 guide explains why a persistent MQTT session would not fix this, and the architecture's recommended failure behaviour now says the same.
