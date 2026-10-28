@@ -1,7 +1,6 @@
 import { withSignal } from "@climate-twin/contracts";
 import type {
   ForecastPoint,
-  MeasurementForecastPoint,
   MeasurementSample,
   MockScenario,
   Reading,
@@ -263,13 +262,18 @@ export class TelemetryService {
   }
 }
 
-async function measurementForecast(
+export interface MeasurementForecastOptions {
+  sensorId: string;
+  metric: string;
+  hours?: number;
+  telemetryReader?: HybridTelemetryReader;
+  signal?: AbortSignal;
+}
+
+/** A backtested forecast of one sensor measurement and the evaluation that decided whether to show it. */
+export async function forecastMeasurement(
   database: ClimateDatabase,
-  sensorId: string,
-  metric: string,
-  hours: number,
-  telemetryReader?: HybridTelemetryReader,
-  signal?: AbortSignal,
+  { sensorId, metric, hours = 12, telemetryReader, signal }: MeasurementForecastOptions,
 ): Promise<MeasurementForecast> {
   return new MeasurementForecastService(database, telemetryReader).forecast({
     sensorId, metric, hours, ...withSignal(signal),
@@ -277,15 +281,13 @@ async function measurementForecast(
 }
 
 /** Temperature and humidity forecast pairs for the v1 API, where both are available. */
-export async function forecast(
+export async function temperatureHumidityForecast(
   database: ClimateDatabase,
-  sensorId: string,
-  hours = 12,
-  telemetryReader?: HybridTelemetryReader,
+  options: Omit<MeasurementForecastOptions, "metric">,
 ): Promise<ForecastPoint[]> {
   const [temperature, humidity] = await Promise.all(["temperature", "humidity"].map(async (metric) => {
     try {
-      return (await measurementForecast(database, sensorId, metric, hours, telemetryReader)).points;
+      return (await forecastMeasurement(database, { ...options, metric })).points;
     } catch (error) {
       if (error instanceof MeasurementValidationError) return [];
       throw error;
@@ -295,7 +297,7 @@ export async function forecast(
   return temperature!.flatMap((point) => {
     const pair = humidityAt.get(point.timestamp);
     return pair ? [{
-      sensorId,
+      sensorId: options.sensorId,
       timestamp: point.timestamp,
       temperature: point.value,
       humidity: pair.value,
@@ -305,31 +307,6 @@ export async function forecast(
       humidityHigh: pair.high,
     }] : [];
   });
-}
-
-/** Backtested forecast and the evaluation that decided whether to show it. */
-export async function forecastMeasurementWithEvaluation(
-  database: ClimateDatabase,
-  { sensorId, metric, hours = 12, telemetryReader, signal }: {
-    sensorId: string;
-    metric: string;
-    hours?: number;
-    telemetryReader?: HybridTelemetryReader;
-    signal?: AbortSignal;
-  },
-): Promise<MeasurementForecast> {
-  return measurementForecast(database, sensorId, metric, hours, telemetryReader, signal);
-}
-
-export async function forecastMeasurement(
-  database: ClimateDatabase,
-  sensorId: string,
-  metric: string,
-  hours = 12,
-  telemetryReader?: HybridTelemetryReader,
-  signal?: AbortSignal,
-): Promise<MeasurementForecastPoint[]> {
-  return (await measurementForecast(database, sensorId, metric, hours, telemetryReader, signal)).points;
 }
 
 export const MOCK_SCENARIOS: MockScenario[] = [

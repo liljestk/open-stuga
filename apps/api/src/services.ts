@@ -6,8 +6,8 @@ export { MeasurementValidationError } from "./services/01-weather-connection-sta
 export { DataModeCoordinator } from "./services/02-data-mode-coordinator-to-mock-scenarios.js";
 export { MeasurementService } from "./services/02-data-mode-coordinator-to-mock-scenarios.js";
 export { TelemetryService } from "./services/02-data-mode-coordinator-to-mock-scenarios.js";
-export { forecast } from "./services/02-data-mode-coordinator-to-mock-scenarios.js";
-export { forecastMeasurement, forecastMeasurementWithEvaluation } from "./services/02-data-mode-coordinator-to-mock-scenarios.js";
+export { forecastMeasurement, temperatureHumidityForecast } from "./services/02-data-mode-coordinator-to-mock-scenarios.js";
+export type { MeasurementForecastOptions } from "./services/02-data-mode-coordinator-to-mock-scenarios.js";
 export { MOCK_SCENARIOS } from "./services/02-data-mode-coordinator-to-mock-scenarios.js";
 export { MockEngine } from "./services/03-mock-engine-to-replay-engine.js";
 export type { ReplayState } from "@climate-twin/contracts";

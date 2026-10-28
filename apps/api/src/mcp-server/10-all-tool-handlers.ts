@@ -15,9 +15,9 @@ import {
   validateMcpToolRegistry,
 } from "../mcp-validation.js";
 import {
-  forecast,
   forecastMeasurement,
   MOCK_SCENARIOS,
+  temperatureHumidityForecast,
 } from "../services.js";
 import { dataMode, database, energyOptimizer, getHouseWeather, homeAssistant, locationDiscovery, measurementSnapshot, mock, objectArguments, optionalBoolean, optionalToolString, replay, requiredToolString, setupDoctor, status, stugubyStore, telemetryReader, timeseries, tpLink } from "./01-config-to-get-house-weather.js";
 import { queryMeasurementHistory, querySensorHistory, thermalSimulation } from "./02-thermal-simulation-to-create-alert-rule.js";
@@ -95,13 +95,8 @@ export const allToolHandlers: Record<string, ToolHandler> = {
     const sensorId = requiredToolString(args, "sensorId");
     const metric = requiredToolString(args, "metric");
     requireMcpMeasurementTarget(database, sensorId, metric);
-    return forecastMeasurement(
-      database,
-      sensorId,
-      metric,
-      mcpBoundedInteger(args.hours, "hours", 12, 1, 168),
-      telemetryReader,
-    );
+    const hours = mcpBoundedInteger(args.hours, "hours", 12, 1, 168);
+    return forecastMeasurement(database, { sensorId, metric, hours, telemetryReader }).then((result) => result.points);
   },
   get_sensor_snapshot: (args) => {
     const sensorId = requiredToolString(args, "sensorId");
@@ -113,12 +108,8 @@ export const allToolHandlers: Record<string, ToolHandler> = {
   forecast_sensor: (args) => {
     const sensorId = requiredToolString(args, "sensorId");
     requireMcpSensor(database, sensorId);
-    return forecast(
-      database,
-      sensorId,
-      mcpBoundedInteger(args.hours, "hours", 12, 1, 168),
-      telemetryReader,
-    );
+    const hours = mcpBoundedInteger(args.hours, "hours", 12, 1, 168);
+    return temperatureHumidityForecast(database, { sensorId, hours, telemetryReader });
   },
   list_active_alerts: () => database.listAlertEvents(200, true),
   list_alert_rules: () => database.listAlertRules(),

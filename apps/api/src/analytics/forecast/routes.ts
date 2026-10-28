@@ -2,7 +2,7 @@ import { withResponseSignal } from "../../app/response-signal.js";
 import type express from "express";
 import type { ForecastSeriesResponse } from "@climate-twin/contracts";
 import type { ClimateDatabase } from "../../db.js";
-import { forecast, forecastMeasurementWithEvaluation } from "../../services.js";
+import { forecastMeasurement, temperatureHumidityForecast } from "../../services.js";
 import type { HybridTelemetryReader } from "../../timeseries/read-facade.js";
 import {
   HttpError,
@@ -34,7 +34,7 @@ export function registerForecastRoutes(context: ForecastRouteContext): void {
     const hours = safeInteger(request.query.hours, 12, 1, 168);
     const measurementForecast = await withResponseSignal(response, (signal) => context.analyticsWorkLimiter.run(
       "measurement-forecast",
-      () => forecastMeasurementWithEvaluation(context.database, {
+      () => forecastMeasurement(context.database, {
         sensorId: request.query.sensorId as string,
         metric,
         hours,
@@ -57,10 +57,19 @@ export function registerForecastRoutes(context: ForecastRouteContext): void {
       .filter((sensorId) => access.sensor(sensorId));
     const horizonMinutes = safeInteger(request.query.horizonMinutes, 0, 0, 10_080);
     const hours = horizonMinutes > 0 ? Math.max(1, Math.ceil(horizonMinutes / 60)) : safeInteger(request.query.hours, 12, 1, 168);
-    const series = await Promise.all(selected.map(async (sensorId) => ({
-      sensorId,
-      forecast: await forecast(context.database, sensorId, hours, context.telemetryReader),
-    })));
+    const series = await withResponseSignal(response, (signal) => context.analyticsWorkLimiter.run(
+      "forecast-series",
+      () => Promise.all(selected.map(async (sensorId) => ({
+        sensorId,
+        forecast: await temperatureHumidityForecast(context.database, {
+          sensorId,
+          hours,
+          telemetryReader: context.telemetryReader,
+          signal,
+        }),
+      }))),
+      signal,
+    ));
     const body: ForecastSeriesResponse = {
       generatedAt: new Date().toISOString(),
       model: "backtested-v2",

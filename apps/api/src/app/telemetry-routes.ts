@@ -1,7 +1,8 @@
 import type { TelemetryEvent } from "@climate-twin/contracts";
 import { HttpError, parseReading, queryList, boundedQueryInteger, boundedSseWriter, dateValue, localAuthorizationFingerprint, requestPrincipal, safeInteger } from "./support/index.js";
 import { type Request, type Response } from "express";
-import { forecast } from "../services.js";
+import { temperatureHumidityForecast } from "../services.js";
+import { withResponseSignal } from "./response-signal.js";
 import { bucketLegacyReadings } from "../timeseries/read-facade.js";
 import { visibleStreamEvent } from "./live-stream-visibility.js";
 import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
@@ -97,13 +98,23 @@ export function registerTelemetryRoutes(context: ApiRouteRegistrationContext): v
       const truncated = requestedReadings.length > limit || (bucketSeconds !== null && archived.length === rawLimit);
       const readings = truncated ? requestedReadings.slice(-limit) : requestedReadings;
       const forecastHours = safeInteger(request.query.forecastHours, 0, 0, 168);
-      const series = await Promise.all(selected.map(async (sensorId) => ({
+      const forecasts = forecastHours
+        ? await withResponseSignal(response, (signal) => context.analyticsWorkLimiter.run(
+          "history-forecast",
+          () => Promise.all(selected.map((sensorId) => temperatureHumidityForecast(context.database, {
+            sensorId,
+            hours: forecastHours,
+            telemetryReader: context.telemetryReader,
+            signal,
+          }))),
+          signal,
+        ))
+        : selected.map(() => []);
+      const series = selected.map((sensorId, index) => ({
         sensorId,
         readings: readings.filter((reading) => reading.sensorId === sensorId),
-        forecast: forecastHours
-          ? await forecast(context.database, sensorId, forecastHours, context.telemetryReader)
-          : [],
-      })));
+        forecast: forecasts[index]!,
+      }));
       response.json({ from, to, bucketSeconds, series, truncated });
     });
   context.app.get(`${context.prefix}/stream`, streamTelemetry);
