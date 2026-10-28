@@ -176,21 +176,22 @@ for (const path of dataSizedMinMaxFiles) {
   }
 }
 
+// Every queryKeys entry is a query-client family in the ownership manifest, and
+// every query-client family is a queryKeys entry or a mutation family.
 const ownershipPath = join(webDataRoot, "queryOwnership.ts");
 const ownership = await readFile(ownershipPath, "utf8");
-for (const family of [
-  "homePerformance",
-  "homeMonitoringCollection",
-  "homeMonitoring",
-  "openingActivity",
-  "calendarComparison",
-  "sensorMutations",
-  "analyticsExplorer",
-  "energyProjection",
-  "analyticsDiagnostics",
-]) {
-  if (!new RegExp(`\\b${family}:\\s*"query-client"`).test(ownership)) {
-    report(ownershipPath, `${family} must have an explicit query-client owner`);
+const queryKeysPath = join(webDataRoot, "queryKeys.ts");
+const queryKeysSource = await readFile(queryKeysPath, "utf8");
+const queryKeyBlock = queryKeysSource.slice(queryKeysSource.indexOf("export const queryKeys = {"));
+const queryKeyNames = new Set([...queryKeyBlock.matchAll(/^ {2}([A-Za-z]+): /gm)].map((match) => match[1]).filter((name) => name !== "all"));
+const queryClientFamilies = new Set([...ownership.matchAll(/^ {2}([A-Za-z]+): "query-client",$/gm)].map((match) => match[1]));
+const mutationFamilies = new Set(["sensorMutations"]);
+for (const name of queryKeyNames) {
+  if (!queryClientFamilies.has(name)) report(ownershipPath, `${name} has a queryKeys entry but no query-client owner`);
+}
+for (const family of queryClientFamilies) {
+  if (!queryKeyNames.has(family) && !mutationFamilies.has(family)) {
+    report(ownershipPath, `${family} is owned by the query client but has no queryKeys entry`);
   }
 }
 
