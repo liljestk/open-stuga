@@ -78,6 +78,27 @@ for (const path of await filesBelow(apiAppRoot)) {
   }
 }
 
+// A prototype registry's class only has its methods once its barrel has side-effect-imported the
+// methods/ files, so code outside the registry takes the class from the barrel, never from core.js.
+const registryBarrels = new Map([
+  ["apps/api/src/db", "apps/api/src/db.ts"],
+  ["apps/api/src/stuguby/service", "apps/api/src/stuguby/service.ts"],
+  ["apps/api/src/stuguby/store", "apps/api/src/stuguby/store.ts"],
+  ["apps/api/src/timeseries/store", "apps/api/src/timeseries/store.ts"],
+]);
+for (const path of await filesBelow(join(root, "apps", "api", "src"))) {
+  const name = projectPath(path);
+  const text = await readFile(path, "utf8");
+  for (const match of text.matchAll(/^(import|export)\s+(type\s+)?[^;]*?from\s+"([^"]+\/core\.js)";/gmu)) {
+    if (match[2]) continue;
+    const target = projectPath(join(path, "..", match[3])).replace(/\/core\.js$/u, "");
+    const barrel = registryBarrels.get(target);
+    if (barrel && name !== barrel && !name.startsWith(`${target}/`)) {
+      report(path, `import the ${target.split("/").slice(-2).join("/")} registry class from ${barrel.split("/").slice(-2).join("/")}, not its core.js`);
+    }
+  }
+}
+
 // @climate-twin/analytics-kernel owns the statistics, counter, energy and
 // local-calendar definitions. API modules adapt its results; they may not
 // grow a second implementation. SQL builders keep their SQL arithmetic,

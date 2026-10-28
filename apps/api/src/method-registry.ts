@@ -41,3 +41,13 @@ export function installRegisteredMethods(
     });
   }
 }
+
+/**
+ * Fails fast when a registry class is constructed before its barrel installed the methods: the
+ * barrel side-effect-imports every methods/ file, so the class must be imported from it.
+ */
+export function assertRegisteredMethods(owner: string, instance: object, sentinel: string, barrel: string): void {
+  if (typeof (instance as Record<string, unknown>)[sentinel] !== "function") {
+    throw new Error(`${owner} was constructed before its methods were registered; import it from ${barrel}`);
+  }
+}

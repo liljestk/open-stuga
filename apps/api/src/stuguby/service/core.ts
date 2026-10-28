@@ -1,6 +1,7 @@
 import { EventEmitter } from "node:events";
 import { join } from "node:path";
 import {
+  assertRegisteredMethods,
   installRegisteredMethods,
   type RegisteredMethodSet,
 } from "../../method-registry.js";
@@ -88,6 +89,7 @@ export class StugubyServiceCore {
   readonly localTelemetryHistoryComplete: (from?: string) => boolean;
   readonly [stugubyServiceState] = createStugubyServiceState();
   constructor(options: StugubyServiceOptions) {
+      assertRegisteredMethods("StugubyService", this, "start", "stuguby/service.js");
 
       this.database = options.database;
       this.store = options.store;

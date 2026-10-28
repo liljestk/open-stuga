@@ -6,6 +6,7 @@ import type {
 } from "@climate-twin/contracts";
 import type { EnergyCostAggregateQuery, EnergyCostAggregateRecord } from "../timeseries/types.js";
 import {
+  assertRegisteredMethods,
   installRegisteredMethods,
   type RegisteredMethodSet,
 } from "../method-registry.js";
@@ -73,6 +74,7 @@ export class ClimateDatabaseCore {
   #telemetryWorker: LocalTelemetryWorker | null = null;
   #transactionDepth = 0;
   constructor(path: string, seed = true, options: { readOnly?: boolean } = {}) {
+      assertRegisteredMethods("ClimateDatabase", this, "migrate", "db.js");
       this.#databasePath = path;
       if (options.readOnly) {
         if (path === ":memory:") throw new Error("A read-only ClimateDatabase requires an existing database file");

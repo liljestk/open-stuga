@@ -1,6 +1,7 @@
 import { Pool } from "pg";
 import { AnalyticsWorkLimiter } from "../../analytics/work-limiter.js";
 import {
+  assertRegisteredMethods,
   installRegisteredMethods,
   type RegisteredMethodSet,
 } from "../../method-registry.js";
@@ -81,6 +82,7 @@ export class TimeseriesStoreCore {
   readonly pool: Pool;
   readonly [timeseriesStoreState] = createTimeseriesStoreState();
   constructor(options: TelemetryStoreOptions = {}) {
+      assertRegisteredMethods("TimeseriesStore", this, "initialize", "timeseries/store.js");
 
       this.schema = validateSchemaName(options.schema ?? DEFAULT_SCHEMA);
       this[timeseriesStoreState].batchSize = positiveInteger(options.batchSize, DEFAULT_BATCH_SIZE, 5_000);

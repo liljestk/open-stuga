@@ -1,5 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import {
+  assertRegisteredMethods,
   installRegisteredMethods,
   type RegisteredMethodSet,
 } from "../../method-registry.js";
@@ -30,6 +31,7 @@ export class StugubyStoreCore {
       readonly localNodeId: string,
       options: { readOnly?: boolean } = {},
     ) {
+      assertRegisteredMethods("StugubyStore", this, "migrate", "stuguby/store.js");
       const service = this as unknown as StugubyStoreInternals;
       this[stugubyStoreState].db = db;
       if (!options.readOnly) service.migrate();

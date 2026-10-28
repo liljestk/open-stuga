@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { installRegisteredMethods } from "../src/method-registry.js";
+import { assertRegisteredMethods, installRegisteredMethods } from "../src/method-registry.js";
 
 it("keeps registered methods read-only and rejects duplicate registration", () => {
   class Example {}
@@ -26,4 +26,16 @@ it("rejects non-function prototype members", () => {
   expect(
     () => installRegisteredMethods("Example", Example.prototype, { invalid: 1 }),
   ).toThrow(/must be registered as a function/);
+});
+
+it("refuses to construct a registry class whose methods were never registered", () => {
+  class Unregistered {
+    constructor() {
+      assertRegisteredMethods("Unregistered", this, "migrate", "unregistered.js");
+    }
+  }
+  expect(() => new Unregistered()).toThrow(/constructed before its methods were registered; import it from unregistered.js/);
+
+  installRegisteredMethods("Unregistered", Unregistered.prototype, { migrate() {} });
+  expect(() => new Unregistered()).not.toThrow();
 });
