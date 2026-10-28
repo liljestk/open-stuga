@@ -239,10 +239,6 @@ export function nonEmptyString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-export function finiteOrNull(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
-
 export function tpLinkDeviceType(
   device: Pick<TpLinkSnapshotDevice, "model" | "contactOpen" | "temperature" | "humidity" | "power" | "energy">,
 ): NonNullable<TpLinkDiscoveredDevice["deviceType"]> {

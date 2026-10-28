@@ -1,3 +1,4 @@
+import { finiteOrNull } from "./json-values.js";
 import { stat } from "node:fs/promises";
 import type {
   HostSystemDatabaseStatus,
@@ -13,10 +14,6 @@ const DAY_MS = 86_400_000;
 const SAMPLE_INTERVAL_MS = 30 * 60_000;
 const HISTORY_RETENTION_MS = 30 * DAY_MS;
 const DATABASE_SNAPSHOT_TTL_MS = 60_000;
-
-function numberValue(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
 
 function statePriority(state: HostSystemState): number {
   return state === "critical" ? 3 : state === "warning" ? 2 : state === "unknown" ? 1 : 0;
@@ -144,10 +141,10 @@ export class HostDatabaseMetricsCollector {
   }
 
   async #sqlite(): Promise<HostSystemSqliteStatus> {
-    const pageCount = numberValue((this.#database.db.prepare("PRAGMA page_count").get() as Record<string, unknown> | undefined)?.page_count);
-    const pageSize = numberValue((this.#database.db.prepare("PRAGMA page_size").get() as Record<string, unknown> | undefined)?.page_size);
-    const freePages = numberValue((this.#database.db.prepare("PRAGMA freelist_count").get() as Record<string, unknown> | undefined)?.freelist_count);
-    const tableCount = numberValue((this.#database.db.prepare(
+    const pageCount = finiteOrNull((this.#database.db.prepare("PRAGMA page_count").get() as Record<string, unknown> | undefined)?.page_count);
+    const pageSize = finiteOrNull((this.#database.db.prepare("PRAGMA page_size").get() as Record<string, unknown> | undefined)?.page_size);
+    const freePages = finiteOrNull((this.#database.db.prepare("PRAGMA freelist_count").get() as Record<string, unknown> | undefined)?.freelist_count);
+    const tableCount = finiteOrNull((this.#database.db.prepare(
       "SELECT count(*) AS count FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%'",
     ).get() as Record<string, unknown> | undefined)?.count);
     const sizeBytes = pageCount === null || pageSize === null ? null : pageCount * pageSize;

@@ -1,3 +1,4 @@
+import { finiteOrNull } from "./json-values.js";
 import { HttpError } from "./http-error.js";
 import type { CoordinateDefaults, DiscoveredLocation } from "@climate-twin/contracts";
 import { SYSTEM_VERSION } from "./version.js";
@@ -20,10 +21,6 @@ interface OpenMeteoPlace {
 
 function string(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
-function finiteOrNull(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 export function isIanaTimezone(value: string): boolean {

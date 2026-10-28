@@ -1,3 +1,4 @@
+import { finiteOrNull } from "../json-values.js";
 import type { TpLinkDiscoveredSource } from "@climate-twin/contracts";
 import { hasLocalHouseAuthority, type OpeningStateObservation, type Reading, type TpLinkDiscoveredDevice } from "@climate-twin/contracts";
 import { type ChildProcess, spawn } from "node:child_process";
@@ -9,7 +10,7 @@ import type { ClimateDatabase } from "../db.js";
 import type { SensorHistoryRecoveryResult, SensorMetricAvailability } from "../sensor-gap-recovery.js";
 import { MeasurementService, TelemetryService } from "../services.js";
 import { compareCodeUnits } from "../text-order.js";
-import { CachedTpLinkDevice, CLIMATE_UNCHANGED_HEARTBEAT_MS, finiteOrNull, importTpLinkMappingFile, ipv4Octets, isTpLinkHubModel, LastIngestedDevice, LastIngestedMeasurement, LastIngestedOpeningState, nonEmptyString, normalizeTpLinkTemperature, PendingTpLinkHistoryRequest, REDUNDANT_SOURCE_HANDOVER_MIN_MS, safeTpLinkHistoryFailure, STATE_UNCHANGED_HEARTBEAT_MS, STATUS_UNCHANGED_HEARTBEAT_MS, TapoOpeningTarget, TpLinkConnectionUpdate, TpLinkContactEventsMessage, TpLinkCredentialTestResult, tpLinkDeviceType, tpLinkDiscoveryTargets, TpLinkHelperMessage, TpLinkHistoryResultMessage, TpLinkHostChangeMessage, TpLinkSnapshotDevice, TpLinkSnapshotMessage, TpLinkSourceDiscoveryResult, TpLinkStatusHost, validateTpLinkDeviceMappings } from "./support/01-tp-link-local-climate-history-capability-revision-to.js";
+import { CachedTpLinkDevice, CLIMATE_UNCHANGED_HEARTBEAT_MS, importTpLinkMappingFile, ipv4Octets, isTpLinkHubModel, LastIngestedDevice, LastIngestedMeasurement, LastIngestedOpeningState, nonEmptyString, normalizeTpLinkTemperature, PendingTpLinkHistoryRequest, REDUNDANT_SOURCE_HANDOVER_MIN_MS, safeTpLinkHistoryFailure, STATE_UNCHANGED_HEARTBEAT_MS, STATUS_UNCHANGED_HEARTBEAT_MS, TapoOpeningTarget, TpLinkConnectionUpdate, TpLinkContactEventsMessage, TpLinkCredentialTestResult, tpLinkDeviceType, tpLinkDiscoveryTargets, TpLinkHelperMessage, TpLinkHistoryResultMessage, TpLinkHostChangeMessage, TpLinkSnapshotDevice, TpLinkSnapshotMessage, TpLinkSourceDiscoveryResult, TpLinkStatusHost, validateTpLinkDeviceMappings } from "./support/01-tp-link-local-climate-history-capability-revision-to.js";
 
 interface SnapshotClock {
   timestamp: string;
