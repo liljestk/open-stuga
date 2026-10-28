@@ -326,12 +326,6 @@
     "apps/web/src/styles/global/19-opening-analytics.css",
     "apps/web/src/styles/global/20-outdoor-wind-flow.css",
     "apps/web/src/styles/global/21-mobile-glance-overview.css",
-    "apps/web/src/useClimateData.02-useclimatedata-2.test.tsx",
-    "apps/web/src/useClimateData.03-useclimatedata-3.test.tsx",
-    "apps/web/src/useClimateData.04-useclimatedata-4.test.tsx",
-    "apps/web/src/useClimateData.05-useclimatedata-5.test.tsx",
-    "apps/web/src/useClimateData.06-useclimatedata-6.test.tsx",
-    "apps/web/src/useClimateData.07-useclimatedata-7.test.tsx",
     "scripts/tests/data-safety.part-02.test.mjs",
     "scripts/tests/live-migration.part-02.test.mjs",
     "scripts/tests/setup.part-02.test.mjs"

@@ -3,7 +3,6 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type {
-  MeasurementSample,
   Sensor,
   SensorSnapshot,
   StaticParameter,
@@ -15,128 +14,13 @@ import { createDemoState, type ClimateState } from "./domain";
 
 import { replaceLoadedHouseTelemetry, useClimateData, withoutDemoTelemetry } from "./useClimateData";
 
+import { mocks } from "./useClimateDataApiMock";
+
 import { deferred } from "./useClimateDataTestSupport";
 
-const mocks = vi.hoisted(() => ({
-  session: vi.fn(),
-  properties: vi.fn(),
-  propertyAreas: vi.fn(),
-  areaEquipment: vi.fn(),
-  propertyNotes: vi.fn(),
-  houses: vi.fn(),
-  sensors: vi.fn(),
-  snapshot: vi.fn(),
-  alertRules: vi.fn(),
-  alerts: vi.fn(),
-  observations: vi.fn(),
-  maintenanceTasks: vi.fn(),
-  maintenanceTask: vi.fn(),
-  staticParameters: vi.fn(),
-  integrations: vi.fn(),
-  scenarios: vi.fn(),
-  measurementDefinitions: vi.fn(),
-  measurementSnapshot: vi.fn(),
-  measurementHistory: vi.fn(),
-  measurementHistoryPage: vi.fn(),
-  measurementForecast: vi.fn(),
-  readings: vi.fn(),
-  forecast: vi.fn(),
-  updatePropertyArea: vi.fn(),
-  createHouse: vi.fn(),
-  createSensor: vi.fn(),
-  updateSensor: vi.fn(),
-  deleteSensor: vi.fn(),
-  createAlertRule: vi.fn(),
-  updateAlertRule: vi.fn(),
-  acknowledgeAlert: vi.fn(),
-  updateHouseGeoreference: vi.fn(),
-  tpLinkDevices: vi.fn(),
-  disconnectHomeAssistant: vi.fn(),
-  disconnectTpLink: vi.fn(),
-  moveHomeAssistant: vi.fn(),
-  moveTpLink: vi.fn(),
-  createObservation: vi.fn(),
-  updateObservation: vi.fn(),
-  observationRevisions: vi.fn(),
-  createMaintenanceTask: vi.fn(),
-  updateMaintenanceTask: vi.fn(),
-  maintenanceTaskRevisions: vi.fn(),
-  deleteMaintenanceTask: vi.fn(),
-  createStaticParameter: vi.fn(),
-  cancelPendingApiRequests: vi.fn(),
-  subscribeToApiAuthorizationChanges: vi.fn((
-    _listener: (change: "changed" | "expired") => void,
-  ) => vi.fn()),
-  subscribeToEvents: vi.fn((
-    _onEvent: (event: TelemetryEvent) => void,
-    _onState: (state: "live" | "reconnecting") => void,
-    _onOpen?: () => void,
-  ) => vi.fn()),
-  subscribeToMeasurementEvents: vi.fn((
-    _onSample: (sample: MeasurementSample) => void,
-    _onState: (state: "live" | "reconnecting") => void,
-    _onOpen?: () => void,
-  ) => vi.fn()),
-  subscribeToAuthEpoch: vi.fn((_listener: () => void) => vi.fn()),
-}));
+vi.mock("./api", async () => (await import("./useClimateDataApiMock")).apiModuleMock);
 
-vi.mock("./api", () => ({
-  api: {
-    session: mocks.session,
-    properties: mocks.properties,
-    propertyAreas: mocks.propertyAreas,
-    areaEquipment: mocks.areaEquipment,
-    propertyNotes: mocks.propertyNotes,
-    houses: mocks.houses,
-    sensors: mocks.sensors,
-    snapshot: mocks.snapshot,
-    alertRules: mocks.alertRules,
-    alerts: mocks.alerts,
-    observations: mocks.observations,
-    maintenanceTasks: mocks.maintenanceTasks,
-    maintenanceTask: mocks.maintenanceTask,
-    staticParameters: mocks.staticParameters,
-    integrations: mocks.integrations,
-    scenarios: mocks.scenarios,
-    measurementDefinitions: mocks.measurementDefinitions,
-    measurementSnapshot: mocks.measurementSnapshot,
-    measurementHistory: mocks.measurementHistory,
-    measurementHistoryPage: mocks.measurementHistoryPage,
-    measurementForecast: mocks.measurementForecast,
-    readings: mocks.readings,
-    forecast: mocks.forecast,
-    updatePropertyArea: mocks.updatePropertyArea,
-    createHouse: mocks.createHouse,
-    createSensor: mocks.createSensor,
-    updateSensor: mocks.updateSensor,
-    deleteSensor: mocks.deleteSensor,
-    createAlertRule: mocks.createAlertRule,
-    updateAlertRule: mocks.updateAlertRule,
-    acknowledgeAlert: mocks.acknowledgeAlert,
-    updateHouseGeoreference: mocks.updateHouseGeoreference,
-    tpLinkDevices: mocks.tpLinkDevices,
-    disconnectHomeAssistant: mocks.disconnectHomeAssistant,
-    disconnectTpLink: mocks.disconnectTpLink,
-    moveHomeAssistant: mocks.moveHomeAssistant,
-    moveTpLink: mocks.moveTpLink,
-    createObservation: mocks.createObservation,
-    updateObservation: mocks.updateObservation,
-    observationRevisions: mocks.observationRevisions,
-    createMaintenanceTask: mocks.createMaintenanceTask,
-    updateMaintenanceTask: mocks.updateMaintenanceTask,
-    maintenanceTaskRevisions: mocks.maintenanceTaskRevisions,
-    deleteMaintenanceTask: mocks.deleteMaintenanceTask,
-    createStaticParameter: mocks.createStaticParameter,
-  },
-  cancelPendingApiRequests: mocks.cancelPendingApiRequests,
-  subscribeToApiAuthorizationChanges: mocks.subscribeToApiAuthorizationChanges,
-  subscribeToEvents: mocks.subscribeToEvents,
-  subscribeToMeasurementEvents: mocks.subscribeToMeasurementEvents,
-}));
-
-vi.mock("./authEpoch", () => ({
-  subscribeToAuthEpoch: mocks.subscribeToAuthEpoch,
-}));
+vi.mock("./authEpoch", async () => (await import("./useClimateDataApiMock")).authEpochModuleMock);
 
 describe("useClimateData", () => {
   beforeEach(() => {
