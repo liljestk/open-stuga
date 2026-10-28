@@ -26,9 +26,9 @@ contained 128,271 lines. The largest concentration points were:
 The recurring problems were mixed responsibilities, broad dependency surfaces,
 hard-to-isolate tests, and merge conflicts around central files.
 
-## Implemented boundaries
+## Target boundaries
 
-| Area | Boundary used |
+| Area | Boundary aimed for |
 | --- | --- |
 | Web application | Small public facades with feature-specific component, hook, API, locale, data, and style modules |
 | API runtime | Route registration and runtime assembly split by API domain |
@@ -40,6 +40,14 @@ hard-to-isolate tests, and merge conflicts around central files.
 | Operational scripts | Argument/configuration, external clients, operations, and executable orchestration separated |
 | Tests | Reusable fixtures moved to support modules; suites divided by behavior without changing assertions |
 | Python bridge | Discovery, recovery, shared helpers, and runtime orchestration separated |
+
+Several areas still carry numbered legacy modules from the original split by
+line count rather than by domain: API route registration (`app/part-NN.ts`),
+the database and Stuguby registry methods (`db/methods/NN-*.ts` with their
+mirrored `contracts/`), the web API client (`api/part-NN.ts`) and the hook
+chains of the largest pages. `scripts/baselines/numbered-modules.json` lists
+them and may only shrink; each is renamed after its domain when it is next
+changed.
 
 Existing public import paths remain facades, so callers do not need to know the
 internal layout. During the split, deferred contexts were tightened to explicit

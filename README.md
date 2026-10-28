@@ -1,4 +1,4 @@
-# Stugu 0.32.3
+# Stugu
 
 Stugu is a local-first digital twin for understanding how environmental conditions change and move through one or more homes. Temperature and relative humidity are the starting point; a measurement registry also supports CO2 and other finite numeric scalar measurements without coupling ingestion, history, alerts, or visualisation to one sensor model. It is designed around TP-Link Tapo H100/H200 hubs and locally exposed H500 children with T310/T315 sensors, while keeping ingestion vendor-neutral through a direct local bridge, Home Assistant, and versioned APIs. Internal package names retain the original `climate-twin` identifier for compatibility.
 
@@ -396,14 +396,22 @@ private tunnel and ChatGPT setup is documented in
 
 ## Project layout
 
-```text
-apps/web/             React/Vite digital-twin UI
-apps/api/             API, SQLite store, live ingestion, alerts, MCP
-apps/ios/             iPhone companion and full iPad/Mac client
-packages/contracts/   Shared domain and API types
-config/               Integration mapping examples
-docs/                 Setup, architecture, security, and roadmap
-```
+| Path | What lives there |
+| --- | --- |
+| `apps/api` | Express API, SQLite control plane, background services, OpenAPI document, MCP servers |
+| `apps/web` | React + Vite UI, locale catalogs, page/panel components |
+| `apps/ios` | iPhone companion and full iPad/Mac client |
+| `apps/tapo-export-runner` | Tapo history export runner |
+| `apps/bug-report-relay` | Optional Cloudflare Worker relaying bug reports into a private GitHub repository |
+| `packages/contracts` | Shared types and validators used by the API, web and relay |
+| `packages/analytics-kernel` | The one implementation of analytics statistics, counter/kWh integration and local-calendar helpers |
+| `packages/spatial-layers`, `packages/stuguby-protocol` | Spatial inference; Stuguby peer protocol |
+| `scripts/` | Setup, local CI, release publishing, update agent and their tests |
+| `deploy/` | Compose extras, MQTT/Nexus433 images, Raspberry Pi image and host updater |
+| `config/` | Integration mapping examples |
+| `docs/` | Setup, architecture, security, and roadmap |
+
+The release version lives in `package.json` and [CHANGELOG.md](CHANGELOG.md).
 
 ## Scope
 
