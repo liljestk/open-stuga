@@ -1,3 +1,4 @@
+import { isSqliteFailure } from "../sqlite-failure.js";
 import { randomUUID } from "node:crypto";
 import type {
   AreaEquipment,
@@ -84,21 +85,14 @@ registerDatabaseMethods({
               next.location ? JSON.stringify(next.location) : null, next.name, next.kind, next.manufacturer, next.model,
               next.serialNumber, next.status, next.notes, next.updatedAt, id);
         } catch (error) {
-          if (error instanceof Error && error.message.includes("EQUIPMENT_AREA_MOVE_ORPHANS_TASK")) {
-            throw new ClimateDataValidationError(
-              409,
-              "EQUIPMENT_AREA_MOVE_ORPHANS_TASK",
-              "Update or remove maintenance tasks bound to this equipment and its current area before moving it",
-            );
-          }
-          if (error instanceof Error && error.message.includes("MAINTENANCE_OBSERVATION_SCOPE_MISMATCH")) {
+          if (isSqliteFailure(error, "trigger", "MAINTENANCE_OBSERVATION_SCOPE_MISMATCH")) {
             throw new ClimateDataValidationError(
               409,
               "MAINTENANCE_OBSERVATION_SCOPE_MISMATCH",
               "Move or unlink maintenance observation evidence before assigning this equipment to another Home",
             );
           }
-          if (error instanceof Error && error.message.includes("TRACKING_BINDING_PROPERTY_MOVE")) {
+          if (isSqliteFailure(error, "trigger", "TRACKING_BINDING_PROPERTY_MOVE")) {
             throw new ClimateDataValidationError(
               409,
               "TRACKED_EQUIPMENT_PROPERTY_MOVE",
@@ -115,7 +109,7 @@ registerDatabaseMethods({
       try {
         return Number(this.db.prepare("DELETE FROM area_equipment WHERE id = ?").run(id).changes) > 0;
       } catch (error) {
-        if (error instanceof Error && error.message.includes("FOREIGN KEY constraint failed")) {
+        if (isSqliteFailure(error, "foreign-key")) {
           throw new ClimateDataValidationError(
             409,
             "EQUIPMENT_IN_USE",
@@ -317,7 +311,7 @@ registerDatabaseMethods({
             .run(note.id, note.propertyId, note.houseId, note.areaId, note.equipmentId, note.kind, note.text,
               note.createdAt, note.updatedAt);
         } catch (error) {
-          if (error instanceof Error && error.message.includes("UNIQUE constraint failed: property_notes.id")) {
+          if (isSqliteFailure(error, "unique", "property_notes.id")) {
             throw new ClimateDataValidationError(409, "PROPERTY_NOTE_ID_CONFLICT", `Property note ${note.id} already exists`);
           }
           throw error;

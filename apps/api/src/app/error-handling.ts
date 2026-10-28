@@ -1,3 +1,4 @@
+import { sqliteFailure } from "../db/sqlite-failure.js";
 import type { NextFunction, Request, Response } from "express";
 import { TelegramServiceError } from "../telegram.js";
 import { IncompleteTelemetryHistoryError } from "../timeseries/read-facade.js";
@@ -49,14 +50,14 @@ function infrastructureErrorResponse(error: unknown, response: Response): ErrorR
   if (parserError.type === "entity.parse.failed") {
     return { status: 400, code: "INVALID_JSON", message: "Request body is not valid JSON" };
   }
-  const message = error instanceof Error ? error.message : "";
-  if (message.includes("FOREIGN KEY constraint failed")) {
+  const failure = sqliteFailure(error);
+  if (failure?.kind === "foreign-key") {
     return { status: 409, code: "INVALID_REFERENCE", message: "A referenced resource does not exist" };
   }
-  if (message.includes("UNIQUE constraint failed")) {
+  if (failure?.kind === "unique") {
     return { status: 409, code: "CONFLICT", message: "A resource with this identifier already exists" };
   }
-  if (message.includes("DEMO_DATA_DISABLED")) {
+  if (failure?.kind === "trigger" && failure.detail === "DEMO_DATA_DISABLED") {
     return { status: 409, code: "DEMO_DATA_DISABLED", message: "Demo telemetry is permanently disabled for this real-data database" };
   }
   return null;

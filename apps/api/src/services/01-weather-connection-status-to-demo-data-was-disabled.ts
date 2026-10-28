@@ -1,3 +1,4 @@
+import { isSqliteFailure } from "../db/sqlite-failure.js";
 import { HttpError } from "../http-error.js";
 import {
   hasLocalHouseAuthority,
@@ -521,9 +522,8 @@ export type TelemetrySource = MeasurementSample["source"] | Reading["source"];
 
 export const DEMO_TELEMETRY_SOURCES = new Set<TelemetrySource>(["mock", "replay"]);
 
+/** The real-data latch refused demo telemetry, either as a domain error or as the guarding trigger. */
 export function demoDataWasDisabled(error: unknown): boolean {
-  if (!error || typeof error !== "object") return false;
-  const candidate = error as { code?: unknown; message?: unknown };
-  return candidate.code === "DEMO_DATA_DISABLED"
-    || (typeof candidate.message === "string" && candidate.message.includes("DEMO_DATA_DISABLED"));
+  return (error instanceof Error && (error as Error & { code?: unknown }).code === "DEMO_DATA_DISABLED")
+    || isSqliteFailure(error, "trigger", "DEMO_DATA_DISABLED");
 }

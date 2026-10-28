@@ -1,3 +1,4 @@
+import { isSqliteFailure } from "../../../db/sqlite-failure.js";
 import type { StugubyPropertyAdoption } from "@climate-twin/contracts";
 import { randomUUID } from "node:crypto";
 import {
@@ -317,7 +318,7 @@ registerStugubyStoreMethods({
             .run(stugubyId, authorityNodeId, resourceType, remoteId, localId, now);
           return true;
         } catch (error) {
-          if (error instanceof Error && error.message.includes("UNIQUE constraint failed")) return false;
+          if (isSqliteFailure(error, "unique")) return false;
           throw error;
         }
       };

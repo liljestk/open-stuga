@@ -1,3 +1,4 @@
+import { isSqliteFailure } from "../sqlite-failure.js";
 import { randomUUID } from "node:crypto";
 import { DEFAULT_ELECTRICITY_PRICE_ENDPOINT } from "@climate-twin/contracts";
 import type {
@@ -219,7 +220,7 @@ registerDatabaseMethods({
             VALUES (?, 'porssisahko', ?, 1, 0, 'spot', NULL, NULL, NULL, NULL, NULL, ?)`)
             .run(property.id, DEFAULT_ELECTRICITY_PRICE_ENDPOINT, timestamp);
         } catch (error) {
-          if (error instanceof Error && error.message.includes("UNIQUE constraint failed: properties.id")) {
+          if (isSqliteFailure(error, "unique", "properties.id")) {
             throw new ClimateDataValidationError(409, "PROPERTY_ID_CONFLICT", `Property ${property.id} already exists`);
           }
           throw error;

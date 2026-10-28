@@ -1,3 +1,4 @@
+import { isSqliteFailure } from "../sqlite-failure.js";
 import { randomUUID } from "node:crypto";
 import { automaticWeatherLocation, fixedPlanElementOpeningState, isAutomaticWeatherLocation, openingObservationMatchesElement } from "@climate-twin/contracts";
 import type {
@@ -285,7 +286,7 @@ registerDatabaseMethods({
           }
         });
       } catch (error) {
-        if (error instanceof Error && error.message.includes("UNIQUE constraint failed: opening_state_observations.id")) {
+        if (isSqliteFailure(error, "unique", "opening_state_observations.id")) {
           throw new ClimateDataValidationError(409, "OPENING_OBSERVATION_ID_CONFLICT", `Opening observation ${id} already exists`);
         }
         throw error;
@@ -351,7 +352,7 @@ registerDatabaseMethods({
               house.orientationDegrees ?? null,
               JSON.stringify(house.floors), house.createdAt, house.updatedAt);
         } catch (error) {
-          if (error instanceof Error && error.message.includes("UNIQUE constraint failed: houses.id")) {
+          if (isSqliteFailure(error, "unique", "houses.id")) {
             throw new ClimateDataValidationError(409, "HOUSE_ID_CONFLICT", `House ${house.id} already exists`);
           }
           throw error;

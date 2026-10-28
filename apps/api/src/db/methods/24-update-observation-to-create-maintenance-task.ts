@@ -1,3 +1,4 @@
+import { isSqliteFailure } from "../sqlite-failure.js";
 import { randomUUID } from "node:crypto";
 import type {
   MaintenanceTask,
@@ -311,7 +312,7 @@ registerDatabaseMethods({
             task.verificationNote, task.verifiedAt, task.revision, task.createdAt, task.updatedAt,
           );
         } catch (error) {
-          if (error instanceof Error && error.message.includes("UNIQUE constraint failed: maintenance_tasks.id")) {
+          if (isSqliteFailure(error, "unique", "maintenance_tasks.id")) {
             throw new ClimateDataValidationError(409, "MAINTENANCE_ID_CONFLICT", `Maintenance task ${task.id} already exists`);
           }
           throw error;

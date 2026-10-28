@@ -1,3 +1,4 @@
+import { isSqliteFailure } from "../sqlite-failure.js";
 import { randomUUID } from "node:crypto";
 import { automaticWeatherLocation, hasLocalHouseAuthority, isAutomaticWeatherLocation } from "@climate-twin/contracts";
 import type {
@@ -190,7 +191,7 @@ registerDatabaseMethods({
       try {
         return Number(this.db.prepare("DELETE FROM properties WHERE id = ?").run(id).changes) > 0;
       } catch (error) {
-        if (error instanceof Error && error.message.includes("FOREIGN KEY constraint failed")) {
+        if (isSqliteFailure(error, "foreign-key")) {
           throw new ClimateDataValidationError(
             409,
             "PROPERTY_IN_USE",
@@ -238,7 +239,7 @@ registerDatabaseMethods({
               area.location ? JSON.stringify(area.location) : null, JSON.stringify(area.polygon),
               area.createdAt, area.updatedAt);
         } catch (error) {
-          if (error instanceof Error && error.message.includes("UNIQUE constraint failed")) {
+          if (isSqliteFailure(error, "unique")) {
             throw new ClimateDataValidationError(409, "AREA_ID_CONFLICT", `Area ${area.id} already exists`);
           }
           throw error;
@@ -290,7 +291,7 @@ registerDatabaseMethods({
             .run(next.propertyId, next.name, next.kind, next.description,
               next.location ? JSON.stringify(next.location) : null, JSON.stringify(next.polygon), next.updatedAt, id);
         } catch (error) {
-          if (error instanceof Error && error.message.includes("TRACKING_BINDING_PROPERTY_MOVE")) {
+          if (isSqliteFailure(error, "trigger", "TRACKING_BINDING_PROPERTY_MOVE")) {
             throw new ClimateDataValidationError(
               409,
               "TRACKED_EQUIPMENT_PROPERTY_MOVE",
@@ -307,7 +308,7 @@ registerDatabaseMethods({
       try {
         return Number(this.db.prepare("DELETE FROM property_areas WHERE id = ?").run(id).changes) > 0;
       } catch (error) {
-        if (error instanceof Error && error.message.includes("FOREIGN KEY constraint failed")) {
+        if (isSqliteFailure(error, "foreign-key")) {
           throw new ClimateDataValidationError(
             409,
             "AREA_IN_USE",
@@ -393,7 +394,7 @@ registerDatabaseMethods({
               equipment.manufacturer, equipment.model, equipment.serialNumber, equipment.status, equipment.notes,
               equipment.createdAt, equipment.updatedAt);
         } catch (error) {
-          if (error instanceof Error && error.message.includes("UNIQUE constraint failed: area_equipment.id")) {
+          if (isSqliteFailure(error, "unique", "area_equipment.id")) {
             throw new ClimateDataValidationError(409, "EQUIPMENT_ID_CONFLICT", `Equipment ${equipment.id} already exists`);
           }
           throw error;
