@@ -38,6 +38,9 @@ const GENERATED_AT = "2026-10-01T00:00:00.000Z";
 // Before every generated day, so the archive treats the whole range as the
 // still-open current day and answers from raw edges without stored states.
 const OPEN_DAY_CLOCK = "TIMESTAMPTZ '2026-08-01T00:00:00Z'";
+// Mid-afternoon of a generated day: earlier days are whole, the active day is
+// read from sealed states up to its last settled bucket edge and raw after it.
+const SEALED_DAY_CLOCK = "TIMESTAMPTZ '2026-09-03T13:47:00Z'";
 
 function seeded(seed: number): () => number {
   let state = seed >>> 0;
@@ -192,9 +195,9 @@ function differences(left: unknown, right: unknown, ignored: (path: string) => b
 
 describe("analytics kernel parity between raw aggregation and archive rollups", () => {
   const archive = new PGlite();
-  let openDayClock = false;
+  let clock: string | null = null;
   const pool = new FakePool(async ({ text, values }) => {
-    const sql = openDayClock ? text.replaceAll("clock_timestamp()", OPEN_DAY_CLOCK) : text;
+    const sql = clock ? text.replaceAll("clock_timestamp()", clock) : text;
     const result = await archive.query<Record<string, unknown>>(sql, values);
     return queryResult(result.rows, result.affectedRows);
   });
@@ -321,13 +324,13 @@ describe("analytics kernel parity between raw aggregation and archive rollups", 
   }
 
   it("agrees before anything is materialized, when the archive reads raw edges only", async () => {
-    openDayClock = true;
+    clock = OPEN_DAY_CLOCK;
     try {
       let compared = 0;
       for (const scenario of cases) compared += await compare(scenario, "raw archive");
       expect(compared).toBe(expectedComparisons());
     } finally {
-      openDayClock = false;
+      clock = null;
     }
   }, 180_000);
 
@@ -340,5 +343,28 @@ describe("analytics kernel parity between raw aggregation and archive rollups", 
       "SELECT count(*)::INTEGER AS states FROM telemetry.measurement_ordered_rollups",
     )).rows[0]!;
     expect(stored.states).toBeGreaterThan(0);
+  }, 300_000);
+
+  it("agrees while the active day is read from sealed states and its open tail", async () => {
+    clock = SEALED_DAY_CLOCK;
+    try {
+      // The first pass enqueues the active day; draining seals it partway.
+      for (const scenario of cases) await compare(scenario, "sealing active day");
+      while ((await store.rebuildNextMeasurementOrderedRollup({ timeoutMs: 15_000 })).processed) { /* drain */ }
+      const sealed = (await archive.query<{ variants: number; latest: string }>(
+        `SELECT count(*)::INTEGER AS variants, max(sealed_until)::TEXT AS latest
+        FROM telemetry.measurement_ordered_rollup_dirty
+        WHERE day_start = TIMESTAMPTZ '2026-09-03T00:00:00Z' AND sealed_until IS NOT NULL
+          AND current_seq = clean_seq`,
+      )).rows[0]!;
+      expect(sealed.variants).toBeGreaterThan(0);
+      expect(Date.parse(sealed.latest)).toBeLessThanOrEqual(Date.parse("2026-09-03T13:42:00Z"));
+
+      let compared = 0;
+      for (const scenario of cases) compared += await compare(scenario, "sealed active day");
+      expect(compared).toBe(expectedComparisons());
+    } finally {
+      clock = null;
+    }
   }, 300_000);
 });

@@ -7,13 +7,33 @@ type CostMetric = "energy" | "power";
 /**
  * Builds an exact adaptive time axis. Price-stable hours use hourly states,
  * hours cut by a price edge fall back to 15-minute states, and only affected
- * quarters fall back to minute states. Partial minutes, the active UTC day,
- * and off-minute price edges stay raw.
+ * quarters fall back to minute states. Partial minutes and off-minute price
+ * edges stay raw. The active UTC day uses its sealed quarter states up to the
+ * seal and raw samples after it; a day without a clean seal stays raw rather
+ * than waiting for one.
  */
 function costPlanningCtes(schema: string): string {
   const prices = qualifiedName(schema, "electricity_price_samples");
+  const dirty = qualifiedName(schema, "measurement_ordered_rollup_dirty");
+  const generations = qualifiedName(schema, "measurement_ordered_rollup_generations");
   return `requested_series AS (
       SELECT $1::TEXT AS sensor_id, $6::TEXT AS metric
+    ), active_day AS (
+      SELECT date_bin(INTERVAL '1 day', clock_timestamp(),
+        TIMESTAMPTZ '1970-01-01 00:00:00+00') AS day_start
+    ), active_seal AS (
+      SELECT dirty.sealed_until
+      FROM active_day
+      JOIN ${dirty} dirty
+        ON dirty.sensor_id = $1 AND dirty.metric = $6::TEXT
+        AND dirty.day_start = active_day.day_start AND dirty.bucket_seconds = 900
+        AND dirty.quality_mask = 3
+        AND dirty.source_scope = CASE WHEN $5::BOOLEAN THEN 'real' ELSE 'all' END
+      JOIN ${generations} generation
+        ON generation.sensor_id = dirty.sensor_id AND generation.metric = dirty.metric
+        AND generation.day_start = dirty.day_start
+      WHERE dirty.sealed_until IS NOT NULL
+        AND GREATEST(dirty.current_seq, generation.current_seq) = dirty.clean_seq
     ), measurement_bounds AS (${measurementSeriesBoundsSql(schema, {
       requested: "requested_series", until: "$3::TIMESTAMPTZ",
       qualities: "ARRAY['good', 'estimated']::TEXT[]", excludeSynthetic: "$5::BOOLEAN",
@@ -91,11 +111,13 @@ function costPlanningCtes(schema: string): string {
       SELECT full_to, $3::TIMESTAMPTZ + INTERVAL '1 microsecond'
       FROM limits WHERE full_to <= $3::TIMESTAMPTZ
       UNION ALL
-      SELECT GREATEST($2::TIMESTAMPTZ, date_bin(INTERVAL '1 day', clock_timestamp(),
-          TIMESTAMPTZ '1970-01-01 00:00:00+00')),
-        $3::TIMESTAMPTZ + INTERVAL '1 microsecond'
-      WHERE $3::TIMESTAMPTZ >= date_bin(INTERVAL '1 day', clock_timestamp(),
-        TIMESTAMPTZ '1970-01-01 00:00:00+00')
+      SELECT open_tail.range_start, $3::TIMESTAMPTZ + INTERVAL '1 microsecond'
+      FROM (
+        SELECT GREATEST($2::TIMESTAMPTZ, COALESCE(
+          (SELECT sealed_until FROM active_seal), active_day.day_start)) AS range_start
+        FROM active_day WHERE $3::TIMESTAMPTZ >= active_day.day_start
+      ) open_tail
+      WHERE open_tail.range_start <= $3::TIMESTAMPTZ
       UNION ALL
       SELECT GREATEST(date_bin(INTERVAL '1 minute', boundary_at,
           TIMESTAMPTZ '1970-01-01 00:00:00+00'), $2::TIMESTAMPTZ),
@@ -141,7 +163,8 @@ function costPlanningCtes(schema: string): string {
       SELECT slot.unit_start
       FROM hour_slots slot
       LEFT JOIN hour_boundary_units boundary USING (unit_start)
-      WHERE boundary.unit_start IS NULL AND NOT EXISTS (
+      WHERE boundary.unit_start IS NULL
+        AND slot.unit_start < (SELECT day_start FROM active_day) AND NOT EXISTS (
         SELECT 1 FROM raw_ranges range
         WHERE range.range_start < slot.unit_start + INTERVAL '1 hour'
           AND range.range_end > slot.unit_start
@@ -188,6 +211,7 @@ function costPlanningCtes(schema: string): string {
       CROSS JOIN limits
       LEFT JOIN minute_boundary_units boundary ON boundary.unit_start = minute.unit_start
       WHERE boundary.unit_start IS NULL
+        AND minute.unit_start < (SELECT day_start FROM active_day)
         AND minute.unit_start >= limits.full_from
         AND minute.unit_start + INTERVAL '1 minute' <= limits.full_to
         AND NOT EXISTS (
@@ -195,6 +219,12 @@ function costPlanningCtes(schema: string): string {
           WHERE range.range_start < minute.unit_start + INTERVAL '1 minute'
             AND range.range_end > minute.unit_start
         )
+    ), active_gap_ranges AS (
+      -- Active-day quarters that cannot use a sealed quarter state are read raw.
+      SELECT GREATEST(gap.unit_start, $2::TIMESTAMPTZ) AS range_start,
+        LEAST(gap.unit_start + INTERVAL '15 minutes', $3::TIMESTAMPTZ + INTERVAL '1 microsecond') AS range_end
+      FROM quarter_gaps gap
+      WHERE gap.unit_start >= (SELECT day_start FROM active_day)
     ), candidate_units AS (
       SELECT unit_start, 3600::INTEGER AS bucket_seconds FROM hour_units
       UNION ALL SELECT unit_start, 900::INTEGER FROM quarter_units
@@ -220,7 +250,9 @@ export function measurementCostRollupRequirementsSql(schema: string): string {
     )
     SELECT required.day_start, required.bucket_seconds,
       (dirty.sensor_id IS NOT NULL AND generation.sensor_id IS NOT NULL
-        AND GREATEST(dirty.current_seq, generation.current_seq) = dirty.clean_seq) AS ready
+        AND GREATEST(dirty.current_seq, generation.current_seq) = dirty.clean_seq
+        AND CASE WHEN required.day_start < (SELECT day_start FROM active_day)
+          THEN dirty.sealed_until IS NULL ELSE dirty.sealed_until IS NOT NULL END) AS ready
     FROM required_variants required
     LEFT JOIN ${dirty} dirty
       ON dirty.sensor_id = $1 AND dirty.metric = $6::TEXT
@@ -290,7 +322,9 @@ export function measurementCostRollupSql(schema: string, metric: CostMetric): st
         AND price.slice_end >= unit.unit_start + make_interval(secs => unit.bucket_seconds)
     ), pending AS (
       SELECT count(*) FILTER (WHERE dirty.sensor_id IS NULL OR generation.sensor_id IS NULL
-        OR GREATEST(dirty.current_seq, generation.current_seq) <> dirty.clean_seq)::BIGINT AS pending_variants
+        OR GREATEST(dirty.current_seq, generation.current_seq) <> dirty.clean_seq
+        OR NOT (CASE WHEN required.day_start < (SELECT day_start FROM active_day)
+          THEN dirty.sealed_until IS NULL ELSE dirty.sealed_until IS NOT NULL END))::BIGINT AS pending_variants
       FROM required_variants required
       LEFT JOIN ${dirty} dirty
         ON dirty.sensor_id = $1 AND dirty.metric = $6::TEXT
@@ -318,6 +352,8 @@ export function measurementCostRollupSql(schema: string, metric: CostMetric): st
         ON generation.sensor_id = dirty.sensor_id AND generation.metric = dirty.metric
         AND generation.day_start = required.day_start
         AND GREATEST(dirty.current_seq, generation.current_seq) = dirty.clean_seq
+        AND CASE WHEN required.day_start < (SELECT day_start FROM active_day)
+          THEN dirty.sealed_until IS NULL ELSE dirty.sealed_until IS NOT NULL END
       CROSS JOIN LATERAL (
         SELECT rollup.* FROM ${rollups} rollup
         WHERE rollup.sensor_id = $1 AND rollup.metric = $6::TEXT
@@ -335,7 +371,10 @@ export function measurementCostRollupSql(schema: string, metric: CostMetric): st
         AND unit.bucket_seconds = rollup.bucket_seconds AND unit.day_start = rollup.day_start
     ), raw_candidates AS (
       SELECT sample.*
-      FROM raw_ranges range
+      FROM (
+        SELECT range_start, range_end FROM raw_ranges
+        UNION ALL SELECT range_start, range_end FROM active_gap_ranges
+      ) range
       CROSS JOIN LATERAL (
         SELECT sample.* FROM ${measurements} sample
         WHERE sample.sensor_id = $1 AND sample.metric = $6::TEXT

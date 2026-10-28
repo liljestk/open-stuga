@@ -804,6 +804,37 @@ describe("EnergyPage", () => {
     expect(screen.getByRole("combobox", { name: "Running cost interval" })).toHaveValue("year");
   });
 
+  it("keeps the figures already shown while a refresh is still preparing", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date("2026-07-16T12:00:00.000Z"));
+    const state = createDemoState();
+    const house = state.houses[0]!;
+    const meter = { ...state.sensors[0]!, id: "meter", houseId: house.id,
+      name: "Main meter", measurementEntityIds: { energy: "sensor.main_energy" } };
+    state.sensors = [meter];
+    state.latestMeasurements = { meter: { energy: sample(12, "2026-07-16T11:59:00.000Z") } };
+    state.measurementHistory = {};
+    let preparing = false;
+    const request = vi.spyOn(api, "houseEnergySummary").mockImplementation(async (id, { from, to }) => {
+      if (preparing) throw new ApiRequestError(503, "TELEMETRY_ROLLUPS_MATERIALIZING", "Preparing history");
+      return combinedSummary(id, from, to, 1);
+    });
+    vi.spyOn(api, "houseElectricityPrice").mockResolvedValue({ current: null, prices: [] });
+    window.history.replaceState(null, "", `/properties/${house.propertyId}/homes/${house.id}/electricity`);
+    render(<I18nProvider><EnergyPage state={state} house={house} units="metric" onLoadSeries={vi.fn()} onOpenAlerts={vi.fn()} /></I18nProvider>);
+
+    const card = document.querySelector<HTMLElement>(".running_cost")!;
+    await waitFor(() => expect(within(card).getByText("1.00 €")).not.toBeNull());
+    const count = request.mock.calls.length;
+    preparing = true;
+    await act(async () => { await vi.advanceTimersByTimeAsync(5 * 60_000 + 1_000); });
+
+    expect(request.mock.calls.length).toBeGreaterThan(count);
+    expect(within(card).getByText("1.00 €")).not.toBeNull();
+    expect(within(card).queryByText("Calculating from stored history…")).toBeNull();
+    expect(screen.queryByText("Calculating from stored history…")).toBeNull();
+  });
+
   it("uses a fresh electricity source when a newer candidate is marked stale", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-16T12:00:00.000Z"));

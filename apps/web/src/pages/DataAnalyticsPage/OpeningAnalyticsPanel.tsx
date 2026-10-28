@@ -215,7 +215,9 @@ export function OpeningAnalyticsPanel(props: Readonly<OpeningAnalyticsPanelProps
   const lastReceived = response && query.dataUpdatedAt > 0
     ? formatInTimeZone(query.dataUpdatedAt, locale, props.house.timezone, { dateStyle: "medium", timeStyle: "short" })
     : null;
-  const retainedStale = Boolean(response && (query.isFetching || error));
+  // The window end advances every minute; that refresh keeps the current
+  // states shown. Only a failed refresh marks them as possibly out of date.
+  const retainedStale = Boolean(response && error);
 
   const series = useMemo(() => viewSeries(response?.series ?? [], t), [response?.series, t]);
   const visibleSeries = useMemo(() => selectedKey === "all"

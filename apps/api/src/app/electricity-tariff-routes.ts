@@ -1,6 +1,6 @@
 import { roleCanAccessNonGuestConfiguration } from "@climate-twin/contracts";
 import { withResponseSignal } from "./response-signal.js";
-import type { ElectricityInvoiceInput } from "@climate-twin/contracts";
+import type { ElectricityInvoiceInput, Sensor } from "@climate-twin/contracts";
 import { invoiceRange, reconcileInvoice } from "../electricity/invoice-reconciliation.js";
 import { HttpError } from "../http-error.js";
 import { bodyObject, rejectUnknownFields } from "../request-fields.js";
@@ -27,7 +27,7 @@ function stringField(body: Record<string, unknown>, key: string): string {
 
 export type ElectricityTariffRouteContext = Pick<
   ApiRouteRegistrationContext,
-  "app" | "prefix" | "database" | "visibility" | "energyCost" | "analyticsWorkLimiter"
+  "app" | "prefix" | "database" | "visibility" | "energySummaries"
 >;
 
 /** Dated tariff versions, manually entered invoices, and their reconciliation against calculated costs. */
@@ -35,7 +35,7 @@ export function registerElectricityTariffRoutes(
   context: ElectricityTariffRouteContext,
   access: {
     visibleProperty: (propertyId: string, response: Parameters<ElectricityTariffRouteContext["visibility"]>[0]) => unknown;
-    houseSensorIds: (houseId: string, response: Parameters<ElectricityTariffRouteContext["visibility"]>[0]) => string[];
+    houseSensors: (houseId: string, response: Parameters<ElectricityTariffRouteContext["visibility"]>[0]) => Sensor[];
     invalidateSummaries: () => void;
   },
 ): void {
@@ -129,18 +129,16 @@ export function registerElectricityTariffRoutes(
     const house = context.database.getHouse(invoice.houseId);
     const range = house ? invoiceRange(invoice, house.timezone) : null;
     if (!house || !range) throw new HttpError(409, "INVOICE_PERIOD_UNAVAILABLE", "The invoice period cannot be resolved for its Home");
-    const summary = await withResponseSignal(response, (signal) => context.analyticsWorkLimiter.run(
-      "energy-summary",
-      () => context.energyCost.summarize({
-        houseId: house.id,
-        // The invoice belongs to this Property's contract and price feed.
-        propertyId,
-        sensorIds: access.houseSensorIds(house.id, response),
-        ...range,
-        signal,
-      }),
+    // A closed invoice period is shared with the Health panel's bill check.
+    const { summary } = await withResponseSignal(response, (signal) => context.energySummaries.get({
+      houseId: house.id,
+      // The invoice belongs to this Property's contract and price feed.
+      propertyId,
+      timeZone: house.timezone,
+      sensors: access.houseSensors(house.id, response),
+      ...range,
       signal,
-    ));
+    }));
     response.setHeader("cache-control", "private, no-store");
     response.json({ reconciliation: reconcileInvoice(invoice, summary) });
   });

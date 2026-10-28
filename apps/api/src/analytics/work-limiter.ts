@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { withSignal } from "@climate-twin/contracts";
 import type { CacheStats } from "../cache.js";
 
@@ -104,6 +105,8 @@ export class AnalyticsWorkLimiter {
   readonly #queue: Array<QueueItem<unknown>> = [];
   readonly #operations = new Map<string, MutableOperationStats>();
   readonly #caches = new Map<string, () => CacheStats>();
+  /** Marks work running inside one of this limiter's slots. */
+  readonly #slot = new AsyncLocalStorage<true>();
   #active = 0;
   #lowPriorityActive = 0;
   #queued = 0;
@@ -123,6 +126,7 @@ export class AnalyticsWorkLimiter {
     task: () => Promise<T> | T,
     signal?: AbortSignal,
   ): Promise<T> {
+    if (this.#slot.getStore()) return this.#runInHeldSlot(operation, task, signal);
     return this.#enqueue(operation, task, "foreground", signal);
   }
 
@@ -136,7 +140,29 @@ export class AnalyticsWorkLimiter {
     task: () => Promise<T> | T,
     signal?: AbortSignal,
   ): Promise<T> {
+    if (this.#slot.getStore()) return this.#runInHeldSlot(operation, task, signal);
     return this.#enqueue(operation, task, "low", signal);
+  }
+
+  /**
+   * Work that already holds a slot runs nested work in that slot. Queueing it
+   * would wait on capacity the caller itself occupies, and once every slot did
+   * so (a projection or optimizer report asking for an energy summary) nothing
+   * could finish until the requests were cancelled.
+   */
+  async #runInHeldSlot<T>(operation: string, task: () => Promise<T> | T, signal?: AbortSignal): Promise<T> {
+    if (signal?.aborted) throw abortReason(signal);
+    const stats = this.#statsFor(operation);
+    stats.started += 1;
+    try {
+      const value = await task();
+      stats.succeeded += 1;
+      return value;
+    } catch (error) {
+      if (isCancellation(error, signal)) stats.cancelled += 1;
+      else stats.failed += 1;
+      throw error;
+    }
   }
 
   /**
@@ -333,7 +359,7 @@ export class AnalyticsWorkLimiter {
     stats.maxQueueMs = Math.max(stats.maxQueueMs, queueMs);
     let includeRunDuration = true;
 
-    void Promise.resolve().then(item.task).then(
+    void Promise.resolve().then(() => this.#slot.run(true, item.task)).then(
       (value) => {
         stats.succeeded += 1;
         item.resolve(value);

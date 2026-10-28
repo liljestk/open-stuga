@@ -220,6 +220,7 @@ export function orderedAnalyticsSql(schema: string): string {
         count(*) FILTER (WHERE required.day_start IS NOT NULL AND (
           dirty.sensor_id IS NULL OR generation.sensor_id IS NULL
           OR GREATEST(dirty.current_seq, generation.current_seq) <> dirty.clean_seq
+          OR dirty.sealed_until IS NOT NULL
         ))::BIGINT AS pending_days
       FROM requested_series requested
       LEFT JOIN required_days required USING (sensor_id, metric)
@@ -256,7 +257,7 @@ export function orderedAnalyticsSql(schema: string): string {
           AND rollup.bucket_seconds = $8::INTEGER
           AND rollup.bucket_start >= ordered_limits.full_from
           AND rollup.bucket_start < ordered_limits.full_to
-          AND rollup.day_start < date_bin(INTERVAL '1 day', clock_timestamp(),
+          AND rollup.day_start <= date_bin(INTERVAL '1 day', clock_timestamp(),
             TIMESTAMPTZ '1970-01-01 00:00:00+00')
         OFFSET 0
       ) rollup
@@ -271,28 +272,52 @@ export function orderedAnalyticsSql(schema: string): string {
         AND generation.day_start = dirty.day_start
         AND GREATEST(dirty.current_seq, generation.current_seq) = dirty.clean_seq
         AND rollup.generation = GREATEST(dirty.current_seq, generation.current_seq)
+        -- A past day needs whole-day states; the active day's sealed states
+        -- cover only buckets that closed before its seal.
+        AND CASE WHEN dirty.day_start < date_bin(INTERVAL '1 day', clock_timestamp(),
+            TIMESTAMPTZ '1970-01-01 00:00:00+00')
+          THEN dirty.sealed_until IS NULL
+          ELSE rollup.bucket_start + make_interval(secs => $8::INTEGER) <= dirty.sealed_until END
+    ), active_seals AS (
+      SELECT requested.sensor_id, requested.metric, (
+        SELECT dirty.sealed_until FROM ${dirty} dirty
+        JOIN ${generations} generation
+          ON generation.sensor_id = dirty.sensor_id AND generation.metric = dirty.metric
+          AND generation.day_start = dirty.day_start
+        WHERE dirty.sensor_id = requested.sensor_id AND dirty.metric = requested.metric
+          AND dirty.day_start = date_bin(INTERVAL '1 day', clock_timestamp(),
+            TIMESTAMPTZ '1970-01-01 00:00:00+00')
+          AND dirty.bucket_seconds = $8::INTEGER
+          AND dirty.quality_mask = $7::SMALLINT
+          AND dirty.source_scope = CASE WHEN $6::BOOLEAN THEN 'real' ELSE 'all' END
+          AND dirty.sealed_until IS NOT NULL
+          AND GREATEST(dirty.current_seq, generation.current_seq) = dirty.clean_seq
+      ) AS sealed_until
+      FROM requested_series requested
     ), edge_and_current_ranges AS (
       -- Disjoint windows keep the raw read limited to the two partial buckets
-      -- and the active day. An OR over the complete history prevents Timescale
-      -- from pruning historical chunks before applying the boundary filter.
-      SELECT $2::TIMESTAMPTZ AS raw_from,
+      -- and the active day's open tail. An OR over the complete history
+      -- prevents Timescale from pruning historical chunks before applying the
+      -- boundary filter.
+      SELECT seal.sensor_id, seal.metric, $2::TIMESTAMPTZ AS raw_from,
         LEAST(ordered_limits.full_from, ordered_limits.full_to, $3::TIMESTAMPTZ) AS raw_to
-      FROM ordered_limits
+      FROM ordered_limits CROSS JOIN active_seals seal
       UNION ALL
-      SELECT GREATEST(ordered_limits.full_from, $2::TIMESTAMPTZ,
-          date_bin(INTERVAL '1 day', clock_timestamp(),
-            TIMESTAMPTZ '1970-01-01 00:00:00+00')),
+      SELECT seal.sensor_id, seal.metric, GREATEST(ordered_limits.full_from, $2::TIMESTAMPTZ,
+          COALESCE(seal.sealed_until, date_bin(INTERVAL '1 day', clock_timestamp(),
+            TIMESTAMPTZ '1970-01-01 00:00:00+00'))),
         LEAST(ordered_limits.full_to, $3::TIMESTAMPTZ)
-      FROM ordered_limits
+      FROM ordered_limits CROSS JOIN active_seals seal
       UNION ALL
-      SELECT GREATEST(ordered_limits.full_to, $2::TIMESTAMPTZ), $3::TIMESTAMPTZ
-      FROM ordered_limits
+      SELECT seal.sensor_id, seal.metric, GREATEST(ordered_limits.full_to, $2::TIMESTAMPTZ), $3::TIMESTAMPTZ
+      FROM ordered_limits CROSS JOIN active_seals seal
     ), edge_and_current_bucketed AS (
       SELECT sample.*,
         date_bin(make_interval(secs => $8::INTEGER), sample.observed_at,
           TIMESTAMPTZ '1970-01-01 00:00:00+00') AS bucket_start
       FROM edge_and_current_ranges boundary
-      CROSS JOIN requested_series requested
+      JOIN requested_series requested
+        ON requested.sensor_id = boundary.sensor_id AND requested.metric = boundary.metric
       CROSS JOIN LATERAL (
         SELECT sample.* FROM ${measurements} sample
         WHERE sample.sensor_id = requested.sensor_id AND sample.metric = requested.metric
