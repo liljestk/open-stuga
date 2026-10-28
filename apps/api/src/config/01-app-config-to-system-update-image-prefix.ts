@@ -1,3 +1,4 @@
+import { APP_CONFIG_DEFAULTS } from "./api-defaults.js";
 import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -20,29 +21,29 @@ export interface AppConfig {
   spatialLayersIntervalMs?: number;
   spatialLayersRetentionDays?: number;
   /** Scheduled analytical fitting is opt-in until it runs behind the shared resource governor. */
-  dailyAnalyticsFindingsEnabled?: boolean;
+  dailyAnalyticsFindingsEnabled: boolean;
   /** Historical gap discovery and source backfill are opt-in until their archive scans are governed. */
-  sensorGapRecoveryEnabled?: boolean;
+  sensorGapRecoveryEnabled: boolean;
   /** Property-wide BLE equipment tracking remains an explicit deployment opt-in. */
-  trackingEnabled?: boolean;
-  trackingMobileObserverEnabled?: boolean;
-  trackingIosBackgroundEnabled?: boolean;
-  trackingAndroidBackgroundEnabled?: boolean;
-  trackingAndroidGatewayModeEnabled?: boolean;
-  trackingLiveMapEnabled?: boolean;
-  trackingMovementTrailsEnabled?: boolean;
-  trackingExitAlertsEnabled?: boolean;
-  trackingUserLocationSharingEnabled?: boolean;
+  trackingEnabled: boolean;
+  trackingMobileObserverEnabled: boolean;
+  trackingIosBackgroundEnabled: boolean;
+  trackingAndroidBackgroundEnabled: boolean;
+  trackingAndroidGatewayModeEnabled: boolean;
+  trackingLiveMapEnabled: boolean;
+  trackingMovementTrailsEnabled: boolean;
+  trackingExitAlertsEnabled: boolean;
+  trackingUserLocationSharingEnabled: boolean;
   /** Server-owned key for endpoint identity encryption and pseudonymous references. */
-  trackingSecretKeyFile?: string | null;
+  trackingSecretKeyFile: string | null;
   integrationSecretsFile: string;
   assetDirectory: string;
   /** Protected internal Ed25519 identity. Never exposed through configuration APIs. */
-  stugubyIdentityFile?: string | null;
-  stugubyNodeName?: string;
-  stugubySyncIntervalMs?: number;
+  stugubyIdentityFile: string | null;
+  stugubyNodeName: string;
+  stugubySyncIntervalMs: number;
   /** Server-owned coordinator origin. Participants never need to configure one. */
-  stugubyPublicOrigin?: string | null;
+  stugubyPublicOrigin: string | null;
   /** Safe setup suggestion inferred from browser/edge configuration; never authoritative by itself. */
   stugubySuggestedPublicOrigin?: string | null;
   /** Cloudflare must expose the signed machine path before the UI may persist its suggested origin. */
@@ -52,41 +53,41 @@ export interface AppConfig {
   /** Read-only manifest discovery path for local/non-Compose operation. */
   backupDirectory?: string;
   /** Shared coordination directory consumed by the external, self-replacing update agent. */
-  systemUpdateOperationsDirectory?: string | null;
+  systemUpdateOperationsDirectory: string | null;
   /** Public GitHub repository used only for release discovery. */
-  systemUpdateRepository?: string;
+  systemUpdateRepository: string;
   /** Trusted GHCR image prefix; release data can never override this registry namespace. */
-  systemUpdateImagePrefix?: string;
+  systemUpdateImagePrefix: string;
   /** Read-only host declaration. Optional source adapters stay absent unless explicitly advertised. */
-  hostCapabilitiesFile?: string | null;
-  sourceMqttHost?: string;
-  sourceMqttPort?: number;
-  sourceMqttUser?: string;
+  hostCapabilitiesFile: string | null;
+  sourceMqttHost: string;
+  sourceMqttPort: number;
+  sourceMqttUser: string;
   /** Subscriber credential mounted only by deployments that offer source ingress. */
-  sourceMqttPasswordFile?: string | null;
+  sourceMqttPasswordFile: string | null;
   mockEnabled: boolean;
   mockIntervalMs: number;
   retentionDays: number;
   /** Optional durable time-series store. SQLite remains the local control plane and fallback. */
-  timeseriesEnabled?: boolean;
+  timeseriesEnabled: boolean;
   /** Fail startup when the time-series store cannot be initialized. Off by default for local resilience. */
-  timeseriesRequired?: boolean;
-  timeseriesHost?: string;
-  timeseriesPort?: number;
-  timeseriesDatabase?: string;
-  timeseriesUser?: string;
+  timeseriesRequired: boolean;
+  timeseriesHost: string;
+  timeseriesPort: number;
+  timeseriesDatabase: string;
+  timeseriesUser: string;
   /** Write-only PostgreSQL credential. Never include AppConfig in logs or API responses. */
-  timeseriesPassword?: string;
+  timeseriesPassword: string;
   /** PostgreSQL transport security. Compose's private network uses disable. */
-  timeseriesSslMode?: "disable" | "require" | "verify-ca" | "verify-full";
+  timeseriesSslMode: "disable" | "require" | "verify-ca" | "verify-full";
   /** Optional PEM CA bundle contents loaded from TIMESERIES_SSL_CA_FILE. */
-  timeseriesSslCa?: string | null;
-  timeseriesPoolMax?: number;
-  timeseriesConnectTimeoutMs?: number;
-  timeseriesStatementTimeoutMs?: number;
-  timeseriesBatchSize?: number;
+  timeseriesSslCa: string | null;
+  timeseriesPoolMax: number;
+  timeseriesConnectTimeoutMs: number;
+  timeseriesStatementTimeoutMs: number;
+  timeseriesBatchSize: number;
   /** Age at which immutable telemetry chunks move to Timescale columnstore. */
-  timeseriesColumnstoreAfterDays?: number;
+  timeseriesColumnstoreAfterDays: number;
   /** Host-visible path whose free space backs PostgreSQL telemetry storage. */
   timeseriesStoragePath?: string | null;
   ingestApiKey: string | null;
@@ -96,14 +97,14 @@ export interface AppConfig {
   /** House-scoped connections saved through the UI. Legacy HA_* remains one advanced override. */
   homeAssistantConnections?: HomeAssistantConnectionSecret[];
   /** A saved UI migration/disconnect prevents legacy HA_* from reappearing after restart. */
-  homeAssistantLegacyDisabled?: boolean;
+  homeAssistantLegacyDisabled: boolean;
   tpLinkHost: string | null;
   tpLinkUsername: string | null;
   tpLinkPassword: string | null;
   /** House-scoped connections saved through the UI. Legacy TP_LINK_* remains one advanced override. */
   tpLinkConnections?: TpLinkConnectionSecret[];
   /** A saved UI migration/disconnect prevents legacy TP_LINK_* from reappearing after restart. */
-  tpLinkLegacyDisabled?: boolean;
+  tpLinkLegacyDisabled: boolean;
   tpLinkDeviceMapFile: string | null;
   tpLinkPollIntervalMs: number;
   tpLinkPython: string;
@@ -123,51 +124,51 @@ export interface AppConfig {
   tuyaPython?: string;
   tuyaBridgeScript?: string;
   /** Enables asynchronous Tapo app/private-history fallback after local retention is exhausted. */
-  tapoHistoryEnabled?: boolean;
+  tapoHistoryEnabled: boolean;
   /** Route-scoped bearer secret shared only with the isolated Appium worker. */
-  tapoHistoryWorkerToken?: string | null;
-  tapoHistoryExportEmail?: string | null;
-  tapoHistoryEmailTagPrefix?: string;
-  tapoHistoryExportIntervalMinutes?: 1 | 15 | 30 | 60 | 360 | 720 | 1440;
+  tapoHistoryWorkerToken: string | null;
+  tapoHistoryExportEmail: string | null;
+  tapoHistoryEmailTagPrefix: string;
+  tapoHistoryExportIntervalMinutes: 1 | 15 | 30 | 60 | 360 | 720 | 1440;
   /** Conservative app-report span; the public UI has truncated longer requests in practice. */
-  tapoHistoryMaxExportDays?: number;
+  tapoHistoryMaxExportDays: number;
   /** Bounds correlated app exports that have been submitted but not yet ingested. */
-  tapoHistoryMaxPendingEmails?: number;
-  tapoHistoryMailboxPollIntervalMs?: number;
+  tapoHistoryMaxPendingEmails: number;
+  tapoHistoryMailboxPollIntervalMs: number;
   /** How long a submitted app export may wait for its correlated email before automatic retry. */
-  tapoHistoryEmailTimeoutMs?: number;
-  tapoHistoryWorkerLeaseMs?: number;
+  tapoHistoryEmailTimeoutMs: number;
+  tapoHistoryWorkerLeaseMs: number;
   /** Gmail OAuth credentials are write-only deployment secrets. */
   /** Primary mailbox identity returned by Gmail /users/me/profile. */
   tapoHistoryGmailAccountEmail?: string | null;
-  tapoHistoryGmailClientId?: string | null;
-  tapoHistoryGmailClientSecret?: string | null;
-  tapoHistoryGmailRefreshToken?: string | null;
+  tapoHistoryGmailClientId: string | null;
+  tapoHistoryGmailClientSecret: string | null;
+  tapoHistoryGmailRefreshToken: string | null;
   /** Experimental, explicitly configured compatibility endpoint. Never enabled by default. */
-  tapoHistoryPrivateEndpoint?: string | null;
-  tapoHistoryPrivateToken?: string | null;
+  tapoHistoryPrivateEndpoint: string | null;
+  tapoHistoryPrivateToken: string | null;
   /**
    * All effective webhook destinations. Each may carry an HMAC-SHA256 signing key;
    * receivers verify X-Stugu-Timestamp and X-Stugu-Signature.
    */
-  alertWebhookDestinations?: WebhookDestinationSecret[];
+  alertWebhookDestinations: WebhookDestinationSecret[];
   /** Exact host allowlist; redirects are never followed. */
-  alertWebhookAllowedHosts?: string[];
+  alertWebhookAllowedHosts: string[];
   /** Effective source, used only to mirror environment credentials into protected backup storage. */
-  alertWebhookSource?: "environment" | "protected-file" | null;
+  alertWebhookSource: "environment" | "protected-file" | null;
   telegramBotToken: string | null;
   telegramChatId: string | null;
   /** Apple provider credentials are deployment secrets and are never returned by the API. */
-  apnsTeamId?: string | null;
-  apnsKeyId?: string | null;
-  apnsBundleId?: string | null;
-  apnsPrivateKey?: string | null;
+  apnsTeamId: string | null;
+  apnsKeyId: string | null;
+  apnsBundleId: string | null;
+  apnsPrivateKey: string | null;
   appleNotesGrants: AppleNotesGrantSecret[];
   corsOrigin: string | null;
   /** Optional high-entropy secret that explicitly permits first-owner setup off loopback. */
   localAuthBootstrapSecret?: string | null;
   /** Unit/integration-test compatibility only; rejected outside NODE_ENV=test. */
-  localAuthTestBypass?: boolean;
+  localAuthTestBypass: boolean;
   /** Browser-visible bind of the bundled private proxy; only an explicit loopback value enables proxy bootstrap. */
   localAuthProxyBindAddress?: string | null;
   /** High-entropy credential used to authenticate the immediate reverse proxy. */
@@ -181,22 +182,22 @@ export interface AppConfig {
   /** When a workspace administrator last saved the relay through the API. */
   bugReportRelayUpdatedAt?: string | null;
   /** Optional account-scoped Cloudflare Access group synchronized from local members and invitations. */
-  cloudflareAccessAccountId?: string | null;
-  cloudflareAccessGroupId?: string | null;
-  cloudflareAccessGroupName?: string | null;
+  cloudflareAccessAccountId: string | null;
+  cloudflareAccessGroupId: string | null;
+  cloudflareAccessGroupName: string | null;
   /** Cloudflare identities that permanently retain access, independent of local Stugu account email. */
-  cloudflareAccessStaticEmails?: string[];
+  cloudflareAccessStaticEmails: string[];
   /** Write-only, least-privilege Access group credential. Never log AppConfig. */
-  cloudflareAccessApiToken?: string | null;
-  cloudflareAccessSyncIntervalMs?: number;
+  cloudflareAccessApiToken: string | null;
+  cloudflareAccessSyncIntervalMs: number;
   /** Read-only deployment metadata used by the local UI setup coordinator. */
-  cloudflareSetupDeploymentFile?: string | null;
+  cloudflareSetupDeploymentFile: string | null;
   /** Optional pre-registered public/private OAuth client ID. It is not a secret. */
-  cloudflareSetupOAuthClientId?: string | null;
+  cloudflareSetupOAuthClientId: string | null;
   /** Browser-facing loopback port used only for local setup guidance. */
-  cloudflareSetupLocalUiPort?: number;
+  cloudflareSetupLocalUiPort: number;
   /** Explicit opt-in for a deliberately private-network custom electricity feed. */
-  electricityAllowPrivateEndpoints?: boolean;
+  electricityAllowPrivateEndpoints: boolean;
 }
 
 export function configuredAlertWebhookDestinations(
@@ -253,7 +254,7 @@ export function booleanValue(value: string | undefined, fallback: boolean): bool
 }
 
 export function timeseriesSslMode(value: string | undefined): NonNullable<AppConfig["timeseriesSslMode"]> {
-  const normalized = optional(value) ?? "disable";
+  const normalized = optional(value) ?? APP_CONFIG_DEFAULTS.timeseriesSslMode;
   if (!["disable", "require", "verify-ca", "verify-full"].includes(normalized)) {
     throw new Error("TIMESERIES_SSL_MODE must be disable, require, verify-ca, or verify-full");
   }
@@ -300,7 +301,7 @@ export function optionalFileSecret(
 }
 
 export function exportIntervalMinutes(value: string | undefined): 1 | 15 | 30 | 60 | 360 | 720 | 1440 {
-  const parsed = Number(value ?? 15);
+  const parsed = Number(value ?? APP_CONFIG_DEFAULTS.tapoHistoryExportIntervalMinutes);
   if (![1, 15, 30, 60, 360, 720, 1440].includes(parsed)) {
     throw new Error("TAPO_HISTORY_EXPORT_INTERVAL_MINUTES must be 1, 15, 30, 60, 360, 720, or 1440");
   }
@@ -391,7 +392,7 @@ export function inferredStugubyPublicOrigin(...values: Array<string | undefined>
 }
 
 export function githubRepository(value: string | undefined): string {
-  const normalized = optional(value) ?? "liljestk/open-stuga";
+  const normalized = optional(value) ?? APP_CONFIG_DEFAULTS.systemUpdateRepository;
   if (!/^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/u.test(normalized)) {
     throw new Error("SYSTEM_UPDATE_REPOSITORY must use the GitHub owner/repository form");
   }

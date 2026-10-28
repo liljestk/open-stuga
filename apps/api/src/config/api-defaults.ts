@@ -1,7 +1,7 @@
 import { dirname, join } from "node:path";
 import type { AppConfig } from "./01-app-config-to-system-update-image-prefix.js";
 
-/** The AppConfig fields createApi fills in when a caller leaves them unset. */
+/** The AppConfig fields a programmatic caller may leave out; normalizeAppConfig fills them. */
 export type ApiDefaultedConfigKey =
   | "telegramBotToken"
   | "telegramChatId"
@@ -80,96 +80,103 @@ export type ApiDefaultedConfigKey =
   | "timeseriesBatchSize"
   | "timeseriesColumnstoreAfterDays";
 
-/** AppConfig as the running API sees it: every defaulted field is present. */
-export type ApiConfig = AppConfig & { [Key in ApiDefaultedConfigKey]-?: Exclude<AppConfig[Key], undefined> };
+/** AppConfig as a programmatic or test caller may build it, before normalizeAppConfig. */
+export type AppConfigInput = Omit<AppConfig, ApiDefaultedConfigKey> & Partial<Pick<AppConfig, ApiDefaultedConfigKey>>;
+
+/** Every constant default; loadConfig falls back to these values as well. */
+export const APP_CONFIG_DEFAULTS = {
+  telegramBotToken: null,
+  telegramChatId: null,
+  apnsTeamId: null,
+  apnsKeyId: null,
+  apnsBundleId: null,
+  apnsPrivateKey: null,
+  alertWebhookDestinations: [],
+  dailyAnalyticsFindingsEnabled: false,
+  sensorGapRecoveryEnabled: false,
+  appleNotesGrants: [],
+  homeAssistantLegacyDisabled: false,
+  tpLinkLegacyDisabled: false,
+  tapoHistoryEnabled: false,
+  tapoHistoryWorkerToken: null,
+  tapoHistoryExportEmail: null,
+  tapoHistoryEmailTagPrefix: "stugu",
+  tapoHistoryExportIntervalMinutes: 15,
+  tapoHistoryMaxExportDays: 30,
+  tapoHistoryMaxPendingEmails: 1,
+  tapoHistoryMailboxPollIntervalMs: 60_000,
+  tapoHistoryEmailTimeoutMs: 6 * 60 * 60_000,
+  tapoHistoryWorkerLeaseMs: 5 * 60_000,
+  tapoHistoryGmailClientId: null,
+  tapoHistoryGmailClientSecret: null,
+  tapoHistoryGmailRefreshToken: null,
+  tapoHistoryPrivateEndpoint: null,
+  tapoHistoryPrivateToken: null,
+  trackingEnabled: false,
+  trackingMobileObserverEnabled: false,
+  trackingIosBackgroundEnabled: false,
+  trackingAndroidBackgroundEnabled: false,
+  trackingAndroidGatewayModeEnabled: false,
+  trackingLiveMapEnabled: false,
+  trackingMovementTrailsEnabled: false,
+  trackingExitAlertsEnabled: false,
+  trackingUserLocationSharingEnabled: false,
+  localAuthTestBypass: false,
+  cloudflareAccessAccountId: null,
+  cloudflareAccessGroupId: null,
+  cloudflareAccessGroupName: null,
+  cloudflareAccessStaticEmails: [],
+  cloudflareAccessApiToken: null,
+  cloudflareAccessSyncIntervalMs: 5 * 60_000,
+  cloudflareSetupDeploymentFile: null,
+  cloudflareSetupOAuthClientId: null,
+  cloudflareSetupLocalUiPort: 8_080,
+  electricityAllowPrivateEndpoints: false,
+  systemUpdateOperationsDirectory: null,
+  hostCapabilitiesFile: null,
+  sourceMqttHost: "127.0.0.1",
+  sourceMqttPort: 1_883,
+  sourceMqttUser: "stugu-api",
+  sourceMqttPasswordFile: null,
+  systemUpdateRepository: "liljestk/open-stuga",
+  stugubyNodeName: "Stugu",
+  stugubySyncIntervalMs: 15_000,
+  stugubyPublicOrigin: null,
+  timeseriesEnabled: false,
+  timeseriesRequired: false,
+  timeseriesHost: "127.0.0.1",
+  timeseriesPort: 5432,
+  timeseriesDatabase: "stuga",
+  timeseriesUser: "stuga_app",
+  timeseriesPassword: "",
+  timeseriesSslMode: "disable",
+  timeseriesSslCa: null,
+  timeseriesPoolMax: 6,
+  timeseriesConnectTimeoutMs: 5_000,
+  timeseriesStatementTimeoutMs: 15_000,
+  timeseriesBatchSize: 1_000,
+  timeseriesColumnstoreAfterDays: 7,
+} as const satisfies Partial<AppConfig>;
 
 /**
- * Fills createApi's defaults and returns the same object typed as ApiConfig.
- * It mutates in place on purpose: services keep this object and some routes
- * update it at runtime. Programmatic callers may still pass configs built
- * against older AppConfig shapes.
+ * Fills the defaulted fields a caller left out and returns the same object as an
+ * AppConfig. It mutates in place on purpose: services keep this object and some
+ * routes update it at runtime.
  */
-export function applyApiConfigDefaults(config: AppConfig): ApiConfig {
-  // Keep programmatic callers built against older AppConfig shapes compatible.
-  config.telegramBotToken ??= null;
-  config.telegramChatId ??= null;
-  config.apnsTeamId ??= null;
-  config.apnsKeyId ??= null;
-  config.apnsBundleId ??= null;
-  config.apnsPrivateKey ??= null;
+export function normalizeAppConfig(config: AppConfigInput): AppConfig {
+  const fields = config as Record<string, unknown>;
+  for (const [key, value] of Object.entries(APP_CONFIG_DEFAULTS)) {
+    if (fields[key] === undefined) fields[key] = Array.isArray(value) ? [...value] : value;
+  }
   config.alertWebhookDestinations ??= [];
   config.alertWebhookSource ??= config.alertWebhookDestinations.length > 0 ? "environment" : null;
   config.alertWebhookAllowedHosts ??= config.alertWebhookDestinations
     .map((destination) => new URL(destination.url).hostname.toLowerCase());
-  config.dailyAnalyticsFindingsEnabled ??= false;
-  config.sensorGapRecoveryEnabled ??= false;
-  config.appleNotesGrants ??= [];
-  config.homeAssistantLegacyDisabled ??= false;
-  config.tpLinkLegacyDisabled ??= false;
-  config.tapoHistoryEnabled ??= false;
-  config.tapoHistoryWorkerToken ??= null;
-  config.tapoHistoryExportEmail ??= null;
-  config.tapoHistoryEmailTagPrefix ??= "stugu";
-  config.tapoHistoryExportIntervalMinutes ??= 15;
-  config.tapoHistoryMaxExportDays ??= 30;
-  config.tapoHistoryMaxPendingEmails ??= 1;
-  config.tapoHistoryMailboxPollIntervalMs ??= 60_000;
-  config.tapoHistoryEmailTimeoutMs ??= 6 * 60 * 60_000;
-  config.tapoHistoryWorkerLeaseMs ??= 5 * 60_000;
-  config.tapoHistoryGmailClientId ??= null;
-  config.tapoHistoryGmailClientSecret ??= null;
-  config.tapoHistoryGmailRefreshToken ??= null;
-  config.tapoHistoryPrivateEndpoint ??= null;
-  config.tapoHistoryPrivateToken ??= null;
-  config.trackingEnabled ??= false;
-  config.trackingMobileObserverEnabled ??= false;
-  config.trackingIosBackgroundEnabled ??= false;
-  config.trackingAndroidBackgroundEnabled ??= false;
-  config.trackingAndroidGatewayModeEnabled ??= false;
-  config.trackingLiveMapEnabled ??= false;
-  config.trackingMovementTrailsEnabled ??= false;
-  config.trackingExitAlertsEnabled ??= false;
-  config.trackingUserLocationSharingEnabled ??= false;
   config.trackingSecretKeyFile ??= config.databasePath === ":memory:"
     ? null
     : join(dirname(config.databasePath), "tracking-secret.key");
-  // Only loadConfig (NODE_ENV=test) or an explicit test harness enables the bypass.
-  config.localAuthTestBypass ??= false;
-  config.cloudflareAccessAccountId ??= null;
-  config.cloudflareAccessGroupId ??= null;
-  config.cloudflareAccessGroupName ??= null;
-  config.cloudflareAccessStaticEmails ??= [];
-  config.cloudflareAccessApiToken ??= null;
-  config.cloudflareAccessSyncIntervalMs ??= 5 * 60_000;
-  config.cloudflareSetupDeploymentFile ??= null;
-  config.cloudflareSetupOAuthClientId ??= null;
-  config.cloudflareSetupLocalUiPort ??= 8_080;
-  config.electricityAllowPrivateEndpoints ??= false;
-  config.systemUpdateOperationsDirectory ??= null;
-  config.hostCapabilitiesFile ??= null;
-  config.sourceMqttHost ??= "127.0.0.1";
-  config.sourceMqttPort ??= 1_883;
-  config.sourceMqttUser ??= "stugu-api";
-  config.sourceMqttPasswordFile ??= null;
-  config.systemUpdateRepository ??= "liljestk/open-stuga";
-  config.systemUpdateImagePrefix ??= `ghcr.io/${config.systemUpdateRepository.toLowerCase()}`;
+  config.systemUpdateImagePrefix ??= `ghcr.io/${(config.systemUpdateRepository ?? APP_CONFIG_DEFAULTS.systemUpdateRepository).toLowerCase()}`;
   config.stugubyIdentityFile ??= config.databasePath === ":memory:" ? null : join(dirname(config.databasePath), "stuguby-identity.json");
-  config.stugubyNodeName ??= "Stugu";
-  config.stugubySyncIntervalMs ??= 15_000;
-  config.stugubyPublicOrigin ??= null;
-  config.timeseriesEnabled ??= false;
-  config.timeseriesRequired ??= false;
-  config.timeseriesHost ??= "127.0.0.1";
-  config.timeseriesPort ??= 5432;
-  config.timeseriesDatabase ??= "stuga";
-  config.timeseriesUser ??= "stuga_app";
-  config.timeseriesPassword ??= "";
-  config.timeseriesSslMode ??= "disable";
-  config.timeseriesSslCa ??= null;
-  config.timeseriesPoolMax ??= 6;
-  config.timeseriesConnectTimeoutMs ??= 5_000;
-  config.timeseriesStatementTimeoutMs ??= 15_000;
-  config.timeseriesBatchSize ??= 1_000;
-  config.timeseriesColumnstoreAfterDays ??= 7;
-  return config as ApiConfig;
+  // Every defaulted field is now set.
+  return config as AppConfig;
 }

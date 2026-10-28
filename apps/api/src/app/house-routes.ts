@@ -5,7 +5,7 @@ import type { House, HousePatch, OpeningStateObservationInput } from "@climate-t
 import { HttpError, bodyObject, boundedQueryInteger, dateValue, houseLocationValue, houseMapPlacementValue, optionalResourceQuery, requiredNumber, requiredString, refreshAppleNotesStatus, requireVisibleHouse } from "./support/index.js";
 import { commitCoordinatedIntegrationSecrets } from "../integration-secrets-coordinator.js";
 import type { IntegrationSecrets, IntegrationSecretsPatch } from "../integration-secrets.js";
-import type { ApiConfig } from "../config.js";
+import type { AppConfig } from "../config.js";
 import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
 
 /** House CRUD and opening states. */
@@ -279,7 +279,7 @@ function wakeSpatialAfterHousePatch(context: ApiRouteRegistrationContext, previo
 type HouseScoped = { houseId?: string | null };
 
 /** What deleting a house removes from the integration configuration. */
-function planHouseIntegrationRetirement(config: ApiConfig, houseId: string, isFirstLocalHouse: boolean) {
+function planHouseIntegrationRetirement(config: AppConfig, houseId: string, isFirstLocalHouse: boolean) {
   const split = <T extends HouseScoped>(items: readonly T[] | undefined) => ({
     removed: (items ?? []).filter((item) => item.houseId === houseId),
     remaining: (items ?? []).filter((item) => item.houseId !== houseId),

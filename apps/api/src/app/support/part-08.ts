@@ -1,3 +1,4 @@
+import type { AppConfigInput } from "../../config/api-defaults.js";
 import { existsSync } from "node:fs";
 import { hasLocalHouseAuthority } from "@climate-twin/contracts";
 import type {
@@ -99,7 +100,8 @@ export function workerTapoHistoryExportJob(job: TapoHistoryExportJob): Pick<Tapo
 }
 
 export interface CreateApiOptions {
-  config?: AppConfig;
+  /** Normalized by createApi, so programmatic callers may leave defaulted fields out. */
+  config?: AppConfigInput;
   database?: ClimateDatabase;
   weatherProvider?: WeatherProvider;
   weatherEventBroker?: WeatherEventBroker;

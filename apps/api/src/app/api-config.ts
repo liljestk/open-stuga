@@ -1,9 +1,9 @@
-import { applyApiConfigDefaults, loadConfig } from "../config.js";
+import { loadConfig, normalizeAppConfig } from "../config.js";
 import type { CreateApiOptions } from "./support/index.js";
 
 /** createApi's configuration: the caller's or the environment's, with createApi defaults applied. */
 export function resolveApiConfig(context: { options: CreateApiOptions }) {
-  const config = applyApiConfigDefaults(context.options.config ?? loadConfig());
+  const config = normalizeAppConfig(context.options.config ?? loadConfig());
   const cloudflareAccessRuntimeValues = [
       config.cloudflareAccessAccountId,
       config.cloudflareAccessGroupId,

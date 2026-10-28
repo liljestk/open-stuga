@@ -1,3 +1,4 @@
+import { APP_CONFIG_DEFAULTS } from "./api-defaults.js";
 import { createPrivateKey } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -8,8 +9,15 @@ import {
 } from "../integration-secrets.js";
 import { AppConfig, booleanValue, boundedInteger, environmentTuple, exportIntervalMinutes, githubRepository, httpEndpoint, inferredStugubyPublicOrigin, localAuthProxySecret, nonNegativeInteger, normalizedEmailList, optional, optionalFileSecret, positiveInteger, stugubyPublicOrigin, systemUpdateImagePrefix, timeseriesPassword, timeseriesSslMode } from "./01-app-config-to-system-update-image-prefix.js";
 
-export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
-  const port = positiveInteger(env.PORT, 8787);
+type Env = NodeJS.ProcessEnv;
+type StoredSecrets = ReturnType<typeof readIntegrationSecrets>;
+
+/** Settings that only work as a set: all of them or none. */
+function requireAllOrNone(values: readonly unknown[], message: string): void {
+  if (values.some(Boolean) && !values.every(Boolean)) throw new Error(message);
+}
+
+function databasePathFrom(env: Env, port: number): string {
   const databasePath = env.DATABASE_PATH === ":memory:"
     ? ":memory:"
     : resolve(env.DATABASE_PATH ?? "./data/climate-twin.sqlite");
@@ -21,56 +29,61 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       "Refusing to serve a .tmp-runtime database on primary API port 8787; use another port or explicitly set ALLOW_TEMPORARY_DATABASE_ON_PRIMARY_PORT=true",
     );
   }
-  const integrationSecretsFile = resolve(env.INTEGRATION_SECRETS_FILE
-    ?? (databasePath === ":memory:" ? "./data/integration-secrets.json" : join(dirname(databasePath), "integration-secrets.json")));
-  const stugubyIdentityFile = databasePath === ":memory:"
-    ? null
-    : resolve(env.STUGBY_IDENTITY_FILE ?? join(dirname(databasePath), "stuguby-identity.json"));
-  const stugubyNodeName = optional(env.STUGBY_NODE_NAME) ?? "Stugu";
-  if (stugubyNodeName.length > 200) throw new Error("STUGBY_NODE_NAME must contain at most 200 characters");
-  const configuredSpatialLayersPath = optional(env.SPATIAL_LAYERS_DATABASE_PATH);
-  const spatialLayersDatabasePath = configuredSpatialLayersPath === ":memory:"
-    || (configuredSpatialLayersPath === null && databasePath === ":memory:")
+  return databasePath;
+}
+
+function spatialLayersDatabasePathFrom(env: Env, databasePath: string): string {
+  const configured = optional(env.SPATIAL_LAYERS_DATABASE_PATH);
+  return configured === ":memory:" || (configured === null && databasePath === ":memory:")
     ? ":memory:"
-    : resolve(configuredSpatialLayersPath ?? join(dirname(databasePath), "experimental-spatial-layers.sqlite"));
-  const systemUpdateRepository = githubRepository(env.SYSTEM_UPDATE_REPOSITORY);
-  const stored = env.NODE_ENV === "test" && env.INTEGRATION_SECRETS_FILE === undefined
-    ? { version: 1 as const }
-    : readIntegrationSecrets(integrationSecretsFile);
-  const haEnvironment = environmentTuple(env, "Home Assistant", ["HA_URL", "HA_TOKEN"]);
-  const tpLinkEnvironment = environmentTuple(env, "TP-Link", ["TP_LINK_HOST", "TP_LINK_USERNAME", "TP_LINK_PASSWORD"]);
-  const tapoGmailClientId = optional(env.TAPO_HISTORY_GMAIL_CLIENT_ID);
-  const tapoGmailClientSecret = optionalFileSecret(
-    env, "TAPO_HISTORY_GMAIL_CLIENT_SECRET", "TAPO_HISTORY_GMAIL_CLIENT_SECRET_FILE", "Tapo Gmail client secret", 1, true,
-  );
-  const tapoGmailRefreshToken = optionalFileSecret(
-    env, "TAPO_HISTORY_GMAIL_REFRESH_TOKEN", "TAPO_HISTORY_GMAIL_REFRESH_TOKEN_FILE", "Tapo Gmail refresh token", 1, true,
-  );
-  const tapoGmailValues = [tapoGmailClientId, tapoGmailClientSecret, tapoGmailRefreshToken];
-  if (tapoGmailValues.some(Boolean) && !tapoGmailValues.every(Boolean)) {
-    throw new Error("Tapo Gmail OAuth configuration requires client id, client secret, and refresh token");
+    : resolve(configured ?? join(dirname(databasePath), "experimental-spatial-layers.sqlite"));
+}
+
+function readStugubyConfig(env: Env, databasePath: string): Pick<AppConfig,
+  | "stugubyIdentityFile" | "stugubyNodeName" | "stugubySyncIntervalMs" | "stugubyPublicOrigin"
+  | "stugubySuggestedPublicOrigin" | "stugubyCoordinatorProvisioningRequired"> {
+  const stugubyNodeName = optional(env.STUGBY_NODE_NAME) ?? APP_CONFIG_DEFAULTS.stugubyNodeName;
+  if (stugubyNodeName.length > 200) throw new Error("STUGBY_NODE_NAME must contain at most 200 characters");
+  const configuredPublicOrigin = stugubyPublicOrigin(env.STUGBY_PUBLIC_ORIGIN);
+  return {
+    stugubyIdentityFile: databasePath === ":memory:"
+      ? null
+      : resolve(env.STUGBY_IDENTITY_FILE ?? join(dirname(databasePath), "stuguby-identity.json")),
+    stugubyNodeName,
+    stugubySyncIntervalMs: boundedInteger(env.STUGBY_SYNC_INTERVAL_MS, APP_CONFIG_DEFAULTS.stugubySyncIntervalMs, 2_000, 300_000, "STUGBY_SYNC_INTERVAL_MS"),
+    stugubyPublicOrigin: configuredPublicOrigin,
+    stugubySuggestedPublicOrigin: configuredPublicOrigin
+      ?? inferredStugubyPublicOrigin(env.CORS_ORIGIN, env.CLOUDFLARE_ACCESS_PUBLIC_ORIGIN),
+    stugubyCoordinatorProvisioningRequired: !configuredPublicOrigin
+      && inferredStugubyPublicOrigin(env.CLOUDFLARE_ACCESS_PUBLIC_ORIGIN) !== null,
+  };
+}
+
+/** The APNs .p8 key file's contents once it is a P-256 private key. */
+function apnsPrivateKeyFrom(path: string | null): string | null {
+  if (!path) return null;
+  const key = readFileSync(resolve(path), "utf8");
+  if (!key.includes("BEGIN PRIVATE KEY")) throw new Error("APNS_PRIVATE_KEY_FILE must contain an Apple .p8 private key");
+  try {
+    const parsed = createPrivateKey(key);
+    if (parsed.asymmetricKeyType !== "ec" || parsed.asymmetricKeyDetails?.namedCurve !== "prime256v1") {
+      throw new Error("wrong key type");
+    }
+  } catch {
+    throw new Error("APNS_PRIVATE_KEY_FILE must contain a valid P-256 Apple .p8 private key");
   }
-  const tapoGmail = tapoGmailValues.every(Boolean) ? tapoGmailValues as string[] : null;
-  const tapoPrivateEndpoint = optional(env.TAPO_HISTORY_PRIVATE_ENDPOINT);
-  const tapoPrivateToken = optionalFileSecret(
-    env, "TAPO_HISTORY_PRIVATE_TOKEN", "TAPO_HISTORY_PRIVATE_TOKEN_FILE", "Experimental Tapo history token", 1, true,
-  );
-  if (Boolean(tapoPrivateEndpoint) !== Boolean(tapoPrivateToken)) {
-    throw new Error("Experimental Tapo history configuration requires endpoint and token");
-  }
-  const tapoPrivate = tapoPrivateEndpoint && tapoPrivateToken ? [tapoPrivateEndpoint, tapoPrivateToken] : null;
-  const tapoHistoryWorkerToken = optionalFileSecret(
-    env, "TAPO_HISTORY_WORKER_TOKEN", "TAPO_HISTORY_WORKER_TOKEN_FILE", "TAPO_HISTORY_WORKER_TOKEN", 32, true,
-  );
-  const telegramEnvironment = environmentTuple(env, "Telegram", ["TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID"]);
+  return key;
+}
+
+function readApnsConfig(env: Env): Pick<AppConfig, "apnsTeamId" | "apnsKeyId" | "apnsBundleId" | "apnsPrivateKey"> {
   const apnsTeamId = optional(env.APNS_TEAM_ID);
   const apnsKeyId = optional(env.APNS_KEY_ID);
   const apnsBundleId = optional(env.APNS_BUNDLE_ID);
   const apnsPrivateKeyFile = optional(env.APNS_PRIVATE_KEY_FILE);
-  const apnsValues = [apnsTeamId, apnsKeyId, apnsBundleId, apnsPrivateKeyFile];
-  if (apnsValues.some(Boolean) && !apnsValues.every(Boolean)) {
-    throw new Error("APNs configuration requires APNS_TEAM_ID, APNS_KEY_ID, APNS_BUNDLE_ID, and APNS_PRIVATE_KEY_FILE");
-  }
+  requireAllOrNone(
+    [apnsTeamId, apnsKeyId, apnsBundleId, apnsPrivateKeyFile],
+    "APNs configuration requires APNS_TEAM_ID, APNS_KEY_ID, APNS_BUNDLE_ID, and APNS_PRIVATE_KEY_FILE",
+  );
   if (apnsTeamId && !/^[A-Z0-9]{10}$/u.test(apnsTeamId)) {
     throw new Error("APNS_TEAM_ID must be a 10-character Apple Team ID");
   }
@@ -80,225 +93,283 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   if (apnsBundleId && !/^[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/u.test(apnsBundleId)) {
     throw new Error("APNS_BUNDLE_ID must be a valid bundle identifier");
   }
-  const apnsPrivateKey = apnsPrivateKeyFile
-    ? readFileSync(resolve(apnsPrivateKeyFile), "utf8")
-    : null;
-  if (apnsPrivateKey && !apnsPrivateKey.includes("BEGIN PRIVATE KEY")) {
-    throw new Error("APNS_PRIVATE_KEY_FILE must contain an Apple .p8 private key");
-  }
-  if (apnsPrivateKey) {
-    try {
-      const key = createPrivateKey(apnsPrivateKey);
-      if (key.asymmetricKeyType !== "ec"
-        || key.asymmetricKeyDetails?.namedCurve !== "prime256v1") {
-        throw new Error("wrong key type");
-      }
-    } catch {
-      throw new Error("APNS_PRIVATE_KEY_FILE must contain a valid P-256 Apple .p8 private key");
-    }
-  }
-  const alertWebhookEnvironmentDestinationsJson = optional(env.ALERT_WEBHOOK_DESTINATIONS_JSON);
-  const alertWebhookEnvironmentUrl = optional(env.ALERT_WEBHOOK_URL);
-  const alertWebhookEnvironmentBearerToken = optional(env.ALERT_WEBHOOK_BEARER_TOKEN);
-  const alertWebhookEnvironmentSigningSecret = optional(env.ALERT_WEBHOOK_SIGNING_SECRET);
-  const localAuthBootstrapSecret = optional(env.LOCAL_AUTH_BOOTSTRAP_SECRET);
-  if (localAuthBootstrapSecret && Buffer.byteLength(localAuthBootstrapSecret, "utf8") < 32) {
-    throw new Error("LOCAL_AUTH_BOOTSTRAP_SECRET must contain at least 32 UTF-8 bytes");
-  }
-  const localAuthTestBypass = booleanValue(env.LOCAL_AUTH_TEST_BYPASS, env.NODE_ENV === "test");
-  if (localAuthTestBypass && env.NODE_ENV !== "test") {
-    throw new Error("LOCAL_AUTH_TEST_BYPASS may only be enabled with NODE_ENV=test");
-  }
-  const localAuthProxyBindAddress = optional(env.LOCAL_AUTH_PROXY_BIND_ADDRESS);
-  const proxySecret = localAuthProxySecret(env);
-  const environmentBugReportRelayUrl = optional(env.BUG_REPORT_RELAY_URL);
-  const environmentBugReportRelayToken = optionalFileSecret(
-    env,
-    "BUG_REPORT_RELAY_TOKEN",
-    "BUG_REPORT_RELAY_TOKEN_FILE",
-    "Bug report relay token",
-    32,
-    true,
-  );
-  if (Boolean(environmentBugReportRelayUrl) !== Boolean(environmentBugReportRelayToken)) {
-    throw new Error("Bug reporting requires both BUG_REPORT_RELAY_URL and BUG_REPORT_RELAY_TOKEN");
-  }
-  if (environmentBugReportRelayUrl && new URL(environmentBugReportRelayUrl).protocol !== "https:") {
-    throw new Error("BUG_REPORT_RELAY_URL must use HTTPS");
-  }
-  /** Deployment environment wins so an operator-owned relay cannot be replaced through the API. */
-  const storedBugReportRelay = environmentBugReportRelayUrl ? null : stored.bugReportRelay ?? null;
-  const bugReportRelayUrl = environmentBugReportRelayUrl ?? storedBugReportRelay?.url ?? null;
-  const bugReportRelayToken = environmentBugReportRelayToken ?? storedBugReportRelay?.token ?? null;
-  const bugReportRelaySource: AppConfig["bugReportRelaySource"] = environmentBugReportRelayUrl
-    ? "environment"
-    : storedBugReportRelay
-      ? "protected-file"
-      : null;
-  const cloudflareAccessAccountId = optional(env.CLOUDFLARE_ACCESS_ACCOUNT_ID);
-  const cloudflareAccessGroupId = optional(env.CLOUDFLARE_ACCESS_GROUP_ID);
-  const cloudflareAccessApiToken = optionalFileSecret(
-    env,
-    "CLOUDFLARE_ACCESS_API_TOKEN",
-    "CLOUDFLARE_ACCESS_API_TOKEN_FILE",
-    "Cloudflare Access API token",
-    32,
-    true,
-  );
-  const cloudflareAccessStaticEmails = normalizedEmailList(
-    env.CLOUDFLARE_ACCESS_STATIC_EMAILS,
-    "CLOUDFLARE_ACCESS_STATIC_EMAILS",
-  );
-  const cloudflareAccessValues = [
-    cloudflareAccessAccountId,
-    cloudflareAccessGroupId,
-    cloudflareAccessApiToken,
-    cloudflareAccessStaticEmails.length > 0 ? "configured" : null,
+  return { apnsTeamId, apnsKeyId, apnsBundleId, apnsPrivateKey: apnsPrivateKeyFrom(apnsPrivateKeyFile) };
+}
+
+function readTapoGmail(env: Env): [string, string, string] | null {
+  const values = [
+    optional(env.TAPO_HISTORY_GMAIL_CLIENT_ID),
+    optionalFileSecret(env, "TAPO_HISTORY_GMAIL_CLIENT_SECRET", "TAPO_HISTORY_GMAIL_CLIENT_SECRET_FILE", "Tapo Gmail client secret", 1, true),
+    optionalFileSecret(env, "TAPO_HISTORY_GMAIL_REFRESH_TOKEN", "TAPO_HISTORY_GMAIL_REFRESH_TOKEN_FILE", "Tapo Gmail refresh token", 1, true),
   ];
-  if (cloudflareAccessValues.some(Boolean) && !cloudflareAccessValues.every(Boolean)) {
-    throw new Error(
-      "Cloudflare Access synchronization requires CLOUDFLARE_ACCESS_ACCOUNT_ID, CLOUDFLARE_ACCESS_GROUP_ID, CLOUDFLARE_ACCESS_STATIC_EMAILS, and an API token",
-    );
+  requireAllOrNone(values, "Tapo Gmail OAuth configuration requires client id, client secret, and refresh token");
+  return values.every(Boolean) ? values as [string, string, string] : null;
+}
+
+function readTapoPrivate(env: Env): { endpoint: string; token: string } | null {
+  const endpoint = optional(env.TAPO_HISTORY_PRIVATE_ENDPOINT);
+  const token = optionalFileSecret(
+    env, "TAPO_HISTORY_PRIVATE_TOKEN", "TAPO_HISTORY_PRIVATE_TOKEN_FILE", "Experimental Tapo history token", 1, true,
+  );
+  requireAllOrNone([endpoint, token], "Experimental Tapo history configuration requires endpoint and token");
+  if (!endpoint || !token) return null;
+  const url = httpEndpoint(endpoint, "TAPO_HISTORY_PRIVATE_ENDPOINT");
+  if (new URL(url).protocol !== "https:") throw new Error("TAPO_HISTORY_PRIVATE_ENDPOINT must use HTTPS");
+  return { endpoint: url, token };
+}
+
+function validEmail(value: string | null, variable: string): string | null {
+  if (value && (value.length > 254 || !/^[^\s@<>]+@[^\s@<>]+$/.test(value))) {
+    throw new Error(`${variable} must be a valid email address`);
   }
-  if (cloudflareAccessAccountId && !/^[a-f0-9]{32}$/i.test(cloudflareAccessAccountId)) {
-    throw new Error("CLOUDFLARE_ACCESS_ACCOUNT_ID must be a 32-character hexadecimal account ID");
-  }
-  if (cloudflareAccessGroupId
-    && !/^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(cloudflareAccessGroupId)) {
-    throw new Error("CLOUDFLARE_ACCESS_GROUP_ID must be a UUID");
-  }
-  const cloudflareAccessGroupName = cloudflareAccessValues.every(Boolean)
-    ? optional(env.CLOUDFLARE_ACCESS_GROUP_NAME) ?? "Stugu managed members"
-    : null;
-  if (cloudflareAccessGroupName && cloudflareAccessGroupName.length > 255) {
-    throw new Error("CLOUDFLARE_ACCESS_GROUP_NAME must contain at most 255 characters");
-  }
-  const cloudflareSetupOAuthClientId = optional(env.STUGA_CLOUDFLARE_OAUTH_CLIENT_ID);
-  if (cloudflareSetupOAuthClientId
-    && (cloudflareSetupOAuthClientId.length < 8
-      || cloudflareSetupOAuthClientId.length > 200
-      || !/^[A-Za-z0-9._~-]+$/u.test(cloudflareSetupOAuthClientId))) {
-    throw new Error("STUGA_CLOUDFLARE_OAUTH_CLIENT_ID is not a valid OAuth client ID");
-  }
-  if (alertWebhookEnvironmentDestinationsJson && (
-    alertWebhookEnvironmentUrl || alertWebhookEnvironmentBearerToken || alertWebhookEnvironmentSigningSecret
-  )) {
-    throw new Error("ALERT_WEBHOOK_DESTINATIONS_JSON cannot be combined with legacy ALERT_WEBHOOK_* destination credentials");
-  }
-  if (!alertWebhookEnvironmentUrl && alertWebhookEnvironmentBearerToken) {
-    throw new Error("ALERT_WEBHOOK_BEARER_TOKEN requires ALERT_WEBHOOK_URL");
-  }
-  if (!alertWebhookEnvironmentUrl && alertWebhookEnvironmentSigningSecret) {
-    throw new Error("ALERT_WEBHOOK_SIGNING_SECRET requires ALERT_WEBHOOK_URL");
-  }
-  if (alertWebhookEnvironmentSigningSecret && Buffer.byteLength(alertWebhookEnvironmentSigningSecret, "utf8") < 32) {
-    throw new Error("ALERT_WEBHOOK_SIGNING_SECRET must contain at least 32 UTF-8 bytes");
-  }
-  const ha = haEnvironment
-    ? { url: httpEndpoint(haEnvironment[0]!, "HA_URL"), token: haEnvironment[1]! }
-    : stored.homeAssistant ?? null;
-  const tpLink = tpLinkEnvironment
-    ? { host: tpLinkEnvironment[0]!, username: tpLinkEnvironment[1]!, password: tpLinkEnvironment[2]! }
-    : stored.tpLink ?? null;
-  const telegram = telegramEnvironment
-    ? { botToken: telegramEnvironment[0]!, chatId: telegramEnvironment[1]! }
-    : stored.telegram ?? null;
-  let environmentWebhookDestinations: WebhookDestinationSecret[] | null = null;
-  if (alertWebhookEnvironmentDestinationsJson) {
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(alertWebhookEnvironmentDestinationsJson);
-    } catch {
-      throw new Error("ALERT_WEBHOOK_DESTINATIONS_JSON must be valid JSON");
-    }
-    environmentWebhookDestinations = normalizedWebhookDestinations(parsed, "ALERT_WEBHOOK_DESTINATIONS_JSON");
-  } else if (alertWebhookEnvironmentUrl) {
-    environmentWebhookDestinations = normalizedWebhookDestinations([{
-      id: "primary",
-      url: httpEndpoint(alertWebhookEnvironmentUrl, "ALERT_WEBHOOK_URL"),
-      ...(alertWebhookEnvironmentBearerToken ? { bearerToken: alertWebhookEnvironmentBearerToken } : {}),
-      ...(alertWebhookEnvironmentSigningSecret ? { signingSecret: alertWebhookEnvironmentSigningSecret } : {}),
-    }], "Legacy alert webhook configuration");
-  }
-  const storedWebhookDestinations = stored.webhookDestinations
-    ?? (stored.webhook ? normalizedWebhookDestinations([{ id: "primary", ...stored.webhook }], "Stored webhook") : null);
-  const webhookDestinations = environmentWebhookDestinations ?? storedWebhookDestinations ?? [];
-  const webhookSource: AppConfig["alertWebhookSource"] = environmentWebhookDestinations
-    ? "environment"
-    : storedWebhookDestinations
-      ? "protected-file"
-      : null;
-  const configuredWebhookAllowedHosts = optional(env.ALERT_WEBHOOK_ALLOWED_HOSTS)?.split(",")
-    .map((host) => host.trim().toLowerCase()).filter(Boolean);
-  const alertWebhookAllowedHosts = [...new Set(configuredWebhookAllowedHosts
-    ?? webhookDestinations.map((destination) => new URL(destination.url).hostname.toLowerCase()))];
-  const disallowedWebhookHost = webhookDestinations.find((destination) => (
-    !alertWebhookAllowedHosts.includes(new URL(destination.url).hostname.toLowerCase())
-  ));
-  if (disallowedWebhookHost) {
-    throw new Error(`ALERT_WEBHOOK_ALLOWED_HOSTS must include every configured webhook destination host (${disallowedWebhookHost.id})`);
-  }
-  const timeseriesEnabled = booleanValue(env.TIMESERIES_ENABLED, false);
-  const timeseriesRequired = booleanValue(env.TIMESERIES_REQUIRED, false);
-  if (timeseriesRequired && !timeseriesEnabled) {
-    throw new Error("TIMESERIES_REQUIRED=true requires TIMESERIES_ENABLED=true");
-  }
-  const configuredTimeseriesCa = optional(env.TIMESERIES_SSL_CA_FILE);
-  const retentionDays = nonNegativeInteger(env.RETENTION_DAYS, 0);
-  if (retentionDays > 0 && retentionDays < 30) throw new Error("RETENTION_DAYS must be 0 or at least 30");
-  if (retentionDays > 0 && !timeseriesEnabled) throw new Error("RETENTION_DAYS requires TIMESERIES_ENABLED=true");
-  const tapoHistoryExportEmail = optional(env.TAPO_HISTORY_EXPORT_EMAIL)?.toLowerCase() ?? null;
-  if (tapoHistoryExportEmail && (tapoHistoryExportEmail.length > 254
-    || !/^[^\s@<>]+@[^\s@<>]+$/.test(tapoHistoryExportEmail))) {
-    throw new Error("TAPO_HISTORY_EXPORT_EMAIL must be a valid email address");
-  }
-  if (tapoGmail && !tapoHistoryExportEmail) {
+  return value;
+}
+
+/** The export mailbox, its Gmail account and tag prefix, checked against the per-attempt tag length. */
+function readTapoMailbox(env: Env, gmailConfigured: boolean): Pick<AppConfig,
+  "tapoHistoryExportEmail" | "tapoHistoryGmailAccountEmail" | "tapoHistoryEmailTagPrefix"> {
+  const exportEmail = validEmail(optional(env.TAPO_HISTORY_EXPORT_EMAIL)?.toLowerCase() ?? null, "TAPO_HISTORY_EXPORT_EMAIL");
+  if (gmailConfigured && !exportEmail) {
     throw new Error("Tapo Gmail OAuth configuration requires TAPO_HISTORY_EXPORT_EMAIL");
   }
-  const implicitGmailAccountEmail = tapoHistoryExportEmail?.replace(
-    /^([^+@]+)\+[^@]+@(gmail\.com|googlemail\.com)$/u,
-    "$1@$2",
-  ) ?? null;
-  const tapoHistoryGmailAccountEmail = optional(env.TAPO_HISTORY_GMAIL_ACCOUNT_EMAIL)?.toLowerCase()
-    ?? implicitGmailAccountEmail;
-  if (tapoHistoryGmailAccountEmail && (tapoHistoryGmailAccountEmail.length > 254
-    || !/^[^\s@<>]+@[^\s@<>]+$/.test(tapoHistoryGmailAccountEmail))) {
-    throw new Error("TAPO_HISTORY_GMAIL_ACCOUNT_EMAIL must be a valid email address");
-  }
-  if (tapoPrivate && new URL(httpEndpoint(tapoPrivate[0]!, "TAPO_HISTORY_PRIVATE_ENDPOINT")).protocol !== "https:") {
-    throw new Error("TAPO_HISTORY_PRIVATE_ENDPOINT must use HTTPS");
-  }
-  const tapoHistoryEnabled = booleanValue(env.TAPO_HISTORY_ENABLED, false);
-  const tapoHistoryEmailTagPrefix = optional(env.TAPO_HISTORY_EMAIL_TAG_PREFIX) ?? "stugu";
-  if (tapoHistoryExportEmail) {
-    const local = tapoHistoryExportEmail.slice(0, tapoHistoryExportEmail.lastIndexOf("@")).split("+")[0]!;
-    const safePrefix = tapoHistoryEmailTagPrefix.toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 20) || "stugu";
+  const implicitAccountEmail = exportEmail?.replace(/^([^+@]+)\+[^@]+@(gmail\.com|googlemail\.com)$/u, "$1@$2") ?? null;
+  const accountEmail = validEmail(
+    optional(env.TAPO_HISTORY_GMAIL_ACCOUNT_EMAIL)?.toLowerCase() ?? implicitAccountEmail,
+    "TAPO_HISTORY_GMAIL_ACCOUNT_EMAIL",
+  );
+  const tagPrefix = optional(env.TAPO_HISTORY_EMAIL_TAG_PREFIX) ?? APP_CONFIG_DEFAULTS.tapoHistoryEmailTagPrefix;
+  if (exportEmail) {
+    const local = exportEmail.slice(0, exportEmail.lastIndexOf("@")).split("+")[0]!;
+    const safePrefix = tagPrefix.toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 20) || APP_CONFIG_DEFAULTS.tapoHistoryEmailTagPrefix;
     if (Buffer.byteLength(`${local}+${safePrefix}-${"0".repeat(32)}`, "utf8") > 64) {
       throw new Error("TAPO_HISTORY_EXPORT_EMAIL local part is too long for the per-attempt correlation tag");
     }
   }
-  const appHistoryConfigured = Boolean(tapoHistoryWorkerToken && tapoHistoryExportEmail && tapoGmail);
-  if (tapoHistoryEnabled && !appHistoryConfigured && !tapoPrivate) {
+  return { tapoHistoryExportEmail: exportEmail, tapoHistoryGmailAccountEmail: accountEmail, tapoHistoryEmailTagPrefix: tagPrefix };
+}
+
+function readTapoHistoryConfig(env: Env): Pick<AppConfig,
+  | "tapoHistoryEnabled" | "tapoHistoryWorkerToken" | "tapoHistoryExportEmail" | "tapoHistoryEmailTagPrefix"
+  | "tapoHistoryExportIntervalMinutes" | "tapoHistoryMaxExportDays" | "tapoHistoryMaxPendingEmails"
+  | "tapoHistoryMailboxPollIntervalMs" | "tapoHistoryEmailTimeoutMs" | "tapoHistoryWorkerLeaseMs"
+  | "tapoHistoryGmailAccountEmail" | "tapoHistoryGmailClientId" | "tapoHistoryGmailClientSecret"
+  | "tapoHistoryGmailRefreshToken" | "tapoHistoryPrivateEndpoint" | "tapoHistoryPrivateToken"> {
+  const gmail = readTapoGmail(env);
+  const privateHistory = readTapoPrivate(env);
+  const workerToken = optionalFileSecret(
+    env, "TAPO_HISTORY_WORKER_TOKEN", "TAPO_HISTORY_WORKER_TOKEN_FILE", "TAPO_HISTORY_WORKER_TOKEN", 32, true,
+  );
+  const mailbox = readTapoMailbox(env, gmail !== null);
+  const enabled = booleanValue(env.TAPO_HISTORY_ENABLED, false);
+  const appHistoryConfigured = Boolean(workerToken && mailbox.tapoHistoryExportEmail && gmail);
+  if (enabled && !appHistoryConfigured && !privateHistory) {
     throw new Error(
       "TAPO_HISTORY_ENABLED=true requires either the complete app worker/email/Gmail tuple or the private endpoint/token pair",
     );
   }
-  const configuredStugubyPublicOrigin = stugubyPublicOrigin(env.STUGBY_PUBLIC_ORIGIN);
-  const suggestedStugubyPublicOrigin = configuredStugubyPublicOrigin
-    ?? inferredStugubyPublicOrigin(env.CORS_ORIGIN, env.CLOUDFLARE_ACCESS_PUBLIC_ORIGIN);
-  const stugubyCoordinatorProvisioningRequired = !configuredStugubyPublicOrigin
-    && inferredStugubyPublicOrigin(env.CLOUDFLARE_ACCESS_PUBLIC_ORIGIN) !== null;
-
   return {
-    port,
-    apiHost: optional(env.API_HOST) ?? "127.0.0.1",
-    databasePath,
-    spatialLayersEnabled: booleanValue(env.SPATIAL_LAYERS_ENABLED, false),
-    spatialLayersDatabasePath,
-    spatialLayersIntervalMs: positiveInteger(env.SPATIAL_LAYERS_INTERVAL_MS, 60_000),
-    spatialLayersRetentionDays: positiveInteger(env.SPATIAL_LAYERS_RETENTION_DAYS, 30),
-    dailyAnalyticsFindingsEnabled: booleanValue(env.DAILY_ANALYTICS_FINDINGS_ENABLED, false),
-    sensorGapRecoveryEnabled: booleanValue(env.SENSOR_GAP_RECOVERY_ENABLED, false),
+    tapoHistoryEnabled: enabled,
+    tapoHistoryWorkerToken: workerToken,
+    ...mailbox,
+    tapoHistoryExportIntervalMinutes: exportIntervalMinutes(env.TAPO_HISTORY_EXPORT_INTERVAL_MINUTES),
+    tapoHistoryMaxExportDays: boundedInteger(
+      env.TAPO_HISTORY_MAX_EXPORT_DAYS, APP_CONFIG_DEFAULTS.tapoHistoryMaxExportDays, 1, 730, "TAPO_HISTORY_MAX_EXPORT_DAYS",
+    ),
+    tapoHistoryMaxPendingEmails: boundedInteger(
+      env.TAPO_HISTORY_MAX_PENDING_EMAILS, APP_CONFIG_DEFAULTS.tapoHistoryMaxPendingEmails, 1, 10, "TAPO_HISTORY_MAX_PENDING_EMAILS",
+    ),
+    tapoHistoryMailboxPollIntervalMs: positiveInteger(env.TAPO_HISTORY_MAILBOX_POLL_INTERVAL_MS, APP_CONFIG_DEFAULTS.tapoHistoryMailboxPollIntervalMs),
+    tapoHistoryEmailTimeoutMs: positiveInteger(env.TAPO_HISTORY_EMAIL_TIMEOUT_MS, APP_CONFIG_DEFAULTS.tapoHistoryEmailTimeoutMs),
+    tapoHistoryWorkerLeaseMs: boundedInteger(
+      env.TAPO_HISTORY_WORKER_LEASE_MS, APP_CONFIG_DEFAULTS.tapoHistoryWorkerLeaseMs, 5 * 60_000, 24 * 60 * 60_000, "TAPO_HISTORY_WORKER_LEASE_MS",
+    ),
+    tapoHistoryGmailClientId: gmail?.[0] ?? null,
+    tapoHistoryGmailClientSecret: gmail?.[1] ?? null,
+    tapoHistoryGmailRefreshToken: gmail?.[2] ?? null,
+    tapoHistoryPrivateEndpoint: privateHistory?.endpoint ?? null,
+    tapoHistoryPrivateToken: privateHistory?.token ?? null,
+  };
+}
+
+/** Destinations from ALERT_WEBHOOK_DESTINATIONS_JSON or the legacy single-URL variables, or null. */
+function environmentWebhookDestinations(env: Env): WebhookDestinationSecret[] | null {
+  const destinationsJson = optional(env.ALERT_WEBHOOK_DESTINATIONS_JSON);
+  const url = optional(env.ALERT_WEBHOOK_URL);
+  const bearerToken = optional(env.ALERT_WEBHOOK_BEARER_TOKEN);
+  const signingSecret = optional(env.ALERT_WEBHOOK_SIGNING_SECRET);
+  if (destinationsJson && (url || bearerToken || signingSecret)) {
+    throw new Error("ALERT_WEBHOOK_DESTINATIONS_JSON cannot be combined with legacy ALERT_WEBHOOK_* destination credentials");
+  }
+  if (!url && bearerToken) throw new Error("ALERT_WEBHOOK_BEARER_TOKEN requires ALERT_WEBHOOK_URL");
+  if (!url && signingSecret) throw new Error("ALERT_WEBHOOK_SIGNING_SECRET requires ALERT_WEBHOOK_URL");
+  if (signingSecret && Buffer.byteLength(signingSecret, "utf8") < 32) {
+    throw new Error("ALERT_WEBHOOK_SIGNING_SECRET must contain at least 32 UTF-8 bytes");
+  }
+  if (destinationsJson) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(destinationsJson);
+    } catch {
+      throw new Error("ALERT_WEBHOOK_DESTINATIONS_JSON must be valid JSON");
+    }
+    return normalizedWebhookDestinations(parsed, "ALERT_WEBHOOK_DESTINATIONS_JSON");
+  }
+  if (!url) return null;
+  return normalizedWebhookDestinations([{
+    id: "primary",
+    url: httpEndpoint(url, "ALERT_WEBHOOK_URL"),
+    ...(bearerToken ? { bearerToken } : {}),
+    ...(signingSecret ? { signingSecret } : {}),
+  }], "Legacy alert webhook configuration");
+}
+
+function readAlertWebhookConfig(env: Env, stored: StoredSecrets): Pick<AppConfig,
+  "alertWebhookDestinations" | "alertWebhookAllowedHosts" | "alertWebhookSource"> {
+  const fromEnvironment = environmentWebhookDestinations(env);
+  const fromFile = stored.webhookDestinations
+    ?? (stored.webhook ? normalizedWebhookDestinations([{ id: "primary", ...stored.webhook }], "Stored webhook") : null);
+  const destinations = fromEnvironment ?? fromFile ?? [];
+  const hostOf = (destination: WebhookDestinationSecret) => new URL(destination.url).hostname.toLowerCase();
+  const configuredHosts = optional(env.ALERT_WEBHOOK_ALLOWED_HOSTS)?.split(",")
+    .map((host) => host.trim().toLowerCase()).filter(Boolean);
+  const allowedHosts = [...new Set(configuredHosts ?? destinations.map(hostOf))];
+  const disallowed = destinations.find((destination) => !allowedHosts.includes(hostOf(destination)));
+  if (disallowed) {
+    throw new Error(`ALERT_WEBHOOK_ALLOWED_HOSTS must include every configured webhook destination host (${disallowed.id})`);
+  }
+  return {
+    alertWebhookDestinations: destinations.map((destination) => ({ ...destination })),
+    alertWebhookAllowedHosts: allowedHosts,
+    alertWebhookSource: fromEnvironment ? "environment" : fromFile ? "protected-file" : null,
+  };
+}
+
+function readLocalAuthConfig(env: Env): Pick<AppConfig,
+  "localAuthBootstrapSecret" | "localAuthTestBypass" | "localAuthProxyBindAddress" | "localAuthProxySecret"> {
+  const bootstrapSecret = optional(env.LOCAL_AUTH_BOOTSTRAP_SECRET);
+  if (bootstrapSecret && Buffer.byteLength(bootstrapSecret, "utf8") < 32) {
+    throw new Error("LOCAL_AUTH_BOOTSTRAP_SECRET must contain at least 32 UTF-8 bytes");
+  }
+  const testBypass = booleanValue(env.LOCAL_AUTH_TEST_BYPASS, env.NODE_ENV === "test");
+  if (testBypass && env.NODE_ENV !== "test") {
+    throw new Error("LOCAL_AUTH_TEST_BYPASS may only be enabled with NODE_ENV=test");
+  }
+  return {
+    localAuthBootstrapSecret: bootstrapSecret,
+    localAuthTestBypass: testBypass,
+    localAuthProxyBindAddress: optional(env.LOCAL_AUTH_PROXY_BIND_ADDRESS),
+    localAuthProxySecret: localAuthProxySecret(env),
+  };
+}
+
+/** The deployment environment wins, so an operator-owned relay cannot be replaced through the API. */
+function readBugReportRelayConfig(env: Env, stored: StoredSecrets): Pick<AppConfig,
+  "bugReportRelayUrl" | "bugReportRelayToken" | "bugReportRelaySource" | "bugReportRelayUpdatedAt"> {
+  const url = optional(env.BUG_REPORT_RELAY_URL);
+  const token = optionalFileSecret(env, "BUG_REPORT_RELAY_TOKEN", "BUG_REPORT_RELAY_TOKEN_FILE", "Bug report relay token", 32, true);
+  requireAllOrNone([url, token], "Bug reporting requires both BUG_REPORT_RELAY_URL and BUG_REPORT_RELAY_TOKEN");
+  if (url && new URL(url).protocol !== "https:") throw new Error("BUG_REPORT_RELAY_URL must use HTTPS");
+  const fromFile = url ? null : stored.bugReportRelay ?? null;
+  return {
+    bugReportRelayUrl: url ?? fromFile?.url ?? null,
+    bugReportRelayToken: token ?? fromFile?.token ?? null,
+    bugReportRelaySource: url ? "environment" : fromFile ? "protected-file" : null,
+    bugReportRelayUpdatedAt: fromFile?.updatedAt ?? null,
+  };
+}
+
+function validCloudflareIds(accountId: string | null, groupId: string | null): void {
+  if (accountId && !/^[a-f0-9]{32}$/i.test(accountId)) {
+    throw new Error("CLOUDFLARE_ACCESS_ACCOUNT_ID must be a 32-character hexadecimal account ID");
+  }
+  if (groupId && !/^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(groupId)) {
+    throw new Error("CLOUDFLARE_ACCESS_GROUP_ID must be a UUID");
+  }
+}
+
+function readCloudflareAccessConfig(env: Env): Pick<AppConfig,
+  | "cloudflareAccessAccountId" | "cloudflareAccessGroupId" | "cloudflareAccessGroupName"
+  | "cloudflareAccessStaticEmails" | "cloudflareAccessApiToken" | "cloudflareAccessSyncIntervalMs"> {
+  const accountId = optional(env.CLOUDFLARE_ACCESS_ACCOUNT_ID);
+  const groupId = optional(env.CLOUDFLARE_ACCESS_GROUP_ID);
+  const apiToken = optionalFileSecret(env, "CLOUDFLARE_ACCESS_API_TOKEN", "CLOUDFLARE_ACCESS_API_TOKEN_FILE", "Cloudflare Access API token", 32, true);
+  const staticEmails = normalizedEmailList(env.CLOUDFLARE_ACCESS_STATIC_EMAILS, "CLOUDFLARE_ACCESS_STATIC_EMAILS");
+  const values = [accountId, groupId, apiToken, staticEmails.length > 0 ? "configured" : null];
+  requireAllOrNone(
+    values,
+    "Cloudflare Access synchronization requires CLOUDFLARE_ACCESS_ACCOUNT_ID, CLOUDFLARE_ACCESS_GROUP_ID, CLOUDFLARE_ACCESS_STATIC_EMAILS, and an API token",
+  );
+  validCloudflareIds(accountId, groupId);
+  const groupName = values.every(Boolean) ? optional(env.CLOUDFLARE_ACCESS_GROUP_NAME) ?? "Stugu managed members" : null;
+  if (groupName && groupName.length > 255) throw new Error("CLOUDFLARE_ACCESS_GROUP_NAME must contain at most 255 characters");
+  return {
+    cloudflareAccessAccountId: accountId,
+    cloudflareAccessGroupId: groupId,
+    cloudflareAccessGroupName: groupName,
+    cloudflareAccessStaticEmails: staticEmails,
+    cloudflareAccessApiToken: apiToken,
+    cloudflareAccessSyncIntervalMs: boundedInteger(
+      env.CLOUDFLARE_ACCESS_SYNC_INTERVAL_MS, APP_CONFIG_DEFAULTS.cloudflareAccessSyncIntervalMs, 60_000, 24 * 60 * 60_000, "CLOUDFLARE_ACCESS_SYNC_INTERVAL_MS",
+    ),
+  };
+}
+
+function readCloudflareSetupConfig(env: Env): Pick<AppConfig,
+  "cloudflareSetupDeploymentFile" | "cloudflareSetupOAuthClientId" | "cloudflareSetupLocalUiPort"> {
+  const oauthClientId = optional(env.STUGA_CLOUDFLARE_OAUTH_CLIENT_ID);
+  if (oauthClientId && (oauthClientId.length < 8 || oauthClientId.length > 200 || !/^[A-Za-z0-9._~-]+$/u.test(oauthClientId))) {
+    throw new Error("STUGA_CLOUDFLARE_OAUTH_CLIENT_ID is not a valid OAuth client ID");
+  }
+  return {
+    cloudflareSetupDeploymentFile: resolve(env.CLOUDFLARE_SETUP_DEPLOYMENT_FILE ?? "./secrets/cloudflare/deployment.json"),
+    cloudflareSetupOAuthClientId: oauthClientId,
+    cloudflareSetupLocalUiPort: boundedInteger(
+      env.STUGA_LOCAL_UI_PORT, APP_CONFIG_DEFAULTS.cloudflareSetupLocalUiPort, 1_024, 65_535, "STUGA_LOCAL_UI_PORT",
+    ),
+  };
+}
+
+function readTimeseriesConfig(env: Env): Pick<AppConfig,
+  | "retentionDays" | "timeseriesEnabled" | "timeseriesRequired" | "timeseriesHost" | "timeseriesPort"
+  | "timeseriesDatabase" | "timeseriesUser" | "timeseriesPassword" | "timeseriesSslMode" | "timeseriesSslCa"
+  | "timeseriesPoolMax" | "timeseriesConnectTimeoutMs" | "timeseriesStatementTimeoutMs" | "timeseriesBatchSize"
+  | "timeseriesColumnstoreAfterDays" | "timeseriesStoragePath"> {
+  const enabled = booleanValue(env.TIMESERIES_ENABLED, false);
+  const required = booleanValue(env.TIMESERIES_REQUIRED, false);
+  if (required && !enabled) throw new Error("TIMESERIES_REQUIRED=true requires TIMESERIES_ENABLED=true");
+  const retentionDays = nonNegativeInteger(env.RETENTION_DAYS, 0);
+  if (retentionDays > 0 && retentionDays < 30) throw new Error("RETENTION_DAYS must be 0 or at least 30");
+  if (retentionDays > 0 && !enabled) throw new Error("RETENTION_DAYS requires TIMESERIES_ENABLED=true");
+  const caFile = optional(env.TIMESERIES_SSL_CA_FILE);
+  const storagePath = optional(env.TIMESERIES_STORAGE_PATH);
+  return {
+    // Zero keeps the complete redundant SQLite copy. A positive value bounds
+    // only the hot copy after archive reconciliation; Timescale raw data is
+    // deliberately retained without a deletion policy.
+    retentionDays,
+    timeseriesEnabled: enabled,
+    timeseriesRequired: required,
+    timeseriesHost: optional(env.TIMESERIES_HOST) ?? APP_CONFIG_DEFAULTS.timeseriesHost,
+    timeseriesPort: positiveInteger(env.TIMESERIES_PORT, APP_CONFIG_DEFAULTS.timeseriesPort),
+    timeseriesDatabase: optional(env.TIMESERIES_DATABASE) ?? APP_CONFIG_DEFAULTS.timeseriesDatabase,
+    timeseriesUser: optional(env.TIMESERIES_USER) ?? APP_CONFIG_DEFAULTS.timeseriesUser,
+    timeseriesPassword: timeseriesPassword(env),
+    timeseriesSslMode: timeseriesSslMode(env.TIMESERIES_SSL_MODE),
+    timeseriesSslCa: caFile ? readFileSync(resolve(caFile), "utf8") : null,
+    timeseriesPoolMax: positiveInteger(env.TIMESERIES_POOL_MAX, APP_CONFIG_DEFAULTS.timeseriesPoolMax),
+    timeseriesConnectTimeoutMs: positiveInteger(env.TIMESERIES_CONNECT_TIMEOUT_MS, APP_CONFIG_DEFAULTS.timeseriesConnectTimeoutMs),
+    timeseriesStatementTimeoutMs: positiveInteger(env.TIMESERIES_STATEMENT_TIMEOUT_MS, APP_CONFIG_DEFAULTS.timeseriesStatementTimeoutMs),
+    timeseriesBatchSize: positiveInteger(env.TIMESERIES_BATCH_SIZE, APP_CONFIG_DEFAULTS.timeseriesBatchSize),
+    timeseriesColumnstoreAfterDays: positiveInteger(env.TIMESERIES_COLUMNSTORE_AFTER_DAYS, APP_CONFIG_DEFAULTS.timeseriesColumnstoreAfterDays),
+    timeseriesStoragePath: storagePath ? resolve(storagePath) : null,
+  };
+}
+
+function readTrackingConfig(env: Env, databasePath: string): Pick<AppConfig,
+  | "trackingEnabled" | "trackingMobileObserverEnabled" | "trackingIosBackgroundEnabled" | "trackingAndroidBackgroundEnabled"
+  | "trackingAndroidGatewayModeEnabled" | "trackingLiveMapEnabled" | "trackingMovementTrailsEnabled"
+  | "trackingExitAlertsEnabled" | "trackingUserLocationSharingEnabled" | "trackingSecretKeyFile"> {
+  return {
     trackingEnabled: booleanValue(env.TRACKING_ENABLED, false),
     trackingMobileObserverEnabled: booleanValue(env.TRACKING_MOBILE_OBSERVER_ENABLED, false),
     trackingIosBackgroundEnabled: booleanValue(env.TRACKING_IOS_BACKGROUND_ENABLED, false),
@@ -307,58 +378,34 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     trackingLiveMapEnabled: booleanValue(env.TRACKING_LIVE_MAP_ENABLED, false),
     trackingMovementTrailsEnabled: booleanValue(env.TRACKING_MOVEMENT_TRAILS_ENABLED, false),
     trackingExitAlertsEnabled: booleanValue(env.TRACKING_EXIT_ALERTS_ENABLED, false),
-    trackingUserLocationSharingEnabled: booleanValue(
-      env.TRACKING_USER_LOCATION_SHARING_ENABLED,
-      false,
-    ),
+    trackingUserLocationSharingEnabled: booleanValue(env.TRACKING_USER_LOCATION_SHARING_ENABLED, false),
     trackingSecretKeyFile: databasePath === ":memory:"
       ? null
       : resolve(env.TRACKING_SECRET_KEY_FILE ?? join(dirname(databasePath), "tracking-secret.key")),
-    integrationSecretsFile,
-    assetDirectory: resolve(env.ASSET_DIRECTORY ?? "./data/assets"),
-    stugubyIdentityFile,
-    stugubyNodeName,
-    stugubySyncIntervalMs: boundedInteger(env.STUGBY_SYNC_INTERVAL_MS, 15_000, 2_000, 300_000, "STUGBY_SYNC_INTERVAL_MS"),
-    stugubyPublicOrigin: configuredStugubyPublicOrigin,
-    stugubySuggestedPublicOrigin: suggestedStugubyPublicOrigin,
-    stugubyCoordinatorProvisioningRequired,
-    backupOperationsDirectory: resolve(env.BACKUP_OPERATIONS_DIRECTORY ?? "./data/backup-operations"),
-    backupDirectory: resolve(env.BACKUP_DIRECTORY ?? "./backups"),
-    systemUpdateOperationsDirectory: resolve(env.SYSTEM_UPDATE_OPERATIONS_DIRECTORY
-      ?? (databasePath === ":memory:" ? "./data/update-operations" : join(dirname(databasePath), "update-operations"))),
-    systemUpdateRepository,
-    systemUpdateImagePrefix: systemUpdateImagePrefix(env.SYSTEM_UPDATE_IMAGE_PREFIX, systemUpdateRepository),
-    hostCapabilitiesFile: resolve(env.STUGA_HOST_CAPABILITIES_FILE ?? "./config/host-capabilities.json"),
-    sourceMqttHost: optional(env.SOURCE_MQTT_HOST) ?? "127.0.0.1",
-    sourceMqttPort: boundedInteger(env.SOURCE_MQTT_PORT, 1_883, 1, 65_535, "SOURCE_MQTT_PORT"),
-    sourceMqttUser: optional(env.SOURCE_MQTT_USER) ?? "stugu-api",
-    sourceMqttPasswordFile: optional(env.SOURCE_MQTT_PASSWORD_FILE)
-      ? resolve(env.SOURCE_MQTT_PASSWORD_FILE!)
-      : null,
-    mockEnabled: booleanValue(env.MOCK_ENABLED, false),
-    mockIntervalMs: positiveInteger(env.MOCK_INTERVAL_MS, 2_000),
-    // Zero keeps the complete redundant SQLite copy. A positive value bounds
-    // only the hot copy after archive reconciliation; Timescale raw data is
-    // deliberately retained without a deletion policy.
-    retentionDays,
-    timeseriesEnabled,
-    timeseriesRequired,
-    timeseriesHost: optional(env.TIMESERIES_HOST) ?? "127.0.0.1",
-    timeseriesPort: positiveInteger(env.TIMESERIES_PORT, 5432),
-    timeseriesDatabase: optional(env.TIMESERIES_DATABASE) ?? "stuga",
-    timeseriesUser: optional(env.TIMESERIES_USER) ?? "stuga_app",
-    timeseriesPassword: timeseriesPassword(env),
-    timeseriesSslMode: timeseriesSslMode(env.TIMESERIES_SSL_MODE),
-    timeseriesSslCa: configuredTimeseriesCa ? readFileSync(resolve(configuredTimeseriesCa), "utf8") : null,
-    timeseriesPoolMax: positiveInteger(env.TIMESERIES_POOL_MAX, 6),
-    timeseriesConnectTimeoutMs: positiveInteger(env.TIMESERIES_CONNECT_TIMEOUT_MS, 5_000),
-    timeseriesStatementTimeoutMs: positiveInteger(env.TIMESERIES_STATEMENT_TIMEOUT_MS, 15_000),
-    timeseriesBatchSize: positiveInteger(env.TIMESERIES_BATCH_SIZE, 1_000),
-    timeseriesColumnstoreAfterDays: positiveInteger(env.TIMESERIES_COLUMNSTORE_AFTER_DAYS, 7),
-    timeseriesStoragePath: optional(env.TIMESERIES_STORAGE_PATH)
-      ? resolve(env.TIMESERIES_STORAGE_PATH!)
-      : null,
-    ingestApiKey: optional(env.INGEST_API_KEY),
+  };
+}
+
+function bridgePython(env: Env, variable: string): string {
+  return optional(env[variable]) ?? optional(env.TP_LINK_PYTHON) ?? (process.platform === "win32" ? "python" : "python3");
+}
+
+/** Home Assistant, TP-Link, Gree, Tuya and Telegram: environment credentials win over the protected file. */
+function readIntegrationConfig(env: Env, stored: StoredSecrets): Pick<AppConfig,
+  | "haUrl" | "haToken" | "haEntityMapFile" | "homeAssistantConnections" | "homeAssistantLegacyDisabled"
+  | "tpLinkHost" | "tpLinkUsername" | "tpLinkPassword" | "tpLinkConnections" | "tpLinkLegacyDisabled"
+  | "tpLinkDeviceMapFile" | "tpLinkPollIntervalMs" | "tpLinkPython" | "tpLinkBridgeScript" | "tpLinkDiscoveryTargets"
+  | "greeConnections" | "greePollIntervalMs" | "greePython" | "greeBridgeScript" | "greeDiscoveryTargets"
+  | "tuyaConnections" | "tuyaPollIntervalMs" | "tuyaPython" | "tuyaBridgeScript"
+  | "telegramBotToken" | "telegramChatId" | "appleNotesGrants"> {
+  const haEnvironment = environmentTuple(env, "Home Assistant", ["HA_URL", "HA_TOKEN"]);
+  const tpLinkEnvironment = environmentTuple(env, "TP-Link", ["TP_LINK_HOST", "TP_LINK_USERNAME", "TP_LINK_PASSWORD"]);
+  const telegramEnvironment = environmentTuple(env, "Telegram", ["TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID"]);
+  const ha = haEnvironment ? { url: httpEndpoint(haEnvironment[0]!, "HA_URL"), token: haEnvironment[1]! } : stored.homeAssistant ?? null;
+  const tpLink = tpLinkEnvironment
+    ? { host: tpLinkEnvironment[0]!, username: tpLinkEnvironment[1]!, password: tpLinkEnvironment[2]! }
+    : stored.tpLink ?? null;
+  const telegram = telegramEnvironment ? { botToken: telegramEnvironment[0]!, chatId: telegramEnvironment[1]! } : stored.telegram ?? null;
+  return {
     haUrl: ha?.url ?? null,
     haToken: ha?.token ?? null,
     haEntityMapFile: optional(env.HA_ENTITY_MAP_FILE),
@@ -374,110 +421,73 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     tpLinkLegacyDisabled: stored.tpLinkLegacyDisabled === true,
     tpLinkDeviceMapFile: optional(env.TP_LINK_DEVICE_MAP_FILE),
     tpLinkPollIntervalMs: positiveInteger(env.TP_LINK_POLL_INTERVAL_MS, 2_000),
-    tpLinkPython: optional(env.TP_LINK_PYTHON) ?? (process.platform === "win32" ? "python" : "python3"),
+    tpLinkPython: bridgePython(env, "TP_LINK_PYTHON"),
     tpLinkBridgeScript: resolve(env.TP_LINK_BRIDGE_SCRIPT ?? "./apps/api/python/tp_link_bridge.py"),
     tpLinkDiscoveryTargets: discoveryTargetList(env.TP_LINK_DISCOVERY_TARGETS),
     greeConnections: (stored.greeConnections ?? []).map((connection) => ({ ...connection })),
-    greePollIntervalMs: boundedInteger(
-      env.GREE_POLL_INTERVAL_MS,
-      60_000,
-      10_000,
-      15 * 60_000,
-      "GREE_POLL_INTERVAL_MS",
-    ),
-    greePython: optional(env.GREE_PYTHON)
-      ?? optional(env.TP_LINK_PYTHON)
-      ?? (process.platform === "win32" ? "python" : "python3"),
+    greePollIntervalMs: boundedInteger(env.GREE_POLL_INTERVAL_MS, 60_000, 10_000, 15 * 60_000, "GREE_POLL_INTERVAL_MS"),
+    greePython: bridgePython(env, "GREE_PYTHON"),
     greeBridgeScript: resolve(env.GREE_BRIDGE_SCRIPT ?? "./apps/api/python/gree_bridge.py"),
     greeDiscoveryTargets: discoveryTargetList(env.GREE_DISCOVERY_TARGETS),
     tuyaConnections: (stored.tuyaConnections ?? []).map((connection) => ({ ...connection })),
-    tuyaPollIntervalMs: boundedInteger(
-      env.TUYA_POLL_INTERVAL_MS,
-      5_000,
-      2_000,
-      15 * 60_000,
-      "TUYA_POLL_INTERVAL_MS",
-    ),
-    tuyaPython: optional(env.TUYA_PYTHON)
-      ?? optional(env.TP_LINK_PYTHON)
-      ?? (process.platform === "win32" ? "python" : "python3"),
+    tuyaPollIntervalMs: boundedInteger(env.TUYA_POLL_INTERVAL_MS, 5_000, 2_000, 15 * 60_000, "TUYA_POLL_INTERVAL_MS"),
+    tuyaPython: bridgePython(env, "TUYA_PYTHON"),
     tuyaBridgeScript: resolve(env.TUYA_BRIDGE_SCRIPT ?? "./apps/api/python/tuya_bridge.py"),
-    tapoHistoryEnabled,
-    tapoHistoryWorkerToken,
-    tapoHistoryExportEmail,
-    tapoHistoryEmailTagPrefix,
-    tapoHistoryExportIntervalMinutes: exportIntervalMinutes(env.TAPO_HISTORY_EXPORT_INTERVAL_MINUTES),
-    tapoHistoryMaxExportDays: boundedInteger(
-      env.TAPO_HISTORY_MAX_EXPORT_DAYS,
-      30,
-      1,
-      730,
-      "TAPO_HISTORY_MAX_EXPORT_DAYS",
-    ),
-    tapoHistoryMaxPendingEmails: boundedInteger(
-      env.TAPO_HISTORY_MAX_PENDING_EMAILS,
-      1,
-      1,
-      10,
-      "TAPO_HISTORY_MAX_PENDING_EMAILS",
-    ),
-    tapoHistoryMailboxPollIntervalMs: positiveInteger(env.TAPO_HISTORY_MAILBOX_POLL_INTERVAL_MS, 60_000),
-    tapoHistoryEmailTimeoutMs: positiveInteger(env.TAPO_HISTORY_EMAIL_TIMEOUT_MS, 6 * 60 * 60_000),
-    tapoHistoryWorkerLeaseMs: boundedInteger(
-      env.TAPO_HISTORY_WORKER_LEASE_MS,
-      5 * 60_000,
-      5 * 60_000,
-      24 * 60 * 60_000,
-      "TAPO_HISTORY_WORKER_LEASE_MS",
-    ),
-    tapoHistoryGmailAccountEmail,
-    tapoHistoryGmailClientId: tapoGmail?.[0] ?? null,
-    tapoHistoryGmailClientSecret: tapoGmail?.[1] ?? null,
-    tapoHistoryGmailRefreshToken: tapoGmail?.[2] ?? null,
-    tapoHistoryPrivateEndpoint: tapoPrivate ? httpEndpoint(tapoPrivate[0]!, "TAPO_HISTORY_PRIVATE_ENDPOINT") : null,
-    tapoHistoryPrivateToken: tapoPrivate?.[1] ?? null,
-    alertWebhookDestinations: webhookDestinations.map((destination) => ({ ...destination })),
-    alertWebhookAllowedHosts,
-    alertWebhookSource: webhookSource,
     telegramBotToken: telegram?.botToken ?? null,
     telegramChatId: telegram?.chatId ?? null,
-    apnsTeamId,
-    apnsKeyId,
-    apnsBundleId,
-    apnsPrivateKey,
     appleNotesGrants: (stored.appleNotesGrants ?? []).map((grant) => ({ ...grant })),
+  };
+}
+
+/** Reads and validates the whole configuration from the environment and the protected secrets file. */
+export function loadConfig(env: Env = process.env): AppConfig {
+  const port = positiveInteger(env.PORT, 8787);
+  const databasePath = databasePathFrom(env, port);
+  const integrationSecretsFile = resolve(env.INTEGRATION_SECRETS_FILE
+    ?? (databasePath === ":memory:" ? "./data/integration-secrets.json" : join(dirname(databasePath), "integration-secrets.json")));
+  const stored = env.NODE_ENV === "test" && env.INTEGRATION_SECRETS_FILE === undefined
+    ? { version: 1 as const }
+    : readIntegrationSecrets(integrationSecretsFile);
+  const systemUpdateRepository = githubRepository(env.SYSTEM_UPDATE_REPOSITORY);
+  const sourceMqttPasswordFile = optional(env.SOURCE_MQTT_PASSWORD_FILE);
+  return {
+    port,
+    apiHost: optional(env.API_HOST) ?? "127.0.0.1",
+    databasePath,
+    spatialLayersEnabled: booleanValue(env.SPATIAL_LAYERS_ENABLED, false),
+    spatialLayersDatabasePath: spatialLayersDatabasePathFrom(env, databasePath),
+    spatialLayersIntervalMs: positiveInteger(env.SPATIAL_LAYERS_INTERVAL_MS, 60_000),
+    spatialLayersRetentionDays: positiveInteger(env.SPATIAL_LAYERS_RETENTION_DAYS, 30),
+    dailyAnalyticsFindingsEnabled: booleanValue(env.DAILY_ANALYTICS_FINDINGS_ENABLED, false),
+    sensorGapRecoveryEnabled: booleanValue(env.SENSOR_GAP_RECOVERY_ENABLED, false),
+    ...readTrackingConfig(env, databasePath),
+    integrationSecretsFile,
+    assetDirectory: resolve(env.ASSET_DIRECTORY ?? "./data/assets"),
+    ...readStugubyConfig(env, databasePath),
+    backupOperationsDirectory: resolve(env.BACKUP_OPERATIONS_DIRECTORY ?? "./data/backup-operations"),
+    backupDirectory: resolve(env.BACKUP_DIRECTORY ?? "./backups"),
+    systemUpdateOperationsDirectory: resolve(env.SYSTEM_UPDATE_OPERATIONS_DIRECTORY
+      ?? (databasePath === ":memory:" ? "./data/update-operations" : join(dirname(databasePath), "update-operations"))),
+    systemUpdateRepository,
+    systemUpdateImagePrefix: systemUpdateImagePrefix(env.SYSTEM_UPDATE_IMAGE_PREFIX, systemUpdateRepository),
+    hostCapabilitiesFile: resolve(env.STUGA_HOST_CAPABILITIES_FILE ?? "./config/host-capabilities.json"),
+    sourceMqttHost: optional(env.SOURCE_MQTT_HOST) ?? APP_CONFIG_DEFAULTS.sourceMqttHost,
+    sourceMqttPort: boundedInteger(env.SOURCE_MQTT_PORT, APP_CONFIG_DEFAULTS.sourceMqttPort, 1, 65_535, "SOURCE_MQTT_PORT"),
+    sourceMqttUser: optional(env.SOURCE_MQTT_USER) ?? APP_CONFIG_DEFAULTS.sourceMqttUser,
+    sourceMqttPasswordFile: sourceMqttPasswordFile ? resolve(sourceMqttPasswordFile) : null,
+    mockEnabled: booleanValue(env.MOCK_ENABLED, false),
+    mockIntervalMs: positiveInteger(env.MOCK_INTERVAL_MS, 2_000),
+    ...readTimeseriesConfig(env),
+    ingestApiKey: optional(env.INGEST_API_KEY),
+    ...readIntegrationConfig(env, stored),
+    ...readTapoHistoryConfig(env),
+    ...readAlertWebhookConfig(env, stored),
+    ...readApnsConfig(env),
     corsOrigin: optional(env.CORS_ORIGIN) ?? optional(env.CLOUDFLARE_ACCESS_PUBLIC_ORIGIN),
-    localAuthBootstrapSecret,
-    localAuthTestBypass,
-    localAuthProxyBindAddress,
-    localAuthProxySecret: proxySecret,
-    bugReportRelayUrl,
-    bugReportRelayToken,
-    bugReportRelaySource,
-    bugReportRelayUpdatedAt: storedBugReportRelay?.updatedAt ?? null,
-    cloudflareAccessAccountId,
-    cloudflareAccessGroupId,
-    cloudflareAccessGroupName,
-    cloudflareAccessStaticEmails,
-    cloudflareAccessApiToken,
-    cloudflareAccessSyncIntervalMs: boundedInteger(
-      env.CLOUDFLARE_ACCESS_SYNC_INTERVAL_MS,
-      5 * 60_000,
-      60_000,
-      24 * 60 * 60_000,
-      "CLOUDFLARE_ACCESS_SYNC_INTERVAL_MS",
-    ),
-    cloudflareSetupDeploymentFile: resolve(
-      env.CLOUDFLARE_SETUP_DEPLOYMENT_FILE ?? "./secrets/cloudflare/deployment.json",
-    ),
-    cloudflareSetupOAuthClientId,
-    cloudflareSetupLocalUiPort: boundedInteger(
-      env.STUGA_LOCAL_UI_PORT,
-      8_080,
-      1_024,
-      65_535,
-      "STUGA_LOCAL_UI_PORT",
-    ),
+    ...readLocalAuthConfig(env),
+    ...readBugReportRelayConfig(env, stored),
+    ...readCloudflareAccessConfig(env),
+    ...readCloudflareSetupConfig(env),
     electricityAllowPrivateEndpoints: booleanValue(env.ELECTRICITY_ALLOW_PRIVATE_ENDPOINTS, false),
   };
 }

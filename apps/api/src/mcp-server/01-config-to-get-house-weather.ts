@@ -1,4 +1,3 @@
-import { applyApiConfigDefaults } from "../config/api-defaults.js";
 import { timeseriesPoolConfig } from "../timeseries/pool-options.js";
 import { isLocalTelemetryHistoryComplete } from "../timeseries/read-support.js";
 import { hasLocalHouseAuthority } from "@climate-twin/contracts";
@@ -36,8 +35,7 @@ import { TpLinkBridge } from "../tp-link.js";
 import { FmiWeatherProvider, WeatherRequestSupersededError, WeatherService } from "../weather.js";
 import { StugubyStore } from "../stuguby/store.js";
 
-// The same defaults createApi applies, so both entry points see one normalized config.
-export const config = applyApiConfigDefaults(loadConfig());
+export const config = loadConfig();
 ensureSqliteSpillDirectory(config.databasePath);
 
 export const database = new ClimateDatabase(config.databasePath, false, { readOnly: true });

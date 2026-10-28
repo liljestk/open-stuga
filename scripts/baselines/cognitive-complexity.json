@@ -1,7 +1,7 @@
 {
   "rule": "sonarjs/cognitive-complexity (S3776)",
   "threshold": 15,
-  "functions": 302,
+  "functions": 301,
   "files": {
     "apps/api/src/analytics-rollup.ts": [23],
     "apps/api/src/analytics.ts": [74, 18],
@@ -26,7 +26,6 @@
     "apps/api/src/app/support/part-07.ts": [24, 21],
     "apps/api/src/app/support/part-08.ts": [32],
     "apps/api/src/cloudflare-setup/02-cloudflare-setup-service.ts": [28],
-    "apps/api/src/config/02-load-config.ts": [110],
     "apps/api/src/daily-analytics-findings/01-daily-analytics-algorithm-version-to-error-message.ts": [18],
     "apps/api/src/daily-analytics-findings/02-map-with-concurrency-to-daily-analytics-findings-wor.ts": [21],
     "apps/api/src/daily-analytics-findings/peer-statistics.ts": [23],

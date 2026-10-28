@@ -1,5 +1,5 @@
 import { isIP } from "node:net";
-import type { ApiConfig } from "../config/api-defaults.js";
+import type { AppConfig } from "../config.js";
 
 /** TLS settings for the TimescaleDB pool, from TIMESERIES_SSL_MODE. */
 export interface TimeseriesSslOptions {
@@ -14,7 +14,7 @@ export interface TimeseriesSslOptions {
  * verifies the certificate chain but not the host name; anything else verifies
  * both, naming the server for SNI when the host is not an IP address.
  */
-export function timeseriesSslOptions(config: Pick<ApiConfig, "timeseriesSslMode" | "timeseriesSslCa" | "timeseriesHost">): TimeseriesSslOptions | undefined {
+export function timeseriesSslOptions(config: Pick<AppConfig, "timeseriesSslMode" | "timeseriesSslCa" | "timeseriesHost">): TimeseriesSslOptions | undefined {
   if (config.timeseriesSslMode === "disable") return undefined;
   if (config.timeseriesSslMode === "require") return { rejectUnauthorized: false };
   const ca = config.timeseriesSslCa ? { ca: config.timeseriesSslCa } : {};
@@ -23,7 +23,7 @@ export function timeseriesSslOptions(config: Pick<ApiConfig, "timeseriesSslMode"
 }
 
 /** Connection settings shared by every process that opens the TimescaleDB pool. */
-export function timeseriesPoolConfig(config: ApiConfig) {
+export function timeseriesPoolConfig(config: AppConfig) {
   const ssl = timeseriesSslOptions(config);
   return {
     host: config.timeseriesHost,
