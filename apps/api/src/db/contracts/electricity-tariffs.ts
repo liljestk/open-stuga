@@ -1,7 +1,6 @@
 import type {
   ElectricityInvoice,
   ElectricityInvoiceInput,
-  ElectricityTariffVersion,
   PropertyElectricityTariff,
 } from "@climate-twin/contracts";
 import "../core.js";
@@ -12,7 +11,7 @@ declare module "../core.js" {
     getPropertyElectricityTariff(propertyId: string): PropertyElectricityTariff | null;
     savePropertyElectricityTariff(
       propertyId: string,
-      versions: ElectricityTariffVersion[],
+      versions: unknown,
       expectedRevision?: number,
     ): PropertyElectricityTariff | null;
     /** Time zone for a Property's local tariff dates: its default (or first) Home's. */
@@ -28,7 +27,7 @@ declare module "../core.js" {
     getPropertyElectricityTariff(propertyId: string): PropertyElectricityTariff | null;
     savePropertyElectricityTariff(
       propertyId: string,
-      versions: ElectricityTariffVersion[],
+      versions: unknown,
       expectedRevision?: number,
     ): PropertyElectricityTariff | null;
     /** Time zone for a Property's local tariff dates: its default (or first) Home's. */

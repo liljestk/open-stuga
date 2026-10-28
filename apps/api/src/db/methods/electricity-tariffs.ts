@@ -103,13 +103,14 @@ registerDatabaseMethods({
 
   savePropertyElectricityTariff(
     propertyId: string,
-    versions: ElectricityTariffVersion[],
+    versions: unknown,
     expectedRevision?: number,
   ): PropertyElectricityTariff | null {
     if (!this.getProperty(propertyId)) return null;
     const problem = electricityTariffProblem(versions);
     if (problem) throw new ClimateDataValidationError(400, "INVALID_ELECTRICITY_TARIFF", problem);
-    const normalized = versions.map(normalizedElectricityTariffVersion);
+    // electricityTariffProblem accepted every entry, so each has the version shape.
+    const normalized = (versions as ElectricityTariffVersion[]).map(normalizedElectricityTariffVersion);
     return this.immediateTransaction(() => {
       const currentRevision = this.getPropertyElectricityTariff(propertyId)?.revision ?? 0;
       if (expectedRevision !== undefined && expectedRevision !== currentRevision) {

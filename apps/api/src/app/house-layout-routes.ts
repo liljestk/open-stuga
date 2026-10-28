@@ -1,4 +1,4 @@
-import type { Floor, House } from "@climate-twin/contracts";
+import type { House } from "@climate-twin/contracts";
 import { HttpError, bodyObject, requiredString } from "./support/index.js";
 import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
 
@@ -9,9 +9,10 @@ export function registerHouseLayoutRoutes(context: ApiRouteRegistrationContext):
       context.stuguby.assertHouseWriteAllowed(houseId);
       const body = bodyObject(request.body);
       if (!Array.isArray(body.floors)) throw new HttpError(400, "INVALID_FIELD", "floors must be an array");
-      context.stuguby.assertSharedHouseFloorPlanAssetsUnchanged(houseId, body.floors as Floor[]);
+      const floors = context.database.parseFloorDefinitions(body.floors);
+      context.stuguby.assertSharedHouseFloorPlanAssetsUnchanged(houseId, floors);
       const house = context.database.transaction(() => {
-        const updated = context.database.updateHouse(houseId, { floors: body.floors as Floor[] });
+        const updated = context.database.updateHouse(houseId, { floors });
         if (!updated) throw new HttpError(404, "NOT_FOUND", "House not found");
         context.stuguby.captureHomeMutation(updated.id);
         return updated;
@@ -29,12 +30,12 @@ export function registerHouseLayoutRoutes(context: ApiRouteRegistrationContext):
       const house = context.database.getHouse(request.params.id as string);
       if (!house) throw new HttpError(404, "NOT_FOUND", "House not found");
       context.stuguby.assertHouseWriteAllowed(house.id);
-      const floor = bodyObject(request.body) as unknown as Floor;
-      if (typeof floor.id !== "string" || floor.id !== request.params.floorId) throw new HttpError(400, "INVALID_FIELD", "Floor id must match the route");
-      const index = house.floors.findIndex((candidate) => candidate.id === floor.id);
+      const body = bodyObject(request.body);
+      if (body.id !== request.params.floorId) throw new HttpError(400, "INVALID_FIELD", "Floor id must match the route");
+      const index = house.floors.findIndex((candidate) => candidate.id === body.id);
       if (index < 0) throw new HttpError(404, "NOT_FOUND", "Floor not found");
-      const floors = house.floors.slice();
-      floors[index] = floor;
+      const floors = context.database.parseFloorDefinitions(replacedFloor(house, index, body));
+      const floor = floors[index]!;
       context.stuguby.assertSharedHouseFloorPlanAssetsUnchanged(house.id, floors);
       const updated = context.database.transaction(() => {
         const saved = context.database.updateHouse(house.id, { floors });
@@ -58,10 +59,9 @@ export function registerHouseLayoutRoutes(context: ApiRouteRegistrationContext):
       if (!house) throw new HttpError(404, "NOT_FOUND", "House not found");
       context.stuguby.assertHouseWriteAllowed(house.id);
       const floor = parseRoomPlanImport(bodyObject(request.body), house, floorId);
-      const index = house.floors.findIndex((candidate) => candidate.id === floor.id);
+      const index = house.floors.findIndex((candidate) => candidate.id === floorId);
       if (index < 0) throw new HttpError(404, "NOT_FOUND", "Floor not found");
-      const floors = house.floors.slice();
-      floors[index] = floor;
+      const floors = context.database.parseFloorDefinitions(replacedFloor(house, index, floor));
       context.stuguby.assertSharedHouseFloorPlanAssetsUnchanged(house.id, floors);
       const updated = context.database.transaction(() => {
         const saved = context.database.updateHouse(house.id, { floors });
@@ -80,6 +80,11 @@ export function registerHouseLayoutRoutes(context: ApiRouteRegistrationContext):
     });
 }
 
+/** The Home's floors with the one at `index` replaced by an unvalidated candidate. */
+function replacedFloor(house: House, index: number, candidate: Record<string, unknown>): unknown[] {
+  return house.floors.map((floor, position) => (position === index ? candidate : floor));
+}
+
 /** Rejects any field not listed, so RoomPlan imports carry derived geometry only. */
 function assertRoomPlanFields(value: Record<string, unknown>, allowed: readonly string[], label: string): void {
   const unexpected = Object.keys(value).find((key) => !allowed.includes(key));
@@ -88,8 +93,11 @@ function assertRoomPlanFields(value: Record<string, unknown>, allowed: readonly 
   }
 }
 
-/** Validates a RoomPlan import body for one floor of the house and returns that floor. */
-function parseRoomPlanImport(body: Record<string, unknown>, house: House, floorId: string): Floor {
+/**
+ * Checks a RoomPlan import body for one floor of the house and returns the floor
+ * object; its geometry is validated with the Home's other floors before saving.
+ */
+function parseRoomPlanImport(body: Record<string, unknown>, house: House, floorId: string): RoomPlanFloor {
   assertRoomPlanFields(
     body,
     ["source", "capturedAt", "expectedHouseUpdatedAt", "floor"],
@@ -110,9 +118,8 @@ function parseRoomPlanImport(body: Record<string, unknown>, house: House, floorI
   if (!Number.isFinite(Date.parse(capturedAt))) {
     throw new HttpError(400, "INVALID_FIELD", "capturedAt must be an ISO timestamp");
   }
-  const floorObject = bodyObject(body.floor);
-  const floor = floorObject as unknown as Floor;
-  if (typeof floor.id !== "string" || floor.id !== floorId) {
+  const floor = bodyObject(body.floor);
+  if (floor.id !== floorId) {
     throw new HttpError(400, "INVALID_FIELD", "Floor id must match the route");
   }
   if (floor.backgroundImage !== undefined) {
@@ -123,7 +130,7 @@ function parseRoomPlanImport(body: Record<string, unknown>, house: House, floorI
     );
   }
   assertRoomPlanFields(
-    floorObject,
+    floor,
     [
       "id", "name", "type", "width", "height", "metersPerPlanUnit",
       "elevation", "ceilingHeight", "wallHeight", "roof", "walls",
@@ -138,21 +145,26 @@ function parseRoomPlanImport(body: Record<string, unknown>, house: House, floorI
       "RoomPlan geometry must use metres as floor-plan units",
     );
   }
-  if (!Array.isArray(floor.rooms) || floor.rooms.length !== 1
-    || !Array.isArray(floor.walls) || floor.walls.length < 2 || floor.walls.length > 1_000
-    || (floor.planElements?.length ?? 0) > 1_000) {
+  const { rooms, walls, planElements } = floor;
+  if (!Array.isArray(rooms) || rooms.length !== 1
+    || !Array.isArray(walls) || walls.length < 2 || walls.length > 1_000
+    || (Array.isArray(planElements) && planElements.length > 1_000)) {
     throw new HttpError(
       400,
       "ROOMPLAN_GEOMETRY_INVALID",
       "RoomPlan imports require one room, 2-1000 walls, and at most 1000 openings",
     );
   }
-  assertRoomPlanGeometryFields(floor);
-  return floor;
+  const roomPlanFloor = { ...floor, rooms, walls };
+  assertRoomPlanGeometryFields(roomPlanFloor);
+  return roomPlanFloor;
 }
 
+/** A RoomPlan floor object whose room and wall lists are arrays; the rest is unvalidated. */
+type RoomPlanFloor = Record<string, unknown> & { rooms: unknown[]; walls: unknown[] };
+
 /** Walls, rooms, openings and roof may carry only their geometric fields. */
-function assertRoomPlanGeometryFields(floor: Floor): void {
+function assertRoomPlanGeometryFields(floor: RoomPlanFloor): void {
   for (const [wallIndex, wallValue] of floor.walls.entries()) {
     const wall = bodyObject(wallValue);
     assertRoomPlanFields(wall, ["id", "from", "to"], `RoomPlan wall ${wallIndex}`);

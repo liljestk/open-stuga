@@ -301,7 +301,7 @@ registerDatabaseMethods({
       orientationDegrees?: number;
     }): House {
       return this.immediateTransaction(() => {
-        this.validateFloorDefinitions(input.floors);
+        this.parseFloorDefinitions(input.floors);
         this.validateHouseTimezone(input.timezone);
         if (input.location) this.validateHouseLocation(input.location);
         if (input.mapPlacement) this.validateHouseMapPlacement(input.mapPlacement, input.floors);
@@ -412,7 +412,7 @@ registerDatabaseMethods({
           if (inferred) next.location = inferred;
           else delete next.location;
         }
-        this.validateFloorDefinitions(next.floors);
+        this.parseFloorDefinitions(next.floors);
         if (next.mapPlacement) this.validateHouseMapPlacement(next.mapPlacement, next.floors);
         if (next.location) this.validateHouseLocation(next.location);
         if (next.orientationDegrees !== undefined) this.validateHouseOrientation(next.orientationDegrees);

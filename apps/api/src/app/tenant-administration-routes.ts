@@ -1,4 +1,3 @@
-import type { GuestAccessGrant } from "@climate-twin/contracts";
 import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
 import {
   HttpError,
@@ -36,14 +35,7 @@ export function registerTenantAdministrationRoutes(
     const body = bodyObject(request.body);
     const role = enumValue(body.role, ["admin", "member", "guest"] as const, "role");
     const principal = requestPrincipal(response);
-    const grants = body.grants === undefined ? [] : body.grants;
-    if (!Array.isArray(grants)) throw new HttpError(400, "INVALID_GRANTS", "grants must be an array");
-    const created = context.localAuth.inviteMember(
-      principal,
-      body.email,
-      role,
-      grants as GuestAccessGrant[],
-    );
+    const created = context.localAuth.inviteMember(principal, body.email, role, body.grants === undefined ? [] : body.grants);
     context.recordSecurityAudit(principal, {
       eventType: "membership.invitation.created",
       subjectType: "workspace-member",
@@ -68,13 +60,7 @@ export function registerTenantAdministrationRoutes(
     (request, response) => {
       requireJsonContentType(request);
       const body = bodyObject(request.body);
-      if (!Array.isArray(body.grants)) {
-        throw new HttpError(400, "INVALID_GRANTS", "grants must be an array");
-      }
-      const member = context.localAuth.updateMemberAccess(
-        request.params.email,
-        body.grants as GuestAccessGrant[],
-      );
+      const member = context.localAuth.updateMemberAccess(request.params.email, body.grants);
       context.recordSecurityAudit(requestPrincipal(response), {
         eventType: "membership.grants.replaced",
         subjectType: "workspace-member",

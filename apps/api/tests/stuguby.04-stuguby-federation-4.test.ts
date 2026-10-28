@@ -230,6 +230,12 @@ describe("Stuguby federation", () => {
         : floor) })
       .expect(403);
     expect(blockedFloorPlanAsset.body.error.code).toBe("HOME_FLOORPLAN_ASSET_LOCAL_AUTHORITY");
+    // Floors are validated before the shared-Home asset check reads them.
+    const malformedFloors = await request(participant.runtime.app)
+      .put(`/api/v1/houses/${sharedHomeId}/layout`)
+      .send({ floors: [null] })
+      .expect(400);
+    expect(malformedFloors.body.error.code).toBe("INVALID_FLOOR");
 
     coordinatorOnline = false;
     await request(participant.runtime.app).patch(`/api/v1/houses/${sharedHomeId}`)

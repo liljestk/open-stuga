@@ -1,6 +1,7 @@
+import type { ClimateDatabase } from "../db.js";
 import { withResponseSignal } from "./response-signal.js";
 import { resolvePlanElementOpeningState, hasLocalHouseAuthority } from "@climate-twin/contracts";
-import type { Floor, House, HousePatch, OpeningStateObservationInput } from "@climate-twin/contracts";
+import type { House, HousePatch, OpeningStateObservationInput } from "@climate-twin/contracts";
 import { HttpError, bodyObject, boundedQueryInteger, dateValue, houseLocationValue, houseMapPlacementValue, optionalResourceQuery, requiredNumber, requiredString, refreshAppleNotesStatus, requireVisibleHouse } from "./support/index.js";
 import { commitCoordinatedIntegrationSecrets } from "../integration-secrets-coordinator.js";
 import type { IntegrationSecrets, IntegrationSecretsPatch } from "../integration-secrets.js";
@@ -20,6 +21,7 @@ export function registerHouseRoutes(context: ApiRouteRegistrationContext): void 
   context.app.post(`${context.prefix}/houses`, (request, response) => {
       const body = bodyObject(request.body);
       if (!Array.isArray(body.floors)) throw new HttpError(400, "INVALID_FIELD", "floors must be an array");
+      const floors = context.database.parseFloorDefinitions(body.floors);
       const targetPropertyId = body.propertyId !== undefined ? requiredString(body, "propertyId") : undefined;
       const propertyCandidates = targetPropertyId ? [] : context.database.listProperties(2, 0);
       const inferredPropertyId = targetPropertyId ?? (propertyCandidates.length === 1 ? propertyCandidates[0]!.id : undefined);
@@ -32,7 +34,7 @@ export function registerHouseRoutes(context: ApiRouteRegistrationContext): void 
         ...(body.location !== undefined ? { location: houseLocationValue(body.location) } : {}),
         ...(body.mapPlacement !== undefined ? { mapPlacement: houseMapPlacementValue(body.mapPlacement) } : {}),
         ...(body.orientationDegrees !== undefined ? { orientationDegrees: requiredNumber(body, "orientationDegrees") } : {}),
-        floors: body.floors as Floor[],
+        floors,
       });
       house = context.stuguby.markLocalHouseInAdoptedProperty(house.id);
       context.notifySpatial((runtime) => runtime.scheduler.wakeHouse(
@@ -148,7 +150,7 @@ export function registerHouseRoutes(context: ApiRouteRegistrationContext): void 
       const houseId = request.params.id as string;
       const previous = context.database.getHouse(houseId);
       context.stuguby.assertHouseWriteAllowed(houseId);
-      const patch = parseHousePatch(bodyObject(request.body));
+      const patch = parseHousePatch(bodyObject(request.body), context.database);
       if (previous && patch.propertyId !== undefined && patch.propertyId !== previous.propertyId) {
         assertHousePropertyMoveAllowed(context, previous, patch.propertyId);
       }
@@ -224,8 +226,9 @@ export function registerHouseRoutes(context: ApiRouteRegistrationContext): void 
     });
 }
 
-function parseHousePatch(body: Record<string, unknown>): HousePatch {
+function parseHousePatch(body: Record<string, unknown>, database: Pick<ClimateDatabase, "parseFloorDefinitions">): HousePatch {
   if (body.floors !== undefined && !Array.isArray(body.floors)) throw new HttpError(400, "INVALID_FIELD", "floors must be an array");
+  const floors = body.floors === undefined ? undefined : database.parseFloorDefinitions(body.floors);
   return {
     ...(body.name !== undefined ? { name: requiredString(body, "name") } : {}),
     ...(body.timezone !== undefined ? { timezone: requiredString(body, "timezone") } : {}),
@@ -235,7 +238,7 @@ function parseHousePatch(body: Record<string, unknown>): HousePatch {
     ...(body.orientationDegrees !== undefined
       ? { orientationDegrees: body.orientationDegrees === null ? null : requiredNumber(body, "orientationDegrees") }
       : {}),
-    ...(body.floors !== undefined ? { floors: body.floors as Floor[] } : {}),
+    ...(floors !== undefined ? { floors } : {}),
   };
 }
 

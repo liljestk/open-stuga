@@ -1,6 +1,6 @@
 import { roleCanAccessNonGuestConfiguration } from "@climate-twin/contracts";
 import { withResponseSignal } from "./response-signal.js";
-import type { ElectricityInvoiceInput, ElectricityTariffVersion } from "@climate-twin/contracts";
+import type { ElectricityInvoiceInput } from "@climate-twin/contracts";
 import { invoiceRange, reconcileInvoice } from "../electricity/invoice-reconciliation.js";
 import {
   HttpError,
@@ -67,7 +67,7 @@ export function registerElectricityTariffRoutes(
     }
     const tariff = context.database.savePropertyElectricityTariff(
       propertyId,
-      body.versions as ElectricityTariffVersion[],
+      body.versions,
       revision,
     );
     if (!tariff) throw new HttpError(404, "NOT_FOUND", "Property not found");

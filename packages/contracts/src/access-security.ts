@@ -37,7 +37,8 @@ export function roleIsWorkspacePerson(role: TenantMemberRole): boolean {
   return role === "owner" || role === "admin" || role === "member";
 }
 
-export type GuestAccessScope = "property" | "house" | "area";
+export const GUEST_ACCESS_SCOPES = ["property", "house", "area"] as const;
+export type GuestAccessScope = (typeof GUEST_ACCESS_SCOPES)[number];
 
 export interface GuestAccessGrant {
   scopeType: GuestAccessScope;

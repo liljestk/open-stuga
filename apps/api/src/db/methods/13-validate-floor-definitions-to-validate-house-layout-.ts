@@ -10,10 +10,11 @@ import { roomPolygonSelfIntersects } from "../support/04-canonical-json-value-to
 import { registerDatabaseMethods } from "../core.js";
 
 registerDatabaseMethods({
-  validateFloorDefinitions(floors: Floor[]): void {
-      if (!Array.isArray(floors)) {
+  parseFloorDefinitions(value: unknown): Floor[] {
+      if (!Array.isArray(value)) {
         throw new ClimateDataValidationError(400, "INVALID_FLOORS", "floors must be an array");
       }
+      const floors: Floor[] = value;
       const ids = new Set<string>();
       const tapoOpeningBindings = new Set<string>();
       for (const floor of floors) {
@@ -267,6 +268,7 @@ registerDatabaseMethods({
           }
         }
       }
+      return floors;
     },
   validateHouseLocation(location: HouseLocation): void {
       if (!Number.isFinite(location.latitude) || location.latitude < -90 || location.latitude > 90) {
