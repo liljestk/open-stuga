@@ -1,6 +1,6 @@
 # Local CI and release publishing
 
-GitHub-hosted CI is paused while the repository is private. Pushes and pull
+GitHub-hosted CI is paused. Pushes and pull
 requests do not start Actions or consume hosted-runner minutes. The two hosted
 workflows remain available only as manually confirmed fallbacks.
 

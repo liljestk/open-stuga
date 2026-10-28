@@ -199,7 +199,9 @@ rootless container identity that maps back to the invoking host account.
 
 ## Local Node.js development
 
-Prerequisites: Node.js 22.13 or newer and npm.
+Prerequisites: Node.js 22.13 or newer and npm. Running the web tests and the
+full local gate needs Node.js 22.22.2 or newer (jsdom 30), plus Python 3.13 and
+Docker Desktop for `verify:local -- --full`.
 
 ```sh
 npm run setup -- --mode local --real
@@ -275,6 +277,17 @@ intervals.
    a marker/history series. If spatial/forecast capability flags are false, the
    correct result is no interpolated surface and no forecast.
 
+The seeded sample home is the one in the README screenshots. On a phone, the
+Home page reduces to the same pulse, current conditions and live-view entry
+point:
+
+<p>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="images/screenshots/phone-home-dark.webp">
+    <img src="images/screenshots/phone-home-light.webp" width="260" alt="The Home page on a phone: Home Pulse, the average temperature with ten of ten sensors reporting, and an Open live home view button.">
+  </picture>
+</p>
+
 Mock data is synthetic. Stugu prevents it from crossing into a real
 installation: saving Home Assistant or TP-Link credentials, or accepting the
 first non-demo API/import sample or fresh provider outdoor value, permanently latches
@@ -300,15 +313,32 @@ source.
 
 ## Use the Home's Set up workspace
 
-Select a Property and Home, then open **Set up**. It is split into four sections
+Select a Property and Home, then open **Set up**. It is split into six sections
 so routine monitoring stays out of the configuration flow:
 
 | Section | Purpose |
 | --- | --- |
 | **Overview** | readiness steps and a compact status summary |
-| **Homes** | select a home, load the map deliberately, place/calibrate its footprint, and set plan orientation |
-| **Connections** | discover and configure this Home's direct TP-Link or Home Assistant connections |
-| **Weather** | select a home, discover its location/timezone, and review automatic weather-provider configuration |
+| **Layout** | the floor-plan editor: floors, walls, rooms and drawings |
+| **Connections** | discover and configure this Home's TP-Link, Tuya, Gree and Home Assistant connections |
+| **Weather** | discover the Home's location and timezone, and review the automatic weather provider |
+| **Operations** | bulk source mapping, history import and recovery work |
+| **Automations** | rules for this Home |
+
+Map placement, footprint calibration and plan orientation belong to the
+Property map; the retired `setup/homes` link redirects there.
+
+A typical first Home goes through these steps; **Overview** lists whichever
+are still missing:
+
+```mermaid
+flowchart LR
+    overview["Set up → Overview<br/>what is still missing"] --> layout["Layout<br/>draw floors and rooms"]
+    overview --> weather["Weather<br/>location and timezone"]
+    layout --> connections["Connections<br/>scan the LAN, save a hub"]
+    connections --> sensors["Sensors<br/>add a discovered sensor,<br/>place it on the plan"]
+    sensors --> live["Home<br/>live 2D/3D view"]
+```
 
 The section is encoded in the canonical
 `/properties/{propertyId}/homes/{homeId}/setup/{section}` route, so browser

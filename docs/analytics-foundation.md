@@ -356,9 +356,15 @@ cadence so a lone old value cannot silently fill a long gap.
    standalone SQLite installation keeps the bounded raw fallback. Specialized
    persisted semantic rollups are deferred until measured query volume
    justifies their migration and late-data invalidation complexity.
-2. **No cache in the first slice.** Responses use `Cache-Control: no-store` and
-   report `cache.hit: false`. This avoids stale results while late-data
-   invalidation and semantic cache keys are not implemented.
+2. **A server-side cache, never an HTTP cache.** The first slice had no cache.
+   Since 0.48, identical queries are shared through a server cache whose key
+   carries the request, the visible sensors, the house, registry and
+   late-history revisions, and the release. A range that ended more than two
+   hours ago is kept for up to an hour; one that reaches the present for 30
+   seconds. An answer built without the merged archive is not shared.
+   Responses report `cache.hit` and still use `Cache-Control: no-store`, so a
+   browser never reuses an answer the server would not. See
+   [Architecture: analytics pipeline](architecture.md#analytics-pipeline).
 3. **Keep the current rolling chart renderer.** The existing chart continues to
    handle rolling multi-sensor history and visible gaps. Calendar comparisons
    use a focused renderer below it and reuse the same sensor selection. A
@@ -389,7 +395,7 @@ cadence so a lone old value cannot silently fill a long gap.
 | Psychrometrics | A pinned Magnus calculation supports bounded within-event absolute-humidity recovery comparisons; no dew point, mould, or diagnostic claim is exposed | Add independent reference vectors and a reviewed library before broader psychrometric outputs. |
 | Statistics/findings | Daily peer-period findings with persisted evidence, a spread- and persistence-aware test, weather adjustment, coverage-scaled sums and Benjamini–Hochberg control, gated on synthetic detection and false-positive rates; summary statistics come from a fixed base resolution with coverage against each sensor's usual reporting interval | Add user confirmation and validation on labelled real-home history. |
 | Topology dynamics | Deferred | First version topology snapshots and placement intervals; then validate lag/coupling models on synthetic scenarios. |
-| Forecasts | Existing simple forecast paths are unchanged and are not promoted by this work | Add naive baselines, rolling-origin evaluation, intervals, promotion gates, and model cards before new production forecast claims. |
+| Forecasts | Since 0.45, forecasts start from the latest reading: temperature follows the room's thermal response to the outdoor forecast, other measurements a daily-rhythm model. A two-week backtest against "no change" and "same time yesterday" picks the model and sets the 90% band from its errors per horizon; a forecast that does not beat "no change" at six hours is withheld. Daily evaluations are kept for a year. | Review long-run accuracy from the stored evaluations, then add model cards before new model families. |
 | Predictive maintenance | Completed measured-action outcomes and recurring observations are linked as descriptive evidence; no failure forecast or diagnosis | Add persisted confirmation workflows and validated failure labels before predictive models. |
 
 ## Migration and rollback
