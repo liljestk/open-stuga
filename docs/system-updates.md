@@ -12,6 +12,32 @@ application services, and waits for their health checks. If the new API does
 not report the requested product version, the agent restores the previous
 release environment and starts the prior images again.
 
+```mermaid
+sequenceDiagram
+    actor owner as Owner or Admin
+    participant api as Stugu API
+    participant ops as Operations directory
+    participant agent as Update agent
+    participant gh as GitHub Releases + GHCR
+
+    api->>gh: discover releases and change notes
+    owner->>api: Update now (or the scheduled window opens)
+    api->>gh: read stugu-release-manifest-v1.json
+    api->>ops: write a bounded update request
+    agent->>ops: claim the request
+    agent->>agent: create and verify a backup
+    agent->>gh: verify the manifest, pull tag@sha256 images
+    agent->>agent: recreate the running Stugu services
+    agent->>api: wait for health and the requested version
+    alt healthy at the new version
+        agent->>ops: report success
+    else unhealthy or wrong version
+        agent->>agent: restore the previous release environment and images
+        agent->>ops: report rollback
+    end
+    ops-->>api: status, shown live in the UI
+```
+
 On a supported Raspberry Pi A/B host, the same page presents the native host
 release separately from the application release. **Update everything** is a
 deliberately ordered workflow:

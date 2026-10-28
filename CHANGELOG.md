@@ -2,6 +2,16 @@
 
 All notable Stugu releases are recorded here.
 
+## 0.51.4
+
+- Rewrite the README for the current release. It now shows the app in light and dark screenshots of the sample home with synthetic data: Home Pulse, the live 2D plan, the 3D building, Data & analytics, and Electricity. Diagrams explain how readings flow from devices to the apps, how Properties and Homes own data, and the install paths. The version is no longer in the README title, where it had stayed at 0.32.3.
+- Add diagrams to the documentation:
+  - Architecture: the Compose deployment with its optional profiles, the analytics pipeline (cache, work limiter, archive rollups, analytics kernel), the background analytics jobs, and the workspace package dependencies.
+  - Storage, system updates, live migration, Stuguby, electricity costs, and the first Home setup.
+- The documentation index now links every guide, grouped by task, with plans, reviews and incident records in their own section. Twenty guides were not linked from it before.
+- Correct outdated documentation: **Set up** has six sections, not four. The analytics guide now describes the query cache (0.48) and the backtested forecasts (0.45). Contributing names `npm run verify:local` as the gate and summarises the code-quality rules. Hosted CI is described as paused without saying the repository is private, since it is public.
+- Upgrade impact: none. Only documentation and images change; the API, web app, database, configuration, Compose and host trust are unchanged.
+
 ## 0.51.2
 
 - Lay out **Analytics health on this appliance** like the other Data & analytics tools: it now sits in the same list, with an icon, a short description and one disclosure arrow, and its contents are padded. Each response time, forecast, bill and projection check shows its name, its result and its on-target badge as separate columns, stacked on narrow screens. Before, the panel was unstyled, labels ran into their values and two disclosure markers showed.

@@ -1,423 +1,411 @@
-# Stugu
+<p align="center">
+  <img src="apps/ios/Stugu/Resources/Assets.xcassets/AppIcon.appiconset/StuguIcon.png" width="88" alt="">
+</p>
 
-Stugu is a local-first digital twin for understanding how environmental conditions change and move through one or more homes. Temperature and relative humidity are the starting point; a measurement registry also supports CO2 and other finite numeric scalar measurements without coupling ingestion, history, alerts, or visualisation to one sensor model. It is designed around TP-Link Tapo H100/H200 hubs and locally exposed H500 children with T310/T315 sensors, while keeping ingestion vendor-neutral through a direct local bridge, Home Assistant, and versioned APIs. Internal package names retain the original `climate-twin` identifier for compatibility.
+<h1 align="center">Stugu</h1>
 
-The opt-in demo starts with a two-floor home, ten virtual sensors, temperature, humidity and CO2 telemetry, historical data, forecasts, alert rules, and replay. Set `MOCK_ENABLED=true` before the first start; no hardware or cloud account is needed to evaluate it. Normal installs use the guided Property-and-Home setup instead.
+<p align="center">
+  A local-first digital twin for the indoor climate of your home, your cottage,
+  or several homes on one property.
+</p>
 
-## What is included
+Stugu collects temperature, humidity, CO₂, door and window, heat-pump and
+electricity readings from devices on your own network. It places them on your
+floor plan in 2D and 3D and turns the history into analytics you can check:
+comfort, moisture, thermal behaviour, forecasts that must beat "no change",
+energy cost under your real tariff, and alerts. It runs on your own hardware,
+either Docker or Podman Compose on a PC or NAS or a dedicated Raspberry Pi 4
+appliance. You don't need a cloud account.
 
-- Live 2D authoring and an orbitable whole-building 3D view with every floor,
-  sensor height, soft XYZ hotspot clouds, and a shared sensor-constrained
-  temperature/water-vapour buoyancy flow estimate with an honestly labelled
-  scalar-gradient fallback
-- Floor-plan upload, wall drawing, and drag-to-place sensors
-- Registry-defined measurements with built-in temperature (°C), humidity (%),
-  and CO2 (ppm), plus independently timestamped custom numeric samples
-- A transactional SQLite control plane with a crash-safe telemetry outbox and
-  current projections, plus TimescaleDB as the permanent store for sensor,
-  weather, electricity-price, opening-event, and direct heat-pump history
-- Resumable live system-to-system migration over authenticated SSH, with an
-  online seed, content-addressed chunk reuse, verified final snapshot, isolated
-  TimescaleDB candidate restore, portable settings transfer, health-gated
-  cutover, rollback, and split-brain protection
-- A decision layer with Home Pulse, prioritized room comfort, a moisture and
-  ventilation coach, indoor/outdoor comparison, an activity timeline, and
-  explainable monitoring blockers that distinguish current coverage from
-  missing or stale data
-- Data & analytics with coverage-aware evidence, CSV/JSON export, and
-  house-local day/week/month/year/decade comparisons across the selected
-  single, multiple, or aggregated sensor series
-- Persisted daily notable comparisons for indoor sensors, observed outdoor
-  temperature, electricity power/energy, and available door/window opening
-  activity, with like-for-like month-to-date evidence and no causal claims
-- Guided Excel/CSV history import with automatic column matching, preview,
-  timezone/unit checks, and duplicate-safe retries
-- Experimental effective room thermal calibration plus room, floor, and
-  whole-home 24-hour thermal-isolation comparison with durable outdoor
-  boundary observations, fitted reconstructions, untouched holdout metrics,
-  empirical bands, residuals, and a bounded
-  weather scenario; observed and simulated values remain separate
-- Direct local H100/H200/H500 and supported Tuya Wi-Fi device polling, Home
-  Assistant WebSocket ingestion, and a mock scenario generator
-- Durable TP-Link gap recovery: local retained history first, an optional
-  operator-maintained private adapter second, then a disabled-by-default,
-  canary-gated Tapo Android/Appium export with Gmail CSV correlation
-- Manual leak/condensation/mould/maintenance observations with observed versus
-  recorded time, explicit precision, source, confidence, open/resolved state,
-  resolution outcomes, and revision history, plus static metadata
-- Home-scoped Activity plus Property-scoped Maintenance, with fast observation
-  capture, dated and classified work planning, linked evidence, completion
-  outcomes, explicit verification, and revision history
-- A Property-scoped multi-Home map with calibrated, zoom-scaled geographic
-  floor-plan footprints and pin fallback for legacy weather locations
-- Property management with Homes grouped into Properties, user-drawn outdoor
-  areas, area equipment, contextual notes, and area/equipment-linked maintenance
-- Inert-until-granted Stuguby federation between independently administered
-  Stugu systems, with Server Property adoption, offline collaborative Property
-  edits, read-only-by-default shared Homes, designated sanitized recovery, and
-  signed HTTPS synchronization; only the coordinator needs an inbound endpoint
-- Built-in local owner, administrator, and Guest accounts in one workspace;
-  Guests are always read-only and can be restricted to selected properties,
-  Homes, and mapped areas
-- Property-default FMI weather locations with optional advanced per-Home
-  overrides and true-north plan-top orientation, plus observations, directional wind context, point forecasts,
-  official CAP warnings, provenance, partial/stale-data state, and a
-  provider-neutral event broker that turns scheduled pulls into live SSE weather
-  snapshots
-- Threshold alerts with independent Telegram and multi-destination generic
-  webhook delivery; Telegram includes guided bot/chat discovery, a delivery
-  test, per-rule Home alert opt-in, and automatic deduplicated host-health and
-  storage-forecast alerts with recovery notices
-- Owner/Admin host diagnostics with persisted storage-growth forecasts,
-  SQLite and optional Timescale metrics in the Prometheus feed, and a bounded,
-  redacted error-log export
-- A Home-scoped Apple Notes bridge for iOS Shortcuts: use revocable Shortcut
-  grants, capture selected note text as maintenance work, and create dated Stugu
-  snapshots without sharing an Apple Account credential or pretending Notes
-  supports live server sync; operator device labels are informational, and the
-  setup warns that iCloud may copy a Shortcut bearer to other devices
-- A lightweight native iPhone companion for direct monitoring and field work,
-  plus complete iPad and Mac Catalyst clients that present the same
-  server-hosted product as the web app; Apple-only capture, notifications,
-  shortcuts, offline state, and Watch support remain native
-- Versioned REST API, OpenAPI description, and local stdio plus authenticated network MCP servers
-- English, Finnish, and Swedish UI foundations, metric/imperial display,
-  responsive layout, and accessible controls
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/screenshots/twin-3d-dark.webp">
+  <img src="docs/images/screenshots/twin-3d-light.webp" alt="The 3D building view: two floors with every sensor at its mounting height, estimated temperature clouds and a selected sensor's current carbon dioxide, humidity and temperature.">
+</picture>
+
+<sub>All screenshots show the built-in sample home with synthetic data.</sub>
+
+## Contents
+
+- [What Stugu does](#what-stugu-does)
+- [A look around](#a-look-around)
+- [How it works](#how-it-works)
+- [Quick start](#quick-start)
+- [Connect your devices](#connect-your-devices)
+- [Remote access and sharing](#remote-access-and-sharing)
+- [Backups, updates and moving to new hardware](#backups-updates-and-moving-to-new-hardware)
+- [API, live events and MCP](#api-live-events-and-mcp)
+- [Development](#development)
+- [Documentation](#documentation)
+- [Scope](#scope)
+
+## What Stugu does
+
+| Area | What you get |
+| --- | --- |
+| **See the home live** | A 2D floor plan and an orbitable 3D building with every floor, room and sensor height. Readings become soft temperature, humidity or CO₂ clouds, plus an estimated air-movement layer that is always labelled as an estimate. |
+| **Know what needs attention** | Home Pulse, room comfort, a moisture and ventilation coach, and monitoring that names the stale sensor or open alert instead of showing a score. Threshold alerts go to Telegram and webhooks. |
+| **Understand the history** | A data explorer from 6 hours to 1 year. Side-by-side comparisons of two days, weeks, months or years, daily notable changes with false-discovery control, thermal and moisture response fits with 90 % intervals, and CSV/Excel import and export. |
+| **Forecast honestly** | Each sensor's forecast is backtested every day against "no change" and "same time yesterday". A forecast that does not beat "no change" at six hours is not shown. |
+| **Follow electricity** | Spot prices, dated tariff versions, an hourly cost under the contract in force, a bill check against your invoices, a 30-day projection tested on your own history, and savings from shifting measured flexible loads. |
+| **Look after the property** | Properties with several Homes, drawn outdoor areas, equipment, a maintenance work plan with completion and verification, and manual observations with revision history. |
+| **Keep the data yours** | Readings and floor plans stay on your machine: a crash-safe SQLite control plane, permanent TimescaleDB history, verified backups, optional encrypted off-site copies, and live migration to new hardware. |
+| **Connect what you have** | TP-Link Tapo hubs and energy plugs directly, Home Assistant, Tuya Wi-Fi devices, Gree/Wilfa heat pumps, Nexus 433 MHz thermometers, FMI and Open-Meteo weather, REST and SSE, MCP for AI assistants, and native iPhone, iPad and Mac apps. |
+
+The interface is available in English, Finnish and Swedish, with metric or
+imperial units. Owners, administrators and read-only Guests sign in to one
+local workspace; Guests can be limited to selected Properties, Homes and areas.
+
+## A look around
+
+<table>
+  <tr>
+    <td width="50%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/images/screenshots/home-dark.webp">
+        <img src="docs/images/screenshots/home-light.webp" alt="The Home page: Home Pulse says the home is worth watching because rooms differ by 3.5 °C, with the average temperature and the number of sensors reporting.">
+      </picture>
+      <p><b>Home.</b> Home Pulse says whether anything needs attention and why, and what the rooms feel like right now.</p>
+    </td>
+    <td width="50%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/images/screenshots/twin-2d-dark.webp">
+        <img src="docs/images/screenshots/twin-2d-light.webp" alt="The 2D plan of the ground floor with sensors, compass bearings, an estimated temperature field and dashed estimated-gradient arrows.">
+      </picture>
+      <p><b>Live plan.</b> Sensors on the floor plan with compass bearings, an estimated field and estimated gradient arrows, each labelled as an estimate.</p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/images/screenshots/analytics-dark.webp">
+        <img src="docs/images/screenshots/analytics-light.webp" alt="Home sensor analytics over seven days: every sensor's temperature, the Home average and outdoor temperature, with the average and spread above the chart.">
+      </picture>
+      <p><b>Data & analytics.</b> Every sensor against the Home average and outdoors, with coverage, spread, an accessible data table and export.</p>
+    </td>
+    <td width="50%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/images/screenshots/electricity-dark.webp">
+        <img src="docs/images/screenshots/electricity-light.webp" alt="The Electricity page: current power, 24-hour consumption, the price now, the 30-day cost, and a 30-day usage outlook with its planning range and backtest result.">
+      </picture>
+      <p><b>Electricity.</b> Power, consumption, the price you pay now, cost under your tariff, and a projection that says how well it did on past months.</p>
+    </td>
+  </tr>
+</table>
+
+## How it works
+
+Every reading takes the same path, whatever device it came from. Stugu commits
+it to SQLite first and archives it to TimescaleDB afterwards. Live events,
+charts, analytics, the MCP server and the apps all read through one hybrid
+reader that merges the two stores.
+
+```mermaid
+flowchart TB
+    subgraph devices["Your network"]
+        direction LR
+        tapo["TP-Link Tapo hub<br/>T310/T315, T110, energy plugs"]
+        ha["Home Assistant"]
+        tuya["Tuya Wi-Fi<br/>plugs and lamps"]
+        gree["Gree / Wilfa<br/>heat pump"]
+        n433["433 MHz thermometers<br/>via Nexus433 + MQTT"]
+    end
+    subgraph public["Public data"]
+        direction LR
+        weather["FMI / Open-Meteo<br/>weather"]
+        prices["Spot price feed"]
+    end
+    subgraph stugu["Stugu API"]
+        adapters["Source adapters<br/>normalise and validate"]
+        sqlite[("SQLite<br/>control plane, outbox,<br/>current state")]
+        tsdb[("TimescaleDB<br/>permanent history,<br/>rollups")]
+        reader["Hybrid telemetry reader"]
+        analytics["Analytics kernel,<br/>forecasts, thermal fits,<br/>energy model"]
+        alerts["Alert engine,<br/>notification outbox"]
+        api["REST /api/v1 + /api/v2<br/>SSE live events · MCP"]
+    end
+    subgraph clients["Clients"]
+        direction LR
+        web["Web app<br/>2D/3D twin"]
+        apple["iPhone, iPad, Mac"]
+        mcp["AI assistants (MCP)"]
+        notify["Telegram, webhooks"]
+    end
+
+    tapo --> adapters
+    ha --> adapters
+    tuya --> adapters
+    gree --> adapters
+    n433 --> adapters
+    weather --> adapters
+    prices --> adapters
+    adapters --> sqlite
+    sqlite -->|checkpointed archiver| tsdb
+    sqlite --> reader
+    tsdb --> reader
+    reader --> analytics
+    analytics --> api
+    reader --> api
+    adapters --> alerts
+    alerts --> notify
+    api --> web
+    api --> apple
+    api --> mcp
+```
+
+- **The browser never talks to your devices.** The API owns credentials,
+  polling, normalisation, alert evaluation and provider calls. Credentials you
+  enter in the UI are write-only and live in a protected secrets file, not in
+  the database.
+- **Live means near real time.** Direct TP-Link polling defaults to every two
+  seconds and door/window logs to every 500 ms. Each metric keeps its own
+  timestamp, so the UI can show a stale sensor as stale.
+- **Derived values are never stored as measurements.** Forecasts, interpolated
+  fields, thermal simulations and estimated airflow carry their algorithm
+  version and evidence, and appear only where they passed their checks.
+
+Everything is owned by a Property or a Home, and the navigation follows that
+ownership:
+
+```mermaid
+flowchart TD
+    workspace["Workspace<br/>one per installation:<br/>accounts, alerts, Telegram"]
+    workspace --> property["Property<br/>map, areas, equipment"]
+    property --> maintenance["Maintenance work plan"]
+    property --> contract["Electricity contract,<br/>tariff versions, price history"]
+    property --> home["Home<br/>timezone, location, orientation"]
+    home --> floors["Floors, rooms, walls,<br/>floor-plan drawings"]
+    home --> sensors["Sensors and meters<br/>placed in x, y, height"]
+    home --> connections["Connections<br/>TP-Link, Home Assistant,<br/>Tuya, Gree"]
+    home --> activity["Activity, observations,<br/>analytics, outdoor weather"]
+```
+
+See [Architecture](docs/architecture.md) for the full runtime view, storage
+model, analytics pipeline and module boundaries.
 
 ## Quick start
 
-With Node.js available, run the guided setup:
+With Node.js 22.13 or newer installed, run the guided setup:
 
 ```sh
 npm run setup
 ```
 
-It asks whether to use local Node.js, Docker, Podman, or the Raspberry Pi
-appliance flow; whether this is a real home or a disposable demo; and, for
-containers, which local port to use. Docker users can explicitly install the
-trusted host agent as a per-user startup service. The host port stays on
-loopback.
+It asks which runtime to use (local Node.js, Docker, Podman, or the Raspberry
+Pi appliance), whether this is a real home or a disposable demo, and which
+local port to use. Containers serve the app on <http://localhost:8080>, bound
+to loopback. Then open the app, create the first Owner, and follow the guided
+Property-and-Home setup.
 
-For the normal Stuguby path, start locally, create the Owner, then open
-**Stugubys → Set up secure sharing** on the Stugu computer. Stugu registers its
-private Cloudflare OAuth client from one API token with **OAuth Client Write**,
-opens Cloudflare consent, provisions Tunnel, DNS, and Access through the host
-agent, verifies the boundary, and revokes the temporary OAuth grant. The
-bootstrap token is used once and never saved. Existing online installations
-reuse their retained narrow Access-group token; a new installation asks for
-that separate runtime token once in the UI. The CLI provisioner remains an
-advanced fallback.
+Non-interactive examples:
 
-The wizard changes only basic `.env` values and preserves existing secrets and
-advanced settings. Cloudflare runtime credentials go into the ignored,
-protected `secrets/cloudflare/` directory, never `.env`.
+```sh
+npm run setup -- --mode docker --real --start --no-cloudflare --yes
+npm run setup -- --mode podman --real --start --no-cloudflare --yes
+npm run setup -- --mode rpi --pi-action flash
+```
 
-For a non-interactive local development setup:
+To try Stugu without any hardware, set `MOCK_ENABLED=true` in `.env` before the
+first start. The demo seeds the sample home from the screenshots: two floors,
+ten sensors, and synthetic temperature, humidity and CO₂. Demo mode is
+permanently switched off the first time real data arrives, and its synthetic
+readings are deleted.
+
+For development:
 
 ```sh
 npm run setup -- --mode local --real --yes
 npm run dev
 ```
 
-Open <http://localhost:5173>. The API exposes the v1 compatibility contract at
-<http://localhost:8787/api/v1> and registered measurements at
-<http://localhost:8787/api/v2>.
+The web app runs on <http://localhost:5173> and the API on
+<http://localhost:8787> (`/api/v1` and `/api/v2`).
 
-Run the fast affected gate while iterating and the complete receipt-producing
-gate before release:
-
-```powershell
-npm run verify:local -- --fast
-npm run verify:local -- --full
+```mermaid
+flowchart LR
+    start(["npm run setup"]) --> mode{"Where will it run?"}
+    mode -->|"PC or NAS"| compose["Docker or Podman Compose<br/>localhost:8080"]
+    mode -->|"Dedicated device"| pi["Raspberry Pi 4 appliance<br/>flash a USB SSD"]
+    mode -->|"Contributing"| local["Local Node.js<br/>localhost:5173"]
+    compose --> owner["Create the first Owner"]
+    pi --> owner
+    local --> owner
+    owner --> home["Add a Property and Home,<br/>draw floors, connect devices"]
 ```
 
-Full mode runs validation, coverage, builds, Compose checks, production
-container builds, and an API smoke test on this computer. See
-[local CI and release publishing](docs/local-ci.md) and
-[lean verification and appliance diagnosis](docs/lean-tooling.md).
+See [Install and run](docs/getting-started.md) for manual Compose setup, LAN
+access, demo mode and uninstalling, and the
+[Raspberry Pi appliance guide](docs/raspberry-pi-appliance.md) before writing a
+disk.
 
-Non-interactive container examples:
+## Connect your devices
+
+Each connection belongs to one Home. Open the Home's **Set up → Connections**,
+let Stugu scan the LAN, and enter credentials there.
+
+- **TP-Link Tapo (direct):** Stugu polls H100/H200/H500 hubs and their
+  T310/T315 climate sensors and T110 contact sensors on the LAN through
+  `python-kasa`. Energy plugs such as the P110 provide power and energy. Home
+  Assistant is not required. Missing history is recovered from the hub's
+  retained buckets first. → [Direct TP-Link](docs/tp-link-direct.md)
+- **Home Assistant:** keep the official TP-Link Smart Home integration and give
+  Stugu the URL and a long-lived token. When both paths see the same sensor,
+  Stugu keeps one sensor, uses the direct path while it is healthy and fails
+  over to Home Assistant without duplicating history. →
+  [Home Assistant](docs/home-assistant.md)
+- **Tuya Wi-Fi devices:** supported lamps, outlets and switches are verified
+  and controlled on the LAN with a write-only local key. Only devices that
+  measure power count towards energy. → [Local Tuya](docs/tuya-local.md)
+- **Gree/Wilfa heat pumps:** read-only monitoring, locally first or through
+  EWPE Smart, shown in the 2D/3D Home. → [Gree heat pumps](docs/gree-direct.md)
+- **Weather and prices:** Finnish Homes get observations, forecasts and
+  official warnings from FMI; other locations use Open-Meteo. Neither needs an
+  API key. Spot prices come from Pörssisähkö or a compatible feed. →
+  [Weather](docs/weather.md), [Electricity prices](docs/electricity-prices.md)
+- **433 MHz thermometers:** on the Raspberry Pi appliance, Nexus-protocol
+  sensors arrive through an optional receiver container and a private MQTT
+  broker. → [Nexus433 runtime](docs/nexus433-runtime-decision.md)
+- **Older Tapo history:** an optional, disabled-by-default Android export
+  workflow can recover history beyond the hub's retention. →
+  [Tapo history recovery](docs/tapo-history-automation.md)
+
+## Remote access and sharing
+
+A Compose install binds the web port to loopback, and the Raspberry Pi
+appliance listens only on the private LAN and Tailscale. Sign-in does not
+encrypt traffic. To use Stugu from elsewhere, choose one of these, all optional
+and run by you:
+
+- **Tailscale** is built into the Raspberry Pi appliance.
+- **Cloudflare Tunnel + Access** can be provisioned from the UI or the setup
+  wizard so no host port is exposed. Stugu itself is not hosted on Cloudflare.
+  → [Cloudflare Tunnel and Access](docs/cloudflare-access.md)
+- **Stuguby** federates independently run Stugu installations around a shared
+  property, with signed events and explicit per-Home grants. Shared Homes are
+  read-only by default. → [Stuguby federation](docs/stuguby.md)
+
+Read [Security, privacy and retention](docs/security-privacy.md) before binding
+the web port to a LAN address.
+
+## Backups, updates and moving to new hardware
 
 ```sh
-npm run setup -- --mode docker --real --start --install-update-agent --no-cloudflare --yes
-npm run setup -- --mode podman --real --start --no-cloudflare --yes
-```
-
-Both default to <http://localhost:8080>. Podman setup enables the core stack
-and disables the Docker-socket self-update profile.
-
-See [the complete getting-started guide](docs/getting-started.md) for manual
-Docker/Podman setup, direct TP-Link dependencies, demo mode, LAN access, and
-the [Raspberry Pi appliance flow](docs/raspberry-pi-appliance.md).
-
-Create and verify a complete online recovery set with:
-
-```powershell
 docker compose --profile maintenance run --rm stugu-backup
 ```
 
-The output under `backups/` contains both SQLite databases, assets, the Stuguby
-node identity, the tracking endpoint identity-encryption key when present, protected
-integration secrets, and a full
-TimescaleDB dump. Treat it as sensitive and copy it to encrypted off-host
-storage.
+A backup set holds both SQLite databases, assets, the Stuguby node identity,
+the protected integration secrets and a full TimescaleDB dump. Treat it as
+sensitive. The always-on scheduler keeps verified recovery sets in a managed
+volume or a mounted NAS directory, and an optional profile replicates
+encrypted copies to Cloudflare R2. →
+[Backend storage](docs/backend-storage.md),
+[R2 backups](docs/cloudflare-r2-backups.md)
 
-The always-on scheduler keeps its private recovery sets in an engine-managed
-volume so Docker and rootless Podman behave consistently on Linux, macOS, and
-Windows. `STUGA_SCHEDULED_BACKUP_SOURCE` can instead point at an absolute
-mounted NAS directory; keep PostgreSQL itself on local block/SSD storage via
-`STUGA_TIMESERIES_DATA_SOURCE`. Export verified named-volume sets to `backups/`
-with:
+**Updates** come from GitHub Releases. Under **Advanced → System**, Owners
+choose manual or scheduled automatic installs and whether to include preview
+releases. A separate update agent backs up, pulls digest-pinned images,
+recreates the services, checks their health, and rolls back if the new version
+does not come up. →
+[System updates](docs/system-updates.md)
 
-```powershell
-docker compose --profile maintenance run --rm stugu-backup-export
-```
+**Moving** a running Compose install to a Stugu appliance takes an optional
+online seed and then a short, verified cutover with rollback:
 
-With the trusted host update agent connected, Owners/Admins can connect the
-shared NAS under **Set up → Operations** or use the full controls under
-**System → Storage**. Paths must already be mounted below
-`STUGA_STORAGE_ALLOWED_ROOTS`. NAS is accepted only as a recovery and derived
-export target, never for the live telemetry database. Storage moves are backed
-up, restore-tested, journaled, copied, mount-verified, and rolled back without
-deleting the old source. Each Home chooses its scheduled CSV exports under
-**Data & analytics**.
-
-Use `podman compose` in both commands when Podman is the selected runtime.
-See the [lossless telemetry scale plan](docs/telemetry-scale-plan.md) and
-[backend storage guide](docs/backend-storage.md) for retention, SSD/NAS, alert,
-query-acceleration, and recovery invariants.
-
-Move a running Compose installation to a booted Stugu appliance with an
-optional online seed followed by a short, explicit cutover:
-
-```powershell
+```sh
 npm run migrate -- seed --target stugu@stugu.local --identity-file "$HOME/.ssh/stuga_appliance"
 npm run migrate -- cutover --target stugu@stugu.local --identity-file "$HOME/.ssh/stuga_appliance"
 ```
 
-See [live system-to-system migration](docs/live-migration.md) before the first
-cutover; it documents host-key verification, included settings, rollback, and
-the fail-closed response to an ambiguous network failure.
+→ [Live system migration](docs/live-migration.md)
 
-## Real sensors
+## API, live events and MCP
 
-Pair an H100 or H200 and its T310/T315 sensors in the Tapo app, then choose either ingestion path:
+- `/api/v1` is the compatibility contract; `/api/v2` serves registered
+  measurements, analytics queries and live measurement events (SSE). The
+  OpenAPI document covers every route. →
+  [API, MCP and integrations](docs/integrations.md)
+- Stugu is also a read-only **MCP server**, so an AI assistant can look up
+  Homes, current conditions, history, forecasts, energy, alerts and maintenance
+  without copying your telemetry anywhere. Start the network server from
+  **Advanced → API & MCP** and copy its endpoint and one-time token, or spawn
+  the stdio server locally:
 
-- **Direct TP-Link:** Stugu polls the hub on the local LAN through
-  `python-kasa`; Home Assistant is not required. Select the owning Home, open
-  **Set up**, find the hub, and enter the TP-Link account credentials. Then name
-  and place child sensors from that Home's **Sensors** workspace. A legacy
-  mapping file remains optional.
-- **Home Assistant:** keep the official **TP-Link Smart Home** integration and
-  use the owning Home's **Set up** page to find Home Assistant and save its URL
-  and long-lived token. The entity map remains the advanced data-binding step
-  for this adapter.
-
-Home Assistant and direct TP-Link connections are owned by one Home. Different
-Homes can use independent credentials and endpoints, and both adapters can run
-concurrently. When both paths expose the same physical child, keep one Stugu
-sensor and attach both its direct device ID and Home Assistant entity IDs to
-that sensor. Stugu uses the healthy direct path for faster live updates and
-fails over to Home Assistant without duplicating live history or alert
-evaluation. The Sensors flow can attach a newly discovered direct device to an
-existing Home Assistant sensor; aliases are never guessed as identity.
-
-Compatible Gree-protocol Wilfa heat pumps can be found from the selected Home's
-**Set up** page and monitored read-only, locally first or through EWPE Smart.
-After explicit addition, place the unit once for shared 2D/3D state and
-estimated-influence views. See [Gree/Wilfa heat pumps](docs/gree-direct.md).
-
-Supported Tuya-compatible Wi-Fi lamps, outlets, and switches use a separate
-local-first path. Pair the device to Wi-Fi in Tuya Smart or Smart Life, then
-provide its device ID and write-only local key under the owning Home's **Set
-up** page. Tuya discovery is excluded from the normal network scan and starts
-only for that supplied device. Stugu verifies the exact datapoint profile before
-saving it, controls it directly on the LAN, reconnects after address changes,
-and shows the same provider-neutral device in 2D and 3D. Only devices that
-actually report measured power enter Energy; lamp consumption is never
-guessed. See
-[local Tuya Wi-Fi devices](docs/tuya-local.md).
-
-Credentials saved in the web flow are write-only to the browser and live in a
-server-side protected secrets file outside SQLite. Safe integration ownership,
-endpoint identity, lifecycle state, and revisions live in SQLite; environment
-variables remain available as administrator overrides.
-
-Older direct TP-Link climate gaps can use the optional automated Tapo history
-service. It segments requests within Tapo's two-year window, permits only one
-outstanding mobile/email generation by default, and fails closed on identity,
-unit, range, cadence, schema, mailbox, or selector drift. The Android runner is
-inert until explicitly enabled and ordinary work remains locked behind a recent
-live canary for the exact target, APK/Appium/driver/locale/account/flow, API
-build, and CSV schema. The checked-in flow contains placeholders, not usable
-selectors. See [automated Tapo history recovery](docs/tapo-history-automation.md)
-before supplying credentials or enabling the Compose profile.
-
-Mock telemetry can be enabled explicitly for a new demo database so the product
-can be evaluated before hardware is connected. Saving Home Assistant or TP-Link credentials—or accepting
-the first non-demo API/import sample or fresh FMI observation—atomically switches
-that SQLite database to permanent real-data mode. The switch stops mock generation and active replay,
-purges mock/replay readings, generic samples, synthetic outdoor boundaries, and
-mock-derived alert events, and rejects every future attempt to store demo data.
-The browser also waits for the API to confirm demo mode before showing or
-generating mock telemetry, so an unavailable API fails closed instead of
-displaying demo values for a real installation. Confirmed demo mode retains a
-persistent banner and visually distinct shell while navigating the product.
-Use a separate database or deployment for later demonstrations; setting
-`MOCK_ENABLED=true` cannot undo the real-data latch.
-
-See [direct TP-Link setup](docs/tp-link-direct.md), [local Tuya Wi-Fi devices](docs/tuya-local.md), [automated Tapo history recovery](docs/tapo-history-automation.md), [electricity prices and contracts](docs/electricity-prices.md), [Home Assistant setup](docs/home-assistant.md), [property management and Guest access](docs/property-management.md), [Stuguby federation](docs/stuguby.md), [private bug reports](docs/bug-reports.md), [ChatGPT and voice](docs/chatgpt.md), [Cloudflare Tunnel and Access](docs/cloudflare-access.md), [system updates](docs/system-updates.md), [live system migration](docs/live-migration.md), [manual observation semantics](docs/observations.md), [activity and maintenance work](docs/maintenance.md), [Apple Notes and Telegram setup](docs/apple-notes-telegram.md), [architecture](docs/architecture.md), and [API/MCP integration](docs/integrations.md) for details.
-
-The thermal model is documented in [effective room thermal
-simulation](docs/thermal-simulation.md), and the 2D/3D dynamics layer in
-[sensor-constrained indoor flow](docs/airflow-simulation.md). Stugu is pre-1.0; see the
-[versioning policy](docs/versioning.md) before changing public contracts or
-persisted schemas.
-
-## Navigation and scope
-
-The permanent navigation follows the ownership model: Workspace contains
-**Overview**, **Properties**, and **Alerts**; a selected Property contains
-**Property**, **Maintenance**, and **Electricity**; and a selected Home contains
-**Home**, **Sensors**, and **Set up**. **API & MCP** remains under Advanced.
-Property and Home selections are encoded in canonical URLs, including
-`/properties/{propertyId}/maintenance`,
-`/properties/{propertyId}/electricity`, and
-`/properties/{propertyId}/homes/{homeId}/setup/{section}`.
-
-## Home map and outdoor weather
-
-Select a Property and open a Home's **Set up > Homes** section to see the Homes
-in that Property that have a precise map placement or legacy weather location.
-Select a Home, place the centre of its plan, optionally choose the footprint
-floor, and calibrate how many
-real-world metres one plan unit represents in `House.mapPlacement`. The
-resulting footprint keeps its true geographic size as the map zoom changes.
-Homes that have only the legacy weather location remain visible as pins.
-The **Properties** workspace groups Homes by Property and supports
-user-drawn operational areas. These polygons are planning context rather than
-surveyed or legally authoritative parcel boundaries.
-
-Weather lookup uses the Property's WGS84 location by default. The separate
-`House.location` field stores the operational copy and may instead hold an
-advanced per-Home override. When neither is available, Stugu can infer an
-automatic fallback from `House.mapPlacement`; later Property or placement
-changes update only automatic values, never a manual override. Set the
-true-north bearing of the top of each floor plan separately. Stugu then retrieves Home-scoped
-observations, forecasts, and official warnings from the Finnish Meteorological
-Institute through
-`GET /api/v1/houses/{id}/weather?hours=48`. FMI's selected public endpoints do
-not require an API key. The API caches results and exposes station/product
-provenance, partial failures, and stale fallback explicitly.
-
-The live Twin view shows the current outside temperature, humidity, and wind.
-When orientation is known, it also maps wind direction to a windward plan edge
-in 2D and 3D. The 2D view can animate a directional sketch approaching and
-splitting around the plan; its bearing and density come from the observation,
-but the exterior paths are not CFD. Indoor paths remain the separate,
-sensor-constrained Air movement estimate.
-
-The map loads attributed tiles directly from OpenStreetMap, which is an external
-browser request; FMI requests are server-side. See [outdoor weather and home
-location](docs/weather.md) for fields, licence/request limits, station caveats,
-failure semantics, and map privacy.
-
-## Local accounts and Guest access
-
-Every installation has one local workspace with built-in owner, administrator,
-and Guest accounts. Browser sign-in establishes a server-managed HttpOnly
-session. The API enforces permissions on every request: Guests cannot make
-changes and can see only the Properties, Homes, and mapped areas granted by an
-owner or administrator. A grant to a child resource reveals only the minimum
-parent context needed to identify it, never sibling resources.
-
-The sign-in boundary does not encrypt network traffic. Keep the default
-loopback binding, or put Stugu behind TLS and a trusted VPN or reverse proxy
-before allowing access from another network. The optional
-[Cloudflare Tunnel and Access recipe](docs/cloudflare-access.md) keeps a
-permanent edge-recovery identity separate from the local Stugu owner and
-reconciles invited members without exposing the host port. Its coordinator
-mode also automates and verifies the one narrow signed-machine path required by
-a Stuguby; participant nodes remain outbound-only.
-
-## MCP
-
-Stugu is the MCP server; Codex, another local service, or an RPi application is
-the MCP client. An Owner or Admin can open **Advanced → API & MCP**, select
-**Start network MCP server**, and copy the displayed Streamable HTTP endpoint
-and one-time bearer token. A generic client shape is:
-
-```json
-{
-  "mcpServers": {
-    "stugu": {
-      "type": "streamable-http",
-      "url": "https://stugu.example/api/v1/mcp",
-      "headers": { "Authorization": "Bearer stugu_mcp_..." }
+  ```json
+  {
+    "mcpServers": {
+      "stugu": {
+        "command": "node",
+        "args": ["apps/api/dist/mcp-server.js"],
+        "cwd": "/absolute/path/to/open-stuga"
+      }
     }
   }
-}
-```
+  ```
 
-Use the exact schema required by the client. Stop the server in the Web UI to
-revoke the token. Put remote access behind TLS or a trusted VPN; a bearer token
-must not travel over an untrusted plain-HTTP connection.
+  A smaller tool set tuned for ChatGPT and voice answers runs with
+  `npm run mcp:chatgpt`. → [ChatGPT and voice](docs/chatgpt.md)
 
-For a client on the same machine, build once and configure it to spawn the
-stdio server directly:
+Both MCP servers advertise read-only tools only: they cannot create, change,
+delete or control anything, and credentials cannot be set through them.
 
-```json
-{
-  "mcpServers": {
-    "stugu": {
-      "command": "node",
-      "args": ["apps/api/dist/mcp-server.js"],
-      "cwd": "/absolute/path/to/open-stuga"
-    }
-  }
-}
-```
-
-Both MCP transports use the same `DATABASE_PATH` and TimeDB settings as the API,
-so clients can discover Properties, Homes, Stugubys, measurement definitions,
-metric history/forecasts, current conditions, electricity/energy analysis,
-alerts, actions, maintenance, integrations, backups, and setup readiness without
-copying telemetry into an AI provider. Each MCP process opens SQLite read-only
-and queries TimeDB only for telemetry history; neither exposes create, update,
-delete, import, sharing, synchronization, or control tools.
-Start the API once after an upgrade so migrations are current, and run
-`npm run build` before launching the compiled server.
-
-For a smaller tool set tuned for ChatGPT selection and voice answers, run
-`npm run mcp:chatgpt` or
-`node --env-file-if-exists=.env apps/api/dist/chatgpt-mcp-server.js`. The
-private tunnel and ChatGPT setup is documented in
-[ChatGPT and voice](docs/chatgpt.md).
-
-## Project layout
+## Development
 
 | Path | What lives there |
 | --- | --- |
-| `apps/api` | Express API, SQLite control plane, background services, OpenAPI document, MCP servers |
-| `apps/web` | React + Vite UI, locale catalogs, page/panel components |
-| `apps/ios` | iPhone companion and full iPad/Mac client |
-| `apps/tapo-export-runner` | Tapo history export runner |
-| `apps/bug-report-relay` | Optional Cloudflare Worker relaying bug reports into a private GitHub repository |
+| `apps/api` | Express API, SQLite control plane, background services, OpenAPI document, MCP servers, Python device bridges |
+| `apps/web` | React + Vite UI, locale catalogs, pages and panels |
+| `apps/ios` | Native iPhone companion and the iPad/Mac client |
+| `apps/tapo-export-runner` | Optional Tapo history export runner |
+| `apps/bug-report-relay` | Optional Cloudflare Worker that relays bug reports into a private GitHub repository |
 | `packages/contracts` | Shared types and validators used by the API, web and relay |
-| `packages/analytics-kernel` | The one implementation of analytics statistics, counter/kWh integration and local-calendar helpers |
-| `packages/spatial-layers`, `packages/stuguby-protocol` | Spatial inference; Stuguby peer protocol |
-| `scripts/` | Setup, local CI, release publishing, update agent and their tests |
+| `packages/analytics-kernel` | The one implementation of statistics, counter/kWh integration, time-weighted means and local-calendar helpers |
+| `packages/spatial-layers` | Spatial inference engines |
+| `packages/stuguby-protocol` | Stuguby peer protocol |
+| `scripts/` | Setup, local CI, release publishing, update agent, live migration and their tests |
 | `deploy/` | Compose extras, MQTT/Nexus433 images, Raspberry Pi image and host updater |
-| `config/` | Integration mapping examples |
-| `docs/` | Setup, architecture, security, and roadmap |
 
-The release version lives in `package.json` and [CHANGELOG.md](CHANGELOG.md).
+```sh
+npm run build                       # packages, then API, then web
+npm test -w @climate-twin/api
+npm test -w @climate-twin/web
+npm run typecheck                   # size, architecture, complexity and unused-symbol gates, then types
+npm run verify:local -- --fast      # affected checks while iterating
+npm run verify:local -- --full      # the authoritative gate and its receipt
+```
+
+Hosted GitHub Actions CI is paused; `npm run verify:local -- --full` is the
+gate (Node.js 22.22.2+, Python 3.13 and Docker Desktop). The repository
+enforces OpenAPI and locale parity, no hard-coded UI strings, file-size and
+cognitive-complexity ceilings, architecture boundaries and an unused-symbol
+ratchet. Every pull request bumps the version: minor for features, patch for
+fixes and docs. Start with [CONTRIBUTING.md](CONTRIBUTING.md),
+[local CI](docs/local-ci.md) and [versioning](docs/versioning.md).
+
+## Documentation
+
+The [documentation index](docs/index.md) lists every guide. Good places to
+start:
+
+- [Install and run](docs/getting-started.md)
+- [Architecture](docs/architecture.md)
+- [Analytics foundation](docs/analytics-foundation.md) and
+  [thermal simulation](docs/thermal-simulation.md)
+- [Electricity prices and contracts](docs/electricity-prices.md)
+- [Properties and Guest access](docs/property-management.md)
+- [Known limitations](docs/known-limitations.md)
+- [Changelog](CHANGELOG.md)
 
 ## Scope
 
-This is an installable engineering MVP, not a certified building-safety system. Spatial surfaces are interpolation estimates; animated paths are a normalized sensor-constrained model, not measured airflow, physical speed, or calibrated CFD. Forecasts are intentionally explainable trend projections; alerts and leak observations must not replace calibrated detectors, CO alarms, inspections, or professional advice. The modular prediction boundary is ready for a separately validated model when enough real data and boundary-state inputs have been collected.
+Stugu is pre-1.0 engineering software for understanding a home, not a certified
+building-safety system. Spatial fields are interpolation estimates, and air
+movement is a sensor-constrained sketch, not measured airflow or calibrated CFD.
+Forecasts are shown only where they beat simple baselines on recent history.
+Alerts and observations do not replace calibrated leak detectors, CO alarms,
+inspections or professional advice. See [known limitations](docs/known-limitations.md).
 
 ## License
 
-Stugu is open-source software licensed under the [MIT License](LICENSE).
-Contributions are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
+Stugu is open-source software under the [MIT License](LICENSE). Contributions
+are welcome; read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull
+request. Report vulnerabilities privately as described in
+[SECURITY.md](SECURITY.md).

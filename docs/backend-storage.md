@@ -13,6 +13,20 @@ Stugu uses a hybrid local-first backend. Core SQLite keeps the transactional con
 
 This split keeps ingestion crash-safe while allowing years of telemetry to be partitioned and aggregated efficiently. During a TimeDB outage SQLite accumulates unacknowledged rows; it is not pruned until reconciliation is durable.
 
+```mermaid
+flowchart LR
+    adapters["Adapters and<br/>ingest API"] -->|"one transaction"| outbox[("SQLite outbox<br/>+ current projections")]
+    outbox -->|"checkpointed,<br/>idempotent UPSERT"| archive[("TimescaleDB<br/>six permanent hypertables")]
+    archive -->|"durable watermark"| compaction["Compaction worker<br/>RETENTION_DAYS ≥ 30"]
+    compaction -->|"prune acknowledged rows,<br/>keep latest per series"| outbox
+    outbox --> reader["Hybrid reader<br/>SQLite tail + archive"]
+    archive --> reader
+    reader --> consumers["APIs, analytics, MCP,<br/>forecasts, replay, spatial"]
+```
+
+Compaction runs only while the archive is healthy and caught up; with
+`RETENTION_DAYS=0` it never runs and SQLite keeps a complete duplicate.
+
 Experimental equipment tracking is a separate privacy boundary rather than permanent Home telemetry. Its radio observations, gateway rollups, inferred locations, and movement events remain in SQLite under explicit per-Property retention limits; current locations are projections. Moving that sensitive location evidence into the permanent TimeDB archive would defeat those deletion guarantees.
 
 ## SQLite control plane

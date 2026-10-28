@@ -70,6 +70,21 @@ Monthly fees are pro-rated by local calendar day (fee ÷ days in that month, a
 summary, as `totalCostEur`. Summaries return the split as `costBreakdown`, with
 the components they include.
 
+```mermaid
+flowchart LR
+    feed["Price feed<br/>Pörssisähkö or custom"] -->|"startup, then<br/>every 12 h"| raw[("Raw spot price<br/>stored unchanged")]
+    raw --> effective["Effective price per interval<br/>energy + transfer + tax"]
+    tariff["Tariff version<br/>in force that day"] --> effective
+    meters["Home meters<br/>counter increments or<br/>integrated power"] --> usage["kWh per UTC hour<br/>analytics kernel"]
+    usage --> cost["Hourly cost"]
+    effective --> cost
+    cost --> summary["Home energy summary<br/>totalCostEur, costBreakdown"]
+    fees["Monthly fees<br/>pro-rated per local day"] --> summary
+    summary --> bill["Bill check<br/>total within ±2%"]
+    summary --> projection["30-day projection"]
+    usage --> projection
+```
+
 Properties upgraded from before 0.43 start with one open-ended version built
 from the earlier contract fields: spot and "other" contracts keep their margin,
 and a fixed contract has no energy price until one is entered. Until dated

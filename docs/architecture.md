@@ -20,6 +20,59 @@ integrations do not depend on a particular sensor vendor or a fixed metric list.
 - Keep ingestion, storage, prediction, alerts, and presentation modular so a
   production deployment can replace one piece without rewriting the others.
 
+## Deployment topology
+
+Stugu ships as container images and as a Raspberry Pi appliance image. It does
+not run on a hosted platform. One Compose project holds the whole system; the
+optional services sit behind Compose profiles and stay absent until enabled.
+
+```mermaid
+flowchart LR
+    people["Browser, iPhone,<br/>iPad, Mac"] -->|"HTTP :8080<br/>loopback by default"| web
+
+    subgraph compose["One Compose project"]
+        web["web<br/>Nginx: static app,<br/>/api reverse proxy, SSE"]
+        api["api<br/>Express, SQLite,<br/>background services,<br/>Python device bridges"]
+        tsdb[("timescaledb<br/>permanent telemetry")]
+        scheduler["stugu-backup-scheduler<br/>verified recovery sets"]
+        web --> api
+        api --> tsdb
+        scheduler --> tsdb
+
+        subgraph optional["Optional profiles"]
+            agent["stugu-update-agent<br/>self-update"]
+            cloudflared["cloudflared<br/>cloudflare"]
+            r2["stugu-r2-backup<br/>r2-backup"]
+            mqtt["mqtt + nexus433<br/>433 MHz receiver"]
+            tapo["tapo-export-runner<br/>tapo-history"]
+            maint["stugu-backup, migration,<br/>telemetry-migrate<br/>maintenance"]
+        end
+
+        api <-.->|"bounded request and<br/>status files"| agent
+        cloudflared -.-> web
+        mqtt -.-> api
+        tapo -.-> api
+        scheduler -.->|"encrypted copies"| r2
+    end
+
+    api -->|"local LAN polling"| devices["Tapo hubs, Tuya,<br/>Gree, Home Assistant"]
+    api -->|"HTTPS"| providers["FMI, Open-Meteo,<br/>price feed"]
+    agent -->|"digest-pinned images"| ghcr["GitHub Releases<br/>+ GHCR"]
+```
+
+- The API container is private to the Compose network; only `web` publishes a
+  host port. Containers keep state in named volumes, so `docker compose down`
+  keeps history.
+- The update agent is the only service with Docker access. The API asks it for
+  work through files in a shared operations directory and never replaces
+  itself. See [System updates](system-updates.md).
+- On the [Raspberry Pi appliance](raspberry-pi-appliance.md), the same Compose
+  project runs on an immutable A/B Raspberry Pi OS root. A native TUF + RAUC
+  host updater owns the operating system, and Docker state, databases and
+  backups live on the shared persistent partition.
+- Cloudflare Tunnel and Access are an optional, operator-owned way in. See
+  [Cloudflare Tunnel and Access](cloudflare-access.md).
+
 ## Runtime view
 
 ```mermaid
@@ -38,6 +91,8 @@ flowchart LR
         TUA -->|verified measured power only| N
         M[Mock / replay adapter] --> N
         I[Versioned ingest API] --> N
+        GRB[Gree heat-pump adapter\nlocal or EWPE Smart] --> DB
+        MQ[Nexus433 receiver\nvia private MQTT] --> N
         N --> DB[(SQLite control plane,\noutbox, current projections)]
         DB --> AR[Checkpointed archive reconciler]
         AR --> TS[(TimescaleDB raw telemetry\nand continuous rollups)]
@@ -78,7 +133,10 @@ flowchart LR
         API --> APPLE
         E --> UI
         E --> IOSAPP
-        MCP[MCP stdio server] --> Q
+        MCP[Read-only MCP servers\nstdio and Streamable HTTP] --> Q
+        HR --> K[Analytics kernel\nstatistics, kWh, calendar]
+        K --> Q
+        K --> P
     end
 
     HA -->|WebSocket state changes| HAB
@@ -254,7 +312,7 @@ sequenceDiagram
         HA-->>B: state_changed over WebSocket
         B->>B: entity-map lookup, normalization, source arbitration
         alt same metric has a healthy direct binding
-            B->>B: retain HA as failover; suppress duplicate live sample
+            B->>B: retain HA as failover, suppress duplicate live sample
         else direct metric unavailable or unrelated metric
             B->>DB: append sparse metric sample
         end
@@ -408,6 +466,70 @@ Timescale retention policy.
 See [Backend storage and operations](backend-storage.md) for the current
 retention, migration, backup, and restore contract.
 
+## Analytics pipeline
+
+Charts, summaries, energy costs and comparisons go through one query path.
+Results that take minutes, such as thermal and moisture fits, are computed in
+the background and read back as stored artifacts.
+
+```mermaid
+flowchart TD
+    clients["Web, iPhone, MCP"] --> routes["Analytics routes<br/>validate, authorise,<br/>data-mode guard"]
+    routes --> cache{"Query cache<br/>request, sensors,<br/>revisions, release"}
+    cache -->|hit| response["Response<br/>values, coverage, provenance,<br/>cache.hit"]
+    cache -->|miss| limiter["Work limiter<br/>2 running, 32 waiting,<br/>else ANALYTICS_BUSY"]
+    limiter --> path{"Bucketed and<br/>archive ready?"}
+    path -->|yes| rollup["TimescaleDB<br/>buckets computed in SQL<br/>over the complete archive"]
+    path -->|no| hybrid["Hybrid reader<br/>archive and SQLite tail read together,<br/>local telemetry worker thread"]
+    hybrid --> kernel["Analytics kernel<br/>median, percentiles, time-weighted<br/>means, counter deltas, kWh, calendar"]
+    rollup -.->|"parity-tested to 1e-9"| kernel
+    rollup --> response
+    kernel --> response
+    response --> latency[("Latency histogram<br/>for appliance diagnostics")]
+```
+
+- **One implementation of the maths.** `@climate-twin/analytics-kernel` owns
+  statistics, time-weighted means, counter-reset handling, power-to-energy
+  integration and local-calendar helpers for the API and the web app.
+  `check:architecture` rejects API-local copies, and
+  `apps/api/tests/analytics-kernel-parity.test.ts` runs seeded series through
+  both the archive rollup SQL and the kernel, which must agree within 1e-9.
+- **Caching.** The server shares identical queries across tabs and household
+  members. A range that ended more than two hours ago is kept for up to an hour,
+  and one that reaches the present for 30 seconds. The key carries the release,
+  the house and registry revisions and the late-history revision, so an import
+  of older readings recomputes. An answer built without the merged archive is
+  never shared. HTTP responses stay `no-store`.
+- **Fixed summary bases.** Medians, percentiles and extremes come from fixed
+  1-minute, 15-minute or hourly buckets chosen by range, not from the chart's
+  resolution. Coverage is measured against each sensor's usual reporting
+  interval.
+- **Evidence over time.** Chart queries and the 30-day energy summary record
+  their latency, so
+  `GET /api/v2/analytics/diagnostics` can report on the appliance itself how
+  fast charts answered, how forecasts and the energy projection did, and how
+  many invoices the cost model matched.
+
+```mermaid
+flowchart LR
+    night["Night scheduler<br/>per-Home jitter"] --> coordinator["Derived analytics coordinator<br/>one job per Home, window,<br/>cutoff, algorithm, evidence"]
+    refresh["Refresh by an<br/>Owner or Admin"] --> coordinator
+    coordinator --> fit["Fit worker thread<br/>one at a time,<br/>resource-limited"]
+    fit --> artifacts[("Thermal, moisture and<br/>Home Performance artifacts<br/>last four good generations")]
+    read["GET request"] -->|"lookup only,<br/>never fits"| artifacts
+    findings["Daily findings worker<br/>every 6 hours"] --> snapshots[("One findings snapshot<br/>per completed local day")]
+    forecasts["Forecast service<br/>backtest vs. no change and<br/>same time yesterday"] --> evaluations[("Forecast evaluations<br/>kept for a year")]
+```
+
+Forecasts start from the latest reading. Temperature uses the room's thermal
+response driven by the outdoor forecast; other measurements use a daily-rhythm
+model. Each sensor's forecast is backtested on the last two weeks, and its 90 %
+band comes from those errors. A forecast that does not beat "no change" at six
+hours is withheld, and the response says why. See
+[Analytics foundation](analytics-foundation.md),
+[thermal simulation](thermal-simulation.md) and
+[electricity prices](electricity-prices.md) for the individual models.
+
 ## Live, history, replay, and prediction semantics
 
 - **Live:** normalized metric samples are persisted first, then emitted. Each
@@ -420,15 +542,16 @@ retention, migration, backup, and restore contract.
   boundary projection succeeds. Cache hits with identical content do not
   invent another event.
 - **History:** v2 API queries read one metric's persisted samples in a caller-selected
-  range. Long ranges should be downsampled in later releases while raw data
-  remains available within retention.
+  range. Analytics queries bucket long ranges inside PostgreSQL instead (see
+  [Analytics pipeline](#analytics-pipeline)); raw rows stay permanent.
 - **Replay:** persisted or mock readings are emitted on a virtual clock. Replay
   has source `replay`, must not be written back as if it were a new physical
   measurement, and must not trigger real outbound notifications unless the user
   explicitly enables a safe test sink.
 - **Prediction:** forecasts are derived views with intervals and model metadata,
-  never sensor facts. If `forecastSupported` is false, the UI and API show no
-  forecast rather than fabricate one. See
+  never sensor facts. If `forecastSupported` is false, or the backtested
+  forecast does not beat "no change", the UI and API show no forecast rather
+  than fabricate one. See
   [Predictive maintenance](predictive-maintenance.md).
 - **Spatial view:** only definitions with `spatialInterpolation` enabled produce
   an estimated field. The 2D plan renders a floor field as soft hotspot clouds;
@@ -471,7 +594,9 @@ retention, migration, backup, and restore contract.
 | Normalizer | entity mapping, canonical units, validation, quality | vendor credentials or forecast policy |
 | Repository | schema, transactions, retention queries | HTTP or visualisation |
 | Alert engine | rule evaluation and event lifecycle | delivery-specific secrets |
-| Forecast service | features, forecast output, uncertainty | presenting forecasts as facts |
+| Forecast service | features, backtests, forecast output, uncertainty | presenting forecasts as facts |
+| Analytics kernel (`packages/analytics-kernel`) | statistics, time-weighted means, counter/kWh integration, local-calendar helpers | I/O, storage, HTTP, or a second API-local implementation |
+| Derived analytics coordinator | durable night/refresh jobs, fit worker threads, last-good artifacts | fitting on an HTTP request |
 | Experimental spatial-layer host | optional local scheduling, versioned research-model execution, separate overlays/state/snapshots, renderer-neutral semantic layers | duplicated core masters/raw samples, core telemetry writes, alerts, controls, or UI graphics |
 | Weather adapters and monitor | automatic FMI/Open-Meteo routing, source mapping, warning authority, bounded cache/concurrency, jitter, per-home backoff, stale-write fencing | browser map tiles, event transports, or indoor measurement history |
 | Weather event broker | provider-neutral acceptance, durable projection ordering, cache-replay deduplication, stable event identity, live fan-out | upstream provider protocols or UI rendering |
@@ -480,11 +605,38 @@ retention, migration, backup, and restore contract.
 | Web app | accessible interaction and rendering | secrets or authoritative storage |
 
 Adapters depend inward on domain services. Domain services depend on repository
-interfaces, not on HTTP, Home Assistant, or a rendering library. The web client
-already renders a lightweight stacked-floor 3D projection from these shared
-coordinates; the same boundaries support a future PostgreSQL/time-series
-repository, MQTT adapter, or imported-model renderer without changing the
-public concepts.
+interfaces, not on HTTP, Home Assistant, or a rendering library. The same
+boundaries let the TimescaleDB archive and the MQTT adapter arrive without
+changing the public concepts, and leave room for an imported-model renderer.
+
+### Workspace packages
+
+The npm workspaces depend in one direction: apps use packages, and packages do
+not depend on apps or on each other. `npm run check:architecture` enforces the
+direction, and a type shared by two workspaces lives once in
+`packages/contracts`.
+
+```mermaid
+flowchart BT
+    contracts["packages/contracts<br/>domain types, validators"]
+    kernel["packages/analytics-kernel<br/>statistics, kWh, calendar"]
+    spatial["packages/spatial-layers<br/>spatial inference"]
+    protocol["packages/stuguby-protocol<br/>federation protocol"]
+    api["apps/api"] --> contracts
+    api --> kernel
+    api --> spatial
+    api --> protocol
+    web["apps/web"] --> contracts
+    web --> kernel
+    web --> spatial
+    web --> protocol
+    relay["apps/bug-report-relay"] --> contracts
+```
+
+`@climate-twin/contracts` and `@climate-twin/analytics-kernel` resolve to their
+built `dist` folders, so run `npm run build:packages` after editing them.
+`apps/ios` and `apps/tapo-export-runner` share no TypeScript package; they talk
+to the API over HTTP.
 
 ### REST response envelopes
 
