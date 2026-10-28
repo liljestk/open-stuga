@@ -1,3 +1,4 @@
+import { reportBackgroundFailure } from "../system-error-log.js";
 import {
   outdoorLocationKey,
 } from "../db.js";
@@ -66,8 +67,10 @@ export function createExternalFeedServices(context: IntegrationBridges) {
         try {
           await weatherEvents.publish(result, "scheduled-refresh");
         } catch (error) {
-          const message = error instanceof Error ? error.message : "unknown projection failure";
-          console.error(`[weather] Snapshot stored, but live projection failed: ${message}`);
+          reportBackgroundFailure(context.systemErrorLog, {
+            level: "warning", source: "weather", code: "PROJECTION_FAILED",
+            message: `Snapshot stored, but live projection failed: ${error instanceof Error ? error.message : "unknown projection failure"}`,
+          });
         }
       },
       persistFailure: (house, error, attemptedAt) => {

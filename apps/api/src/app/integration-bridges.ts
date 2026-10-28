@@ -105,6 +105,7 @@ export function createIntegrationBridges(context: SpatialLayerServices) {
   const wakeSensorGapRecovery = (): void => sensorGapRecovery?.wake();
   const tapoHistory = new TapoHistoryExportService(config, context.database, {
       telemetryReader,
+      systemErrorLog: context.systemErrorLog,
       onHistoryReady: wakeSensorGapRecovery,
       ...(context.options.tapoHistoryNow ? { now: context.options.tapoHistoryNow } : {}),
       deviceNameFor: context.options.tapoHistoryDeviceNameFor
@@ -255,6 +256,7 @@ export function createIntegrationBridges(context: SpatialLayerServices) {
     );
   sensorGapRecovery = new SensorGapRecoveryCoordinator(context.database, measurements, [homeAssistant, tpLink], {
       telemetryReader,
+      systemErrorLog: context.systemErrorLog,
       onRecovered: () => {
         measurementSnapshotCache.clear();
         return telemetryArchive?.reconcileNow();

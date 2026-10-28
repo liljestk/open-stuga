@@ -1,3 +1,4 @@
+import { reportBackgroundFailure } from "../system-error-log.js";
 import type {
   TrackingFeatureFlags,
 } from "@climate-twin/contracts";
@@ -162,7 +163,9 @@ export function createCoreDataServices(context: ApiConfigContext) {
         ];
       }, context.options.cloudflareAccessFetcher, () => {
         // This intentionally omits account, group, email, and provider details.
-        console.error("[cloudflare-access] Member allowlist synchronization is pending");
+        reportBackgroundFailure(systemErrorLog, {
+          level: "warning", source: "cloudflare-access", code: "SYNC_PENDING", message: "Member allowlist synchronization is pending",
+        });
       })
       : null;
   const authAbuseLimiter = new AuthAbuseLimiter();

@@ -1,3 +1,4 @@
+import { reportBackgroundFailure } from "../system-error-log.js";
 import type {
   OpeningStateObservation,
   Sensor,
@@ -32,8 +33,10 @@ export function createSpatialLayerServices(context: TelemetryServices) {
       } catch (error) {
         // This optional research subsystem must never prevent the core API from
         // starting. Its routes remain available and report 503 while disabled.
-        const message = error instanceof Error ? error.message : "unknown startup failure";
-        console.error(`[spatial-layers] Optional engine unavailable: ${message}`);
+        reportBackgroundFailure(context.systemErrorLog, {
+          level: "warning", source: "spatial-layers", code: "ENGINE_UNAVAILABLE",
+          message: `Optional engine unavailable: ${error instanceof Error ? error.message : "unknown startup failure"}`,
+        });
       }
     }
   const notifySpatial = (operation: (runtime: LocalSpatialLayerRuntime) => void): void => {
@@ -41,11 +44,13 @@ export function createSpatialLayerServices(context: TelemetryServices) {
       try {
         operation(spatialLayers);
       } catch (error) {
-        const message = error instanceof Error ? error.message : "unknown notification failure";
         // Core writes are authoritative and may already be committed. An
         // optional derived subsystem must never turn that successful mutation
         // into an HTTP failure; its periodic scheduler can reconcile later.
-        console.error(`[spatial-layers] Optional change notification failed: ${message}`);
+        reportBackgroundFailure(context.systemErrorLog, {
+          level: "warning", source: "spatial-layers", code: "NOTIFICATION_FAILED",
+          message: `Optional change notification failed: ${error instanceof Error ? error.message : "unknown notification failure"}`,
+        });
       }
     };
   const notifyOpeningStateRecorded = (observation: OpeningStateObservation): void => {

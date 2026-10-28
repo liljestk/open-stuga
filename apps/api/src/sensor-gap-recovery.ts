@@ -1,3 +1,4 @@
+import { reportBackgroundFailure, type FailureLog } from "./system-error-log.js";
 import { hasLocalHouseAuthority, type MeasurementSample, type Reading } from "@climate-twin/contracts";
 import {
   type ClimateDatabase,
@@ -30,6 +31,7 @@ export interface SensorGapRecoveryAdapter {
 }
 
 export interface SensorGapRecoveryOptions {
+  systemErrorLog?: FailureLog;
   scanIntervalMs?: number;
   recoveryLeaseMs?: number;
   retryBaseMs?: number;
@@ -102,6 +104,8 @@ export class SensorGapRecoveryCoordinator {
   #run: Promise<void> | null = null;
   #rerunRequested = false;
 
+  readonly #errorLog: FailureLog | null;
+
   constructor(
     private readonly database: ClimateDatabase,
     private readonly measurements: MeasurementService,
@@ -109,6 +113,7 @@ export class SensorGapRecoveryCoordinator {
     options: SensorGapRecoveryOptions = {},
   ) {
     for (const adapter of adapters) this.#adapters.set(adapter.source, adapter);
+    this.#errorLog = options.systemErrorLog ?? null;
     this.#scanIntervalMs = Math.max(1_000, options.scanIntervalMs ?? DEFAULT_SCAN_INTERVAL_MS);
     this.#recoveryLeaseMs = Math.max(10_000, options.recoveryLeaseMs ?? DEFAULT_RECOVERY_LEASE_MS);
     this.#retryBaseMs = Math.max(1_000, options.retryBaseMs ?? DEFAULT_RETRY_BASE_MS);
@@ -153,7 +158,9 @@ export class SensorGapRecoveryCoordinator {
         // this boundary deliberately detail-free because adapter errors may
         // contain remote payloads or credentials; the durable gap state remains
         // the operator-facing source of diagnostic detail.
-        console.warn(JSON.stringify({ event: "sensor_gap_recovery_scan_failed" }));
+        reportBackgroundFailure(this.#errorLog, {
+          level: "warning", source: "sensor-gap-recovery", code: "SCAN_FAILED", message: "Sensor data-gap recovery scan failed",
+        });
       })
       .finally(() => { this.#run = null; });
   }
@@ -200,7 +207,11 @@ export class SensorGapRecoveryCoordinator {
         discoveryFailed = true;
       }
     }
-    if (discoveryFailed) console.warn(JSON.stringify({ event: "sensor_gap_discovery_failed" }));
+    if (discoveryFailed) {
+      reportBackgroundFailure(this.#errorLog, {
+        level: "warning", source: "sensor-gap-recovery", code: "DISCOVERY_FAILED", message: "Historical gap discovery failed for at least one sensor",
+      });
+    }
     await this.#recoverQueued(now);
   }
 

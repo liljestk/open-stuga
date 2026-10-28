@@ -1,3 +1,4 @@
+import { reportBackgroundFailure } from "../system-error-log.js";
 import type { CloudflareSetupStatusResponse } from "@climate-twin/contracts";
 import type { CloudflareSetupStartInput } from "@climate-twin/contracts";
 import {
@@ -15,7 +16,7 @@ import type { ApiRouteRegistrationContext } from "./route-registration-context.j
 
 export type CloudflareSetupRouteContext = Pick<
   ApiRouteRegistrationContext,
-  "app" | "prefix" | "config" | "cloudflareSetup" | "recordSecurityAudit"
+  "app" | "prefix" | "config" | "cloudflareSetup" | "recordSecurityAudit" | "systemErrorLog"
 >;
 
 export function registerCloudflareSetupRoutes(context: CloudflareSetupRouteContext): void {
@@ -66,7 +67,10 @@ export function registerCloudflareSetupRoutes(context: CloudflareSetupRouteConte
     } catch {
       // Cloudflare has already accepted the external operation. Do not turn
       // that success into a retryable 500 and create a duplicate setup.
-      console.error("[security-audit] Cloudflare setup started, but its local audit event could not be recorded");
+      reportBackgroundFailure(context.systemErrorLog, {
+        source: "security-audit", code: "AUDIT_NOT_RECORDED",
+        message: "Cloudflare setup started, but its local audit event could not be recorded",
+      });
     }
     response.setHeader("cache-control", "no-store");
     response.status(202).json(result);

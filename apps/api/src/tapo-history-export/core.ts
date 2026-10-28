@@ -1,3 +1,4 @@
+import { reportBackgroundFailure } from "../system-error-log.js";
 import { hasLocalHouseAuthority } from "@climate-twin/contracts";
 import { createHash, createHmac, randomBytes, randomUUID } from "node:crypto";
 import type { AppConfig } from "../config.js";
@@ -100,12 +101,14 @@ export class TapoHistoryExportServiceCore {
     this.#polling = this.pollMailbox()
       .catch((error: unknown) => {
         this.recordMailboxFailure(error);
-        // Structured and deliberately detail-free: OAuth tokens, recipient
-        // capabilities, and Gmail payloads must never enter API logs.
-        console.warn(JSON.stringify({
-          event: "tapo_history_mailbox_poll_failed",
-          code: this.#mailboxHealth.lastErrorCode,
-        }));
+        // Deliberately detail-free: OAuth tokens, recipient capabilities and
+        // Gmail payloads must never enter the logs.
+        reportBackgroundFailure(this.#options.systemErrorLog, {
+          level: "warning",
+          source: "tapo-history",
+          code: this.#mailboxHealth.lastErrorCode ?? "MAILBOX_POLL_FAILED",
+          message: "Tapo history mailbox poll failed",
+        });
       })
       .finally(() => { this.#polling = null; });
   }

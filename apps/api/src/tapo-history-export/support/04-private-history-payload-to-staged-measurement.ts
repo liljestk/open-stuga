@@ -1,3 +1,4 @@
+import type { FailureLog } from "../../system-error-log.js";
 import { createHash } from "node:crypto";
 import { lookup } from "node:dns/promises";
 import { request as httpsRequest } from "node:https";
@@ -209,6 +210,7 @@ export class TapoPrivateHistoryClient {
 
 export interface TapoHistoryServiceOptions {
   fetcher?: typeof fetch;
+  systemErrorLog?: FailureLog;
   onHistoryReady?: (job: TapoHistoryExportJob) => void;
   now?: () => Date;
   /** Returns the exact, unique alias visible in the Tapo app for this immutable device id. */

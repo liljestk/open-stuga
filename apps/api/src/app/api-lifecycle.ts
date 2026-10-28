@@ -1,3 +1,4 @@
+import { reportBackgroundFailure } from "../system-error-log.js";
 import { startArchiveMaintenance } from "../timeseries/archive-maintenance.js";
 import type { IntegrationDiscoveryJobs } from "../integration-discovery-jobs.js";
 import type { ApiRuntime } from "./support/index.js";
@@ -21,7 +22,10 @@ export function startTelemetryArchive(context: ApiRouteRegistrationContext): Pro
     ? starting
     : starting.catch(() => {
       // Never log connection configuration: it contains a database credential.
-      console.error("[telemetry-archive] Optional TimescaleDB archive is unavailable; SQLite buffering continues");
+      reportBackgroundFailure(context.systemErrorLog, {
+        level: "warning", source: "telemetry-archive", code: "ARCHIVE_UNAVAILABLE",
+        message: "Optional TimescaleDB archive is unavailable; SQLite buffering continues",
+      });
     });
   void ready.catch(() => undefined);
   return ready;

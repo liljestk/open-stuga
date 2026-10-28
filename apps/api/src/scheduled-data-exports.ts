@@ -1,3 +1,4 @@
+import { reportBackgroundFailure, type FailureLog } from "./system-error-log.js";
 import { ANALYTICS_AGGREGATIONS, isOneOf, SCHEDULED_DATA_EXPORT_FREQUENCIES, SCHEDULED_DATA_EXPORT_PERIODS } from "@climate-twin/contracts";
 import { HttpError } from "./http-error.js";
 import { createHash, randomUUID } from "node:crypto";
@@ -72,6 +73,7 @@ interface ScheduledDataExportServiceOptions {
   dataOperations: Pick<DataOperationsService, "audit">;
   operationsDirectory?: string | null;
   now?: () => Date;
+  systemErrorLog?: FailureLog;
 }
 
 interface ZonedParts {
@@ -319,6 +321,7 @@ function durableFile(path: string, content: string): void {
 }
 
 export class ScheduledDataExportService {
+  readonly #errorLog: FailureLog | null;
   readonly #database: ClimateDatabase;
   readonly #telemetryReader: HybridTelemetryReader;
   readonly #systemStorage: Pick<SystemStorageService, "status">;
@@ -329,6 +332,7 @@ export class ScheduledDataExportService {
   #tickRunning = false;
 
   constructor(options: ScheduledDataExportServiceOptions) {
+    this.#errorLog = options.systemErrorLog ?? null;
     this.#database = options.database;
     this.#telemetryReader = options.telemetryReader;
     this.#systemStorage = options.systemStorage;
@@ -665,7 +669,11 @@ export class ScheduledDataExportService {
 
   #tickSafely(): void {
     void this.tick().catch((error: unknown) => {
-      console.error("[scheduled-data-exports] worker tick failed", error);
+      reportBackgroundFailure(this.#errorLog, {
+        source: "scheduled-data-exports",
+        code: "WORKER_TICK_FAILED",
+        message: error instanceof Error ? error.message : "Scheduled export worker tick failed",
+      });
     });
   }
 

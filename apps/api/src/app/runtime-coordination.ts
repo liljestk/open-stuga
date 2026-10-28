@@ -1,3 +1,4 @@
+import { reportBackgroundFailure } from "../system-error-log.js";
 import express, { type Request, type Response } from "express";
 import type {
   IntegrationStatus,
@@ -44,7 +45,9 @@ export function createRuntimeCoordination(context: ExternalFeedServices) {
         const result = await context.cloudflareAccess.synchronize();
         return { status: result.status, lastSyncedAt: result.lastSyncedAt };
       } catch {
-        console.error("[cloudflare-access] Member allowlist synchronization is pending");
+        reportBackgroundFailure(context.systemErrorLog, {
+          level: "warning", source: "cloudflare-access", code: "SYNC_PENDING", message: "Member allowlist synchronization is pending",
+        });
         return { status: "pending", lastSyncedAt: context.cloudflareAccess.status().lastSyncedAt };
       }
     };

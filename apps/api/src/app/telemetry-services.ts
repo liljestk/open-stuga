@@ -115,6 +115,7 @@ export function createTelemetryServices(context: CoreDataServices) {
       systemStorage: context.systemStorage,
       dataOperations: context.dataOperations,
       operationsDirectory: config.backupOperationsDirectory ?? null,
+      systemErrorLog: context.systemErrorLog,
     });
   const measurementSnapshotCache = new LruTtlCache<MeasurementSample[]>({
       maxEntries: 64,

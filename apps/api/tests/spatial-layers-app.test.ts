@@ -1,3 +1,4 @@
+import { SystemErrorLog } from "../src/system-error-log.js";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -110,7 +111,10 @@ describe("spatial layer application lifecycle", () => {
     expect(runtime.database.getProperty("property-durable-without-spatial")).toMatchObject({
       name: "Durable Property",
     });
-    expect(console.error).toHaveBeenCalledWith(expect.stringContaining("Optional change notification failed"));
+    expect(new SystemErrorLog(runtime.database).list()).toEqual([expect.objectContaining({
+      source: "spatial-layers", code: "NOTIFICATION_FAILED", message: "Optional change notification failed: spatial database unavailable",
+    })]);
+    expect(console.error).not.toHaveBeenCalled();
   });
 
   it("keeps topology changes dormant until a Home spatial session is active", async () => {
