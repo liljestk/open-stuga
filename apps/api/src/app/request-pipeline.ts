@@ -1,3 +1,4 @@
+import { routeAccessPolicy } from "./route-access.js";
 import { roleCanAccessNonGuestConfiguration } from "@climate-twin/contracts";
 import express from "express";
 import {
@@ -10,7 +11,7 @@ import { registerStugubyProtocolRoutes } from "../stuguby/routes.js";
 import {
   TrackingError,
 } from "../tracking/store.js";
-import { HttpError, LOCAL_SESSION_COOKIE, SAFE_HTTP_METHODS, appleNotesGrant, cookieValue, isIOSNotificationRegistrationPath, isTrackingObserverHeartbeatPath, keyMatches, localCloudflareUiRequestAllowed, trackingObserverAttemptKeys } from "./support/index.js";
+import { HttpError, LOCAL_SESSION_COOKIE, SAFE_HTTP_METHODS, appleNotesGrant, cookieValue, isTrackingObserverHeartbeatPath, keyMatches, localCloudflareUiRequestAllowed, trackingObserverAttemptKeys } from "./support/index.js";
 import type { LocalRequestPrincipal } from "./support/index.js";
 import type { RuntimeCoordination } from "./runtime-coordination.js";
 
@@ -69,6 +70,7 @@ export function installRequestPipeline(context: RuntimeCoordination) {
       }
       next();
     });
+  const routes = routeAccessPolicy(context.prefix, context.v2Prefix);
   context.app.use((request, response, next) => {
       const initialized = context.localAuth.isInitialized();
       const rawToken = cookieValue(request, LOCAL_SESSION_COOKIE);
@@ -165,12 +167,7 @@ export function installRequestPipeline(context: RuntimeCoordination) {
       const authorization = request.header("authorization");
       const bearer = authorization?.startsWith("Bearer ") ? authorization.slice(7) : null;
       const providedIngestKey = request.header("x-api-key") ?? bearer;
-      const ingestServicePath = request.method === "POST" && (
-        request.path === `${context.prefix}/readings`
-        || request.path === `${context.v2Prefix}/measurements`
-        || request.path === `${context.v2Prefix}/measurements/import`
-      );
-      const validIngestService = ingestServicePath && Boolean(
+      const validIngestService = routes.ingestService(request) && Boolean(
         config.ingestApiKey && providedIngestKey && keyMatches(providedIngestKey, config.ingestApiKey),
       );
       const hostMetricsServicePath = request.method === "GET"
@@ -181,7 +178,11 @@ export function installRequestPipeline(context: RuntimeCoordination) {
       const appleNotesService = (request.method === "POST"
         && request.path === `${context.prefix}/integrations/apple-notes/capture`)
         || (request.method === "GET" && request.path === `${context.prefix}/integrations/apple-notes/snapshot`);
-      if (validIngestService) { next(); return; }
+      if (validIngestService) {
+        response.locals.ingestServiceAuthorized = true;
+        next();
+        return;
+      }
       if (validHostMetricsService) {
         response.locals.hostMetricsAuthorized = true;
         next();
@@ -200,26 +201,12 @@ export function installRequestPipeline(context: RuntimeCoordination) {
         next(new HttpError(401, "UNAUTHORIZED", "Sign in to access this endpoint"));
         return;
       }
-      const sideEffectFreePost = request.method === "POST" && [
-        `${context.v2Prefix}/analytics/query`, `${context.v2Prefix}/analytics/coverage`,
-      ].includes(request.path);
-      const unsafe = !SAFE_HTTP_METHODS.has(request.method) && !sideEffectFreePost;
-      const iosNotificationSelfService = ["PUT", "DELETE"].includes(request.method)
-        && isIOSNotificationRegistrationPath(request.path, context.prefix);
-      const bugReportSelfService = request.method === "POST"
-        && request.path === `${context.prefix}/bug-reports`;
-      if (unsafe && !roleCanAccessNonGuestConfiguration(principal.role)
-        && request.path !== `${context.prefix}/auth/logout`
-        && !iosNotificationSelfService
-        && !bugReportSelfService) {
+      const unsafe = !SAFE_HTTP_METHODS.has(request.method) && !routes.sideEffectFreePost(request);
+      if (unsafe && !roleCanAccessNonGuestConfiguration(principal.role) && !routes.guestSelfService(request)) {
         next(new HttpError(403, "GUEST_READ_ONLY", "Guest accounts are read-only"));
         return;
       }
-      if (!roleCanAccessNonGuestConfiguration(principal.role) && (
-        request.path.startsWith(`${context.prefix}/integrations/`)
-        || request.path.startsWith(`${context.prefix}/mock/`)
-        || request.path === `${context.prefix}/replay`
-      )) {
+      if (!roleCanAccessNonGuestConfiguration(principal.role) && routes.administration(request)) {
         next(new HttpError(403, "FORBIDDEN", "Guest accounts cannot access administrative configuration"));
         return;
       }

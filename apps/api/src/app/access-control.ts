@@ -1,3 +1,4 @@
+import { routeAccessPolicy } from "./route-access.js";
 import { type NextFunction, type Request, type Response } from "express";
 import type {
   AppSession,
@@ -5,7 +6,7 @@ import type {
 import { openApiV1Document, openApiV2Document } from "../openapi.js";
 import { SYSTEM_VERSION } from "../version.js";
 import { registerStugubyLocalRoutes } from "../stuguby/routes.js";
-import { HttpError, LOCAL_CSRF_COOKIE, LOCAL_SESSION_COOKIE, LOCAL_SESSION_MAX_AGE_MS, LocalVisibility, SAFE_HTTP_METHODS, cookieValue, isTrackingObserverHeartbeatPath, keyMatches, localAuthorizationFingerprint, requestPrincipal, requireWorkspaceAdmin, secureRequest, sessionDocument } from "./support/index.js";
+import { HttpError, LOCAL_CSRF_COOKIE, LOCAL_SESSION_COOKIE, LOCAL_SESSION_MAX_AGE_MS, LocalVisibility, SAFE_HTTP_METHODS, cookieValue, isTrackingObserverHeartbeatPath, localAuthorizationFingerprint, requestPrincipal, requireWorkspaceAdmin, secureRequest, sessionDocument } from "./support/index.js";
 import type { LocalRequestPrincipal } from "./support/index.js";
 import type { RequestPipeline } from "./request-pipeline.js";
 
@@ -14,6 +15,7 @@ import type { RequestPipeline } from "./request-pipeline.js";
 /** Authentication and visibility: session middleware, principal resolution, stream authorization, and the session, OpenAPI and health routes. */
 export function installAccessControl(context: RequestPipeline) {
   const config = context.config;
+  const routes = routeAccessPolicy(context.prefix, context.v2Prefix);
   context.app.use((request, response, next) => {
       // Authentication endpoints were parsed above because their credentials are
       // themselves needed for authentication and abuse limiting. Everything else
@@ -51,20 +53,8 @@ export function installAccessControl(context: RequestPipeline) {
     // all open browsers to refresh properties, tasks, notes, access grants, and
     // configuration without a manual reload.
     context.app.use((request, response, next) => {
-      const sideEffectFreePost = request.method === "POST" && [
-        `${context.v2Prefix}/analytics/query`, `${context.v2Prefix}/analytics/coverage`,
-      ].includes(request.path);
-      const unsafe = !SAFE_HTTP_METHODS.has(request.method) && request.method !== "OPTIONS" && !sideEffectFreePost;
-      const excluded = request.path.startsWith(`${context.prefix}/auth/`)
-        || request.path === `${context.prefix}/readings`
-        || request.path === `${context.v2Prefix}/measurements`
-        || request.path === `${context.v2Prefix}/measurements/import`
-        || request.path === `${context.prefix}/tracking/evidence:batch`
-        || request.path === `${context.prefix}/bug-reports`
-        || isTrackingObserverHeartbeatPath(request.path, context.prefix)
-        || request.path.startsWith(`${context.prefix}/mock/`)
-        || request.path === `${context.prefix}/replay`;
-      if (!unsafe || excluded) { next(); return; }
+      const unsafe = !SAFE_HTTP_METHODS.has(request.method) && request.method !== "OPTIONS" && !routes.sideEffectFreePost(request);
+      if (!unsafe || routes.quietMutation(request)) { next(); return; }
       response.once("finish", () => {
         if (response.statusCode < 200 || response.statusCode >= 400) return;
         const resource = request.path.startsWith(context.v2Prefix)
@@ -77,16 +67,10 @@ export function installAccessControl(context: RequestPipeline) {
       next();
     });
   registerStugubyLocalRoutes(context.app, context.stuguby, { requireAdmin: requireWorkspaceAdmin });
-  const requireIngestKey = (request: Request, _response: Response, next: NextFunction): void => {
-      if (!config.ingestApiKey) { next(); return; }
-      const authorization = request.header("authorization");
-      const bearer = authorization?.startsWith("Bearer ") ? authorization.slice(7) : null;
-      const provided = request.header("x-api-key") ?? bearer;
-      if (!provided || !keyMatches(provided, config.ingestApiKey)) {
-        next(new HttpError(401, "UNAUTHORIZED", "A valid ingestion API key is required"));
-        return;
-      }
-      next();
+  // The request gate checks the ingest API key once and records the outcome.
+  const requireIngestKey = (_request: Request, response: Response, next: NextFunction): void => {
+      if (!config.ingestApiKey || response.locals.ingestServiceAuthorized === true) { next(); return; }
+      next(new HttpError(401, "UNAUTHORIZED", "A valid ingestion API key is required"));
     };
   const visibility = (response: Response): LocalVisibility => new LocalVisibility(context.database, requestPrincipal(response));
   const currentStreamIdentity = (request: Request, response: Response): LocalRequestPrincipal | null => {
