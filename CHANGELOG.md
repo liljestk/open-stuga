@@ -2,16 +2,16 @@
 
 All notable Stugu releases are recorded here.
 
-## 0.52.7
+## 0.52.9
 
 Power and energy charts on the Analytics page load in about half the time.
 
 - A chart's summary (mean, spread and extremes) used to need a second pass over the same stored power and energy states at finer buckets. Chart and summary now come from one pass with identical results. On a Raspberry Pi, a 30-day power chart for four plugs went from about 8.5 s to about 4 s of database time, measured with today's samples still read raw.
 - The count of readings outside the chosen quality filter no longer re-reads every raw sample since midnight UTC. Today's finished hours come from the hourly aggregate; only the last hour or two is read raw.
 - Opening a chart no longer writes to the archive when its stored states are up to date. It prepares them only when a day is missing or out of date, or when today's states have not been started yet.
-- Upgrade impact: application-only update; no schema, Compose or host-trust change. Includes the 0.52.2 changes it builds on.
+- Upgrade impact: application-only update; no schema, Compose or host-trust change beyond those of 0.52.7, which it builds on.
 
-## 0.52.2
+## 0.52.7
 
 Electricity costs and analytics answer much faster, especially late in the day.
 
@@ -27,6 +27,17 @@ Electricity costs and analytics answer much faster, especially late in the day.
   - The electricity history chart no longer shows a loading note on background refreshes.
 - Repeated Analytics and export previews within the same minute reuse the server's cached answer.
 - Upgrade impact: application-only update. The TimescaleDB archive gains two nullable columns (`sealed_until` on the ordered-state tables, schema migration 9), applied automatically when the API starts. Today's states are built in the background, so the first visit after an update or after midnight UTC still reads today raw until they are ready. Nothing waits for them.
+
+## 0.52.5
+
+- Long chart ranges load much faster. The dashboard, sensor details and electricity charts, replay, per-sensor forecasts and the optimizer's flexible-load profiles now read their history buckets from the TimescaleDB continuous aggregates. Raw samples are read only for the partial periods at the range edges and for the newest period the aggregate has not finished. On a Raspberry Pi, the history of a power plug reporting every 2 seconds took 2.0 s for 30 days and 6.2 s for a year; it now takes 0.13 s and 0.32 s. A 14-day forecast history went from 0.20 s to 0.03 s.
+- Chart values are unchanged: each bucket keeps the same mean and the latest reading's source, quality and unit. The 6-hour chart's 15-second buckets and installs without TimescaleDB still group raw samples.
+- Upgrade impact: application-only update; no schema, Compose, configuration or host-trust change. The aggregates already exist on every TimescaleDB install.
+
+## 0.52.1
+
+- Document that 433 MHz (Nexus433) readings sent while the API is stopped, restarting or reconnecting to its private MQTT broker are not queued or replayed. Nexus packets carry no clock, so a replayed reading would get the wrong time; the Sensor shows a gap as long as the outage instead. The Nexus433 guide explains why a persistent MQTT session would not fix this, and the architecture's recommended failure behaviour now says the same.
+- Upgrade impact: none. Only documentation changes; the API, web app, database, configuration, Compose and host trust are unchanged.
 
 ## 0.52.0
 
