@@ -469,7 +469,7 @@
   align-items: center;
   gap: 0.35rem;
   margin: 0.25rem 0 0;
-  color: var(--muted, #68756f);
+  color: var(--muted);
   font-size: 0.82rem;
 }
 
@@ -511,7 +511,7 @@
   grid-template-columns: minmax(7.5rem, 0.8fr) minmax(0, 1fr);
   gap: 0.75rem;
   padding: 0.7rem 0;
-  border-top: 1px solid var(--line, #e4e9e6);
+  border-top: 1px solid var(--line);
 }
 
 
@@ -519,6 +519,6 @@
   display: flex;
   align-items: center;
   gap: 0.4rem;
-  color: var(--muted, #68756f);
+  color: var(--muted);
   font-size: 0.78rem;
 }

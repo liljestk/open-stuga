@@ -50,7 +50,7 @@
 
 .isolation-score-card { display: flex; align-items: center; gap: 13px; min-height: 122px; padding: 18px; background: linear-gradient(135deg, var(--panel), var(--panel-soft)); }
 
-.isolation-score-icon { width: 42px; height: 42px; display: grid; place-items: center; flex: 0 0 auto; border-radius: 13px; color: var(--accent); background: var(--accent-soft); }
+.isolation-score-icon { width: 42px; height: 42px; display: grid; place-items: center; flex: 0 0 auto; border-radius: 13px; color: var(--action); background: var(--action-soft); }
 
 .isolation-score-card > div:last-child > span { color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: .055em; text-transform: uppercase; }
 
@@ -78,7 +78,7 @@
 
 .isolation-insights { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 9px; padding: 12px 18px; border-bottom: 1px solid var(--line); background: var(--panel-soft); }
 
-.isolation-insight { min-width: 0; display: flex; align-items: flex-start; gap: 9px; padding: 11px 12px; border: 1px solid var(--line); border-radius: var(--radius); color: var(--accent); background: var(--panel); }
+.isolation-insight { min-width: 0; display: flex; align-items: flex-start; gap: 9px; padding: 11px 12px; border: 1px solid var(--line); border-radius: var(--radius); color: var(--action); background: var(--panel); }
 
 .isolation-insight.warning { color: var(--yellow); background: var(--yellow-soft); }
 
@@ -321,7 +321,7 @@
 
 .analytics-gap-import-help { display: flex; align-items: flex-start; gap: 9px; padding: 10px 14px; border-top: 1px solid var(--line); color: var(--ink); background: var(--panel-soft); }
 
-.analytics-gap-import-help > svg { flex: 0 0 auto; margin-top: 2px; color: var(--accent); }
+.analytics-gap-import-help > svg { flex: 0 0 auto; margin-top: 2px; color: var(--action); }
 
 .analytics-gap-import-help p { margin: 0; color: var(--muted); font-size: 11px; }
 

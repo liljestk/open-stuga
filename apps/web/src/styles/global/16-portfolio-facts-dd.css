@@ -95,7 +95,7 @@
 .portfolio-system-summary li {
   position: relative;
   padding-left: 1rem;
-  color: var(--muted, #68756f);
+  color: var(--muted);
   font-size: 0.86rem;
 }
 
@@ -248,7 +248,7 @@ body { font-size: 16px; line-height: 1.5; }
 
 .location-discovery-current small {
   margin-top: 0.15rem;
-  color: var(--muted, #60635d);
+  color: var(--muted);
 }
 
 
@@ -270,7 +270,7 @@ body { font-size: 16px; line-height: 1.5; }
 
 .location-choice-divider {
   align-self: center;
-  color: var(--muted, #60635d);
+  color: var(--muted);
   font-size: 0.78rem;
 }
 
@@ -293,8 +293,8 @@ body { font-size: 16px; line-height: 1.5; }
   min-height: 48px;
   border: 1px solid var(--line-strong);
   border-radius: var(--radius);
-  background: var(--panel, #fcfbf7);
-  color: var(--ink, #1b1d1a);
+  background: var(--panel);
+  color: var(--ink);
   padding: 0.65rem 0.75rem;
   text-align: left;
   cursor: pointer;
@@ -303,8 +303,8 @@ body { font-size: 16px; line-height: 1.5; }
 
 .location-results > button:hover,
 .location-results > button.selected {
-  border-color: var(--action, #0755c9);
-  background: color-mix(in srgb, var(--action, #0755c9) 6%, var(--panel, #fcfbf7));
+  border-color: var(--action);
+  background: color-mix(in srgb, var(--action) 6%, var(--panel));
 }
 
 
@@ -316,7 +316,7 @@ body { font-size: 16px; line-height: 1.5; }
 
 .location-results small {
   margin-top: 0.15rem;
-  color: var(--muted, #60635d);
+  color: var(--muted);
 }
 
 
@@ -326,7 +326,7 @@ body { font-size: 16px; line-height: 1.5; }
   justify-content: space-between;
   gap: 1rem;
   border-radius: 12px;
-  background: var(--panel-soft, #f5f3ed);
+  background: var(--panel-soft);
   padding: 0.8rem;
 }
 
@@ -342,7 +342,7 @@ body { font-size: 16px; line-height: 1.5; }
   align-items: flex-start;
   gap: 0.45rem;
   margin: 0;
-  color: var(--muted, #60635d);
+  color: var(--muted);
   font-size: 0.76rem;
   line-height: 1.45;
 }

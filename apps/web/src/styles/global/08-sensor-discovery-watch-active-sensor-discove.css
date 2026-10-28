@@ -415,7 +415,7 @@
 
 .daily-finding-card .status-badge { font-size: 10px; }
 
-.daily-finding-icon { width: 32px; height: 32px; display: grid; place-items: center; flex: 0 0 auto; border-radius: var(--radius); color: var(--action); background: var(--accent-soft); }
+.daily-finding-icon { width: 32px; height: 32px; display: grid; place-items: center; flex: 0 0 auto; border-radius: var(--radius); color: var(--action); background: var(--action-soft); }
 
 .daily-finding-icon.outdoor-weather { color: var(--blue); background: var(--blue-soft); }
 
