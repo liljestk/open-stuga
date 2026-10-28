@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import dataExportStyles from "./DataExportPanel.css?raw";
+import { cssRule } from "../test/styleSources";
 
 describe("DataExportPanel responsive styles", () => {
   it("clamps the content track while its preview table scrolls internally", () => {
-    expect(dataExportStyles).toMatch(/\.data-export-content\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/);
-    expect(dataExportStyles).toMatch(/\.data-export-preview\s*\{[^}]*min-width:\s*0[^}]*overflow:\s*hidden/);
-    expect(dataExportStyles).toMatch(/\.data-export-table-wrap\s*\{[^}]*overflow:\s*auto/);
-    expect(dataExportStyles).toMatch(/\.data-export-table-wrap table\s*\{[^}]*min-width:\s*680px/);
+    expect(cssRule(dataExportStyles, ".data-export-content").get("grid-template-columns")).toBe("minmax(0, 1fr)");
+    const preview = cssRule(dataExportStyles, ".data-export-preview");
+    expect([preview.get("min-width"), preview.get("overflow")]).toEqual(["0", "hidden"]);
+    expect(cssRule(dataExportStyles, ".data-export-table-wrap").get("overflow")).toBe("auto");
+    expect(cssRule(dataExportStyles, ".data-export-table-wrap table").get("min-width")).toBe("680px");
   });
 });
