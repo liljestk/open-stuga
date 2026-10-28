@@ -2,6 +2,11 @@
 
 All notable Stugu releases are recorded here.
 
+## 0.52.1
+
+- Document that 433 MHz (Nexus433) readings sent while the API is stopped, restarting or reconnecting to its private MQTT broker are not queued or replayed. Nexus packets carry no clock, so a replayed reading would get the wrong time; the Sensor shows a gap as long as the outage instead. The Nexus433 guide explains why a persistent MQTT session would not fix this, and the architecture's recommended failure behaviour now says the same.
+- Upgrade impact: none. Only documentation changes; the API, web app, database, configuration, Compose and host trust are unchanged.
+
 ## 0.52.0
 
 A code-health release: most of the work restructures the API and web app, with a few fixes and stricter behaviour you may notice.
