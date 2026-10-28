@@ -27,6 +27,8 @@ export interface TimeseriesStoreState {
   lastPoolError: Error | null;
   initializePromise: Promise<TelemetrySchemaInitResult> | null;
   orderedMetrics: Set<string>;
+  /** Continuous aggregates seen in the catalog; they are never dropped. */
+  readableAggregates: Set<string>;
   coldStorageAfterDays: number | null;
   costWorkLimiter: AnalyticsWorkLimiter;
   queryMetrics: {
@@ -53,6 +55,7 @@ export function createTimeseriesStoreState(): TimeseriesStoreState {
     lastPoolError: null,
     initializePromise: null,
     orderedMetrics: new Set(),
+    readableAggregates: new Set(),
     coldStorageAfterDays: null,
     costWorkLimiter: undefined as unknown as AnalyticsWorkLimiter,
     queryMetrics: {

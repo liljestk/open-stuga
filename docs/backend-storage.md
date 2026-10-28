@@ -91,6 +91,16 @@ a full raw scan. Later requests reuse the states, while a generation ledger make
 late-sample/import invalidation race-safe and rebuilds only affected variants.
 Raw samples remain the source of truth throughout.
 
+Bucketed chart history (the history routes with `bucketSeconds`, replay,
+per-sensor forecasts, and the optimizer's flexible-load profiles) reads the same
+aggregates when its bucket is a whole number of minutes. Complete 1-minute,
+5-minute, or 1-hour buckets come from the aggregate; raw samples fill the partial
+range edges, history the aggregate has not reached yet, and its newest bucket,
+which may have been materialized before its last sample arrived. The means and
+the latest sample's source, quality, and unit match grouping the raw samples.
+Sub-minute buckets, such as the 6-hour chart's 15-second buckets, and archive
+reads that return metadata still group raw samples.
+
 All Timescale cost-state requests also pass through a dedicated two-operation
 store lane. This covers HTTP, MCP, optimizer, and background callers, including
 the multiple internal SQL round trips needed by one exact result, while leaving

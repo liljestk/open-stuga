@@ -252,7 +252,11 @@ export interface MeasurementHistoryBucketedQuery extends QueryControl {
   limit?: number;
   /** Real-data mode must remove synthetic rows before calculating bucket values. */
   excludeSynthetic?: boolean;
-  /** Internal sample projections can skip decoding metadata; full archive reads retain it by default. */
+  /**
+   * Internal sample projections can skip decoding metadata, which also lets
+   * whole-minute buckets read the continuous aggregates. Full archive reads
+   * retain metadata by default.
+   */
   includeMetadata?: boolean;
 }
 
