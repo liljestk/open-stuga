@@ -1,5 +1,5 @@
 import type { ActionPlaybookInput } from "@climate-twin/contracts";
-import { ClimateDataValidationError } from "./support/03-sensor-data-gap-row-to-canonical-json-value.js";
+import { ClimateDataValidationError } from "./support/validation-errors.js";
 
 /** Validate the merged record, so partial updates cannot evade cross-field checks. */
 export function validateActionPlaybook(input: ActionPlaybookInput): void {

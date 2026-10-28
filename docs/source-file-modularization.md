@@ -41,13 +41,18 @@ hard-to-isolate tests, and merge conflicts around central files.
 | Tests | Reusable fixtures moved to support modules; suites divided by behavior without changing assertions |
 | Python bridge | Discovery, recovery, shared helpers, and runtime orchestration separated |
 
+The prototype registries (`db`, `stuguby/service`, `stuguby/store`,
+`timeseries/store`) keep one file per aggregate under `methods/`
+(`methods/sensors.ts`, `methods/alerts.ts`, `methods/tapo-history-export-jobs.ts`,
+...). Each file declares its methods' signatures in a `declare module` block
+next to the `register…Methods` call that implements them, so there is no
+mirrored declarations folder. Row types, row mappers and shared validation
+live beside them under `support/`, named after what they hold.
+
 Several areas still carry numbered legacy modules from the original split by
-line count rather than by domain: API route registration (`app/part-NN.ts`),
-the database and Stuguby registry methods (`db/methods/NN-*.ts` with their
-mirrored `contracts/`), the web API client (`api/part-NN.ts`) and the hook
-chains of the largest pages. `scripts/baselines/numbered-modules.json` lists
-them and may only shrink; each is renamed after its domain when it is next
-changed.
+line count rather than by domain, chiefly the hook chains of the largest web
+pages. `scripts/baselines/numbered-modules.json` lists them and may only
+shrink; each is renamed after its domain when it is next changed.
 
 Existing public import paths remain facades, so callers do not need to know the
 internal layout. During the split, deferred contexts were tightened to explicit

@@ -1,16 +1,7 @@
 import { randomUUID } from "node:crypto";
-import {
-  electricityTariffProblem,
-  isLocalDateKey,
-  legacyElectricityTariffVersion,
-  normalizedElectricityTariffVersion,
-  type ElectricityInvoice,
-  type ElectricityInvoiceInput,
-  type ElectricityTariffVersion,
-  type PropertyElectricityTariff,
-} from "@climate-twin/contracts";
+import { electricityTariffProblem, isLocalDateKey, legacyElectricityTariffVersion, normalizedElectricityTariffVersion, type ElectricityInvoice, type ElectricityInvoiceInput, type ElectricityTariffVersion, type PropertyElectricityTariff } from "@climate-twin/contracts";
 import { registerDatabaseMethods } from "../core.js";
-import { ClimateDataValidationError } from "../support/03-sensor-data-gap-row-to-canonical-json-value.js";
+import { ClimateDataValidationError } from "../support/validation-errors.js";
 
 interface TariffRow {
   property_id: string;
@@ -43,7 +34,9 @@ interface InvoiceRow {
 }
 
 const MAX_INVOICES_PER_PROPERTY = 500;
+
 const MAX_INVOICE_DAYS = 366;
+
 const MAX_INVOICE_EUR = 1_000_000;
 
 function invoiceFromRow(row: InvoiceRow): ElectricityInvoice {
@@ -81,6 +74,40 @@ function tariffFromRow(row: TariffRow): PropertyElectricityTariff {
   };
 }
 
+declare module "../core.js" {
+  interface DatabaseInternals {
+    /** The saved tariff, or the one implied by the pre-0.43 contract fields (revision 0). */
+    getPropertyElectricityTariff(propertyId: string): PropertyElectricityTariff | null;
+    savePropertyElectricityTariff(
+      propertyId: string,
+      versions: unknown,
+      expectedRevision?: number,
+    ): PropertyElectricityTariff | null;
+    /** Time zone for a Property's local tariff dates: its default (or first) Home's. */
+    propertyElectricityTimeZone(propertyId: string): string;
+    listElectricityInvoices(propertyId: string): ElectricityInvoice[];
+    getElectricityInvoice(propertyId: string, invoiceId: string): ElectricityInvoice | null;
+    createElectricityInvoice(propertyId: string, input: ElectricityInvoiceInput): ElectricityInvoice | null;
+    deleteElectricityInvoice(propertyId: string, invoiceId: string): boolean;
+  }
+
+  interface ClimateDatabaseCore {
+    /** The saved tariff, or the one implied by the pre-0.43 contract fields (revision 0). */
+    getPropertyElectricityTariff(propertyId: string): PropertyElectricityTariff | null;
+    savePropertyElectricityTariff(
+      propertyId: string,
+      versions: unknown,
+      expectedRevision?: number,
+    ): PropertyElectricityTariff | null;
+    /** Time zone for a Property's local tariff dates: its default (or first) Home's. */
+    propertyElectricityTimeZone(propertyId: string): string;
+    listElectricityInvoices(propertyId: string): ElectricityInvoice[];
+    getElectricityInvoice(propertyId: string, invoiceId: string): ElectricityInvoice | null;
+    createElectricityInvoice(propertyId: string, input: ElectricityInvoiceInput): ElectricityInvoice | null;
+    deleteElectricityInvoice(propertyId: string, invoiceId: string): boolean;
+  }
+}
+
 registerDatabaseMethods({
   getPropertyElectricityTariff(propertyId: string): PropertyElectricityTariff | null {
     const row = this.db.prepare("SELECT * FROM property_electricity_tariffs WHERE property_id = ?")
@@ -100,7 +127,6 @@ registerDatabaseMethods({
       updatedAt: legacy.updated_at,
     };
   },
-
   savePropertyElectricityTariff(
     propertyId: string,
     versions: unknown,
@@ -125,7 +151,6 @@ registerDatabaseMethods({
       return { propertyId, versions: normalized, revision: currentRevision + 1, updatedAt };
     });
   },
-
   propertyElectricityTimeZone(propertyId: string): string {
     const row = this.db.prepare(`SELECT house.timezone FROM houses AS house
       LEFT JOIN properties AS property ON property.default_house_id = house.id
@@ -134,19 +159,16 @@ registerDatabaseMethods({
       .get(propertyId) as unknown as { timezone: string | null } | undefined;
     return row?.timezone || "UTC";
   },
-
   listElectricityInvoices(propertyId: string): ElectricityInvoice[] {
     const rows = this.db.prepare(`SELECT * FROM electricity_invoices WHERE property_id = ?
       ORDER BY period_start DESC, created_at DESC, id`).all(propertyId) as unknown as InvoiceRow[];
     return rows.map(invoiceFromRow);
   },
-
   getElectricityInvoice(propertyId: string, invoiceId: string): ElectricityInvoice | null {
     const row = this.db.prepare("SELECT * FROM electricity_invoices WHERE property_id = ? AND id = ?")
       .get(propertyId, invoiceId) as unknown as InvoiceRow | undefined;
     return row ? invoiceFromRow(row) : null;
   },
-
   createElectricityInvoice(propertyId: string, input: ElectricityInvoiceInput): ElectricityInvoice | null {
     if (!this.getProperty(propertyId)) return null;
     const house = this.getHouse(input.houseId);
@@ -196,7 +218,6 @@ registerDatabaseMethods({
       return invoice;
     });
   },
-
   deleteElectricityInvoice(propertyId: string, invoiceId: string): boolean {
     const result = this.db.prepare("DELETE FROM electricity_invoices WHERE property_id = ? AND id = ?")
       .run(propertyId, invoiceId);

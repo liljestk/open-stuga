@@ -11,7 +11,8 @@ import type {
   TelemetrySchemaInitResult,
   TelemetryStoreOptions,
 } from "../types.js";
-import { DEFAULT_BATCH_SIZE, DEFAULT_CONNECTION_TIMEOUT_MS, DEFAULT_IDLE_TIMEOUT_MS, DEFAULT_POOL_SIZE, DEFAULT_SCHEMA, DEFAULT_STATEMENT_TIMEOUT_MS, positiveInteger, timeoutValue } from "./support/01-default-schema-to-measurement-bucket-from-row.js";
+import { DEFAULT_BATCH_SIZE, DEFAULT_CONNECTION_TIMEOUT_MS, DEFAULT_IDLE_TIMEOUT_MS, DEFAULT_POOL_SIZE, DEFAULT_SCHEMA, DEFAULT_STATEMENT_TIMEOUT_MS } from "./support/store-limits.js";
+import { positiveInteger, timeoutValue } from "./support/query-values.js";
 
 export const timeseriesStoreState = Symbol("TimeseriesStore.state");
 

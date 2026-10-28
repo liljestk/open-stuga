@@ -11,7 +11,7 @@ import {
 } from "@climate-twin/stuguby-protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { MachineRequestProof } from "../src/stuguby/service.js";
-import { joinSigningValue, sha256 } from "../src/stuguby/service/support/01-stuguby-error-to-without-local-grant-identity.js";
+import { joinSigningValue, sha256 } from "../src/stuguby/service/support/federation-validation.js";
 import { node, stop, type RunningNode } from "./stugubyTestSupport.js";
 
 let coordinator: RunningNode;

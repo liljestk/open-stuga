@@ -2,15 +2,12 @@ import { randomUUID } from "node:crypto";
 import type { QueryResultRow } from "pg";
 import { qualifiedName } from "../../schema.js";
 import { measurementSeriesBoundsSql } from "../measurement-series-bounds-sql.js";
-import type {
-  MeasurementAnalyticsSeriesQuery,
-  MeasurementOrderedRollupWorkResult,
-  QueryControl,
-} from "../../types.js";
-import { timeoutValue } from "../support/01-default-schema-to-measurement-bucket-from-row.js";
+import type { MeasurementAnalyticsSeriesQuery, MeasurementOrderedRollupWorkResult, QueryControl } from "../../types.js";
+import { timeoutValue } from "../support/query-values.js";
 import { registerTimeseriesStoreMethods, timeseriesStoreState, type TimeseriesStoreInternals } from "../core.js";
 
 export const MEASUREMENT_ORDERED_ROLLUP_VERSION = 2;
+
 const WORK_STATEMENT_TIMEOUT_MS = 120_000;
 
 interface ClaimedRollupRow extends QueryResultRow {
@@ -25,6 +22,26 @@ interface ClaimedRollupRow extends QueryResultRow {
 
 function messageFor(error: unknown): string {
   return (error instanceof Error ? error.message : String(error)).slice(0, 1_000);
+}
+
+declare module "../core.js" {
+  interface TimeseriesStoreInternals {
+    enqueueMeasurementOrderedRollups(
+      series: readonly MeasurementAnalyticsSeriesQuery[],
+      from: string,
+      to: string,
+      qualityMask: number,
+      sourceScope: "all" | "real",
+      bucketSeconds: 60 | 900 | 3600 | 86400,
+      control?: QueryControl,
+      dayStarts?: readonly string[],
+    ): Promise<number>;
+    rebuildNextMeasurementOrderedRollup(control?: QueryControl): Promise<MeasurementOrderedRollupWorkResult>;
+  }
+
+  interface TimeseriesStoreCore {
+    rebuildNextMeasurementOrderedRollup(control?: QueryControl): Promise<MeasurementOrderedRollupWorkResult>;
+  }
 }
 
 registerTimeseriesStoreMethods({
@@ -113,7 +130,6 @@ registerTimeseriesStoreMethods({
     ], control);
     return result.rowCount ?? 0;
   },
-
   async rebuildNextMeasurementOrderedRollup(
     this: TimeseriesStoreInternals,
     control: QueryControl = {},

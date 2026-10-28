@@ -1,7 +1,9 @@
 import { registerDatabaseMethods } from "../core.js";
 
 const LOOKBACK_MS = 3 * 86_400_000;
+
 const REFRESH_MS = 86_400_000;
+
 /** Fewer gaps than this say little about a sensor's normal rhythm. */
 const MINIMUM_GAPS = 20;
 
@@ -12,6 +14,27 @@ interface StoredInterval {
 
 /** Same identity encoding as `analyticsSeriesKey`. */
 const seriesKey = (sensorId: string, metric: string) => JSON.stringify([sensorId, metric]);
+
+declare module "../core.js" {
+  interface DatabaseInternals {
+    /**
+     * Each series' long-run reporting interval: the median gap between
+     * consecutive readings over the last three days, recomputed at most daily.
+     * Series without enough readings are absent.
+     */
+    expectedReportingIntervals(
+      series: ReadonlyArray<{ sensorId: string; metric: string }>,
+      now?: number,
+    ): Map<string, number>;
+  }
+
+  interface ClimateDatabaseCore {
+    expectedReportingIntervals(
+      series: ReadonlyArray<{ sensorId: string; metric: string }>,
+      now?: number,
+    ): Map<string, number>;
+  }
+}
 
 registerDatabaseMethods({
   expectedReportingIntervals(

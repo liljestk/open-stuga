@@ -13,7 +13,8 @@ import type { StugubyNodeKeys } from "../identity.js";
 import {
   StugubyStore,
 } from "../store.js";
-import { Notification, StugubyServiceOptions, normalizedBaseUrl } from "./support/01-stuguby-error-to-without-local-grant-identity.js";
+import { Notification, StugubyServiceOptions } from "./support/service-types.js";
+import { normalizedBaseUrl } from "./support/federation-validation.js";
 
 export const stugubyServiceState = Symbol("StugubyService.state");
 
