@@ -1,8 +1,6 @@
 import { errorMessage } from "../../api/support/request-error";
 import { useCallback,useEffect } from "react";
-import type {
-AppSession,ConnectionState,House,MeasurementSample,Sensor,TelemetryEvent
-} from "@climate-twin/contracts";
+import type { AppSession, House, Sensor } from "@climate-twin/contracts";
 import {
 api,
 cancelPendingApiRequests
@@ -10,14 +8,12 @@ cancelPendingApiRequests
 import { ApiVersionMismatchError,subscribeToApiVersionMismatch } from "../../apiRuntimeVersion";
 import { type ClimateState } from "../../domain";
 import { activateAccountStorage,deactivateAccountStorage } from "../../browserStorage";
+import { subscribeToApiAuthorizationChanges } from "../../api";
+import { subscribeToAuthEpoch } from "../../authEpoch";
 import { LiveEventCoordinator } from "../live/LiveEventCoordinator";
-import { HEARTBEAT_POLL_MIN_INTERVAL_MS,STREAM_BOOTSTRAP_WAIT_MS,aggregateConnection,apiStatus,blankState,replayHouseInventory,replayHouseMutations,settleInBackground,withoutDemoTelemetry } from "./support";
+import { STREAM_BOOTSTRAP_WAIT_MS, apiStatus, blankState, replayHouseInventory, replayHouseMutations, settleInBackground, withoutDemoTelemetry } from "./support";
 import type { HouseInventoryMutation,HouseMutationBuffer,StreamConnections } from "./support";
-import type { SessionLifecycleActions,WorkspaceHydrationContext } from "./pipelineTypes";
-type DeferredContext = {
-  handleTelemetry: (event: TelemetryEvent) => void;
-  handleMeasurement: (sample: MeasurementSample) => void;
-};
+import type { ClimateDataStore, PipelineActions, SessionLifecycleActions } from "./pipelineTypes";
 /** Replays sensor mutations that arrived while the workspace sensor index loaded, house by house. */
 function replayWorkspaceSensors(houses: readonly House[], sensors: readonly Sensor[], mutations: HouseMutationBuffer): Sensor[] {
   return houses.flatMap((house) => replayHouseMutations(house.id, {
@@ -76,38 +72,26 @@ function activeHouseFor(houses: House[], currentHouseId: string | null, requeste
   return currentHouse ?? requestedHouse ?? houses[0]!;
 }
 export function useSessionLifecycle(
-  context: WorkspaceHydrationContext,
-): WorkspaceHydrationContext & SessionLifecycleActions {
-  const deferred = context as typeof context & DeferredContext;
-  const { initialHouseId, sessionLockedRef, sessionLocked, setSessionLocked, setStateInternal, setState, setLoading, setBootstrapStatus, setBootstrapError, bootstrapAttempt, setBootstrapAttempt, setDataMode, setStreamConnections, setPollingFallback, apiAvailable, dataModeRef, stateRef, streamConnectionsRef, hasReachedLiveConnection, hasHydratedActiveHouse, heartbeatPollAt, reconnectResyncTimer, heartbeatFallbackTimer, activeHouseId, activeHouseLoadVersion, activeHouseMutationBuffers, activeInventoryMutationBuffers, activeStreamUnsubscribers, activeStreamGateReleases, sessionLifecycleEpoch, recordResourceError, refreshTpLinkDevices, loadHouseData } = context;
-  const scheduleActiveHouseResync = useCallback((delay = 50) => {
-      if (!hasHydratedActiveHouse.current || !apiAvailable.current) return;
-      if (reconnectResyncTimer.current !== null) window.clearTimeout(reconnectResyncTimer.current);
-      reconnectResyncTimer.current = window.setTimeout(() => {
-        reconnectResyncTimer.current = null;
-        const houseId = activeHouseId.current;
-        if (houseId) settleInBackground(loadHouseData(houseId));
-      }, delay);
-    }, [loadHouseData]);
-  const updateStreamConnection = useCallback((stream: keyof StreamConnections, next: ConnectionState) => {
-      const previousAggregate = aggregateConnection(streamConnectionsRef.current);
-      const updated = { ...streamConnectionsRef.current, [stream]: next };
-      const nextAggregate = aggregateConnection(updated);
-      streamConnectionsRef.current = updated;
-      setStreamConnections(updated);
-      if (nextAggregate === "live") {
-        setPollingFallback(false);
-        if (hasReachedLiveConnection.current && previousAggregate !== "live") scheduleActiveHouseResync();
-        hasReachedLiveConnection.current = true;
-      }
-    }, [scheduleActiveHouseResync]);
-  const resetStreamConnections = useCallback(() => {
-      const offline: StreamConnections = { legacy: "offline", measurements: "offline" };
-      streamConnectionsRef.current = offline;
-      hasReachedLiveConnection.current = false;
-      setStreamConnections(offline);
-      setPollingFallback(false);
-    }, []);
+  store: Pick<ClimateDataStore,
+    | "activeHouseId" | "activeHouseLoadVersion" | "activeHouseMutationBuffers"
+    | "activeInventoryMutationBuffers" | "activeSeriesTelemetryBuffers" | "activeStreamGateReleases"
+    | "activeStreamUnsubscribers" | "activeTelemetryLoadBuffers" | "apiAvailable" | "bootstrapAttempt"
+    | "dataModeRef" | "globalFieldVersions" | "hasHydratedActiveHouse" | "hasReachedLiveConnection"
+    | "heartbeatFallbackTimer" | "heartbeatPollAt" | "houseTelemetryVersions" | "initialHouseId"
+    | "measurementFlushTimer" | "mutationRefreshTimer" | "pendingLegacyReadings"
+    | "pendingMeasurementSamples" | "persistedSensorPoints" | "reconnectResyncTimer"
+    | "recordResourceError" | "saveStateTimer" | "sensorMoveQueues" | "sensorMoveVersions"
+    | "seriesCommitSequence" | "seriesCommitVersions" | "seriesLoadVersions" | "sessionLifecycleEpoch"
+    | "sessionLocked" | "sessionLockedRef" | "setBootstrapAttempt" | "setBootstrapError"
+    | "setBootstrapStatus" | "setDataMode" | "setLoading" | "setResourceErrors" | "setSaveState"
+    | "setScenario" | "setSeriesStates" | "setSessionLocked" | "setState" | "setStateInternal"
+    | "setTpLinkDevices" | "setTpLinkDevicesError" | "setTpLinkDevicesLoading" | "stateRef" | "tick"
+    | "tpLinkDevicesRef" | "tpLinkPollStatus" | "tpLinkRefreshVersion"
+  >,
+  actions: Pick<PipelineActions, "resetStreamConnections" | "handleTelemetry" | "handleHeartbeat" | "handleMeasurement" | "updateStreamConnection" | "loadHouseData" | "refreshTpLinkDevices">,
+): SessionLifecycleActions {
+  const { sessionLifecycleEpoch, activeStreamUnsubscribers, activeStreamGateReleases, apiAvailable, hasHydratedActiveHouse, setBootstrapError, setBootstrapStatus, setLoading, sessionLockedRef, setSessionLocked, hasReachedLiveConnection, heartbeatPollAt, activeHouseId, initialHouseId, tick, measurementFlushTimer, reconnectResyncTimer, heartbeatFallbackTimer, mutationRefreshTimer, saveStateTimer, pendingMeasurementSamples, pendingLegacyReadings, activeTelemetryLoadBuffers, activeHouseMutationBuffers, activeSeriesTelemetryBuffers, activeInventoryMutationBuffers, activeHouseLoadVersion, tpLinkRefreshVersion, seriesCommitSequence, houseTelemetryVersions, seriesLoadVersions, seriesCommitVersions, sensorMoveQueues, sensorMoveVersions, persistedSensorPoints, tpLinkPollStatus, globalFieldVersions, stateRef, setStateInternal, tpLinkDevicesRef, setTpLinkDevices, setTpLinkDevicesLoading, setTpLinkDevicesError, setResourceErrors, setSeriesStates, setScenario, setSaveState, setDataMode, dataModeRef, setBootstrapAttempt, sessionLocked, setState, recordResourceError, bootstrapAttempt } = store;
+  const { resetStreamConnections, handleTelemetry, handleHeartbeat, handleMeasurement, updateStreamConnection, loadHouseData, refreshTpLinkDevices } = actions;
   const enterIncompatibleState = useCallback((error: ApiVersionMismatchError) => {
       sessionLifecycleEpoch.current += 1;
       cancelPendingApiRequests();
@@ -122,19 +106,100 @@ export function useSessionLifecycle(
       setLoading(false);
     }, [resetStreamConnections]);
   useEffect(() => subscribeToApiVersionMismatch(enterIncompatibleState), [enterIncompatibleState]);
-  // A heartbeat that arrives while no stream is live means the client should poll instead.
-  const handleHeartbeat = useCallback(() => {
+  const purgeSessionState = useCallback((locked: boolean) => {
+      sessionLifecycleEpoch.current += 1;
+      sessionLockedRef.current = locked;
+      setSessionLocked(locked);
+      cancelPendingApiRequests();
+      apiAvailable.current = false;
+      hasHydratedActiveHouse.current = false;
+      hasReachedLiveConnection.current = false;
+      heartbeatPollAt.current = 0;
+      activeHouseId.current = null;
+      initialHouseId.current = null;
+      tick.current = 0;
+
+      if (measurementFlushTimer.current !== null) window.clearTimeout(measurementFlushTimer.current);
+      if (reconnectResyncTimer.current !== null) window.clearTimeout(reconnectResyncTimer.current);
       if (heartbeatFallbackTimer.current !== null) window.clearTimeout(heartbeatFallbackTimer.current);
-      heartbeatFallbackTimer.current = window.setTimeout(() => {
-        heartbeatFallbackTimer.current = null;
-        if (aggregateConnection(streamConnectionsRef.current) === "live") return;
-        setPollingFallback(true);
-        const now = Date.now();
-        if (now - heartbeatPollAt.current < HEARTBEAT_POLL_MIN_INTERVAL_MS) return;
-        heartbeatPollAt.current = now;
-        scheduleActiveHouseResync(0);
-      }, 1_000);
-    }, [scheduleActiveHouseResync]);
+      if (mutationRefreshTimer.current !== null) window.clearTimeout(mutationRefreshTimer.current);
+      if (saveStateTimer.current !== null) window.clearTimeout(saveStateTimer.current);
+      measurementFlushTimer.current = null;
+      reconnectResyncTimer.current = null;
+      heartbeatFallbackTimer.current = null;
+      mutationRefreshTimer.current = null;
+      saveStateTimer.current = null;
+      pendingMeasurementSamples.current = [];
+      pendingLegacyReadings.current = [];
+
+      for (const unsubscribe of activeStreamUnsubscribers.current) unsubscribe();
+      activeStreamUnsubscribers.current.clear();
+      for (const release of activeStreamGateReleases.current) release();
+      activeStreamGateReleases.current.clear();
+      for (const buffer of activeTelemetryLoadBuffers.current) buffer.clear();
+      activeTelemetryLoadBuffers.current.clear();
+      for (const buffer of activeHouseMutationBuffers.current) buffer.clear();
+      activeHouseMutationBuffers.current.clear();
+      for (const buffer of activeSeriesTelemetryBuffers.current) {
+        buffer.samples.clear();
+        buffer.readings.clear();
+      }
+      activeSeriesTelemetryBuffers.current.clear();
+      for (const buffer of activeInventoryMutationBuffers.current) buffer.clear();
+      activeInventoryMutationBuffers.current.clear();
+
+      activeHouseLoadVersion.current += 1;
+      tpLinkRefreshVersion.current += 1;
+      seriesCommitSequence.current += 1;
+      houseTelemetryVersions.current.clear();
+      seriesLoadVersions.current.clear();
+      seriesCommitVersions.current.clear();
+      sensorMoveQueues.current.clear();
+      sensorMoveVersions.current.clear();
+      persistedSensorPoints.current.clear();
+      tpLinkPollStatus.current = null;
+      globalFieldVersions.current = {
+        alertRules: globalFieldVersions.current.alertRules + 1,
+        alerts: globalFieldVersions.current.alerts + 1,
+        integration: globalFieldVersions.current.integration + 1,
+      };
+
+      const cleared = blankState();
+      stateRef.current = cleared;
+      setStateInternal(cleared);
+      tpLinkDevicesRef.current = [];
+      setTpLinkDevices([]);
+      setTpLinkDevicesLoading(false);
+      setTpLinkDevicesError(null);
+      setResourceErrors({});
+      setSeriesStates({});
+      setScenario("normal");
+      setSaveState("idle");
+      setBootstrapError(null);
+      setDataMode("unknown");
+      dataModeRef.current = "unknown";
+      resetStreamConnections();
+      setBootstrapStatus(locked ? "login-required" : "loading");
+      setLoading(!locked);
+    }, [resetStreamConnections]);
+  const retryBootstrap = useCallback(() => {
+      sessionLockedRef.current = false;
+      setSessionLocked(false);
+      setBootstrapAttempt((attempt) => attempt + 1);
+    }, []);
+  const revalidateSession = useCallback(() => {
+      purgeSessionState(false);
+      setBootstrapAttempt((attempt) => attempt + 1);
+    }, [purgeSessionState]);
+  const endSession = useCallback(() => {
+      deactivateAccountStorage({ purge: true });
+      purgeSessionState(true);
+    }, [purgeSessionState]);
+  useEffect(() => subscribeToApiAuthorizationChanges((change) => {
+      if (change === "expired") endSession();
+      else revalidateSession();
+    }), [endSession, revalidateSession]);
+  useEffect(() => subscribeToAuthEpoch(revalidateSession), [revalidateSession]);
   useEffect(() => {
       if (sessionLocked) return undefined;
       let cancelled = false;
@@ -227,11 +292,11 @@ export function useSessionLifecycle(
         unsubscribeStreams = coordinator.start({
           onTelemetry: (event) => {
             if (invalidated()) return;
-            deferred.handleTelemetry(event);
+            handleTelemetry(event);
             if (event.type === "heartbeat") handleHeartbeat();
           },
           onMeasurement: (sample) => {
-            if (!invalidated()) deferred.handleMeasurement(sample);
+            if (!invalidated()) handleMeasurement(sample);
           },
           onConnection: (stream, nextConnection) => {
             if (!invalidated()) updateStreamConnection(stream, nextConnection);
@@ -381,5 +446,5 @@ export function useSessionLifecycle(
         unsubscribeStreams?.();
       };
     }, [bootstrapAttempt, enterIncompatibleState, handleHeartbeat, loadHouseData, refreshTpLinkDevices, resetStreamConnections, sessionLocked, updateStreamConnection]);
-  return Object.assign(context, { scheduleActiveHouseResync, updateStreamConnection, resetStreamConnections, handleHeartbeat });
+  return { purgeSessionState, retryBootstrap, revalidateSession, endSession };
 }

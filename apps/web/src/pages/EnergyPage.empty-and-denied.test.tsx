@@ -1,6 +1,5 @@
 import { useRef, useState } from "react";
 import { useSeriesQueries } from "../data/bootstrap/useSeriesQueries";
-import type { LiveTelemetryContext } from "../data/bootstrap/pipelineTypes";
 import type { SeriesLoadState } from "../useClimateData";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -80,7 +79,7 @@ describe("electricity empty and denied states", () => {
         activeSeriesTelemetryBuffers: useRef(new Set()), apiAvailable: useRef(true),
         seriesCommitSequence: useRef(0), seriesCommitVersions: useRef(new Map()),
         seriesLoadVersions: useRef(new Map()), setSeriesStates, setState,
-      } as unknown as LiveTelemetryContext;
+      } as unknown as Parameters<typeof useSeriesQueries>[0];
       const { loadSeries } = useSeriesQueries(context);
       return <I18nProvider><ElectricityHistory state={state} sensors={[sensor]} metric="power"
         onMetric={vi.fn()} units="metric" range="24h" onRange={vi.fn()} timeZone="UTC"

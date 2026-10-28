@@ -5,12 +5,19 @@ import { api, type CreateSensorInput, type MeasurementHistoryPage } from "../../
 import { useSensorMutations } from "../sensors/sensorMutations";
 import { MAX_SERIES_SAMPLES, replaceMeasurementSeriesWindow, seriesStateKey, settleInBackground, withoutSensorIds } from "./support";
 import type { BufferedSeriesTelemetry, HistoricalSeriesWindow } from "./support";
-import type { SensorActions, SeriesContext } from "./pipelineTypes";
+import type { ClimateDataStore, PipelineActions, SensorActions } from "./pipelineTypes";
 export function useSensorActions(
-  context: SeriesContext,
-): SeriesContext & SensorActions {
+  store: Pick<ClimateDataStore,
+    | "activeSeriesTelemetryBuffers" | "activeTelemetryLoadBuffers" | "apiAvailable"
+    | "pendingMeasurementSamples" | "persistedSensorPoints" | "recordHouseMutation"
+    | "sensorMoveQueues" | "sensorMoveVersions" | "seriesCommitSequence" | "seriesCommitVersions"
+    | "seriesLoadVersions" | "setSeriesStates" | "setState" | "stateRef"
+  >,
+  actions: Pick<PipelineActions, "refreshTpLinkDevices">,
+): SensorActions {
   const sensorMutations = useSensorMutations();
-  const { setState, setSeriesStates, apiAvailable, stateRef, sensorMoveQueues, sensorMoveVersions, persistedSensorPoints, seriesLoadVersions, seriesCommitVersions, seriesCommitSequence, pendingMeasurementSamples, activeTelemetryLoadBuffers, activeSeriesTelemetryBuffers, recordHouseMutation, refreshTpLinkDevices } = context;
+  const { seriesLoadVersions, setSeriesStates, apiAvailable, activeSeriesTelemetryBuffers, seriesCommitSequence, seriesCommitVersions, setState, recordHouseMutation, sensorMoveQueues, stateRef, persistedSensorPoints, pendingMeasurementSamples, activeTelemetryLoadBuffers, sensorMoveVersions } = store;
+  const { refreshTpLinkDevices } = actions;
   const loadHistoricalSeries = useCallback(async (
       sensorId: string,
       metric: string,
@@ -297,5 +304,5 @@ export function useSensorActions(
       }
       await Promise.all(requests);
     }, []);
-  return Object.assign(context, { loadHistoricalSeries, createSensor, updateSensor, deleteSensor, moveSensor, ensurePropertyWrite, refreshMovedPropertyContext });
+  return { loadHistoricalSeries, createSensor, updateSensor, deleteSensor, moveSensor, ensurePropertyWrite, refreshMovedPropertyContext };
 }

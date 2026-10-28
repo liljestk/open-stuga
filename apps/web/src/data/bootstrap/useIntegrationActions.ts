@@ -6,11 +6,15 @@ import {
   api,
 } from "../../api";
 import { settleInBackground } from "./support";
-import type { ClimateDataStoreContext, IntegrationActions } from "./pipelineTypes";
+import type { ClimateDataStore, IntegrationActions } from "./pipelineTypes";
 export function useIntegrationActions(
-  context: ClimateDataStoreContext,
-): ClimateDataStoreContext & IntegrationActions {
-  const { setState, setTpLinkDevices, tpLinkDevicesRef, setTpLinkDevicesLoading, setTpLinkDevicesError, apiAvailable, stateRef, tpLinkRefreshVersion, sessionLifecycleEpoch, recordHouseMutation } = context;
+  store: Pick<ClimateDataStore,
+    | "apiAvailable" | "recordHouseMutation" | "sessionLifecycleEpoch" | "setState"
+    | "setTpLinkDevices" | "setTpLinkDevicesError" | "setTpLinkDevicesLoading" | "stateRef"
+    | "tpLinkDevicesRef" | "tpLinkRefreshVersion"
+  >,
+): IntegrationActions {
+  const { tpLinkRefreshVersion, apiAvailable, tpLinkDevicesRef, setTpLinkDevices, setTpLinkDevicesError, setTpLinkDevicesLoading, sessionLifecycleEpoch, stateRef, recordHouseMutation, setState } = store;
   const tpLinkRefreshes = useRef(new Map<string, Promise<TpLinkDiscoveredDevice[]>>());
   const tpLinkForcedRefreshes = useRef(new Map<string, Promise<TpLinkDiscoveredDevice[]>>());
   const tpLinkForceVersions = useRef(new Map<string, number>());
@@ -141,5 +145,5 @@ export function useIntegrationActions(
       settleInBackground(refreshTpLinkDevices(undefined, { force: true }));
       return result;
     }, [applyDetachedTpLinkSensors, refreshTpLinkDevices]);
-  return Object.assign(context, { refreshTpLinkDevices, disconnectHomeAssistant, applyDetachedTpLinkSensors, disconnectTpLink, moveHomeAssistant, moveTpLink });
+  return { refreshTpLinkDevices, disconnectHomeAssistant, applyDetachedTpLinkSensors, disconnectTpLink, moveHomeAssistant, moveTpLink };
 }

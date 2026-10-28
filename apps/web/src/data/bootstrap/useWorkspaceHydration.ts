@@ -6,11 +6,15 @@ import { snapshotToReadings } from "../../domain";
 import { enabledDefinitions, readingSamples, upsertLatest } from "../../measurements";
 import { preserveMutatedSensorTelemetry, preserveSeriesCommittedDuringLoad, replaceHouseSensors, replaceLoadedHouseTelemetry, replayBufferedLiveTelemetry, replayHouseMutations, sensorsFromSnapshots, settleInBackground, withoutDemoTelemetry, withoutSensorIds } from "./support";
 import type { BufferedLiveTelemetry, HouseMutationBuffer } from "./support";
-import type { IntegrationContext, WorkspaceHydrationActions } from "./pipelineTypes";
+import type { ClimateDataStore, WorkspaceHydrationActions } from "./pipelineTypes";
 export function useWorkspaceHydration(
-  context: IntegrationContext,
-): IntegrationContext & WorkspaceHydrationActions {
-  const { setState, setDataMode, dataModeRef, activeHouseId, activeHouseLoadVersion, houseTelemetryVersions, seriesCommitVersions, tpLinkPollStatus, activeTelemetryLoadBuffers, activeHouseMutationBuffers, globalFieldVersions, recordResourceError } = context;
+  store: Pick<ClimateDataStore,
+    | "activeHouseId" | "activeHouseLoadVersion" | "activeHouseMutationBuffers"
+    | "activeTelemetryLoadBuffers" | "dataModeRef" | "globalFieldVersions" | "houseTelemetryVersions"
+    | "recordResourceError" | "seriesCommitVersions" | "setDataMode" | "setState" | "tpLinkPollStatus"
+  >,
+): WorkspaceHydrationActions {
+  const { activeTelemetryLoadBuffers, activeHouseMutationBuffers, globalFieldVersions, activeHouseId, activeHouseLoadVersion, houseTelemetryVersions, recordResourceError, dataModeRef, tpLinkPollStatus, setDataMode, setState, seriesCommitVersions } = store;
   const loadHouseData = useCallback(async (
       houseId: string,
       includeGlobalData = false,
@@ -287,5 +291,5 @@ export function useWorkspaceHydration(
         activeHouseMutationBuffers.current.delete(bufferedHouseMutations);
       }
     }, []);
-  return Object.assign(context, { loadHouseData, loadPortfolioHouseData });
+  return { loadHouseData, loadPortfolioHouseData };
 }

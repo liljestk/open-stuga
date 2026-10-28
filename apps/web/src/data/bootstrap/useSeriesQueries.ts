@@ -9,23 +9,18 @@ import {
   seriesStateKey,
 } from "./support";
 import type { BufferedSeriesTelemetry } from "./support";
-import type { LiveTelemetryContext, SeriesActions } from "./pipelineTypes";
+import type { ClimateDataStore, SeriesActions } from "./pipelineTypes";
 
 export function useSeriesQueries(
-  context: LiveTelemetryContext,
-): LiveTelemetryContext & SeriesActions {
+  store: Pick<ClimateDataStore,
+    | "activeSeriesTelemetryBuffers" | "apiAvailable" | "seriesCommitSequence"
+    | "seriesCommitVersions" | "seriesLoadVersions" | "setSeriesStates" | "setState"
+  >,
+): SeriesActions {
   // Only the pipeline members this hook actually reads are pulled out.
   // Destructuring the whole context made every unrelated pipeline change touch
   // this line and turned it into a guaranteed merge conflict.
-  const {
-    activeSeriesTelemetryBuffers,
-    apiAvailable,
-    seriesCommitSequence,
-    seriesCommitVersions,
-    seriesLoadVersions,
-    setSeriesStates,
-    setState,
-  } = context;
+  const { seriesLoadVersions, setSeriesStates, apiAvailable, activeSeriesTelemetryBuffers, seriesCommitSequence, seriesCommitVersions, setState } = store;
   const loadSeries = useCallback(async (sensorId: string, metric: string, range: TimeRange, forecastSupported = true, signal?: AbortSignal) => {
       const seriesKey = seriesStateKey(sensorId, metric);
       const requestVersion = (seriesLoadVersions.current.get(seriesKey) ?? 0) + 1;
@@ -150,5 +145,5 @@ export function useSeriesQueries(
         activeSeriesTelemetryBuffers.current.delete(liveTelemetry);
       }
     }, []);
-  return Object.assign(context, { loadSeries });
+  return { loadSeries };
 }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect } from "react";
 import type {
   MeasurementSample,
   Reading,
@@ -6,16 +6,12 @@ import type {
 } from "@climate-twin/contracts";
 import {
   api,
-  cancelPendingApiRequests,
-  subscribeToApiAuthorizationChanges,
 } from "../../api";
-import { subscribeToAuthEpoch } from "../../authEpoch";
 import { type ClimateState } from "../../domain";
 import { appendLiveHistory, readingSamples, upsertLatest } from "../../measurements";
 import { publishHouseWeatherUpdate } from "../../useHouseWeather";
-import { deactivateAccountStorage } from "../../browserStorage";
-import { LIVE_SERIES_SAMPLES, advanceMockTelemetry, blankState, bufferLiveTelemetry, bufferSeriesValue, isDemoSource, isRemoteSharedDemoTelemetry, settleInBackground } from "./support";
-import type { LiveTelemetryActions, SessionLifecycleContext } from "./pipelineTypes";
+import { LIVE_SERIES_SAMPLES, advanceMockTelemetry, bufferLiveTelemetry, bufferSeriesValue, isDemoSource, isRemoteSharedDemoTelemetry, settleInBackground } from "./support";
+import type { ClimateDataStore, PipelineActions, LiveTelemetryActions } from "./pipelineTypes";
 
 // Live values only count for the active Home's sensors, and never as demo data in a real workspace.
 function acceptsLiveValue(
@@ -95,110 +91,23 @@ function withLiveTelemetry(
 }
 
 export function useLiveTelemetry(
-  context: SessionLifecycleContext,
-): SessionLifecycleContext & LiveTelemetryActions {
-  const { initialHouseId, sessionLockedRef, setSessionLocked, setStateInternal, setState, setLoading, setBootstrapStatus, setBootstrapError, setBootstrapAttempt, dataMode, setDataMode, connection, setResourceErrors, setSeriesStates, scenario, setScenario, setSaveState, setTpLinkDevices, tpLinkDevicesRef, setTpLinkDevicesLoading, setTpLinkDevicesError, tick, apiAvailable, dataModeRef, stateRef, hasReachedLiveConnection, hasHydratedActiveHouse, heartbeatPollAt, reconnectResyncTimer, heartbeatFallbackTimer, mutationRefreshTimer, sensorMoveQueues, sensorMoveVersions, persistedSensorPoints, activeHouseId, activeHouseLoadVersion, houseTelemetryVersions, seriesLoadVersions, seriesCommitVersions, seriesCommitSequence, tpLinkPollStatus, tpLinkRefreshVersion, pendingMeasurementSamples, measurementFlushTimer, saveStateTimer, activeTelemetryLoadBuffers, activeHouseMutationBuffers, activeSeriesTelemetryBuffers, activeInventoryMutationBuffers, activeStreamUnsubscribers, activeStreamGateReleases, sessionLifecycleEpoch, globalFieldVersions, applyIntegrationStatus, refreshTpLinkDevices, loadHouseData, resetStreamConnections } = context;
-  const pendingLegacyReadings = useRef<Reading[]>([]);
+  store: Pick<ClimateDataStore,
+    | "activeHouseId" | "activeSeriesTelemetryBuffers" | "activeTelemetryLoadBuffers" | "apiAvailable"
+    | "applyIntegrationStatus" | "connection" | "dataMode" | "dataModeRef" | "globalFieldVersions"
+    | "measurementFlushTimer" | "mutationRefreshTimer" | "pendingLegacyReadings"
+    | "pendingMeasurementSamples" | "scenario" | "sessionLockedRef" | "setBootstrapAttempt"
+    | "setState" | "stateRef" | "tick" | "tpLinkPollStatus"
+  >,
+  actions: Pick<PipelineActions, "refreshTpLinkDevices" | "loadHouseData">,
+): LiveTelemetryActions {
+  const { activeHouseId, stateRef, connection, dataMode, tick, setState, dataModeRef, scenario, measurementFlushTimer, pendingLegacyReadings, pendingMeasurementSamples, mutationRefreshTimer, sessionLockedRef, setBootstrapAttempt, activeTelemetryLoadBuffers, activeSeriesTelemetryBuffers, tpLinkPollStatus, applyIntegrationStatus, globalFieldVersions, apiAvailable } = store;
+  const { refreshTpLinkDevices, loadHouseData } = actions;
   const isActiveHouseSensor = useCallback((sensorId: string) => {
       const houseId = activeHouseId.current;
       return houseId !== null && stateRef.current.sensors.some((sensor) => (
         sensor.id === sensorId && sensor.houseId === houseId
       ));
     }, []);
-  const purgeSessionState = useCallback((locked: boolean) => {
-      sessionLifecycleEpoch.current += 1;
-      sessionLockedRef.current = locked;
-      setSessionLocked(locked);
-      cancelPendingApiRequests();
-      apiAvailable.current = false;
-      hasHydratedActiveHouse.current = false;
-      hasReachedLiveConnection.current = false;
-      heartbeatPollAt.current = 0;
-      activeHouseId.current = null;
-      initialHouseId.current = null;
-      tick.current = 0;
-
-      if (measurementFlushTimer.current !== null) window.clearTimeout(measurementFlushTimer.current);
-      if (reconnectResyncTimer.current !== null) window.clearTimeout(reconnectResyncTimer.current);
-      if (heartbeatFallbackTimer.current !== null) window.clearTimeout(heartbeatFallbackTimer.current);
-      if (mutationRefreshTimer.current !== null) window.clearTimeout(mutationRefreshTimer.current);
-      if (saveStateTimer.current !== null) window.clearTimeout(saveStateTimer.current);
-      measurementFlushTimer.current = null;
-      reconnectResyncTimer.current = null;
-      heartbeatFallbackTimer.current = null;
-      mutationRefreshTimer.current = null;
-      saveStateTimer.current = null;
-      pendingMeasurementSamples.current = [];
-      pendingLegacyReadings.current = [];
-
-      for (const unsubscribe of activeStreamUnsubscribers.current) unsubscribe();
-      activeStreamUnsubscribers.current.clear();
-      for (const release of activeStreamGateReleases.current) release();
-      activeStreamGateReleases.current.clear();
-      for (const buffer of activeTelemetryLoadBuffers.current) buffer.clear();
-      activeTelemetryLoadBuffers.current.clear();
-      for (const buffer of activeHouseMutationBuffers.current) buffer.clear();
-      activeHouseMutationBuffers.current.clear();
-      for (const buffer of activeSeriesTelemetryBuffers.current) {
-        buffer.samples.clear();
-        buffer.readings.clear();
-      }
-      activeSeriesTelemetryBuffers.current.clear();
-      for (const buffer of activeInventoryMutationBuffers.current) buffer.clear();
-      activeInventoryMutationBuffers.current.clear();
-
-      activeHouseLoadVersion.current += 1;
-      tpLinkRefreshVersion.current += 1;
-      seriesCommitSequence.current += 1;
-      houseTelemetryVersions.current.clear();
-      seriesLoadVersions.current.clear();
-      seriesCommitVersions.current.clear();
-      sensorMoveQueues.current.clear();
-      sensorMoveVersions.current.clear();
-      persistedSensorPoints.current.clear();
-      tpLinkPollStatus.current = null;
-      globalFieldVersions.current = {
-        alertRules: globalFieldVersions.current.alertRules + 1,
-        alerts: globalFieldVersions.current.alerts + 1,
-        integration: globalFieldVersions.current.integration + 1,
-      };
-
-      const cleared = blankState();
-      stateRef.current = cleared;
-      setStateInternal(cleared);
-      tpLinkDevicesRef.current = [];
-      setTpLinkDevices([]);
-      setTpLinkDevicesLoading(false);
-      setTpLinkDevicesError(null);
-      setResourceErrors({});
-      setSeriesStates({});
-      setScenario("normal");
-      setSaveState("idle");
-      setBootstrapError(null);
-      setDataMode("unknown");
-      dataModeRef.current = "unknown";
-      resetStreamConnections();
-      setBootstrapStatus(locked ? "login-required" : "loading");
-      setLoading(!locked);
-    }, [resetStreamConnections]);
-  const retryBootstrap = useCallback(() => {
-      sessionLockedRef.current = false;
-      setSessionLocked(false);
-      setBootstrapAttempt((attempt) => attempt + 1);
-    }, []);
-  const revalidateSession = useCallback(() => {
-      purgeSessionState(false);
-      setBootstrapAttempt((attempt) => attempt + 1);
-    }, [purgeSessionState]);
-  const endSession = useCallback(() => {
-      deactivateAccountStorage({ purge: true });
-      purgeSessionState(true);
-    }, [purgeSessionState]);
-  useEffect(() => subscribeToApiAuthorizationChanges((change) => {
-      if (change === "expired") endSession();
-      else revalidateSession();
-    }), [endSession, revalidateSession]);
-  useEffect(() => subscribeToAuthEpoch(revalidateSession), [revalidateSession]);
   useEffect(() => {
       if (connection === "live" || dataMode !== "demo") return;
       const timer = window.setInterval(() => {
@@ -315,5 +224,5 @@ export function useLiveTelemetry(
       await loadHouseData(houseId);
       return result;
     }, [loadHouseData]);
-  return Object.assign(context, { purgeSessionState, retryBootstrap, revalidateSession, endSession, handleTelemetry, flushMeasurements, handleMeasurement, selectHouse, importHistoricalMeasurements });
+  return { handleTelemetry, flushMeasurements, handleMeasurement, selectHouse, importHistoricalMeasurements };
 }

@@ -7,7 +7,8 @@ import type {
 } from "./support";
 import type { useClimateDataStore } from "./useClimateDataStore";
 
-export type ClimateDataStoreContext = ReturnType<typeof useClimateDataStore>;
+/** The bootstrap store: the state, refs and setters every bootstrap hook reads from. */
+export type ClimateDataStore = ReturnType<typeof useClimateDataStore>;
 
 export interface IntegrationActions {
   refreshTpLinkDevices: (
@@ -31,7 +32,7 @@ export interface WorkspaceHydrationActions {
   loadPortfolioHouseData: (houseId: string) => Promise<void>;
 }
 
-export interface SessionLifecycleActions {
+export interface StreamConnectionActions {
   scheduleActiveHouseResync: (delay?: number) => void;
   updateStreamConnection: (
     stream: keyof StreamConnections,
@@ -41,11 +42,14 @@ export interface SessionLifecycleActions {
   handleHeartbeat: () => void;
 }
 
-export interface LiveTelemetryActions {
+export interface SessionLifecycleActions {
   purgeSessionState: (locked: boolean) => void;
   retryBootstrap: () => void;
   revalidateSession: () => void;
   endSession: () => void;
+}
+
+export interface LiveTelemetryActions {
   handleTelemetry: (event: TelemetryEvent) => void;
   flushMeasurements: () => void;
   handleMeasurement: (sample: MeasurementSample) => void;
@@ -116,6 +120,9 @@ export interface OperationsActions {
     patch: ManualObservationPatch,
   ) => Promise<ManualObservation>;
   observationRevisions: typeof api.observationRevisions;
+}
+
+export interface MaintenanceActions {
   createMaintenanceTask: (input: MaintenanceTaskInput) => Promise<MaintenanceTask>;
   reloadMaintenanceTask: (id: string) => Promise<MaintenanceTask>;
   updateMaintenanceTask: (
@@ -123,21 +130,15 @@ export interface OperationsActions {
     patch: MaintenanceTaskPatch,
   ) => Promise<MaintenanceTask>;
   maintenanceTaskRevisions: typeof api.maintenanceTaskRevisions;
-}
-
-export interface MaintenanceActions {
   deleteMaintenanceTask: (id: string) => Promise<void>;
   createStaticParameter: (
     parameter: Omit<StaticParameter, "id">,
   ) => Promise<StaticParameter>;
 }
 
-export type IntegrationContext = ClimateDataStoreContext & IntegrationActions;
-export type WorkspaceHydrationContext = IntegrationContext & WorkspaceHydrationActions;
-export type SessionLifecycleContext = WorkspaceHydrationContext & SessionLifecycleActions;
-export type LiveTelemetryContext = SessionLifecycleContext & LiveTelemetryActions;
-export type SeriesContext = LiveTelemetryContext & SeriesActions;
-export type SensorContext = SeriesContext & SensorActions;
-export type PropertyContext = SensorContext & PropertyActions;
-export type OperationsContext = PropertyContext & OperationsActions;
-export type ClimateDataPipelineContext = OperationsContext & MaintenanceActions;
+/** Every action a bootstrap hook returns; each hook takes only the ones it calls. */
+export type PipelineActions = IntegrationActions & WorkspaceHydrationActions & StreamConnectionActions & LiveTelemetryActions
+  & SessionLifecycleActions & SeriesActions & SensorActions & PropertyActions & OperationsActions & MaintenanceActions;
+
+/** The store with every action, which the public model selects from. */
+export type ClimateDataPipeline = ClimateDataStore & PipelineActions;

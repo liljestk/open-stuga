@@ -4,11 +4,16 @@ import { automaticWeatherLocation, hasLocalHouseAuthority, isAutomaticWeatherLoc
 import { api, type CreateHouseInput, type HouseGeoreferencePatch } from "../../api";
 import { preferredHouseForProperty } from "../../domain";
 import { replaceFloor, settleInBackground, synchronizeSensorRoomLabels } from "./support";
-import type { PropertyActions, SensorContext } from "./pipelineTypes";
+import type { ClimateDataStore, PipelineActions, PropertyActions } from "./pipelineTypes";
 export function usePropertyActions(
-  context: SensorContext,
-): SensorContext & PropertyActions {
-  const { setState, setBootstrapStatus, apiAvailable, stateRef, globalFieldVersions, recordInventoryMutation, ensurePropertyWrite, refreshMovedPropertyContext } = context;
+  store: Pick<ClimateDataStore,
+    | "apiAvailable" | "globalFieldVersions" | "recordInventoryMutation" | "setBootstrapStatus"
+    | "setState" | "stateRef"
+  >,
+  actions: Pick<PipelineActions, "ensurePropertyWrite" | "refreshMovedPropertyContext">,
+): PropertyActions {
+  const { setState, setBootstrapStatus, stateRef, apiAvailable, recordInventoryMutation, globalFieldVersions } = store;
+  const { ensurePropertyWrite, refreshMovedPropertyContext } = actions;
   const createProperty = useCallback(async (input: PropertyCreateInput): Promise<Property> => {
       ensurePropertyWrite();
       const saved = await api.createProperty(input);
@@ -285,5 +290,5 @@ export function usePropertyActions(
       }));
       return saved;
     }, [recordInventoryMutation]);
-  return Object.assign(context, { createProperty, updateProperty, deleteProperty, createPropertyArea, updatePropertyArea, deletePropertyArea, createAreaEquipment, updateAreaEquipment, deleteAreaEquipment, createPropertyNote, updatePropertyNote, deletePropertyNote, setHouseGeoreference, updateFloor, updateHouseDraft, updateHouse, createHouse });
+  return { createProperty, updateProperty, deleteProperty, createPropertyArea, updatePropertyArea, deletePropertyArea, createAreaEquipment, updateAreaEquipment, deleteAreaEquipment, createPropertyNote, updatePropertyNote, deletePropertyNote, setHouseGeoreference, updateFloor, updateHouseDraft, updateHouse, createHouse };
 }
