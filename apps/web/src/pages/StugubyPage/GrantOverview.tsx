@@ -2,7 +2,7 @@ import type { StugubyShareGrant } from "@climate-twin/stuguby-protocol";
 import { AlertTriangle, Pencil, RefreshCw, Trash2 } from "lucide-react";
 import type { StugubyDetailResponse } from "../../api";
 import { useI18n } from "../../i18n";
-import { activeGrant, datasetLabelKeys, grantHomeName, type StugubyPageProps } from "./support";
+import { activeGrant, datasetLabelKeys, grantHomeName, type StugubyPageProps } from "./stugubyModel";
 
 interface GrantOverviewProps {
   detail: StugubyDetailResponse;

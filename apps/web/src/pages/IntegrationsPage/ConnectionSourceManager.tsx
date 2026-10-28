@@ -13,7 +13,7 @@ import {
 import type { ReactNode } from "react";
 import type { House, IntegrationStatus, TpLinkConnectionStatus } from "@climate-twin/contracts";
 import { useI18n } from "../../i18n";
-import type { Feedback } from "./support";
+import type { Feedback } from "./setupModel";
 
 type HomeAssistantConnection = NonNullable<IntegrationStatus["homeAssistant"]["connections"]>[number];
 type TpLinkConnectionKind = "hub" | "energy-device" | "unknown";

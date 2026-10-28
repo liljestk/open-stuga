@@ -1,4 +1,4 @@
-import type { IntegrationsPageProps } from "./support";
+import type { IntegrationsPageProps } from "./setupModel";
 import { useIntegrationsPagePart01 } from "./part-01";
 import { useIntegrationsPagePart02 } from "./part-02";
 import { useIntegrationsPagePart03 } from "./part-03";

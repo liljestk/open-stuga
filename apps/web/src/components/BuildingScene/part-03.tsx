@@ -8,7 +8,7 @@ import {
 } from "../../planElementGeometry";
 import { fireplaceChimneyDimensions, fireplaceChimneyTop, isRoofSpanningFireplace } from "../../architecturalGeometry";
 import { effectiveOpeningState, openingStateCanChange, openingStateKey } from "../../openingState";
-import { elementAxis, elementWorldGeometry, points } from "./support";
+import { elementAxis, elementWorldGeometry, points } from "./sceneGeometry";
 import { useBuildingScenePart02 } from "./part-02";
 export function useBuildingScenePart03(context: ReturnType<typeof useBuildingScenePart02>) {
   const { house, editing, openingStateLabelsVisible, pendingOpeningStateKeys, onOpeningStateChange, t, houseOpeningStateObservations, selectedElementKey, effectiveReferenceTimeMs, project, activateFloor, selectArchitecturalElement } = context;

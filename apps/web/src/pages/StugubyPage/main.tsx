@@ -1,5 +1,5 @@
 import "../StugubyPage.css";
-import type { StugubyPageProps } from "./support";
+import type { StugubyPageProps } from "./stugubyModel";
 import { useStugubyPagePart01 } from "./part-01";
 import { useStugubyPagePart02 } from "./part-02";
 import { useStugubyPagePart03 } from "./part-03";

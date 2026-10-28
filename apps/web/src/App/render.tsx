@@ -11,7 +11,7 @@ import {
 } from "../pages/LocalAuthPage";
 import { isTpLinkContactDevice } from "../tpLinkDeviceClassification";
 import { twinDashboardHomeViewLocation } from "../pages/TwinDashboard/queryState";
-import { ActivityPage, AlertsPage, DataAnalyticsPage, DeveloperPage, EnergyPage, IntegrationsPage, MaintenancePage, OutdoorWeatherPage, PeopleAccessPage, PortfolioOverview, PropertyManagementPage, SensorManagementPage, StugubyPage, SystemUpdatesPage, TwinDashboard, latestIso, settleInBackground } from "./support";
+import { ActivityPage, AlertsPage, DataAnalyticsPage, DeveloperPage, EnergyPage, IntegrationsPage, MaintenancePage, OutdoorWeatherPage, PeopleAccessPage, PortfolioOverview, PropertyManagementPage, SensorManagementPage, StugubyPage, SystemUpdatesPage, TwinDashboard, latestIso, settleInBackground } from "./shellSupport";
 import { useAppPart03 } from "./part-03";
 import { hasBrowserCapability } from "../accessPolicy";
 export function renderApp(context: ReturnType<typeof useAppPart03>) {

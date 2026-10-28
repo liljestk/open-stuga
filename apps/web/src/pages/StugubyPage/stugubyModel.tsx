@@ -1,4 +1,4 @@
-import { UserFacingError } from "../../../api/support/request-error";
+import { UserFacingError } from "../../api/support/request-error";
 import { useEffect, useState } from "react";
 import type { House, Property } from "@climate-twin/contracts";
 import {
@@ -12,10 +12,10 @@ import {
   type StugubyDetailResponse,
   type StugubyLocalMember,
   type StugubyLocalPublicationCatalog,
-} from "../../../api";
-import { formatInTimeZone } from "../../../dateTime";
-import { type TranslationKey } from "../../../i18n";
-import "../../StugubyPage.css";
+} from "../../api";
+import { formatInTimeZone } from "../../dateTime";
+import { type TranslationKey } from "../../i18n";
+import "../StugubyPage.css";
 
 export interface StugubyPageProps {
   houses: Array<Pick<House, "id" | "name" | "propertyId" | "stuguby">>;

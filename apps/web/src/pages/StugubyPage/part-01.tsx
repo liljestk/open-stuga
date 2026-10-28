@@ -9,8 +9,8 @@ import {
 import { api, type StugubyDetailResponse, type StugubyInvitationCreated, type StugubyListResponse, type StugubyRemoteTelemetrySample } from "../../api";
 import { useI18n } from "../../i18n";
 import "../StugubyPage.css";
-import { activeGrant, idlePublicationCatalog, initialDatasetDraft, memberStateLabelKeys, roleLabelKeys, suggestedCoordinatorOrigin } from "./support";
-import type { PublicationCatalogState, StugubyPageProps } from "./support";
+import { activeGrant, idlePublicationCatalog, initialDatasetDraft, memberStateLabelKeys, roleLabelKeys, suggestedCoordinatorOrigin } from "./stugubyModel";
+import type { PublicationCatalogState, StugubyPageProps } from "./stugubyModel";
 
 type StugubyActiveScope = Readonly<{
   id: string;

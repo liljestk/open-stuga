@@ -1,4 +1,4 @@
-import type { BuildingSceneProps } from "./support";
+import type { BuildingSceneProps } from "./sceneGeometry";
 import { useBuildingScenePart01 } from "./part-01";
 import { useBuildingScenePart02 } from "./part-02";
 import { useBuildingScenePart03 } from "./part-03";

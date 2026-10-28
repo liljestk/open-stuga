@@ -1,5 +1,5 @@
 import { type KeyboardEvent } from "react";
-import type { SetupSection } from "./support";
+import type { SetupSection } from "./setupModel";
 import { useIntegrationsPagePart05 } from "./part-05";
 export function useIntegrationsPagePart06(context: ReturnType<typeof useIntegrationsPagePart05>) {
   const { t, discovering, sensorSourceConfigured, discoveredCount, nextStepIndex, primarySetupSections, scanIntegrations, activateSection, onOpenSensors } = context;

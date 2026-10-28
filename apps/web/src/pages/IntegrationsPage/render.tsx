@@ -26,7 +26,7 @@ import { locationForRoute } from "../../routing";
 import { AutomationSetupPanel } from "../AutomationSetupPanel";
 import { SetupOperationsPanel } from "../SetupOperationsPanel";
 import { ConnectionSourceManager } from "./ConnectionSourceManager";
-import { ACTIVE_TP_LINK_EXPORT_STATUSES, RETRYABLE_TP_LINK_EXPORT_STATUSES, TP_LINK_EXPORT_PROVIDER_KEYS, TP_LINK_EXPORT_STATUS_KEYS, decimal, setupSectionOrder } from "./support";
+import { ACTIVE_TP_LINK_EXPORT_STATUSES, RETRYABLE_TP_LINK_EXPORT_STATUSES, TP_LINK_EXPORT_PROVIDER_KEYS, TP_LINK_EXPORT_STATUS_KEYS, decimal, setupSectionOrder } from "./setupModel";
 import { useIntegrationsPagePart06 } from "./part-06";
 import { CredentialControls } from "./CredentialControls";
 import { GreeSetupPanel } from "./GreeSetupPanel";

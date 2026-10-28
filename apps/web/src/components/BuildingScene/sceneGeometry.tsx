@@ -1,21 +1,21 @@
 import { type ConfiguredOpeningState, type ConnectedDeviceState, type Floor, type HeatPumpState, type House, type ManualObservation, type MeasurementDefinition, type MeasurementSample, type OpeningStateObservation, type PlanElement, type Sensor, type UnitSystem } from "@climate-twin/contracts";
-import { type LatestMeasurements } from "../../../measurements";
-import { type BuildingAirflowEstimate, type ClimateSampleMatrix } from "../../../airflowSimulation";
+import { type LatestMeasurements } from "../../measurements";
+import { type BuildingAirflowEstimate, type ClimateSampleMatrix } from "../../airflowSimulation";
 import {
   type CameraOrbit,
   type Point3D,
   type ProjectedPoint3D,
   type VolumeBounds,
   type VolumeCloudBlob,
-} from "../../../spatialVolume";
+} from "../../spatialVolume";
 import {
   type OutdoorVisualizationState,
-} from "../../OutdoorConditionsBadge";
-import { type AirflowPlanElementPatch } from "../../PlanElementAirflowFields";
-import { type FixturePlanElementPatch } from "../../PlanElementFixtureFields";
-import type { SpatialLayerSnapshot, SpatialTopology } from "../../../spatialLayers";
-import type { SensorCoverageAssessment } from "../../../experimentalSpatialLayers";
-import type { OutdoorInfluenceEstimate } from "../../../outdoorInfluence";
+} from "../OutdoorConditionsBadge";
+import { type AirflowPlanElementPatch } from "../PlanElementAirflowFields";
+import { type FixturePlanElementPatch } from "../PlanElementFixtureFields";
+import type { SpatialLayerSnapshot, SpatialTopology } from "../../spatialLayers";
+import type { SensorCoverageAssessment } from "../../experimentalSpatialLayers";
+import type { OutdoorInfluenceEstimate } from "../../outdoorInfluence";
 import {
   DEFAULT_CEILING_HEIGHT_METRES,
   defaultPlanElementWidth,
@@ -24,8 +24,8 @@ import {
   isWallAttachedPlanElement,
   isWallOpening,
   planElementBottomOffset,
-} from "../../../planElementGeometry";
-import { fireplaceChimneyTop, isRoofSpanningFireplace, roofPeakZ } from "../../../architecturalGeometry";
+} from "../../planElementGeometry";
+import { fireplaceChimneyTop, isRoofSpanningFireplace, roofPeakZ } from "../../architecturalGeometry";
 
 export interface BuildingSceneProps {
   house: House;

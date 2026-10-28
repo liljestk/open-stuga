@@ -3,8 +3,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { type TpLinkHistoryExportJob, type TpLinkHistoryExportJobsResponse } from "../../api";
 import { useI18n } from "../../i18n";
 import { integrationForHouse } from "../../integrationScope";
-import { dateTime, setupSectionFromPath } from "./support";
-import type { DiscoveryOutcome, Feedback, IntegrationsPageProps, SetupSection, TpLinkChildDiscovery } from "./support";
+import { dateTime, setupSectionFromPath } from "./setupModel";
+import type { DiscoveryOutcome, Feedback, IntegrationsPageProps, SetupSection, TpLinkChildDiscovery } from "./setupModel";
 export function useIntegrationsPagePart01(context: { aggregateIntegration: IntegrationsPageProps["integration"]; initialHouse: IntegrationsPageProps["house"]; houses: IntegrationsPageProps["houses"]; connectionHouses: Exclude<IntegrationsPageProps["connectionHouses"], undefined>; streamConnection: IntegrationsPageProps["streamConnection"]; tpLinkDevicesLoading: Exclude<IntegrationsPageProps["tpLinkDevicesLoading"], undefined>; tpLinkDevicesError: Exclude<IntegrationsPageProps["tpLinkDevicesError"], undefined>; canManageIntegrations: boolean; onHouse: IntegrationsPageProps["onHouse"]; onHouseUpdate: IntegrationsPageProps["onHouseUpdate"]; onGeoreferenceChange: IntegrationsPageProps["onGeoreferenceChange"]; onIntegrationChange: IntegrationsPageProps["onIntegrationChange"]; onRefreshTpLinkDevices: IntegrationsPageProps["onRefreshTpLinkDevices"]; onDisconnectHomeAssistant: IntegrationsPageProps["onDisconnectHomeAssistant"]; onDisconnectTpLink: IntegrationsPageProps["onDisconnectTpLink"]; onMoveHomeAssistant: IntegrationsPageProps["onMoveHomeAssistant"]; onMoveTpLink: IntegrationsPageProps["onMoveTpLink"]; onOpenSensors: IntegrationsPageProps["onOpenSensors"]; onOpenLayout: IntegrationsPageProps["onOpenLayout"]; onDiscoveryStarted: IntegrationsPageProps["onDiscoveryStarted"] }) {
   const { aggregateIntegration, initialHouse, connectionHouses } = context;
   const { locale, t } = useI18n();

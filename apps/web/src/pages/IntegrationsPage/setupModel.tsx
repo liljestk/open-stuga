@@ -1,16 +1,16 @@
 import { lazy } from "react";
 import { floorMetersPerPlanUnit } from "@climate-twin/contracts";
 import type { ConnectionState, House, HousePatch, IntegrationDiscoveryJob, IntegrationStatus, TpLinkDiscoveredDevice, UnitSystem } from "@climate-twin/contracts";
-import { api, type HouseGeoreferencePatch, type TpLinkHistoryExportJob, type TpLinkHistoryExportJobStatus } from "../../../api";
-import type { MapLocation } from "../../../components/HouseLocationMap";
-import { formatInTimeZone } from "../../../dateTime";
+import { api, type HouseGeoreferencePatch, type TpLinkHistoryExportJob, type TpLinkHistoryExportJobStatus } from "../../api";
+import type { MapLocation } from "../../components/HouseLocationMap";
+import { formatInTimeZone } from "../../dateTime";
 export {
   forgetIntegrationDiscovery,
   rememberIntegrationDiscovery,
   rememberedIntegrationDiscovery,
-} from "../../../integrationDiscoveryStorage";
+} from "../../integrationDiscoveryStorage";
 
-export const HouseLocationMap = lazy(() => import("../../../components/HouseLocationMap").then((module) => ({ default: module.HouseLocationMap })));
+export const HouseLocationMap = lazy(() => import("../../components/HouseLocationMap").then((module) => ({ default: module.HouseLocationMap })));
 
 export interface IntegrationsPageProps {
   integration: IntegrationStatus;

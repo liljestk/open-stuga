@@ -24,8 +24,8 @@ import {
   planElementHeightBounds,
   planElementWidthBounds,
 } from "../../planElementGeometry";
-import { projectedCloud } from "./support";
-import type { SelectedElementPatch } from "./support";
+import { projectedCloud } from "./sceneGeometry";
+import type { SelectedElementPatch } from "./sceneGeometry";
 import { useBuildingScenePart01 } from "./part-01";
 export function useBuildingScenePart02(context: ReturnType<typeof useBuildingScenePart01>) {
   const { house, sensors, activeFloorId, editing, onFloorSelect, onSensorSelect, onFloorChange, t, camera, setCamera, selectedElementKey, setSelectedElementKey, addableOpeningKind, setOpeningEditorMessage, dragRef, suppressClickRef, floorModels, clouds, project } = context;

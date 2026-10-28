@@ -6,7 +6,7 @@ import { type CreateHouseInput } from "../api";
 import { locationForPropertySection, locationForRoute, routeFromLocation } from "../routing";
 import { StuguMark } from "../components/StuguMark";
 import { writeLocalStorage } from "../browserStorage";
-import { dismissedTpLinkDevicesKey, firstFloor, pageTitleKeys, settleInBackground, tpLinkDeviceKey } from "./support";
+import { dismissedTpLinkDevicesKey, firstFloor, pageTitleKeys, settleInBackground, tpLinkDeviceKey } from "./shellSupport";
 import { useAppPart01 } from "./part-01";
 export function useAppPart02(context: ReturnType<typeof useAppPart01>) {
   const { t, climate, state, page, setPage, setRouteNotFound, setRouteRevision, propertyId, setPropertyId, houseId, setHouseId, floorId, setFloorId, metric, setMetric, selectedSensorId, setSelectedSensorId, setUnitsState, firstHomeName, setFirstHomeName, firstPropertyName, setFirstPropertyName, firstHomePropertyId, setFirstHomePropertyId, bootstrapAction, setBootstrapAction, setMaintenanceObservationId, setDismissedTpLinkDeviceIds, previousPage, property, house, locationRoute, routeScopeInvalid, effectiveRouteNotFound, floor, availableMeasurements } = context;

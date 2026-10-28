@@ -24,8 +24,8 @@ import {
 } from "../../planElementGeometry";
 import { roofEavesZ, roofSurfaces } from "../../architecturalGeometry";
 import { MapInformationToggle } from "../MapInformationToggle";
-import { DEFAULT_CAMERA, VIEW_HEIGHT, VIEW_WIDTH, points, relativeSensorHeight, smoothProjectedAirflowPath, svgToken, visualLabel } from "./support";
-import type { AddableOpeningKind, BuildingSceneProps } from "./support";
+import { DEFAULT_CAMERA, VIEW_HEIGHT, VIEW_WIDTH, points, relativeSensorHeight, smoothProjectedAirflowPath, svgToken, visualLabel } from "./sceneGeometry";
+import type { AddableOpeningKind, BuildingSceneProps } from "./sceneGeometry";
 import { useBuildingScenePart03 } from "./part-03";
 export function renderBuildingScene(context: ReturnType<typeof useBuildingScenePart03>) {
   const extended = context as typeof context & {

@@ -14,8 +14,8 @@ import {
 import type { MapLocation } from "../../components/HouseLocationMap";
 import { type DiscoveredHomeDefaults } from "../../components/LocationDiscoveryPanel";
 import { useI18n } from "../../i18n";
-import { placementForm, writeSetupSection } from "./support";
-import type { SetupSection } from "./support";
+import { placementForm, writeSetupSection } from "./setupModel";
+import type { SetupSection } from "./setupModel";
 import { useIntegrationsPagePart04 } from "./part-04";
 
 type Translate = ReturnType<typeof useI18n>["t"];

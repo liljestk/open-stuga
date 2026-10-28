@@ -10,8 +10,8 @@ import {
 import { api } from "../../api";
 import { confirmAction } from "../../components/ConfirmationProvider";
 import "../StugubyPage.css";
-import { activeGrant, editableHomeDatasets, idlePublicationCatalog } from "./support";
-import type { DatasetDraft } from "./support";
+import { activeGrant, editableHomeDatasets, idlePublicationCatalog } from "./stugubyModel";
+import type { DatasetDraft } from "./stugubyModel";
 import { useStugubyPagePart01 } from "./part-01";
 export function useStugubyPagePart02(context: ReturnType<typeof useStugubyPagePart01>) {
   const { properties, onInventoryChange, t, index, setIndex, detail, setDetail, setLoading, setBusy, setError, setNotice, setDetailLoading, createName, setCreateName, createDescription, setCreateDescription, createCoordinatorUrl, setCreateCoordinatorUrl, joinCoordinatorUrl, setJoinCoordinatorUrl, joinUrl, setJoinUrl, joinInvitationId, setJoinInvitationId, joinSecret, setJoinSecret, grantHouseId, setGrantHouseId, audienceKind, setAudienceKind, audienceNodes, setAudienceNodes, datasetDraft, setDatasetDraft, telemetryLive, setTelemetryLive, telemetryHistoryHours, telemetryMetrics, telemetrySensors, setTelemetrySensors, telemetryRate, setTelemetryRate, grantExpiresAt, houseEditPolicy, setHouseEditPolicy, recoveryMode, setRecoveryMode, houseSuccessorNodeId, setHouseSuccessorNodeId, editingGrantId, publicationCatalog, setPublicationCatalog, catalogRevision, unsharedHouses, grantHouseOptions, setPropertyName, setPropertyDescription, setPropertyLatitude, setPropertyLongitude, setPropertyLocationLabel, setAreasJson, setEquipmentJson, setNotesJson, setMaintenanceJson, setPropertyEditPolicy, setPropertySuccessorNodeId, setAdoptionPropertyId, setMigrationPropertyId, detailRequest, selectedIdRef, captureActiveScope, isActiveScope, resetGrantDraft, resetStugubyScopedUi, beginSelection, loadDetail } = context;

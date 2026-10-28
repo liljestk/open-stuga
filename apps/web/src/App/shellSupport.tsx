@@ -1,37 +1,37 @@
 import { lazy } from "react";
 import type { Floor } from "@climate-twin/contracts";
-import { readLocalStorage } from "../../browserStorage";
-import { createClientUuid } from "../../clientUuid";
+import { readLocalStorage } from "../browserStorage";
+import { createClientUuid } from "../clientUuid";
 
-export const AlertsPage = lazy(() => import("../../pages/AlertsPage").then((module) => ({ default: module.AlertsPage })));
+export const AlertsPage = lazy(() => import("../pages/AlertsPage").then((module) => ({ default: module.AlertsPage })));
 
-export const DeveloperPage = lazy(() => import("../../pages/DeveloperPage").then((module) => ({ default: module.DeveloperPage })));
+export const DeveloperPage = lazy(() => import("../pages/DeveloperPage").then((module) => ({ default: module.DeveloperPage })));
 
-export const SystemUpdatesPage = lazy(() => import("../../pages/SystemUpdatesPage").then((module) => ({ default: module.SystemUpdatesPage })));
+export const SystemUpdatesPage = lazy(() => import("../pages/SystemUpdatesPage").then((module) => ({ default: module.SystemUpdatesPage })));
 
-export const IntegrationsPage = lazy(() => import("../../pages/IntegrationsPage").then((module) => ({ default: module.IntegrationsPage })));
+export const IntegrationsPage = lazy(() => import("../pages/IntegrationsPage").then((module) => ({ default: module.IntegrationsPage })));
 
-export const SensorManagementPage = lazy(() => import("../../pages/SensorManagementPage").then((module) => ({ default: module.SensorManagementPage })));
+export const SensorManagementPage = lazy(() => import("../pages/SensorManagementPage").then((module) => ({ default: module.SensorManagementPage })));
 
-export const DataAnalyticsPage = lazy(() => import("../../pages/DataAnalyticsPage").then((module) => ({ default: module.DataAnalyticsPage })));
+export const DataAnalyticsPage = lazy(() => import("../pages/DataAnalyticsPage").then((module) => ({ default: module.DataAnalyticsPage })));
 
-export const TwinDashboard = lazy(() => import("../../pages/TwinDashboard").then((module) => ({ default: module.TwinDashboard })));
+export const TwinDashboard = lazy(() => import("../pages/TwinDashboard").then((module) => ({ default: module.TwinDashboard })));
 
-export const PortfolioOverview = lazy(() => import("../../pages/PortfolioOverview").then((module) => ({ default: module.PortfolioOverview })));
+export const PortfolioOverview = lazy(() => import("../pages/PortfolioOverview").then((module) => ({ default: module.PortfolioOverview })));
 
-export const PropertyManagementPage = lazy(() => import("../../pages/PropertyManagementPage").then((module) => ({ default: module.PropertyManagementPage })));
+export const PropertyManagementPage = lazy(() => import("../pages/PropertyManagementPage").then((module) => ({ default: module.PropertyManagementPage })));
 
-export const OutdoorWeatherPage = lazy(() => import("../../pages/OutdoorWeatherPage").then((module) => ({ default: module.OutdoorWeatherPage })));
+export const OutdoorWeatherPage = lazy(() => import("../pages/OutdoorWeatherPage").then((module) => ({ default: module.OutdoorWeatherPage })));
 
-export const ActivityPage = lazy(() => import("../../pages/ActivityPage").then((module) => ({ default: module.ActivityPage })));
+export const ActivityPage = lazy(() => import("../pages/ActivityPage").then((module) => ({ default: module.ActivityPage })));
 
-export const MaintenancePage = lazy(() => import("../../pages/MaintenancePage").then((module) => ({ default: module.MaintenancePage })));
+export const MaintenancePage = lazy(() => import("../pages/MaintenancePage").then((module) => ({ default: module.MaintenancePage })));
 
-export const EnergyPage = lazy(() => import("../../pages/EnergyPage").then((module) => ({ default: module.EnergyPage })));
+export const EnergyPage = lazy(() => import("../pages/EnergyPage").then((module) => ({ default: module.EnergyPage })));
 
-export const PeopleAccessPage = lazy(() => import("../../pages/PeopleAccessPage").then((module) => ({ default: module.PeopleAccessPage })));
+export const PeopleAccessPage = lazy(() => import("../pages/PeopleAccessPage").then((module) => ({ default: module.PeopleAccessPage })));
 
-export const StugubyPage = lazy(() => import("../../pages/StugubyPage").then((module) => ({ default: module.StugubyPage })));
+export const StugubyPage = lazy(() => import("../pages/StugubyPage").then((module) => ({ default: module.StugubyPage })));
 
 export const pageTitleKeys = {
   overview: "nav.overview",

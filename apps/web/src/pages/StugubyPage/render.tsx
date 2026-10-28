@@ -13,7 +13,7 @@ import { StugubyMark } from "../../components/StugubyMark";
 import { twentyFourHourInputLocale } from "../../dateTime";
 import { CloudflareSetupPanel } from "../CloudflareSetupPanel";
 import "../StugubyPage.css";
-import { MemberIdentity, datasetLabelKeys, editableHomeDatasets, formattedTime, loopbackOrigin } from "./support";
+import { MemberIdentity, datasetLabelKeys, editableHomeDatasets, formattedTime, loopbackOrigin } from "./stugubyModel";
 import { useStugubyPagePart03 } from "./part-03";
 import { GrantOverview } from "./GrantOverview";
 export function renderStugubyPage(context: ReturnType<typeof useStugubyPagePart03>) {

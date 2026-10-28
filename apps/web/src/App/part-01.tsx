@@ -18,8 +18,8 @@ import {
 import { integrationForHouse } from "../integrationScope";
 import { forgetIntegrationDiscovery, rememberedIntegrationDiscovery } from "../integrationDiscoveryStorage";
 import { houseHasTpLinkOpeningBinding } from "../tpLinkDeviceClassification";
-import { dismissedIntegrationDiscoveryJobsKey, freshTpLinkDiscoveryWindowMs, pageTitleKeys, settleInBackground, storedDismissedIntegrationDiscoveryJobs, storedDismissedTpLinkDevices, tpLinkDeviceKey } from "./support";
-import type { TpLinkDeviceReference } from "./support";
+import { dismissedIntegrationDiscoveryJobsKey, freshTpLinkDiscoveryWindowMs, pageTitleKeys, settleInBackground, storedDismissedIntegrationDiscoveryJobs, storedDismissedTpLinkDevices, tpLinkDeviceKey } from "./shellSupport";
+import type { TpLinkDeviceReference } from "./shellSupport";
 import { hasBrowserCapability } from "../accessPolicy";
 
 export interface CompletedIntegrationDiscovery {

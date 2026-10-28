@@ -14,8 +14,8 @@ import {
 } from "../../api";
 import { confirmAction } from "../../components/ConfirmationProvider";
 import "../StugubyPage.css";
-import { localDateTimeInput, parseArray } from "./support";
-import type { DatasetDraft } from "./support";
+import { localDateTimeInput, parseArray } from "./stugubyModel";
+import type { DatasetDraft } from "./stugubyModel";
 import { useStugubyPagePart02 } from "./part-02";
 type DeferredContext = {
   coordinator: boolean;

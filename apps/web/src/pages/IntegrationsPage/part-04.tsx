@@ -5,8 +5,8 @@ import type { IntegrationDiscoveryResult, IntegrationStatus, TpLinkConnectionSta
 import { api } from "../../api";
 import { confirmAction } from "../../components/ConfirmationProvider";
 import { type TranslationKey } from "../../i18n";
-import { forgetIntegrationDiscovery, rememberIntegrationDiscovery, rememberedIntegrationDiscovery, validTimeZone } from "./support";
-import type { DiscoveryOutcome } from "./support";
+import { forgetIntegrationDiscovery, rememberIntegrationDiscovery, rememberedIntegrationDiscovery, validTimeZone } from "./setupModel";
+import type { DiscoveryOutcome } from "./setupModel";
 import { useIntegrationsPagePart03 } from "./part-03";
 
 type ConfiguredTpLink = Awaited<ReturnType<typeof api.configureTpLink>>;
