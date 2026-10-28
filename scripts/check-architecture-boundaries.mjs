@@ -143,7 +143,7 @@ try {
 const webSourceRoot = join(root, "apps", "web", "src");
 for (const path of await filesBelow(webSourceRoot)) {
   const name = projectPath(path);
-  if (/\.(?:test|spec)\.[tj]sx?$/.test(name) || name.includes("apiTestSupport")) continue;
+  if (/\.(?:test|spec)\.[tj]sx?$|TestSupport\.[tj]sx?$/.test(name)) continue;
   const text = await readFile(path, "utf8");
   if ((text.includes("subscribeToEvents") || text.includes("subscribeToMeasurementEvents"))
     && name !== "apps/web/src/data/live/LiveEventCoordinator.ts"

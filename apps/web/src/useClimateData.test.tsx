@@ -18,11 +18,11 @@ import { useClimateData } from "./useClimateData";
 import { writeLocalStorage } from "./browserStorage";
 import { ApiVersionMismatchError, assertApiRuntimeVersion } from "./apiRuntimeVersion";
 
-vi.mock("./api", async () => (await import("./useClimateDataApiMock")).apiModuleMock);
+vi.mock("./api", async () => (await import("./useClimateDataApiTestSupport")).apiModuleMock);
 
-vi.mock("./authEpoch", async () => (await import("./useClimateDataApiMock")).authEpochModuleMock);
+vi.mock("./authEpoch", async () => (await import("./useClimateDataApiTestSupport")).authEpochModuleMock);
 
-import { mocks } from "./useClimateDataApiMock";
+import { mocks } from "./useClimateDataApiTestSupport";
 
 describe("useClimateData", () => {
   beforeEach(() => {

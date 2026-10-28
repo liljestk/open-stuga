@@ -15,13 +15,13 @@ import { createDemoState } from "./domain";
 
 import { useClimateData } from "./useClimateData";
 
-import { mocks } from "./useClimateDataApiMock";
+import { mocks } from "./useClimateDataApiTestSupport";
 
 import { deferred } from "./useClimateDataTestSupport";
 
-vi.mock("./api", async () => (await import("./useClimateDataApiMock")).apiModuleMock);
+vi.mock("./api", async () => (await import("./useClimateDataApiTestSupport")).apiModuleMock);
 
-vi.mock("./authEpoch", async () => (await import("./useClimateDataApiMock")).authEpochModuleMock);
+vi.mock("./authEpoch", async () => (await import("./useClimateDataApiTestSupport")).authEpochModuleMock);
 
 describe("useClimateData", () => {
   beforeEach(() => {

@@ -5,7 +5,7 @@ import type {
 import { vi } from "vitest";
 
 // The api and authEpoch doubles every useClimateData test file mocks its imports with:
-//   vi.mock("./api", async () => (await import("./useClimateDataApiMock")).apiModuleMock);
+//   vi.mock("./api", async () => (await import("./useClimateDataApiTestSupport")).apiModuleMock);
 export const mocks = {
   session: vi.fn(),
   properties: vi.fn(),
