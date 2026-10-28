@@ -77,7 +77,7 @@ function tuyaCredentials(body: Record<string, unknown>): { deviceId: string; loc
   return { deviceId, localKey };
 }
 
-function finite(value: unknown, name: string): number {
+function requireFiniteNumber(value: unknown, name: string): number {
   if (typeof value !== "number" || !Number.isFinite(value)) {
     throw new HttpError(400, "INVALID_FIELD", `${name} must be a finite number`);
   }
@@ -106,9 +106,9 @@ function placement(
   if (roomId && !room) {
     throw new HttpError(422, "TUYA_ROOM_NOT_FOUND", "The selected room does not belong to this floor");
   }
-  const x = body.x === undefined ? floor.width / 2 : finite(body.x, "x");
-  const y = body.y === undefined ? floor.height / 2 : finite(body.y, "y");
-  const z = body.z === undefined ? floor.elevation + 1.2 : finite(body.z, "z");
+  const x = body.x === undefined ? floor.width / 2 : requireFiniteNumber(body.x, "x");
+  const y = body.y === undefined ? floor.height / 2 : requireFiniteNumber(body.y, "y");
+  const z = body.z === undefined ? floor.elevation + 1.2 : requireFiniteNumber(body.z, "z");
   if (x < 0 || x > floor.width || y < 0 || y > floor.height) {
     throw new HttpError(422, "TUYA_PLACEMENT_OUT_OF_BOUNDS", "The device must be inside the selected floor");
   }
@@ -129,14 +129,14 @@ function command(body: Record<string, unknown>, capabilities: ConnectedDeviceCap
     result.power = body.power;
   }
   if (body.brightnessPercent !== undefined) {
-    const value = finite(body.brightnessPercent, "brightnessPercent");
+    const value = requireFiniteNumber(body.brightnessPercent, "brightnessPercent");
     if (!capabilities.brightness || value < 1 || value > 100) {
       throw new HttpError(422, "TUYA_BRIGHTNESS_UNSUPPORTED", "Brightness must be from 1 to 100 for this device");
     }
     result.brightnessPercent = value;
   }
   if (body.colorTemperatureKelvin !== undefined) {
-    const value = finite(body.colorTemperatureKelvin, "colorTemperatureKelvin");
+    const value = requireFiniteNumber(body.colorTemperatureKelvin, "colorTemperatureKelvin");
     if (!capabilities.colorTemperature || value < 2_700 || value > 6_500) {
       throw new HttpError(
         422,
@@ -153,9 +153,9 @@ function command(body: Record<string, unknown>, capabilities: ConnectedDeviceCap
       || Object.keys(value).length !== 3) {
       throw new HttpError(422, "TUYA_COLOR_UNSUPPORTED", "This device does not support that colour command");
     }
-    const hue = finite(value.hue, "color.hue");
-    const saturation = finite(value.saturation, "color.saturation");
-    const brightness = finite(value.value, "color.value");
+    const hue = requireFiniteNumber(value.hue, "color.hue");
+    const saturation = requireFiniteNumber(value.saturation, "color.saturation");
+    const brightness = requireFiniteNumber(value.value, "color.value");
     if (hue < 0 || hue > 360 || saturation < 0 || saturation > 100
       || brightness < 1 || brightness > 100) {
       throw new HttpError(422, "TUYA_COLOR_OUT_OF_RANGE", "The requested colour is outside its supported range");

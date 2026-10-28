@@ -6,7 +6,7 @@ import {
   WebDriverError,
   type Selector,
 } from "../webdriver.js";
-import { FlowAction, MAX_REPEAT_TAPS, RepeatCountVariable, TapoFlowConfig, UiState, actions, classifyUiSignals, finiteNumber, nonEmptyString, record, selector, validateCredentialBindings, validateExportBindings } from "./01-selector-strategies-to-validate-credential-bindings.js";
+import { FlowAction, MAX_REPEAT_TAPS, RepeatCountVariable, TapoFlowConfig, UiState, actions, classifyUiSignals, boundedNumber, nonEmptyString, record, selector, validateCredentialBindings, validateExportBindings } from "./01-selector-strategies-to-validate-credential-bindings.js";
 
 export function parseFlowConfig(value: unknown): TapoFlowConfig {
   const root = record(value, "flow config");
@@ -50,7 +50,7 @@ export function parseFlowConfig(value: unknown): TapoFlowConfig {
     restartAppBeforeJob: root.restartAppBeforeJob !== false,
     signalTimeoutMs: root.signalTimeoutMs === undefined
       ? 750
-      : finiteNumber(root.signalTimeoutMs, "signalTimeoutMs", 0, 10_000),
+      : boundedNumber(root.signalTimeoutMs, "signalTimeoutMs", 0, 10_000),
     signals,
     flows,
   };

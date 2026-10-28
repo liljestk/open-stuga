@@ -144,7 +144,7 @@ export function clamp(value: number, minimum = 0, maximum = 1): number {
   return Math.max(minimum, Math.min(maximum, value));
 }
 
-export function finite(value: number | undefined): value is number {
+export function isFiniteNumber(value: number | undefined): value is number {
   return typeof value === "number" && Number.isFinite(value);
 }
 
@@ -218,24 +218,24 @@ export function effectiveGridInput(input: BuildGridInput): BuildGridInput {
 }
 
 export function anchorsForFloor(input: BuildGridInput): ClimateAnchor[] {
-  const pressure = finite(input.outdoor?.conditions.pressureHpa)
+  const pressure = isFiniteNumber(input.outdoor?.conditions.pressureHpa)
     ? input.outdoor!.conditions.pressureHpa!
     : STANDARD_PRESSURE_HPA;
   const height = ceilingHeight(input.floor);
   const floorSensors = input.sensors.filter((sensor) => sensor.enabled && sensor.floorId === input.floor.id);
   const observedHumidity = floorSensors.flatMap((sensor) => {
     const humidity = freshSample(input.samples, sensor.id, "humidity", input.freshness);
-    return humidity && finite(humidity.value) ? [humidity.value] : [];
+    return humidity && isFiniteNumber(humidity.value) ? [humidity.value] : [];
   });
   const fallbackHumidity = observedHumidity.length
     ? observedHumidity.reduce((sum, value) => sum + value, 0) / observedHumidity.length
     : 50;
   return floorSensors.flatMap((sensor) => {
     const temperature = freshSample(input.samples, sensor.id, "temperature", input.freshness);
-    if (!temperature || !finite(temperature.value)) return [];
+    if (!temperature || !isFiniteNumber(temperature.value)) return [];
     const humidity = freshSample(input.samples, sensor.id, "humidity", input.freshness);
     const co2 = freshSample(input.samples, sensor.id, "co2", input.freshness);
-    const humidityValue = humidity && finite(humidity.value) ? humidity.value : fallbackHumidity;
+    const humidityValue = humidity && isFiniteNumber(humidity.value) ? humidity.value : fallbackHumidity;
     const specificHumidity = relativeHumidityToSpecificHumidity(temperature.value, humidityValue, pressure);
     const weight = qualityWeight(temperature) * (humidity ? (.78 + .22 * qualityWeight(humidity)) : .72);
     return [{
@@ -245,7 +245,7 @@ export function anchorsForFloor(input: BuildGridInput): ClimateAnchor[] {
       temperatureC: temperature.value,
       specificHumidity,
       virtualTemperatureK: virtualTemperatureK(temperature.value, specificHumidity),
-      co2: co2 && finite(co2.value) ? co2.value : null,
+      co2: co2 && isFiniteNumber(co2.value) ? co2.value : null,
       weight,
     }];
   });

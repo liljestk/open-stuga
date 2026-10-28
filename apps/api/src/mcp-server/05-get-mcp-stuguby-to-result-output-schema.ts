@@ -21,7 +21,7 @@ import {
 import { getOpeningActivity } from "../analytics/opening-activity/service.js";
 import { DAILY_ANALYTICS_ALGORITHM_VERSION } from "../daily-analytics-findings.js";
 import { SYSTEM_VERSION } from "../version.js";
-import { config, dataOperations, database, energyCost, optionalString, requiredString, stugubyStore, telemetryReader } from "./01-config-to-get-house-weather.js";
+import { config, dataOperations, database, energyCost, optionalToolString, requiredToolString, stugubyStore, telemetryReader } from "./01-config-to-get-house-weather.js";
 import { activeStugubyGrant, recommendedOverviewGrant, stugubySide, summarizeMcpStuguby } from "./04-point-schema-to-summarize-mcp-stuguby.js";
 import { chatgptMcpServerInstructions, isChatgptMcpProfile } from "./chatgpt-profile.js";
 import { runMcpThermalWork } from "./thermal-work.js";
@@ -32,7 +32,7 @@ import {
 } from "../analytics/heat-pump-evidence.js";
 
 export function getMcpStuguby(args: Record<string, unknown>): object {
-  const stugubyId = requiredString(args, "stugubyId");
+  const stugubyId = requiredToolString(args, "stugubyId");
   const summary = stugubyStore.getStuguby(stugubyId);
   if (!summary) throw new Error(`Unknown Stuguby: ${stugubyId}`);
   const adoption = stugubyStore.getPropertyAdoption(stugubyId);
@@ -101,12 +101,12 @@ export function getMcpStuguby(args: Record<string, unknown>): object {
 }
 
 export function mcpDateTime(args: Record<string, unknown>, key: string, fallback: Date): string {
-  const value = optionalString(args, key);
+  const value = optionalToolString(args, key);
   return value === undefined ? fallback.toISOString() : mcpIsoDate(value, key);
 }
 
 export function dailyAnalyticsFindings(args: Record<string, unknown>): object {
-  const house = requireMcpHouse(database, requiredString(args, "houseId"));
+  const house = requireMcpHouse(database, requiredToolString(args, "houseId"));
   const dataMode = database.isRealDataMode() ? "live" : "demo";
   const stored = database.dailyAnalyticsFindings(house.id, dataMode);
   const staleAlgorithm = Boolean(
@@ -136,7 +136,7 @@ export function dailyAnalyticsFindings(args: Record<string, unknown>): object {
 }
 
 export async function propertyElectricity(args: Record<string, unknown>): Promise<object> {
-  const propertyId = requiredString(args, "propertyId");
+  const propertyId = requiredToolString(args, "propertyId");
   if (!database.getProperty(propertyId)) throw new Error(`Unknown property: ${propertyId}`);
   const electricity = database.getPropertyElectricityConfig(propertyId);
   if (!electricity) throw new Error(`Property ${propertyId} does not have electricity configuration`);
@@ -158,16 +158,16 @@ export async function propertyElectricity(args: Record<string, unknown>): Promis
 
 export function listPropertyNotes(args: Record<string, unknown>): unknown {
   return database.listPropertyNotes({
-    ...(args.propertyId === undefined ? {} : { propertyId: requiredString(args, "propertyId") }),
-    ...(args.houseId === undefined ? {} : { houseId: requiredString(args, "houseId") }),
-    ...(args.areaId === undefined ? {} : { areaId: requiredString(args, "areaId") }),
-    ...(args.equipmentId === undefined ? {} : { equipmentId: requiredString(args, "equipmentId") }),
+    ...(args.propertyId === undefined ? {} : { propertyId: requiredToolString(args, "propertyId") }),
+    ...(args.houseId === undefined ? {} : { houseId: requiredToolString(args, "houseId") }),
+    ...(args.areaId === undefined ? {} : { areaId: requiredToolString(args, "areaId") }),
+    ...(args.equipmentId === undefined ? {} : { equipmentId: requiredToolString(args, "equipmentId") }),
     limit: mcpBoundedInteger(args.limit, "limit", 200, 1, 500),
   });
 }
 
 export async function houseOpeningStates(args: Record<string, unknown>): Promise<object> {
-  const house = requireMcpHouse(database, requiredString(args, "houseId"));
+  const house = requireMcpHouse(database, requiredToolString(args, "houseId"));
   const at = mcpDateTime(args, "at", new Date());
   const observations = (await telemetryReader.openingStateSnapshot({
     houseId: house.id,
@@ -189,7 +189,7 @@ export async function houseOpeningStates(args: Record<string, unknown>): Promise
     }];
   }));
   if (args.from === undefined) return { snapshot: { houseId: house.id, at, states }, observations };
-  const from = mcpIsoDate(requiredString(args, "from"), "from");
+  const from = mcpIsoDate(requiredToolString(args, "from"), "from");
   const to = mcpDateTime(args, "to", new Date(at));
   const durationMs = Date.parse(to) - Date.parse(from);
   if (durationMs <= 0 || durationMs > 366 * 86_400_000) {
@@ -209,7 +209,7 @@ export async function houseOpeningStates(args: Record<string, unknown>): Promise
 }
 
 export async function openingActivity(args: Record<string, unknown>): Promise<object> {
-  const house = requireMcpHouse(database, requiredString(args, "houseId"));
+  const house = requireMcpHouse(database, requiredToolString(args, "houseId"));
   const to = mcpDateTime(args, "to", new Date());
   const from = mcpDateTime(args, "from", new Date(Date.parse(to) - 24 * 3_600_000));
   const durationMs = Date.parse(to) - Date.parse(from);
@@ -244,7 +244,7 @@ export async function openingActivity(args: Record<string, unknown>): Promise<ob
 }
 
 export async function houseElectricityPrice(args: Record<string, unknown>): Promise<object> {
-  const house = requireMcpHouse(database, requiredString(args, "houseId"));
+  const house = requireMcpHouse(database, requiredToolString(args, "houseId"));
   const toHomePrice = (price: NonNullable<ReturnType<ClimateDatabase["getCurrentPropertyElectricityPrice"]>>) => ({
     startAt: price.startAt,
     endAt: price.endAt,
@@ -270,8 +270,8 @@ export async function houseElectricityPrice(args: Record<string, unknown>): Prom
 }
 
 export async function houseEnergyCost(args: Record<string, unknown>): Promise<unknown> {
-  const house = requireMcpHouse(database, requiredString(args, "houseId"));
-  const sensor = requireMcpHouseSensor(database, house.id, requiredString(args, "sensorId"));
+  const house = requireMcpHouse(database, requiredToolString(args, "houseId"));
+  const sensor = requireMcpHouseSensor(database, house.id, requiredToolString(args, "sensorId"));
   const to = mcpDateTime(args, "to", new Date());
   const from = mcpDateTime(args, "from", new Date(Date.parse(to) - 30 * 86_400_000));
   const durationMs = Date.parse(to) - Date.parse(from);
@@ -288,7 +288,7 @@ export async function houseEnergyCost(args: Record<string, unknown>): Promise<un
 }
 
 export async function houseEnergySummary(args: Record<string, unknown>): Promise<unknown> {
-  const house = requireMcpHouse(database, requiredString(args, "houseId"));
+  const house = requireMcpHouse(database, requiredToolString(args, "houseId"));
   const to = mcpDateTime(args, "to", new Date());
   const from = mcpDateTime(args, "from", new Date(Date.parse(to) - 30 * 86_400_000));
   const durationMs = Date.parse(to) - Date.parse(from);
@@ -305,7 +305,7 @@ export async function houseEnergySummary(args: Record<string, unknown>): Promise
 }
 
 export async function outdoorTemperatureHistory(args: Record<string, unknown>): Promise<object> {
-  const house = requireMcpHouse(database, requiredString(args, "houseId"));
+  const house = requireMcpHouse(database, requiredToolString(args, "houseId"));
   const to = mcpDateTime(args, "to", new Date());
   const from = mcpDateTime(args, "from", new Date(Date.parse(to) - 24 * 3_600_000));
   validateMcpDateRange(from, to);
@@ -326,8 +326,8 @@ export async function thermalIsolation(
   args: Record<string, unknown>,
   signal?: AbortSignal,
 ): Promise<unknown> {
-  const house = requireMcpHouse(database, requiredString(args, "houseId"));
-  const { from, to } = mcpThermalDateRange(optionalString(args, "from"), optionalString(args, "to"));
+  const house = requireMcpHouse(database, requiredToolString(args, "houseId"));
+  const { from, to } = mcpThermalDateRange(optionalToolString(args, "from"), optionalToolString(args, "to"));
   const sensorCandidates = database.listSensors(house.id).filter((sensor) => sensor.enabled);
   const sensorsWithTemperatureHistory = new Set(
     (await telemetryReader.measurementCoverage({
@@ -393,9 +393,9 @@ export function backupStatus(): object {
 }
 
 export function sensorDataGaps(args: Record<string, unknown>): unknown {
-  const houseId = optionalString(args, "houseId");
+  const houseId = optionalToolString(args, "houseId");
   if (houseId) requireMcpHouse(database, houseId);
-  const sensorId = optionalString(args, "sensorId");
+  const sensorId = optionalToolString(args, "sensorId");
   if (sensorId) requireMcpSensor(database, sensorId);
   return database.listSensorDataGaps(
     sensorId,

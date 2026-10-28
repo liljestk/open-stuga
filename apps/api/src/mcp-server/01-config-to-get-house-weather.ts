@@ -119,13 +119,14 @@ export function objectArguments(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
-export function requiredString(args: Record<string, unknown>, key: string): string {
+/** A required, non-blank MCP tool argument, trimmed like the HTTP body fields. */
+export function requiredToolString(args: Record<string, unknown>, key: string): string {
   const value = args[key];
   if (typeof value !== "string" || !value.trim()) throw new Error(`${key} is required`);
-  return value;
+  return value.trim();
 }
 
-export function optionalString(args: Record<string, unknown>, key: string): string | undefined {
+export function optionalToolString(args: Record<string, unknown>, key: string): string | undefined {
   const value = args[key];
   if (value === undefined) return undefined;
   if (typeof value !== "string" || !value.trim()) throw new Error(`${key} must be a non-empty string`);

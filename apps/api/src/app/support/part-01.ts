@@ -1,3 +1,4 @@
+import { isOneOf } from "@climate-twin/contracts";
 import { type Request, type Response } from "express";
 import type {
   HouseLocation,
@@ -243,10 +244,8 @@ export function houseMapPlacementValue(value: unknown, allowNull = false): House
 }
 
 export function enumValue<T extends string>(value: unknown, values: readonly T[], field: string): T {
-  if (typeof value !== "string" || !values.includes(value as T)) {
-    throw new HttpError(400, "INVALID_FIELD", `${field} must be one of: ${values.join(", ")}`);
-  }
-  return value as T;
+  if (!isOneOf(value, values)) throw new HttpError(400, "INVALID_FIELD", `${field} must be one of: ${values.join(", ")}`);
+  return value;
 }
 
 export const PROPERTY_AREA_KINDS = [

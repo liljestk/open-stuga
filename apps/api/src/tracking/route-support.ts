@@ -1,3 +1,4 @@
+import { enumValue } from "../app/support/index.js";
 import { roleIsWorkspacePerson, roleCanManageWorkspace, roleCanAccessNonGuestConfiguration, type TenantMemberRole } from "@climate-twin/contracts";
 import type { Request, Response } from "express";
 import type {
@@ -118,12 +119,6 @@ export function optionalBoolean(body: Record<string, unknown>, field: string): b
   return value;
 }
 
-export function enumValue<T extends string>(value: unknown, allowed: readonly T[], field: string): T {
-  if (typeof value !== "string" || !allowed.includes(value as T)) {
-    throw new TrackingError(400, "INVALID_FIELD", `${field} must be one of: ${allowed.join(", ")}`);
-  }
-  return value as T;
-}
 
 export function coordinate(value: unknown, field: string): GeoCoordinate {
   const body = bodyObject(value, field);
@@ -409,3 +404,6 @@ export function numericLimit(value: unknown, fallback: number, maximum: number):
   }
   return parsed;
 }
+
+// Tracking routes validate enums with the shared helper (same 400 INVALID_FIELD answer).
+export { enumValue };

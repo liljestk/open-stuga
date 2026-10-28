@@ -19,7 +19,7 @@ import {
   forecastMeasurement,
   MOCK_SCENARIOS,
 } from "../services.js";
-import { dataMode, database, energyOptimizer, getHouseWeather, homeAssistant, locationDiscovery, measurementSnapshot, mock, objectArguments, optionalBoolean, optionalString, replay, requiredString, setupDoctor, status, stugubyStore, telemetryReader, timeseries, tpLink } from "./01-config-to-get-house-weather.js";
+import { dataMode, database, energyOptimizer, getHouseWeather, homeAssistant, locationDiscovery, measurementSnapshot, mock, objectArguments, optionalBoolean, optionalToolString, replay, requiredToolString, setupDoctor, status, stugubyStore, telemetryReader, timeseries, tpLink } from "./01-config-to-get-house-weather.js";
 import { queryMeasurementHistory, querySensorHistory, thermalSimulation } from "./02-thermal-simulation-to-create-alert-rule.js";
 import { assetMetadata, discoverIntegrations, homeAssistantConnectionTest, homeAssistantSetup, listMaintenanceTaskRevisions, listMaintenanceTasks, listObservationRevisions, tpLinkConnectionTest, tpLinkSetup } from "./03-update-alert-rule-to-start-replay.js";
 import { summarizeMcpStuguby } from "./04-point-schema-to-summarize-mcp-stuguby.js";
@@ -37,25 +37,25 @@ import { homeMeasurementSummary } from "./home-measurement-summary.js";
 export const allToolHandlers: Record<string, ToolHandler> = {
   list_properties: () => database.listProperties().map(summarizeMcpProperty),
   get_property: (args) => {
-    const propertyId = requiredString(args, "propertyId");
+    const propertyId = requiredToolString(args, "propertyId");
     const property = database.getProperty(propertyId);
     if (!property) throw new Error(`Unknown property: ${propertyId}`);
     return property;
   },
   get_property_electricity: propertyElectricity,
   get_property_energy_optimization: (args) => energyOptimizer.report(
-    requiredString(args, "propertyId"),
+    requiredToolString(args, "propertyId"),
     mcpBoundedInteger(args.windowHours, "windowHours", 2, 1, 12),
   ),
-  list_property_areas: (args) => database.listPropertyAreas(optionalString(args, "propertyId"))
+  list_property_areas: (args) => database.listPropertyAreas(optionalToolString(args, "propertyId"))
     .map(summarizeMcpPropertyArea),
   list_area_equipment: (args) => database.listAreaEquipment({
-    ...(args.propertyId === undefined ? {} : { propertyId: requiredString(args, "propertyId") }),
-    ...(args.areaId === undefined ? {} : { areaId: requiredString(args, "areaId") }),
+    ...(args.propertyId === undefined ? {} : { propertyId: requiredToolString(args, "propertyId") }),
+    ...(args.areaId === undefined ? {} : { areaId: requiredToolString(args, "areaId") }),
   }).map(summarizeMcpAreaEquipment),
   list_property_notes: listPropertyNotes,
-  list_houses: (args) => database.listHouses(args.propertyId === undefined ? undefined : requiredString(args, "propertyId")).map(summarizeMcpHouse),
-  get_house: (args) => requireMcpHouse(database, requiredString(args, "houseId")),
+  list_houses: (args) => database.listHouses(args.propertyId === undefined ? undefined : requiredToolString(args, "propertyId")).map(summarizeMcpHouse),
+  get_house: (args) => requireMcpHouse(database, requiredToolString(args, "houseId")),
   get_daily_analytics_findings: dailyAnalyticsFindings,
   list_stugubys: () => stugubyStore.listStugubys().map(summarizeMcpStuguby),
   get_stuguby: getMcpStuguby,
@@ -69,7 +69,7 @@ export const allToolHandlers: Record<string, ToolHandler> = {
     mcpBoundedNumber(args.longitude, "longitude", -180, 180),
   ),
   get_house_weather: (args) => getHouseWeather(
-    requiredString(args, "houseId"),
+    requiredToolString(args, "houseId"),
     mcpBoundedInteger(args.hours, "hours", 48, 1, 240),
   ),
   get_house_opening_states: houseOpeningStates,
@@ -84,16 +84,16 @@ export const allToolHandlers: Record<string, ToolHandler> = {
   get_home_moisture_response: homeMoistureResponse,
   run_thermal_simulation: thermalSimulation,
   get_house_thermal_isolation: thermalIsolation,
-  list_sensors: (args) => database.listSensors(optionalString(args, "houseId")),
+  list_sensors: (args) => database.listSensors(optionalToolString(args, "houseId")),
   list_measurement_definitions: (args) => database.listMeasurementDefinitions(
     optionalBoolean(args, "includeDisabled", true),
   ),
-  get_measurement_snapshot: (args) => measurementSnapshot(optionalString(args, "houseId")),
+  get_measurement_snapshot: (args) => measurementSnapshot(optionalToolString(args, "houseId")),
   query_measurement_history: queryMeasurementHistory,
   summarize_home_measurements: homeMeasurementSummary,
   forecast_measurement: (args) => {
-    const sensorId = requiredString(args, "sensorId");
-    const metric = requiredString(args, "metric");
+    const sensorId = requiredToolString(args, "sensorId");
+    const metric = requiredToolString(args, "metric");
     requireMcpMeasurementTarget(database, sensorId, metric);
     return forecastMeasurement(
       database,
@@ -104,14 +104,14 @@ export const allToolHandlers: Record<string, ToolHandler> = {
     );
   },
   get_sensor_snapshot: (args) => {
-    const sensorId = requiredString(args, "sensorId");
+    const sensorId = requiredToolString(args, "sensorId");
     const sensor = database.getSensor(sensorId);
     if (!sensor) throw new Error(`Unknown sensor: ${sensorId}`);
     return { ...sensor, reading: database.getLatestReading(sensorId) };
   },
   query_history: querySensorHistory,
   forecast_sensor: (args) => {
-    const sensorId = requiredString(args, "sensorId");
+    const sensorId = requiredToolString(args, "sensorId");
     requireMcpSensor(database, sensorId);
     return forecast(
       database,
@@ -130,24 +130,24 @@ export const allToolHandlers: Record<string, ToolHandler> = {
     mcpBoundedInteger(args.limit, "limit", 200, 1, 500),
   ),
   list_action_playbooks: (args) => database.listActionPlaybooks(
-    optionalString(args, "metric"),
+    optionalToolString(args, "metric"),
     optionalBoolean(args, "enabledOnly", false),
   ),
   list_action_runs: (args) => database.listActionRuns({
-    ...(args.houseId === undefined ? {} : { houseId: requiredString(args, "houseId") }),
-    ...(args.sensorId === undefined ? {} : { sensorId: requiredString(args, "sensorId") }),
-    ...(args.alertEventId === undefined ? {} : { alertEventId: requiredString(args, "alertEventId") }),
+    ...(args.houseId === undefined ? {} : { houseId: requiredToolString(args, "houseId") }),
+    ...(args.sensorId === undefined ? {} : { sensorId: requiredToolString(args, "sensorId") }),
+    ...(args.alertEventId === undefined ? {} : { alertEventId: requiredToolString(args, "alertEventId") }),
     activeOnly: optionalBoolean(args, "activeOnly", false),
     limit: mcpBoundedInteger(args.limit, "limit", 500, 1, 500),
   }),
-  list_observations: (args) => database.listObservations(optionalString(args, "houseId")),
+  list_observations: (args) => database.listObservations(optionalToolString(args, "houseId")),
   list_observation_revisions: listObservationRevisions,
   list_maintenance_tasks: listMaintenanceTasks,
   list_maintenance_task_revisions: listMaintenanceTaskRevisions,
-  list_static_parameters: (args) => database.listParameters(optionalString(args, "houseId")),
-  list_assets: (args) => database.listAssets(optionalString(args, "houseId")),
+  list_static_parameters: (args) => database.listParameters(optionalToolString(args, "houseId")),
+  list_assets: (args) => database.listAssets(optionalToolString(args, "houseId")),
   get_asset_metadata: (args) => {
-    const assetId = requiredString(args, "assetId");
+    const assetId = requiredToolString(args, "assetId");
     const asset = database.getAsset(assetId);
     if (!asset) throw new Error(`Unknown asset: ${assetId}`);
     return assetMetadata(asset);

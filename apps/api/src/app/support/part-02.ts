@@ -241,20 +241,6 @@ export function dateValue(value: unknown, fallback: Date, field: string): string
   return new Date(value).toISOString();
 }
 
-export const OBSERVATION_KINDS = ["leak", "condensation", "mould", "ventilation", "maintenance", "note"] as const;
-
-export const OBSERVATION_SEVERITIES = ["info", "warning", "critical"] as const;
-
-export const OBSERVATION_TIME_PRECISIONS = ["exact", "approximate", "date-only", "date-range", "unknown"] as const;
-
-export const OBSERVATION_SOURCES = [
-  "owner", "caretaker", "contractor", "sensor", "imported-document", "automated-analysis", "unknown",
-] as const;
-
-export const OBSERVATION_CONFIDENCES = ["confirmed", "probable", "uncertain", "awaiting-inspection"] as const;
-
-export const OBSERVATION_STATUSES = ["open", "resolved"] as const;
-
 export const OBSERVATION_CREATE_FIELDS = new Set([
   "id", "houseId", "floorId", "sensorId", "kind", "severity", "note", "x", "y", "occurredAt",
   "timePrecision", "validFrom", "validTo", "source", "sourceDetail", "confidence",

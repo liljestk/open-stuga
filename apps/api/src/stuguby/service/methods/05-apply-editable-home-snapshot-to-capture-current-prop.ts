@@ -1,3 +1,4 @@
+import { peerObservation } from "../../peer-observation.js";
 import type {
   Floor,
   House,
@@ -159,6 +160,8 @@ registerStugubyServiceMethods({
         if (!floorId) throw new Error(`Observation ${item.observationPublicationId} references an unknown floor`);
         const sensorId = item.sensorPublicationId ? localId("sensor", item.sensorPublicationId) : null;
         if (sensorId && !this.database.getSensor(sensorId)) throw new Error(`Observation ${item.observationPublicationId} references an unknown sensor`);
+        const observation = peerObservation(item);
+        if (!observation) throw new Error(`Observation ${item.observationPublicationId} has an unsupported kind, severity, precision, confidence or status`);
         const id = localId("observation", item.observationPublicationId);
         expectedObservations.add(id);
         const existing = this.database.getObservation(id);
@@ -168,18 +171,9 @@ registerStugubyServiceMethods({
             houseId: house.id,
             floorId,
             sensorId,
-            kind: item.kind as never,
-            severity: item.severity as never,
-            note: item.note,
-            x: item.x,
-            y: item.y,
-            occurredAt: item.occurredAt,
-            ...(item.timePrecision ? { timePrecision: item.timePrecision as never } : {}),
-            ...(item.validFrom !== undefined ? { validFrom: item.validFrom } : {}),
-            ...(item.validTo !== undefined ? { validTo: item.validTo } : {}),
+            ...observation.content,
             source: "unknown",
             sourceDetail: `Shared edit from ${command.actorNodeId}`,
-            ...(item.confidence ? { confidence: item.confidence as never } : {}),
           }, "system-service");
           if (item.status === "resolved") {
             this.database.updateObservation(id, {
@@ -193,18 +187,8 @@ registerStugubyServiceMethods({
             baseRevision: existing.revision,
             floorId,
             sensorId,
-            kind: item.kind as never,
-            severity: item.severity as never,
-            note: item.note,
-            x: item.x,
-            y: item.y,
-            occurredAt: item.occurredAt,
-            ...(item.timePrecision ? { timePrecision: item.timePrecision as never } : {}),
-            ...(item.validFrom !== undefined ? { validFrom: item.validFrom } : {}),
-            ...(item.validTo !== undefined ? { validTo: item.validTo } : {}),
-            ...(item.confidence ? { confidence: item.confidence as never } : {}),
-            ...(item.status ? { status: item.status as never } : {}),
-            ...(item.resolutionNote !== undefined ? { resolutionNote: item.resolutionNote } : {}),
+            ...observation.content,
+            ...observation.lifecycle,
           }, "system-service");
         }
       }

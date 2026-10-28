@@ -284,7 +284,7 @@ export function dewPointC(temperatureC: number, relativeHumidityPercent: number)
   return Number.isFinite(result) ? result : null;
 }
 
-export function finiteNumber(value: number | undefined): value is number {
+export function isFiniteNumber(value: number | undefined): value is number {
   return typeof value === "number" && Number.isFinite(value);
 }
 

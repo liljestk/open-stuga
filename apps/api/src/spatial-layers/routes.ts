@@ -1,3 +1,4 @@
+import { enumValue, optionalString, requiredNumber, requiredString } from "../app/support/index.js";
 import { HttpError } from "../http-error.js";
 import { withResponseSignal } from "../app/response-signal.js";
 import { randomUUID } from "node:crypto";
@@ -51,29 +52,10 @@ function objectValue(value: unknown, field: string): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-function requiredString(body: Record<string, unknown>, key: string): string {
-  const value = body[key];
-  if (typeof value !== "string" || !value.trim()) throw new SpatialRouteError(400, "INVALID_FIELD", `${key} must be a non-empty string`);
-  return value.trim();
-}
-
-function optionalString(body: Record<string, unknown>, key: string): string | undefined {
-  const value = body[key];
-  if (value === undefined) return undefined;
-  if (typeof value !== "string") throw new SpatialRouteError(400, "INVALID_FIELD", `${key} must be a string`);
-  return value;
-}
-
 function nullableString(body: Record<string, unknown>, key: string): string | null | undefined {
   const value = body[key];
   if (value === undefined || value === null) return value;
   if (typeof value !== "string") throw new SpatialRouteError(400, "INVALID_FIELD", `${key} must be a string or null`);
-  return value;
-}
-
-function finiteNumber(body: Record<string, unknown>, key: string): number {
-  const value = body[key];
-  if (typeof value !== "number" || !Number.isFinite(value)) throw new SpatialRouteError(400, "INVALID_FIELD", `${key} must be a finite number`);
   return value;
 }
 
@@ -102,12 +84,6 @@ function stringArray(value: unknown, field: string): string[] {
   return [...new Set(value.map((item) => (item as string).trim()))];
 }
 
-function enumValue<T extends string>(value: unknown, allowed: readonly T[], field: string): T {
-  if (typeof value !== "string" || !allowed.includes(value as T)) {
-    throw new SpatialRouteError(400, "INVALID_FIELD", `${field} must be one of: ${allowed.join(", ")}`);
-  }
-  return value as T;
-}
 
 function pathId(request: Request): string {
   const value = request.params.id;
@@ -256,7 +232,7 @@ async function saveConfiguration(
   requireScope(runtime, value);
   const body = bodyObject(request.body);
   rejectUnknownFields(body, new Set(["baseVersion", "config", "assignments"]), "Spatial layer configuration");
-  const baseVersion = finiteNumber(body, "baseVersion");
+  const baseVersion = requiredNumber(body, "baseVersion");
   if (!Number.isInteger(baseVersion) || baseVersion < 0) throw new SpatialRouteError(400, "INVALID_FIELD", "baseVersion must be a non-negative integer");
   const config = objectValue(body.config, "config");
   const pendingAssignments: Array<Pick<SpatialEngineAssignment, "engineId" | "engineVersion" | "enabled" | "layerIds">> = [];
@@ -305,7 +281,7 @@ async function saveConfiguration(
 function vector3(value: unknown): Vector3 {
   const body = objectValue(value, "position");
   rejectUnknownFields(body, new Set(["x", "y", "z"]), "position");
-  return { x: finiteNumber(body, "x"), y: finiteNumber(body, "y"), z: finiteNumber(body, "z") };
+  return { x: requiredNumber(body, "x"), y: requiredNumber(body, "y"), z: requiredNumber(body, "z") };
 }
 
 async function addBinding(
@@ -365,10 +341,10 @@ function calibrationFromBody(
   const sensorId = requiredString(body, "sensorId");
   const sensor = runtime.input.core.getSensor(sensorId);
   if (!sensor || sensor.houseId !== houseId) throw new SpatialRouteError(404, "SENSOR_NOT_FOUND", `Sensor ${sensorId} is not in this house`);
-  const confidence = finiteNumber(body, "confidence");
+  const confidence = requiredNumber(body, "confidence");
   const responseLagSeconds = body.responseLagSeconds === undefined || body.responseLagSeconds === null
     ? undefined
-    : finiteNumber(body, "responseLagSeconds");
+    : requiredNumber(body, "responseLagSeconds");
   if (responseLagSeconds !== undefined && responseLagSeconds < 0) {
     throw new SpatialRouteError(400, "INVALID_FIELD", "responseLagSeconds must not be negative");
   }
@@ -379,7 +355,7 @@ function calibrationFromBody(
     id: optionalString(body, "id") ?? randomUUID(), houseId, sensorId,
     validFrom: isoTimestamp(body.validFrom, "validFrom", now),
     ...(body.validTo === undefined || body.validTo === null ? {} : { validTo: isoTimestamp(body.validTo, "validTo") }),
-    temperatureOffsetC: finiteNumber(body, "temperatureOffsetC"), humidityOffsetPct: finiteNumber(body, "humidityOffsetPct"),
+    temperatureOffsetC: requiredNumber(body, "temperatureOffsetC"), humidityOffsetPct: requiredNumber(body, "humidityOffsetPct"),
     ...(responseLagSeconds === undefined ? {} : { responseLagSeconds }),
     confidence, method: enumValue(body.method, CALIBRATION_METHODS, "method"), createdAt: now,
   };
@@ -402,7 +378,7 @@ function addContext(runtime: LocalSpatialLayerRuntime, houseId: string, request:
     "id", "kind", "startAt", "endAt", "zoneIds", "strength", "source", "payload",
   ]), "Spatial context event");
   const now = new Date().toISOString();
-  const strength = body.strength === undefined ? undefined : finiteNumber(body, "strength");
+  const strength = body.strength === undefined ? undefined : requiredNumber(body, "strength");
   if (strength !== undefined && (strength < 0 || strength > 1)) throw new SpatialRouteError(400, "INVALID_FIELD", "strength must be between 0 and 1");
   const event = runtime.state.addContextEvent(runtime.host.partition, {
     id: optionalString(body, "id") ?? randomUUID(), houseId,

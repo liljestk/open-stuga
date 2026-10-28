@@ -17,8 +17,8 @@ import {
   database,
   config,
   objectArguments,
-  optionalString,
-  requiredString,
+  optionalToolString,
+  requiredToolString,
   status,
   telemetryReader,
 } from "./01-config-to-get-house-weather.js";
@@ -82,7 +82,7 @@ function monitoringContext(evaluatedAt: string) {
 }
 
 export async function homePerformance(args: Record<string, unknown>) {
-  const house = requireMcpHouse(database, requiredString(args, "houseId"));
+  const house = requireMcpHouse(database, requiredToolString(args, "houseId"));
   const evaluatedAt = new Date().toISOString();
   return getHomePerformance({
     house,
@@ -99,7 +99,7 @@ export async function homePerformance(args: Record<string, unknown>) {
 export async function homeMonitoring(args: Record<string, unknown>) {
   const evaluatedAt = new Date().toISOString();
   const context = monitoringContext(evaluatedAt);
-  const houseId = optionalString(args, "houseId");
+  const houseId = optionalToolString(args, "houseId");
   if (houseId) {
     const house = requireMcpHouse(database, houseId);
     const scope = {
@@ -124,17 +124,17 @@ export async function homeMonitoring(args: Record<string, unknown>) {
 }
 
 export async function calendarComparison(args: Record<string, unknown>) {
-  const house = requireMcpHouse(database, requiredString(args, "houseId"));
+  const house = requireMcpHouse(database, requiredToolString(args, "houseId"));
   const sensorIds = stringList(args.sensorIds, "sensorIds", 50);
   const sensors = sensorIds.map((sensorId) => (
     requireMcpHouseSensor(database, house.id, sensorId)
   ));
-  const measurementId = requiredString(args, "measurementId");
+  const measurementId = requiredToolString(args, "measurementId");
   const definition = database.getMeasurementDefinition(measurementId);
   if (!definition || !definition.enabled) {
     throw new Error(`Unknown or disabled measurement: ${measurementId}`);
   }
-  const unit = requiredString(args, "unit");
+  const unit = requiredToolString(args, "unit");
   if (!units.has(unit)) throw new Error("unit must be day, week, month, year, or decade");
   const anchor = objectArguments(args.anchor);
   const aggregation = args.aggregation ?? "default";

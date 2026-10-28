@@ -167,7 +167,7 @@ export function requireNullableString(value: unknown, name: string): string | nu
   return value as string;
 }
 
-export function optionalString(object: Record<string, unknown>, key: string): void {
+export function assertOptionalString(object: Record<string, unknown>, key: string): void {
   if (object[key] !== undefined && typeof object[key] !== "string") fail(`${key} must be a string when supplied`);
 }
 
@@ -326,7 +326,7 @@ export function validateSharedProperty(value: unknown): StugubySharedProperty {
   if (value.location !== null) {
     coordinate(value.location, "location");
     onlyKeys(value.location as Record<string, unknown>, ["latitude", "longitude", "label"], "location");
-    optionalString(value.location as Record<string, unknown>, "label");
+    assertOptionalString(value.location as Record<string, unknown>, "label");
   }
   for (const key of ["areas", "equipment", "notes", "maintenance"] as const) {
     requireArray(value[key], key, 10_000);

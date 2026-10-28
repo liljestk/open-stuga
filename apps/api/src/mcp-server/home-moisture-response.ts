@@ -9,8 +9,8 @@ import {
 import {
   config,
   database,
-  optionalString,
-  requiredString,
+  optionalToolString,
+  requiredToolString,
   telemetryReader,
 } from "./01-config-to-get-house-weather.js";
 import {
@@ -22,10 +22,10 @@ import {
 export async function homeMoistureResponse(
   args: Record<string, unknown>,
 ): Promise<unknown> {
-  const house = requireMcpHouse(database, requiredString(args, "houseId"));
+  const house = requireMcpHouse(database, requiredToolString(args, "houseId"));
   const { from, to } = mcpThermalDateRange(
-    optionalString(args, "from"),
-    optionalString(args, "to"),
+    optionalToolString(args, "from"),
+    optionalToolString(args, "to"),
   );
   const candidates = database.listSensors(house.id).filter((sensor) => sensor.enabled);
   const coverage = (await telemetryReader.measurementCoverage({

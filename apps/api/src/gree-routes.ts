@@ -75,7 +75,7 @@ function equipmentName(
   return genericName ?? ([device.brand, device.model].filter(Boolean).join(" ") || "Air-source heat pump");
 }
 
-function finite(value: unknown, name: string): number {
+function requireFiniteNumber(value: unknown, name: string): number {
   if (typeof value !== "number" || !Number.isFinite(value)) {
     throw new HttpError(400, "INVALID_FIELD", `${name} must be a finite number`);
   }
@@ -105,10 +105,10 @@ function heatPumpPlacement(
   if (!floor) throw new HttpError(422, "GREE_FLOOR_NOT_FOUND", "The selected floor does not belong to this Home");
   const room = roomId ? floor.rooms.find((candidate) => candidate.id === roomId) : null;
   if (roomId && !room) throw new HttpError(422, "GREE_ROOM_NOT_FOUND", "The selected room does not belong to this floor");
-  const x = body.x === undefined ? floor.width / 2 : finite(body.x, "x");
-  const y = body.y === undefined ? floor.height / 2 : finite(body.y, "y");
+  const x = body.x === undefined ? floor.width / 2 : requireFiniteNumber(body.x, "x");
+  const y = body.y === undefined ? floor.height / 2 : requireFiniteNumber(body.y, "y");
   const defaultHeight = Math.max(1.8, (floor.ceilingHeight ?? 2.4) - .35);
-  const z = body.z === undefined ? floor.elevation + defaultHeight : finite(body.z, "z");
+  const z = body.z === undefined ? floor.elevation + defaultHeight : requireFiniteNumber(body.z, "z");
   if (x < 0 || x > floor.width || y < 0 || y > floor.height) {
     throw new HttpError(422, "GREE_PLACEMENT_OUT_OF_BOUNDS", "The heat pump must be inside the selected floor");
   }

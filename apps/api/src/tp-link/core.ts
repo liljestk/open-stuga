@@ -9,7 +9,7 @@ import type { ClimateDatabase } from "../db.js";
 import type { SensorHistoryRecoveryResult, SensorMetricAvailability } from "../sensor-gap-recovery.js";
 import { MeasurementService, TelemetryService } from "../services.js";
 import { compareCodeUnits } from "../text-order.js";
-import { CachedTpLinkDevice, CLIMATE_UNCHANGED_HEARTBEAT_MS, finiteNumber, importTpLinkMappingFile, ipv4Octets, isTpLinkHubModel, LastIngestedDevice, LastIngestedMeasurement, LastIngestedOpeningState, nonEmptyString, normalizeTpLinkTemperature, PendingTpLinkHistoryRequest, REDUNDANT_SOURCE_HANDOVER_MIN_MS, safeTpLinkHistoryFailure, STATE_UNCHANGED_HEARTBEAT_MS, STATUS_UNCHANGED_HEARTBEAT_MS, TapoOpeningTarget, TpLinkConnectionUpdate, TpLinkContactEventsMessage, TpLinkCredentialTestResult, tpLinkDeviceType, tpLinkDiscoveryTargets, TpLinkHelperMessage, TpLinkHistoryResultMessage, TpLinkHostChangeMessage, TpLinkSnapshotDevice, TpLinkSnapshotMessage, TpLinkSourceDiscoveryResult, TpLinkStatusHost, validateTpLinkDeviceMappings } from "./support/01-tp-link-local-climate-history-capability-revision-to.js";
+import { CachedTpLinkDevice, CLIMATE_UNCHANGED_HEARTBEAT_MS, finiteOrNull, importTpLinkMappingFile, ipv4Octets, isTpLinkHubModel, LastIngestedDevice, LastIngestedMeasurement, LastIngestedOpeningState, nonEmptyString, normalizeTpLinkTemperature, PendingTpLinkHistoryRequest, REDUNDANT_SOURCE_HANDOVER_MIN_MS, safeTpLinkHistoryFailure, STATE_UNCHANGED_HEARTBEAT_MS, STATUS_UNCHANGED_HEARTBEAT_MS, TapoOpeningTarget, TpLinkConnectionUpdate, TpLinkContactEventsMessage, TpLinkCredentialTestResult, tpLinkDeviceType, tpLinkDiscoveryTargets, TpLinkHelperMessage, TpLinkHistoryResultMessage, TpLinkHostChangeMessage, TpLinkSnapshotDevice, TpLinkSnapshotMessage, TpLinkSourceDiscoveryResult, TpLinkStatusHost, validateTpLinkDeviceMappings } from "./support/01-tp-link-local-climate-history-capability-revision-to.js";
 
 interface SnapshotClock {
   timestamp: string;
@@ -25,18 +25,18 @@ function exposesDeviceMetric(device: CachedTpLinkDevice | undefined, metric: str
 }
 
 function cachedSnapshotDevice(rawDevice: TpLinkSnapshotDevice, deviceId: string, timestamp: string): CachedTpLinkDevice {
-  const rawTemperature = finiteNumber(rawDevice.temperature);
+  const rawTemperature = finiteOrNull(rawDevice.temperature);
   return {
     deviceId,
     model: nonEmptyString(rawDevice.model) ?? "Unknown",
     alias: nonEmptyString(rawDevice.alias),
     status: nonEmptyString(rawDevice.status),
     temperature: rawTemperature === null ? null : normalizeTpLinkTemperature(rawTemperature, nonEmptyString(rawDevice.temperatureUnit)),
-    humidity: finiteNumber(rawDevice.humidity),
-    battery: finiteNumber(rawDevice.battery),
+    humidity: finiteOrNull(rawDevice.humidity),
+    battery: finiteOrNull(rawDevice.battery),
     contactOpen: typeof rawDevice.contactOpen === "boolean" ? rawDevice.contactOpen : null,
-    power: finiteNumber(rawDevice.power),
-    energy: finiteNumber(rawDevice.energy),
+    power: finiteOrNull(rawDevice.power),
+    energy: finiteOrNull(rawDevice.energy),
     lastSeenAt: timestamp,
   };
 }
@@ -954,7 +954,7 @@ export class TpLinkConnectionBridgeCore {
       const deviceId = nonEmptyString(rawEvent?.deviceId);
       const eventId = nonEmptyString(rawEvent?.eventId);
       const observedAtMs = Date.parse(rawEvent?.timestamp);
-      const sequence = finiteNumber(rawEvent?.sequence);
+      const sequence = finiteOrNull(rawEvent?.sequence);
       if (!deviceId || deviceId.length > 255 || !eventId || eventId.length > 512
         || (rawEvent?.state !== "open" && rawEvent?.state !== "closed")
         || !Number.isFinite(observedAtMs) || observedAtMs <= 0 || observedAtMs > latestAllowedMs) return [];

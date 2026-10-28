@@ -1,7 +1,7 @@
 import { minimum } from "@climate-twin/analytics-kernel";
 import type { AlertRule, HomeInsightEvidence, HomePulseCoverage, HomePulseSensorCoverage, MeasurementSample, Metric, OutdoorConditions, Sensor, WeatherWarning } from "@climate-twin/contracts";
 import { isHomeRelevantWeatherWarning } from "@climate-twin/contracts";
-import { AGING_MS, EngineContext, FUTURE_TOLERANCE_MS, HOME_INSIGHT_THRESHOLDS, InsightCandidate, MINUTE_MS, OutdoorGuidance, TREND_MS, WindowEvidence, clampPriority, compareSamples, confidence, confidenceForTrend, coverageStateForSensor, dewPointC, finiteNumber, freshnessForSample, freshnessForTimestamp, isFreshUsable, metricPair, newestMetricSample, numericEvidence, preferredSample, round, targetFor, targetLabel, unknownFreshness, validSample } from "./model.js";
+import { AGING_MS, EngineContext, FUTURE_TOLERANCE_MS, HOME_INSIGHT_THRESHOLDS, InsightCandidate, MINUTE_MS, OutdoorGuidance, TREND_MS, WindowEvidence, clampPriority, compareSamples, confidence, confidenceForTrend, coverageStateForSensor, dewPointC, isFiniteNumber, freshnessForSample, freshnessForTimestamp, isFreshUsable, metricPair, newestMetricSample, numericEvidence, preferredSample, round, targetFor, targetLabel, unknownFreshness, validSample } from "./model.js";
 import { compareCodeUnits } from "../../text-order.js";
 
 export function co2Insight(context: EngineContext, coveredPairs: ReadonlySet<string>): InsightCandidate[] {
@@ -75,7 +75,7 @@ export function temperatureInsight(context: EngineContext, coveredPairs: Readonl
   const evidence: HomeInsightEvidence[] = [
     numericEvidence("Latest temperature", round(sample.value, 1), "\u00b0C", "temperature", sensor.id, sample.timestamp),
   ];
-  if (outdoor && finiteNumber(outdoor.temperatureC)) {
+  if (outdoor && isFiniteNumber(outdoor.temperatureC)) {
     evidence.push(numericEvidence("Outdoor temperature", round(outdoor.temperatureC, 1), "\u00b0C", "temperature", undefined, outdoor.timestamp));
   }
 
@@ -266,9 +266,9 @@ export function humidityGuidance(context: EngineContext, sensor: Sensor, humidit
     ? dewPointC(indoorTemperature.value, humidity)
     : null;
   const outdoorDewPoint = outdoor
-    ? finiteNumber(outdoor.dewPointC)
+    ? isFiniteNumber(outdoor.dewPointC)
       ? outdoor.dewPointC
-      : finiteNumber(outdoor.temperatureC) && finiteNumber(outdoor.relativeHumidityPercent)
+      : isFiniteNumber(outdoor.temperatureC) && isFiniteNumber(outdoor.relativeHumidityPercent)
         ? dewPointC(outdoor.temperatureC, outdoor.relativeHumidityPercent)
         : null
     : null;
@@ -309,10 +309,10 @@ export function ventilationGuidance(context: EngineContext): OutdoorGuidance {
   const outdoor = usableOutdoorConditions(context);
   const unsafeReason = unsafeAiringReason(context);
   const evidence: HomeInsightEvidence[] = [];
-  if (outdoor && finiteNumber(outdoor.temperatureC)) {
+  if (outdoor && isFiniteNumber(outdoor.temperatureC)) {
     evidence.push(numericEvidence("Outdoor temperature", round(outdoor.temperatureC, 1), "\u00b0C", "temperature", undefined, outdoor.timestamp));
   }
-  if (outdoor && finiteNumber(outdoor.windSpeedMps)) {
+  if (outdoor && isFiniteNumber(outdoor.windSpeedMps)) {
     evidence.push(numericEvidence("Outdoor wind", round(outdoor.windSpeedMps, 1), "m/s", undefined, undefined, outdoor.timestamp));
   }
   if (unsafeReason) {
@@ -341,14 +341,14 @@ export function unsafeAiringReason(context: EngineContext): string | null {
   if (warning) return `An active ${warning.severity} weather warning may make airing unsafe`;
   const outdoor = usableOutdoorConditions(context);
   if (!outdoor) return null;
-  if ((finiteNumber(outdoor.windGustMps) && outdoor.windGustMps >= 18)
-    || (finiteNumber(outdoor.windSpeedMps) && outdoor.windSpeedMps >= 12)) {
+  if ((isFiniteNumber(outdoor.windGustMps) && outdoor.windGustMps >= 18)
+    || (isFiniteNumber(outdoor.windSpeedMps) && outdoor.windSpeedMps >= 12)) {
     return "Strong wind may make airing unsafe";
   }
-  if (finiteNumber(outdoor.temperatureC) && (outdoor.temperatureC <= -10 || outdoor.temperatureC >= 30)) {
+  if (isFiniteNumber(outdoor.temperatureC) && (outdoor.temperatureC <= -10 || outdoor.temperatureC >= 30)) {
     return "Extreme outdoor temperature makes prolonged airing inefficient or unsafe";
   }
-  if (finiteNumber(outdoor.precipitationIntensityMmPerHour) && outdoor.precipitationIntensityMmPerHour >= 3) {
+  if (isFiniteNumber(outdoor.precipitationIntensityMmPerHour) && outdoor.precipitationIntensityMmPerHour >= 3) {
     return "Heavy precipitation may make airing impractical";
   }
   return null;

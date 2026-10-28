@@ -1,3 +1,4 @@
+import { peerObservation } from "../../peer-observation.js";
 import type { Floor, StugubyHomeProjection } from "@climate-twin/contracts";
 import {
   type StugubyDataset,
@@ -297,6 +298,8 @@ registerStugubyServiceMethods({
             ? this.store.projectionId(stugubyId, authorityNodeId, "sensor", item.sensorPublicationId)
             : null;
           if (sensorId && !this.database.getSensor(sensorId)) continue;
+          const observation = peerObservation(item);
+          if (!observation) continue;
           const id = this.store.projectionId(stugubyId, authorityNodeId, "observation", item.observationPublicationId);
           expectedObservationIds.add(id);
           const existing = this.database.getObservation(id);
@@ -306,36 +309,17 @@ registerStugubyServiceMethods({
               houseId: house.id,
               floorId,
               sensorId,
-              kind: item.kind as never,
-              severity: item.severity as never,
-              note: item.note,
-              x: item.x,
-              y: item.y,
-              occurredAt: item.occurredAt,
-              ...(item.timePrecision ? { timePrecision: item.timePrecision as never } : {}),
-              ...(item.validFrom !== undefined ? { validFrom: item.validFrom } : {}),
-              ...(item.validTo !== undefined ? { validTo: item.validTo } : {}),
+              ...observation.content,
               source: "unknown",
               sourceDetail: "Stuguby shared history",
-              ...(item.confidence ? { confidence: item.confidence as never } : {}),
             }, "system-service");
           } else {
             this.database.updateObservation(id, {
               baseRevision: existing.revision,
               floorId,
               sensorId,
-              kind: item.kind as never,
-              severity: item.severity as never,
-              note: item.note,
-              x: item.x,
-              y: item.y,
-              occurredAt: item.occurredAt,
-              ...(item.timePrecision ? { timePrecision: item.timePrecision as never } : {}),
-              ...(item.validFrom !== undefined ? { validFrom: item.validFrom } : {}),
-              ...(item.validTo !== undefined ? { validTo: item.validTo } : {}),
-              ...(item.confidence ? { confidence: item.confidence as never } : {}),
-              ...(item.status ? { status: item.status as never } : {}),
-              ...(item.resolutionNote !== undefined ? { resolutionNote: item.resolutionNote } : {}),
+              ...observation.content,
+              ...observation.lifecycle,
             }, "system-service");
           }
         }

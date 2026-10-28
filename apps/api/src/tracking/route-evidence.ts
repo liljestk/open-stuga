@@ -31,7 +31,7 @@ function integer(
   return value as number;
 }
 
-function finite(
+function boundedNumberField(
   body: Record<string, unknown>,
   field: string,
   minimum: number,
@@ -58,7 +58,7 @@ function observerPosition(value: unknown): TrackingObserverPosition | undefined 
   );
   return {
     ...point,
-    horizontalAccuracyMeters: finite(body, "horizontalAccuracyMeters", 0, 10_000)!,
+    horizontalAccuracyMeters: boundedNumberField(body, "horizontalAccuracyMeters", 0, 10_000)!,
     source: enumValue(body.source, ["gps", "fused", "network", "fixed", "manual"] as const, "source"),
     capturedAt: requiredString(body, "capturedAt", 100),
     ...(body.reducedAccuracy === undefined ? {} : { reducedAccuracy: optionalBoolean(body, "reducedAccuracy")! }),
@@ -121,8 +121,8 @@ function rollup(value: unknown): TrackingGatewayRollupInput {
   const packetCount = integer(body, "packetCount", 1, 1_000_000)!;
   const rssiMinimum = integer(body, "rssiMinimum", -127, 20)!;
   const rssiMaximum = integer(body, "rssiMaximum", -127, 20)!;
-  const rssiMean = finite(body, "rssiMean", -127, 20)!;
-  const rssiVariance = finite(body, "rssiVariance", 0, 20_000)!;
+  const rssiMean = boundedNumberField(body, "rssiMean", -127, 20)!;
+  const rssiVariance = boundedNumberField(body, "rssiVariance", 0, 20_000)!;
   if (rssiMinimum > rssiMean || rssiMean > rssiMaximum) {
     throw new TrackingError(400, "INVALID_EVIDENCE", "Rollup RSSI statistics are inconsistent");
   }

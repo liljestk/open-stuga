@@ -36,7 +36,7 @@ interface OpenMeteoResponse {
   hourly?: OpenMeteoValues;
 }
 
-function finite(value: unknown): number | undefined {
+function finiteOrUndefined(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
@@ -48,7 +48,7 @@ function utcTimestamp(value: unknown): string | null {
 }
 
 function setNumber(target: OutdoorConditions, key: keyof OutdoorConditions, value: unknown, scale = 1): void {
-  const parsed = finite(value);
+  const parsed = finiteOrUndefined(value);
   if (parsed !== undefined) (target as unknown as Record<string, unknown>)[key] = parsed * scale;
 }
 

@@ -8,7 +8,7 @@ import {
 } from "@climate-twin/contracts";
 import type { OutdoorBoundaryContext, PlanEdge } from "../outdoorContext";
 import { effectivePlanElementHeight, planElementBottomOffset } from "../planElementGeometry";
-import { AirflowEvidence, BuildGridInput, ClimateAnchor, FIELD_EPSILON, GRAVITY_MPS2, MIN_TEMPERATURE_ANCHORS, NormalizedPoint3D, PRESSURE_ITERATIONS, STEADY_STEPS, SolverGrid, Velocity3D, anchorsForFloor, ceilingHeight, clamp, effectiveGridInput, faceOpen, finite, freshSample, gridDimensions, index, lineOfSightPenalty, openingIsActive, rasterizeFluid, rasterizeWalls, supportLevel, virtualTemperatureK, AirflowPath3D, AirflowPoint3D, elementWidth, pointInPolygon } from "./01-climate-sample-matrix-to-line-of-sight-penalty";
+import { AirflowEvidence, BuildGridInput, ClimateAnchor, FIELD_EPSILON, GRAVITY_MPS2, MIN_TEMPERATURE_ANCHORS, NormalizedPoint3D, PRESSURE_ITERATIONS, STEADY_STEPS, SolverGrid, Velocity3D, anchorsForFloor, ceilingHeight, clamp, effectiveGridInput, faceOpen, isFiniteNumber, freshSample, gridDimensions, index, lineOfSightPenalty, openingIsActive, rasterizeFluid, rasterizeWalls, supportLevel, virtualTemperatureK, AirflowPath3D, AirflowPoint3D, elementWidth, pointInPolygon } from "./01-climate-sample-matrix-to-line-of-sight-penalty";
 
 export function interpolateScalars(grid: SolverGrid, anchors: ClimateAnchor[]): void {
   const tracerAnchors = anchors.filter((anchor) => anchor.co2 !== null);
@@ -91,7 +91,7 @@ export function boundaryDistance(point: Point, edge: PlanEdge, floor: Floor): nu
 
 export function windwardWindows(floor: Floor, outdoor?: OutdoorBoundaryContext | null): Array<Extract<PlanElement, { kind: "window" }>> {
   const edge = outdoor?.windwardEdge;
-  if (!edge || outdoor.stale || !outdoor.inwardVector || !finite(outdoor.conditions.windSpeedMps)) return [];
+  if (!edge || outdoor.stale || !outdoor.inwardVector || !isFiniteNumber(outdoor.conditions.windSpeedMps)) return [];
   return (floor.planElements ?? []).filter((element) => element.kind === "window"
     && openingIsActive(element) && boundaryDistance(element.position, edge, floor) <= .15) as Array<Extract<PlanElement, { kind: "window" }>>;
 }
@@ -286,7 +286,7 @@ export function emptyEvidence(rawInput: BuildGridInput, suppliedAnchors?: Climat
     windowOpenings: airflowElements.filter((element) => element.kind === "window" && openingIsActive(element)).length,
     ventOpenings: airflowElements.filter((element) => element.kind === "vent" && openingIsActive(element)).length,
     counterflowOpenings: 0,
-    pressureAssumed: !finite(input.outdoor?.conditions.pressureHpa),
+    pressureAssumed: !isFiniteNumber(input.outdoor?.conditions.pressureHpa),
     support: "low",
     divergenceRms: 0,
   };

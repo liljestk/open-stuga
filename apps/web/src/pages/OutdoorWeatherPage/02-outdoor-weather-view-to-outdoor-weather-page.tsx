@@ -30,7 +30,7 @@ import {
 import { useI18n } from "../../i18n";
 import { useHouseWeather } from "../../useHouseWeather";
 import "../OutdoorWeatherPage.css";
-import { OutdoorWeatherViewProps, WarningCoverageArea, WeatherIssueDetails, backfillLabelKeys, decimal, finite, outageComponentLabel, pressure, recoveryFromError, stationDistance, summarizeOutdoorForecast, translateCopy, unavailableLabel, visibility } from "./01-outdoor-page-copy-to-outdoor-weather-view-props";
+import { OutdoorWeatherViewProps, WarningCoverageArea, WeatherIssueDetails, backfillLabelKeys, decimal, isFiniteNumber, outageComponentLabel, pressure, recoveryFromError, stationDistance, summarizeOutdoorForecast, translateCopy, unavailableLabel, visibility } from "./01-outdoor-page-copy-to-outdoor-weather-view-props";
 
 function forecastDisclosureRequested(): boolean {
   if (typeof window === "undefined") return false;
@@ -94,11 +94,11 @@ export function OutdoorWeatherView({
     { label: t("weather.dewPoint"), value: formatWeatherTemperature(current.dewPointC, units, locale) },
     { label: t("weather.pressure"), value: pressure(current.pressureHpa, units, locale) },
     { label: t("weather.gust"), value: formatWeatherWind(current.windGustMps, units, locale) },
-    { label: t("weather.windDirection"), value: finite(current.windDirectionDegrees) ? `${decimal(current.windDirectionDegrees, locale, 0)}°` : "—" },
+    { label: t("weather.windDirection"), value: isFiniteNumber(current.windDirectionDegrees) ? `${decimal(current.windDirectionDegrees, locale, 0)}°` : "—" },
     { label: t("weather.cloudCover"), value: formatWeatherPercent(current.cloudCoverPercent, locale) },
     { label: t("weather.visibility"), value: visibility(current.visibilityMeters, units, locale) },
     { label: t("weather.precipitationProbability"), value: formatWeatherPercent(current.precipitationProbabilityPercent, locale) },
-    { label: t("weather.weatherSymbol"), value: finite(current.weatherSymbolCode ?? current.presentWeatherCode) ? decimal((current.weatherSymbolCode ?? current.presentWeatherCode) as number, locale, 0) : "—" },
+    { label: t("weather.weatherSymbol"), value: isFiniteNumber(current.weatherSymbolCode ?? current.presentWeatherCode) ? decimal((current.weatherSymbolCode ?? current.presentWeatherCode) as number, locale, 0) : "—" },
   ] : [];
 
   return (

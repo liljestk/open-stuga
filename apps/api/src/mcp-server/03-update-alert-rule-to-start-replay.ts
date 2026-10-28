@@ -2,19 +2,19 @@ import type {
   MaintenanceTask,
 } from "@climate-twin/contracts";
 import { discoverHomeAssistant } from "../discovery.js";
-import { database, optionalString, requiredString, status, tpLink } from "./01-config-to-get-house-weather.js";
+import { database, optionalToolString, requiredToolString, status, tpLink } from "./01-config-to-get-house-weather.js";
 
 export function listObservationRevisions(args: Record<string, unknown>): unknown[] {
-  const observationId = requiredString(args, "observationId");
+  const observationId = requiredToolString(args, "observationId");
   if (!database.getObservation(observationId)) throw new Error(`Unknown observation: ${observationId}`);
   return database.listObservationRevisions(observationId);
 }
 
 export function listMaintenanceTasks(args: Record<string, unknown>): MaintenanceTask[] {
-  const propertyId = optionalString(args, "propertyId");
-  const houseId = optionalString(args, "houseId");
-  const areaId = optionalString(args, "areaId");
-  const equipmentId = optionalString(args, "equipmentId");
+  const propertyId = optionalToolString(args, "propertyId");
+  const houseId = optionalToolString(args, "houseId");
+  const areaId = optionalToolString(args, "areaId");
+  const equipmentId = optionalToolString(args, "equipmentId");
   return database.listMaintenanceTasks({
     ...(propertyId ? { propertyId } : {}),
     ...(houseId ? { houseId } : {}),
@@ -24,7 +24,7 @@ export function listMaintenanceTasks(args: Record<string, unknown>): Maintenance
 }
 
 export function listMaintenanceTaskRevisions(args: Record<string, unknown>): unknown[] {
-  const maintenanceTaskId = requiredString(args, "maintenanceTaskId");
+  const maintenanceTaskId = requiredToolString(args, "maintenanceTaskId");
   if (!database.getMaintenanceTask(maintenanceTaskId)) {
     throw new Error(`Unknown maintenance task: ${maintenanceTaskId}`);
   }

@@ -22,7 +22,7 @@ function string(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-function finite(value: unknown): number | null {
+function finiteOrNull(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
@@ -38,15 +38,15 @@ export function isIanaTimezone(value: string): boolean {
 
 function normalizedPlace(value: OpenMeteoPlace): DiscoveredLocation | null {
   const name = string(value.name);
-  const latitude = finite(value.latitude);
-  const longitude = finite(value.longitude);
+  const latitude = finiteOrNull(value.latitude);
+  const longitude = finiteOrNull(value.longitude);
   const timezone = string(value.timezone);
   if (!name || latitude === null || longitude === null || !timezone || !isIanaTimezone(timezone)) return null;
   if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) return null;
   const country = string(value.country);
   const region = string(value.admin1);
   const parts = [name, region, country].filter((part, index, all): part is string => Boolean(part) && all.indexOf(part) === index);
-  const population = finite(value.population) ?? 0;
+  const population = finiteOrNull(value.population) ?? 0;
   return {
     id: String(value.id ?? `${latitude},${longitude}`),
     name,

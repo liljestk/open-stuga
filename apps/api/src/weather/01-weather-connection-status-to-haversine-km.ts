@@ -177,7 +177,7 @@ export function asArray<T>(value: T | T[] | undefined): T[] {
   return Array.isArray(value) ? value : [value];
 }
 
-export function finiteNumber(value: unknown): number | null {
+export function xmlNumber(value: unknown): number | null {
   const text = xmlText(value);
   if (text === null || text === "") return null;
   const parsed = Number(text);
@@ -260,7 +260,7 @@ export function parseFmiTimeSeries(xml: string): FmiTimeSeries[] {
     for (const pointValue of asArray(timeseries?.point)) {
       const tvp = nestedObject(xmlObject(pointValue), "MeasurementTVP");
       const timestamp = xmlText(tvp?.time);
-      const value = finiteNumber(tvp?.value);
+      const value = xmlNumber(tvp?.value);
       if (timestamp && Number.isFinite(Date.parse(timestamp)) && value !== null) values.push({ timestamp, value });
     }
     const resultTime = xmlText(nestedObject(observation, "resultTime", "TimeInstant")?.timePosition);

@@ -70,7 +70,7 @@ interface MeasurementAnalyticsRow extends QueryResultRow {
   counter_reset_count: string | number | null;
 }
 
-function finiteNumber(value: string | number | null, fallback = 0): number {
+function numberOrDefault(value: string | number | null, fallback = 0): number {
   const result = Number(value);
   return Number.isFinite(result) ? result : fallback;
 }
@@ -146,21 +146,21 @@ async function executeRollup(
     const record = bySeries.get(JSON.stringify([row.sensor_id, row.metric]));
     if (!record) continue;
     record.canonicalUnit = row.canonical_unit ?? "";
-    record.sampleCount = finiteNumber(row.included_sample_count);
-    record.excludedSampleCount = finiteNumber(row.excluded_sample_count);
-    record.cadenceSeconds = Math.max(1, finiteNumber(row.cadence_seconds, 60));
+    record.sampleCount = numberOrDefault(row.included_sample_count);
+    record.excludedSampleCount = numberOrDefault(row.excluded_sample_count);
+    record.cadenceSeconds = Math.max(1, numberOrDefault(row.cadence_seconds, 60));
     if (row.bucket_start === null) continue;
     if ((row.minimum === null || row.maximum === null) && row.consumption_kwh === undefined) continue;
     record.buckets.push({
       bucketStart: timestamp(row.bucket_start),
-      value: row.rollup_value === null ? null : finiteNumber(row.rollup_value),
+      value: row.rollup_value === null ? null : numberOrDefault(row.rollup_value),
       ...(row.consumption_kwh !== undefined ? { consumptionKwh: row.consumption_kwh } : {}),
-      minimum: row.minimum === null ? null : finiteNumber(row.minimum),
-      maximum: row.maximum === null ? null : finiteNumber(row.maximum),
-      sampleCount: finiteNumber(row.bucket_sample_count),
-      estimatedSampleCount: finiteNumber(row.estimated_sample_count),
-      staleSampleCount: finiteNumber(row.stale_sample_count),
-      counterResetCount: finiteNumber(row.counter_reset_count),
+      minimum: row.minimum === null ? null : numberOrDefault(row.minimum),
+      maximum: row.maximum === null ? null : numberOrDefault(row.maximum),
+      sampleCount: numberOrDefault(row.bucket_sample_count),
+      estimatedSampleCount: numberOrDefault(row.estimated_sample_count),
+      staleSampleCount: numberOrDefault(row.stale_sample_count),
+      counterResetCount: numberOrDefault(row.counter_reset_count),
     });
   }
   return [...bySeries.values()];

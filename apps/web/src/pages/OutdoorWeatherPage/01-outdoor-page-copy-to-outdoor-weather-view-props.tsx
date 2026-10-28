@@ -153,7 +153,7 @@ export function translateCopy(t: Translate): OutdoorPageCopy {
   ) as unknown as OutdoorPageCopy;
 }
 
-export function finite(value: number | undefined): value is number {
+export function isFiniteNumber(value: number | undefined): value is number {
   return typeof value === "number" && Number.isFinite(value);
 }
 
@@ -162,14 +162,14 @@ export function decimal(value: number, locale: string, maximumFractionDigits = 1
 }
 
 export function pressure(value: number | undefined, units: UnitSystem, locale: string): string {
-  if (!finite(value)) return "—";
+  if (!isFiniteNumber(value)) return "—";
   return units === "imperial"
     ? `${decimal(value * 0.029529983, locale, 2)} inHg`
     : `${decimal(value, locale)} hPa`;
 }
 
 export function visibility(value: number | undefined, units: UnitSystem, locale: string): string {
-  if (!finite(value)) return "—";
+  if (!isFiniteNumber(value)) return "—";
   return units === "imperial"
     ? `${decimal(value / 1609.344, locale)} mi`
     : `${decimal(value / 1000, locale)} km`;
@@ -190,17 +190,17 @@ export interface OutdoorForecastSummary {
 }
 
 export function summarizeOutdoorForecast(points: readonly OutdoorConditions[]): OutdoorForecastSummary {
-  const temperatures = points.flatMap((point) => finite(point.temperatureC) ? [point.temperatureC] : []);
-  const precipitation = points.flatMap((point) => finite(point.precipitation1hMm)
+  const temperatures = points.flatMap((point) => isFiniteNumber(point.temperatureC) ? [point.temperatureC] : []);
+  const precipitation = points.flatMap((point) => isFiniteNumber(point.precipitation1hMm)
     ? [point.precipitation1hMm]
-    : finite(point.precipitationIntensityMmPerHour) ? [point.precipitationIntensityMmPerHour] : []);
+    : isFiniteNumber(point.precipitationIntensityMmPerHour) ? [point.precipitationIntensityMmPerHour] : []);
   const wind = points.flatMap((point) => [
     point.windSpeedMps,
     point.windGustMps,
     point.maximumWindSpeedMps,
     point.maximumWindGustMps,
-  ].filter(finite));
-  const probabilities = points.flatMap((point) => finite(point.precipitationProbabilityPercent)
+  ].filter(isFiniteNumber));
+  const probabilities = points.flatMap((point) => isFiniteNumber(point.precipitationProbabilityPercent)
     ? [point.precipitationProbabilityPercent]
     : []);
   return {

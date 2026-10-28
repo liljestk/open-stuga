@@ -16,7 +16,7 @@ import {
   validateMcpDateRange,
 } from "../mcp-validation.js";
 import { runThermalSimulationAsync } from "../thermal-simulation.js";
-import { config, database, optionalString, requiredString, telemetryReader } from "./01-config-to-get-house-weather.js";
+import { config, database, optionalToolString, requiredToolString, telemetryReader } from "./01-config-to-get-house-weather.js";
 import { runMcpThermalWork } from "./thermal-work.js";
 import {
   configuredHeatPumpConnectionIds,
@@ -29,13 +29,13 @@ export async function thermalSimulation(
   args: Record<string, unknown>,
   signal?: AbortSignal,
 ): Promise<unknown> {
-  const houseId = requiredString(args, "houseId");
+  const houseId = requiredToolString(args, "houseId");
   const house = requireMcpHouse(database, houseId);
-  const sensor = requireMcpHouseSensor(database, houseId, requiredString(args, "sensorId"));
+  const sensor = requireMcpHouseSensor(database, houseId, requiredToolString(args, "sensorId"));
   if (sensor.tags.includes(HEAT_PUMP_SENSOR_TAG)) {
     throw new Error("Heat-pump equipment telemetry is not an ambient temperature sensor");
   }
-  const { from, to } = mcpThermalDateRange(optionalString(args, "from"), optionalString(args, "to"));
+  const { from, to } = mcpThermalDateRange(optionalToolString(args, "from"), optionalToolString(args, "to"));
   const horizonHours = mcpBoundedInteger(args.horizonHours, "horizonHours", 12, 0, 72);
   const scenarioOutdoorTemperatureC = mcpOptionalFiniteNumber(
     args.scenarioOutdoorTemperatureC,
@@ -89,11 +89,11 @@ export async function thermalSimulation(
 }
 
 export async function queryMeasurementHistory(args: Record<string, unknown>): Promise<MeasurementSample[]> {
-  const sensorId = requiredString(args, "sensorId");
-  const metric = requiredString(args, "metric");
+  const sensorId = requiredToolString(args, "sensorId");
+  const metric = requiredToolString(args, "metric");
   requireMcpMeasurementTarget(database, sensorId, metric);
-  const from = mcpIsoDate(requiredString(args, "from"), "from");
-  const to = mcpIsoDate(requiredString(args, "to"), "to");
+  const from = mcpIsoDate(requiredToolString(args, "from"), "from");
+  const to = mcpIsoDate(requiredToolString(args, "to"), "to");
   validateMcpDateRange(from, to);
   return (await telemetryReader.measurementHistory({
     sensorId,
@@ -105,10 +105,10 @@ export async function queryMeasurementHistory(args: Record<string, unknown>): Pr
 }
 
 export async function querySensorHistory(args: Record<string, unknown>): Promise<Reading[]> {
-  const sensorId = requiredString(args, "sensorId");
+  const sensorId = requiredToolString(args, "sensorId");
   requireMcpSensor(database, sensorId);
-  const from = mcpIsoDate(requiredString(args, "from"), "from");
-  const to = mcpIsoDate(requiredString(args, "to"), "to");
+  const from = mcpIsoDate(requiredToolString(args, "from"), "from");
+  const to = mcpIsoDate(requiredToolString(args, "to"), "to");
   validateMcpDateRange(from, to);
   return (await telemetryReader.legacyReadingHistory({
     sensorIds: [sensorId],

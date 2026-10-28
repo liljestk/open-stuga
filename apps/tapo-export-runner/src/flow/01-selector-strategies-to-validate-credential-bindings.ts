@@ -127,7 +127,7 @@ export function nonEmptyString(value: unknown, name: string): string {
   return value;
 }
 
-export function finiteNumber(value: unknown, name: string, minimum = 0, maximum = 1_000_000): number {
+export function boundedNumber(value: unknown, name: string, minimum = 0, maximum = 1_000_000): number {
   if (typeof value !== "number" || !Number.isFinite(value) || value < minimum || value > maximum) {
     throw new Error(`${name} must be a number between ${minimum} and ${maximum}`);
   }
@@ -158,11 +158,11 @@ export function action(value: unknown, name: string): FlowAction {
   const result: FlowAction = { action: actionName };
   if (parsed.selector !== undefined) result.selector = selector(parsed.selector, `${name}.selector`);
   if (parsed.value !== undefined) result.value = nonEmptyString(parsed.value, `${name}.value`);
-  if (parsed.timeoutMs !== undefined) result.timeoutMs = finiteNumber(parsed.timeoutMs, `${name}.timeoutMs`, 1, 120_000);
-  if (parsed.durationMs !== undefined) result.durationMs = finiteNumber(parsed.durationMs, `${name}.durationMs`, 1, 60_000);
-  if (parsed.settleMs !== undefined) result.settleMs = finiteNumber(parsed.settleMs, `${name}.settleMs`, 50, 2_000);
+  if (parsed.timeoutMs !== undefined) result.timeoutMs = boundedNumber(parsed.timeoutMs, `${name}.timeoutMs`, 1, 120_000);
+  if (parsed.durationMs !== undefined) result.durationMs = boundedNumber(parsed.durationMs, `${name}.durationMs`, 1, 60_000);
+  if (parsed.settleMs !== undefined) result.settleMs = boundedNumber(parsed.settleMs, `${name}.settleMs`, 50, 2_000);
   for (const key of ["x", "y", "fromX", "fromY", "toX", "toY"] as const) {
-    if (parsed[key] !== undefined) result[key] = finiteNumber(parsed[key], `${name}.${key}`, 0, 20_000);
+    if (parsed[key] !== undefined) result[key] = boundedNumber(parsed[key], `${name}.${key}`, 0, 20_000);
   }
   if (parsed.optional !== undefined) {
     if (typeof parsed.optional !== "boolean") throw new Error(`${name}.optional must be a boolean`);
