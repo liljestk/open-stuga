@@ -122,4 +122,33 @@ describe("served response contracts", () => {
       sourceIds: [], archiveState: "merged", truthClass: "derived", archiveStates: ["merged", "not-ready"],
     }, "v2");
   });
+
+  it("serves every documented GET body that the seeded workspace can answer in its documented shape", async () => {
+    const api = boot({ MOCK_ENABLED: "true" });
+    const sensorId = api.database.listSensors()[0]!.id;
+    // Path parameters filled from the seeded workspace, by the collection segment before them.
+    const seeded: Record<string, string> = {
+      "houses": "house-main", "publications": "house-main", "properties": "property-main", "sensors": sensorId,
+    };
+    // Event streams never end, and these return files rather than JSON.
+    const skipped = new Set(["/events", "/stream", "/measurements/events", "/system/updates/events",
+      "/properties/{propertyId}/tracking-stream", "/openapi.json"]);
+    const served: string[] = [];
+    for (const [version, doc] of Object.entries(documents) as Array<["v1" | "v2", Document]>) {
+      for (const [path, operations] of Object.entries(doc.paths)) {
+        const success = operations.get?.responses?.["200"]?.content?.["application/json"]?.schema;
+        if (!success || skipped.has(path)) continue;
+        const parts = path.split("/");
+        const filled = parts.map((part, index) => (part.startsWith("{") ? seeded[parts[index - 1]!] : part));
+        if (filled.some((part) => part === undefined)) continue;
+        const response = await request(api.app).get(`/api/${version}${filled.join("/")}`);
+        if (response.status !== 200 || !response.type.includes("json")) continue;
+        const check = ajv.compile(reference(success, version));
+        expect(check(response.body), `${version} GET ${path}: ${JSON.stringify(check.errors)}`).toBe(true);
+        served.push(`${version} ${path}`);
+      }
+    }
+    // A floor, so a refactor that stops most routes answering cannot pass quietly.
+    expect(served.length).toBeGreaterThanOrEqual(70);
+  });
 });
