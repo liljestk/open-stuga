@@ -2,6 +2,11 @@
 
 All notable Stugu releases are recorded here.
 
+## 0.52.6
+
+- Mean, sum, minimum, maximum and last analytics on a TimescaleDB archive answer much faster. The raw readings at the edges of a range were read by scanning and decompressing the Sensor's whole stored history; they now read only the archive chunks that hold them. On a Raspberry Pi, a 30-day mean at 15 minutes for a power plug reporting every 2 seconds dropped from 1.6 s to 0.09 s, and 90- and 365-day hourly reads from about 2 s to 0.2 s. Results are unchanged.
+- Upgrade impact: application-only update; no schema, Compose, configuration or host-trust change.
+
 ## 0.52.1
 
 - Document that 433 MHz (Nexus433) readings sent while the API is stopped, restarting or reconnecting to its private MQTT broker are not queued or replayed. Nexus packets carry no clock, so a replayed reading would get the wrong time; the Sensor shows a gap as long as the outage instead. The Nexus433 guide explains why a persistent MQTT session would not fix this, and the architecture's recommended failure behaviour now says the same.
