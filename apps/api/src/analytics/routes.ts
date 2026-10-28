@@ -17,13 +17,9 @@ import type { WeatherEventBroker } from "../weather-events.js";
 import {
   type HybridTelemetryReader,
 } from "../timeseries/read-facade.js";
-import {
-  HttpError,
-  bodyObject,
-  rejectUnknownFields,
-  requireNonGuest,
-  requiredString,
-} from "../app/support/index.js";
+import { HttpError } from "../http-error.js";
+import { bodyObject, rejectUnknownFields, requiredString } from "../request-fields.js";
+import { requireNonGuest } from "../app/support/local-sessions.js";
 import { getOpeningActivity } from "./opening-activity/service.js";
 import type { DerivedAnalyticsCoordinator } from "./derived-artifacts/coordinator.js";
 import { registerHomeMonitoringRoutes } from "./home-monitoring/routes.js";

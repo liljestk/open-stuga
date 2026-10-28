@@ -1,5 +1,9 @@
 import { updateIntegrationSecrets } from "../integration-secrets.js";
-import { HttpError, bodyObject, credentialString, homeAssistantUrl, requestPrincipal, requiredString, requireWorkspaceAdmin } from "./support/index.js";
+import { HttpError } from "../http-error.js";
+import { bodyObject, requiredString } from "../request-fields.js";
+import { credentialString } from "./support/credentials.js";
+import { homeAssistantUrl } from "./support/origins.js";
+import { requestPrincipal, requireWorkspaceAdmin } from "./support/local-sessions.js";
 import { hasLocalHouseAuthority } from "@climate-twin/contracts";
 import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
 

@@ -1,6 +1,6 @@
 import { reportBackgroundFailure } from "../system-error-log.js";
 import { startArchiveMaintenance } from "../timeseries/archive-maintenance.js";
-import type { ApiRuntime } from "./support/index.js";
+import type { ApiRuntime } from "./support/api-runtime.js";
 import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
 
 /**

@@ -6,7 +6,7 @@ import request from "supertest";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { type ApiRuntime } from "../src/app.js";
+import type { ApiRuntime } from "../src/app.js";
 
 import { OWNER, authRuntime, sessionCookie, setupOwner, streamTextToEnd } from "./local-authTestSupport.js";
 

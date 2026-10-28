@@ -6,8 +6,11 @@ import type {
 import { openApiV1Document, openApiV2Document } from "../openapi.js";
 import { SYSTEM_VERSION } from "../version.js";
 import { registerStugubyLocalRoutes } from "../stuguby/routes.js";
-import { HttpError, LOCAL_CSRF_COOKIE, LOCAL_SESSION_COOKIE, LOCAL_SESSION_MAX_AGE_MS, LocalVisibility, SAFE_HTTP_METHODS, cookieValue, isTrackingObserverHeartbeatPath, localAuthorizationFingerprint, requestPrincipal, requireWorkspaceAdmin, secureRequest, sessionDocument } from "./support/index.js";
-import type { LocalRequestPrincipal } from "./support/index.js";
+import { HttpError } from "../http-error.js";
+import { LOCAL_CSRF_COOKIE, LOCAL_SESSION_COOKIE, LOCAL_SESSION_MAX_AGE_MS, cookieValue, localAuthorizationFingerprint, requestPrincipal, requireWorkspaceAdmin, secureRequest, sessionDocument } from "./support/local-sessions.js";
+import { LocalVisibility } from "./support/local-visibility.js";
+import { SAFE_HTTP_METHODS, isTrackingObserverHeartbeatPath } from "./support/request-classification.js";
+import type { LocalRequestPrincipal } from "./support/local-sessions.js";
 import type { RequestPipeline } from "./request-pipeline.js";
 
 

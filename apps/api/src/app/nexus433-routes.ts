@@ -1,5 +1,8 @@
 import type { Sensor, SensorCreateInput } from "@climate-twin/contracts";
-import { HttpError, bodyObject, optionalBoolean, requiredNumber, requiredString, requireWorkspaceAdmin, requireVisibleHouse } from "./support/index.js";
+import { HttpError } from "../http-error.js";
+import { bodyObject, optionalBoolean, requiredNumber, requiredString } from "../request-fields.js";
+import { requireWorkspaceAdmin } from "./support/local-sessions.js";
+import { requireVisibleHouse } from "./support/house-access.js";
 import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
 
 export type Nexus433RouteContext = Pick<

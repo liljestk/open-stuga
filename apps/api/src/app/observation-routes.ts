@@ -1,4 +1,5 @@
-import { HttpError, parseObservationInput, parseObservationPatch } from "./support/index.js";
+import { HttpError } from "../http-error.js";
+import { parseObservationInput, parseObservationPatch } from "./support/observation-fields.js";
 import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
 
 /** Manual observations and their revisions. */

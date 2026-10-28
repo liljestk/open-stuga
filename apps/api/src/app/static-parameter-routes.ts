@@ -1,6 +1,7 @@
 import type { Request, Response } from "express";
 import type { StaticParameter } from "@climate-twin/contracts";
-import { HttpError, bodyObject, enumValue, optionalString, requiredString } from "./support/index.js";
+import { HttpError } from "../http-error.js";
+import { bodyObject, enumValue, optionalString, requiredString } from "../request-fields.js";
 import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
 
 /** Static house parameters (also served under the older /static-parameters path). */

@@ -1,8 +1,5 @@
-import {
-  bodyObject,
-  requestPrincipal,
-  requireWorkspaceAdmin,
-} from "./support/index.js";
+import { bodyObject } from "../request-fields.js";
+import { requestPrincipal, requireWorkspaceAdmin } from "./support/local-sessions.js";
 import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
 
 export type SystemStorageRouteContext = Pick<

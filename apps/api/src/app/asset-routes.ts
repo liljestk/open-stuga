@@ -1,4 +1,6 @@
-import { HttpError, SAFE_ASSET_MIME_TYPES, bodyObject, enumValue, requiredString } from "./support/index.js";
+import { HttpError } from "../http-error.js";
+import { SAFE_ASSET_MIME_TYPES } from "./support/equipment-attachments.js";
+import { bodyObject, enumValue, requiredString } from "../request-fields.js";
 import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
 
 /** Uploaded assets. */

@@ -1,6 +1,6 @@
 import request from "supertest";
 
-import { type ApiRuntime } from "../src/app.js";
+import type { ApiRuntime } from "../src/app.js";
 
 export const polygon = [
   { latitude: 60.17, longitude: 24.93 },

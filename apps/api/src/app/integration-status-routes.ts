@@ -1,4 +1,5 @@
-import { HttpError, safeInteger } from "./support/index.js";
+import { HttpError } from "../http-error.js";
+import { safeInteger } from "./support/query-fields.js";
 import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
 
 /** Aggregate integration status and recorded sensor data gaps. */

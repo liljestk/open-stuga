@@ -5,7 +5,8 @@ import { IncompleteTelemetryHistoryError } from "../timeseries/read-facade.js";
 import { RollupsMaterializingError } from "../timeseries/read-support.js";
 import { AnalyticsCapacityError } from "../analytics/work-limiter.js";
 import { LocalTelemetryTimeoutError } from "../timeseries/local-telemetry-worker.js";
-import { HttpError, isRequestCancellation } from "./support/index.js";
+import { HttpError } from "../http-error.js";
+import { isRequestCancellation } from "./support/request-classification.js";
 import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
 
 /** One error response: the shared `{ error: { code, message, details? } }` envelope plus headers. */

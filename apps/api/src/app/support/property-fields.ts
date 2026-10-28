@@ -1,20 +1,16 @@
-import { bodyObject, enumValue, requiredNumber, requiredString, rejectUnknownFields } from "../../request-fields.js";
-import type {
-  AreaEquipmentInput,
-  AreaEquipmentPatch,
-  EquipmentAttachmentUploadInput,
-  EquipmentLinkInput,
-  EquipmentLinkPatch,
-  GeoCoordinate,
-  PropertyAreaInput,
-  PropertyAreaPatch,
-  PropertyCreateInput,
-  PropertyNoteInput,
-  PropertyNotePatch,
-  PropertyPatch,
-} from "@climate-twin/contracts";
+import { requiredNumber, requiredString, bodyObject, enumValue, rejectUnknownFields } from "../../request-fields.js";
+import type { AreaEquipmentInput, AreaEquipmentPatch, EquipmentAttachmentUploadInput, EquipmentLinkInput, EquipmentLinkPatch, GeoCoordinate, PropertyAreaInput, PropertyAreaPatch, PropertyCreateInput, PropertyNoteInput, PropertyNotePatch, PropertyPatch } from "@climate-twin/contracts";
 import { HttpError } from "../../http-error.js";
-import { AREA_EQUIPMENT_STATUSES, PROPERTY_AREA_KINDS, PROPERTY_NOTE_KINDS, houseLocationValue } from "./part-01.js";
+import { houseLocationValue } from "./house-fields.js";
+
+export const PROPERTY_AREA_KINDS = [
+  "well", "beach", "garage", "plantation", "garden", "field", "forest", "shoreline", "dock", "road",
+  "yard", "building", "other",
+] as const;
+
+export const AREA_EQUIPMENT_STATUSES = ["active", "out-of-service", "retired"] as const;
+
+export const PROPERTY_NOTE_KINDS = ["note", "inspection", "maintenance"] as const;
 
 export function propertyText(
   body: Record<string, unknown>,
@@ -227,27 +223,3 @@ export function parsePropertyNotePatch(value: unknown): PropertyNotePatch {
     ...(body.text !== undefined ? { text: propertyText(body, "text", 5_000) as string } : {}),
   };
 }
-
-export function optionalResourceQuery(value: unknown, field: string): string | undefined {
-  if (value === undefined) return undefined;
-  if (typeof value !== "string" || !value.trim() || value.length > 200) {
-    throw new HttpError(400, "INVALID_FIELD", `${field} must be a non-empty string of at most 200 characters`);
-  }
-  return value.trim();
-}
-
-export function dateValue(value: unknown, fallback: Date, field: string): string {
-  if (value === undefined) return fallback.toISOString();
-  if (typeof value !== "string" || !Number.isFinite(Date.parse(value))) throw new HttpError(400, "INVALID_FIELD", `${field} must be an ISO date-time`);
-  return new Date(value).toISOString();
-}
-
-export const OBSERVATION_CREATE_FIELDS = new Set([
-  "id", "houseId", "floorId", "sensorId", "kind", "severity", "note", "x", "y", "occurredAt",
-  "timePrecision", "validFrom", "validTo", "source", "sourceDetail", "confidence",
-]);
-
-export const OBSERVATION_PATCH_FIELDS = new Set([
-  "baseRevision", "floorId", "sensorId", "kind", "severity", "note", "x", "y", "occurredAt",
-  "timePrecision", "validFrom", "validTo", "source", "sourceDetail", "confidence", "status", "resolutionNote",
-]);

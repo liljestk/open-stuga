@@ -1,6 +1,8 @@
 import { hasLocalHouseAuthority } from "@climate-twin/contracts";
 import { MOCK_SCENARIOS } from "../services.js";
-import { HttpError, bodyObject, dateValue, enumValue } from "./support/index.js";
+import { HttpError } from "../http-error.js";
+import { bodyObject, enumValue } from "../request-fields.js";
+import { dateValue } from "./support/query-fields.js";
 import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
 
 /** Mock scenarios and recorded-data replay for demo installations. */

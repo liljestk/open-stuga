@@ -1,6 +1,6 @@
 import { roleCanAccessNonGuestConfiguration } from "@climate-twin/contracts";
 import { registerSpatialLayerRoutes } from "../spatial-layers/index.js";
-import { requestPrincipal } from "./support/index.js";
+import { requestPrincipal } from "./support/local-sessions.js";
 import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
 
 /** Spatial-layer reads, writes and the layer event stream, under the API's grants and Stuguby authority. */

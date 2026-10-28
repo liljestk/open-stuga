@@ -1,14 +1,9 @@
 import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
-import {
-  HttpError,
-  auditAccountSubject,
-  bodyObject,
-  boundedQueryInteger,
-  enumValue,
-  requestPrincipal,
-  requireJsonContentType,
-  requireWorkspaceAdmin,
-} from "./support/index.js";
+import { HttpError } from "../http-error.js";
+import { auditAccountSubject, requestPrincipal, requireWorkspaceAdmin } from "./support/local-sessions.js";
+import { bodyObject, enumValue } from "../request-fields.js";
+import { boundedQueryInteger } from "./support/query-fields.js";
+import { requireJsonContentType } from "./support/request-classification.js";
 
 export type TenantAdministrationRouteContext = Pick<
   ApiRouteRegistrationContext,

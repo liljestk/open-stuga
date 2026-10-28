@@ -1,6 +1,8 @@
 import type { EnergyOptimizationReport } from "@climate-twin/contracts";
 import { LruTtlCache } from "../cache.js";
-import { HttpError, localAuthorizationFingerprint, requestPrincipal, safeInteger } from "./support/index.js";
+import { HttpError } from "../http-error.js";
+import { localAuthorizationFingerprint, requestPrincipal } from "./support/local-sessions.js";
+import { safeInteger } from "./support/query-fields.js";
 import { withResponseSignal } from "./response-signal.js";
 import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
 

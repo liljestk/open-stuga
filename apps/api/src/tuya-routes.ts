@@ -13,15 +13,10 @@ import type { TuyaConnectionSecret } from "./integration-secrets.js";
 import { commitCoordinatedIntegrationSecrets } from "./integration-secrets-coordinator.js";
 import type { RuntimeStatus } from "./services.js";
 import { TuyaBridge, localIpv4 } from "./tuya.js";
-import {
-  HttpError,
-  bodyObject,
-  credentialString,
-  rejectUnknownFields,
-  requestPrincipal,
-  requireWorkspaceAdmin,
-  requiredString,
-} from "./app/support/index.js";
+import { HttpError } from "./http-error.js";
+import { bodyObject, rejectUnknownFields, requiredString } from "./request-fields.js";
+import { credentialString } from "./app/support/credentials.js";
+import { requestPrincipal, requireWorkspaceAdmin } from "./app/support/local-sessions.js";
 
 interface TuyaRouteContext {
   app: express.Express;

@@ -1,12 +1,8 @@
 import type { Request, Response } from "express";
-import {
-  HttpError,
-  bodyObject,
-  boundedSseWriter,
-  localAuthorizationFingerprint,
-  requestPrincipal,
-  requireWorkspaceAdmin,
-} from "./support/index.js";
+import { HttpError } from "../http-error.js";
+import { bodyObject } from "../request-fields.js";
+import { boundedSseWriter } from "./support/event-streams.js";
+import { localAuthorizationFingerprint, requestPrincipal, requireWorkspaceAdmin } from "./support/local-sessions.js";
 import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
 
 export type SystemUpdateRouteContext = Pick<

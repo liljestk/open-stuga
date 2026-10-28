@@ -1,5 +1,7 @@
 import type { Property, PropertyInventorySnapshot } from "@climate-twin/contracts";
-import { HttpError, collectionPage, parsePropertyInput, parsePropertyPatch, visibleCollectionPage, completeVisibleCollection } from "./support/index.js";
+import { HttpError } from "../http-error.js";
+import { collectionPage, visibleCollectionPage, completeVisibleCollection } from "./support/collection-pages.js";
+import { parsePropertyInput, parsePropertyPatch } from "./support/property-fields.js";
 import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
 import { createHash } from "node:crypto";
 

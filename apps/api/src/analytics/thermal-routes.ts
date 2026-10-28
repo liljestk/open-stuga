@@ -9,7 +9,9 @@ import { isThermalIsolationTemperatureSensor } from "../thermal-isolation.js";
 import { runThermalSimulationAsync } from "../thermal-simulation.js";
 import type { HybridTelemetryReader } from "../timeseries/read-facade.js";
 import { mapWithConcurrency } from "../timeseries/read-support.js";
-import { HttpError, dateValue, optionalQueryNumber, safeInteger, requireVisibleHouse } from "../app/support/index.js";
+import { HttpError } from "../http-error.js";
+import { dateValue, optionalQueryNumber, safeInteger } from "../app/support/query-fields.js";
+import { requireVisibleHouse } from "../app/support/house-access.js";
 import {
   runMoistureResponseIsolated,
   runThermalIsolationIsolated,

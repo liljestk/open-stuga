@@ -6,7 +6,12 @@ import {
   publicElectricityConfiguration,
   validateElectricityEndpointUrl,
 } from "../electricity-prices.js";
-import { HttpError, bodyObject, dateValue, enumValue, optionalResourceQuery, propertyText, rejectUnknownFields, requestPrincipal, requiredNumber, requiredString, requireVisibleHouse } from "./support/index.js";
+import { HttpError } from "../http-error.js";
+import { bodyObject, enumValue, rejectUnknownFields, requiredNumber, requiredString } from "../request-fields.js";
+import { dateValue, optionalResourceQuery } from "./support/query-fields.js";
+import { propertyText } from "./support/property-fields.js";
+import { requestPrincipal } from "./support/local-sessions.js";
+import { requireVisibleHouse } from "./support/house-access.js";
 import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
 import { registerElectricityTariffRoutes } from "./electricity-tariff-routes.js";
 import { summaryLatencyOperation } from "../analytics/diagnostics/latency.js";

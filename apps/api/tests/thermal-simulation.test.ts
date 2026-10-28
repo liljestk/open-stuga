@@ -1,7 +1,8 @@
 import { SYSTEM_VERSION, type HouseWeather, type MeasurementSample, type OutdoorTemperatureSample } from "@climate-twin/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import request from "supertest";
-import { createApi, persistWeatherObservation, type ApiRuntime } from "../src/app.js";
+import { createApi, type ApiRuntime } from "../src/app.js";
+import { persistWeatherObservation } from "../src/app/support/weather-observations.js";
 import type { AppConfig } from "../src/config.js";
 import { outdoorLocationKey } from "../src/db.js";
 import { runThermalSimulation, runThermalSimulationAsync, simulateThermalStep } from "../src/thermal-simulation.js";

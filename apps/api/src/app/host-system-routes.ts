@@ -1,4 +1,4 @@
-import { requireWorkspaceAdmin } from "./support/index.js";
+import { requireWorkspaceAdmin } from "./support/local-sessions.js";
 import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
 
 export type HostSystemRouteContext = Pick<

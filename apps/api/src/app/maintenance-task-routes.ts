@@ -1,4 +1,7 @@
-import { HttpError, collectionPage, optionalResourceQuery, parseMaintenanceTaskInput, parseMaintenanceTaskPatch, visibleCollectionPage } from "./support/index.js";
+import { HttpError } from "../http-error.js";
+import { collectionPage, visibleCollectionPage } from "./support/collection-pages.js";
+import { optionalResourceQuery } from "./support/query-fields.js";
+import { parseMaintenanceTaskInput, parseMaintenanceTaskPatch } from "./support/maintenance-fields.js";
 import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
 
 /**

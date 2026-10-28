@@ -1,4 +1,8 @@
-import { HttpError, collectionPage, optionalResourceQuery, parseAreaEquipmentInput, visibleCollectionPage, assertEquipmentAttachmentMediaType, equipmentAttachmentData, equipmentAttachmentDisposition, parseAreaEquipmentPatch, parseEquipmentAttachmentUpload, parseEquipmentLinkInput, parseEquipmentLinkPatch } from "./support/index.js";
+import { HttpError } from "../http-error.js";
+import { collectionPage, visibleCollectionPage } from "./support/collection-pages.js";
+import { optionalResourceQuery } from "./support/query-fields.js";
+import { parseAreaEquipmentInput, parseAreaEquipmentPatch, parseEquipmentAttachmentUpload, parseEquipmentLinkInput, parseEquipmentLinkPatch } from "./support/property-fields.js";
+import { assertEquipmentAttachmentMediaType, equipmentAttachmentData, equipmentAttachmentDisposition } from "./support/equipment-attachments.js";
 import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
 
 /** Area equipment, its attachments and its links to sensors and houses. */

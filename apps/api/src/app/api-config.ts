@@ -1,5 +1,5 @@
 import { loadConfig, normalizeAppConfig } from "../config.js";
-import type { CreateApiOptions } from "./support/index.js";
+import type { CreateApiOptions } from "./support/api-runtime.js";
 
 /** createApi's configuration: the caller's or the environment's, with createApi defaults applied. */
 export function resolveApiConfig(context: { options: CreateApiOptions }) {

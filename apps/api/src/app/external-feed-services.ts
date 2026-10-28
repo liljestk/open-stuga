@@ -16,7 +16,7 @@ import {
 import {
   ElectricityPriceService,
 } from "../electricity-prices.js";
-import { persistWeatherObservation } from "./support/index.js";
+import { persistWeatherObservation } from "./support/weather-observations.js";
 import type { IntegrationBridges } from "./integration-bridges.js";
 /** Outside data the API pulls in: weather forecasts and history, electricity prices and location lookup. */
 export function createExternalFeedServices(context: IntegrationBridges) {

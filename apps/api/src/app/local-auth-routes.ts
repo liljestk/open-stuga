@@ -3,21 +3,13 @@ import {
   type LocalAuthIdentity,
 } from "../local-auth.js";
 import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
-import {
-  HttpError,
-  LOCAL_SESSION_COOKIE,
-  auditAccountSubject,
-  authAttemptKeys,
-  bodyObject,
-  clearLocalSessionCookies,
-  cookieValue,
-  keyMatches,
-  localSetupRequestAllowed,
-  requestPrincipal,
-  requireJsonContentType,
-  sessionDocument,
-  setLocalSessionCookies,
-} from "./support/index.js";
+import { HttpError } from "../http-error.js";
+import { LOCAL_SESSION_COOKIE, auditAccountSubject, clearLocalSessionCookies, cookieValue, requestPrincipal, sessionDocument, setLocalSessionCookies } from "./support/local-sessions.js";
+import { authAttemptKeys } from "./support/auth-abuse-limits.js";
+import { bodyObject } from "../request-fields.js";
+import { keyMatches } from "./support/credentials.js";
+import { localSetupRequestAllowed } from "./support/trusted-network.js";
+import { requireJsonContentType } from "./support/request-classification.js";
 
 
 export type LocalAuthRouteContext = Pick<

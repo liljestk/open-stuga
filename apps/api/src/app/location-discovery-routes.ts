@@ -1,8 +1,6 @@
-import {
-  HttpError,
-  optionalQueryNumber,
-  requireNonGuest,
-} from "./support/index.js";
+import { HttpError } from "../http-error.js";
+import { optionalQueryNumber } from "./support/query-fields.js";
+import { requireNonGuest } from "./support/local-sessions.js";
 import { recordFailureCause } from "../system-error-log.js";
 import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
 

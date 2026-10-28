@@ -39,7 +39,9 @@ import { TrackingService } from "../tracking/service.js";
 import {
   TrackingStore,
 } from "../tracking/store.js";
-import { AuthAbuseLimiter, HttpError, initializeIntegrationMetadata } from "./support/index.js";
+import { AuthAbuseLimiter } from "./support/auth-abuse-limits.js";
+import { HttpError } from "../http-error.js";
+import { initializeIntegrationMetadata } from "./support/integration-bootstrap.js";
 import type { ApiConfigContext } from "./api-config.js";
 
 

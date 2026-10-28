@@ -1,5 +1,6 @@
 import type { MeasurementSample } from "@climate-twin/contracts";
-import { HttpError, parseMeasurementSample } from "./support/index.js";
+import { HttpError } from "../http-error.js";
+import { parseMeasurementSample } from "./support/measurement-fields.js";
 import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
 
 export type MeasurementIngestRouteContext = Pick<

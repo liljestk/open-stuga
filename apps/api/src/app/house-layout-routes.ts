@@ -1,5 +1,6 @@
 import type { House } from "@climate-twin/contracts";
-import { HttpError, bodyObject, requiredString } from "./support/index.js";
+import { HttpError } from "../http-error.js";
+import { bodyObject, requiredString } from "../request-fields.js";
 import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
 
 /** House layout, floor plans and RoomPlan imports. */

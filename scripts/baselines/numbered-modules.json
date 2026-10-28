@@ -1,14 +1,6 @@
 {
   "$comment": "Legacy numbered modules (part-NN, NN-name, name.part-NN, name-NN, Name.NN-slug tests) left by mechanical line-count splits. The list may only shrink: rename a module after the domain it owns, then delete its line. npm run check:architecture rejects any numbered module not listed here.",
   "files": [
-    "apps/api/src/app/support/part-01.ts",
-    "apps/api/src/app/support/part-02.ts",
-    "apps/api/src/app/support/part-03.ts",
-    "apps/api/src/app/support/part-04.ts",
-    "apps/api/src/app/support/part-05.ts",
-    "apps/api/src/app/support/part-06.ts",
-    "apps/api/src/app/support/part-07.ts",
-    "apps/api/src/app/support/part-08.ts",
     "apps/api/src/cloudflare-setup/01-cloudflare-api-base-to-bounded-text.ts",
     "apps/api/src/cloudflare-setup/02-cloudflare-setup-service.ts",
     "apps/api/src/cloudflare-setup/03-cloudflare-setup-callback-path.ts",

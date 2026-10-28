@@ -1,5 +1,5 @@
 import type { Request } from "express";
-import { isIOSNotificationRegistrationPath, isTrackingObserverHeartbeatPath } from "./support/index.js";
+import { isIOSNotificationRegistrationPath, isTrackingObserverHeartbeatPath } from "./support/request-classification.js";
 
 /**
  * The routes that are exceptions to the general access rules, in one place for

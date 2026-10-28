@@ -33,7 +33,7 @@ import { hostAllowsBackgroundWork } from "../analytics/background-admission.js";
 import {
   type TelemetryCascadeScope,
 } from "../db.js";
-import { HttpError } from "./support/index.js";
+import { HttpError } from "../http-error.js";
 import type { CoreDataServices } from "./core-data-services.js";
 /** Telemetry storage and readers, analytics workers, runtime status, energy caches, latest-value snapshot caches and the archive guards for destructive changes. */
 export function createTelemetryServices(context: CoreDataServices) {

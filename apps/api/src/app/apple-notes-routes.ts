@@ -2,7 +2,10 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import type { AppleNotesMaintenanceCaptureResult } from "@climate-twin/contracts";
 import { ClimateDatabase, ClimateDataValidationError } from "../db.js";
 import { updateIntegrationSecrets, type AppleNotesGrantSecret } from "../integration-secrets.js";
-import { HttpError, appleNotesCaptureInput, appleNotesCaptureMatches, appleNotesGrant, appleNotesGrantSummary, appleNotesSnapshot, bodyObject, refreshAppleNotesStatus, requestPrincipal, requiredString, requireWorkspaceAdmin } from "./support/index.js";
+import { HttpError } from "../http-error.js";
+import { appleNotesCaptureInput, appleNotesCaptureMatches, appleNotesGrant, appleNotesGrantSummary, appleNotesSnapshot, refreshAppleNotesStatus } from "./support/apple-notes.js";
+import { bodyObject, requiredString } from "../request-fields.js";
+import { requestPrincipal, requireWorkspaceAdmin } from "./support/local-sessions.js";
 import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
 
 /** Apple Notes Shortcut grants, setup, snapshots and captures. */

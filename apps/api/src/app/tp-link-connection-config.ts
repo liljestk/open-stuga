@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { hasLocalHouseAuthority } from "@climate-twin/contracts";
 import { updateIntegrationSecrets, type TpLinkConnectionSecret } from "../integration-secrets.js";
-import { HttpError, credentialString, requiredString } from "./support/index.js";
+import { HttpError } from "../http-error.js";
+import { credentialString } from "./support/credentials.js";
+import { requiredString } from "../request-fields.js";
 import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
 
 // The steps of PUT /integrations/tp-link/config: resolve credentials, test the

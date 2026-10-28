@@ -1,7 +1,11 @@
 import { type Request } from "express";
 import { discoverHomeAssistant } from "../discovery.js";
 import { IntegrationDiscoveryJobs } from "../integration-discovery-jobs.js";
-import { HttpError, bodyObject, boundedSseWriter, credentialString, localAuthorizationFingerprint, requestPrincipal, requiredString, requireWorkspaceAdmin } from "./support/index.js";
+import { HttpError } from "../http-error.js";
+import { bodyObject, requiredString } from "../request-fields.js";
+import { boundedSseWriter } from "./support/event-streams.js";
+import { credentialString } from "./support/credentials.js";
+import { localAuthorizationFingerprint, requestPrincipal, requireWorkspaceAdmin } from "./support/local-sessions.js";
 import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
 
 /** Network discovery of Home Assistant, TP-Link, Gree and Tuya devices, run inline or as background jobs. Returns the job registry so shutdown can stop running jobs. */

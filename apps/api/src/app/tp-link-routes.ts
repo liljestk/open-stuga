@@ -1,6 +1,10 @@
 import { hasLocalHouseAuthority } from "@climate-twin/contracts";
 import { updateIntegrationSecrets } from "../integration-secrets.js";
-import { HttpError, bodyObject, credentialString, networkHost, requestPrincipal, requiredString, requireWorkspaceAdmin } from "./support/index.js";
+import { HttpError } from "../http-error.js";
+import { bodyObject, requiredString } from "../request-fields.js";
+import { credentialString } from "./support/credentials.js";
+import { networkHost } from "./support/origins.js";
+import { requestPrincipal, requireWorkspaceAdmin } from "./support/local-sessions.js";
 import {
   applySavedTpLinkConfiguration,
   identityKey,

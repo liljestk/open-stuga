@@ -78,3 +78,16 @@ export function enumValue<T extends string>(value: unknown, values: readonly T[]
   if (!isOneOf(value, values)) throw invalidField(`${field} must be one of: ${values.join(", ")}`);
   return value;
 }
+
+/** Reads one body field; `presentFields` calls it only when the field is present. */
+export type FieldReader = (body: Record<string, unknown>, key: string) => unknown;
+
+/** The fields of `readers` that the body carries (not undefined), each validated by its reader. */
+export function presentFields<R extends Record<string, FieldReader>>(
+  body: Record<string, unknown>,
+  readers: R,
+): { [K in keyof R]?: ReturnType<R[K]> } {
+  return Object.fromEntries(Object.entries(readers)
+    .filter(([key]) => body[key] !== undefined)
+    .map(([key, read]) => [key, read(body, key)])) as { [K in keyof R]?: ReturnType<R[K]> };
+}

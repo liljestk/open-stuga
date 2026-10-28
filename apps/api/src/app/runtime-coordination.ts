@@ -4,7 +4,11 @@ import type {
   IntegrationStatus,
 } from "@climate-twin/contracts";
 import { SYSTEM_VERSION } from "../version.js";
-import { HttpError, MAX_EVENT_STREAMS_GLOBAL, MAX_EVENT_STREAMS_PER_USER, SAFE_HTTP_METHODS, browserOriginAllowed, normalizedOrigin, requestPrincipal } from "./support/index.js";
+import { HttpError } from "../http-error.js";
+import { MAX_EVENT_STREAMS_GLOBAL, MAX_EVENT_STREAMS_PER_USER } from "./support/event-streams.js";
+import { SAFE_HTTP_METHODS } from "./support/request-classification.js";
+import { browserOriginAllowed, normalizedOrigin } from "./support/origins.js";
+import { requestPrincipal } from "./support/local-sessions.js";
 import type { ExternalFeedServices } from "./external-feed-services.js";
 import { compareCodeUnits } from "../text-order.js";
 

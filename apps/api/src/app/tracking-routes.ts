@@ -1,7 +1,7 @@
 import { registerTrackingRoutes } from "../tracking/routes.js";
 import type { AuthenticatedTrackingObserver } from "../tracking/store.js";
-import { LocalVisibility } from "./support/index.js";
-import type { LocalRequestPrincipal } from "./support/index.js";
+import { LocalVisibility } from "./support/local-visibility.js";
+import type { LocalRequestPrincipal } from "./support/local-sessions.js";
 import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
 
 /** Member location sharing, equipment loans and the tracking stream, under the API's principals and grants. */

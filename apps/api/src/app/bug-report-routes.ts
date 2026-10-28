@@ -9,13 +9,10 @@ import {
 } from "@climate-twin/contracts";
 import { updateIntegrationSecrets } from "../integration-secrets.js";
 import { SYSTEM_VERSION } from "../version.js";
-import {
-  HttpError,
-  bodyObject,
-  requestPrincipal,
-  requireJsonContentType,
-  requireWorkspaceAdmin,
-} from "./support/index.js";
+import { HttpError } from "../http-error.js";
+import { bodyObject } from "../request-fields.js";
+import { requestPrincipal, requireWorkspaceAdmin } from "./support/local-sessions.js";
+import { requireJsonContentType } from "./support/request-classification.js";
 import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
 
 const REPORT_WINDOW_MS = 60_000;

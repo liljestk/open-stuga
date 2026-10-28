@@ -2,12 +2,9 @@ import { roleCanAccessNonGuestConfiguration } from "@climate-twin/contracts";
 import { withResponseSignal } from "./response-signal.js";
 import type { ElectricityInvoiceInput } from "@climate-twin/contracts";
 import { invoiceRange, reconcileInvoice } from "../electricity/invoice-reconciliation.js";
-import {
-  HttpError,
-  bodyObject,
-  rejectUnknownFields,
-  requestPrincipal,
-} from "./support/index.js";
+import { HttpError } from "../http-error.js";
+import { bodyObject, rejectUnknownFields } from "../request-fields.js";
+import { requestPrincipal } from "./support/local-sessions.js";
 import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
 
 const INVOICE_FIELDS = new Set([

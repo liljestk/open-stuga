@@ -1,4 +1,7 @@
-import { HttpError, collectionPage, optionalResourceQuery, parsePropertyNoteInput, visibleCollectionPage, parsePropertyNotePatch } from "./support/index.js";
+import { HttpError } from "../http-error.js";
+import { collectionPage, visibleCollectionPage } from "./support/collection-pages.js";
+import { optionalResourceQuery } from "./support/query-fields.js";
+import { parsePropertyNoteInput, parsePropertyNotePatch } from "./support/property-fields.js";
 import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
 
 /** Property notes. */

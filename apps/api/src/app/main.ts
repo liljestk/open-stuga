@@ -1,4 +1,4 @@
-import type { ApiRuntime, CreateApiOptions } from "./support/index.js";
+import type { ApiRuntime, CreateApiOptions } from "./support/api-runtime.js";
 import { resolveApiConfig } from "./api-config.js";
 import { createCoreDataServices } from "./core-data-services.js";
 import { createTelemetryServices } from "./telemetry-services.js";

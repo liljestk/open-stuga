@@ -2,7 +2,9 @@ import { outdoorLocationKey } from "../db.js";
 import { WeatherRequestSupersededError, WeatherUnavailableError } from "../weather.js";
 import { prefersFmi } from "../open-meteo.js";
 import { WeatherEventSupersededError } from "../weather-events.js";
-import { HttpError, dateValue, safeInteger, requireVisibleHouse } from "./support/index.js";
+import { HttpError } from "../http-error.js";
+import { dateValue, safeInteger } from "./support/query-fields.js";
+import { requireVisibleHouse } from "./support/house-access.js";
 import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
 
 /** Current weather and outdoor temperature history for a house. */

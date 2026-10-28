@@ -3,7 +3,7 @@ import {
   LocalMcpRuntimeError,
   type LocalMcpRuntimeService,
 } from "../local-mcp-runtime.js";
-import { requestPrincipal, requireWorkspaceAdmin } from "./support/index.js";
+import { requestPrincipal, requireWorkspaceAdmin } from "./support/local-sessions.js";
 import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
 
 export type LocalMcpRuntimeRouteContext = Pick<ApiRouteRegistrationContext, "app" | "prefix" | "recordSecurityAudit">;

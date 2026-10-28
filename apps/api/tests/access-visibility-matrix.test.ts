@@ -1,6 +1,7 @@
 import type { GuestAccessGrant, TenantMemberRole } from "@climate-twin/contracts";
 import { afterEach, describe, expect, it } from "vitest";
-import { LocalVisibility, type LocalRequestPrincipal } from "../src/app/support/index.js";
+import { LocalVisibility } from "../src/app/support/local-visibility.js";
+import type { LocalRequestPrincipal } from "../src/app/support/local-sessions.js";
 import { ClimateDatabase } from "../src/db.js";
 
 type Scope = "workspace" | "property" | "home" | "area";

@@ -1,5 +1,8 @@
 import { updateIntegrationSecrets } from "../integration-secrets.js";
-import { HttpError, bodyObject, credentialString, requestPrincipal, requireWorkspaceAdmin } from "./support/index.js";
+import { HttpError } from "../http-error.js";
+import { bodyObject } from "../request-fields.js";
+import { credentialString } from "./support/credentials.js";
+import { requestPrincipal, requireWorkspaceAdmin } from "./support/local-sessions.js";
 import { TelegramServiceError } from "../telegram.js";
 import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
 

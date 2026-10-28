@@ -9,7 +9,7 @@ import type {
   IntegrationStatus,
   MeasurementSample,
 } from "@climate-twin/contracts";
-import { HttpError } from "../../app/support/index.js";
+import { HttpError } from "../../http-error.js";
 import { LruTtlCache } from "../../cache.js";
 import type { ClimateDatabase } from "../../db.js";
 import type { TelemetryBus } from "../../events.js";

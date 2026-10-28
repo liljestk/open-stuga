@@ -1,5 +1,7 @@
 import { withResponseSignal } from "./response-signal.js";
-import { HttpError, bodyObject, requireWorkspaceAdmin, requiredString } from "./support/index.js";
+import { HttpError } from "../http-error.js";
+import { bodyObject, requiredString } from "../request-fields.js";
+import { requireWorkspaceAdmin } from "./support/local-sessions.js";
 import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
 
 /** The setup doctor and bulk sensor mapping. */

@@ -1,6 +1,9 @@
 import type { Request, Response } from "express";
 import type { Sensor } from "@climate-twin/contracts";
-import { HttpError, bodyObject, enumValue, measurementStringMap, optionalBoolean, optionalString, parseSensorPatch, requiredNumber, requiredString } from "./support/index.js";
+import { HttpError } from "../http-error.js";
+import { bodyObject, enumValue, optionalBoolean, optionalString, requiredNumber, requiredString } from "../request-fields.js";
+import { measurementStringMap } from "./support/measurement-fields.js";
+import { parseSensorPatch } from "./support/sensor-fields.js";
 import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
 
 /** Sensor CRUD, sensor labels and the sensor snapshot views. */

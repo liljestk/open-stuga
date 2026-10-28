@@ -1,4 +1,7 @@
-import { HttpError, collectionPage, optionalResourceQuery, parsePropertyAreaInput, parsePropertyAreaPatch, visibleCollectionPage } from "./support/index.js";
+import { HttpError } from "../http-error.js";
+import { collectionPage, visibleCollectionPage } from "./support/collection-pages.js";
+import { optionalResourceQuery } from "./support/query-fields.js";
+import { parsePropertyAreaInput, parsePropertyAreaPatch } from "./support/property-fields.js";
 import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
 
 /** Property areas such as yards, wells and outbuildings. */

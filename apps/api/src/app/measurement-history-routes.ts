@@ -1,6 +1,10 @@
 import { withResponseSignal } from "./response-signal.js";
 import type { MeasurementSample } from "@climate-twin/contracts";
-import { HttpError, boundedQueryInteger, boundedSseWriter, dateValue, localAuthorizationFingerprint, measurementId, queryList, requestPrincipal, safeInteger } from "./support/index.js";
+import { HttpError } from "../http-error.js";
+import { boundedQueryInteger, dateValue, queryList, safeInteger } from "./support/query-fields.js";
+import { boundedSseWriter } from "./support/event-streams.js";
+import { localAuthorizationFingerprint, requestPrincipal } from "./support/local-sessions.js";
+import { measurementId } from "./support/measurement-fields.js";
 import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
 
 /** v2 raw and bucketed measurement history, per-sensor measurement listings and the measurement event stream. */
