@@ -1,4 +1,5 @@
 export * from "../../http-error.js";
+export * from "../../request-fields.js";
 export * from "./house-access.js";
 export * from "./part-01.js";
 export * from "./part-02.js";

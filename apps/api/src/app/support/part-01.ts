@@ -1,4 +1,4 @@
-import { isOneOf } from "@climate-twin/contracts";
+import { optionalBoolean, optionalString, requiredNumber, requiredString } from "../../request-fields.js";
 import { type Request, type Response } from "express";
 import type {
   HouseLocation,
@@ -16,17 +16,6 @@ export function isRequestCancellation(error: unknown): boolean {
   if (typeof error !== "object" || error === null) return false;
   const name = (error as { name?: unknown }).name;
   return name === "AbortError";
-}
-
-export function bodyObject(value: unknown): Record<string, unknown> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new HttpError(400, "INVALID_BODY", "A JSON object is required");
-  return value as Record<string, unknown>;
-}
-
-export function requiredString(body: Record<string, unknown>, key: string): string {
-  const value = body[key];
-  if (typeof value !== "string" || !value.trim()) throw new HttpError(400, "INVALID_FIELD", `${key} must be a non-empty string`);
-  return value.trim();
 }
 
 export function credentialString(body: Record<string, unknown>, key: string, maximumLength: number, trim = false): string {
@@ -170,26 +159,6 @@ export function networkHost(value: string): string {
   return host;
 }
 
-export function optionalString(body: Record<string, unknown>, key: string): string | undefined {
-  const value = body[key];
-  if (value === undefined) return undefined;
-  if (typeof value !== "string") throw new HttpError(400, "INVALID_FIELD", `${key} must be a string`);
-  return value;
-}
-
-export function requiredNumber(body: Record<string, unknown>, key: string): number {
-  const value = body[key];
-  if (typeof value !== "number" || !Number.isFinite(value)) throw new HttpError(400, "INVALID_FIELD", `${key} must be a finite number`);
-  return value;
-}
-
-export function optionalBoolean(body: Record<string, unknown>, key: string): boolean | undefined {
-  const value = body[key];
-  if (value === undefined) return undefined;
-  if (typeof value !== "boolean") throw new HttpError(400, "INVALID_FIELD", `${key} must be a boolean`);
-  return value;
-}
-
 export function houseLocationValue(value: unknown): HouseLocation;
 
 export function houseLocationValue(value: unknown, allowNull: true): HouseLocation | null;
@@ -241,11 +210,6 @@ export function houseMapPlacementValue(value: unknown, allowNull = false): House
     ? undefined
     : requiredString(body, "footprintFloorId");
   return { latitude, longitude, metersPerPlanUnit, ...(footprintFloorId ? { footprintFloorId } : {}) };
-}
-
-export function enumValue<T extends string>(value: unknown, values: readonly T[], field: string): T {
-  if (!isOneOf(value, values)) throw new HttpError(400, "INVALID_FIELD", `${field} must be one of: ${values.join(", ")}`);
-  return value;
 }
 
 export const PROPERTY_AREA_KINDS = [

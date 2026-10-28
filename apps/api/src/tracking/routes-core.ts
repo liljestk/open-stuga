@@ -1,28 +1,24 @@
+import { bodyObject, enumValue, nullableString, rejectUnknownFields, requiredString } from "../request-fields.js";
 import { roleCanAccessNonGuestConfiguration, roleCanManageWorkspace } from "@climate-twin/contracts";
 import type { Application } from "express";
 import { assessTrackingCompatibility } from "./profiles.js";
 import { trackingEvidenceBatch } from "./route-evidence.js";
 import {
-  bodyObject,
   compatibilityInput,
   coordinate,
   endpointEnrollmentInput,
-  enumValue,
   ingestionActor,
   machineIdentity,
   manualLocationInput,
   metadata,
-  nullableString,
   numericLimit,
   observerInput,
   observerPatch,
-  rejectUnknown,
   requireAdministrator,
   requireEndpoint,
   requireEquipment,
   requireMember,
   requireProperty,
-  requiredString,
   settingsPatch,
   type TrackingRouteOptions,
 } from "./route-support.js";
@@ -97,7 +93,7 @@ export function registerTrackingCoreRoutes(app: Application, options: TrackingRo
     const endpoint = requireEndpoint(options, response, request.params.endpointId);
     options.assertPropertyWriteAllowed(endpoint.propertyId);
     const body = bodyObject(request.body);
-    rejectUnknown(body, ["status"], "Endpoint status");
+    rejectUnknownFields(body, ["status"], "Endpoint status");
     const status = enumValue(
       body.status,
       ["CLAIMED", "DEGRADED", "REVOKED", "RETIRED"] as const,
@@ -120,12 +116,12 @@ export function registerTrackingCoreRoutes(app: Application, options: TrackingRo
     const equipment = store.core.getAreaEquipment(request.params.equipmentId)!;
     options.assertPropertyWriteAllowed(equipment.propertyId);
     const body = bodyObject(request.body);
-    rejectUnknown(body, ["endpointId", "observerId"], "Tracking binding");
+    rejectUnknownFields(body, ["endpointId", "observerId"], "Tracking binding");
     const binding = store.bindEndpoint(
       equipment.id,
       {
-        endpointId: requiredString(body, "endpointId"),
-        ...(body.observerId === undefined ? {} : { observerId: requiredString(body, "observerId") }),
+        endpointId: requiredString(body, "endpointId", 200),
+        ...(body.observerId === undefined ? {} : { observerId: requiredString(body, "observerId", 200) }),
       },
       principal.userId,
     );
@@ -211,7 +207,7 @@ export function registerTrackingCoreRoutes(app: Application, options: TrackingRo
   app.post(`${prefix}/tracking/observers/:observerId/heartbeat`, (request, response) => {
     const identity = machineIdentity(options, response, request.params.observerId);
     const body = bodyObject(request.body);
-    rejectUnknown(body, ["status", "hardwareMetadata"], "Observer heartbeat");
+    rejectUnknownFields(body, ["status", "hardwareMetadata"], "Observer heartbeat");
     const status = body.status === undefined
       ? undefined
       : enumValue(body.status, ["online", "degraded", "disabled"] as const, "status");
@@ -232,7 +228,7 @@ export function registerTrackingCoreRoutes(app: Application, options: TrackingRo
       throw new TrackingError(404, "TRACKING_OBSERVER_NOT_FOUND", "Tracking observer not found");
     }
     const body = bodyObject(request.body);
-    rejectUnknown(body, ["position", "accuracyMeters", "zoneId"], "Observer position");
+    rejectUnknownFields(body, ["position", "accuracyMeters", "zoneId"], "Observer position");
     const accuracy = body.accuracyMeters;
     if (typeof accuracy !== "number" || !Number.isFinite(accuracy)) {
       throw new TrackingError(400, "INVALID_FIELD", "accuracyMeters must be a finite number");
@@ -242,7 +238,7 @@ export function registerTrackingCoreRoutes(app: Application, options: TrackingRo
         identity.observer.id,
         coordinate(body.position, "position"),
         accuracy,
-        nullableString(body, "zoneId") ?? null,
+        nullableString(body, "zoneId", 200) ?? null,
       ),
     });
   });

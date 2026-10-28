@@ -293,7 +293,7 @@ describe("local maintenance tasks", () => {
     await request(runtime.app).post("/api/v1/maintenance-tasks").send({
       ...taskInput,
       completedAt: "2000-01-01T00:00:00.000Z",
-    }).expect(400).expect(({ body }) => expect(body.error.code).toBe("INVALID_FIELD"));
+    }).expect(400).expect(({ body }) => expect(body.error.code).toBe("UNKNOWN_FIELD"));
     await request(runtime.app).post("/api/v1/maintenance-tasks").send({
       ...taskInput,
       id: "too-many-links",

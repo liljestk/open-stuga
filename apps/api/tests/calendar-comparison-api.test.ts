@@ -197,7 +197,7 @@ describe("calendar comparison API", () => {
       .post("/api/v2/analytics/calendar-comparison")
       .send({ ...comparison(), timezone: "UTC" })
       .expect(400)
-      .expect(({ body }) => expect(body.error.code).toBe("INVALID_FIELD"));
+      .expect(({ body }) => expect(body.error.code).toBe("UNKNOWN_FIELD"));
 
     await request(runtime.app)
       .post("/api/v2/analytics/calendar-comparison")

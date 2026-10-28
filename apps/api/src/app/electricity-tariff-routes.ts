@@ -15,7 +15,7 @@ const INVOICE_FIELDS = new Set([
   "energyEur", "networkEur", "taxEur", "feesEur", "note",
 ]);
 
-function optionalNumber(body: Record<string, unknown>, key: string): number | null {
+function numberOrNull(body: Record<string, unknown>, key: string): number | null {
   const value = body[key];
   if (value === undefined || value === null) return null;
   if (typeof value !== "number" || !Number.isFinite(value)) throw new HttpError(400, "INVALID_FIELD", `${key} must be a finite number or null`);
@@ -97,12 +97,12 @@ export function registerElectricityTariffRoutes(
       houseId,
       periodStart: stringField(body, "periodStart"),
       periodEnd: stringField(body, "periodEnd"),
-      totalEur: optionalNumber(body, "totalEur") ?? Number.NaN,
-      consumptionKwh: optionalNumber(body, "consumptionKwh"),
-      energyEur: optionalNumber(body, "energyEur"),
-      networkEur: optionalNumber(body, "networkEur"),
-      taxEur: optionalNumber(body, "taxEur"),
-      feesEur: optionalNumber(body, "feesEur"),
+      totalEur: numberOrNull(body, "totalEur") ?? Number.NaN,
+      consumptionKwh: numberOrNull(body, "consumptionKwh"),
+      energyEur: numberOrNull(body, "energyEur"),
+      networkEur: numberOrNull(body, "networkEur"),
+      taxEur: numberOrNull(body, "taxEur"),
+      feesEur: numberOrNull(body, "feesEur"),
       note,
     };
     const invoice = context.database.createElectricityInvoice(propertyId, input);

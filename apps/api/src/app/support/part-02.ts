@@ -1,3 +1,4 @@
+import { bodyObject, enumValue, requiredNumber, requiredString, rejectUnknownFields } from "../../request-fields.js";
 import type {
   AreaEquipmentInput,
   AreaEquipmentPatch,
@@ -13,7 +14,7 @@ import type {
   PropertyPatch,
 } from "@climate-twin/contracts";
 import { HttpError } from "../../http-error.js";
-import { AREA_EQUIPMENT_STATUSES, PROPERTY_AREA_KINDS, PROPERTY_NOTE_KINDS, bodyObject, enumValue, houseLocationValue, requiredNumber, requiredString } from "./part-01.js";
+import { AREA_EQUIPMENT_STATUSES, PROPERTY_AREA_KINDS, PROPERTY_NOTE_KINDS, houseLocationValue } from "./part-01.js";
 
 export function propertyText(
   body: Record<string, unknown>,
@@ -250,8 +251,3 @@ export const OBSERVATION_PATCH_FIELDS = new Set([
   "baseRevision", "floorId", "sensorId", "kind", "severity", "note", "x", "y", "occurredAt",
   "timePrecision", "validFrom", "validTo", "source", "sourceDetail", "confidence", "status", "resolutionNote",
 ]);
-
-export function rejectUnknownFields(body: Record<string, unknown>, allowed: ReadonlySet<string>, name: string): void {
-  const unknown = Object.keys(body).filter((key) => !allowed.has(key));
-  if (unknown.length > 0) throw new HttpError(400, "INVALID_FIELD", `${name} does not accept: ${unknown.join(", ")}`);
-}

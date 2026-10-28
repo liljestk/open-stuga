@@ -1,4 +1,4 @@
-import { enumValue, optionalString, requiredNumber, requiredString } from "../app/support/index.js";
+import { bodyObject, enumValue, nullableString, optionalString, rejectUnknownFields, requiredNumber, requiredString } from "../request-fields.js";
 import { HttpError } from "../http-error.js";
 import { withResponseSignal } from "../app/response-signal.js";
 import { randomUUID } from "node:crypto";
@@ -35,28 +35,9 @@ export class SpatialRouteError extends HttpError {
   }
 }
 
-function bodyObject(value: unknown): Record<string, unknown> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new SpatialRouteError(400, "INVALID_BODY", "A JSON object is required");
-  return value as Record<string, unknown>;
-}
-
-function rejectUnknownFields(body: Record<string, unknown>, allowed: ReadonlySet<string>, label: string): void {
-  const unknown = Object.keys(body).filter((key) => !allowed.has(key));
-  if (unknown.length > 0) {
-    throw new SpatialRouteError(400, "UNKNOWN_FIELD", `${label} contains unknown field${unknown.length === 1 ? "" : "s"}: ${unknown.join(", ")}`);
-  }
-}
-
 function objectValue(value: unknown, field: string): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new SpatialRouteError(400, "INVALID_FIELD", `${field} must be an object`);
   return value as Record<string, unknown>;
-}
-
-function nullableString(body: Record<string, unknown>, key: string): string | null | undefined {
-  const value = body[key];
-  if (value === undefined || value === null) return value;
-  if (typeof value !== "string") throw new SpatialRouteError(400, "INVALID_FIELD", `${key} must be a string or null`);
-  return value;
 }
 
 function optionalInteger(body: Record<string, unknown>, key: string): number | undefined {

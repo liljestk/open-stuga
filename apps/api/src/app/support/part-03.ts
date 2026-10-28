@@ -1,3 +1,4 @@
+import { bodyObject, enumValue, rejectUnknownFields, requiredString } from "../../request-fields.js";
 import { MAINTENANCE_TASK_BASES, MAINTENANCE_TASK_PRIORITIES, MAINTENANCE_TASK_STATUSES, OBSERVATION_CONFIDENCES, OBSERVATION_KINDS, OBSERVATION_SEVERITIES, OBSERVATION_SOURCES, OBSERVATION_STATUSES, OBSERVATION_TIME_PRECISIONS } from "@climate-twin/contracts";
 import { MAX_OBSERVATION_RESOLUTION_NOTE_LENGTH } from "@climate-twin/contracts";
 import type {
@@ -7,8 +8,7 @@ import type {
   ManualObservationPatch,
 } from "@climate-twin/contracts";
 import { HttpError } from "../../http-error.js";
-import { bodyObject, enumValue, requiredString } from "./part-01.js";
-import { OBSERVATION_CREATE_FIELDS, OBSERVATION_PATCH_FIELDS, propertyText, rejectUnknownFields } from "./part-02.js";
+import { OBSERVATION_CREATE_FIELDS, OBSERVATION_PATCH_FIELDS, propertyText } from "./part-02.js";
 import { compareCodeUnits } from "../../text-order.js";
 
 export function optionalNullableString(

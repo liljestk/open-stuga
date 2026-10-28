@@ -1,3 +1,4 @@
+import { bodyObject, requiredString } from "../../request-fields.js";
 import type {
   EquipmentAttachmentUploadInput,
   AppleNotesSnapshot,
@@ -9,7 +10,6 @@ import {
   ClimateDatabase,
 } from "../../db.js";
 import { HttpError } from "../../http-error.js";
-import { bodyObject, requiredString } from "./part-01.js";
 import { parseMaintenanceTaskInput } from "./part-03.js";
 import { notePlainLine, noteTaskBlock } from "./part-05.js";
 
