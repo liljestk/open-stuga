@@ -2,17 +2,13 @@ import { once } from "node:events";
 
 import type { AddressInfo } from "node:net";
 
-import { networkInterfaces } from "node:os";
-
 import request from "supertest";
 
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
-import { createApi, type ApiRuntime } from "../src/app.js";
+import type { ApiRuntime } from "../src/app.js";
 
-import { loadConfig } from "../src/config.js";
-
-import { OWNER, authRuntime, privateIpv4Address, sessionCookie, setupOwner, streamTextToEnd } from "./local-authTestSupport.js";
+import { OWNER, authRuntime, sessionCookie, setupOwner, streamTextToEnd } from "./local-authTestSupport.js";
 
 describe("local account authentication and authorization", () => {
   const runtimes: ApiRuntime[] = [];

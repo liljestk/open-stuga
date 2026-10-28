@@ -1,3 +1,4 @@
+import type { LocalMcpRuntimeStatus } from "@climate-twin/contracts";
 import { EventEmitter, once } from "node:events";
 import { fork, type ChildProcess } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -10,11 +11,7 @@ import express from "express";
 import request from "supertest";
 import { describe, expect, it, vi } from "vitest";
 import { ClimateDatabase } from "../src/db.js";
-import {
-  LocalMcpRuntimeError,
-  LocalMcpRuntimeService,
-  type LocalMcpRuntimeStatus,
-} from "../src/local-mcp-runtime.js";
+import { LocalMcpRuntimeError, LocalMcpRuntimeService } from "../src/local-mcp-runtime.js";
 import {
   registerLocalMcpRuntimeRoutes,
   registerLocalMcpTransportRoute,
@@ -200,11 +197,12 @@ describe("network MCP routes", () => {
     expect(runtime.proxy).toHaveBeenCalledOnce();
   });
 
-  it("keeps start and stop controls Owner/Admin-only", async () => {
+  it("keeps start and stop controls Owner/Admin-only and audits the bearer", async () => {
     const app = express();
+    const recordSecurityAudit = vi.fn();
     const runtime = {
       status: vi.fn(stoppedStatus),
-      start: vi.fn(async () => ({ ...stoppedStatus(), accessToken: null })),
+      start: vi.fn(async () => ({ ...stoppedStatus(), accessToken: "stugu_mcp_test" })),
       stop: vi.fn(async () => stoppedStatus()),
       authorize: vi.fn(),
       proxy: vi.fn(),
@@ -216,7 +214,7 @@ describe("network MCP routes", () => {
       };
       next();
     });
-    registerLocalMcpRuntimeRoutes({ app, prefix: "/api/v1" }, runtime);
+    registerLocalMcpRuntimeRoutes({ app, prefix: "/api/v1", recordSecurityAudit }, runtime);
     app.use((error: unknown, _request: express.Request, response: express.Response, _next: express.NextFunction) => {
       response.status((error as { status?: number }).status ?? 500).json({});
     });
@@ -224,5 +222,10 @@ describe("network MCP routes", () => {
     await request(app).post("/api/v1/system/mcp-runtime/start").expect(403);
     await request(app).post("/api/v1/system/mcp-runtime/start").set("x-role", "owner").expect(200);
     expect(runtime.start).toHaveBeenCalledOnce();
+    await request(app).post("/api/v1/system/mcp-runtime/stop").set("x-role", "owner").expect(200);
+    expect(recordSecurityAudit.mock.calls.map(([, event]) => [event.eventType, event.subjectId])).toEqual([
+      ["integration.grant.issued", "mcp-http"],
+      ["integration.grant.revoked", "mcp-http"],
+    ]);
   });
 });

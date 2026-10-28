@@ -1,5 +1,6 @@
+import { openingVariantLabel } from "./PlanElementAirflowFields";
 import { configuredPlanElementOpeningState, isAirflowPlanElement, type AirflowPlanElement, type Floor } from "@climate-twin/contracts";
-import { useI18n, type TranslationKey } from "../i18n";
+import { useI18n } from "../i18n";
 
 interface OpeningInventoryProps {
   floors: readonly Floor[];
@@ -26,8 +27,8 @@ export function OpeningInventory({ floors, selected = null, onSelect }: OpeningI
         const isSelected = selected?.floorId === floor.id && selected.elementId === element.id;
         return <button key={`${floor.id}:${element.id}`} type="button" className={isSelected ? "opening-inventory-item selected" : "opening-inventory-item"} aria-pressed={isSelected} onClick={() => onSelect(floor.id, element.id)}>
           <span className={`opening-state-swatch ${state.state}`} aria-hidden="true" />
-          <span><strong>{element.label ?? `${t(`planElement.${element.kind}` as TranslationKey)} ${index + 1}`}</strong><small>{floors.length > 1 ? `${floor.name} \u00b7 ` : ""}{t(`opening.variant.${element.kind}.${variant}` as TranslationKey)}</small></span>
-          <span className={`opening-state-label ${state.state}`}>{t(`opening.state.${state.state}` as TranslationKey)}</span>
+          <span><strong>{element.label ?? `${t(`planElement.${element.kind}`)} ${index + 1}`}</strong><small>{floors.length > 1 ? `${floor.name} \u00b7 ` : ""}{openingVariantLabel(t, element.kind, variant)}</small></span>
+          <span className={`opening-state-label ${state.state}`}>{t(`opening.state.${state.state}`)}</span>
         </button>;
       })}</div>
       : <p>{t("opening.inventoryEmpty")}</p>}

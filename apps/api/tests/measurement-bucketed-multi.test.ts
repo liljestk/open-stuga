@@ -60,12 +60,14 @@ describe("multi-series measurement buckets", () => {
     ]);
 
     const result = database.measurementHistoryBucketedMulti(
-      ["sensor-01", "sensor-02"],
-      ["co2", "temperature"],
-      "2026-07-14T09:59:00.000Z",
-      "2026-07-14T10:01:00.000Z",
-      60,
-      1,
+      {
+        sensorIds: ["sensor-01", "sensor-02"],
+        metrics: ["co2", "temperature"],
+        from: "2026-07-14T09:59:00.000Z",
+        to: "2026-07-14T10:01:00.000Z",
+        bucketSeconds: 60,
+        limitPerSeries: 1,
+      },
     );
     expect(result).toHaveLength(2);
     expect(result).toEqual(expect.arrayContaining([

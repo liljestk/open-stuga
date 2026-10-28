@@ -1,37 +1,10 @@
+import { type House, type OpeningStateObservation, withSignal } from "@climate-twin/contracts";
 import {
-  configuredPlanElementOpeningState,
-  floorMetersPerPlanUnit,
-  resolvePlanElementOpeningState,
-  type AirflowPlanElement,
-  type Floor,
-  type House,
-  type MeasurementSample,
-  type OutdoorTemperatureSample,
-  type OpeningStateObservation,
-  type Property,
-  type PropertyArea,
-  type Reading,
-  type Sensor,
-} from "@climate-twin/contracts";
-import {
-  validateTopology,
-  type CoordinateFrame,
-  type SpatialClimateSample,
-  type SpatialConnection,
-  type SpatialConnectionStateInterval,
-  type SpatialContextEvent,
   type SpatialLayerEngineInput,
-  type SpatialSensorBinding,
-  type SpatialSensorCalibration,
-  type SpatialTopology,
-  type SpatialZone,
-  type Vector2,
-  type Vector3,
 } from "@climate-twin/spatial-layers";
 import { outdoorLocationKey } from "../../db.js";
 import type {
   HybridTelemetryReadProvenance,
-  HybridTelemetryReader,
 } from "../../timeseries/read-facade.js";
 import type {
   SpatialConfigurationVersion,
@@ -44,8 +17,8 @@ import type {
   StoredSpatialSensorBinding,
   StoredSpatialSensorCalibration,
 } from "../types.js";
-import { CoreClimateReader, SpatialTelemetryReader } from "./01-spatial-telemetry-reader-to-architectural-opening-ar.js";
-import { ResolvedSpatialControlData, buildHouseTopology, buildOpeningConnectionStateIntervals, buildPropertyTopology, canonicalCalibrations, canonicalContextEvents, pairSparseClimateSamples, queryMetrics, telemetryReadWarnings } from "./02-apply-architectural-opening-states-to-telemetry-read.js";
+import { CoreClimateReader, SpatialTelemetryReader } from "./topology-geometry.js";
+import { ResolvedSpatialControlData, buildHouseTopology, buildOpeningConnectionStateIntervals, buildPropertyTopology, canonicalCalibrations, canonicalContextEvents, pairSparseClimateSamples, queryMetrics, telemetryReadWarnings } from "./topology-builder.js";
 
 export class ClimateDatabaseSpatialInputAdapter implements SpatialCoreInputPort {
   constructor(readonly core: CoreClimateReader, readonly telemetry: SpatialTelemetryReader) {}
@@ -125,22 +98,22 @@ export class ClimateDatabaseSpatialInputAdapter implements SpatialCoreInputPort 
             houseId: resolved.house.id,
             at: windowStart,
             limit: 10_000,
-            ...(request.signal ? { signal: request.signal } : {}),
+            ...withSignal(request.signal),
           }),
           this.telemetry.openingStateHistory({
             houseId: resolved.house.id,
             from: windowStart,
             to: windowEnd,
             limit: 10_000,
-            ...(request.signal ? { signal: request.signal } : {}),
+            ...withSignal(request.signal),
           }),
         ]);
         openingStateObservations = [...leading.records, ...history.records];
         openingProvenance = [leading.provenance, history.provenance];
       } else {
         openingStateObservations = [
-          ...this.core.listOpeningStateObservations(resolved.house.id, 10_000, windowStart),
-          ...this.core.listOpeningStateObservationHistory(resolved.house.id, windowStart, windowEnd, 10_000),
+          ...this.core.listOpeningStateObservations(resolved.house.id, { limit: 10_000, at: windowStart }),
+          ...this.core.listOpeningStateObservationHistory(resolved.house.id, { from: windowStart, to: windowEnd, limit: 10_000 }),
         ];
       }
       openingStateObservations = [...new Map(
@@ -155,7 +128,7 @@ export class ClimateDatabaseSpatialInputAdapter implements SpatialCoreInputPort 
       from: windowStart,
       to: windowEnd,
       limit: 250_000,
-      ...(request.signal ? { signal: request.signal } : {}),
+      ...withSignal(request.signal),
     });
     const outdoorReads = await Promise.all(resolved.houses.map((candidate) => this.telemetry.outdoorTemperatureHistory({
       houseId: candidate.id,
@@ -163,7 +136,7 @@ export class ClimateDatabaseSpatialInputAdapter implements SpatialCoreInputPort 
       from: windowStart,
       to: windowEnd,
       limit: 20_000,
-      ...(request.signal ? { signal: request.signal } : {}),
+      ...withSignal(request.signal),
     })));
     request.signal?.throwIfAborted();
     const sparseSamples = measurements.records;
@@ -238,16 +211,16 @@ export class ClimateDatabaseSpatialInputAdapter implements SpatialCoreInputPort 
       if (openingStateSource === "current-local") {
         openingStateObservations = this.core.listCurrentOpeningStateCandidates
           ? this.core.listCurrentOpeningStateCandidates(house.id, bucketAt, 10_000)
-          : this.core.listOpeningStateObservations(house.id, 10_000, bucketAt);
+          : this.core.listOpeningStateObservations(house.id, { limit: 10_000, at: bucketAt });
       } else if (openingStateSource === "archive-merged" && this.telemetry.openingStateSnapshot) {
         openingStateObservations = (await this.telemetry.openingStateSnapshot({
           houseId: house.id,
           at: bucketAt,
           limit: 10_000,
-          ...(signal ? { signal } : {}),
+          ...withSignal(signal),
         })).records;
       } else {
-        openingStateObservations = this.core.listOpeningStateObservations(house.id, 10_000, bucketAt);
+        openingStateObservations = this.core.listOpeningStateObservations(house.id, { limit: 10_000, at: bucketAt });
       }
     }
     signal?.throwIfAborted();

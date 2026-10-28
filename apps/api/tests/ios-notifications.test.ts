@@ -9,7 +9,8 @@ import {
   apnsNotificationSnapshot,
 } from "../src/notification-snapshot.js";
 import { NotificationOutboxWorker } from "../src/outbox.js";
-import { AlertEngine, RuntimeStatus } from "../src/services.js";
+import { AlertEngine } from "../src/alerts/alert-engine.js";
+import { RuntimeStatus } from "../src/runtime-status.js";
 import { TelegramService } from "../src/telegram.js";
 
 const OWNER = { email: "owner@example.test", password: "correct horse battery staple" };
@@ -110,10 +111,12 @@ describe("native iOS notifications", () => {
       runtime.database,
       config,
       new RuntimeStatus(config, new TelemetryBus(), runtime.database),
-      new TelegramService(),
-      fetch,
-      () => 0,
-      apns,
+      {
+        telegram: new TelegramService(),
+        fetchImpl: fetch,
+        telegramConfigurationGeneration: () => 0,
+        apns,
+      },
     );
     worker.start();
     await vi.waitFor(() => expect(runtime.database.pendingNotificationCount()).toBe(0));
@@ -157,10 +160,12 @@ describe("native iOS notifications", () => {
       runtime.database,
       config,
       new RuntimeStatus(config, new TelemetryBus(), runtime.database),
-      new TelegramService(),
-      fetch,
-      () => 0,
-      fencedApns,
+      {
+        telegram: new TelegramService(),
+        fetchImpl: fetch,
+        telegramConfigurationGeneration: () => 0,
+        apns: fencedApns,
+      },
     );
     fencedWorker.start();
     await vi.waitFor(() => expect(runtime.database.pendingNotificationCount()).toBe(0));
@@ -180,10 +185,12 @@ describe("native iOS notifications", () => {
       runtime.database,
       config,
       new RuntimeStatus(config, new TelemetryBus(), runtime.database),
-      new TelegramService(),
-      fetch,
-      () => 0,
-      inactiveApns,
+      {
+        telegram: new TelegramService(),
+        fetchImpl: fetch,
+        telegramConfigurationGeneration: () => 0,
+        apns: inactiveApns,
+      },
     );
     inactiveWorker.start();
     await vi.waitFor(() => expect(runtime.database.pendingNotificationCount()).toBe(0));

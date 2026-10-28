@@ -1,55 +1,15 @@
 import type {
-  ConnectionLayerValue,
   SpatialConnection,
   SpatialConnectionStateInterval,
-  SpatialLayerEngine,
   SpatialLayerEngineInput,
-  SpatialLayerEngineManifest,
-  SpatialLayerSnapshot,
 } from './contracts.js';
 
-import { clamp, mean, median, pearson, robustScale } from './math.js';
+import { clamp, mean, median } from './math.js';
 
-import { prepareSpatialWindow, type PreparedSpatialWindow, type ZoneClimatePoint } from './series.js';
+import { prepareSpatialWindow, type PreparedSpatialWindow } from './series.js';
 
-import { snapshotBase } from './snapshot.js';
-
-import { createSignalSeries, detectEvents, propagationConfig, segmentCorrelation, withCommonModeFractions } from "./propagation-signals.js";
+import { createSignalSeries, detectEvents, propagationConfig, segmentCorrelation, withCommonModeFractions, intervalOpenFraction, connectionOpenFractionThroughout } from "./propagation-signals.js";
 import type { ClimatePropagationEvent, DirectedPropagationEvidence, MatchedPropagationEvent, PropagationAnalysis, PropagationConfig, PropagationSignal, SignalSeries } from "./propagation-signals.js";
-
-export function intervalOpenFraction(interval: SpatialConnectionStateInterval): number {
-  return interval.enabled ? clamp(interval.openFraction ?? 1) : 0;
-}
-
-export /**
- * Returns the minimum effective aperture over the complete transit interval.
- * Missing coverage is treated as closed: API-supplied histories promise full
- * coverage, and conservative handling is safer for malformed external input.
- */
-function connectionOpenFractionThroughout(
-  intervals: readonly SpatialConnectionStateInterval[] | undefined,
-  fallbackEnabled: boolean,
-  startAt: string,
-  endAt: string,
-): number {
-  if (intervals === undefined) return fallbackEnabled ? 1 : 0;
-  let cursor = Date.parse(startAt);
-  const end = Date.parse(endAt);
-  if (!Number.isFinite(cursor) || !Number.isFinite(end) || end < cursor) return 0;
-  let fraction = 1;
-  for (const interval of intervals) {
-    const intervalStart = Date.parse(interval.startAt);
-    const intervalEnd = Date.parse(interval.endAt);
-    if (!Number.isFinite(intervalStart) || !Number.isFinite(intervalEnd) || intervalEnd <= intervalStart) continue;
-    if (intervalEnd <= cursor) continue;
-    if (intervalStart > cursor) return 0;
-    fraction = Math.min(fraction, intervalOpenFraction(interval));
-    if (fraction <= 0) return 0;
-    cursor = Math.max(cursor, intervalEnd);
-    if (cursor >= end) return fraction;
-  }
-  return cursor >= end ? fraction : 0;
-}
 
 export function directedEvidence(
   connection: SpatialConnection,

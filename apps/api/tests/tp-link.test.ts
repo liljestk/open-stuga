@@ -16,7 +16,7 @@ import { readIntegrationSecrets, writeIntegrationSecrets } from "../src/integrat
 
 import { ipv4BroadcastAddress, loadTpLinkDeviceMappings, normalizeTpLinkTemperature, tpLinkDiscoveryTargets } from "../src/tp-link.js";
 
-import { waitFor } from "./tp-linkTestSupport.js";
+import { waitFor } from "./waitForTestSupport.js";
 
 describe("direct TP-Link H100/H200 bridge", () => {
   let runtime: ApiRuntime | null = null;
@@ -66,7 +66,8 @@ describe("direct TP-Link H100/H200 bridge", () => {
       tpLinkHost: null, tpLinkUsername: null, tpLinkPassword: null,
       tpLinkDeviceMapFile: mappingPath, tpLinkPollIntervalMs: 10_000,
       tpLinkPython: process.execPath, tpLinkBridgeScript: "apps/api/python/tp_link_bridge.py",
-      alertWebhookUrl: null, alertWebhookBearerToken: null, corsOrigin: null,
+      corsOrigin: null,
+      localAuthTestBypass: true,
     };
     runtime = createApi({ config, startBackground: false });
     runtime.database.db.exec(`CREATE TRIGGER fail_tp_link_mapping_persistence
@@ -138,7 +139,8 @@ describe("direct TP-Link H100/H200 bridge", () => {
       tpLinkHost: "192.0.2.10", tpLinkUsername: "local@example.test", tpLinkPassword: "secret",
       tpLinkDeviceMapFile: mappingPath, tpLinkPollIntervalMs: 10_000,
       tpLinkPython: process.execPath, tpLinkBridgeScript: helperPath,
-      alertWebhookUrl: null, alertWebhookBearerToken: null, corsOrigin: null,
+      corsOrigin: null,
+      localAuthTestBypass: true,
     };
     runtime = createApi({ config, startBackground: false });
     runtime.tpLink.start();
@@ -187,7 +189,8 @@ describe("direct TP-Link H100/H200 bridge", () => {
       tpLinkHost: "192.0.2.10", tpLinkUsername: "local@example.test", tpLinkPassword: "secret",
       tpLinkDeviceMapFile: null, tpLinkPollIntervalMs: 2_000,
       tpLinkPython: process.execPath, tpLinkBridgeScript: helperPath,
-      alertWebhookUrl: null, alertWebhookBearerToken: null, corsOrigin: null,
+      corsOrigin: null,
+      localAuthTestBypass: true,
     };
     runtime = createApi({ config, startBackground: false });
     runtime.database.updateSensor("sensor-01", { tpLinkDeviceId: "t315-handover" });
@@ -245,7 +248,8 @@ describe("direct TP-Link H100/H200 bridge", () => {
       tpLinkHost: "192.0.2.10", tpLinkUsername: "local@example.test", tpLinkPassword: "secret",
       tpLinkDeviceMapFile: mappingPath, tpLinkPollIntervalMs: 2_000,
       tpLinkPython: process.execPath, tpLinkBridgeScript: helperPath,
-      alertWebhookUrl: null, alertWebhookBearerToken: null, corsOrigin: null,
+      corsOrigin: null,
+      localAuthTestBypass: true,
     };
     runtime = createApi({ config, startBackground: false });
     runtime.tpLink.start();
@@ -293,7 +297,8 @@ describe("direct TP-Link H100/H200 bridge", () => {
       }],
       tpLinkDeviceMapFile: null, tpLinkPollIntervalMs: 10_000,
       tpLinkPython: process.execPath, tpLinkBridgeScript: helperPath,
-      alertWebhookUrl: null, alertWebhookBearerToken: null, corsOrigin: null,
+      corsOrigin: null,
+      localAuthTestBypass: true,
     };
     runtime = createApi({ config, startBackground: false });
     runtime.tpLink.start();
@@ -342,7 +347,8 @@ describe("direct TP-Link H100/H200 bridge", () => {
       tpLinkHost: null, tpLinkUsername: null, tpLinkPassword: null,
       tpLinkConnections: savedConnections, tpLinkDeviceMapFile: null, tpLinkPollIntervalMs: 10_000,
       tpLinkPython: process.execPath, tpLinkBridgeScript: helperPath,
-      alertWebhookUrl: null, alertWebhookBearerToken: null, corsOrigin: null,
+      corsOrigin: null,
+      localAuthTestBypass: true,
     };
     runtime = createApi({ config, startBackground: false });
     runtime.tpLink.start();
@@ -382,7 +388,8 @@ describe("direct TP-Link H100/H200 bridge", () => {
       tpLinkHost: null, tpLinkUsername: null, tpLinkPassword: null,
       tpLinkConnections: [savedConnection], tpLinkDeviceMapFile: null, tpLinkPollIntervalMs: 10_000,
       tpLinkPython: process.execPath, tpLinkBridgeScript: helperPath,
-      alertWebhookUrl: null, alertWebhookBearerToken: null, corsOrigin: null,
+      corsOrigin: null,
+      localAuthTestBypass: true,
     };
     runtime = createApi({ config, startBackground: false });
     runtime.tpLink.start();
@@ -414,7 +421,8 @@ describe("direct TP-Link H100/H200 bridge", () => {
       tpLinkHost: "192.0.2.11", tpLinkUsername: "local@example.test", tpLinkPassword: "secret",
       tpLinkDeviceMapFile: null, tpLinkPollIntervalMs: 10_000,
       tpLinkPython: process.execPath, tpLinkBridgeScript: helperPath,
-      alertWebhookUrl: null, alertWebhookBearerToken: null, corsOrigin: null,
+      corsOrigin: null,
+      localAuthTestBypass: true,
     };
     runtime = createApi({ config, startBackground: false });
     const wakeHouse = vi.spyOn(runtime.spatialLayers!.scheduler, "wakeHouse");
@@ -501,7 +509,8 @@ describe("direct TP-Link H100/H200 bridge", () => {
       tpLinkHost: "192.0.2.40", tpLinkUsername: "local@example.test", tpLinkPassword: "secret",
       tpLinkDeviceMapFile: mappingPath, tpLinkPollIntervalMs: 10_000,
       tpLinkPython: process.execPath, tpLinkBridgeScript: helperPath,
-      alertWebhookUrl: null, alertWebhookBearerToken: null, corsOrigin: null,
+      corsOrigin: null,
+      localAuthTestBypass: true,
     };
 
     runtime = createApi({ config, startBackground: false });
@@ -575,7 +584,8 @@ describe("direct TP-Link H100/H200 bridge", () => {
       tpLinkHost: "192.0.2.20", tpLinkUsername: "local@example.test", tpLinkPassword: "secret",
       tpLinkDeviceMapFile: mappingPath, tpLinkPollIntervalMs: 10_000,
       tpLinkPython: process.execPath, tpLinkBridgeScript: helperPath,
-      alertWebhookUrl: null, alertWebhookBearerToken: null, corsOrigin: null,
+      corsOrigin: null,
+      localAuthTestBypass: true,
     };
     runtime = createApi({ config, startBackground: false });
     runtime.tpLink.start();

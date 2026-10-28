@@ -1,5 +1,6 @@
+# Direct dependencies of the TP-Link, Gree and Tuya bridges, pinned exactly;
+# their own requirements resolve from these. greeclimate brings netifaces (a C
+# extension, hence gcc in the Dockerfile's runtime build) and pycryptodome.
 python-kasa==0.10.2
 greeclimate==2.1.4
 tinytuya==1.20.0
-netifaces==0.11.0
-pycryptodome==3.23.0

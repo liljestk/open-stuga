@@ -53,12 +53,12 @@ describe("manual observation time and revision model", () => {
     await request(runtime.app).post("/api/v1/observations").send({
       ...baseObservation,
       createdAt: "2000-01-01T00:00:00Z",
-    }).expect(400).expect(({ body }) => expect(body.error.code).toBe("INVALID_FIELD"));
+    }).expect(400).expect(({ body }) => expect(body.error.code).toBe("UNKNOWN_FIELD"));
     await request(runtime.app).post("/api/v1/observations").send({
       ...baseObservation,
       status: "resolved",
       resolutionNote: "Already fixed",
-    }).expect(400).expect(({ body }) => expect(body.error.code).toBe("INVALID_FIELD"));
+    }).expect(400).expect(({ body }) => expect(body.error.code).toBe("UNKNOWN_FIELD"));
   });
 
   it("deduplicates exact field-capture retries and rejects a changed replay", async () => {
@@ -390,7 +390,7 @@ describe("manual observation time and revision model", () => {
       status: "resolved",
       resolutionNote: "Fixed leak",
       resolvedAt: "2000-01-01T00:00:00.000Z",
-    }).expect(400).expect(({ body }) => expect(body.error.code).toBe("INVALID_FIELD"));
+    }).expect(400).expect(({ body }) => expect(body.error.code).toBe("UNKNOWN_FIELD"));
 
     expect(runtime.database.getObservation("invalid-resolution")).toMatchObject({
       status: "open",

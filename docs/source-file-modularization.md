@@ -26,9 +26,9 @@ contained 128,271 lines. The largest concentration points were:
 The recurring problems were mixed responsibilities, broad dependency surfaces,
 hard-to-isolate tests, and merge conflicts around central files.
 
-## Implemented boundaries
+## Target boundaries
 
-| Area | Boundary used |
+| Area | Boundary aimed for |
 | --- | --- |
 | Web application | Small public facades with feature-specific component, hook, API, locale, data, and style modules |
 | API runtime | Route registration and runtime assembly split by API domain |
@@ -40,6 +40,19 @@ hard-to-isolate tests, and merge conflicts around central files.
 | Operational scripts | Argument/configuration, external clients, operations, and executable orchestration separated |
 | Tests | Reusable fixtures moved to support modules; suites divided by behavior without changing assertions |
 | Python bridge | Discovery, recovery, shared helpers, and runtime orchestration separated |
+
+The prototype registries (`db`, `stuguby/service`, `stuguby/store`,
+`timeseries/store`) keep one file per aggregate under `methods/`
+(`methods/sensors.ts`, `methods/alerts.ts`, `methods/tapo-history-export-jobs.ts`,
+...). Each file declares its methods' signatures in a `declare module` block
+next to the `register…Methods` call that implements them, so there is no
+mirrored declarations folder. Row types, row mappers and shared validation
+live beside them under `support/`, named after what they hold.
+
+Several areas still carry numbered legacy modules from the original split by
+line count rather than by domain, chiefly the hook chains of the largest web
+pages. `scripts/baselines/numbered-modules.json` lists them and may only
+shrink; each is renamed after its domain when it is next changed.
 
 Existing public import paths remain facades, so callers do not need to know the
 internal layout. During the split, deferred contexts were tightened to explicit
@@ -55,12 +68,14 @@ at ownership boundaries, not at line offsets. `npm run typecheck` runs this
 check first. Build outputs, dependencies, caches, and coverage are excluded.
 
 `npm run check:architecture` rejects every new numbered module (`part-NN`,
-`NN-name`, `name.part-NN`) in code, styles and tests anywhere under the audited
-roots. The legacy ones are listed in `scripts/baselines/numbered-modules.json`
-(336 when the list was introduced: TypeScript, JavaScript and CSS). The list may
-only shrink: renaming a module after its domain means deleting its line, and the
-check fails on a stale line or on a list that gained entries relative to
-`origin/main`. The check additionally protects the analytics/data rewrite against
+`NN-name`, `name.part-NN`, `name-NN`, `Name.NN-slug.test`) in code, styles and
+tests anywhere under the audited roots. The legacy ones are listed in
+`scripts/baselines/numbered-modules.json` (336 when the list was introduced:
+TypeScript, JavaScript and CSS). The list may only shrink: renaming a module
+after its domain means deleting its line, and the check fails on a stale line or
+on a list that gained entries relative to `origin/main`. The one exception is a
+file that already existed at the merge base: when the detector learns a new
+numbered form, those existing files join the list as old debt. The check additionally protects the analytics/data rewrite against
 reintroduction of deleted browser derivations, direct live-stream ownership
 outside the coordinator, pure analytics imports of API I/O, and query-client
 resources that import the legacy bootstrap chain. `useClimateData.ts` is now a

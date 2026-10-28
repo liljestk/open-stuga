@@ -135,7 +135,8 @@ export interface FireEscapePlanElement extends PlanElementBase {
 
 export type WallOpeningPlanElement = DoorPlanElement | WindowPlanElement;
 
-export type FixturePlanElement = FireplacePlanElement | VentPlanElement;
+/** Plan elements edited with the fixture fields: fireplaces and fire escapes. */
+export type FixturePlanElement = FireplacePlanElement | FireEscapePlanElement;
 
 export type AirflowPlanElement = WallOpeningPlanElement | VentPlanElement;
 

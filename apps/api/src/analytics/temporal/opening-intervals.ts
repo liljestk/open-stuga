@@ -8,6 +8,7 @@ import {
   type OpeningStateBinding,
   type OpeningStateObservation,
 } from "@climate-twin/contracts";
+import { compareCodeUnits } from "../../text-order.js";
 
 interface OpeningTargetModel {
   target: OpeningActivityTarget;
@@ -18,10 +19,6 @@ interface NormalizedObservation {
   observation: OpeningStateObservation;
   timestamp: number;
   state: OpeningState;
-}
-
-function stableCompare(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0;
 }
 
 export function openingActivityTargets(house: House): OpeningTargetModel[] {
@@ -92,13 +89,13 @@ function normalizedObservations(
       state: openingObservationState(observation, target.binding),
     };
     const previous = byIdentityAndTime.get(key);
-    if (!previous || stableCompare(previous.observation.id, observation.id) < 0) {
+    if (!previous || compareCodeUnits(previous.observation.id, observation.id) < 0) {
       byIdentityAndTime.set(key, item);
     }
   }
   return [...byIdentityAndTime.values()].sort((left, right) => (
     left.timestamp - right.timestamp
-    || stableCompare(left.observation.id, right.observation.id)
+    || compareCodeUnits(left.observation.id, right.observation.id)
   ));
 }
 

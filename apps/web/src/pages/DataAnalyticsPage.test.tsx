@@ -208,7 +208,7 @@ describe("DataAnalyticsPage", () => {
   it("keeps last received continuity data visibly stale after a failed refresh and collapse", async () => {
     const state = createDemoState();
     const house = state.houses[0]!;
-    const analyticsQuery = vi.spyOn(api, "analyticsQuery").mockResolvedValue(analyticsResponseFor(house, state.sensors.filter((sensor) => sensor.houseId === house.id && sensor.enabled)));
+    vi.spyOn(api, "analyticsQuery").mockResolvedValue(analyticsResponseFor(house, state.sensors.filter((sensor) => sensor.houseId === house.id && sensor.enabled)));
     vi.spyOn(api, "outdoorTemperatureHistory").mockResolvedValue({ samples: [], from: "", to: "", truncated: false });
     const gaps = vi.spyOn(api, "sensorDataGaps").mockResolvedValue([]);
     vi.spyOn(api, "houseElectricityPrice").mockResolvedValue({ current: null, prices: [] });
@@ -408,13 +408,12 @@ describe("DataAnalyticsPage", () => {
     await user.click(container.querySelector<HTMLButtonElement>(".analytics-page-heading > button")!);
     await waitFor(() => expect(screen.getAllByText("History service unavailable")).toHaveLength(1));
 
-    expect(api.outdoorTemperatureHistory).toHaveBeenCalledWith(
-      house.id,
-      expect.any(String),
-      expect.any(String),
-      100_000,
-      expect.any(AbortSignal),
-    );
+    expect(api.outdoorTemperatureHistory).toHaveBeenCalledWith(house.id, {
+      from: expect.any(String),
+      to: expect.any(String),
+      limit: 100_000,
+      signal: expect.any(AbortSignal),
+    });
 
     expect(screen.getByRole("button", { name: "1 year" })).not.toBeNull();
     await user.selectOptions(screen.getByRole("combobox", { name: "Resolution" }), "1h");

@@ -1,16 +1,8 @@
-import {
-  ELECTRICITY_INVOICE_TOLERANCE_PERCENT,
-  type AnalyticsBillEvidence,
-  type AnalyticsDiagnostics,
-  type AnalyticsForecastEvidence,
-  type AnalyticsLatencyEvidence,
-  type AnalyticsLatencyOperation,
-  type House,
-  type Sensor,
-} from "@climate-twin/contracts";
+import { nullWhenTemporarilyUnavailable } from "../../electricity/energy-cost.js";
+import { ELECTRICITY_INVOICE_TOLERANCE_PERCENT, type AnalyticsBillEvidence, type AnalyticsDiagnostics, type AnalyticsForecastEvidence, type AnalyticsLatencyEvidence, type AnalyticsLatencyOperation, type House, type Sensor, withSignal } from "@climate-twin/contracts";
 import { median } from "@climate-twin/analytics-kernel";
 import type { ClimateDatabase } from "../../db.js";
-import type { EnergySummaryCache } from "../../energy-summary-cache.js";
+import type { EnergySummaryCache } from "../../electricity/summary-cache.js";
 import type { EnergyProjectionCache } from "../../electricity/projection-cache.js";
 import { invoiceRange, reconcileInvoice } from "../../electricity/invoice-reconciliation.js";
 import { LATENCY_TARGET_P95_MS, histogramPercentile } from "./latency.js";
@@ -85,7 +77,7 @@ export class AnalyticsDiagnosticsService {
     const sensorIds = new Set(sensors.map((sensor) => sensor.id));
     const [bills, projection] = await Promise.all([
       this.#bills(house, sensors, signal),
-      this.projections.get(house, sensors, signal).catch(() => null),
+      this.projections.get(house, sensors, signal).catch(nullWhenTemporarilyUnavailable(signal)),
     ]);
     const stored = this.database.dailyAnalyticsFindings(house.id, this.database.isRealDataMode() ? "live" : "demo")?.snapshot ?? null;
     return {
@@ -125,7 +117,7 @@ export class AnalyticsDiagnosticsService {
       try {
         const { summary } = await this.summaries.get({
           houseId: house.id, propertyId: house.propertyId, timeZone: house.timezone, sensors, ...range,
-          ...(signal ? { signal } : {}),
+          ...withSignal(signal),
         });
         results.push(reconcileInvoice(invoice, summary));
       } catch {

@@ -1,66 +1,10 @@
 import {
   lazy,
-  Suspense,
-  useEffect,
-  useId,
-  useMemo,
-  useRef,
-  useState,
-  type FormEvent,
-  type KeyboardEvent,
-  type PointerEvent as ReactPointerEvent,
 } from "react";
-import {
-  Archive,
-  Check,
-  ChevronDown,
-  ChevronLeft,
-  ChevronRight,
-  CircleDot,
-  Copy,
-  Database,
-  Edit3,
-  FileSpreadsheet,
-  Home,
-  LoaderCircle,
-  MapPin,
-  Plus,
-  Printer,
-  QrCode,
-  RadioTower,
-  RefreshCw,
-  RotateCcw,
-  Search,
-  Sparkles,
-  ThermometerSun,
-  Trash2,
-  TriangleAlert,
-  X,
-} from "lucide-react";
-import type {
-  Floor,
-  House,
-  HousePatch,
-  IntegrationStatus,
-  MeasurementSample,
-  Metric,
-  Sensor,
-  SensorLabelDescriptor,
-  TpLinkDiscoveredDevice,
-  UnitSystem,
-} from "@climate-twin/contracts";
-import { api, type CreateSensorInput, type HistoricalImportResult, type SensorPatch } from "../../../api";
+import type { Floor, House, HousePatch, IntegrationStatus, MeasurementSample, Metric, Sensor, SensorPatch, TpLinkDiscoveredDevice, UnitSystem } from "@climate-twin/contracts";
+import { type CreateSensorInput, type HistoricalImportResult } from "../../../api";
 import type { ClimateState, TimeRange } from "../../../domain";
-import { useI18n, type TranslationKey } from "../../../i18n";
-import { formatInTimeZone } from "../../../dateTime";
-import { measurementLabel } from "../../../measurements";
-import { useNow } from "../../../useNow";
-import { integrationForHouse } from "../../../integrationScope";
-import { assessSensorCoverage, suggestSensorPlacement, type SensorCoverageAssessment, type SensorPlacementSuggestion } from "../../../experimentalSpatialLayers";
-import { configuredSpatialMaxSampleAgeMs } from "../../../spatialFreshness";
-import { useSpatialLayers } from "../../../useSpatialLayers";
-import { qrCodeMatrix } from "../../../qrCode";
-import { TrendChart } from "../../../components/TrendChart";
+import { type TranslationKey } from "../../../i18n";
 import { isTpLinkContactDevice } from "../../../tpLinkDeviceClassification";
 
 export const HistoricalImportWizard = lazy(() => import("../../../components/HistoricalImportWizard")

@@ -1,3 +1,4 @@
+import { BUILTIN_MEASUREMENT_DEFINITIONS } from "@climate-twin/contracts";
 import type {
   AppSession,
   AreaEquipment,
@@ -10,8 +11,6 @@ import type {
   MaintenanceTask,
   ManualObservation,
   MeasurementDefinition,
-  MeasurementForecastPoint,
-  MeasurementSample,
   Metric,
   MockScenario,
   OpeningStateObservation,
@@ -25,7 +24,6 @@ import type {
   UnitSystem,
 } from "@climate-twin/contracts";
 import {
-  BUILTIN_MEASUREMENTS,
   definitionFor,
   formatMeasurement,
   fromDisplayValue,
@@ -63,8 +61,6 @@ export interface ClimateState {
   houses: House[];
   sensors: Sensor[];
   readings: Record<string, Reading>;
-  history: Record<string, Reading[]>;
-  forecasts: Record<string, ForecastPoint[]>;
   alertRules: AlertRule[];
   alerts: AlertEvent[];
   observations: ManualObservation[];
@@ -92,8 +88,6 @@ export function preferredHouseForProperty(
   return candidates.find((house) => house.id === property.defaultHouseId)
     ?? candidates.sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id))[0];
 }
-
-const now = new Date();
 
 const groundFloor: Floor = {
   id: DEMO_GROUND_ID,
@@ -162,7 +156,7 @@ const sensorSeeds = [
   ["sensor-guest", DEMO_UPPER_ID, "Guest room", "Guest room", 795, 500, 19.9, 50, 620],
 ] as const;
 
-export function createDemoState(): ClimateState {
+export function createDemoState(now = new Date()): ClimateState {
   const propertyCreatedAt = new Date(now.getTime() - 86400000 * 30).toISOString();
   const houses: House[] = [{
     id: DEMO_HOUSE_ID,
@@ -226,12 +220,12 @@ export function createDemoState(): ClimateState {
     }
     history[id] = points;
     readings[id] = points.at(-1)!;
-    const samples = points.flatMap((reading) => readingSamples(reading, BUILTIN_MEASUREMENTS));
-    measurementHistory[id] = Object.fromEntries(BUILTIN_MEASUREMENTS.map((definition) => [
+    const samples = points.flatMap((reading) => readingSamples(reading, BUILTIN_MEASUREMENT_DEFINITIONS));
+    measurementHistory[id] = Object.fromEntries(BUILTIN_MEASUREMENT_DEFINITIONS.map((definition) => [
       definition.id,
       samples.filter((sample) => sample.metric === definition.id),
     ]));
-    latestMeasurements[id] = Object.fromEntries(BUILTIN_MEASUREMENTS.flatMap((definition) => {
+    latestMeasurements[id] = Object.fromEntries(BUILTIN_MEASUREMENT_DEFINITIONS.flatMap((definition) => {
       const sample = measurementHistory[id]?.[definition.id]?.at(-1);
       return sample ? [[definition.id, sample]] : [];
     }));
@@ -261,7 +255,7 @@ export function createDemoState(): ClimateState {
         },
       };
     });
-    measurementForecasts[id] = Object.fromEntries(BUILTIN_MEASUREMENTS.map((definition) => [
+    measurementForecasts[id] = Object.fromEntries(BUILTIN_MEASUREMENT_DEFINITIONS.map((definition) => [
       definition.id,
       forecasts[id]!.flatMap((point) => {
         const measurement = point.measurements?.[definition.id];
@@ -283,15 +277,13 @@ export function createDemoState(): ClimateState {
     propertyAreas: [],
     areaEquipment: [],
     propertyNotes: [],
-    measurementDefinitions: BUILTIN_MEASUREMENTS,
+    measurementDefinitions: [...BUILTIN_MEASUREMENT_DEFINITIONS],
     latestMeasurements,
     measurementHistory,
     measurementForecasts,
     houses,
     sensors,
     readings,
-    history,
-    forecasts,
     alertRules: [{
       id: "rule-high-humidity",
       name: "Sustained high humidity",
@@ -412,11 +404,11 @@ export function readingAt(readings: Reading[], timestamp: number): Reading | und
 }
 
 export function displayValue(value: number, metric: Metric, units: UnitSystem): string {
-  return formatMeasurement(value, definitionFor(BUILTIN_MEASUREMENTS, metric), units);
+  return formatMeasurement(value, definitionFor(BUILTIN_MEASUREMENT_DEFINITIONS, metric), units);
 }
 
 export function toCanonicalValue(value: number, metric: Metric, units: UnitSystem): number {
-  return fromDisplayValue(value, definitionFor(BUILTIN_MEASUREMENTS, metric), units);
+  return fromDisplayValue(value, definitionFor(BUILTIN_MEASUREMENT_DEFINITIONS, metric), units);
 }
 
 export function metricValue(reading: Reading, metric: Metric): number {

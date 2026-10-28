@@ -7,7 +7,7 @@ import {
 import { connectAsync, type MqttClient } from "mqtt";
 import type { GreeDiscoveredDevice, HeatPumpDiagnostics, HeatPumpMode } from "@climate-twin/contracts";
 import { abortableDelay } from "./abortable-delay.js";
-import type { GreeBindingResult, GreeStatePayload } from "./gree.js";
+import type { GreeBindingResult, GreeStatePayload } from "./gree-protocol.js";
 import type { GreeConnectionSecret } from "./integration-secrets.js";
 
 const API_BASE = "https://eugrih.gree.com";

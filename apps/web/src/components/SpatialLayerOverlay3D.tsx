@@ -11,8 +11,8 @@ import {
   type SpatialLayerSnapshot,
   type SpatialTopology,
   type SpatialLayerZone,
-} from "../spatialLayers";
-import type { Point3D, ProjectedPoint3D } from "../spatialVolume";
+} from "../spatial/layers";
+import type { Point3D, ProjectedPoint3D } from "../spatial/volume";
 import { useI18n } from "../i18n";
 import { spatialLayerLabel } from "./SpatialLayerPanel";
 

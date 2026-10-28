@@ -2,6 +2,31 @@
 
 All notable Stugu releases are recorded here.
 
+## 0.52.0
+
+A code-health release: most of the work restructures the API and web app, with a few fixes and stricter behaviour you may notice.
+
+- Security: Home Assistant, TP-Link, Telegram and Apple Notes credential routes and LAN discovery now require an Owner or Admin, like Gree, Tuya and Nexus433. Members see a translated note instead of the forms. Guests no longer receive other people's mutation events on the live stream, starting or stopping the local MCP runtime is audited, and spatial-layer routes refuse access when an authorization check is missing.
+- Failed actions are explained in the viewer's language. Finnish and Swedish users saw the server's English error text before.
+- The web app checks the shape of every API response and reports a clear error instead of showing broken values when one does not match.
+- Fixes:
+  - A shared Home with an invalid floor in a layout request answers 400 instead of failing with a 500.
+  - Retrying an older dead-lettered notification works.
+  - `GET /api/v1/forecast` for a hidden sensor answers 404 instead of a body the web app rejected.
+  - Opening the spatial layers of a newly added Home no longer stores a default configuration.
+- Scheduled exports, sensor-gap recovery, the Tapo mailbox, the TimescaleDB archive, Cloudflare Access sync, weather and spatial layers now record their failures in the system error log you can export, instead of only printing them.
+- The Excel import checks workbooks with the bundled ZIP library, still stopping any entry that expands beyond its declared size.
+- The API container image installs only the API's production dependencies, so it is smaller.
+- Internal: numbered "part" files are replaced by modules named after what they own (route families, the database, Stuguby and TimescaleDB stores, the MCP server, the web API client and pages). The MCP server builds its services when it starts rather than when it is imported. The built-in measurement definitions come from one shared catalogue. About 22,000 unused imports and locals are gone, functions over the complexity limit drop from 301 to 294, and test coverage is now gated.
+- Upgrade impact: application-only update; no schema, Compose or host-trust change. Clients of the HTTP API should note:
+  - Request bodies with unknown fields answer `400 UNKNOWN_FIELD` (observations, maintenance tasks, properties and calendar comparisons said `INVALID_FIELD`), and a body that is not a JSON object says "Request body must be a JSON object".
+  - `POST /api/v1/alert-rules` answers `{ rule }`, like `PATCH`.
+  - The `TELEMETRY_ARCHIVE_REQUIRED` 503 always includes `details.archiveState`, and unexpected server errors answer 500 instead of being reported as a client 400.
+  - The compatibility routes `/alerts`, `/alerts/{id}/acknowledge`, `/events`, `/snapshot`, `/static-parameters` and `PUT /sensors/{id}` keep their shapes for the iOS companion; the web app now uses the canonical routes.
+  - Members (not Owners or Admins) can no longer change integration credentials.
+  - An alert webhook configured through environment variables keeps working, and the setup doctor now checks signing for every webhook destination.
+  - Built-in measurement definitions are unchanged on existing installs; fresh installs get the shared catalogue's labels and ranges.
+
 ## 0.51.4
 
 - Rewrite the README for the current release. It now shows the app in light and dark screenshots of the sample home with synthetic data: Home Pulse, the live 2D plan, the 3D building, Data & analytics, and Electricity. Diagrams explain how readings flow from devices to the apps, how Properties and Homes own data, and the install paths. The version is no longer in the README title, where it had stayed at 0.32.3.

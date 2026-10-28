@@ -1,8 +1,8 @@
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 
 import userEvent from "@testing-library/user-event";
 
-import type { House, IntegrationStatus, TpLinkDiscoveredDevice } from "@climate-twin/contracts";
+import type { House, IntegrationStatus } from "@climate-twin/contracts";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -13,7 +13,7 @@ import { I18nProvider } from "../i18n";
 
 import { IntegrationsPage } from "./IntegrationsPage";
 
-import { connectedTpLink, deferred, discoveredChild, historyAutomation, house, integration, renderPage } from "./IntegrationsPageTestSupport";
+import { connectedTpLink, deferred, historyAutomation, house, integration, renderPage } from "./IntegrationsPageTestSupport";
 
 async function openAdvancedWeather(user: ReturnType<typeof userEvent.setup>) {
   const advanced = screen.getByText("Advanced setup").closest("details")!;

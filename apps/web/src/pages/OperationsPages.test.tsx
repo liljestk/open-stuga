@@ -3,8 +3,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { MaintenanceTask, ManualObservation, ManualObservationInput } from "@climate-twin/contracts";
 import { I18nProvider } from "../i18n";
 import { createDemoState } from "../domain";
-import { ObservationComposer } from "../components/ObservationComposer";
-import { HomeOperationsPreview } from "../components/HomeOperationsPreview";
+import { ObservationComposer } from "./ActivityPage/ObservationComposer";
+import { HomeOperationsPreview } from "./TwinDashboard/HomeOperationsPreview";
 import { ActivityPage } from "./ActivityPage";
 import { MaintenancePage } from "./MaintenancePage";
 

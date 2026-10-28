@@ -1,13 +1,8 @@
 import type { Request, Response } from "express";
-import { SystemUpdateError } from "../system-updates.js";
-import {
-  HttpError,
-  bodyObject,
-  boundedSseWriter,
-  localAuthorizationFingerprint,
-  requestPrincipal,
-  requireWorkspaceAdmin,
-} from "./support/index.js";
+import { HttpError } from "../http-error.js";
+import { bodyObject } from "../request-fields.js";
+import { boundedSseWriter } from "./support/event-streams.js";
+import { localAuthorizationFingerprint, requestPrincipal, requireWorkspaceAdmin } from "./support/local-sessions.js";
 import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
 
 export type SystemUpdateRouteContext = Pick<
@@ -95,73 +90,51 @@ export function registerSystemUpdateRoutes(context: SystemUpdateRouteContext): v
     requireWorkspaceAdmin,
     (request, response) => registerUpdateEventStream(context, request, response),
   );
-  context.app.post(`${context.prefix}/system/updates/check`, requireWorkspaceAdmin, async (_request, response, next) => {
-    try {
-      response.setHeader("cache-control", "no-store");
-      response.json(await context.systemUpdates.check());
-    } catch (error) {
-      next(error);
-    }
+  context.app.post(`${context.prefix}/system/updates/check`, requireWorkspaceAdmin, async (_request, response) => {
+    response.setHeader("cache-control", "no-store");
+    response.json(await context.systemUpdates.check());
   });
-  context.app.patch(`${context.prefix}/system/updates/settings`, requireWorkspaceAdmin, (request, response, next) => {
-    try {
-      const status = context.systemUpdates.updateSettings(bodyObject(request.body));
-      const principal = requestPrincipal(response);
-      context.recordSecurityAudit(principal, {
-        eventType: "system.update.settings.changed",
-        subjectType: "system-update-settings",
-        subjectId: "local",
-        details: { mode: status.settings.mode, timezone: status.settings.timezone },
-      });
-      response.setHeader("cache-control", "no-store");
-      response.json(status);
-    } catch (error) {
-      next(error instanceof TypeError ? new HttpError(400, "INVALID_UPDATE_SETTINGS", error.message) : error);
-    }
+  context.app.patch(`${context.prefix}/system/updates/settings`, requireWorkspaceAdmin, (request, response) => {
+    const status = context.systemUpdates.updateSettings(bodyObject(request.body));
+    const principal = requestPrincipal(response);
+    context.recordSecurityAudit(principal, {
+      eventType: "system.update.settings.changed",
+      subjectType: "system-update-settings",
+      subjectId: "local",
+      details: { mode: status.settings.mode, timezone: status.settings.timezone },
+    });
+    response.setHeader("cache-control", "no-store");
+    response.json(status);
   });
-  context.app.post(`${context.prefix}/system/updates/install`, requireWorkspaceAdmin, async (_request, response, next) => {
-    try {
-      const status = await context.systemUpdates.queueLatest();
-      const principal = requestPrincipal(response);
-      context.recordSecurityAudit(principal, {
-        eventType: "system.update.requested",
-        subjectType: "system-update",
-        subjectId: status.operation?.id ?? "unknown",
-        details: { version: status.operation?.version ?? status.latestVersion ?? "unknown" },
-      });
-      response.setHeader("cache-control", "no-store");
-      response.status(202).json(status);
-    } catch (error) {
-      next(error instanceof SystemUpdateError
-        ? new HttpError(error.status, error.code, error.message)
-        : error);
-    }
+  context.app.post(`${context.prefix}/system/updates/install`, requireWorkspaceAdmin, async (_request, response) => {
+    const status = await context.systemUpdates.queueLatest();
+    const principal = requestPrincipal(response);
+    context.recordSecurityAudit(principal, {
+      eventType: "system.update.requested",
+      subjectType: "system-update",
+      subjectId: status.operation?.id ?? "unknown",
+      details: { version: status.operation?.version ?? status.latestVersion ?? "unknown" },
+    });
+    response.setHeader("cache-control", "no-store");
+    response.status(202).json(status);
   });
-  context.app.post(`${context.prefix}/system/updates/operations`, requireWorkspaceAdmin, async (request, response, next) => {
-    try {
-      const input = bodyObject(request.body);
-      const status = await context.systemUpdates.requestOperation(input);
-      const principal = requestPrincipal(response);
-      const action = typeof input.action === "string" ? input.action : "unknown";
-      const requestedWorkflowId = typeof input.workflowId === "string" ? input.workflowId : null;
-      context.recordSecurityAudit(principal, {
-        eventType: "system.update.requested",
-        subjectType: "system-update",
-        subjectId: requestedWorkflowId ?? (action === "update-everything" ? "new" : status.workflow?.id ?? "unknown"),
-        details: {
-          action,
-          revision: status.revision,
-          ...(status.workflow?.targets.hostVersion ? { version: status.workflow.targets.hostVersion } : {}),
-        },
-      });
-      response.setHeader("cache-control", "no-store");
-      response.status(202).json(status);
-    } catch (error) {
-      next(error instanceof TypeError
-        ? new HttpError(400, "INVALID_SYSTEM_UPDATE_OPERATION", error.message)
-        : error instanceof SystemUpdateError
-          ? new HttpError(error.status, error.code, error.message)
-          : error);
-    }
+  context.app.post(`${context.prefix}/system/updates/operations`, requireWorkspaceAdmin, async (request, response) => {
+    const input = bodyObject(request.body);
+    const status = await context.systemUpdates.requestOperation(input);
+    const principal = requestPrincipal(response);
+    const action = typeof input.action === "string" ? input.action : "unknown";
+    const requestedWorkflowId = typeof input.workflowId === "string" ? input.workflowId : null;
+    context.recordSecurityAudit(principal, {
+      eventType: "system.update.requested",
+      subjectType: "system-update",
+      subjectId: requestedWorkflowId ?? (action === "update-everything" ? "new" : status.workflow?.id ?? "unknown"),
+      details: {
+        action,
+        revision: status.revision,
+        ...(status.workflow?.targets.hostVersion ? { version: status.workflow.targets.hostVersion } : {}),
+      },
+    });
+    response.setHeader("cache-control", "no-store");
+    response.status(202).json(status);
   });
 }

@@ -1,106 +1,15 @@
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { createHash, randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
-import { DEFAULT_ELECTRICITY_PRICE_ENDPOINT, fixedPlanElementOpeningState } from "@climate-twin/contracts";
 import type {
-  AreaEquipment,
-  AreaEquipmentInput,
-  AreaEquipmentPatch,
-  EquipmentAttachment,
-  EquipmentLink,
-  EquipmentLinkInput,
-  EquipmentLinkPatch,
-  ActionPlaybook,
-  ActionPlaybookInput,
-  ActionRun,
-  ActionRunStartInput,
-  AlertEvent,
-  AlertDeliveryPolicy,
-  AlertRule,
-  DailyAnalyticsFindingsSnapshot,
-  NotificationDeliveryStage,
-  NotificationDeliveryStatus,
-  NotificationSubjectKind,
-  Floor,
-  GeoCoordinate,
-  House,
-  HouseLocation,
-  HouseMapPlacement,
-  IOSNotificationRegistration,
-  IOSNotificationRegistrationInput,
-  MaintenanceTask,
-  MaintenanceTaskChangedField,
-  MaintenanceTaskInput,
-  MaintenanceTaskPatch,
-  MaintenanceTaskRevision,
-  MaintenanceTaskRevisionActor,
-  ManualObservation,
-  ManualObservationInput,
-  ManualObservationPatch,
-  MeasurementDefinition,
   MeasurementSample,
-  ObservationChangedField,
-  ObservationConfidence,
-  ObservationRevision,
-  ObservationRevisionActor,
-  ObservationSource,
-  ObservationTimePrecision,
-  OpeningStateObservation,
-  OpeningStateObservationInput,
-  OutdoorConditions,
-  OutdoorTemperatureSample,
-  Property,
-  PropertyElectricityConfig,
-  PropertyElectricityConfigInput,
-  PropertyElectricityPricePoint,
-  PropertyArea,
-  PropertyAreaInput,
-  PropertyAreaPatch,
-  PropertyCreateInput,
-  PropertyNote,
-  PropertyNoteInput,
-  PropertyNotePatch,
-  PropertyPatch,
-  Reading,
-  Sensor,
-  SecurityAuditEvent,
-  SecurityAuditEventType,
-  SecurityAuditOutcome,
-  SecurityAuditSubjectType,
-  StaticParameter,
-  StugubyHouseLink,
-  StugubyPropertyLink,
-  TenantMemberRole,
-  Wall,
-  WeatherBackfillState,
-  WeatherOutageComponent,
-  WeatherProviderName,
 } from "@climate-twin/contracts";
+import type { EnergyCostAggregateQuery, EnergyCostAggregateRecord } from "../timeseries/types.js";
 import {
-  apnsNotificationSnapshot,
-  alertNotificationBindings,
-  legacyNotificationDestinationRef,
-  notificationSnapshot,
-  operationalNotificationSnapshot,
-  type AlertNotificationBindings,
-} from "../notification-snapshot.js";
-import type { APNSDestination } from "../apns.js";
-import {
-  DEFAULT_ALERT_DELIVERY_POLICY,
-  normalizeAlertDeliveryPolicy,
-  notificationScheduleDecision,
-  policyFromJson,
-  policyJson,
-} from "../notification-policy.js";
-import type { EnergyCostAggregateQuery, EnergyCostAggregateRecord, MeasurementCoverageRecord, PowerCostAggregateQuery } from "../timeseries/types.js";
-import {
+  assertRegisteredMethods,
   installRegisteredMethods,
-  type AssertNoMethodKeys,
-  type IncompatibleMethodKeys,
   type RegisteredMethodSet,
 } from "../method-registry.js";
-import { CORE_SCHEMA_SQL } from "./migrations/core-schema.js";
 import { LocalTelemetryWorker } from "../timeseries/local-telemetry-worker.js";
 import type { LocalBucketQuery, LocalSensorPageQuery } from "../timeseries/local-telemetry-worker-thread.js";
 import { databaseIntegrity, exportTableCounts, type ExportTable, type DatabaseIntegrityResult } from "./inspection.js";
@@ -134,6 +43,9 @@ export interface DatabaseInternals {
  * directory that cannot be created (for example a read-only data mount) keeps
  * today's behavior. An operator-provided SQLITE_TMPDIR always wins, and the
  * Windows VFS ignores the variable entirely.
+ *
+ * SQLite reads the variable once, when the library initializes, so process
+ * entry points call this before the first database opens.
  */
 export function ensureSqliteSpillDirectory(databasePath: string): void {
   if (databasePath === ":memory:" || process.env.SQLITE_TMPDIR) return;
@@ -162,17 +74,15 @@ export class ClimateDatabaseCore {
   #telemetryWorker: LocalTelemetryWorker | null = null;
   #transactionDepth = 0;
   constructor(path: string, seed = true, options: { readOnly?: boolean } = {}) {
+      assertRegisteredMethods("ClimateDatabase", this, "migrate", "db.js");
       this.#databasePath = path;
       if (options.readOnly) {
         if (path === ":memory:") throw new Error("A read-only ClimateDatabase requires an existing database file");
-        // Read-only connections still create spill files for large sorts.
-        ensureSqliteSpillDirectory(path);
         this.db = new DatabaseSync(path, { readOnly: true });
         this.db.exec("PRAGMA query_only = ON; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
         return;
       }
       if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
-      ensureSqliteSpillDirectory(path);
       this.db = new DatabaseSync(path);
       this.db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
       this.migrateEquipmentPlacementTable();
@@ -227,8 +137,7 @@ export class ClimateDatabaseCore {
     }
   async measurementWindowAsync(query: MeasurementWindowQuery): Promise<MeasurementSample[]> {
       query.signal?.throwIfAborted();
-      if (this.#databasePath === ":memory:") return this.measurementWindow(
-        [...query.sensorIds], [...query.metrics], query.from, query.to, query.limit,
+      if (this.#databasePath === ":memory:") return this.measurementWindow(query
       );
       this.#telemetryWorker ??= new LocalTelemetryWorker(this.#databasePath);
       return this.#telemetryWorker.readWindow(query);
@@ -243,8 +152,8 @@ export class ClimateDatabaseCore {
       query.signal?.throwIfAborted();
       if (this.#databasePath === ":memory:") {
         return (query.metrics.length === 1 && query.metrics[0] === "temperature"
-          ? this.thermalTemperatureHistory(query.sensorId, query.from, query.to, query.bucketMinutes, query.limitPerMetric)
-          : this.thermalClimateHistory(query.sensorId, query.from, query.to, query.bucketMinutes, query.limitPerMetric))
+          ? this.thermalTemperatureHistory(query)
+          : this.thermalClimateHistory(query))
           .filter(sample => query.metrics.includes(sample.metric));
       }
       this.#telemetryWorker ??= new LocalTelemetryWorker(this.#databasePath);
@@ -252,14 +161,7 @@ export class ClimateDatabaseCore {
     }
   async measurementHistoryBucketedAsync(query: LocalBucketQuery): Promise<MeasurementSample[]> {
       query.signal?.throwIfAborted();
-      if (this.#databasePath === ":memory:") {
-        if (!query.toExclusive) {
-          return this.measurementHistoryBucketed(query.sensorId, query.metric, query.from, query.to,
-            query.bucketSeconds, query.limit, query.excludeSynthetic);
-        }
-        return this.measurementHistoryBucketed(query.sensorId, query.metric, query.from, query.to,
-          query.bucketSeconds, query.limit, query.excludeSynthetic, query.toExclusive);
-      }
+      if (this.#databasePath === ":memory:") return this.measurementHistoryBucketed(query);
       this.#telemetryWorker ??= new LocalTelemetryWorker(this.#databasePath);
       return this.#telemetryWorker.readBuckets(query);
     }
@@ -279,10 +181,6 @@ export class ClimateDatabaseCore {
       }
     }
 }
-
-type DatabasePublicMethodMismatch = AssertNoMethodKeys<
-  IncompatibleMethodKeys<ClimateDatabaseCore, DatabaseInternals>
->;
 
 export function registerDatabaseMethods(methods: DatabaseMethodSet): void {
   installRegisteredMethods("ClimateDatabase", ClimateDatabaseCore.prototype, methods);

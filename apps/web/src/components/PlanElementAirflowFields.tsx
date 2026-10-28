@@ -1,3 +1,4 @@
+import { isTranslationKey } from "../i18n";
 import { useEffect, useState } from "react";
 import {
   configuredPlanElementOpeningState,
@@ -60,8 +61,10 @@ function defaultVariant(element: AirflowPlanElement): DoorVariant | WindowVarian
   return "passive";
 }
 
-function variantTranslationKey(element: AirflowPlanElement, variant: string): TranslationKey {
-  return `opening.variant.${element.kind}.${variant}` as TranslationKey;
+/** The translated label of an opening variant, or the variant id when the catalog has none. */
+export function openingVariantLabel(t: (key: TranslationKey) => string, kind: string, variant: string): string {
+  const key = `opening.variant.${kind}.${variant}`;
+  return isTranslationKey(key) ? t(key) : variant;
 }
 
 interface PlanElementAirflowFieldsProps {
@@ -117,7 +120,7 @@ export function PlanElementAirflowFields({ floor, element, onChange }: PlanEleme
       <input
         value={element.label ?? ""}
         maxLength={120}
-        placeholder={t(`planElement.${element.kind}` as TranslationKey)}
+        placeholder={t(`planElement.${element.kind}`)}
         onChange={(event) => onChange({ label: event.currentTarget.value.trim() ? event.currentTarget.value : undefined })}
       />
     </label>
@@ -134,7 +137,7 @@ export function PlanElementAirflowFields({ floor, element, onChange }: PlanEleme
             : { variant: nextVariant });
         }}
       >
-        {VARIANTS[element.kind].map((candidate) => <option key={candidate} value={candidate}>{t(variantTranslationKey(element, candidate))}</option>)}
+        {VARIANTS[element.kind].map((candidate) => <option key={candidate} value={candidate}>{openingVariantLabel(t, element.kind, candidate)}</option>)}
       </select>
     </label>
     <label>
@@ -148,7 +151,7 @@ export function PlanElementAirflowFields({ floor, element, onChange }: PlanEleme
         <option value="open">{t("opening.state.open")}</option>
       </select>
     </label>
-    {element.state === undefined && <span className="editor-properties-note">{t("opening.defaultState", { state: t(`opening.state.${defaultPlanElementOpeningState(element)}` as TranslationKey) })}</span>}
+    {element.state === undefined && <span className="editor-properties-note">{t("opening.defaultState", { state: t(`opening.state.${defaultPlanElementOpeningState(element)}`) })}</span>}
     <details className="opening-advanced-fields">
       <summary>{t("opening.advanced")}</summary>
       <div className="opening-advanced-grid">

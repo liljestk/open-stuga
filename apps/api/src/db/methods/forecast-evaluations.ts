@@ -8,6 +8,22 @@ interface EvaluationRow {
   evaluation_json: string;
 }
 
+declare module "../core.js" {
+  interface DatabaseInternals {
+    /** Keeps one evaluation per sensor, metric and UTC day; later ones that day replace it. */
+    saveForecastEvaluation(evaluation: MeasurementForecastEvaluation): void;
+    latestForecastEvaluation(sensorId: string, metric: string): MeasurementForecastEvaluation | null;
+    /** Daily evaluations since a UTC date (YYYY-MM-DD), oldest first. */
+    listForecastEvaluations(since: string, sensorId?: string): MeasurementForecastEvaluation[];
+  }
+
+  interface ClimateDatabaseCore {
+    saveForecastEvaluation(evaluation: MeasurementForecastEvaluation): void;
+    latestForecastEvaluation(sensorId: string, metric: string): MeasurementForecastEvaluation | null;
+    listForecastEvaluations(since: string, sensorId?: string): MeasurementForecastEvaluation[];
+  }
+}
+
 registerDatabaseMethods({
   saveForecastEvaluation(evaluation: MeasurementForecastEvaluation): void {
     const evaluatedOn = evaluation.computedAt.slice(0, 10);
@@ -23,14 +39,12 @@ registerDatabaseMethods({
     const cutoff = new Date(Date.parse(evaluation.computedAt) - RETENTION_DAYS * 86_400_000).toISOString().slice(0, 10);
     this.db.prepare("DELETE FROM forecast_evaluations WHERE evaluated_on < ?").run(cutoff);
   },
-
   latestForecastEvaluation(sensorId: string, metric: string): MeasurementForecastEvaluation | null {
     const row = this.db.prepare(`SELECT evaluation_json FROM forecast_evaluations
       WHERE sensor_id = ? AND metric = ? ORDER BY evaluated_on DESC LIMIT 1`)
       .get(sensorId, metric) as unknown as EvaluationRow | undefined;
     return row ? JSON.parse(row.evaluation_json) as MeasurementForecastEvaluation : null;
   },
-
   listForecastEvaluations(since: string, sensorId?: string): MeasurementForecastEvaluation[] {
     const rows = (sensorId
       ? this.db.prepare(`SELECT evaluation_json FROM forecast_evaluations

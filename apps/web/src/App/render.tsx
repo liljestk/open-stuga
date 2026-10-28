@@ -1,35 +1,23 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { hasLocalHouseAuthority, type Floor, type Metric, type TpLinkDiscoveredDevice, type UnitSystem } from "@climate-twin/contracts";
-import { AlertTriangle, HousePlus, LoaderCircle, RotateCcw, ShieldCheck, Wrench } from "lucide-react";
-import { AppShell } from "../components/AppShell";
-import { preferredHouseForProperty, type AppPage, type ViewMode } from "../domain";
-import { useClimateData } from "../useClimateData";
-import { countActionableAlertGroups } from "../alertGrouping";
-import { useI18n } from "../i18n";
-import { enabledDefinitions } from "../measurements";
-import { api, type CreateHouseInput } from "../api";
-import { locationForPropertySection, locationForRoute, routeFromLocation } from "../routing";
+import { Suspense } from "react";
+import { hasLocalHouseAuthority } from "@climate-twin/contracts";
+import { AlertTriangle, LoaderCircle, RotateCcw, ShieldCheck, Wrench } from "lucide-react";
+import { AppShell } from "./AppShell";
+import { preferredHouseForProperty } from "../domain";
+import { locationForPropertySection } from "../routing";
 import { StuguMark } from "../components/StuguMark";
-import { RouteErrorBoundary } from "../components/RouteErrorBoundary";
-import { readLocalStorage, writeLocalStorage } from "../browserStorage";
+import { RouteErrorBoundary } from "./RouteErrorBoundary";
 import {
-  clearInvitationBootstrapStorage,
-  clearInvitationFragment,
-  invitationTokenFromBootstrapStorage,
-  invitationTokenFromFragment,
   LocalAuthPage,
 } from "../pages/LocalAuthPage";
-import { integrationForHouse } from "../integrationScope";
 import { isTpLinkContactDevice } from "../tpLinkDeviceClassification";
 import { twinDashboardHomeViewLocation } from "../pages/TwinDashboard/queryState";
-import { ActivityPage, AlertsPage, DataAnalyticsPage, DeveloperPage, EnergyPage, IntegrationsPage, MaintenancePage, OutdoorWeatherPage, PeopleAccessPage, PortfolioOverview, PropertyManagementPage, SensorManagementPage, StugubyPage, SystemUpdatesPage, TwinDashboard, dismissedTpLinkDevicesKey, firstFloor, freshTpLinkDiscoveryWindowMs, latestIso, pageTitleKeys, settleInBackground, storedDismissedTpLinkDevices, tpLinkDeviceKey } from "./support";
-import type { TpLinkDeviceReference } from "./support";
+import { ActivityPage, AlertsPage, DataAnalyticsPage, DeveloperPage, EnergyPage, IntegrationsPage, MaintenancePage, OutdoorWeatherPage, PeopleAccessPage, PortfolioOverview, PropertyManagementPage, SensorManagementPage, StugubyPage, SystemUpdatesPage, TwinDashboard, latestIso, settleInBackground } from "./shellSupport";
 import { useAppPart03 } from "./part-03";
 import { hasBrowserCapability } from "../accessPolicy";
 export function renderApp(context: ReturnType<typeof useAppPart03>) {
-  const { t, climate, state, workspaceReadOnly, canManagePeople, loadSeriesInBackground, initialRoute, initialHouse, initialPropertyId, initialSelectedHouse, page, setPage, routeLoading, routeNotFound, setRouteNotFound, setRouteRevision, propertyId, setPropertyId, houseId, setHouseId, floorId, setFloorId, metric, setMetric, viewMode, setViewMode, selectedSensorId, setSelectedSensorId, units, setUnitsState, firstHomeName, setFirstHomeName, firstPropertyName, setFirstPropertyName, firstHomePropertyId, setFirstHomePropertyId, bootstrapAction, setBootstrapAction, maintenanceObservationId, setMaintenanceObservationId, requestedSensorDevice, setRequestedSensorDevice, dismissedTpLinkDeviceIds, setDismissedTpLinkDeviceIds, invitationToken, setInvitationToken, logoutUncertain, setLogoutUncertain, previousPage, logout, property, propertyReadOnly, propertyElectricityAvailable, propertyHouses, selectedPropertyHouse, house, activeSharedHouse, houseReadOnly, houseLocalAuthority, locationRoute, readOnly, routeHouse, routeScopeInvalid, effectiveRouteNotFound, floor, measurementDefinitions, availableMeasurements, lastUpdated, openAlertCount, scopedIntegration, availableTpLinkDevices, currentTpLinkDevices, undisclosedTpLinkDevices, discoveredSensorNotice, applyHouse, setUnits, dismissTpLinkDeviceNotices, navigate, chooseHouse, chooseProperty, createHouse, deleteHouse, createFirstHome, repairHome, renderFirstHomeCard, renderNoAccessCard } = context;
+  const { t, climate, state, workspaceReadOnly, canManagePeople, loadSeriesInBackground, page, routeLoading, routeNotFound, setRouteRevision, propertyId, setPropertyId, houseId, setHouseId, setFloorId, metric, setMetric, viewMode, setViewMode, selectedSensorId, setSelectedSensorId, units, bootstrapAction, maintenanceObservationId, setMaintenanceObservationId, requestedSensorDevice, setRequestedSensorDevice, invitationToken, setInvitationToken, logoutUncertain, setLogoutUncertain, logout, property, propertyElectricityAvailable, propertyHouses, selectedPropertyHouse, house, houseLocalAuthority, locationRoute, readOnly, effectiveRouteNotFound, floor, lastUpdated, openAlertCount, undisclosedTpLinkDevices, discoveredSensorNotice, applyHouse, setUnits, dismissTpLinkDeviceNotices, navigate, chooseHouse, chooseProperty, createHouse, deleteHouse, repairHome, renderFirstHomeCard, renderNoAccessCard } = context;
   const localAuthorityHouses = propertyHouses.filter(hasLocalHouseAuthority);
-  const canUseDeveloperTools = hasBrowserCapability(state.session?.tenant.role ?? "guest", "developer-tools");
+  const canUseDeveloperTools = hasBrowserCapability(state.session.tenant.role, "developer-tools");
   if (climate.loading || climate.bootstrapStatus === "loading") {
       return <output className="loading-screen"><span className="loading-logo" aria-hidden="true" /><strong>{t("app.name")}</strong><span>{t("common.loading")}</span></output>;
     }
@@ -69,7 +57,7 @@ export function renderApp(context: ReturnType<typeof useAppPart03>) {
         lastUpdated={null}
         dataMode={climate.dataMode}
         pollingFallback={climate.pollingFallback}
-        resourceErrors={[...new Set(Object.values(climate.resourceErrors ?? {}))]}
+        resourceErrors={[...new Set(Object.values(climate.resourceErrors))]}
         openAlertCount={openAlertCount}
         properties={state.properties}
         propertyId={propertyId}
@@ -77,7 +65,7 @@ export function renderApp(context: ReturnType<typeof useAppPart03>) {
         houses={state.houses}
         readOnly={readOnly}
         propertyElectricityAvailable={propertyElectricityAvailable}
-        principalEmail={state.session?.principal.email ?? null}
+        principalEmail={state.session.principal.email}
         onLogout={logout}
         onRetryConnection={climate.retryBootstrap}
       >
@@ -98,7 +86,7 @@ export function renderApp(context: ReturnType<typeof useAppPart03>) {
         lastUpdated={null}
         dataMode={climate.dataMode}
         pollingFallback={climate.pollingFallback}
-        resourceErrors={[...new Set(Object.values(climate.resourceErrors ?? {}))]}
+        resourceErrors={[...new Set(Object.values(climate.resourceErrors))]}
         openAlertCount={openAlertCount}
         canManagePeople={canManagePeople}
         canUseDeveloperTools={canUseDeveloperTools}
@@ -108,7 +96,7 @@ export function renderApp(context: ReturnType<typeof useAppPart03>) {
         houses={state.houses}
         readOnly={readOnly}
         propertyElectricityAvailable={propertyElectricityAvailable}
-        principalEmail={state.session?.principal.email ?? null}
+        principalEmail={state.session.principal.email}
         onLogout={logout}
         onRetryConnection={climate.retryBootstrap}
       >
@@ -135,7 +123,6 @@ export function renderApp(context: ReturnType<typeof useAppPart03>) {
             houses={state.houses}
             sensors={state.sensors}
             latestMeasurements={state.latestMeasurements}
-            measurementHistory={state.measurementHistory}
             measurementDefinitions={state.measurementDefinitions}
             alerts={state.alerts}
             alertRules={state.alertRules}
@@ -203,7 +190,7 @@ export function renderApp(context: ReturnType<typeof useAppPart03>) {
         lastUpdated={null}
         dataMode={climate.dataMode}
         pollingFallback={climate.pollingFallback}
-        resourceErrors={[...new Set(Object.values(climate.resourceErrors ?? {}))]}
+        resourceErrors={[...new Set(Object.values(climate.resourceErrors))]}
         openAlertCount={openAlertCount}
         properties={state.properties}
         propertyId={property.id}
@@ -215,7 +202,7 @@ export function renderApp(context: ReturnType<typeof useAppPart03>) {
         onBackLabel={t("header.backToProperty")}
         readOnly={readOnly}
         propertyElectricityAvailable={propertyElectricityAvailable}
-        principalEmail={state.session?.principal.email ?? null}
+        principalEmail={state.session.principal.email}
         onLogout={logout}
         onRetryConnection={climate.retryBootstrap}
       ><Suspense fallback={routeLoading}><MaintenancePage
@@ -248,7 +235,7 @@ export function renderApp(context: ReturnType<typeof useAppPart03>) {
         lastUpdated={contextualHouse ? lastUpdated : null}
         dataMode={climate.dataMode}
         pollingFallback={climate.pollingFallback}
-        resourceErrors={[...new Set(Object.values(climate.resourceErrors ?? {}))]}
+        resourceErrors={[...new Set(Object.values(climate.resourceErrors))]}
         openAlertCount={openAlertCount}
         properties={state.properties}
         propertyId={property.id}
@@ -262,7 +249,7 @@ export function renderApp(context: ReturnType<typeof useAppPart03>) {
         onBackLabel={t(contextualHouse ? "header.backToHome" : "header.backToProperty")}
         readOnly={readOnly}
         propertyElectricityAvailable={propertyElectricityAvailable}
-        principalEmail={state.session?.principal.email ?? null}
+        principalEmail={state.session.principal.email}
         onLogout={logout}
         onRetryConnection={climate.retryBootstrap}
       >{propertyEnergyDenied ? <section className="route-recovery" aria-labelledby="property-electricity-access-title">
@@ -276,7 +263,7 @@ export function renderApp(context: ReturnType<typeof useAppPart03>) {
         propertyId={property.id}
         units={units}
         onLoadSeries={loadSeriesInBackground}
-        seriesStates={climate.seriesStates ?? {}}
+        seriesStates={climate.seriesStates}
         {...(contextualHouse && !readOnly && houseLocalAuthority ? { onOpenSensors: () => navigate("sensors", contextualHouse.id) } : {})}
         onOpenAlerts={() => navigate("alerts", null, false, window.location.pathname, null)}
         readOnly={readOnly}
@@ -296,7 +283,7 @@ export function renderApp(context: ReturnType<typeof useAppPart03>) {
         lastUpdated={null}
         dataMode={climate.dataMode}
         pollingFallback={climate.pollingFallback}
-        resourceErrors={[...new Set(Object.values(climate.resourceErrors ?? {}))]}
+        resourceErrors={[...new Set(Object.values(climate.resourceErrors))]}
         properties={state.properties}
         propertyId={propertyIndex ? "" : propertyId}
         onProperty={chooseProperty}
@@ -306,7 +293,7 @@ export function renderApp(context: ReturnType<typeof useAppPart03>) {
         homeAvailable={!readOnly || Boolean(house && floor)}
         readOnly={readOnly}
         propertyElectricityAvailable={propertyElectricityAvailable}
-        principalEmail={state.session?.principal.email ?? null}
+        principalEmail={state.session.principal.email}
         onLogout={logout}
         onRetryConnection={climate.retryBootstrap}
       ><Suspense fallback={routeLoading}><PropertyManagementPage
@@ -355,14 +342,14 @@ export function renderApp(context: ReturnType<typeof useAppPart03>) {
         lastUpdated={null}
         dataMode={climate.dataMode}
         pollingFallback={climate.pollingFallback}
-        resourceErrors={[...new Set(Object.values(climate.resourceErrors ?? {}))]}
+        resourceErrors={[...new Set(Object.values(climate.resourceErrors))]}
         properties={state.properties}
         propertyId={propertyId}
         onProperty={chooseProperty}
         houses={state.houses}
         readOnly={readOnly}
         propertyElectricityAvailable={propertyElectricityAvailable}
-        principalEmail={state.session?.principal.email ?? null}
+        principalEmail={state.session.principal.email}
         onLogout={logout}
         onRetryConnection={climate.retryBootstrap}
       ><div className="home-empty-state">{readOnly ? renderNoAccessCard() : renderFirstHomeCard()}</div></AppShell>;
@@ -402,11 +389,11 @@ export function renderApp(context: ReturnType<typeof useAppPart03>) {
         freshnessLabel={freshnessLabel}
         dataMode={climate.dataMode}
         pollingFallback={climate.pollingFallback}
-        resourceErrors={[...new Set(Object.values(climate.resourceErrors ?? {}))]}
+        resourceErrors={[...new Set(Object.values(climate.resourceErrors))]}
         openAlertCount={openAlertCount}
         readOnly={readOnly}
         propertyElectricityAvailable={propertyElectricityAvailable}
-        principalEmail={state.session?.principal.email ?? null}
+        principalEmail={state.session.principal.email}
         onLogout={logout}
         properties={state.properties}
         propertyId={propertyId}
@@ -557,7 +544,7 @@ export function renderApp(context: ReturnType<typeof useAppPart03>) {
             streamConnection={climate.connection}
             tpLinkDevicesLoading={climate.tpLinkDevicesLoading}
             tpLinkDevicesError={climate.tpLinkDevicesError}
-            canManageTuya={canManagePeople}
+            canManageIntegrations={canManagePeople}
             onHouse={chooseHouse}
             onHouseUpdate={climate.updateHouse}
             onGeoreferenceChange={climate.setHouseGeoreference}

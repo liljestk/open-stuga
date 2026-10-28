@@ -36,10 +36,27 @@ COPY scripts/stugu-backup ./scripts/stugu-backup
 
 RUN npm run build:packages && npm run build --workspace @climate-twin/api
 
-FROM api-build AS production-dependencies
-# The API workspace only gets its own node_modules when a dependency cannot be
-# hoisted to the root; keep the directory so the runtime copy works either way.
-RUN npm prune --omit=dev && mkdir -p apps/api/node_modules
+# Install only the API workspace's production closure from the manifests, so the
+# web app's frontend dependencies never reach the API runtime. The API workspace
+# only gets its own node_modules when a dependency cannot be hoisted to the
+# root; keep the directory so the runtime copy works either way.
+FROM node-base AS production-dependencies
+
+WORKDIR /app
+
+COPY package*.json ./
+COPY apps/api/package*.json ./apps/api/
+COPY apps/web/package*.json ./apps/web/
+COPY apps/tapo-export-runner/package*.json ./apps/tapo-export-runner/
+COPY packages/analytics-kernel/package*.json ./packages/analytics-kernel/
+COPY packages/contracts/package*.json ./packages/contracts/
+COPY packages/spatial-layers/package*.json ./packages/spatial-layers/
+COPY packages/stuguby-protocol/package*.json ./packages/stuguby-protocol/
+
+RUN --mount=type=cache,target=/root/.npm \
+  npm ci --omit=dev --workspace=@climate-twin/api --include-workspace-root=false --no-audit \
+    --fetch-retries=10 --fetch-retry-mintimeout=2000 --fetch-retry-maxtimeout=30000 \
+  && mkdir -p apps/api/node_modules
 
 # Browser assets are architecture-neutral. Build them once on the native
 # builder instead of repeating Vite under ARM64 emulation.

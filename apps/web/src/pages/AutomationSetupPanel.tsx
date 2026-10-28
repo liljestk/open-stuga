@@ -1,3 +1,4 @@
+import { errorText } from "../errorText";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
   Check,
@@ -31,10 +32,6 @@ interface AutomationSetupPanelProps {
 }
 
 type Feedback = { kind: "success" | "error"; message: string } | null;
-
-function errorMessage(error: unknown, fallback: string): string {
-  return error instanceof Error && error.message.trim() ? error.message : fallback;
-}
 
 function absoluteIntegrationUrl(path: string): URL {
   const base = new URL(API_BASE, window.location.origin);
@@ -126,7 +123,7 @@ export function AutomationSetupPanel({ integration, house, houses, onHouse, onIn
       setNotesFeedback({ kind: "success", message: t("automations.notes.grantCreated") });
     } catch (error) {
       if (activeHouseId.current !== requestedHouseId || createGrantGeneration.current !== generation) return;
-      setNotesFeedback({ kind: "error", message: errorMessage(error, t("automations.notes.grantFailed")) });
+      setNotesFeedback({ kind: "error", message: errorText(error, t, t("automations.notes.grantFailed")) });
     } finally {
       if (activeHouseId.current === requestedHouseId && createGrantGeneration.current === generation) setCreatingGrant(false);
     }
@@ -152,7 +149,7 @@ export function AutomationSetupPanel({ integration, house, houses, onHouse, onIn
       setNotesFeedback({ kind: "success", message: t("automations.notes.grantRevoked") });
     } catch (error) {
       if (activeHouseId.current !== requestedHouseId || revokeGrantGeneration.current !== generation) return;
-      setNotesFeedback({ kind: "error", message: errorMessage(error, t("automations.notes.revokeFailed")) });
+      setNotesFeedback({ kind: "error", message: errorText(error, t, t("automations.notes.revokeFailed")) });
     } finally {
       if (activeHouseId.current === requestedHouseId && revokeGrantGeneration.current === generation) setRevokingGrantId(null);
     }

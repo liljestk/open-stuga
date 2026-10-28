@@ -1,8 +1,11 @@
+import { roleCanAccessNonGuestConfiguration } from "@climate-twin/contracts";
+import { withResponseSignal } from "../../app/response-signal.js";
 import type express from "express";
 import type { ClimateDatabase } from "../../db.js";
-import type { EnergySummaryCache } from "../../energy-summary-cache.js";
+import type { EnergySummaryCache } from "../../electricity/summary-cache.js";
 import type { EnergyProjectionCache } from "../../electricity/projection-cache.js";
-import { HttpError, requestPrincipal } from "../../app/support/index.js";
+import { HttpError } from "../../http-error.js";
+import { requestPrincipal } from "../../app/support/local-sessions.js";
 import { AnalyticsDiagnosticsService } from "./service.js";
 
 export interface AnalyticsDiagnosticsRouteContext {
@@ -28,19 +31,12 @@ export function registerAnalyticsDiagnosticsRoutes(context: AnalyticsDiagnostics
     if (!house || !access.house(house.id)) {
       throw new HttpError(404, "ANALYTICS_SCOPE_NOT_FOUND", "Analytics house scope was not found");
     }
-    if (requestPrincipal(response).role === "guest") {
+    if (!roleCanAccessNonGuestConfiguration(requestPrincipal(response).role)) {
       throw new HttpError(403, "GUEST_READ_ONLY", "Guest accounts cannot read analytics diagnostics");
     }
     const sensors = context.database.listSensors(house.id).filter((sensor) => sensor.enabled && access.sensor(sensor.id));
-    const abortController = new AbortController();
-    const abortOnClose = () => abortController.abort();
-    response.once("close", abortOnClose);
-    try {
-      const diagnostics = await service.diagnose(house, sensors, abortController.signal);
-      response.setHeader("cache-control", "private, no-store");
-      response.json({ diagnostics });
-    } finally {
-      response.off("close", abortOnClose);
-    }
+    const diagnostics = await withResponseSignal(response, (signal) => service.diagnose(house, sensors, signal));
+    response.setHeader("cache-control", "private, no-store");
+    response.json({ diagnostics });
   });
 }

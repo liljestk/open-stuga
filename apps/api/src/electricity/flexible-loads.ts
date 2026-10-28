@@ -1,3 +1,5 @@
+import { nullWhenTemporarilyUnavailable } from "./energy-cost.js";
+import { withSignal } from "@climate-twin/contracts";
 import { median, quantile } from "@climate-twin/analytics-kernel";
 import type { EnergyFlexibleLoad, PropertyElectricityPricePoint, Sensor } from "@climate-twin/contracts";
 import { HEAT_PUMP_SENSOR_TAG } from "../heat-pump-measurements.js";
@@ -166,8 +168,8 @@ export async function measureFlexibleLoads(input: {
     const read = await input.reader.measurementHistoryBucketed({
       sensorId: sensor.id, metric: "power", from: new Date(from).toISOString(), to: new Date(input.now).toISOString(),
       bucketSeconds: FLEXIBLE_BUCKET_MS / 1_000, limit: FLEXIBLE_PROFILE_DAYS * 288 + 2,
-      ...(input.signal ? { signal: input.signal } : {}),
-    }).catch(() => null);
+      ...withSignal(input.signal),
+    }).catch(nullWhenTemporarilyUnavailable(input.signal));
     if (!read) return null;
     const profile = flexibleLoadProfile(
       read.records.map((record) => ({ time: Date.parse(record.timestamp), watts: record.value })),

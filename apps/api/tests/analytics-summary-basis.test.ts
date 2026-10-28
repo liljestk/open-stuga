@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { MeasurementDefinition, MeasurementSample } from "@climate-twin/contracts";
-import { buildAnalyticsResponse, parseAnalyticsQueryRequest } from "../src/analytics.js";
+import { buildAnalyticsResponse, parseAnalyticsQueryRequest } from "../src/analytics/query/analytics-query.js";
 import { ClimateDatabase } from "../src/db.js";
 
 const START = Date.parse("2026-07-19T00:00:00.000Z");

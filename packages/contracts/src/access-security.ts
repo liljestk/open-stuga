@@ -22,7 +22,23 @@ export type PropertyNotePatch = Partial<Pick<PropertyNote, "houseId" | "areaId" 
 
 export type TenantMemberRole = "owner" | "admin" | "member" | "guest" | "service";
 
-export type GuestAccessScope = "property" | "house" | "area";
+/** Owners and Admins administer the workspace: people, integration credentials, backups and system operations. */
+export function roleCanManageWorkspace(role: TenantMemberRole): boolean {
+  return role === "owner" || role === "admin";
+}
+
+/** Every role except Guest may read and change non-Guest configuration; Guests are read-only. */
+export function roleCanAccessNonGuestConfiguration(role: TenantMemberRole): boolean {
+  return role !== "guest";
+}
+
+/** A signed-in person with non-Guest access. Service principals act for an integration, not for a member. */
+export function roleIsWorkspacePerson(role: TenantMemberRole): boolean {
+  return role === "owner" || role === "admin" || role === "member";
+}
+
+export const GUEST_ACCESS_SCOPES = ["property", "house", "area"] as const;
+export type GuestAccessScope = (typeof GUEST_ACCESS_SCOPES)[number];
 
 export interface GuestAccessGrant {
   scopeType: GuestAccessScope;
@@ -153,6 +169,7 @@ export interface SecurityAuditEvent {
   createdAt: string;
 }
 
+/** The persisted entity behind what the UI calls a Home: API paths and ids say house, user-facing copy says Home. */
 export interface House {
   id: string;
   /** Every current house belongs to exactly one property. Legacy records are backfilled at deserialization/migration time. */

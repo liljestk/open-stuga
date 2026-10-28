@@ -1,13 +1,13 @@
 import { AlertTriangle, Box, ChevronDown, CloudSun, FlaskConical, History, Map as MapIcon, Radar, RefreshCw, Waves, Wind } from "lucide-react";
 import type { UnitSystem } from "@climate-twin/contracts";
-import type { SpatialLayerEngineManifest, SpatialLayerSnapshot } from "../spatialLayers";
-import type { UseSpatialLayersResult } from "../useSpatialLayers";
+import type { SpatialLayerEngineManifest, SpatialLayerSnapshot } from "../spatial/layers";
+import type { UseSpatialLayersResult } from "../spatial/useSpatialLayers";
 import type { AirflowEvidence } from "../airflowSimulation";
 import type {
   ExperimentalLayerSuggestion,
   ExperimentalVisualizationId,
   SensorCoverageAssessment,
-} from "../experimentalSpatialLayers";
+} from "../spatial/experimentalLayers";
 import { formatInTimeZone } from "../dateTime";
 import { useI18n, type TranslationKey } from "../i18n";
 import { readLocalStorage, writeLocalStorage } from "../browserStorage";
@@ -15,7 +15,7 @@ import {
   formatOutdoorInfluenceValue,
   type OutdoorInfluenceEstimate,
   type OutdoorInfluenceMetric,
-} from "../outdoorInfluence";
+} from "../outdoor/influence";
 
 export interface SpatialLayerPanelProps {
   layers: UseSpatialLayersResult;
@@ -112,7 +112,7 @@ function suggestionLabel(suggestion: ExperimentalLayerSuggestion, t: ReturnType<
     room: suggestion.roomName ?? suggestion.floorName ?? t("nav.twin"),
     count: suggestion.count ?? 1,
   };
-  return t(`spatial.suggestion.${suggestion.code}` as TranslationKey, values);
+  return t(`spatial.suggestion.${suggestion.code}`, values);
 }
 
 function suggestionVisible(suggestion: ExperimentalLayerSuggestion, selected: readonly ExperimentalVisualizationId[]): boolean {
@@ -135,7 +135,7 @@ export function SpatialLayerPanel({ layers, timeZone, historyAt = null, compact 
     : null;
   const influence = visualization?.outdoorInfluence;
   const influenceDirection = influence
-    ? t(`spatial.outdoorInfluence.direction.${influence.direction}` as TranslationKey)
+    ? t(`spatial.outdoorInfluence.direction.${influence.direction}`)
     : t("spatial.outdoorInfluence.direction.neutral");
   const influenceEvidence = influence?.availability === "ready"
     && influence.outdoorValue !== null && influence.indoorValue !== null && influence.difference !== null && visualization
@@ -192,7 +192,7 @@ export function SpatialLayerPanel({ layers, timeZone, historyAt = null, compact 
               >
                 <span className="spatial-visualization-icon" aria-hidden="true">{isAir ? <Wind size={18} /> : isCoverage ? <Radar size={18} /> : <CloudSun size={18} />}</span>
                 <span><strong>{isAir ? t("spatial.airflow.title") : isCoverage ? t("spatial.coverage.title") : t("spatial.outdoorInfluence.title")}</strong><small>{isAir ? t("spatial.airflow.short") : isCoverage ? t("spatial.coverage.short") : t("spatial.outdoorInfluence.short")}</small></span>
-                <em data-support={support}>{t(`spatial.airflow.support.${support}` as TranslationKey)}</em>
+                <em data-support={support}>{t(`spatial.airflow.support.${support}`)}</em>
               </button>;
             })}
           </div>
@@ -253,7 +253,7 @@ export function SpatialLayerPanel({ layers, timeZone, historyAt = null, compact 
           onClick={() => layers.setLayerSelected(layerId, !selected)}
         >
           <span>{spatialLayerLabel(layerId, t)}</span>{" "}
-          <small>{t(`spatial.maturity.${manifest?.maturity ?? "research"}` as TranslationKey)}</small>
+          <small>{t(`spatial.maturity.${manifest?.maturity ?? "research"}`)}</small>
         </button>;
         })}<button type="button" className="spatial-refresh" disabled={layers.refreshing} aria-label={t("spatial.refresh")} title={t("spatial.refresh")} onClick={() => void layers.refresh()}><RefreshCw size={17} className={layers.refreshing ? "spin" : ""} aria-hidden="true" /></button></div>
         </section>
@@ -271,7 +271,7 @@ export function SpatialLayerPanel({ layers, timeZone, historyAt = null, compact 
             <div><dt>{t("spatial.quality")}</dt><dd>{Math.round(snapshot.qualityScore * 100)}%</dd></div>
             <div><dt>{t("spatial.updated")}</dt><dd><time dateTime={snapshot.generatedAt}>{formatInTimeZone(snapshot.generatedAt, locale, timeZone, { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</time></dd></div>
           </dl>
-          <span className={`spatial-snapshot-state ${stale ? "stale" : snapshot.status}`}>{stale ? t("spatial.stale") : t(`spatial.status.${snapshot.status}` as TranslationKey)}</span>
+          <span className={`spatial-snapshot-state ${stale ? "stale" : snapshot.status}`}>{stale ? t("spatial.stale") : t(`spatial.status.${snapshot.status}`)}</span>
           <details>
             <summary>{t("spatial.explanation")}<ChevronDown size={14} aria-hidden="true" /></summary>
             <div className="spatial-explanation">

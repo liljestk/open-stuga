@@ -1,3 +1,4 @@
+import { isSqliteFailure } from "../db/sqlite-failure.js";
 import { randomBytes, randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import type {
@@ -122,7 +123,7 @@ export class TrackingStore {
         next.updatedAt, propertyId,
       );
     } catch (error) {
-      if (error instanceof Error && error.message.includes("CHECK constraint failed")) {
+      if (isSqliteFailure(error, "check")) {
         throw new TrackingError(422, "INVALID_TRACKING_SETTINGS", "Tracking settings are outside supported limits");
       }
       throw error;
@@ -194,7 +195,7 @@ export class TrackingStore {
         timestamp, timestamp,
       );
     } catch (error) {
-      if (error instanceof Error && error.message.includes("UNIQUE constraint failed")) {
+      if (isSqliteFailure(error, "unique")) {
         throw new TrackingError(409, "ENDPOINT_ALREADY_ENROLLED", "This endpoint identity is already enrolled");
       }
       throw error;
@@ -285,10 +286,10 @@ export class TrackingStore {
         id, equipment.propertyId, equipment.id, endpoint.id, observerId, at, requiredText(boundBy, "Binding actor"),
       );
     } catch (error) {
-      if (error instanceof Error && error.message.includes("UNIQUE constraint failed")) {
+      if (isSqliteFailure(error, "unique")) {
         throw new TrackingError(409, "ACTIVE_BINDING_CONFLICT", "Equipment or endpoint already has an active binding");
       }
-      if (error instanceof Error && error.message.includes("TRACKING_BINDING_SCOPE")) {
+      if (isSqliteFailure(error, "trigger", "TRACKING_BINDING_SCOPE")) {
         throw new TrackingError(409, "BINDING_SCOPE_MISMATCH", "Endpoint binding scope is invalid");
       }
       throw error;
@@ -362,7 +363,7 @@ export class TrackingStore {
         sha256(credential), timestamp, timestamp,
       );
     } catch (error) {
-      if (error instanceof Error && error.message.includes("UNIQUE constraint failed")) {
+      if (isSqliteFailure(error, "unique")) {
         throw new TrackingError(409, "OBSERVER_INSTALLATION_CONFLICT", "This app installation is already registered");
       }
       throw error;

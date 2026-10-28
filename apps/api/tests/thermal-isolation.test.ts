@@ -5,8 +5,8 @@ import {
   runThermalIsolation,
   runThermalIsolationAsync,
   thermalIsolationScore,
-} from "../src/thermal-isolation.js";
-import { simulateThermalStep } from "../src/thermal-simulation.js";
+} from "../src/analytics/thermal/isolation.js";
+import { simulateThermalStep } from "../src/analytics/thermal/simulation.js";
 import {
   buildHeatPumpExclusionWindow,
   filterHeatPumpAffectedSampleMap,

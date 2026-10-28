@@ -6,8 +6,8 @@ import type {
   MeasurementDefinition,
   MeasurementSample,
 } from "@climate-twin/contracts";
-import { buildAnalyticsResponse, parseAnalyticsQueryRequest } from "../src/analytics.js";
-import { buildAnalyticsResponseFromRollup, planAnalyticsRollup, planSummaryRollup } from "../src/analytics-rollup.js";
+import { buildAnalyticsResponse, parseAnalyticsQueryRequest } from "../src/analytics/query/analytics-query.js";
+import { buildAnalyticsResponseFromRollup, planAnalyticsRollup, planSummaryRollup } from "../src/analytics/query/rollup-plan.js";
 import { ClimateDatabase } from "../src/db.js";
 import { RollupsMaterializingError } from "../src/timeseries/read-support.js";
 import {
@@ -285,8 +285,13 @@ describe("analytics kernel parity between raw aggregation and archive rollups", 
             range: { ...RANGE, timezone: "Europe/Helsinki" },
             resolution, aggregation, qualityFilter: { include }, requestId: label,
           }, Date.parse(GENERATED_AT));
-          const window = local.measurementWindow([scenario.sensorId], [scenario.metric], RANGE.start,
-            new Date(Date.parse(RANGE.end) - 1).toISOString(), 250_000);
+          const window = local.measurementWindow({
+          sensorIds: [scenario.sensorId],
+          metrics: [scenario.metric],
+          from: RANGE.start,
+          to: new Date(Date.parse(RANGE.end) - 1).toISOString(),
+          limit: 250_000,
+        });
           const boundaries = scenario.metric === "temperature" ? [] : local.measurementBoundarySamples({
             sensorId: scenario.sensorId, metric: scenario.metric, from: RANGE.start, to: RANGE.end,
             qualities: include, excludeSynthetic: true,

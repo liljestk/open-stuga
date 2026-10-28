@@ -764,7 +764,7 @@ Repository constraints and implementation:
   `docs/architecture.md`, and `docs/host-system-monitoring.md`
 - `deploy/rpi/`, `scripts/build-rpi-image.sh`,
   `scripts/validate-rpi-image.sh`, `scripts/stugu-update-agent/`,
-  `scripts/publish-local-release.mjs`, `apps/api/src/system-updates.ts`, and
+  `scripts/publish-local-release.mjs`, `apps/api/src/system-updates/service.ts`, and
   the associated updater/storage/OTA tests and release workflows
 - Pinned upstream `rpi-image-gen` commit `17e53bca56c8d6bed273a6faa7412b296e4c0937`
 

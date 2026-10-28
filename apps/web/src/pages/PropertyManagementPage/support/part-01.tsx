@@ -1,48 +1,9 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import {
-  Building2,
-  Battery,
-  Boxes,
-  Camera,
-  Check,
-  ChevronRight,
-  Clipboard,
-  ClipboardList,
-  ExternalLink,
-  FileText,
-  HardHat,
-  KeyRound,
-  Link as LinkIcon,
-  LoaderCircle,
-  Map as MapIcon,
-  MapPin,
-  Move,
-  NotebookPen,
-  Plus,
-  QrCode,
-  Radio,
-  Redo2,
-  Save,
-  Search,
-  ShieldCheck,
-  Tag,
-  Trash2,
-  Undo2,
-  Upload,
-  Users,
-  UserRound,
-  Wrench,
-  X,
-} from "lucide-react";
-import { floorMetersPerPlanUnit } from "@climate-twin/contracts";
+import { lazy } from "react";
 import type {
   AreaEquipment,
   AreaEquipmentInput,
   AreaEquipmentPatch,
-  AreaEquipmentStatus,
-  EquipmentAttachment,
   EquipmentAttachmentKind,
-  EquipmentLink,
   GeoCoordinate,
   GuestAccessGrant,
   HouseCreateInput,
@@ -58,21 +19,13 @@ import type {
   PropertyNoteInput,
   PropertyNotePatch,
   PropertyPatch,
-  TenantMemberSummary,
-  TrackingCapabilities,
-  TrackingEndpoint,
-  TrackingMapSnapshot,
-  TrackedEquipmentState,
   HomeMonitoringCollectionResponse,
 } from "@climate-twin/contracts";
-import { api, ApiRequestError, subscribeToTrackingEvents, type HouseGeoreferencePatch } from "../../../api";
+import { type HouseGeoreferencePatch } from "../../../api";
 import { createClientUuid } from "../../../clientUuid";
-import { EquipmentQrLabel } from "../../../components/EquipmentQrLabel";
-import { StugubyMark } from "../../../components/StugubyMark";
 import type { ClimateState } from "../../../domain";
-import { useI18n, type TranslationKey } from "../../../i18n";
-import { derivePropertyTrafficLights, type PropertyTrafficLight } from "../../../propertyStatus";
-import { useNow } from "../../../useNow";
+import { useI18n } from "../../../i18n";
+import { type PropertyTrafficLight } from "../propertyStatus";
 import "../../PropertyManagementPage.css";
 
 export const PropertyAreaMap = lazy(() => import("../../../components/PropertyAreaMap").then((module) => ({ default: module.PropertyAreaMap })));
@@ -296,10 +249,10 @@ export function PropertyStatusLights({ lights }: Readonly<{ lights: readonly Pro
   if (!lights.length) return <p className="property-status-empty">{t("properties.status.none")}</p>;
   return <section className="property-status-lights" aria-label={t("properties.status.title")}>
     {lights.map((light) => {
-      const label = t(`properties.status.${light.id}` as TranslationKey);
-      const level = t(`properties.status.level.${light.level}` as TranslationKey);
-      const reason = t(`properties.status.reason.${light.reason}` as TranslationKey);
-      const check = t(`properties.status.check.${light.id}` as TranslationKey);
+      const label = t(`properties.status.${light.id}`);
+      const level = t(`properties.status.level.${light.level}`);
+      const reason = t(`properties.status.reason.${light.reason}`);
+      const check = t(`properties.status.check.${light.id}`);
       return <article key={light.id} data-status={light.level} aria-label={`${label}: ${level}. ${reason} ${check}`}>
         <span className="property-status-signal" aria-hidden="true" />
         <span><strong>{label}</strong><small>{level} · {reason}</small><small className="property-status-check">{check}</small></span>

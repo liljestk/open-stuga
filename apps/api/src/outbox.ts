@@ -1,7 +1,7 @@
 import { createHmac } from "node:crypto";
 import { configuredAlertWebhookDestinations, type AppConfig } from "./config.js";
 import type { ClimateDatabase, NotificationOutboxItem } from "./db.js";
-import type { RuntimeStatus } from "./services.js";
+import type { RuntimeStatus } from "./runtime-status.js";
 import { TelegramService } from "./telegram.js";
 import { APNSDeliveryError, APNSService } from "./apns.js";
 import {
@@ -106,19 +106,43 @@ abstract class DurableWorker {
   protected abstract runOnce(signal: AbortSignal): Promise<void>;
 }
 
+/** Delivery transports and hooks; each defaults to the production implementation. */
+export interface NotificationOutboxOptions {
+  telegram?: TelegramService;
+  fetchImpl?: typeof fetch;
+  /** Changes whenever the Telegram credentials change, fencing deliveries made with older ones. */
+  telegramConfigurationGeneration?: () => number;
+  apns?: Pick<APNSService, "send">;
+  onDeliveryFailure?: (failure: NotificationDeliveryFailure) => void;
+}
+
 export class NotificationOutboxWorker extends DurableWorker {
   #nextHistoryPruneAt = 0;
+  private readonly telegram: TelegramService;
+  private readonly fetchImpl: typeof fetch;
+  private readonly telegramConfigurationGeneration: () => number;
+  private readonly apns: Pick<APNSService, "send">;
+  private readonly onDeliveryFailure: ((failure: NotificationDeliveryFailure) => void) | undefined;
 
   constructor(
     private readonly database: ClimateDatabase,
     private readonly config: AppConfig,
     private readonly status: RuntimeStatus,
-    private readonly telegram = new TelegramService(),
-    private readonly fetchImpl: typeof fetch = fetch,
-    private readonly telegramConfigurationGeneration: () => number = () => 0,
-    private readonly apns: Pick<APNSService, "send"> = new APNSService(),
-    private readonly onDeliveryFailure?: (failure: NotificationDeliveryFailure) => void,
-  ) { super(); }
+    {
+      telegram = new TelegramService(),
+      fetchImpl = fetch,
+      telegramConfigurationGeneration = () => 0,
+      apns = new APNSService(),
+      onDeliveryFailure,
+    }: NotificationOutboxOptions = {},
+  ) {
+    super();
+    this.telegram = telegram;
+    this.fetchImpl = fetchImpl;
+    this.telegramConfigurationGeneration = telegramConfigurationGeneration;
+    this.apns = apns;
+    this.onDeliveryFailure = onDeliveryFailure;
+  }
 
   fenceTelegramConfigurationChange(): void {
     // Abort any request using the prior credential tuple. The durable row is
@@ -246,13 +270,11 @@ export class NotificationOutboxWorker extends DurableWorker {
     if (!apnsDestination) {
       throw new APNSDeliveryError("iOS notification registration is no longer active", true);
     }
-    await this.apns.send(
-      this.config,
-      apnsDestination,
-      item.payloadJson,
-      AbortSignal.any([signal, AbortSignal.timeout(10_000)]),
-      item.id,
-    );
+    await this.apns.send(this.config, apnsDestination, {
+      payloadJson: item.payloadJson,
+      signal: AbortSignal.any([signal, AbortSignal.timeout(10_000)]),
+      notificationId: item.id,
+    });
     return this.releaseIfAborted(delivery);
   }
 

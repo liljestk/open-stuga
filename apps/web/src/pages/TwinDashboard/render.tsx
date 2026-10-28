@@ -1,50 +1,24 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { BatteryMedium, Bolt, Box, Check, ChevronDown, DoorOpen, Droplets, Edit3, Gauge, History, Home, Lightbulb, Map, MapPinPlus, Maximize2, Minimize2, Save, SlidersHorizontal, Snowflake, Sparkles, Thermometer, Wind } from "lucide-react";
-import { isAirflowPlanElement, type ConfiguredOpeningState, type ConnectionState, type Floor, type House, type ManualObservation, type ManualObservationInput, type ManualObservationPatch, type MeasurementDefinition, type MeasurementSample, type Metric, type MockScenario, type ObservationConfidence, type ObservationRevision, type ObservationSource, type ObservationTimePrecision, type OpeningStateObservation, type Point, type Reading, type Sensor, type StaticParameter, type UnitSystem } from "@climate-twin/contracts";
-import { ReplayControls } from "../../components/ReplayControls";
-import { RoomComfortBoard } from "../../components/RoomComfortBoard";
-import { MoistureCoach } from "../../components/MoistureCoach";
-import { HomePulsePanelData } from "../../components/HomePulsePanel";
-import { HomeOperationsPreview } from "../../components/HomeOperationsPreview";
+import { Suspense } from "react";
+import { Bolt, Box, Check, ChevronDown, DoorOpen, Edit3, Gauge, History, Home, Lightbulb, Map, MapPinPlus, Maximize2, Minimize2, Save, SlidersHorizontal, Snowflake, Sparkles, Thermometer, Wind } from "lucide-react";
+import { type ConfiguredOpeningState, type ManualObservation, type MockScenario, type ObservationConfidence, type ObservationSource, type ObservationTimePrecision, type Point } from "@climate-twin/contracts";
+import { ReplayControls } from "./ReplayControls";
+import { RoomComfortBoard } from "./RoomComfortBoard";
+import { MoistureCoach } from "./MoistureCoach";
+import { HomePulsePanelData } from "./HomePulsePanel";
+import { HomeOperationsPreview } from "./HomeOperationsPreview";
 import "../../components/decisionLayer.css";
 import "../OperationsPages.css";
 import { formatInTimeZone, twentyFourHourInputLocale } from "../../dateTime";
-import { clamp, round, type ClimateState, type TimeRange, type ViewMode } from "../../domain";
-import { useI18n, type TranslationKey } from "../../i18n";
-import { definitionFor, displayUnit, enabledDefinitions, formatMeasurement, formatMeasurementDelta, measurementComparisonColor, measurementDomain, measurementLabel, measurementValue, samplesAt, type LatestMeasurements } from "../../measurements";
-import { isEnergyDeviceSensor } from "../../energyDeviceMap";
-import { configuredSpatialMaxSampleAgeMs, configuredSpatialReplayMaxSampleAgeMs, isSpatialSampleFresh } from "../../spatialFreshness";
-import { createOutdoorBoundaryContext } from "../../outdoorContext";
-import { useHouseWeather } from "../../useHouseWeather";
-import type { OutdoorVisualizationState } from "../../components/OutdoorConditionsBadge";
-import type { CreateHouseInput } from "../../components/StructureEditor";
-import {
-  simulateBuildingAirflow,
-  simulateFloorAirflow,
-  type BuildingAirflowEstimate,
-  type ClimateSampleMatrix,
-  type FloorAirflowEstimate,
-} from "../../airflowSimulation";
-import type { DataMode } from "../../useClimateData";
-import { api, type MeasurementHistoryPage, type SensorPatch } from "../../api";
-import { useSpatialLayers } from "../../useSpatialLayers";
+import { clamp } from "../../domain";
+import { type TranslationKey } from "../../i18n";
+import { displayUnit, formatMeasurement, formatMeasurementDelta, measurementLabel } from "../../measurements";
 import { SpatialLayerPanel } from "../../components/SpatialLayerPanel";
-import {
-  assessSensorCoverage,
-  experimentalLayerSuggestions,
-  type ExperimentalVisualizationId,
-} from "../../experimentalSpatialLayers";
-import { readLocalStorage, writeLocalStorage } from "../../browserStorage";
-import { detectReplayClimateEvents, type ReplayClimateEvent } from "../../replayEvents";
-import { openingStateCanChange, openingStateKey, openingStateObservationsForHouse } from "../../openingState";
-import { integrationForHouse } from "../../integrationScope";
-import { HeatPumpInspector } from "../../components/HeatPumpInspector";
-import { heatPumpSensorId } from "../../heatPumpPresentation";
-import { BuildingScene, FloorPlan, HomeActivityTimeline, MeasurementGlyph, RoomComparisonChart, SensorInspector, SpatialLayerLab, StructureEditor, ThermalSimulationPanel, energyDeviceLayerPreferenceKey, experimentalVisualizationPreferenceKey, houseLocalDateTimeCandidates, initialEnergyDeviceLayerVisibility, initialExperimentalVisualizations, localDateTimeValue, localDateValue, mergeOpeningStateObservations, observationConfidences, observationKinds, observationSources, observationTimeFields, observationTimePrecisions, zonedDateTimeParts } from "./support";
-import type { TwinDashboardProps } from "./support";
+import { HeatPumpInspector } from "./HeatPumpInspector";
+import { heatPumpSensorId } from "../../heatPump/presentation";
+import { BuildingScene, FloorPlan, HomeActivityTimeline, MeasurementGlyph, RoomComparisonChart, SensorInspector, SpatialLayerLab, StructureEditor, ThermalSimulationPanel, observationConfidences, observationKinds, observationSources, observationTimePrecisions } from "./support";
 import { useTwinDashboardPart05 } from "./part-05";
 export function renderTwinDashboard(context: ReturnType<typeof useTwinDashboardPart05>) {
-  const { props, state, house, floor, houseId, floorId, metric, units, viewMode, selectedSensorId, scenario, connection, dataMode, locale, t, scopedIntegration, sensorSourceHealthy, editing, setEditing, fullPage, setFullPage, liveMapOpen, setLiveMapOpen, historyOpen, setHistoryOpen, analysisOpen, setAnalysisOpen, fullPagePanelRef, fullPageTriggerRef, liveMapTriggerRef, pageHeadingRef, readOnly, canManageConnectedDevices, localAuthority, range, setRange, replayActive, setReplayActive, replayPlaying, setReplayPlaying, replayStartPending, setReplayStartPending, replayPrepared, setReplayPrepared, replaySpeed, setReplaySpeed, replayWindowFrom, setReplayWindowFrom, replayWindowTo, setReplayWindowTo, replayResolutionSeconds, setReplayResolutionSeconds, replayRequestedBounds, setReplayRequestedBounds, replayLoadState, setReplayLoadState, replayLoadError, setReplayLoadError, replayLoadPartial, setReplayLoadPartial, replaySampleCount, setReplaySampleCount, liveSpatialClockMs, setLiveSpatialClockMs, experimentalVisualizations, setExperimentalVisualizations, outdoorInfluenceMetric, setOutdoorInfluenceMetric, climateSensorsVisible, setClimateSensorsVisible, energyDevicesVisible, setEnergyDevicesVisible, connectedDevicesVisible, setConnectedDevicesVisible, heatPumps, selectedHeatPump, selectedHeatPumpId, setSelectedHeatPumpId, heatPumpInfluenceVisible, setHeatPumpInfluenceVisible, pendingHeatPumpIds, heatPumpError, heatPumpAnnouncement, placeHeatPumpOnFloor, moveHeatPump, openingStateLabelsVisible, setOpeningStateLabelsVisible, connectedDevices, pendingConnectedDeviceIds, connectedDeviceError, connectedDeviceAnnouncement, changeConnectedDevicePower, moveConnectedDevice, mapAnimationsEnabled, setMapAnimationsEnabled, outdoorExtrasVisible, setOutdoorExtrasVisible, observationPlacement, setObservationPlacement, observationKind, setObservationKind, observationSeverity, setObservationSeverity, observationNote, setObservationNote, observationTimePrecision, setObservationTimePrecision, observationDateTime, setObservationDateTime, observationDate, setObservationDate, observationValidFrom, setObservationValidFrom, observationValidTo, setObservationValidTo, observationSource, setObservationSource, observationSourceDetail, setObservationSourceDetail, observationConfidence, setObservationConfidence, observationDraft, setObservationDraft, observationValidationError, setObservationValidationError, observationStatus, setObservationStatus, observationError, setObservationError, parameterLabel, setParameterLabel, parameterValue, setParameterValue, parameterUnit, setParameterUnit, parameterPending, setParameterPending, parameterFeedback, setParameterFeedback, replayBatchRef, replayPreparationBatchRef, airflowReplayBatchRef, inspectorReplayBatchRef, replayWindowRequestRef, previousReplayActiveRef, effectSeriesLoadsRef, loadSeriesOnce, houseWeather, outdoorContext, outdoor, houseSensors, energyDeviceCount, floorSensors, selectedSensor, selectedFloor, summarySensors, definitions, houseDefinitions, availableDefinitions, airflowDefinitions, airflowMetricKey, definition, metricOptions, metricLabel, liveSamples, houseSensorIdList, houseSensorIds, replayMetricIds, loadedReplayBounds, fallbackReplayBounds, replayMin, replayMax, replayHistoryReady, replayEvents, replayTimestamp, setReplayTimestamp, spatialReferenceTimeMs, spatialLayerScope, spatialLabOpen, setSpatialLabOpen, spatialLayers, liveSpatialMaxSampleAgeMs, spatialMaxSampleAgeMs, spatialFreshness, changeReplayPlaying, selectReplayEvent, loadReplayWindow, displayedSamples, mapSensorMeasurements, airflowSamples, sensorCoverage, airMovementSelected, coverageSelected, openingStateAt, openingStateObservations, setOpeningStateObservations, pendingOpeningStateKeys, setPendingOpeningStateKeys, openingStateError, setOpeningStateError, openingStateAnnouncement, setOpeningStateAnnouncement, openingStateRequestsRef, openingStateContextRef, houseOpeningStateObservations, controllableOpenings, hasOpeningElements, changeOpeningState, experimentalFloorAirflow, experimentalBuildingAirflow, experimentalAirflowEvidence, experimentalSuggestions, outdoorInfluence, outdoorInfluenceSelected, toggleExperimentalVisualization, values, hasUsableReadings, houseValues, activeOutdoorValue, activeOutdoorComparison, houseColorDomain, outdoorConditionColors, visualOutdoor, average, spread, floorObservations, houseObservations, houseParameters, inspectorSamples, changeRange, submitObservation, placeObservation, cancelObservationPlacement, submitParameter, startEditing, saveEdits, finishEditing, openDecisionSensor, openDecisionRoom, liveMapVisible } = context;
+  const { props, state, house, floor, houseId, floorId, units, viewMode, scenario, connection, dataMode, locale, t, sensorSourceHealthy, editing, setEditing, fullPage, setFullPage, setLiveMapOpen, historyOpen, setHistoryOpen, analysisOpen, setAnalysisOpen, fullPagePanelRef, fullPageTriggerRef, liveMapTriggerRef, pageHeadingRef, readOnly, canManageConnectedDevices, localAuthority, range, replayActive, setReplayActive, replayPlaying, replaySpeed, setReplaySpeed, replayWindowFrom, setReplayWindowFrom, replayWindowTo, setReplayWindowTo, replayResolutionSeconds, setReplayResolutionSeconds, replayLoadState, replayLoadError, replayLoadPartial, replaySampleCount, experimentalVisualizations, outdoorInfluenceMetric, setOutdoorInfluenceMetric, climateSensorsVisible, energyDevicesVisible, connectedDevicesVisible, heatPumps, selectedHeatPump, selectedHeatPumpId, setSelectedHeatPumpId, heatPumpInfluenceVisible, pendingHeatPumpIds, heatPumpError, heatPumpAnnouncement, placeHeatPumpOnFloor, moveHeatPump, openingStateLabelsVisible, connectedDevices, pendingConnectedDeviceIds, connectedDeviceError, connectedDeviceAnnouncement, changeConnectedDevicePower, moveConnectedDevice, mapAnimationsEnabled, outdoorExtrasVisible, observationPlacement, observationKind, setObservationKind, observationSeverity, setObservationSeverity, observationNote, setObservationNote, observationTimePrecision, setObservationTimePrecision, observationDateTime, setObservationDateTime, observationDate, setObservationDate, observationValidFrom, setObservationValidFrom, observationValidTo, setObservationValidTo, observationSource, setObservationSource, observationSourceDetail, setObservationSourceDetail, observationConfidence, setObservationConfidence, observationValidationError, setObservationValidationError, observationStatus, observationError, parameterLabel, setParameterLabel, parameterValue, setParameterValue, parameterUnit, setParameterUnit, parameterPending, parameterFeedback, houseWeather, outdoorContext, houseSensors, floorSensors, selectedSensor, selectedFloor, summarySensors, definitions, definition, metricOptions, metricLabel, replayMin, replayMax, replayEvents, replayTimestamp, setReplayTimestamp, spatialReferenceTimeMs, spatialLabOpen, setSpatialLabOpen, spatialLayers, spatialMaxSampleAgeMs, changeReplayPlaying, selectReplayEvent, loadReplayWindow, displayedSamples, mapSensorMeasurements, airflowSamples, sensorCoverage, airMovementSelected, coverageSelected, pendingOpeningStateKeys, openingStateError, openingStateAnnouncement, houseOpeningStateObservations, controllableOpenings, hasOpeningElements, changeOpeningState, experimentalFloorAirflow, experimentalBuildingAirflow, experimentalAirflowEvidence, experimentalSuggestions, outdoorInfluence, outdoorInfluenceSelected, toggleExperimentalVisualization, values, hasUsableReadings, houseColorDomain, visualOutdoor, average, spread, floorObservations, houseObservations, houseParameters, inspectorSamples, changeRange, submitObservation, placeObservation, cancelObservationPlacement, submitParameter, startEditing, finishEditing, openDecisionSensor, openDecisionRoom, liveMapVisible } = context;
   const hasMapOptions = houseSensors.length > 0 || connectedDevices.length > 0 || heatPumps.length > 0 || Boolean(outdoorContext)
     || (viewMode === "isometric" && hasOpeningElements);
   const unplacedHeatPumps = heatPumps.filter((state) => state.floorId === null);
@@ -60,6 +34,7 @@ export function renderTwinDashboard(context: ReturnType<typeof useTwinDashboardP
     if (sensor) props.onSensorSelect(sensor.id);
     if (targetFloorId !== floorId) props.onFloor(targetFloorId);
   };
+  const layerToggles = twinLayerToggles(context);
   return (
       <>
         <header className="page-heading twin-heading">
@@ -133,13 +108,9 @@ export function renderTwinDashboard(context: ReturnType<typeof useTwinDashboardP
                 <summary className="secondary-button"><SlidersHorizontal size={16} aria-hidden="true" /><span>{t("twin.viewOptions")}</span><ChevronDown className="twin-view-options-chevron" size={15} aria-hidden="true" /></summary>
                 <div className="twin-view-options-menu">
                   {hasMapOptions && <fieldset className="twin-layer-options"><legend>{t("twin.mapLayers")}</legend><div className="twin-option-list">
-                    {houseSensors.length > energyDeviceCount && <button type="button" aria-pressed={climateSensorsVisible} onClick={() => setClimateSensorsVisible((current) => !current)}><Thermometer size={16} aria-hidden="true" /><span>{t("twin.climateSensorLayer")}</span>{climateSensorsVisible && <Check size={15} aria-hidden="true" />}</button>}
-                    {energyDeviceCount > 0 && <button type="button" aria-pressed={energyDevicesVisible} onClick={() => setEnergyDevicesVisible((current) => !current)}><Bolt size={16} aria-hidden="true" /><span>{t("twin.energyDeviceLayer")}</span>{energyDevicesVisible && <Check size={15} aria-hidden="true" />}</button>}
-                    {connectedDevices.length > 0 && <button type="button" aria-pressed={connectedDevicesVisible} onClick={() => setConnectedDevicesVisible((current) => !current)}><Lightbulb size={16} aria-hidden="true" /><span>{t("twin.connectedDeviceLayer")}</span>{connectedDevicesVisible && <Check size={15} aria-hidden="true" />}</button>}
-                    {heatPumps.length > 0 && <button type="button" aria-pressed={heatPumpInfluenceVisible} onClick={() => setHeatPumpInfluenceVisible((current) => !current)}><Snowflake size={16} aria-hidden="true" /><span>{t("twin.heatPumpInfluenceLayer")}</span>{heatPumpInfluenceVisible && <Check size={15} aria-hidden="true" />}</button>}
-                    {viewMode === "isometric" && hasOpeningElements && <button type="button" aria-pressed={openingStateLabelsVisible} onClick={() => setOpeningStateLabelsVisible((current) => !current)}><DoorOpen size={16} aria-hidden="true" /><span>{t("twin.openingStateLabels")}</span>{openingStateLabelsVisible && <Check size={15} aria-hidden="true" />}</button>}
-                    {outdoorContext?.planWindFromDegrees != null && <button type="button" aria-pressed={mapAnimationsEnabled} onClick={() => setMapAnimationsEnabled((current) => !current)}><Sparkles size={16} aria-hidden="true" /><span>{t("twin.mapAnimations")}</span>{mapAnimationsEnabled && <Check size={15} aria-hidden="true" />}</button>}
-                    {outdoorContext && <button type="button" aria-pressed={outdoorExtrasVisible} onClick={() => setOutdoorExtrasVisible((current) => !current)}><Wind size={16} aria-hidden="true" /><span>{t("twin.windDetails")}</span>{outdoorExtrasVisible && <Check size={15} aria-hidden="true" />}</button>}
+                    {layerToggles.filter((toggle) => toggle.show).map(({ key, pressed, setPressed, Icon, label }) => (
+                      <button key={key} type="button" aria-pressed={pressed} onClick={() => setPressed((current) => !current)}><Icon size={16} aria-hidden="true" /><span>{t(label)}</span>{pressed && <Check size={15} aria-hidden="true" />}</button>
+                    ))}
                   </div></fieldset>}
                   <div className="twin-view-option-actions">
                     <button ref={fullPageTriggerRef} type="button" className="secondary-button twin-full-page-button" aria-pressed={fullPage} onClick={() => setFullPage((current) => !current)}>{fullPage ? <Minimize2 size={15} aria-hidden="true" /> : <Maximize2 size={15} aria-hidden="true" />}{fullPage ? t("twin.exitFullPage") : t("twin.fullPage")}</button>
@@ -413,8 +384,8 @@ export function renderTwinDashboard(context: ReturnType<typeof useTwinDashboardP
             />
             {!readOnly && localAuthority && dataMode === "demo" && <section className="panel compact-panel">
               <div className="panel-header"><div><h2>{t("mock.title")}</h2><p className="panel-intro">{t("mock.description")}</p></div></div>
-              <label className="field"><span>{t("mock.scenario")}</span><select value={scenario} onChange={(event) => props.onRunScenario(event.target.value as MockScenario["id"])}>{state.scenarios.map((item) => <option key={item.id} value={item.id}>{t(`mock.${item.id}` as TranslationKey)}</option>)}</select></label>
-              <p className="field-help">{t(`mock.${scenario}Description` as TranslationKey)}</p>
+              <label className="field"><span>{t("mock.scenario")}</span><select value={scenario} onChange={(event) => props.onRunScenario(event.target.value as MockScenario["id"])}>{state.scenarios.map((item) => <option key={item.id} value={item.id}>{t(`mock.${item.id}`)}</option>)}</select></label>
+              <p className="field-help">{t(`mock.${scenario}Description`)}</p>
               <button type="button" className="secondary-button full-width" onClick={() => props.onRunScenario(scenario)}><Sparkles size={15} aria-hidden="true" />{t("mock.start")}</button>
             </section>}
             {!readOnly && <section className="panel compact-panel observation-panel">
@@ -422,13 +393,13 @@ export function renderTwinDashboard(context: ReturnType<typeof useTwinDashboardP
               <form onSubmit={submitObservation} className="observation-form">
                 <fieldset className="observation-fields" disabled={observationPlacement}>
                   <legend className="sr-only">{t("observations.details")}</legend>
-                  <div className="field-row"><label className="field"><span>{t("observations.kind")}</span><select value={observationKind} onChange={(event) => setObservationKind(event.target.value as ManualObservation["kind"])}>{observationKinds.map((kind) => <option key={kind} value={kind}>{t(`observations.${kind === "note" ? "noteKind" : kind}` as TranslationKey)}</option>)}</select></label><label className="field"><span>{t("alerts.severity")}</span><select value={observationSeverity} onChange={(event) => setObservationSeverity(event.target.value as ManualObservation["severity"])}><option value="info">{t("alerts.info")}</option><option value="warning">{t("alerts.warning")}</option><option value="critical">{t("alerts.critical")}</option></select></label></div>
-                  <label className="field"><span>{t("observations.timePrecision")}</span><select value={observationTimePrecision} onChange={(event) => { setObservationTimePrecision(event.target.value as ObservationTimePrecision); setObservationValidationError(false); }}>{observationTimePrecisions.map((precision) => <option key={precision} value={precision}>{t(`observations.precision.${precision}` as TranslationKey)}</option>)}</select></label>
+                  <div className="field-row"><label className="field"><span>{t("observations.kind")}</span><select value={observationKind} onChange={(event) => setObservationKind(event.target.value as ManualObservation["kind"])}>{observationKinds.map((kind) => <option key={kind} value={kind}>{t(`observations.${kind === "note" ? "noteKind" : kind}`)}</option>)}</select></label><label className="field"><span>{t("alerts.severity")}</span><select value={observationSeverity} onChange={(event) => setObservationSeverity(event.target.value as ManualObservation["severity"])}><option value="info">{t("alerts.info")}</option><option value="warning">{t("alerts.warning")}</option><option value="critical">{t("alerts.critical")}</option></select></label></div>
+                  <label className="field"><span>{t("observations.timePrecision")}</span><select value={observationTimePrecision} onChange={(event) => { setObservationTimePrecision(event.target.value as ObservationTimePrecision); setObservationValidationError(false); }}>{observationTimePrecisions.map((precision) => <option key={precision} value={precision}>{t(`observations.precision.${precision}`)}</option>)}</select></label>
                   {(observationTimePrecision === "exact" || observationTimePrecision === "approximate") && <label className="field"><span>{t("observations.observedAt")}</span><input type="datetime-local" lang={twentyFourHourInputLocale(locale)} required value={observationDateTime} onChange={(event) => setObservationDateTime(event.target.value)} /><small>{t("observations.localTimeHelp")}</small></label>}
                   {observationTimePrecision === "date-only" && <label className="field"><span>{t("observations.observedDate")}</span><input type="date" required value={observationDate} onChange={(event) => setObservationDate(event.target.value)} /></label>}
                   {observationTimePrecision === "date-range" && <div className="field-row"><label className="field"><span>{t("observations.validFrom")}</span><input type="date" required max={observationValidTo} value={observationValidFrom} onChange={(event) => setObservationValidFrom(event.target.value)} /></label><label className="field"><span>{t("observations.validTo")}</span><input type="date" required min={observationValidFrom} value={observationValidTo} onChange={(event) => setObservationValidTo(event.target.value)} /></label></div>}
                   {observationTimePrecision === "unknown" && <p className="field-help observation-time-help">{t("observations.unknownTimeHelp")}</p>}
-                  <div className="field-row"><label className="field"><span>{t("observations.source")}</span><select value={observationSource} onChange={(event) => setObservationSource(event.target.value as ObservationSource)}>{observationSources.map((source) => <option key={source} value={source}>{t(`observations.source.${source}` as TranslationKey)}</option>)}</select></label><label className="field"><span>{t("observations.confidence")}</span><select value={observationConfidence} onChange={(event) => setObservationConfidence(event.target.value as ObservationConfidence)}>{observationConfidences.map((confidence) => <option key={confidence} value={confidence}>{t(`observations.confidence.${confidence}` as TranslationKey)}</option>)}</select></label></div>
+                  <div className="field-row"><label className="field"><span>{t("observations.source")}</span><select value={observationSource} onChange={(event) => setObservationSource(event.target.value as ObservationSource)}>{observationSources.map((source) => <option key={source} value={source}>{t(`observations.source.${source}`)}</option>)}</select></label><label className="field"><span>{t("observations.confidence")}</span><select value={observationConfidence} onChange={(event) => setObservationConfidence(event.target.value as ObservationConfidence)}>{observationConfidences.map((confidence) => <option key={confidence} value={confidence}>{t(`observations.confidence.${confidence}`)}</option>)}</select></label></div>
                   <label className="field"><span>{t("observations.sourceDetail")}</span><input value={observationSourceDetail} onChange={(event) => setObservationSourceDetail(event.target.value)} placeholder={t("observations.sourceDetailPlaceholder")} /></label>
                   <label className="field"><span>{t("observations.note")}</span><input value={observationNote} onChange={(event) => setObservationNote(event.target.value)} placeholder={t("observations.notePlaceholder")} /></label>
                 </fieldset>
@@ -466,4 +437,33 @@ export function renderTwinDashboard(context: ReturnType<typeof useTwinDashboardP
         </details>}
       </>
     );
+}
+
+interface LayerToggle {
+  key: string;
+  show: boolean;
+  pressed: boolean;
+  setPressed: (update: (current: boolean) => boolean) => void;
+  Icon: typeof Thermometer;
+  label: TranslationKey;
+}
+
+/** Optional map layers; each appears only when the Home has something to show on it. */
+function twinLayerToggles(context: ReturnType<typeof useTwinDashboardPart05>): LayerToggle[] {
+  const {
+    houseSensors, energyDeviceCount, connectedDevices, heatPumps, viewMode, hasOpeningElements, outdoorContext,
+    climateSensorsVisible, setClimateSensorsVisible, energyDevicesVisible, setEnergyDevicesVisible,
+    connectedDevicesVisible, setConnectedDevicesVisible, heatPumpInfluenceVisible, setHeatPumpInfluenceVisible,
+    openingStateLabelsVisible, setOpeningStateLabelsVisible, mapAnimationsEnabled, setMapAnimationsEnabled,
+    outdoorExtrasVisible, setOutdoorExtrasVisible,
+  } = context;
+  return [
+    { key: "climate", show: houseSensors.length > energyDeviceCount, pressed: climateSensorsVisible, setPressed: setClimateSensorsVisible, Icon: Thermometer, label: "twin.climateSensorLayer" },
+    { key: "energy", show: energyDeviceCount > 0, pressed: energyDevicesVisible, setPressed: setEnergyDevicesVisible, Icon: Bolt, label: "twin.energyDeviceLayer" },
+    { key: "connected", show: connectedDevices.length > 0, pressed: connectedDevicesVisible, setPressed: setConnectedDevicesVisible, Icon: Lightbulb, label: "twin.connectedDeviceLayer" },
+    { key: "heat-pump", show: heatPumps.length > 0, pressed: heatPumpInfluenceVisible, setPressed: setHeatPumpInfluenceVisible, Icon: Snowflake, label: "twin.heatPumpInfluenceLayer" },
+    { key: "openings", show: viewMode === "isometric" && hasOpeningElements, pressed: openingStateLabelsVisible, setPressed: setOpeningStateLabelsVisible, Icon: DoorOpen, label: "twin.openingStateLabels" },
+    { key: "animations", show: outdoorContext?.planWindFromDegrees != null, pressed: mapAnimationsEnabled, setPressed: setMapAnimationsEnabled, Icon: Sparkles, label: "twin.mapAnimations" },
+    { key: "wind", show: Boolean(outdoorContext), pressed: outdoorExtrasVisible, setPressed: setOutdoorExtrasVisible, Icon: Wind, label: "twin.windDetails" },
+  ];
 }

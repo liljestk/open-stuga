@@ -1,59 +1,23 @@
-import { useCallback, useEffect, useRef, useState, type SetStateAction } from "react";
+import { errorMessage } from "../../../api/support/request-error";
 import type {
-  AppSession,
-  AreaEquipment,
-  AreaEquipmentInput,
-  AreaEquipmentPatch,
-  AlertRule,
-  AlertRulePatch,
   ConnectionState,
-  Floor,
   House,
   IntegrationStatus,
   ManualObservation,
-  ManualObservationInput,
-  ManualObservationPatch,
   MaintenanceTask,
-  MaintenanceTaskInput,
-  MaintenanceTaskPatch,
   MeasurementSample,
   MockScenario,
-  Point,
-  Property,
-  PropertyArea,
-  PropertyAreaInput,
-  PropertyAreaPatch,
-  PropertyCreateInput,
-  PropertyNote,
-  PropertyNoteInput,
-  PropertyNotePatch,
-  PropertyPatch,
   Reading,
   Sensor,
   SensorSnapshot,
   StaticParameter,
-  TelemetryEvent,
-  TpLinkDiscoveredDevice,
 } from "@climate-twin/contracts";
 import { hasLocalHouseAuthority } from "@climate-twin/contracts";
-import {
-  api,
-  cancelPendingApiRequests,
-  subscribeToApiAuthorizationChanges,
-  type CreateHouseInput,
-  type CreateSensorInput,
-  type HousePatch,
-  type HouseGeoreferencePatch,
-  type MeasurementHistoryPage,
-  type SensorPatch,
-} from "../../../api";
-import { subscribeToAuthEpoch } from "../../../authEpoch";
-import { createDemoState, nextMockReading, snapshotToReadings, timeRangeHours, type ClimateState, type TimeRange } from "../../../domain";
-import { appendHistory, enabledDefinitions, legacyForecastSamples, readingSamples, upsertLatest } from "../../../measurements";
-import { routeFromLocation } from "../../../routing";
-import { publishHouseWeatherUpdate } from "../../../useHouseWeather";
+import { api } from "../../../api";
+import { nextMockReading, type ClimateState, type TimeRange } from "../../../domain";
+import { appendHistory, readingSamples, upsertLatest } from "../../../measurements";
 
-export type DataMode = IntegrationStatus["mock"]["mode"] | "unknown";
+export type ClientDataMode = IntegrationStatus["mock"]["mode"] | "unknown";
 
 export type BootstrapStatus = "loading" | "setup-required" | "login-required" | "ready" | "empty" | "unavailable" | "incompatible";
 
@@ -99,7 +63,7 @@ export function seriesStateKey(sensorId: string, metric: string): string {
 
 export type LoadedTelemetryState = Pick<
   ClimateState,
-  "latestMeasurements" | "measurementHistory" | "measurementForecasts" | "readings" | "history" | "forecasts"
+  "latestMeasurements" | "measurementHistory" | "measurementForecasts" | "readings"
 >;
 
 export type BufferedLiveTelemetry =
@@ -130,7 +94,7 @@ export type StreamConnections = {
   measurements: ConnectionState;
 };
 
-export type SeriesCommit = { version: number; legacy: boolean };
+export type SeriesCommit = { version: number };
 
 export type BufferedSeriesTelemetry = {
   sensorId: string;
@@ -143,15 +107,6 @@ export function aggregateConnection({ legacy, measurements }: StreamConnections)
   if (legacy === "live" && measurements === "live") return "live";
   if (legacy === "offline" && measurements === "offline") return "offline";
   return "reconnecting";
-}
-
-export function isPollingCompatibilityHeartbeat(data: unknown): boolean {
-  if (!data || typeof data !== "object") return false;
-  const heartbeat = data as { mode?: unknown; continuous?: unknown; finite?: unknown };
-  return heartbeat.mode === "polling"
-    || heartbeat.mode === "polling-compatibility"
-    || heartbeat.continuous === false
-    || heartbeat.finite === true;
 }
 
 export function bufferLiveTelemetry(buffer: Map<string, BufferedLiveTelemetry>, event: BufferedLiveTelemetry): void {
@@ -225,10 +180,6 @@ export function isRemoteSharedDemoTelemetry(
 /** Removes demo values already held in browser memory when the API enters real-data mode. */
 export function withoutDemoTelemetry(current: ClimateState, clearAlerts = false): ClimateState {
   const readings = Object.fromEntries(Object.entries(current.readings).filter(([, reading]) => !isDemoSource(reading.source)));
-  const history = Object.fromEntries(Object.entries(current.history).flatMap(([sensorId, values]) => {
-    const retained = values.filter((reading) => !isDemoSource(reading.source));
-    return retained.length ? [[sensorId, retained]] : [];
-  }));
   const latestMeasurements = Object.fromEntries(Object.entries(current.latestMeasurements).flatMap(([sensorId, values]) => {
     const retained = Object.fromEntries(Object.entries(values).filter(([, sample]) => !isDemoSource(sample.source)));
     return Object.keys(retained).length ? [[sensorId, retained]] : [];
@@ -243,12 +194,10 @@ export function withoutDemoTelemetry(current: ClimateState, clearAlerts = false)
   return {
     ...current,
     readings,
-    history,
     latestMeasurements,
     measurementHistory,
     // Forecast contracts do not carry provenance. Drop cached forecasts at the
     // boundary rather than risk retaining values derived from demo history.
-    forecasts: {},
     measurementForecasts: {},
     ...(clearAlerts ? { alerts: [] } : {}),
   };
@@ -268,12 +217,6 @@ export function advanceMockTelemetry(
     .map((sensor) => sensor.id));
   const readings = Object.fromEntries(Object.entries(current.readings)
     .filter(([sensorId, reading]) => !sharedSensorIds.has(sensorId) || !isDemoSource(reading.source)));
-  const history = Object.fromEntries(Object.entries(current.history).flatMap(([sensorId, values]) => {
-    const retained = sharedSensorIds.has(sensorId)
-      ? values.filter((reading) => !isDemoSource(reading.source))
-      : values;
-    return retained.length ? [[sensorId, retained]] : [];
-  }));
   let latestMeasurements = Object.fromEntries(Object.entries(current.latestMeasurements)
     .flatMap(([sensorId, values]) => {
       const retained = sharedSensorIds.has(sensorId)
@@ -297,7 +240,6 @@ export function advanceMockTelemetry(
     if (!previous) continue;
     const next = nextMockReading(sensor, previous, scenario, tick);
     readings[sensor.id] = next;
-    history[sensor.id] = [...(history[sensor.id] ?? []), next].slice(-500);
     const samples = readingSamples(next, current.measurementDefinitions);
     latestMeasurements = upsertLatest(latestMeasurements, samples);
     measurementHistory = appendHistory(measurementHistory, samples, LIVE_SERIES_SAMPLES);
@@ -305,10 +247,8 @@ export function advanceMockTelemetry(
   return {
     ...current,
     readings,
-    history,
     latestMeasurements,
     measurementHistory,
-    forecasts: withoutSensorIds(current.forecasts, sharedSensorIds),
     measurementForecasts: withoutSensorIds(current.measurementForecasts, sharedSensorIds),
   };
 }
@@ -334,24 +274,6 @@ export function seriesBucketSeconds(range: TimeRange, metric?: string): number |
   return metric === "power" ? 15 * 60 : 60 * 60;
 }
 
-export function errorMessage(error: unknown, fallback: string): string {
-  return error instanceof Error && error.message.trim() ? error.message : fallback;
-}
-
-export function apiErrorStatus(error: unknown): number | null {
-  if (!(error instanceof Error) || error.name !== "ApiRequestError" || !("status" in error)) return null;
-  return typeof error.status === "number" && Number.isInteger(error.status)
-    && error.status >= 100 && error.status <= 599 ? error.status : null;
-}
-export function isLegacySeriesCompatibilityError(error: unknown): boolean {
-  if (!(error instanceof Error) || error.name !== "ApiRequestError") return false;
-  const apiError = error as Error & { status?: unknown; code?: unknown };
-  if (apiError.status === 405 || apiError.status === 501) return true;
-  return apiError.status === 404
-    && apiError.code === "NOT_FOUND"
-    && /\bAPI endpoint not found\b/i.test(apiError.message);
-}
-
 export async function optionalForecast<T>(request: Promise<T[]>): Promise<{ value: T[] | null; error: string | null }> {
   try {
     return { value: await request, error: null };
@@ -373,13 +295,10 @@ export async function canonicalSeries(
   // Counter deltas and held power need a predecessor at the left edge.
   const historyFrom = metric === "energy" || metric === "power"
     ? new Date(Date.parse(from) - 15 * 60_000).toISOString() : from;
-  const historyRequest = signal
-    ? api.measurementHistoryPage(sensorId, metric, historyFrom, to, seriesLimit(range), bucketSeconds, signal)
-    : api.measurementHistoryPage(sensorId, metric, historyFrom, to, seriesLimit(range), bucketSeconds);
   const [history, forecast] = await Promise.all([
-    historyRequest,
+    api.measurementHistoryPage(sensorId, { metric, from: historyFrom, to, limit: seriesLimit(range), bucketSeconds, signal }),
     forecastSupported
-      ? optionalForecast(api.measurementForecast(sensorId, metric, 12, signal))
+      ? optionalForecast(api.measurementForecast(sensorId, { metric, hours: 12, signal }))
       : Promise.resolve({ value: [], error: null }),
   ]);
   return { samples: history.samples, history, forecast };

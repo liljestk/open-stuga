@@ -465,10 +465,10 @@ describe("SQLite telemetry archive buffer", () => {
       "property-main", timestamps[1], "2024-03-01T01:30:00.000Z",
     )).toHaveLength(1);
     expect(database.listOpeningStateObservationHistory(
-      "retention-opening-house", timestamps[0], timestamps[0],
+      "retention-opening-house", { from: timestamps[0], to: timestamps[0] },
     )).toEqual([]);
     expect(database.listOpeningStateObservationHistory(
-      "retention-opening-house", timestamps[1], timestamps[1],
+      "retention-opening-house", { from: timestamps[1], to: timestamps[1] },
     )).toHaveLength(1);
     expect(heatPumpStates.history("gree-retention", {
       from: timestamps[0],

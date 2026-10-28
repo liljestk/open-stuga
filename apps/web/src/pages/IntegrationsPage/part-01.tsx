@@ -1,58 +1,12 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
-import {
-  Building2,
-  Check,
-  ChevronRight,
-  CircleDot,
-  CloudSun,
-  Compass,
-  ExternalLink,
-  Home,
-  LocateFixed,
-  Link2,
-  LoaderCircle,
-  LockKeyhole,
-  MapPin,
-  Maximize2,
-  Move,
-  RadioTower,
-  RefreshCw,
-  Router,
-  Ruler,
-  ShieldCheck,
-  ThermometerSun,
-  Trash2,
-  TriangleAlert,
-} from "lucide-react";
-import { floorMetersPerPlanUnit } from "@climate-twin/contracts";
-import type {
-  ConnectionState,
-  House,
-  HouseLocation,
-  HouseMapPlacement,
-  IntegrationStatus,
-  TpLinkDiscoveredDevice,
-  UnitSystem,
-} from "@climate-twin/contracts";
-import {
-  api,
-  type HouseGeoreferencePatch,
-  type HousePatch,
-  type IntegrationDiscoveryResult,
-  type TpLinkHistoryExportJob,
-  type TpLinkHistoryExportJobsResponse,
-  type TpLinkHistoryExportJobStatus,
-} from "../../api";
-import type { HouseLocationMapItem, MapLocation } from "../../components/HouseLocationMap";
-import { LocationDiscoveryPanel, type DiscoveredHomeDefaults } from "../../components/LocationDiscoveryPanel";
+import type { IntegrationDiscoveryResult } from "@climate-twin/contracts";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { type TpLinkHistoryExportJob, type TpLinkHistoryExportJobsResponse } from "../../api";
 import { useI18n } from "../../i18n";
 import { integrationForHouse } from "../../integrationScope";
-import { AutomationSetupPanel } from "../AutomationSetupPanel";
-import { SetupOperationsPanel } from "../SetupOperationsPanel";
-import { ACTIVE_TP_LINK_EXPORT_STATUSES, HouseLocationMap, RETRYABLE_TP_LINK_EXPORT_STATUSES, TP_LINK_EXPORT_PROVIDER_KEYS, TP_LINK_EXPORT_STATUS_KEYS, connectionError, dateTime, decimal, defaultFootprintWidthMeters, floorPlanSize, footprintFloorFor, mapLocation, placementForm, setupSectionFromPath, setupSectionOrder, validTimeZone, writeSetupSection } from "./support";
-import type { DiscoveryOutcome, Feedback, HouseFloor, IntegrationsPageProps, SetupSection, TpLinkChildDiscovery } from "./support";
-export function useIntegrationsPagePart01(context: { aggregateIntegration: IntegrationsPageProps["integration"]; initialHouse: IntegrationsPageProps["house"]; houses: IntegrationsPageProps["houses"]; connectionHouses: Exclude<IntegrationsPageProps["connectionHouses"], undefined>; streamConnection: IntegrationsPageProps["streamConnection"]; tpLinkDevicesLoading: Exclude<IntegrationsPageProps["tpLinkDevicesLoading"], undefined>; tpLinkDevicesError: Exclude<IntegrationsPageProps["tpLinkDevicesError"], undefined>; canManageTuya: boolean; onHouse: IntegrationsPageProps["onHouse"]; onHouseUpdate: IntegrationsPageProps["onHouseUpdate"]; onGeoreferenceChange: IntegrationsPageProps["onGeoreferenceChange"]; onIntegrationChange: IntegrationsPageProps["onIntegrationChange"]; onRefreshTpLinkDevices: IntegrationsPageProps["onRefreshTpLinkDevices"]; onDisconnectHomeAssistant: IntegrationsPageProps["onDisconnectHomeAssistant"]; onDisconnectTpLink: IntegrationsPageProps["onDisconnectTpLink"]; onMoveHomeAssistant: IntegrationsPageProps["onMoveHomeAssistant"]; onMoveTpLink: IntegrationsPageProps["onMoveTpLink"]; onOpenSensors: IntegrationsPageProps["onOpenSensors"]; onOpenLayout: IntegrationsPageProps["onOpenLayout"]; onDiscoveryStarted: IntegrationsPageProps["onDiscoveryStarted"] }) {
-  const { aggregateIntegration, initialHouse, houses, connectionHouses, streamConnection, tpLinkDevicesLoading, tpLinkDevicesError, onHouse, onHouseUpdate, onGeoreferenceChange, onIntegrationChange, onRefreshTpLinkDevices, onDisconnectHomeAssistant, onDisconnectTpLink, onMoveHomeAssistant, onMoveTpLink, onOpenSensors, onOpenLayout } = context;
+import { dateTime, setupSectionFromPath } from "./setupModel";
+import type { DiscoveryOutcome, Feedback, IntegrationsPageProps, SetupSection, TpLinkChildDiscovery } from "./setupModel";
+export function useIntegrationsPagePart01(context: { aggregateIntegration: IntegrationsPageProps["integration"]; initialHouse: IntegrationsPageProps["house"]; houses: IntegrationsPageProps["houses"]; connectionHouses: Exclude<IntegrationsPageProps["connectionHouses"], undefined>; streamConnection: IntegrationsPageProps["streamConnection"]; tpLinkDevicesLoading: Exclude<IntegrationsPageProps["tpLinkDevicesLoading"], undefined>; tpLinkDevicesError: Exclude<IntegrationsPageProps["tpLinkDevicesError"], undefined>; canManageIntegrations: boolean; onHouse: IntegrationsPageProps["onHouse"]; onHouseUpdate: IntegrationsPageProps["onHouseUpdate"]; onGeoreferenceChange: IntegrationsPageProps["onGeoreferenceChange"]; onIntegrationChange: IntegrationsPageProps["onIntegrationChange"]; onRefreshTpLinkDevices: IntegrationsPageProps["onRefreshTpLinkDevices"]; onDisconnectHomeAssistant: IntegrationsPageProps["onDisconnectHomeAssistant"]; onDisconnectTpLink: IntegrationsPageProps["onDisconnectTpLink"]; onMoveHomeAssistant: IntegrationsPageProps["onMoveHomeAssistant"]; onMoveTpLink: IntegrationsPageProps["onMoveTpLink"]; onOpenSensors: IntegrationsPageProps["onOpenSensors"]; onOpenLayout: IntegrationsPageProps["onOpenLayout"]; onDiscoveryStarted: IntegrationsPageProps["onDiscoveryStarted"] }) {
+  const { aggregateIntegration, initialHouse, connectionHouses } = context;
   const { locale, t } = useI18n();
   const [setupHouseId, setSetupHouseId] = useState(initialHouse.id);
   const house = connectionHouses.find((candidate) => candidate.id === setupHouseId) ?? initialHouse;

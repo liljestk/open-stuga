@@ -104,6 +104,8 @@ export interface HomePerformanceSensorHealth {
 
 export type HomePerformanceLimitation =
   | "archive-incomplete"
+  | "sensor-scope-limited"
+  | "evidence-scope-limited"
   | "opening-history-missing"
   | "unclassified-energy"
   | "maintenance-evidence-missing"

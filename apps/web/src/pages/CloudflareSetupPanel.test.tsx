@@ -1,14 +1,15 @@
+import type { CloudflareSetupStatusResponse } from "@climate-twin/contracts";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import axe from "axe-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { api, type CloudflareSetupStatus } from "../api";
+import { api } from "../api";
 import { I18nProvider } from "../i18n";
 import { CloudflareSetupPanel } from "./CloudflareSetupPanel";
 
 afterEach(() => vi.restoreAllMocks());
 
-function setupStatus(overrides: Partial<CloudflareSetupStatus["configuration"]> = {}): CloudflareSetupStatus {
+function setupStatus(overrides: Partial<CloudflareSetupStatusResponse["configuration"]> = {}): CloudflareSetupStatusResponse {
   return {
     canConfigure: true,
     localConfigureUrl: "http://127.0.0.1:8080/stugbys",

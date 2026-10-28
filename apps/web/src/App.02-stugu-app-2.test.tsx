@@ -1,18 +1,10 @@
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-
-import { StrictMode } from "react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 
 import userEvent from "@testing-library/user-event";
 
 import type { DoorPlanElement, IntegrationDiscoveryJob } from "@climate-twin/contracts";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-
-import { App } from "./App";
-
-import { I18nProvider } from "./i18n";
-
-import { createDemoState } from "./domain";
 
 import { useClimateData } from "./useClimateData";
 
@@ -257,8 +249,8 @@ describe("Stugu app", () => {
     const result = {
       homeAssistant: [],
       tpLink: [
-        { host: "192.168.1.20", model: "P110", alias: "Desk plug", sourceType: "energy-device" as const },
-        { host: "192.168.1.21", model: "P110", alias: "Heater plug", sourceType: "energy-device" as const },
+        { host: "192.168.1.20", model: "P110", alias: "Desk plug", sourceType: "energy-device" as const, deviceId: null },
+        { host: "192.168.1.21", model: "P110", alias: "Heater plug", sourceType: "energy-device" as const, deviceId: null },
       ],
       warnings: [],
     };

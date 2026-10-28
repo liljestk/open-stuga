@@ -13,13 +13,13 @@ import type {
   Sensor,
   UnitSystem,
 } from "@climate-twin/contracts";
-import { useI18n, type TranslationKey } from "../i18n";
+import { useI18n } from "../i18n";
 import { formatInTimeZone } from "../dateTime";
 import { useNow } from "../useNow";
-import type { LatestMeasurements, MeasurementHistory } from "../measurements";
+import type { LatestMeasurements } from "../measurements";
 import { HomeOriginIndicator, isRemoteHome } from "../components/HomeOriginIndicator";
 import { useHomeMonitoringCollectionQuery } from "../data/analytics/homeMonitoringQuery";
-import { MobileGlanceOverview } from "../components/MobileGlanceOverview";
+import { MobileGlanceOverview } from "./PortfolioOverview/MobileGlanceOverview";
 
 type MonitoringRequestState = "pending" | "error" | "ready" | "unknown";
 
@@ -29,7 +29,6 @@ interface PortfolioOverviewProps {
   houses: House[];
   sensors: Sensor[];
   latestMeasurements: LatestMeasurements;
-  measurementHistory: MeasurementHistory;
   measurementDefinitions?: MeasurementDefinition[];
   alerts: AlertEvent[];
   alertRules: AlertRule[];
@@ -89,7 +88,6 @@ function PortfolioOverviewView({
   houses,
   sensors,
   latestMeasurements,
-  measurementHistory,
   measurementDefinitions = [],
   alerts,
   alertRules,
@@ -204,7 +202,7 @@ function PortfolioOverviewView({
 
         {showMonitoring && <div className={`portfolio-monitoring ${result.status}`}>
           <MonitoringIcon result={result} />
-          <span><strong>{t(`overview.monitoring.${result.status}` as TranslationKey)}</strong><small>{primaryBlocker ? blockerText(primaryBlocker, t) : monitoringConfirmed ? t("overview.blocker.none") : t("decision.pulse.unknown.body")}</small></span>
+          <span><strong>{t(`overview.monitoring.${result.status}`)}</strong><small>{primaryBlocker ? blockerText(primaryBlocker, t) : monitoringConfirmed ? t("overview.blocker.none") : t("decision.pulse.unknown.body")}</small></span>
         </div>}
 
         <dl className="portfolio-facts">

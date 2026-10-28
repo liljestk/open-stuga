@@ -1,3 +1,4 @@
+import { withResponseSignal } from "../../app/response-signal.js";
 import { createHash } from "node:crypto";
 import type express from "express";
 import type {
@@ -8,7 +9,7 @@ import type {
   IntegrationStatus,
   MeasurementSample,
 } from "@climate-twin/contracts";
-import { HttpError } from "../../app/support/index.js";
+import { HttpError } from "../../http-error.js";
 import { LruTtlCache } from "../../cache.js";
 import type { ClimateDatabase } from "../../db.js";
 import type { TelemetryBus } from "../../events.js";
@@ -16,7 +17,7 @@ import {
   IncompleteTelemetryHistoryError,
   type HybridTelemetryReader,
 } from "../../timeseries/read-facade.js";
-import type { WeatherEventBroker } from "../../weather-events.js";
+import type { WeatherEventBroker } from "../../weather/events.js";
 import type { AnalyticsWorkLimiter } from "../work-limiter.js";
 import {
   getHomeMonitoringCollection,
@@ -69,19 +70,6 @@ function dataMode(value: unknown): DataMode {
 
 function cacheKey(parts: readonly unknown[]): string {
   return createHash("sha256").update(JSON.stringify(parts)).digest("hex");
-}
-
-function abortOnResponseClose(response: express.Response): {
-  signal: AbortSignal;
-  dispose: () => void;
-} {
-  const controller = new AbortController();
-  const abort = () => controller.abort(new DOMException("Client disconnected", "AbortError"));
-  response.once("close", abort);
-  return {
-    signal: controller.signal,
-    dispose: () => response.off("close", abort),
-  };
 }
 
 export function registerHomeMonitoringRoutes(context: HomeMonitoringRouteContext): () => void {
@@ -208,66 +196,61 @@ export function registerHomeMonitoringRoutes(context: HomeMonitoringRouteContext
     const hit = detailCache.has(key);
     const coalesced = !hit && detailCache.isLoading(key);
     const startedAt = performance.now();
-    const cancellation = abortOnResponseClose(response);
-    try {
-      const result = await detailCache.getOrLoad(key, async (signal) => {
-        const evaluatedAt = new Date().toISOString();
-        const scope = { house, sensors };
-        const historyKey = `monitoring:history:${house.id}:${cacheKey([
-          Math.floor(Date.now() / 60_000),
-          house.updatedAt,
-          sensors,
-        ])}`;
-        const historyResult = await historyCache.getOrLoad(
-          historyKey,
-          async (historySignal) => {
-            try {
-              return {
-                history: await context.analyticsWorkLimiter.run(
-                  "home-monitoring-history",
-                  () => loadHomeMonitoringHistory({
-                    database: context.database,
-                    telemetryReader: context.telemetryReader,
-                    scope,
-                    evaluatedAt,
-                    signal: historySignal,
-                  }),
-                  historySignal,
-                ),
-                warning: null,
-              };
-            } catch (error) {
-              if (error instanceof IncompleteTelemetryHistoryError) return incompleteHistoryResult(error);
-              throw error;
-            }
-          },
-          { serveStale: false, ttlMs: 60_000, signal },
-        );
-        return getHomeMonitoringDetail({
-          database: context.database,
-          latestMeasurements: (id) => context.cachedLatestMeasurements(id),
-          integrationStatus: (id) => context.integrationStatusForHouse(id),
-          latestWeather: (id) => context.weatherEvents.latest(id)?.weather ?? null,
-          dataMode: requestedDataMode,
-          evaluatedAt,
-          measurementHistory: historyResult.history,
-          ...(historyResult.warning ? { warnings: [historyResult.warning] } : {}),
-        }, scope);
-      }, {
-        serveStale: false,
-        ttlMs: 2_000,
-        signal: cancellation.signal,
-      });
-      response.setHeader("cache-control", "private, no-store");
-      response.setHeader("x-stugu-cache", hit ? "hit" : coalesced ? "coalesced" : "miss");
-      response.setHeader(
-        "server-timing",
-        `home-monitoring-detail;dur=${(performance.now() - startedAt).toFixed(1)}`,
+    const result = await withResponseSignal(response, (requestSignal) => detailCache.getOrLoad(key, async (signal) => {
+      const evaluatedAt = new Date().toISOString();
+      const scope = { house, sensors };
+      const historyKey = `monitoring:history:${house.id}:${cacheKey([
+        Math.floor(Date.now() / 60_000),
+        house.updatedAt,
+        sensors,
+      ])}`;
+      const historyResult = await historyCache.getOrLoad(
+        historyKey,
+        async (historySignal) => {
+          try {
+            return {
+              history: await context.analyticsWorkLimiter.run(
+                "home-monitoring-history",
+                () => loadHomeMonitoringHistory({
+                  database: context.database,
+                  telemetryReader: context.telemetryReader,
+                  scope,
+                  evaluatedAt,
+                  signal: historySignal,
+                }),
+                historySignal,
+              ),
+              warning: null,
+            };
+          } catch (error) {
+            if (error instanceof IncompleteTelemetryHistoryError) return incompleteHistoryResult(error);
+            throw error;
+          }
+        },
+        { serveStale: false, ttlMs: 60_000, signal },
       );
-      response.json(result);
-    } finally {
-      cancellation.dispose();
-    }
+      return getHomeMonitoringDetail({
+        database: context.database,
+        latestMeasurements: (id) => context.cachedLatestMeasurements(id),
+        integrationStatus: (id) => context.integrationStatusForHouse(id),
+        latestWeather: (id) => context.weatherEvents.latest(id)?.weather ?? null,
+        dataMode: requestedDataMode,
+        evaluatedAt,
+        measurementHistory: historyResult.history,
+        ...(historyResult.warning ? { warnings: [historyResult.warning] } : {}),
+      }, scope);
+    }, {
+      serveStale: false,
+      ttlMs: 2_000,
+      signal: requestSignal,
+    }));
+    response.setHeader("cache-control", "private, no-store");
+    response.setHeader("x-stugu-cache", hit ? "hit" : coalesced ? "coalesced" : "miss");
+    response.setHeader(
+      "server-timing",
+      `home-monitoring-detail;dur=${(performance.now() - startedAt).toFixed(1)}`,
+    );
+    response.json(result);
   });
 
   return () => {

@@ -1,5 +1,4 @@
-import { MAX_OBSERVATION_RESOLUTION_NOTE_LENGTH, SECURITY_AUDIT_EVENT_TYPES, SECURITY_AUDIT_SUBJECT_TYPES } from "@climate-twin/contracts";
-import { STUGBY_MEDIA_TYPE } from "@climate-twin/stuguby-protocol";
+import { SECURITY_AUDIT_EVENT_TYPES, SECURITY_AUDIT_SUBJECT_TYPES } from "@climate-twin/contracts";
 import { spatialJsonResponse, spatialRequestBody } from "./part-01.js";
 
 export const localAuthPaths = {

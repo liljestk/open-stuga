@@ -1,20 +1,6 @@
-import { mkdtempSync, rmSync } from "node:fs";
-
-import { tmpdir } from "node:os";
-
-import { join } from "node:path";
-
-import { DatabaseSync } from "node:sqlite";
-
 import request from "supertest";
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-
-import { createApi, type ApiRuntime } from "../src/app.js";
-
-import { loadConfig } from "../src/config.js";
-
-import { ClimateDatabase } from "../src/db.js";
+import type { ApiRuntime } from "../src/app.js";
 
 export const polygon = [
   { latitude: 60.17, longitude: 24.93 },

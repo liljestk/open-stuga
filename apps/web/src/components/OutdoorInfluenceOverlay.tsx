@@ -1,13 +1,13 @@
 import { useId, type CSSProperties } from "react";
 import type { Floor, House, UnitSystem } from "@climate-twin/contracts";
-import { useI18n, type TranslationKey } from "../i18n";
+import { useI18n } from "../i18n";
 import {
   formatOutdoorInfluenceValue,
   type OutdoorInfluenceEdge,
   type OutdoorInfluenceEstimate,
-} from "../outdoorInfluence";
-import type { PlanEdge } from "../outdoorContext";
-import type { Point3D, ProjectedPoint3D } from "../spatialVolume";
+} from "../outdoor/influence";
+import type { PlanEdge } from "../outdoor/context";
+import type { Point3D, ProjectedPoint3D } from "../spatial/volume";
 
 function influenceLabel(
   estimate: OutdoorInfluenceEstimate,
@@ -19,7 +19,7 @@ function influenceLabel(
     || estimate.outdoorValue === null || estimate.indoorValue === null || estimate.difference === null) {
     return t("spatial.outdoorInfluence.needsData");
   }
-  const direction = t(`spatial.outdoorInfluence.direction.${estimate.direction}` as TranslationKey);
+  const direction = t(`spatial.outdoorInfluence.direction.${estimate.direction}`);
   return [
     t("spatial.outdoorInfluence.estimateReady", { direction }),
     t("spatial.outdoorInfluence.evidence", {

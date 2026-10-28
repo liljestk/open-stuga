@@ -1,15 +1,19 @@
-export type SystemUpdateDay = "sun" | "mon" | "tue" | "wed" | "thu" | "fri" | "sat";
+/** Weekdays in Date.getUTCDay() order. */
+export const SYSTEM_UPDATE_DAYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"] as const;
+export type SystemUpdateDay = (typeof SYSTEM_UPDATE_DAYS)[number];
 export type SystemUpdateMode = "manual" | "automatic";
-export type SystemUpdatePhase =
-  | "queued"
-  | "preparing"
-  | "backup"
-  | "pulling"
-  | "applying"
-  | "verifying"
-  | "complete"
-  | "failed"
-  | "rolling-back";
+export const SYSTEM_UPDATE_PHASES = [
+  "queued",
+  "preparing",
+  "backup",
+  "pulling",
+  "applying",
+  "verifying",
+  "complete",
+  "failed",
+  "rolling-back",
+] as const;
+export type SystemUpdatePhase = (typeof SYSTEM_UPDATE_PHASES)[number];
 
 export interface SystemUpdateSettings {
   mode: SystemUpdateMode;
@@ -50,6 +54,17 @@ export interface SystemUpdateOperation {
   previousVersion: string;
   activity: SystemUpdateActivity[];
 }
+
+/**
+ * Reasons that describe the remote update feed rather than this appliance. Host
+ * updates pause while one is active, but application container updates remain
+ * available: they come from the container registry and never touch the
+ * failing TUF metadata.
+ */
+export const FEED_SCOPED_SYSTEM_UPDATE_REASONS: ReadonlySet<string> = new Set([
+  "feed-trust-stale",
+  "metadata-unavailable",
+]);
 
 export interface SystemUpdateCapability {
   available: boolean;
@@ -108,26 +123,34 @@ export interface SystemUpdateHostProjection {
   readyToRestart: HostUpdateReadyToRestart | null;
 }
 
-export type SystemUpdateWorkflowPhase =
-  | "preparing"
-  | "backup-active"
-  | "backup-complete"
-  | "host-stage-requested"
-  | "host-stage-queueing"
-  | "host-staging"
-  | "awaiting-restart"
-  | "restarting"
-  | "host-verifying"
-  | "host-complete"
-  | "application-queueing"
-  | "application-queued"
-  | "application-updating"
-  | "application-failed"
-  | "complete"
-  | "failed"
-  | "cancelled"
-  | "returned"
-  | "recovery-needed";
+export const SYSTEM_UPDATE_WORKFLOW_PHASES = [
+  "preparing",
+  "backup-active",
+  "backup-complete",
+  "host-stage-requested",
+  "host-stage-queueing",
+  "host-staging",
+  "awaiting-restart",
+  "restarting",
+  "host-verifying",
+  "host-complete",
+  "application-queueing",
+  "application-queued",
+  "application-updating",
+  "application-failed",
+  "complete",
+  "failed",
+  "cancelled",
+  "returned",
+  "recovery-needed",
+] as const;
+
+export type SystemUpdateWorkflowPhase = (typeof SYSTEM_UPDATE_WORKFLOW_PHASES)[number];
+
+/** Workflow phases after which a new update may start. */
+export const SYSTEM_UPDATE_REPLACEABLE_WORKFLOW_PHASES: ReadonlySet<SystemUpdateWorkflowPhase> = new Set([
+  "complete", "cancelled", "failed", "returned",
+]);
 
 export type SystemUpdateWorkflowStepId =
   | "backup"

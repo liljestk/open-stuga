@@ -1,21 +1,10 @@
-import type {
-  ActionRun,
-  AnalyticsPoint,
-  AnalyticsQueryResponse,
-  AnalyticsSeries,
-  House,
-  MaintenanceTask,
-  ManualObservation,
-  MeasurementDefinition,
-  OpeningStateObservation,
-  OutdoorTemperatureSample,
-  Sensor,
-} from "@climate-twin/contracts";
+import type { AnalyticsPoint, AnalyticsQueryResponse, HomePerformanceEnergy, HomePerformanceMaintenance, HomePerformanceOpeningEffectiveness, HomePerformanceRecovery, House, MeasurementDefinition, OpeningStateObservation, OutdoorTemperatureSample, Sensor } from "@climate-twin/contracts";
 import { DEFAULT_HEATING_BASE_TEMPERATURE_C, heatingBaseTemperature } from "../house-parameters.js";
 import { dailyEnergy, heatingRegression, slopeComparison, studentT95 } from "./energy-index.js";
-import { ENERGY_MIN_BUCKET_COVERAGE, HOUR_MS, HomePerformanceEnergy, HomePerformanceInput, HomePerformanceMaintenance, HomePerformanceOpeningEffectiveness, HomePerformanceRecovery, RECOVERY_MAX_POINT_GAP_MS, RECOVERY_MIN_BUCKET_COVERAGE, RecoveryEvidence, ValuePoint, absoluteHumidity, compareStable, contiguousRecoveryEvidence, median, resolutionHours, round, seriesFor, values } from "./model.js";
+import { ENERGY_MIN_BUCKET_COVERAGE, HOUR_MS, HomePerformanceInput, RECOVERY_MAX_POINT_GAP_MS, RECOVERY_MIN_BUCKET_COVERAGE, RecoveryEvidence, ValuePoint, contiguousRecoveryEvidence, median, resolutionHours, round, seriesFor } from "./model.js";
 import { averageWattsToKwh, minimum as kernelMinimum } from "@climate-twin/analytics-kernel";
 import { deriveOpeningActivity } from "../temporal/opening-intervals.js";
+import { compareCodeUnits } from "../../text-order.js";
 
 export function moistureRecoveryResult(
   input: HomePerformanceInput,
@@ -92,7 +81,7 @@ export function nearestSensorForOpening(
     .sort((left, right) => (
       Math.hypot(left.x - element.position.x, left.y - element.position.y)
       - Math.hypot(right.x - element.position.x, right.y - element.position.y)
-      || compareStable(left.id, right.id)
+      || compareCodeUnits(left.id, right.id)
     ))[0] ?? null;
 }
 
@@ -178,7 +167,7 @@ export function openingEffectivenessResult(
       label: group.label,
       median: median(group.halfLives) ?? Number.POSITIVE_INFINITY,
     }))
-    .sort((left, right) => left.median - right.median || compareStable(left.key, right.key))[0];
+    .sort((left, right) => left.median - right.median || compareCodeUnits(left.key, right.key))[0];
   return {
     state: evaluated.length >= 2 ? "ready" : transitions.length > 0 ? "limited" : "unavailable",
     evaluatedEvents: evaluated.length,
@@ -363,7 +352,7 @@ export function maintenanceResult(input: HomePerformanceInput): HomePerformanceM
     resolvedByIssue.set(key, resolved);
   }
   for (const resolved of resolvedByIssue.values()) {
-    resolved.sort((left, right) => left.time - right.time || compareStable(left.id, right.id));
+    resolved.sort((left, right) => left.time - right.time || compareCodeUnits(left.id, right.id));
   }
   const recurring = moistureObservations.filter((candidate) => {
     if (!timestampInRange(candidate.occurredAt, input.from, input.to)) return false;

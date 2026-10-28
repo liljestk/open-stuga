@@ -10,6 +10,7 @@ import { svDataExport } from "./sv/data-export";
 import { svBugReports } from "./sv/bug-reports";
 import { svElectricityTariffs } from "./sv/electricity-tariffs";
 import { svAnalyticsQuality } from "./sv/analytics-quality";
+import { svRequestErrors } from "./sv/request-errors";
 import type { TranslationKey } from "./en";
 
 export const svOverrides = {
@@ -25,4 +26,5 @@ export const svOverrides = {
   ...svBugReports,
   ...svElectricityTariffs,
   ...svAnalyticsQuality,
+  ...svRequestErrors,
 } satisfies Record<TranslationKey, string>;

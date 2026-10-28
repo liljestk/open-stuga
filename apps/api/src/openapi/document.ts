@@ -1,16 +1,12 @@
-import { MAX_OBSERVATION_RESOLUTION_NOTE_LENGTH } from "@climate-twin/contracts";
-import { STUGBY_MEDIA_TYPE } from "@climate-twin/stuguby-protocol";
-import { jsonRequestBody, jsonResponse, localAuthPaths, localAuthSchemas, operationalOrchestrationPaths, spatialHouseResourcePath, spatialJsonResponse, spatialLayerPaths, spatialLayerSchemas, spatialRequestBody, spatialScopePaths, spatialScopeQueryParameters, stugubyIdParameter, stugubyNodeSecurity, stugubyObject, stugubyPaths, stugubyRequestBody, stugubyResponse, trackingObject, trackingObserverBearerSecurity, trackingObserverSecurity, trackingPathParameter, trackingPaths } from "./support/index.js";
-import type { OpenApiSchema } from "./support/index.js";
 import { pathsPart01 } from "./paths-01.js";
 import { pathsPart02 } from "./paths-02.js";
 import { pathsPart03 } from "./paths-03.js";
 import { pathsPart04 } from "./paths-04.js";
-import { pathsPart05 } from "./paths-05.js";
-import { pathsPart06 } from "./paths-06.js";
-import { pathsPart07 } from "./paths-07.js";
-import { pathsPart08 } from "./paths-08.js";
-import { pathsPart09 } from "./paths-09.js";
+import { deviceIntegrationPaths } from "./device-integration-paths.js";
+import { homeAnalyticsPaths } from "./home-analytics-paths.js";
+import { nexus433Paths } from "./nexus433-paths.js";
+import { bugReportPaths } from "./bug-report-paths.js";
+import { electricityTariffPaths } from "./electricity-tariff-paths.js";
 import { schemasPart01 } from "./schemas-01.js";
 import { schemasPart02 } from "./schemas-02.js";
 import { schemasPart03 } from "./schemas-03.js";
@@ -19,8 +15,8 @@ import { schemasPart05 } from "./schemas-05.js";
 import { schemasPart06 } from "./schemas-06.js";
 import { schemasPart07 } from "./schemas-07.js";
 import { schemasPart08 } from "./schemas-08.js";
-import { schemasPart09 } from "./schemas-09.js";
-import { schemasPart10 } from "./schemas-10.js";
+import { derivedAnalyticsSchemas } from "./derived-analytics-schemas.js";
+import { homeAnalyticsSchemas } from "./home-analytics-schemas.js";
 import { schemasPart11 } from "./schemas-11.js";
 import { schemasPart12 } from "./schemas-12.js";
 
@@ -31,7 +27,7 @@ export const combinedOpenApiDocument = {
       version: "2.0.0",
       description: "Local-first Stugu API for house layouts, environmental telemetry, forecasts, alerts, replay, and integrations.",
     },
-  servers: [{ url: "/api/v1", description: "Legacy climate tuple API" }, { url: "/api/v2", description: "Registry-driven measurements API" }],
+  servers: [{ url: "/api/v1", description: "Control-plane API" }, { url: "/api/v2", description: "Registry-driven measurements API" }],
   tags: [
       { name: "Telemetry" }, { name: "Digital twin" }, { name: "Alerts" },
       { name: "Context" }, { name: "Security" }, { name: "Weather" }, { name: "Physics" }, { name: "Integrations" }, { name: "Testing" }, { name: "Measurements" }, { name: "Stuguby", description: "Coordinator-led Property collaboration and explicit Home sharing. Homes are read-only by default. Credentials, integrations, account identities, and control commands are outside this protocol." },
@@ -44,11 +40,11 @@ export const combinedOpenApiDocument = {
     ...pathsPart02,
     ...pathsPart03,
     ...pathsPart04,
-    ...pathsPart05,
-    ...pathsPart06,
-    ...pathsPart07,
-    ...pathsPart08,
-    ...pathsPart09,
+    ...deviceIntegrationPaths,
+    ...homeAnalyticsPaths,
+    ...nexus433Paths,
+    ...bugReportPaths,
+    ...electricityTariffPaths,
   },
   components: {
     securitySchemes: {
@@ -85,8 +81,8 @@ export const combinedOpenApiDocument = {
       ...schemasPart06,
       ...schemasPart07,
       ...schemasPart08,
-      ...schemasPart09,
-      ...schemasPart10,
+      ...derivedAnalyticsSchemas,
+      ...homeAnalyticsSchemas,
       ...schemasPart11,
       ...schemasPart12,
     },

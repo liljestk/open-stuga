@@ -2,11 +2,12 @@ import type { AnalyticsDiagnostics } from "./analytics-diagnostics.js";
 import type { ElectricityInvoice, ElectricityInvoiceReconciliation, PropertyElectricityTariff } from "./electricity-tariffs.js";
 import type { HomeEnergyProjection } from "./energy-projection.js";
 import type { MeasurementForecastEvaluation, MeasurementForecastPoint } from "./measurement-analytics.js";
+import type { ForecastPoint, ForecastSeriesResponse, NotificationDeliveryStatus } from "./sensors-alerts.js";
 
 /** A response body did not have the shape its endpoint documents. */
 export class ResponseShapeError extends Error {
-  constructor(readonly endpoint: string) {
-    super(`Unexpected response shape from ${endpoint}`);
+  constructor(readonly endpoint: string, detail?: string) {
+    super(`Unexpected response shape from ${endpoint}${detail ? ` (${detail})` : ""}`);
     this.name = "ResponseShapeError";
   }
 }
@@ -50,6 +51,25 @@ export function isMeasurementForecastEvaluation(value: unknown): value is Measur
 
 export function isMeasurementForecastPoints(value: unknown): value is MeasurementForecastPoint[] {
   return Array.isArray(value) && value.every((point) => isRecord(point) && isString(point.timestamp) && isNumber(point.value));
+}
+
+export function isForecastPoints(value: unknown): value is ForecastPoint[] {
+  return Array.isArray(value) && value.every((point) => isRecord(point) && isString(point.sensorId) && isString(point.timestamp)
+    && isNumber(point.temperature) && isNumber(point.humidity));
+}
+
+export function isForecastSeriesResponse(value: unknown): value is ForecastSeriesResponse {
+  return isRecord(value) && isString(value.generatedAt) && Array.isArray(value.series)
+    && value.series.every((item) => isRecord(item) && isString(item.sensorId) && isForecastPoints(item.forecast));
+}
+
+export function isNotificationDeliveryStatus(value: unknown): value is NotificationDeliveryStatus {
+  return isRecord(value) && isString(value.id) && isString(value.subjectKind) && isString(value.subjectId)
+    && isString(value.channel) && isNumber(value.attempts) && isString(value.createdAt);
+}
+
+export function isNotificationDeliveryList(value: unknown): value is NotificationDeliveryStatus[] {
+  return Array.isArray(value) && value.every(isNotificationDeliveryStatus);
 }
 
 export function isPropertyElectricityTariff(value: unknown): value is PropertyElectricityTariff {

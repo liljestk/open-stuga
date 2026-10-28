@@ -10,7 +10,7 @@ const mocks = vi.hoisted(() => ({
   reset: vi.fn(),
 }));
 
-vi.mock("../useThermalSimulation", () => ({
+vi.mock("../data/analytics/useThermalSimulation", () => ({
   useThermalSimulation: () => ({ result: mocks.result, loading: false, error: false, run: mocks.run, reset: mocks.reset }),
 }));
 

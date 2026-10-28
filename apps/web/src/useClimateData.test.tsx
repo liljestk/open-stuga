@@ -3,167 +3,26 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type {
-  AreaEquipment,
-  House,
-  IntegrationStatus,
   MaintenanceTask,
-  ManualObservation,
-  MeasurementForecastPoint,
   MeasurementSample,
-  Sensor,
   SensorSnapshot,
   StaticParameter,
   TelemetryEvent,
   TpLinkDiscoveredDevice,
-  PropertyArea,
-  PropertyNote,
 } from "@climate-twin/contracts";
 
-import { createDemoState, type ClimateState } from "./domain";
+import { createDemoState } from "./domain";
 
-import { replaceLoadedHouseTelemetry, seriesStateKey, useClimateData, withoutDemoTelemetry } from "./useClimateData";
+import { useClimateData } from "./useClimateData";
 
-import { deferred, twoHouseFixture } from "./useClimateDataTestSupport";
 import { writeLocalStorage } from "./browserStorage";
 import { ApiVersionMismatchError, assertApiRuntimeVersion } from "./apiRuntimeVersion";
 
-const mocks = vi.hoisted(() => ({
-  session: vi.fn(),
-  properties: vi.fn(),
-  propertyAreas: vi.fn(),
-  areaEquipment: vi.fn(),
-  propertyNotes: vi.fn(),
-  houses: vi.fn(),
-  sensors: vi.fn(),
-  snapshot: vi.fn(),
-  alertRules: vi.fn(),
-  alerts: vi.fn(),
-  observations: vi.fn(),
-  maintenanceTasks: vi.fn(),
-  maintenanceTask: vi.fn(),
-  staticParameters: vi.fn(),
-  integrations: vi.fn(),
-  scenarios: vi.fn(),
-  measurementDefinitions: vi.fn(),
-  measurementSnapshot: vi.fn(),
-  measurementHistory: vi.fn(),
-  measurementHistoryPage: vi.fn(),
-  measurementForecast: vi.fn(),
-  readings: vi.fn(),
-  forecast: vi.fn(),
-  updatePropertyArea: vi.fn(),
-  createHouse: vi.fn(),
-  createSensor: vi.fn(),
-  updateSensor: vi.fn(),
-  deleteSensor: vi.fn(),
-  createAlertRule: vi.fn(),
-  updateAlertRule: vi.fn(),
-  acknowledgeAlert: vi.fn(),
-  updateHouseGeoreference: vi.fn(),
-  tpLinkDevices: vi.fn(),
-  disconnectHomeAssistant: vi.fn(),
-  disconnectTpLink: vi.fn(),
-  moveHomeAssistant: vi.fn(),
-  moveTpLink: vi.fn(),
-  createObservation: vi.fn(),
-  updateObservation: vi.fn(),
-  observationRevisions: vi.fn(),
-  createMaintenanceTask: vi.fn(),
-  updateMaintenanceTask: vi.fn(),
-  maintenanceTaskRevisions: vi.fn(),
-  deleteMaintenanceTask: vi.fn(),
-  createStaticParameter: vi.fn(),
-  cancelPendingApiRequests: vi.fn(),
-  subscribeToApiAuthorizationChanges: vi.fn((
-    _listener: (change: "changed" | "expired") => void,
-  ) => vi.fn()),
-  subscribeToEvents: vi.fn((
-    _onEvent: (event: TelemetryEvent) => void,
-    _onState: (state: "live" | "reconnecting") => void,
-    _onOpen?: () => void,
-  ) => vi.fn()),
-  subscribeToMeasurementEvents: vi.fn((
-    _onSample: (sample: MeasurementSample) => void,
-    _onState: (state: "live" | "reconnecting") => void,
-    _onOpen?: () => void,
-  ) => vi.fn()),
-  subscribeToAuthEpoch: vi.fn((_listener: () => void) => vi.fn()),
-}));
+vi.mock("./api", async () => (await import("./useClimateDataApiTestSupport")).apiModuleMock);
 
-vi.mock("./api", () => ({
-  api: {
-    session: mocks.session,
-    properties: mocks.properties,
-    propertyAreas: mocks.propertyAreas,
-    areaEquipment: mocks.areaEquipment,
-    propertyNotes: mocks.propertyNotes,
-    houses: mocks.houses,
-    sensors: mocks.sensors,
-    snapshot: mocks.snapshot,
-    alertRules: mocks.alertRules,
-    alerts: mocks.alerts,
-    observations: mocks.observations,
-    maintenanceTasks: mocks.maintenanceTasks,
-    maintenanceTask: mocks.maintenanceTask,
-    staticParameters: mocks.staticParameters,
-    integrations: mocks.integrations,
-    scenarios: mocks.scenarios,
-    measurementDefinitions: mocks.measurementDefinitions,
-    measurementSnapshot: mocks.measurementSnapshot,
-    measurementHistory: mocks.measurementHistory,
-    measurementHistoryPage: mocks.measurementHistoryPage,
-    measurementForecast: mocks.measurementForecast,
-    readings: mocks.readings,
-    forecast: mocks.forecast,
-    updatePropertyArea: mocks.updatePropertyArea,
-    createHouse: mocks.createHouse,
-    createSensor: mocks.createSensor,
-    updateSensor: mocks.updateSensor,
-    deleteSensor: mocks.deleteSensor,
-    createAlertRule: mocks.createAlertRule,
-    updateAlertRule: mocks.updateAlertRule,
-    acknowledgeAlert: mocks.acknowledgeAlert,
-    updateHouseGeoreference: mocks.updateHouseGeoreference,
-    tpLinkDevices: mocks.tpLinkDevices,
-    disconnectHomeAssistant: mocks.disconnectHomeAssistant,
-    disconnectTpLink: mocks.disconnectTpLink,
-    moveHomeAssistant: mocks.moveHomeAssistant,
-    moveTpLink: mocks.moveTpLink,
-    createObservation: mocks.createObservation,
-    updateObservation: mocks.updateObservation,
-    observationRevisions: mocks.observationRevisions,
-    createMaintenanceTask: mocks.createMaintenanceTask,
-    updateMaintenanceTask: mocks.updateMaintenanceTask,
-    maintenanceTaskRevisions: mocks.maintenanceTaskRevisions,
-    deleteMaintenanceTask: mocks.deleteMaintenanceTask,
-    createStaticParameter: mocks.createStaticParameter,
-  },
-  cancelPendingApiRequests: mocks.cancelPendingApiRequests,
-  subscribeToApiAuthorizationChanges: mocks.subscribeToApiAuthorizationChanges,
-  subscribeToEvents: mocks.subscribeToEvents,
-  subscribeToMeasurementEvents: mocks.subscribeToMeasurementEvents,
-}));
+vi.mock("./authEpoch", async () => (await import("./useClimateDataApiTestSupport")).authEpochModuleMock);
 
-vi.mock("./authEpoch", () => ({
-  subscribeToAuthEpoch: mocks.subscribeToAuthEpoch,
-}));
-
-function useTwoHouseApi(fixture: ReturnType<typeof twoHouseFixture>) {
-  const { firstHouse, secondHouse, firstSensor, secondSensor, firstSample, secondSample, firstObservation, secondObservation } = fixture;
-  mocks.houses.mockResolvedValue([firstHouse, secondHouse]);
-  mocks.sensors.mockImplementation(async (houseId: string) => houseId === secondHouse.id ? [secondSensor] : [firstSensor]);
-  mocks.snapshot.mockImplementation(async (houseId: string): Promise<SensorSnapshot[]> => houseId === secondHouse.id
-    ? [{ ...secondSensor, reading: null }]
-    : [{ ...firstSensor, reading: fixture.demo.readings[firstSensor.id] ?? null }]);
-  mocks.measurementSnapshot.mockImplementation(async (houseId: string) => houseId === secondHouse.id
-    ? [{ sensorId: secondSensor.id, measurements: { temperature: secondSample } }]
-    : [{ sensorId: firstSensor.id, measurements: { temperature: firstSample } }]);
-  mocks.observations.mockImplementation(async (houseId: string) => houseId === secondHouse.id
-    ? [secondObservation]
-    : [firstObservation]);
-  mocks.staticParameters.mockResolvedValue([]);
-  mocks.maintenanceTasks.mockResolvedValue([]);
-}
+import { mocks } from "./useClimateDataApiTestSupport";
 
 describe("useClimateData", () => {
   beforeEach(() => {
@@ -204,8 +63,6 @@ describe("useClimateData", () => {
     mocks.measurementHistory.mockResolvedValue([]);
     mocks.measurementHistoryPage.mockResolvedValue({ samples: [], from: "", to: "", bucketSeconds: null, truncated: false });
     mocks.measurementForecast.mockResolvedValue([]);
-    mocks.readings.mockResolvedValue([]);
-    mocks.forecast.mockResolvedValue([]);
     mocks.tpLinkDevices.mockResolvedValue([]);
     mocks.disconnectHomeAssistant.mockResolvedValue({ ok: true, integration: demo.integration });
     mocks.disconnectTpLink.mockResolvedValue({ ok: true, detachedSensorIds: [], integration: demo.integration });
@@ -241,7 +98,6 @@ describe("useClimateData", () => {
     expect(result.current.dataMode).toBe("unknown");
     expect(result.current.state.readings).toEqual({});
     expect(result.current.state.latestMeasurements).toEqual({});
-    expect(result.current.state.history).toEqual({});
     unmount();
   });
 
@@ -515,26 +371,6 @@ describe("useClimateData", () => {
 
     expect(result.current.connection).toBe("offline");
     expect(result.current.state.latestMeasurements[sensor.id]?.temperature?.value).not.toBe(39.5);
-  });
-
-  it("treats a polling compatibility heartbeat as periodic refresh, never continuous live", async () => {
-    const { result } = renderHook(() => useClimateData());
-    await waitFor(() => expect(result.current.loading).toBe(false));
-    const [[handleEvent]] = mocks.subscribeToEvents.mock.calls as unknown as [[(event: TelemetryEvent) => void]];
-
-    act(() => handleEvent({
-      type: "heartbeat",
-      data: {
-        timestamp: "2026-07-16T12:00:00.000Z",
-        mode: "polling-compatibility",
-        continuous: false,
-        finite: true,
-        reconnectAfterMs: 60_000,
-      },
-    } as unknown as TelemetryEvent));
-
-    expect(result.current.pollingFallback).toBe(true);
-    expect(result.current.connection).toBe("reconnecting");
   });
 
   it("debounces mutation events into one authoritative live refresh", async () => {

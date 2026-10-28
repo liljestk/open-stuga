@@ -1,7 +1,6 @@
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { useClimateData } from "./useClimateData";
 import { findPageHeading, mockClimateData, renderApp } from "./AppTestSupport";
 
 vi.mock("./useClimateData", () => ({ useClimateData: vi.fn() }));

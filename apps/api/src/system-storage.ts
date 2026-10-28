@@ -1,3 +1,5 @@
+import { HttpError } from "./http-error.js";
+import type { SystemStorageLocation, SystemStorageOperation, SystemStorageOperationPhase, SystemStorageSettings, SystemStorageStatus } from "@climate-twin/contracts";
 import { createHash, randomUUID } from "node:crypto";
 import {
   closeSync,
@@ -31,63 +33,6 @@ const ACTIVE_PHASES = new Set<SystemStorageOperationPhase>([
 const SYSTEM_UPDATE_ACTIVE_PHASES = new Set([
   "queued", "preparing", "backup", "pulling", "applying", "verifying", "rolling-back",
 ]);
-
-export type SystemStorageLocationKind = "managed" | "local-path" | "nas-path";
-
-export interface SystemStorageLocation {
-  kind: SystemStorageLocationKind;
-  path: string | null;
-}
-
-export interface SystemStorageSettings {
-  timeseries: SystemStorageLocation;
-  backups: SystemStorageLocation;
-}
-
-export type SystemStorageOperationPhase =
-  | "queued"
-  | "validating"
-  | "backing-up"
-  | "quiescing"
-  | "copying"
-  | "applying"
-  | "verifying"
-  | "complete"
-  | "failed"
-  | "rolling-back"
-  | "manual-intervention";
-
-export interface SystemStorageOperation {
-  id: string;
-  phase: SystemStorageOperationPhase;
-  requestedAt: string;
-  startedAt: string | null;
-  completedAt: string | null;
-  updatedAt: string;
-  detail: string | null;
-  previous: SystemStorageSettings;
-  target: SystemStorageSettings;
-}
-
-export interface SystemStorageStatus {
-  settings: SystemStorageSettings;
-  revision: string;
-  allowedRoots: string[];
-  capability: {
-    available: boolean;
-    runtime: "docker" | "raspberry-pi" | null;
-    agentLastSeenAt: string | null;
-    reason:
-      | "ready"
-      | "agent-not-connected"
-      | "agent-upgrade-required"
-      | "configuration-unavailable"
-      | "configuration-invalid"
-      | "not-configured";
-    detail: string | null;
-  };
-  operation: SystemStorageOperation | null;
-}
 
 export interface SystemStorageChangeInput {
   settings: SystemStorageSettings;
@@ -152,24 +97,24 @@ function validHostPath(value: unknown): value is string {
 
 function normalizedLocation(value: unknown, purpose: "timeseries" | "backups"): SystemStorageLocation {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new TypeError(`${purpose} storage must be an object`);
+    throw new SystemStorageError(400, "INVALID_STORAGE_SETTINGS", `${purpose} storage must be an object`);
   }
   const input = value as Record<string, unknown>;
   if (Object.keys(input).some((key) => key !== "kind" && key !== "path")) {
-    throw new TypeError(`${purpose} storage contains an unsupported field`);
+    throw new SystemStorageError(400, "INVALID_STORAGE_SETTINGS", `${purpose} storage contains an unsupported field`);
   }
   if (input.kind === "managed") {
-    if (input.path !== null) throw new TypeError(`managed ${purpose} storage must not include a path`);
+    if (input.path !== null) throw new SystemStorageError(400, "INVALID_STORAGE_SETTINGS", `managed ${purpose} storage must not include a path`);
     return { kind: "managed", path: null };
   }
   if (input.kind !== "local-path" && input.kind !== "nas-path") {
-    throw new TypeError(`${purpose} storage kind is invalid`);
+    throw new SystemStorageError(400, "INVALID_STORAGE_SETTINGS", `${purpose} storage kind is invalid`);
   }
   if (purpose === "timeseries" && input.kind === "nas-path") {
-    throw new TypeError("TimescaleDB cannot use NAS or another network filesystem");
+    throw new SystemStorageError(400, "INVALID_STORAGE_SETTINGS", "TimescaleDB cannot use NAS or another network filesystem");
   }
   if (!validHostPath(input.path)) {
-    throw new TypeError(`${purpose} storage path must be a safe absolute host path`);
+    throw new SystemStorageError(400, "INVALID_STORAGE_SETTINGS", `${purpose} storage path must be a safe absolute host path`);
   }
   return { kind: input.kind, path: input.path };
 }
@@ -188,11 +133,11 @@ function pathWithinAllowedRoots(value: string, roots: string[]): boolean {
 
 export function normalizedSystemStorageSettings(value: unknown): SystemStorageSettings {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new TypeError("Storage settings must be an object");
+    throw new SystemStorageError(400, "INVALID_STORAGE_SETTINGS", "Storage settings must be an object");
   }
   const input = value as Record<string, unknown>;
   if (Object.keys(input).some((key) => key !== "timeseries" && key !== "backups")) {
-    throw new TypeError("Storage settings contain an unsupported field");
+    throw new SystemStorageError(400, "INVALID_STORAGE_SETTINGS", "Storage settings contain an unsupported field");
   }
   const settings = {
     timeseries: normalizedLocation(input.timeseries, "timeseries"),
@@ -204,7 +149,7 @@ export function normalizedSystemStorageSettings(value: unknown): SystemStorageSe
     if (timeseries === backups
       || timeseries.startsWith(`${backups}/`)
       || backups.startsWith(`${timeseries}/`)) {
-      throw new TypeError("Telemetry and recovery sets must use separate directories");
+      throw new SystemStorageError(400, "INVALID_STORAGE_SETTINGS", "Telemetry and recovery sets must use separate directories");
     }
   }
   return settings;
@@ -269,9 +214,9 @@ function validOperation(value: unknown): SystemStorageOperation | null {
   };
 }
 
-export class SystemStorageError extends Error {
-  constructor(readonly status: number, readonly code: string, message: string) {
-    super(message);
+export class SystemStorageError extends HttpError {
+  constructor(status: number, code: string, message: string) {
+    super(status, code, message);
     this.name = "SystemStorageError";
   }
 }
@@ -318,12 +263,12 @@ export class SystemStorageService {
 
   queue(input: unknown): SystemStorageStatus {
     if (!input || typeof input !== "object" || Array.isArray(input)) {
-      throw new TypeError("Storage change must be an object");
+      throw new SystemStorageError(400, "INVALID_STORAGE_SETTINGS", "Storage change must be an object");
     }
     const body = input as Partial<SystemStorageChangeInput>;
     const keys = Object.keys(body);
     if (keys.some((key) => !["settings", "expectedRevision", "confirmation"].includes(key))) {
-      throw new TypeError("Storage change contains an unsupported field");
+      throw new SystemStorageError(400, "INVALID_STORAGE_SETTINGS", "Storage change contains an unsupported field");
     }
     const target = normalizedSystemStorageSettings(body.settings);
     const current = this.status();
@@ -332,7 +277,7 @@ export class SystemStorageService {
     }
     for (const [purpose, location] of Object.entries(target)) {
       if (location.path && !pathWithinAllowedRoots(location.path, current.allowedRoots)) {
-        throw new TypeError(`${purpose} storage path is outside the configured host storage roots`);
+        throw new SystemStorageError(400, "INVALID_STORAGE_SETTINGS", `${purpose} storage path is outside the configured host storage roots`);
       }
     }
     if (body.expectedRevision !== current.revision) {
@@ -343,7 +288,7 @@ export class SystemStorageService {
     if (!timeseriesChanged && !backupsChanged) return current;
     const expectedConfirmation = timeseriesChanged ? "MOVE_STORAGE" : "APPLY_STORAGE";
     if (body.confirmation !== expectedConfirmation) {
-      throw new TypeError(`confirmation must be ${expectedConfirmation}`);
+      throw new SystemStorageError(400, "INVALID_STORAGE_SETTINGS", `confirmation must be ${expectedConfirmation}`);
     }
     if (current.operation && (ACTIVE_PHASES.has(current.operation.phase)
       || current.operation.phase === "manual-intervention")) {

@@ -1,29 +1,25 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import type { Floor, IntegrationDiscoveryJob, IntegrationDiscoveryResult, Metric, TpLinkDiscoveredDevice, UnitSystem } from "@climate-twin/contracts";
-import { AlertTriangle, HousePlus, LoaderCircle, RotateCcw, ShieldCheck, Wrench } from "lucide-react";
-import { AppShell } from "../components/AppShell";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { IntegrationDiscoveryJob, IntegrationDiscoveryResult, Metric, UnitSystem } from "@climate-twin/contracts";
+import { LoaderCircle } from "lucide-react";
 import { preferredHouseForProperty, type AppPage, type ViewMode } from "../domain";
 import { useClimateData } from "../useClimateData";
 import { countActionableAlertGroups } from "../alertGrouping";
 import { useI18n } from "../i18n";
 import { enabledDefinitions } from "../measurements";
-import { api, ApiRequestError, type CreateHouseInput } from "../api";
-import { locationForRoute, routeFromLocation } from "../routing";
-import { StuguMark } from "../components/StuguMark";
-import { RouteErrorBoundary } from "../components/RouteErrorBoundary";
+import { api, ApiRequestError } from "../api";
+import { routeFromLocation } from "../routing";
 import { readLocalStorage, subscribeToAccountStorageScope, writeLocalStorage } from "../browserStorage";
 import {
   clearInvitationBootstrapStorage,
   clearInvitationFragment,
   invitationTokenFromBootstrapStorage,
   invitationTokenFromFragment,
-  LocalAuthPage,
 } from "../pages/LocalAuthPage";
 import { integrationForHouse } from "../integrationScope";
 import { forgetIntegrationDiscovery, rememberedIntegrationDiscovery } from "../integrationDiscoveryStorage";
 import { houseHasTpLinkOpeningBinding } from "../tpLinkDeviceClassification";
-import { ActivityPage, AlertsPage, DataAnalyticsPage, DeveloperPage, EnergyPage, IntegrationsPage, MaintenancePage, OutdoorWeatherPage, PeopleAccessPage, PortfolioOverview, PropertyManagementPage, SensorManagementPage, StugubyPage, SystemUpdatesPage, TwinDashboard, dismissedIntegrationDiscoveryJobsKey, dismissedTpLinkDevicesKey, firstFloor, freshTpLinkDiscoveryWindowMs, latestIso, pageTitleKeys, settleInBackground, storedDismissedIntegrationDiscoveryJobs, storedDismissedTpLinkDevices, tpLinkDeviceKey } from "./support";
-import type { TpLinkDeviceReference } from "./support";
+import { dismissedIntegrationDiscoveryJobsKey, freshTpLinkDiscoveryWindowMs, pageTitleKeys, settleInBackground, storedDismissedIntegrationDiscoveryJobs, storedDismissedTpLinkDevices, tpLinkDeviceKey } from "./shellSupport";
+import type { TpLinkDeviceReference } from "./shellSupport";
 import { hasBrowserCapability } from "../accessPolicy";
 
 export interface CompletedIntegrationDiscovery {
@@ -36,8 +32,8 @@ export function useAppPart01(context: Record<string, never>) {
   const { t } = useI18n();
   const climate = useClimateData();
   const { state } = climate;
-  const workspaceReadOnly = state.session?.readOnly ?? true;
-  const canManagePeople = hasBrowserCapability(state.session?.tenant.role ?? "guest", "workspace-administration");
+  const workspaceReadOnly = state.session.readOnly;
+  const canManagePeople = hasBrowserCapability(state.session.tenant.role, "workspace-administration");
   const loadSeriesInBackground = useCallback((...args: Parameters<typeof climate.loadSeries>) => {
       settleInBackground(climate.loadSeries(...args));
     }, [climate.loadSeries]);
@@ -131,19 +127,19 @@ export function useAppPart01(context: Record<string, never>) {
       });
     }, []);
   useEffect(() => {
-      if (climate.bootstrapStatus !== "ready" || !state.session?.authenticated) return;
+      if (climate.bootstrapStatus !== "ready" || !state.session.authenticated) return;
       for (const candidate of state.houses) {
         const jobId = rememberedIntegrationDiscovery(candidate.id);
         if (jobId) watchIntegrationDiscovery(candidate.id, jobId);
       }
-    }, [climate.bootstrapStatus, state.houses, state.session?.authenticated, watchIntegrationDiscovery]);
+    }, [climate.bootstrapStatus, state.houses, state.session.authenticated, watchIntegrationDiscovery]);
   useEffect(() => {
-      if (state.session?.authenticated) return;
+      if (state.session.authenticated) return;
       for (const subscription of integrationDiscoverySubscriptions.current.values()) subscription.controller.abort();
       integrationDiscoverySubscriptions.current.clear();
       watchedIntegrationDiscoveryJobIds.current.clear();
       setCompletedIntegrationDiscoveries({});
-    }, [state.session?.authenticated]);
+    }, [state.session.authenticated]);
   useEffect(() => () => {
       for (const subscription of integrationDiscoverySubscriptions.current.values()) subscription.controller.abort();
       integrationDiscoverySubscriptions.current.clear();
@@ -183,7 +179,7 @@ export function useAppPart01(context: Record<string, never>) {
     );
   const propertyElectricityAvailable = property ? (
       !propertyReadOnly
-      || (state.session?.grants ?? []).some((grant) => grant.scopeType === "property" && grant.scopeId === property.id)
+      || state.session.grants.some((grant) => grant.scopeType === "property" && grant.scopeId === property.id)
     ) : false;
   const propertyHouses = useMemo(
       () => state.houses.filter((item) => item.propertyId === property?.id),

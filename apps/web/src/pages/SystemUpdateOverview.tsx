@@ -1,3 +1,5 @@
+import { FEED_SCOPED_SYSTEM_UPDATE_REASONS, SYSTEM_UPDATE_REPLACEABLE_WORKFLOW_PHASES } from "@climate-twin/contracts";
+import type { HostUpdateReadyToRestart, SystemUpdateStatus, SystemUpdateWorkflowPhase, SystemUpdateWorkflowProjection, SystemUpdateWorkflowStep, SystemUpdateWorkflowStepId, SystemUpdateWorkflowStepState } from "@climate-twin/contracts";
 import {
   AppWindow,
   CheckCircle2,
@@ -12,26 +14,14 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import type {
-  ApplicationSystemUpdateStatus,
-  HostReadyToRestartBinding,
-  HostSystemUpdateStatus,
-  SystemUpdateBlockReason,
-  SystemUpdateStatus,
-  SystemUpdateWorkflow,
-  SystemUpdateWorkflowPhase,
-  SystemUpdateWorkflowStep,
-  SystemUpdateWorkflowStepId,
-  SystemUpdateWorkflowStepState,
-} from "../api";
-import { FEED_SCOPED_HOST_REASONS } from "../api";
+import type { SystemUpdateBlockReason } from "../api";
 import { useI18n, type TranslationKey } from "../i18n";
 import { RestartInstallDialog } from "./RestartInstallDialog";
 
 export type SystemUpdateStreamState = "connecting" | "live" | "reconnecting" | "polling";
 
 const terminalWorkflowPhases = new Set<SystemUpdateWorkflowPhase>([
-  "complete", "cancelled", "failed", "application-failed", "returned", "host-returned", "recovery-needed",
+  "complete", "cancelled", "failed", "application-failed", "returned", "recovery-needed",
 ]);
 
 const workflowSteps: ReadonlyArray<{ id: SystemUpdateWorkflowStepId; label: TranslationKey; help: TranslationKey }> = [
@@ -90,41 +80,6 @@ function applicationReasonKey(reason: SystemUpdateStatus["capability"]["reason"]
   return "updates.block.agentOffline";
 }
 
-function applicationStatus(status: SystemUpdateStatus): ApplicationSystemUpdateStatus {
-  return status.application ?? {
-    currentVersion: status.currentVersion,
-    latestVersion: status.latestVersion,
-    updateAvailable: status.updateAvailable,
-    capability: status.capability,
-    operation: status.operation,
-  };
-}
-
-function hostStatus(status: SystemUpdateStatus): HostSystemUpdateStatus {
-  if (status.host) return status.host;
-  if (status.capability.runtime === "raspberry-pi") {
-    const factory = status.capability.reason === "appliance-upgrade-required";
-    return {
-      supported: false,
-      phase: "idle",
-      reason: factory ? "factory-transition-required" : "cli-transition-required",
-      updateAvailable: false,
-      currentVersion: null,
-      currentGeneration: null,
-      readyToRestart: null,
-    };
-  }
-  return {
-    supported: false,
-    phase: "idle",
-    reason: "platform-managed-externally",
-    updateAvailable: false,
-    currentVersion: null,
-    currentGeneration: null,
-    readyToRestart: null,
-  };
-}
-
 export function systemUpdateIsActive(status: SystemUpdateStatus | null): boolean {
   if (!status) return false;
   if (status.workflow && !terminalWorkflowPhases.has(status.workflow.phase)) return true;
@@ -154,24 +109,15 @@ function workflowPhaseKey(phase: SystemUpdateWorkflowPhase): TranslationKey {
     failed: "updates.workflow.phase.failed",
     returned: "updates.workflow.phase.hostReturned",
     "recovery-needed": "updates.workflow.phase.recoveryNeeded",
-    queued: "updates.workflow.phase.queued",
-    "backing-up": "updates.workflow.phase.backingUp",
-    "staging-host": "updates.workflow.phase.stagingHost",
-    "activating-host": "updates.workflow.phase.activatingHost",
-    "verifying-host": "updates.workflow.phase.verifyingHost",
-    "updating-application": "updates.workflow.phase.updatingApplication",
-    "verifying-application": "updates.workflow.phase.verifyingApplication",
-    "rolling-back-application": "updates.workflow.phase.rollingBackApplication",
-    "host-returned": "updates.workflow.phase.hostReturned",
   };
-  return (keys as Readonly<Record<string, TranslationKey>>)[phase] ?? "updates.workflow.phase.failed";
+  return keys[phase];
 }
 
 function derivedStepState(phase: SystemUpdateWorkflowPhase, id: SystemUpdateWorkflowStepId): SystemUpdateWorkflowStepState {
   const order = workflowSteps.map((step) => step.id);
   if (phase === "complete") return "complete";
   if (phase === "cancelled") return id === "backup" ? "complete" : "skipped";
-  if (phase === "returned" || phase === "host-returned") {
+  if (phase === "returned") {
     if (["backup", "stage-host", "restart-host"].includes(id)) return "complete";
     if (id === "verify-host") return "rolled-back";
     return "skipped";
@@ -190,15 +136,7 @@ function derivedStepState(phase: SystemUpdateWorkflowPhase, id: SystemUpdateWork
     "application-queued": "update-application",
     "application-updating": "update-application",
     "application-failed": "update-application",
-    queued: "backup",
-    "backing-up": "backup",
-    "staging-host": "stage-host",
     "awaiting-restart": "restart-host",
-    "activating-host": "restart-host",
-    "verifying-host": "verify-host",
-    "updating-application": "update-application",
-    "verifying-application": "verify-application",
-    "rolling-back-application": "update-application",
   };
   const active = activeId[phase];
   if (!active) return phase === "recovery-needed" || phase === "failed" ? "failed" : "pending";
@@ -208,13 +146,12 @@ function derivedStepState(phase: SystemUpdateWorkflowPhase, id: SystemUpdateWork
   if (index > activeIndex) return "pending";
   if (phase === "awaiting-restart") return "waiting";
   if (phase === "application-failed") return "failed";
-  if (phase === "rolling-back-application") return "rolled-back";
   return "active";
 }
 
-function WorkflowProgress({ workflow, streamState }: { workflow: SystemUpdateWorkflow; streamState: SystemUpdateStreamState }) {
+function WorkflowProgress({ workflow, streamState }: { workflow: SystemUpdateWorkflowProjection; streamState: SystemUpdateStreamState }) {
   const { t } = useI18n();
-  const states = new Map((workflow.steps ?? []).map((step) => [step.id, step]));
+  const states = new Map(workflow.steps.map((step) => [step.id, step]));
   const active = !terminalWorkflowPhases.has(workflow.phase);
   const disconnected = active && streamState === "reconnecting";
   return <section className={`unified-update-workflow ${workflow.phase}`} aria-labelledby="unified-update-workflow-title">
@@ -224,13 +161,13 @@ function WorkflowProgress({ workflow, streamState }: { workflow: SystemUpdateWor
     <div className="unified-update-workflow__heading">
       <span aria-hidden="true">
         {workflow.phase === "complete" ? <CheckCircle2 size={20} />
-          : workflow.phase === "recovery-needed" || workflow.phase === "failed" || workflow.phase === "application-failed" || workflow.phase === "returned" || workflow.phase === "host-returned" ? <CircleAlert size={20} />
+          : workflow.phase === "recovery-needed" || workflow.phase === "failed" || workflow.phase === "application-failed" || workflow.phase === "returned" ? <CircleAlert size={20} />
             : <LoaderCircle className={active && !disconnected ? "spin" : ""} size={20} />}
       </span>
       <div>
         <div className="unified-update-workflow__kicker">
           <span className="eyebrow">{t("updates.workflow.title")}</span>
-          {active && <span className={`updates-stream-state ${streamState}`}><span aria-hidden="true" />{t(disconnected ? "updates.connection.reconnecting" : `updates.stream.${streamState}` as TranslationKey)}</span>}
+          {active && <span className={`updates-stream-state ${streamState}`}><span aria-hidden="true" />{t(disconnected ? "updates.connection.reconnecting" : `updates.stream.${streamState}`)}</span>}
         </div>
         <h3 id="unified-update-workflow-title">{t(workflowPhaseKey(workflow.phase))}</h3>
         {workflow.detail && <small>{workflow.detail}</small>}
@@ -278,8 +215,8 @@ interface SystemUpdateOverviewProps {
   streamState: SystemUpdateStreamState;
   onCheck: () => void;
   onUpdateEverything: () => void;
-  onActivateHost: (binding: HostReadyToRestartBinding) => void;
-  onCancelHost: (binding: HostReadyToRestartBinding) => void;
+  onActivateHost: (binding: HostUpdateReadyToRestart) => void;
+  onCancelHost: (binding: HostUpdateReadyToRestart) => void;
   onRetryApplication: () => void;
 }
 
@@ -294,8 +231,8 @@ export function SystemUpdateOverview({
   onRetryApplication,
 }: SystemUpdateOverviewProps) {
   const { t, locale } = useI18n();
-  const app = applicationStatus(status);
-  const host = hostStatus(status);
+  const app = status.application;
+  const host = status.host;
   const workflow = status.workflow ?? null;
   const binding = host.readyToRestart ?? null;
   const lastChecked = formattedDate(status.lastCheckedAt, locale);
@@ -345,14 +282,12 @@ export function SystemUpdateOverview({
   // pause and the host card explains why, but application container updates
   // stay available: they never consult the failing metadata. Machine-state
   // reasons keep blocking everything below.
-  const hostFeedScoped = host.supported && FEED_SCOPED_HOST_REASONS.has(host.reason ?? "");
+  const hostFeedScoped = host.supported && FEED_SCOPED_SYSTEM_UPDATE_REASONS.has(host.reason ?? "");
   const hostReasonBlocks = !hostManagedExternally
     && !hostFeedScoped
     && Boolean(host.reason || !host.supported || host.phase === "unavailable");
   const overallBlocked = projectionBlocked || applicationCapabilityBlocks || hostReasonBlocks || unboundPreparedHost;
-  const workflowAllowsNewUpdate = !workflow || [
-    "complete", "cancelled", "failed", "returned", "host-returned",
-  ].includes(workflow.phase);
+  const workflowAllowsNewUpdate = !workflow || SYSTEM_UPDATE_REPLACEABLE_WORKFLOW_PHASES.has(workflow.phase);
   const canUpdate = available
     && !active
     && !recovery
@@ -369,7 +304,7 @@ export function SystemUpdateOverview({
     && !overallBlocked
     && !recovery;
   const canRestart = awaitingRestart && Boolean(binding) && !overallBlocked && !recovery;
-  const [restartBinding, setRestartBinding] = useState<HostReadyToRestartBinding | null>(null);
+  const [restartBinding, setRestartBinding] = useState<HostUpdateReadyToRestart | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const detailsRef = useRef<HTMLDetailsElement>(null);
   const restartBindingIsCurrent = Boolean(restartBinding
@@ -384,7 +319,7 @@ export function SystemUpdateOverview({
     if (restartBinding && !restartBindingIsCurrent) setRestartBinding(null);
   }, [restartBinding, restartBindingIsCurrent]);
 
-  const hostReturned = workflow?.phase === "returned" || workflow?.phase === "host-returned" || host.phase === "returned";
+  const hostReturned = workflow?.phase === "returned" || host.phase === "returned";
   const applicationFailed = workflow?.phase === "application-failed";
   const workflowFailed = workflow?.phase === "failed";
   const applicationWorkflowActive = Boolean(workflow && [

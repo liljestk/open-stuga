@@ -19,7 +19,7 @@ export function homeEnergySummaryQueryOptions(
       // exact server cache key without changing the requested calculation.
       const to = new Date(Math.floor(Date.now() / 60_000) * 60_000).toISOString();
       const from = new Date(Date.parse(to) - durationMs).toISOString();
-      return api.houseEnergySummary(houseId, from, to, signal);
+      return api.houseEnergySummary(houseId, { from, to, signal });
     },
     enabled: Boolean(houseId) && enabled,
     staleTime: refreshMs,

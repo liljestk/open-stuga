@@ -1,14 +1,6 @@
-import { createServer, type Server } from "node:http";
-
-import type { House, HouseWeather, IntegrationStatus, WeatherUpdateEvent } from "@climate-twin/contracts";
+import type { House, HouseWeather, IntegrationStatus } from "@climate-twin/contracts";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-
-import request from "supertest";
-
-import { createApi, type ApiRuntime } from "../src/app.js";
-
-import type { AppConfig } from "../src/config.js";
 
 import {
   currentObservation,
@@ -24,7 +16,7 @@ import {
   type WeatherProvider,
 } from "../src/weather.js";
 
-import { config, forecastXml, location, weather } from "./weatherTestSupport.js";
+import { forecastXml, location, weather } from "./weatherTestSupport.js";
 
 describe("FMI weather parsing", () => {
   it("forwards cancellation to an FMI historical observation request", async () => {

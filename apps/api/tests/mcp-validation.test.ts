@@ -17,7 +17,7 @@ import {
   summarizeMcpHouse,
   validateMcpToolRegistry,
   validateMcpDateRange,
-} from "../src/mcp-validation.js";
+} from "../src/mcp-server/validation.js";
 
 describe("MCP measurement argument validation", () => {
   let database: ClimateDatabase;

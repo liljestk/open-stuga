@@ -45,7 +45,7 @@ describe("local bucket means and provenance", () => {
       return { ...latest, timestamp, value: rows.reduce((sum, row) => sum + row.value, 0) / rows.length,
         quality: rows.length > 1 ? "estimated" : latest.quality };
     });
-    expect(database.measurementHistoryBucketed("sensor-01", "power", from, to, seconds, limit, real, exclusive)).toEqual(expected);
-    expect(database.measurementHistoryBucketed("unknown", "power", from, to, seconds)).toEqual([]);
+    expect(database.measurementHistoryBucketed({ sensorId: "sensor-01", metric: "power", from, to, bucketSeconds: seconds, limit, excludeSynthetic: real, toExclusive: exclusive })).toEqual(expected);
+    expect(database.measurementHistoryBucketed({ sensorId: "unknown", metric: "power", from, to, bucketSeconds: seconds })).toEqual([]);
   });
 });

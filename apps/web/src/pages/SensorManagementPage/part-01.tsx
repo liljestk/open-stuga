@@ -1,65 +1,23 @@
 import {
-  lazy,
-  Suspense,
   useEffect,
   useId,
   useMemo,
   useRef,
   useState,
-  type FormEvent,
-  type KeyboardEvent,
-  type PointerEvent as ReactPointerEvent,
 } from "react";
-import {
-  Archive,
-  Check,
-  ChevronDown,
-  ChevronLeft,
-  ChevronRight,
-  CircleDot,
-  Copy,
-  Database,
-  Edit3,
-  FileSpreadsheet,
-  Home,
-  LoaderCircle,
-  MapPin,
-  Plus,
-  Printer,
-  QrCode,
-  RadioTower,
-  RefreshCw,
-  RotateCcw,
-  Search,
-  Sparkles,
-  ThermometerSun,
-  Trash2,
-  TriangleAlert,
-  X,
-} from "lucide-react";
 import type {
-  Floor,
-  House,
-  IntegrationStatus,
   MeasurementSample,
   Metric,
   Sensor,
-  SensorLabelDescriptor,
   TpLinkDiscoveredDevice,
-  UnitSystem,
 } from "@climate-twin/contracts";
-import { api, type CreateSensorInput, type HistoricalImportResult, type SensorPatch } from "../../api";
-import type { ClimateState, TimeRange } from "../../domain";
-import { useI18n, type TranslationKey } from "../../i18n";
-import { formatInTimeZone } from "../../dateTime";
-import { measurementLabel } from "../../measurements";
+import type { TimeRange } from "../../domain";
+import { useI18n } from "../../i18n";
 import { useNow } from "../../useNow";
 import { integrationForHouse } from "../../integrationScope";
-import { assessSensorCoverage, suggestSensorPlacement, type SensorCoverageAssessment, type SensorPlacementSuggestion } from "../../experimentalSpatialLayers";
-import { configuredSpatialMaxSampleAgeMs } from "../../spatialFreshness";
-import { useSpatialLayers } from "../../useSpatialLayers";
-import { qrCodeMatrix } from "../../qrCode";
-import { TrendChart } from "../../components/TrendChart";
+import { assessSensorCoverage, suggestSensorPlacement, type SensorCoverageAssessment, type SensorPlacementSuggestion } from "../../spatial/experimentalLayers";
+import { configuredSpatialMaxSampleAgeMs } from "../../spatial/freshness";
+import { useSpatialLayers } from "../../spatial/useSpatialLayers";
 import {
   houseHasTpLinkOpeningBinding,
   isLegacyTpLinkContactSensor,
@@ -67,11 +25,11 @@ import {
   tpLinkContactDeviceForSensor,
   tpLinkOpeningForDevice,
 } from "../../tpLinkDeviceClassification";
-import { HistoricalImportWizard, PlacementPicker, SensorLabelCard, UNPLACED_TAG, availableForSensor, clamp, deviceBindingKey, draftContext, draftForSensor, errorMessage, hasHomeAssistantBinding, hasRealBinding, initialDraft, isDemoSensor, isLive, isUnplaced, latestSensorTimestamp, mergeMetricSamples, normalizedMeasurementEntityIds, roomCenter, rounded, sameMeasurementEntityIds, sensorFloor, sensorHasMetric, sensorMeasurementEntityIds, sensorStatus, stableRoomId, tpLinkDeviceSummary, validationErrors } from "./support";
-import type { AddStep, DraftErrors, DraftSource, EditorMode, Feedback, SensorDraft, SensorFilter, SensorManagementPageProps, SensorStatus, Translate } from "./support";
+import { availableForSensor, deviceBindingKey, draftContext, hasHomeAssistantBinding, hasRealBinding, initialDraft, isDemoSensor, isUnplaced, mergeMetricSamples, sensorHasMetric, sensorStatus } from "./support";
+import type { AddStep, DraftErrors, EditorMode, Feedback, SensorDraft, SensorFilter, SensorManagementPageProps, SensorStatus } from "./support";
 import { sensorUrlStateFromLocation } from "./urlState";
 export function useSensorManagementPagePart01(context: { state: SensorManagementPageProps["state"]; house: SensorManagementPageProps["house"]; houses: SensorManagementPageProps["houses"]; integration: SensorManagementPageProps["integration"]; tpLinkDevices: SensorManagementPageProps["tpLinkDevices"]; tpLinkDevicesLoading: SensorManagementPageProps["tpLinkDevicesLoading"]; tpLinkDevicesError: SensorManagementPageProps["tpLinkDevicesError"]; requestedDevice: Exclude<SensorManagementPageProps["requestedDevice"], undefined>; requestedDeviceId: Exclude<SensorManagementPageProps["requestedDeviceId"], undefined>; readOnly: Exclude<SensorManagementPageProps["readOnly"], undefined>; localAuthority: Exclude<SensorManagementPageProps["localAuthority"], undefined>; canManageIntegrations: Exclude<SensorManagementPageProps["canManageIntegrations"], undefined>; units: Exclude<SensorManagementPageProps["units"], undefined>; onRequestedDeviceHandled: SensorManagementPageProps["onRequestedDeviceHandled"]; onLoadSeries: SensorManagementPageProps["onLoadSeries"]; onHouse: SensorManagementPageProps["onHouse"]; onUpdateHouse: SensorManagementPageProps["onUpdateHouse"]; onRefreshDevices: SensorManagementPageProps["onRefreshDevices"]; onCreateSensor: SensorManagementPageProps["onCreateSensor"]; onUpdateSensor: SensorManagementPageProps["onUpdateSensor"]; onDeleteSensor: SensorManagementPageProps["onDeleteSensor"]; onImportHistoricalData: SensorManagementPageProps["onImportHistoricalData"] }) {
-  const { state, house, houses, integration, tpLinkDevices, tpLinkDevicesLoading, tpLinkDevicesError, requestedDevice, requestedDeviceId, readOnly, localAuthority, canManageIntegrations, units, onRequestedDeviceHandled, onLoadSeries, onHouse, onUpdateHouse, onRefreshDevices, onCreateSensor, onUpdateSensor, onDeleteSensor, onImportHistoricalData } = context;
+  const { state, house, houses, integration, tpLinkDevices } = context;
   const { locale, t } = useI18n();
   const now = useNow();
   const tpLinkStatus = useMemo(

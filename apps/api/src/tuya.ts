@@ -16,14 +16,16 @@ import type { ConnectedDeviceStore } from "./connected-device-store.js";
 import type { ClimateDatabase } from "./db.js";
 import type { TelemetryBus } from "./events.js";
 import type { TuyaConnectionSecret } from "./integration-secrets.js";
-import type { MeasurementService, RuntimeStatus } from "./services.js";
+import type { MeasurementService } from "./telemetry/ingest.js";
+import type { RuntimeStatus } from "./runtime-status.js";
 
 const VERSIONS = new Set(["3.1", "3.2", "3.3", "3.4", "3.5"]);
 const KINDS = new Set<ConnectedDeviceKind>(["light", "outlet", "switch"]);
 const STATE_UNCHANGED_HEARTBEAT_MS = 5 * 60_000;
 const STATUS_UNCHANGED_HEARTBEAT_MS = 60_000;
 
-function localIpv4(value: string): boolean {
+/** True for loopback, link-local, private and CGNAT IPv4 addresses: hosts a LAN-only Tuya device may use. */
+export function localIpv4(value: string): boolean {
   if (isIP(value) !== 4) return false;
   const [first, second] = value.split(".").map(Number);
   return first === 10
@@ -103,8 +105,9 @@ function nullableBoolean(value: unknown): boolean | null | undefined {
 }
 
 function capabilities(value: unknown): ConnectedDeviceCapabilities | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const item = value as Record<string, unknown>;
-  if (!item || ["power", "brightness", "colorTemperature", "color", "measuredPower", "measuredEnergy"]
+  if (["power", "brightness", "colorTemperature", "color", "measuredPower", "measuredEnergy"]
     .some((key) => typeof item[key] !== "boolean")) return null;
   return {
     power: item.power as boolean,
@@ -118,27 +121,29 @@ function capabilities(value: unknown): ConnectedDeviceCapabilities | null {
 
 function color(value: unknown): ConnectedDeviceColor | null | undefined {
   if (value === null) return null;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   const item = value as Record<string, unknown>;
-  const hue = nullableNumber(item?.hue, 0, 360);
-  const saturation = nullableNumber(item?.saturation, 0, 100);
-  const brightness = nullableNumber(item?.value, 0, 100);
+  const hue = nullableNumber(item.hue, 0, 360);
+  const saturation = nullableNumber(item.saturation, 0, 100);
+  const brightness = nullableNumber(item.value, 0, 100);
   if (hue === undefined || hue === null || saturation === undefined || saturation === null
     || brightness === undefined || brightness === null) return undefined;
   return { hue, saturation, value: brightness };
 }
 
 function statePayload(value: unknown): StatePayload | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const item = value as Record<string, unknown>;
-  const power = nullableBoolean(item?.power);
-  const brightnessPercent = nullableNumber(item?.brightnessPercent, 0, 100);
-  const colorTemperatureKelvin = nullableNumber(item?.colorTemperatureKelvin, 1_000, 20_000);
-  const parsedColor = color(item?.color);
-  const powerWatts = nullableNumber(item?.powerWatts, 0, 1_000_000);
-  const energyKwh = nullableNumber(item?.energyKwh, 0, 1_000_000_000);
-  const currentAmps = nullableNumber(item?.currentAmps, 0, 100_000);
-  const voltageVolts = nullableNumber(item?.voltageVolts, 0, 100_000);
-  const workMode = item?.workMode === null ? null : text(item?.workMode, 100);
-  if (!item || !text(item.observedAt, 100) || !Number.isFinite(Date.parse(String(item.observedAt)))
+  const power = nullableBoolean(item.power);
+  const brightnessPercent = nullableNumber(item.brightnessPercent, 0, 100);
+  const colorTemperatureKelvin = nullableNumber(item.colorTemperatureKelvin, 1_000, 20_000);
+  const parsedColor = color(item.color);
+  const powerWatts = nullableNumber(item.powerWatts, 0, 1_000_000);
+  const energyKwh = nullableNumber(item.energyKwh, 0, 1_000_000_000);
+  const currentAmps = nullableNumber(item.currentAmps, 0, 100_000);
+  const voltageVolts = nullableNumber(item.voltageVolts, 0, 100_000);
+  const workMode = item.workMode === null ? null : text(item.workMode, 100);
+  if (!text(item.observedAt, 100) || !Number.isFinite(Date.parse(String(item.observedAt)))
     || typeof item.available !== "boolean" || power === undefined || brightnessPercent === undefined
     || colorTemperatureKelvin === undefined || parsedColor === undefined || powerWatts === undefined
     || energyKwh === undefined || currentAmps === undefined || voltageVolts === undefined
@@ -159,13 +164,14 @@ function statePayload(value: unknown): StatePayload | null {
 }
 
 function discoveredDevice(value: unknown): TuyaDiscoveredDevice | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const item = value as Record<string, unknown>;
-  const host = text(item?.host, 253);
-  const deviceId = text(item?.deviceId);
-  const protocolVersion = text(item?.protocolVersion, 10);
-  const productKey = item?.productKey === null ? null : text(item?.productKey);
-  const mac = item?.mac === null ? null : text(item?.mac, 32);
-  if (!item || !host || !localIpv4(host) || !deviceId || !protocolVersion || !VERSIONS.has(protocolVersion)
+  const host = text(item.host, 253);
+  const deviceId = text(item.deviceId);
+  const protocolVersion = text(item.protocolVersion, 10);
+  const productKey = item.productKey === null ? null : text(item.productKey);
+  const mac = item.mac === null ? null : text(item.mac, 32);
+  if (!host || !localIpv4(host) || !deviceId || !protocolVersion || !VERSIONS.has(protocolVersion)
     || productKey === null && item.productKey !== null
     || mac === null && item.mac !== null) return null;
   return { host, deviceId, protocolVersion, productKey, mac };

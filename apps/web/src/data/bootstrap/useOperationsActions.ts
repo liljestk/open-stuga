@@ -1,63 +1,22 @@
-import { useCallback, useEffect, useRef, useState, type SetStateAction } from "react";
-import type {
-  AppSession,
-  AreaEquipment,
-  AreaEquipmentInput,
-  AreaEquipmentPatch,
-  AlertRule,
-  AlertRulePatch,
-  ConnectionState,
-  Floor,
-  House,
-  IntegrationStatus,
-  ManualObservation,
-  ManualObservationInput,
-  ManualObservationPatch,
-  MaintenanceTask,
-  MaintenanceTaskInput,
-  MaintenanceTaskPatch,
-  MeasurementSample,
-  MockScenario,
-  Point,
-  Property,
-  PropertyArea,
-  PropertyAreaInput,
-  PropertyAreaPatch,
-  PropertyCreateInput,
-  PropertyNote,
-  PropertyNoteInput,
-  PropertyNotePatch,
-  PropertyPatch,
-  Reading,
-  Sensor,
-  SensorSnapshot,
-  StaticParameter,
-  TelemetryEvent,
-  TpLinkDiscoveredDevice,
-} from "@climate-twin/contracts";
-import {
-  api,
-  cancelPendingApiRequests,
-  subscribeToApiAuthorizationChanges,
-  type CreateHouseInput,
-  type CreateSensorInput,
-  type HousePatch,
-  type HouseGeoreferencePatch,
-  type MeasurementHistoryPage,
-  type SensorPatch,
-} from "../../api";
-import { subscribeToAuthEpoch } from "../../authEpoch";
-import { createDemoState, nextMockReading, preferredHouseForProperty, snapshotToReadings, timeRangeHours, type ClimateState, type TimeRange } from "../../domain";
-import { appendHistory, enabledDefinitions, legacyForecastSamples, readingSamples, upsertLatest } from "../../measurements";
-import { routeFromLocation } from "../../routing";
-import { publishHouseWeatherUpdate } from "../../useHouseWeather";
-import { HEARTBEAT_POLL_MIN_INTERVAL_MS, LIVE_TELEMETRY_BUFFER_LIMIT, MAX_SERIES_SAMPLES, PORTFOLIO_LOAD_CONCURRENCY, STREAM_BOOTSTRAP_WAIT_MS, advanceMockTelemetry, aggregateConnection, apiStatus, blankState, bufferLiveTelemetry, bufferSeriesValue, canonicalSeries, errorMessage, houseMutationKey, isDemoSource, isPollingCompatibilityHeartbeat, legacySeries, loadPortfolioInBackground, mergeLegacySeries, mergeMeasurementSeries, metricForecastSamples, metricHistorySamples, optionalForecast, preserveMutatedSensorTelemetry, preserveSeriesCommittedDuringLoad, replaceFloor, replaceHouseSensors, replaceLoadedHouseTelemetry, replayBufferedLiveTelemetry, replayHouseInventory, replayHouseMutations, replayMaintenanceTaskMutation, sensorsFromSnapshots, seriesBucketSeconds, seriesLimit, seriesStateKey, settleInBackground, synchronizeSensorRoomLabels, unauthenticatedSession, withoutDemoTelemetry, withoutSensorIds } from "./support";
-import type { BootstrapStatus, BufferedHouseMutation, BufferedLiveTelemetry, BufferedSeriesTelemetry, DataMode, HistoricalSeriesWindow, HouseInventoryMutation, HouseMutationBuffer, LoadedTelemetryState, SeriesCommit, SeriesLoadState, SeriesLoadStatus, StreamConnections } from "./support";
-import type { OperationsActions, PropertyContext } from "./pipelineTypes";
+import { useCallback } from "react";
+import type { AlertRule, AlertRulePatch, House, HousePatch, ManualObservation, ManualObservationInput, ManualObservationPatch, MockScenario } from "@climate-twin/contracts";
+import { api } from "../../api";
+import { preferredHouseForProperty } from "../../domain";
+import { replayHouseMutations, synchronizeSensorRoomLabels, withoutSensorIds } from "./support";
+import type { HouseMutationBuffer } from "./support";
+import type { ClimateDataStore, PipelineActions, OperationsActions } from "./pipelineTypes";
 export function useOperationsActions(
-  context: PropertyContext,
-): PropertyContext & OperationsActions {
-  const { initialHouseId, sessionLockedRef, sessionLocked, setSessionLocked, state, setStateInternal, setState, loading, setLoading, bootstrapStatus, setBootstrapStatus, bootstrapError, setBootstrapError, bootstrapAttempt, setBootstrapAttempt, dataMode, setDataMode, streamConnections, setStreamConnections, connection, pollingFallback, setPollingFallback, resourceErrors, setResourceErrors, seriesStates, setSeriesStates, scenario, setScenario, saveState, setSaveState, tpLinkDevices, setTpLinkDevices, tpLinkDevicesRef, tpLinkDevicesLoading, setTpLinkDevicesLoading, tpLinkDevicesError, setTpLinkDevicesError, tick, apiAvailable, dataModeRef, stateRef, streamConnectionsRef, hasReachedLiveConnection, hasHydratedActiveHouse, heartbeatPollAt, reconnectResyncTimer, heartbeatFallbackTimer, mutationRefreshTimer, sensorMoveQueues, sensorMoveVersions, persistedSensorPoints, activeHouseId, activeHouseLoadVersion, houseTelemetryVersions, seriesLoadVersions, seriesCommitVersions, seriesCommitSequence, tpLinkPollStatus, tpLinkRefreshVersion, pendingMeasurementSamples, measurementFlushTimer, saveStateTimer, activeTelemetryLoadBuffers, activeHouseMutationBuffers, activeSeriesTelemetryBuffers, activeInventoryMutationBuffers, activeStreamUnsubscribers, activeStreamGateReleases, sessionLifecycleEpoch, globalFieldVersions, recordResourceError, recordHouseMutation, recordInventoryMutation, applyIntegrationStatus, refreshTpLinkDevices, disconnectHomeAssistant, applyDetachedTpLinkSensors, disconnectTpLink, moveHomeAssistant, moveTpLink, loadHouseData, loadPortfolioHouseData, scheduleActiveHouseResync, updateStreamConnection, resetStreamConnections, handleHeartbeat, purgeSessionState, retryBootstrap, revalidateSession, endSession, handleTelemetry, flushMeasurements, handleMeasurement, selectHouse, importHistoricalMeasurements, loadSeries, loadHistoricalSeries, createSensor, updateSensor, deleteSensor, moveSensor, ensurePropertyWrite, refreshMovedPropertyContext, createProperty, updateProperty, deleteProperty, createPropertyArea, updatePropertyArea, deletePropertyArea, createAreaEquipment, updateAreaEquipment, deleteAreaEquipment, createPropertyNote, updatePropertyNote, deletePropertyNote, setHouseGeoreference, updateFloor, updateHouseDraft, updateHouse, createHouse } = context;
+  store: Pick<ClimateDataStore,
+    | "activeHouseId" | "activeHouseMutationBuffers" | "activeTelemetryLoadBuffers" | "apiAvailable"
+    | "dataModeRef" | "globalFieldVersions" | "houseTelemetryVersions" | "pendingMeasurementSamples"
+    | "recordHouseMutation" | "recordInventoryMutation" | "saveStateTimer" | "seriesCommitVersions"
+    | "seriesLoadVersions" | "sessionLockedRef" | "setSaveState" | "setScenario" | "setState"
+    | "state" | "stateRef"
+  >,
+  actions: Pick<PipelineActions, "updateHouseDraft">,
+): OperationsActions {
+  const { apiAvailable, recordInventoryMutation, stateRef, houseTelemetryVersions, activeHouseId, pendingMeasurementSamples, activeTelemetryLoadBuffers, seriesLoadVersions, seriesCommitVersions, setState, setSaveState, saveStateTimer, sessionLockedRef, dataModeRef, setScenario, globalFieldVersions, recordHouseMutation, activeHouseMutationBuffers } = store;
+  const { updateHouseDraft } = actions;
   const deleteHouse = useCallback(async (houseId: string): Promise<void> => {
       if (!apiAvailable.current) throw new Error("The local API is unavailable. The Home was not hidden.");
       await api.deleteHouse(houseId);
@@ -95,8 +54,6 @@ export function useOperationsActions(
         observations: current.observations.filter((observation) => observation.houseId !== houseId),
         staticParameters: current.staticParameters.filter((parameter) => parameter.houseId !== houseId),
         readings: withoutSensorIds(current.readings, removedSensorIds),
-        history: withoutSensorIds(current.history, removedSensorIds),
-        forecasts: withoutSensorIds(current.forecasts, removedSensorIds),
         latestMeasurements: withoutSensorIds(current.latestMeasurements, removedSensorIds),
         measurementHistory: withoutSensorIds(current.measurementHistory, removedSensorIds),
         measurementForecasts: withoutSensorIds(current.measurementForecasts, removedSensorIds),
@@ -246,75 +203,5 @@ export function useOperationsActions(
       if (!apiAvailable.current) throw new Error("The local API is unavailable. Revision history could not be loaded.");
       return api.observationRevisions(id);
     }, []);
-  const createMaintenanceTask = useCallback(async (input: MaintenanceTaskInput): Promise<MaintenanceTask> => {
-      if (!apiAvailable.current) throw new Error("The local API is unavailable. The maintenance task was not saved.");
-      const saved = await api.createMaintenanceTask(input);
-      recordHouseMutation({ resource: "maintenance", action: "upsert", houseId: saved.houseId, value: saved });
-      setState((current) => ({ ...current, maintenanceTasks: [...current.maintenanceTasks, saved] }));
-      return saved;
-    }, [recordHouseMutation]);
-  const reloadMaintenanceTask = useCallback(async (id: string): Promise<MaintenanceTask> => {
-      if (!apiAvailable.current) throw new Error("The local API is unavailable. The maintenance task could not be reloaded.");
-      const current = stateRef.current.maintenanceTasks.find((task) => task.id === id);
-      if (!current) throw new Error("The maintenance task is no longer available.");
-      const concurrentMutations: HouseMutationBuffer = new Map();
-      activeHouseMutationBuffers.current.add(concurrentMutations);
-      try {
-        let fresh: MaintenanceTask | undefined;
-        try {
-          fresh = await api.maintenanceTask(id);
-        } catch (error) {
-          const status = error && typeof error === "object" && "status" in error
-            ? (error as { status?: unknown }).status
-            : null;
-          if (status !== 404) throw error;
-        }
-        const reloaded = replayMaintenanceTaskMutation(
-          id,
-          fresh,
-          concurrentMutations,
-        );
-        activeHouseMutationBuffers.current.delete(concurrentMutations);
-        if (!reloaded) {
-          recordHouseMutation({ resource: "maintenance", action: "delete", houseId: current.houseId, id });
-          setState((state) => ({
-            ...state,
-            maintenanceTasks: state.maintenanceTasks.filter((item) => item.id !== id),
-          }));
-          throw new Error("The maintenance task is no longer available.");
-        }
-        if (current.houseId !== reloaded.houseId) {
-          recordHouseMutation({ resource: "maintenance", action: "delete", houseId: current.houseId, id });
-        }
-        recordHouseMutation({ resource: "maintenance", action: "upsert", houseId: reloaded.houseId, value: reloaded });
-        setState((state) => ({
-          ...state,
-          maintenanceTasks: [...state.maintenanceTasks.filter((item) => item.id !== id), reloaded],
-        }));
-        return reloaded;
-      } finally {
-        activeHouseMutationBuffers.current.delete(concurrentMutations);
-      }
-    }, [recordHouseMutation]);
-  const updateMaintenanceTask = useCallback(async (id: string, patch: MaintenanceTaskPatch): Promise<MaintenanceTask> => {
-      if (!apiAvailable.current) throw new Error("The local API is unavailable. The maintenance task was not updated.");
-      const current = stateRef.current.maintenanceTasks.find((task) => task.id === id);
-      if (!current) throw new Error("The maintenance task is no longer available.");
-      if (current.revision !== patch.baseRevision) throw new Error("The maintenance task changed before this edit could be saved.");
-      const saved = await api.updateMaintenanceTask(id, patch);
-      if (current.houseId !== saved.houseId) {
-        recordHouseMutation({ resource: "maintenance", action: "delete", houseId: current.houseId, id });
-      }
-      recordHouseMutation({ resource: "maintenance", action: "upsert", houseId: saved.houseId, value: saved });
-      setState((state) => ({
-        ...state,
-        maintenanceTasks: [...state.maintenanceTasks.filter((task) => task.id !== id), saved],
-      }));
-      return saved;
-    }, [recordHouseMutation]);
-  const maintenanceTaskRevisions = useCallback(async (id: string) => {
-      if (!apiAvailable.current) throw new Error("The local API is unavailable. Revision history could not be loaded.");
-      return api.maintenanceTaskRevisions(id);
-    }, []);
-  return Object.assign(context, { deleteHouse, saveLayout, runScenario, createRule, updateRule, acknowledgeAlert, createObservation, reloadObservation, updateObservation, observationRevisions, createMaintenanceTask, reloadMaintenanceTask, updateMaintenanceTask, maintenanceTaskRevisions });
+  return { deleteHouse, saveLayout, runScenario, createRule, updateRule, acknowledgeAlert, createObservation, reloadObservation, updateObservation, observationRevisions };
 }

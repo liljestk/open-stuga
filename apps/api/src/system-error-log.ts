@@ -52,7 +52,8 @@ export class SystemErrorLog {
 
   constructor(private readonly database: ClimateDatabase) {}
 
-  record(input: SystemErrorLogInput): void {
+  /** Stores a redacted entry; false when the log itself could not be written. */
+  record(input: SystemErrorLogInput): boolean {
     try {
       const occurredAt = (input.occurredAt ?? new Date()).toISOString();
       this.database.db.prepare(`INSERT INTO system_error_log
@@ -74,8 +75,10 @@ export class SystemErrorLog {
         this.#entriesUntilPrune = PRUNE_EVERY_ENTRIES;
       }
       this.#entriesUntilPrune -= 1;
+      return true;
     } catch {
       // Error reporting must never replace the original operation or recurse.
+      return false;
     }
   }
 
@@ -113,4 +116,29 @@ export class SystemErrorLog {
     };
     return `${[header, ...entries].map((entry) => JSON.stringify(entry)).join("\n")}\n`;
   }
+}
+
+/**
+ * Records the failure behind a user-facing error that does not name it, so a
+ * defect that looks like a user mistake still leaves a (redacted) trace.
+ */
+export function recordFailureCause(log: Pick<SystemErrorLog, "record">, source: string, error: unknown): void {
+  log.record({
+    level: "warning",
+    source,
+    code: error instanceof Error ? error.name : "UNEXPECTED_ERROR",
+    message: error instanceof Error ? error.message : String(error),
+  });
+}
+
+/** Where background work reports failures. */
+export type FailureLog = Pick<SystemErrorLog, "record">;
+
+/**
+ * Records a background failure in the system error log. Only when that log is
+ * unavailable does a detail-free line go to the console instead.
+ */
+export function reportBackgroundFailure(log: FailureLog | null | undefined, input: SystemErrorLogInput): void {
+  if (log?.record(input)) return;
+  console.error(JSON.stringify({ event: "background_failure", source: input.source, code: input.code }));
 }

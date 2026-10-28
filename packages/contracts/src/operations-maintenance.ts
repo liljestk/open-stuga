@@ -1,27 +1,23 @@
 import type { AlertSeverity } from "./sensors-alerts.js";
 
-export type ObservationKind =
-  | "leak"
-  | "condensation"
-  | "mould"
-  | "ventilation"
-  | "maintenance"
-  | "note";
+export const OBSERVATION_KINDS = ["leak", "condensation", "mould", "ventilation", "maintenance", "note"] as const;
+export type ObservationKind = (typeof OBSERVATION_KINDS)[number];
 
-export type ObservationTimePrecision = "exact" | "approximate" | "date-only" | "date-range" | "unknown";
+export const OBSERVATION_SEVERITIES = ["info", "warning", "critical"] as const satisfies readonly AlertSeverity[];
 
-export type ObservationSource =
-  | "owner"
-  | "caretaker"
-  | "contractor"
-  | "sensor"
-  | "imported-document"
-  | "automated-analysis"
-  | "unknown";
+export const OBSERVATION_TIME_PRECISIONS = ["exact", "approximate", "date-only", "date-range", "unknown"] as const;
+export type ObservationTimePrecision = (typeof OBSERVATION_TIME_PRECISIONS)[number];
 
-export type ObservationConfidence = "confirmed" | "probable" | "uncertain" | "awaiting-inspection";
+export const OBSERVATION_SOURCES = [
+  "owner", "caretaker", "contractor", "sensor", "imported-document", "automated-analysis", "unknown",
+] as const;
+export type ObservationSource = (typeof OBSERVATION_SOURCES)[number];
 
-export type ObservationStatus = "open" | "resolved";
+export const OBSERVATION_CONFIDENCES = ["confirmed", "probable", "uncertain", "awaiting-inspection"] as const;
+export type ObservationConfidence = (typeof OBSERVATION_CONFIDENCES)[number];
+
+export const OBSERVATION_STATUSES = ["open", "resolved"] as const;
+export type ObservationStatus = (typeof OBSERVATION_STATUSES)[number];
 
 /** Maximum canonical resolution outcome length accepted by API and MCP writes. */
 export const MAX_OBSERVATION_RESOLUTION_NOTE_LENGTH = 5_000 as const;
@@ -126,16 +122,14 @@ export interface ObservationRevision {
 }
 
 /** Why a maintenance task exists. This classification must remain visible to users. */
-export type MaintenanceTaskBasis =
-  | "required"
-  | "scheduled"
-  | "condition-based"
-  | "predictive"
-  | "optional-improvement";
+export const MAINTENANCE_TASK_BASES = ["required", "scheduled", "condition-based", "predictive", "optional-improvement"] as const;
+export type MaintenanceTaskBasis = (typeof MAINTENANCE_TASK_BASES)[number];
 
-export type MaintenanceTaskPriority = "low" | "normal" | "high" | "urgent";
+export const MAINTENANCE_TASK_PRIORITIES = ["low", "normal", "high", "urgent"] as const;
+export type MaintenanceTaskPriority = (typeof MAINTENANCE_TASK_PRIORITIES)[number];
 
-export type MaintenanceTaskStatus = "planned" | "in-progress" | "completed" | "verified" | "cancelled";
+export const MAINTENANCE_TASK_STATUSES = ["planned", "in-progress", "completed", "verified", "cancelled"] as const;
+export type MaintenanceTaskStatus = (typeof MAINTENANCE_TASK_STATUSES)[number];
 
 export type MaintenanceTaskRevisionActor = ObservationRevisionActor;
 

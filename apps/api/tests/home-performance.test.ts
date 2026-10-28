@@ -1,14 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type {
-  ActionRun,
-  AnalyticsPoint,
-  AnalyticsQueryResponse,
-  AnalyticsSeries,
-  House,
-  MaintenanceTask,
   ManualObservation,
-  MeasurementDefinition,
   OpeningStateObservation,
   OutdoorTemperatureSample,
   Sensor,
@@ -22,7 +15,7 @@ import {
   type HomePerformanceInput,
 } from "../src/analytics/home-performance/model.js";
 
-import { actionRun, analyticsPoint, analyticsSeries, climateSensor, definition, definitions, energySensor, from, hourlyPoints, house, maintenanceTask, opening, recoveryPoints, recoveryStart, response, to } from "./home-performance-test-support.js";
+import { actionRun, analyticsPoint, analyticsSeries, climateSensor, definitions, energySensor, from, hourlyPoints, house, maintenanceTask, opening, recoveryPoints, recoveryStart, response, to } from "./home-performance-test-support.js";
 
 describe("deriveHomePerformance", () => {
   it("keeps actual comfort exposure but censors causal recovery evidence outside verified-off intervals", () => {

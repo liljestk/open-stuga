@@ -1,3 +1,4 @@
+import { withResponseSignal } from "../app/response-signal.js";
 import type express from "express";
 import type {
   AnalyticsAggregation,
@@ -8,23 +9,17 @@ import type {
   OpeningActivityRequest,
 } from "@climate-twin/contracts";
 import { CALENDAR_COMPARISON_UNITS } from "@climate-twin/contracts";
-import { AnalyticsQueryError } from "../analytics.js";
 import { DAILY_ANALYTICS_ALGORITHM_VERSION } from "../daily-analytics-findings.js";
 import type { AnalyticsWorkLimiter } from "./work-limiter.js";
 import type { ClimateDatabase } from "../db.js";
 import type { TelemetryBus } from "../events.js";
-import type { WeatherEventBroker } from "../weather-events.js";
+import type { WeatherEventBroker } from "../weather/events.js";
 import {
-  IncompleteTelemetryHistoryError,
   type HybridTelemetryReader,
 } from "../timeseries/read-facade.js";
-import {
-  HttpError,
-  bodyObject,
-  rejectUnknownFields,
-  requireNonGuest,
-  requiredString,
-} from "../app/support/index.js";
+import { HttpError } from "../http-error.js";
+import { bodyObject, rejectUnknownFields, requiredString } from "../request-fields.js";
+import { requireNonGuest } from "../app/support/local-sessions.js";
 import { getOpeningActivity } from "./opening-activity/service.js";
 import type { DerivedAnalyticsCoordinator } from "./derived-artifacts/coordinator.js";
 import { registerHomeMonitoringRoutes } from "./home-monitoring/routes.js";
@@ -33,7 +28,6 @@ import { registerAnalyticsDiagnosticsRoutes, type AnalyticsDiagnosticsRouteConte
 import { registerForecastRoutes, type ForecastRouteContext } from "./forecast/routes.js";
 import { registerThermalAnalyticsRoutes, type ThermalAnalyticsRouteContext } from "./thermal-routes.js";
 import {
-  CalendarComparisonSelectionError,
   compareCalendarPeriods,
 } from "./calendar-comparison/service.js";
 
@@ -283,40 +277,24 @@ export function registerAnalyticsRoutes(context: AnalyticsRouteContext): () => v
         "Analytics Home scope was not found",
       );
     }
-    try {
-      const startedAt = performance.now();
-      const abortController = new AbortController();
-      const abortOnClose = () => abortController.abort(new DOMException("Client disconnected", "AbortError"));
-      response.once("close", abortOnClose);
-      if (response.destroyed) abortOnClose();
-      const result = await context.analyticsWorkLimiter.run(
-        "opening-activity",
-        () => getOpeningActivity({
-          house,
-          request: input,
-          telemetryReader: context.telemetryReader,
-          generatedAt: new Date().toISOString(),
-          signal: abortController.signal,
-        }),
-        abortController.signal,
-      ).finally(() => response.off("close", abortOnClose));
-      response.setHeader("cache-control", "no-store");
-      response.setHeader(
-        "server-timing",
-        `opening-activity;dur=${(performance.now() - startedAt).toFixed(1)}`,
-      );
-      response.json(result);
-    } catch (error) {
-      if (error instanceof IncompleteTelemetryHistoryError) {
-        throw new HttpError(
-          503,
-          error.code,
-          error.message,
-          { archiveState: error.archiveState },
-        );
-      }
-      throw error;
-    }
+    const startedAt = performance.now();
+    const result = await withResponseSignal(response, (signal) => context.analyticsWorkLimiter.run(
+      "opening-activity",
+      () => getOpeningActivity({
+        house,
+        request: input,
+        telemetryReader: context.telemetryReader,
+        generatedAt: new Date().toISOString(),
+        signal,
+      }),
+      signal,
+    ));
+    response.setHeader("cache-control", "no-store");
+    response.setHeader(
+      "server-timing",
+      `opening-activity;dur=${(performance.now() - startedAt).toFixed(1)}`,
+    );
+    response.json(result);
   });
   context.app.post(`${context.v2Prefix}/analytics/calendar-comparison`, async (request, response) => {
     const input = calendarComparisonRequest(request.body);
@@ -364,42 +342,24 @@ export function registerAnalyticsRoutes(context: AnalyticsRouteContext): () => v
         `Analytics is disabled for measurement: ${input.measurementId}`,
       );
     }
-    try {
-      const startedAt = performance.now();
-      const result = await context.analyticsWorkLimiter.run(
-        "calendar-comparison",
-        () => compareCalendarPeriods({
-          request: input,
-          house,
-          sensors,
-          definition,
-          telemetryReader: context.telemetryReader,
-          evaluatedAt: new Date().toISOString(),
-        }),
-      );
-      response.setHeader("cache-control", "no-store");
-      response.setHeader(
-        "server-timing",
-        `calendar-comparison;dur=${(performance.now() - startedAt).toFixed(1)}`,
-      );
-      response.json(result);
-    } catch (error) {
-      if (error instanceof CalendarComparisonSelectionError) {
-        throw new HttpError(422, error.code, error.message);
-      }
-      if (error instanceof AnalyticsQueryError) {
-        throw new HttpError(error.status, error.code, error.message);
-      }
-      if (error instanceof IncompleteTelemetryHistoryError) {
-        throw new HttpError(
-          503,
-          "TELEMETRY_ARCHIVE_REQUIRED",
-          "Complete telemetry history is temporarily unavailable",
-          { archiveState: error.archiveState },
-        );
-      }
-      throw error;
-    }
+    const startedAt = performance.now();
+    const result = await context.analyticsWorkLimiter.run(
+      "calendar-comparison",
+      () => compareCalendarPeriods({
+        request: input,
+        house,
+        sensors,
+        definition,
+        telemetryReader: context.telemetryReader,
+        evaluatedAt: new Date().toISOString(),
+      }),
+    );
+    response.setHeader("cache-control", "no-store");
+    response.setHeader(
+      "server-timing",
+      `calendar-comparison;dur=${(performance.now() - startedAt).toFixed(1)}`,
+    );
+    response.json(result);
   });
   const derivedInput = (
     request: express.Request,

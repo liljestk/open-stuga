@@ -15,6 +15,8 @@ export type ApiReadSchedulingClass = Exclude<ApiRequestSchedulingClass, "interac
 
 export type ApiRequestInit = RequestInit & {
   schedulingClass?: ApiRequestSchedulingClass;
+  /** Overrides the default request deadline. */
+  timeoutMs?: number;
 };
 
 type ApiRequestWaiter = {

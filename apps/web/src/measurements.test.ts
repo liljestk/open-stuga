@@ -1,7 +1,7 @@
+import { BUILTIN_MEASUREMENT_DEFINITIONS } from "@climate-twin/contracts";
 import type { MeasurementSample } from "@climate-twin/contracts";
 import { describe, expect, it, vi } from "vitest";
 import {
-  BUILTIN_MEASUREMENTS,
   appendHistory,
   appendLiveHistory,
   displayUnit,
@@ -41,7 +41,7 @@ describe("samplesAt", () => {
 describe("temperature dimensions", () => {
   it("converts heat-pump target temperature definitions in imperial homes", () => {
     const definition = {
-      ...BUILTIN_MEASUREMENTS[0]!,
+      ...BUILTIN_MEASUREMENT_DEFINITIONS[0]!,
       id: "heat_pump_target_temperature",
     };
 

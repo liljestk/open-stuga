@@ -638,6 +638,32 @@ built `dist` folders, so run `npm run build:packages` after editing them.
 `apps/ios` and `apps/tapo-export-runner` share no TypeScript package; they talk
 to the API over HTTP.
 
+### REST response envelopes
+
+Every REST endpoint documents one success body in OpenAPI and always returns
+it. A collection is an object holding its array under a plural key
+(`{ sensors }`, `{ events }`); a single entity is an object holding it under its
+singular name (`{ sensor }`, `{ rule }`, `{ parameter }`). Clients read that one
+shape and never unwrap alternatives.
+
+Compatibility aliases (`/alerts`, `/alerts/{id}/acknowledge`, `/events`,
+`/snapshot`, `/static-parameters`, `PUT /sensors/{id}`) call the canonical
+handler and only adapt its envelope. The web client uses the canonical routes;
+the aliases remain for the iOS companion and for operator scripts.
+
+Two deliberate exceptions answer a single entity bare:
+
+- **Maintenance tasks** (`POST /maintenance-tasks`, `GET` and
+  `PATCH /maintenance-tasks/{id}`). Installed iOS companion builds decode the
+  task directly, so wrapping it would break them until they are rebuilt. A
+  change to this shape must ship together with the iOS decoder and a
+  compatibility window.
+- **Stuguby federation** routes (`/stugbys/**` and `/stugby-protocol/**`).
+  They answer with the federation records defined in
+  `@climate-twin/stuguby-protocol` (`StugubySummary`, `StugubyShareGrant`,
+  `StugubyPropertyCommandResult`, ...) and change with that protocol's version,
+  not with this convention.
+
 ## Reliability and observability
 
 The compatibility health endpoint is `GET /api/v1/health`; integration status is

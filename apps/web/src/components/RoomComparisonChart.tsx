@@ -5,7 +5,7 @@ import type { TimeRange } from "../domain";
 import { useI18n } from "../i18n";
 import { displayUnit, formatMeasurement, measurementDomain, measurementLabel, measurementValue, toDisplayValue, type MeasurementHistory } from "../measurements";
 import { formatInTimeZone } from "../dateTime";
-import { isHomeRelevantWeatherWarning } from "../weatherWarningRelevance";
+import { isHomeRelevantWeatherWarning } from "../outdoor/warningRelevance";
 import { useNow } from "../useNow";
 import { chartGapThresholdMs } from "../chartGaps";
 

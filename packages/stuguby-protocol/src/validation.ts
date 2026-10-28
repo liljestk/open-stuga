@@ -1,7 +1,5 @@
 import { STUGBY_DATASETS } from "./protocol-contracts.js";
-import type { JsonValue, StugubyDataset, StugubyDatasetGrant, StugubyHomeCommand, StugubyHomeCommandResult, StugubyPropertyCommand, StugubyPropertyCommandResult, StugubyRole, StugubyShareGrant, StugubySharedProperty } from "./protocol-contracts.js";
-
-import { validateDatasetPayload } from "./wire-validation.js";
+import type { JsonValue, StugubyDataset, StugubyDatasetGrant, StugubyHomeCommandResult, StugubyPropertyCommand, StugubyPropertyCommandResult, StugubyRole, StugubyShareGrant, StugubySharedProperty } from "./protocol-contracts.js";
 
 export const DATASET_SET = new Set<string>(STUGBY_DATASETS);
 
@@ -135,10 +133,19 @@ export function requireEnumString(
   return value;
 }
 
-export function requireIsoDate(value: unknown, name: string, nullable = false): string | null {
-  if (nullable && value === null) return null;
-  if (typeof value !== "string" || !ISO_DATE_TIME.test(value) || !Number.isFinite(Date.parse(value))) fail(`${name} must be an ISO date-time${nullable ? " or null" : ""}`);
-  return value as string;
+function isIsoDateTime(value: unknown): value is string {
+  return typeof value === "string" && ISO_DATE_TIME.test(value) && Number.isFinite(Date.parse(value));
+}
+
+export function requireIsoDate(value: unknown, name: string): string {
+  if (!isIsoDateTime(value)) fail(`${name} must be an ISO date-time`);
+  return value;
+}
+
+export function requireNullableIsoDate(value: unknown, name: string): string | null {
+  if (value === null) return null;
+  if (!isIsoDateTime(value)) fail(`${name} must be an ISO date-time or null`);
+  return value;
 }
 
 export function requireStringArray(value: unknown, name: string, maximum = 10_000): string[] {
@@ -160,7 +167,7 @@ export function requireNullableString(value: unknown, name: string): string | nu
   return value as string;
 }
 
-export function optionalString(object: Record<string, unknown>, key: string): void {
+export function assertOptionalString(object: Record<string, unknown>, key: string): void {
   if (object[key] !== undefined && typeof object[key] !== "string") fail(`${key} must be a string when supplied`);
 }
 
@@ -247,8 +254,8 @@ export function validateShareGrant(value: unknown): StugubyShareGrant {
     fail("a designated successor is only valid for full Home recovery");
   }
   if (!Array.isArray(value.datasets) || value.datasets.length === 0 || value.datasets.length > STUGBY_DATASETS.length) fail("at least one unique supported dataset is required");
-  requireIsoDate(value.expiresAt, "expiresAt", true);
-  requireIsoDate(value.revokedAt, "revokedAt", true);
+  requireNullableIsoDate(value.expiresAt, "expiresAt");
+  requireNullableIsoDate(value.revokedAt, "revokedAt");
   requireIsoDate(value.createdAt, "createdAt");
   requireIsoDate(value.updatedAt, "updatedAt");
   if (Date.parse(String(value.updatedAt)) < Date.parse(String(value.createdAt))) fail("updatedAt precedes createdAt");
@@ -272,7 +279,7 @@ export function validateShareGrant(value: unknown): StugubyShareGrant {
       onlyKeys(item.telemetry, ["sensorPublicationIds", "metricIds", "historyFrom", "live", "maxSamplesPerHour"], "telemetry policy");
       requireStringArray(item.telemetry.sensorPublicationIds, "telemetry.sensorPublicationIds", 10_000);
       requireStringArray(item.telemetry.metricIds, "telemetry.metricIds", 1_000);
-      requireIsoDate(item.telemetry.historyFrom, "telemetry.historyFrom", true);
+      requireNullableIsoDate(item.telemetry.historyFrom, "telemetry.historyFrom");
       const maximum = requireInteger(item.telemetry, "maxSamplesPerHour", 1);
       if (maximum > 1_000_000) fail("telemetry sample limit is too high");
       if (typeof item.telemetry.live !== "boolean") fail("telemetry.live must be boolean");
@@ -319,7 +326,7 @@ export function validateSharedProperty(value: unknown): StugubySharedProperty {
   if (value.location !== null) {
     coordinate(value.location, "location");
     onlyKeys(value.location as Record<string, unknown>, ["latitude", "longitude", "label"], "location");
-    optionalString(value.location as Record<string, unknown>, "label");
+    assertOptionalString(value.location as Record<string, unknown>, "label");
   }
   for (const key of ["areas", "equipment", "notes", "maintenance"] as const) {
     requireArray(value[key], key, 10_000);
@@ -387,7 +394,7 @@ export function validateSharedProperty(value: unknown): StugubySharedProperty {
     if (areaId && !areaIds.has(areaId)) fail(`maintenance item ${itemId} references an unknown area`);
     if (equipmentId && !equipmentIds.has(equipmentId)) fail(`maintenance item ${itemId} references unknown equipment`);
     if (!["planned", "in-progress", "done", "cancelled"].includes(String(item.state))) fail("invalid maintenance state");
-    requireIsoDate(item.dueAt, "maintenance.dueAt", true); requireIsoDate(item.completedAt, "maintenance.completedAt", true);
+    requireNullableIsoDate(item.dueAt, "maintenance.dueAt"); requireNullableIsoDate(item.completedAt, "maintenance.completedAt");
     requireIsoDate(item.createdAt, "maintenance.createdAt"); requireIsoDate(item.updatedAt, "maintenance.updatedAt");
     if (Date.parse(String(item.updatedAt)) < Date.parse(String(item.createdAt))) fail(`maintenance item ${itemId} updatedAt precedes createdAt`);
   }
@@ -441,49 +448,11 @@ export function validatePropertyCommandResult(value: unknown): StugubyPropertyCo
     if (value.conflict.serverValue !== null) assertSafeFederationPayload(value.conflict.serverValue, "$.conflict.serverValue");
     if (value.conflict.clientValue !== null) assertSafeFederationPayload(value.conflict.clientValue, "$.conflict.clientValue");
     requireIsoDate(value.conflict.detectedAt, "conflict.detectedAt");
-    requireIsoDate(value.conflict.resolvedAt, "conflict.resolvedAt", true);
+    requireNullableIsoDate(value.conflict.resolvedAt, "conflict.resolvedAt");
   }
   if (value.status === "conflict" && value.conflict === null) fail("conflict result requires conflict details");
   if (value.status === "applied" && value.conflict !== null) fail("applied result cannot include conflict details");
   return value as unknown as StugubyPropertyCommandResult;
-}
-
-export function validateHomeCommand(value: unknown): StugubyHomeCommand {
-  assertSafeFederationPayload(value);
-  if (!isObject(value)) fail("Home command must be an object");
-  onlyKeys(value, [
-    "id", "stugubyId", "actorNodeId", "authorityNodeId", "publicationId", "grantId", "grantEpoch",
-    "authorityEpoch", "baseRevision", "snapshot", "createdAt",
-  ], "Home command");
-  for (const key of ["id", "stugubyId", "actorNodeId", "authorityNodeId", "publicationId", "grantId"] as const) {
-    requireString(value, key);
-  }
-  requireInteger(value, "grantEpoch", 1);
-  requireInteger(value, "authorityEpoch", 1);
-  requireInteger(value, "baseRevision", 1);
-  requireIsoDate(value.createdAt, "createdAt");
-  if (!isObject(value.snapshot)) fail("Home command snapshot must be an object");
-  onlyKeys(value.snapshot, ["directory", "location", "structure", "sensorCatalog", "notes", "observations"], "Home command snapshot");
-  validateDatasetPayload("home.directory.v1", value.snapshot.directory);
-  if (value.snapshot.location !== null) validateDatasetPayload("home.location.v1", value.snapshot.location);
-  validateDatasetPayload("home.structure.v1", value.snapshot.structure);
-  validateDatasetPayload("home.sensor-catalog.v1", value.snapshot.sensorCatalog);
-  validateDatasetPayload("home.notes.v1", value.snapshot.notes);
-  validateDatasetPayload("home.observations.v1", value.snapshot.observations);
-  const publicationId = String(value.publicationId);
-  for (const payload of [
-    value.snapshot.directory,
-    value.snapshot.location,
-    value.snapshot.structure,
-    value.snapshot.sensorCatalog,
-    value.snapshot.notes,
-    value.snapshot.observations,
-  ]) {
-    if (payload !== null && isObject(payload) && payload.publicationId !== publicationId) {
-      fail("Home command snapshot publication ids must match");
-    }
-  }
-  return value as unknown as StugubyHomeCommand;
 }
 
 export function validateHomeCommandResult(value: unknown): StugubyHomeCommandResult {

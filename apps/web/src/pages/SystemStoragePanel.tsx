@@ -1,3 +1,5 @@
+import { errorText } from "../errorText";
+import type { SystemStorageLocation, SystemStorageLocationKind, SystemStorageSettings, SystemStorageStatus } from "@climate-twin/contracts";
 import {
   ArchiveRestore,
   ArrowRight,
@@ -12,14 +14,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import {
-  api,
-  ApiRequestError,
-  type SystemStorageLocation,
-  type SystemStorageLocationKind,
-  type SystemStorageSettings,
-  type SystemStorageStatus,
-} from "../api";
+import { api } from "../api";
 import { confirmAction } from "../components/ConfirmationProvider";
 import { useI18n, type TranslationKey } from "../i18n";
 import "./SystemStoragePanel.css";
@@ -27,10 +22,6 @@ import "./SystemStoragePanel.css";
 const activePhases = new Set([
   "queued", "validating", "backing-up", "quiescing", "copying", "applying", "verifying", "rolling-back",
 ]);
-
-function errorMessage(error: unknown, fallback: string): string {
-  return error instanceof ApiRequestError || error instanceof Error ? error.message : fallback;
-}
 
 function cloneSettings(settings: SystemStorageSettings): SystemStorageSettings {
   return { timeseries: { ...settings.timeseries }, backups: { ...settings.backups } };
@@ -224,7 +215,7 @@ export function SystemStoragePanel() {
       });
       setError(null);
     } catch (loadError) {
-      if (!quiet) setError(errorMessage(loadError, t("storage.error")));
+      if (!quiet) setError(errorText(loadError, t, t("storage.error")));
     } finally {
       if (!quiet) setBusy(null);
     }
@@ -258,7 +249,7 @@ export function SystemStoragePanel() {
       setStatus(next);
       setDraft(cloneSettings(next.operation && activePhases.has(next.operation.phase) ? next.operation.target : next.settings));
     } catch (saveError) {
-      setError(errorMessage(saveError, t("storage.error")));
+      setError(errorText(saveError, t, t("storage.error")));
     } finally {
       setBusy(null);
     }
@@ -302,7 +293,7 @@ export function SystemStoragePanel() {
     {status.operation && <div className={`storage-operation ${status.operation.phase}`} role="status" aria-live="polite">
       {operationActive ? <LoaderCircle className="spin" size={17} aria-hidden="true" /> : status.operation.phase === "complete" ? <CheckCircle2 size={17} aria-hidden="true" /> : <CircleAlert size={17} aria-hidden="true" />}
       <span>
-        <strong>{t(`storage.phase.${status.operation.phase}` as TranslationKey)}</strong>
+        <strong>{t(`storage.phase.${status.operation.phase}`)}</strong>
         {status.operation.detail && <small>{status.operation.detail}</small>}
         {operationActive && <small>{t("storage.operationContinues")}</small>}
       </span>

@@ -8,45 +8,23 @@ import express from "express";
 
 import request from "supertest";
 
-import {
-  ClimateScalarEngine,
-  SpatialLayerEngineRegistry,
-  snapshotBase,
-  type SpatialLayerEngine,
-  type SpatialLayerEngineInput,
-  type SpatialLayerEngineManifest,
-  type SpatialLayerSnapshot,
-} from "@climate-twin/spatial-layers";
-
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { apiErrorMiddleware } from "../src/app/error-handling.js";
 import { ClimateDatabase } from "../src/db.js";
-
-import { openApiV1Document } from "../src/openapi.js";
-
-import { buildHouseTopology } from "../src/spatial-layers/core-input.js";
-
-import {
-  HybridTelemetryReader,
-  type ArchiveTelemetryReader,
-} from "../src/timeseries/read-facade.js";
 
 import {
   createLocalSpatialLayerRuntime,
-  DirectSpatialEngineExecutor,
-  deriveSpatialStatePath,
   registerSpatialLayerRoutes,
   sourceDatabaseId,
   SpatialLayerStateStore,
   SpatialSourceIdentityCollisionError,
-  SpatialExecutionTimeoutError,
-  WorkerThreadSpatialEngineExecutor,
   type LocalSpatialLayerRuntime,
-  type SpatialDataPartition,
-  type SpatialLayerSnapshotDraft,
 } from "../src/spatial-layers/index.js";
 
-import { SPATIAL_PARTITION_TABLES, TestSchema, coreDatabases, documentedResponseSchema, enableEngine, engineSnapshot, expectOpenApiConformance, partition, partitionRowCount, resolvedSchema, runtimes, schemaConformanceErrors, scope, seedEverySpatialTable, seededRuntime, snapshot, spatialOpenApiPaths, spatialOpenApiSchemas, temporaryDirectories } from "./spatial-layersTestSupport.js";
+import { SPATIAL_PARTITION_TABLES, coreDatabases, documentedResponseSchema, expectOpenApiConformance, partition, partitionRowCount, runtimes, scope, seedEverySpatialTable, seededRuntime, snapshot, spatialOpenApiSchemas, temporaryDirectories } from "./spatial-layersTestSupport.js";
+// These tests exercise the routes themselves; production wires real grants.
+const allowAllSpatialAccess = { authorizeScope: () => true, authorizeMutation: () => true };
 
 afterEach(async () => {
   await Promise.all(runtimes.splice(0).map((runtime) => runtime.stop()));
@@ -64,7 +42,8 @@ describe("local spatial layer API", () => {
     await runtime.host.inferScope({ kind: "property", id: property.id }, at);
     const app = express();
     app.use(express.json());
-    registerSpatialLayerRoutes(app, { runtime });
+    registerSpatialLayerRoutes(app, { runtime, ...allowAllSpatialAccess });
+    app.use(apiErrorMiddleware(() => undefined));
 
     const houseConfig = await request(app).get(`/api/v1/houses/${house.id}/layers/config`).expect(200);
     expect(houseConfig.body.topology.scope).toEqual({ kind: "house", id: house.id });
@@ -108,7 +87,8 @@ describe("local spatial layer API", () => {
     const house = core.listHouses()[0]!;
     const app = express();
     app.use(express.json());
-    registerSpatialLayerRoutes(app, { runtime });
+    registerSpatialLayerRoutes(app, { runtime, ...allowAllSpatialAccess });
+    app.use(apiErrorMiddleware(() => undefined));
 
     await request(app)
       .get(`/api/v1/houses/${house.id}/layers/current`)
@@ -123,7 +103,8 @@ describe("local spatial layer API", () => {
     await runtime.host.inferScope({ kind: "house", id: house.id }, new Date().toISOString());
     const app = express();
     app.use(express.json());
-    registerSpatialLayerRoutes(app, { runtime });
+    registerSpatialLayerRoutes(app, { runtime, ...allowAllSpatialAccess });
+    app.use(apiErrorMiddleware(() => undefined));
 
     const retainedBefore = runtime.state.db.prepare(`SELECT
       (SELECT COUNT(*) FROM spatial_config_versions) AS configurations,
@@ -192,7 +173,8 @@ describe("local spatial layer API", () => {
     const sensor = core.listSensors(house.id)[0]!;
     const app = express();
     app.use(express.json());
-    registerSpatialLayerRoutes(app, { runtime });
+    registerSpatialLayerRoutes(app, { runtime, ...allowAllSpatialAccess });
+    app.use(apiErrorMiddleware(() => undefined));
     const overview = await runtime.host.describeScope({ kind: "house", id: house.id });
     const zone = overview.topology.zones[0]!;
     const frame = overview.topology.frames.find((candidate) => candidate.id === zone.frameId)!;
@@ -235,7 +217,8 @@ describe("local spatial layer API", () => {
     const { runtime } = seededRuntime();
     const app = express();
     app.use(express.json());
-    registerSpatialLayerRoutes(app, { runtime });
+    registerSpatialLayerRoutes(app, { runtime, ...allowAllSpatialAccess });
+    app.use(apiErrorMiddleware(() => undefined));
     const now = new Date().toISOString();
 
     await request(app)
@@ -257,7 +240,8 @@ describe("local spatial layer API", () => {
     const sensor = core.listSensors(house.id)[0]!;
     const app = express();
     app.use(express.json());
-    registerSpatialLayerRoutes(app, { runtime });
+    registerSpatialLayerRoutes(app, { runtime, ...allowAllSpatialAccess });
+    app.use(apiErrorMiddleware(() => undefined));
 
     const created = await request(app)
       .post(`/api/v1/houses/${house.id}/layers/calibrations`)
@@ -287,7 +271,8 @@ describe("local spatial layer API", () => {
     const sensor = core.listSensors(house.id)[0]!;
     const app = express();
     app.use(express.json());
-    registerSpatialLayerRoutes(app, { runtime });
+    registerSpatialLayerRoutes(app, { runtime, ...allowAllSpatialAccess });
+    app.use(apiErrorMiddleware(() => undefined));
     const overview = await runtime.host.describeScope({ kind: "house", id: house.id });
     const zone = overview.topology.zones[0]!;
     const frame = overview.topology.frames.find((candidate) => candidate.id === zone.frameId)!;
@@ -341,7 +326,8 @@ describe("local spatial layer API", () => {
     const sensor = core.listSensors(house.id)[0]!;
     const app = express();
     app.use(express.json());
-    registerSpatialLayerRoutes(app, { runtime });
+    registerSpatialLayerRoutes(app, { runtime, ...allowAllSpatialAccess });
+    app.use(apiErrorMiddleware(() => undefined));
     const endpoint = `/api/v1/houses/${house.id}/layers/calibration-sessions`;
     const calibration = {
       sensorId: sensor.id,
@@ -388,7 +374,8 @@ describe("local spatial layer API", () => {
   it("returns a stable unavailable response without blocking the core API", async () => {
     const app = express();
     app.use(express.json());
-    registerSpatialLayerRoutes(app, { runtime: null });
+    registerSpatialLayerRoutes(app, { runtime: null, ...allowAllSpatialAccess });
+    app.use(apiErrorMiddleware(() => undefined));
     await request(app).get("/api/v1/layer-engines").expect(200).expect({ enabled: false, engines: [] });
     await request(app).get("/api/v1/houses/house-main/layers/current").expect(503)
       .expect(({ body }) => expect(body.error.code).toBe("SPATIAL_LAYERS_UNAVAILABLE"));

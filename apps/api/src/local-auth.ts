@@ -1,3 +1,5 @@
+import { GUEST_ACCESS_SCOPES, isOneOf } from "@climate-twin/contracts";
+import { HttpError } from "./http-error.js";
 import {
   createHash,
   randomBytes,
@@ -69,9 +71,10 @@ export interface IssuedLocalSession {
   session: LocalAuthSession;
 }
 
-export class LocalAuthError extends Error {
-  constructor(readonly status: number, readonly code: string, message: string) {
-    super(message);
+export class LocalAuthError extends HttpError {
+  constructor(status: number, code: string, message: string) {
+    super(status, code, message);
+    this.name = "LocalAuthError";
   }
 }
 
@@ -148,17 +151,21 @@ function secretsEqual(left: string, right: string): boolean {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-function normalizeGrants(grants: readonly GuestAccessGrant[]): GuestAccessGrant[] {
+function normalizeGrant(value: unknown): GuestAccessGrant {
+  const { scopeType, scopeId } = value && typeof value === "object" ? value as Record<string, unknown> : {};
+  if (!isOneOf(scopeType, GUEST_ACCESS_SCOPES) || typeof scopeId !== "string" || !scopeId.trim() || scopeId.length > 200) {
+    throw new LocalAuthError(400, "INVALID_GRANTS", "Every grant must contain a valid scopeType and scopeId");
+  }
+  return { scopeType, scopeId: scopeId.trim() };
+}
+
+function normalizeGrants(grants: unknown): GuestAccessGrant[] {
   if (!Array.isArray(grants) || grants.length > MAX_GRANTS) {
     throw new LocalAuthError(400, "INVALID_GRANTS", `grants must be an array of at most ${MAX_GRANTS} entries`);
   }
   const unique = new Map<string, GuestAccessGrant>();
   for (const grant of grants) {
-    if (!grant || !["property", "house", "area"].includes(grant.scopeType)
-      || typeof grant.scopeId !== "string" || !grant.scopeId.trim() || grant.scopeId.length > 200) {
-      throw new LocalAuthError(400, "INVALID_GRANTS", "Every grant must contain a valid scopeType and scopeId");
-    }
-    const normalized = { scopeType: grant.scopeType, scopeId: grant.scopeId.trim() };
+    const normalized = normalizeGrant(grant);
     unique.set(`${normalized.scopeType}:${normalized.scopeId}`, normalized);
   }
   return [...unique.values()].sort((a, b) => (
@@ -377,7 +384,7 @@ export class LocalAuthStore {
     actor: Pick<LocalAuthIdentity, "userId" | "role">,
     emailValue: unknown,
     role: InviteRole,
-    grantsValue: readonly GuestAccessGrant[],
+    grantsValue: unknown,
   ): { invitation: TenantMemberSummary; registrationToken: string; expiresAt: string } {
     const email = normalizedAccountEmail(emailValue);
     if (!["admin", "member", "guest"].includes(role)) {
@@ -413,7 +420,7 @@ export class LocalAuthStore {
     };
   }
 
-  updateMemberAccess(emailValue: unknown, grantsValue: readonly GuestAccessGrant[]): TenantMemberSummary {
+  updateMemberAccess(emailValue: unknown, grantsValue: unknown): TenantMemberSummary {
     const email = normalizedAccountEmail(emailValue);
     const member = this.database.db.prepare(`SELECT user.email, member.role, member.joined_at
       FROM local_workspace_members member JOIN local_auth_users user ON user.id = member.user_id
@@ -482,7 +489,7 @@ export class LocalAuthStore {
       ORDER BY scope_type, scope_id`).all(subjectType, subjectKey) as unknown as GuestAccessGrant[];
   }
 
-  private validateGrants(value: readonly GuestAccessGrant[]): GuestAccessGrant[] {
+  private validateGrants(value: unknown): GuestAccessGrant[] {
     const grants = normalizeGrants(value);
     for (const grant of grants) {
       const exists = grant.scopeType === "property"
@@ -497,7 +504,7 @@ export class LocalAuthStore {
     return grants;
   }
 
-  private rejectUnexpectedGrants(value: readonly GuestAccessGrant[]): [] {
+  private rejectUnexpectedGrants(value: unknown): [] {
     const grants = normalizeGrants(value);
     if (grants.length > 0) {
       throw new LocalAuthError(400, "GRANTS_REQUIRE_GUEST", "Only Guest accounts may receive scoped grants");

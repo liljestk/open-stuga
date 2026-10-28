@@ -55,7 +55,7 @@ export type AggregationSemantic =
   | "custom";
 
 /** Product release version. Pre-1.0 minor releases may contain breaking changes. */
-export const SYSTEM_VERSION = "0.51.4" as const;
+export const SYSTEM_VERSION = "0.52.0" as const;
 
 export interface MeasurementDefinition {
   id: Metric;
@@ -162,7 +162,10 @@ export interface MeasurementSnapshotEntry {
 /** Minute resolutions are accepted from 1m through 1440m after runtime validation. */
 export type AnalyticsResolution = "auto" | "raw" | "1h" | "1d" | `${number}m`;
 
-export type AnalyticsAggregation = "default" | Exclude<AggregationSemantic, "duration" | "custom"> | "min" | "max";
+export const ANALYTICS_AGGREGATIONS = [
+  "default", "mean", "sum", "delta", "last", "time_weighted_mean", "min", "max",
+] as const satisfies readonly ("default" | "min" | "max" | AggregationSemantic)[];
+export type AnalyticsAggregation = (typeof ANALYTICS_AGGREGATIONS)[number];
 
 export type AnalyticsSampleQuality = MeasurementSample["quality"];
 

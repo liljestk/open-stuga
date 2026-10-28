@@ -1,5 +1,5 @@
 import type { ClimateDatabase } from "../db.js";
-import type { ElectricityTariffContext } from "../energy-cost.js";
+import type { ElectricityTariffContext } from "./energy-cost.js";
 
 type TariffDatabase = Pick<ClimateDatabase, "getPropertyElectricityTariff" | "propertyElectricityTimeZone" | "getHouse">;
 

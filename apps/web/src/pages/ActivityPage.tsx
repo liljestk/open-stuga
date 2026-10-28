@@ -2,11 +2,11 @@ import { CheckCircle2, Edit3, Eye, Map, Plus, Search, Wrench, X } from "lucide-r
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import type { House, ManualObservation, ManualObservationInput, ManualObservationPatch, ObservationRevision } from "@climate-twin/contracts";
 import type { ClimateState } from "../domain";
-import { useI18n, type TranslationKey } from "../i18n";
+import { useI18n } from "../i18n";
 import { formatInTimeZone } from "../dateTime";
 import { useHouseWeather } from "../useHouseWeather";
 import { HomeActivityTimeline, ObservationLifecycle, ObservationRevisionHistory } from "../components/HomeActivityTimeline";
-import { ObservationComposer } from "../components/ObservationComposer";
+import { ObservationComposer } from "./ActivityPage/ObservationComposer";
 import "./OperationsPages.css";
 
 type ObservationFilter = "all" | "open" | "resolved" | "critical";
@@ -112,8 +112,8 @@ export function ActivityPage(props: Readonly<ActivityPageProps>) {
       const needle = search.trim().toLocaleLowerCase(locale);
       if (!needle) return true;
       const floor = props.house.floors.find((candidate) => candidate.id === observation.floorId)?.name ?? "";
-      const kind = t(`observations.${observation.kind === "note" ? "noteKind" : observation.kind}` as TranslationKey);
-      const severity = t(`alerts.${observation.severity}` as TranslationKey);
+      const kind = t(`observations.${observation.kind === "note" ? "noteKind" : observation.kind}`);
+      const severity = t(`alerts.${observation.severity}`);
       return `${observation.note} ${observation.kind} ${kind} ${observation.severity} ${severity} ${floor}`.toLocaleLowerCase(locale).includes(needle);
     })
     .sort((left, right) => {
@@ -207,7 +207,7 @@ export function ActivityPage(props: Readonly<ActivityPageProps>) {
               <article className={`observation-management-card ${observation.severity} ${observation.status ?? "open"}`}>
                 <button type="button" className="observation-card-summary" aria-expanded={open} onClick={() => { setExpandedId(open ? null : observation.id); setEditingId(null); }}>
                   <span className={`observation-kind-icon ${observation.kind}`} aria-hidden="true"><Eye size={17} /></span>
-                  <span className="observation-card-copy"><span><strong>{t(`observations.${observation.kind === "note" ? "noteKind" : observation.kind}` as TranslationKey)}</strong><span className={`observation-severity-badge ${observation.severity}`}>{t(`alerts.${observation.severity}` as TranslationKey)}</span><span className={`observation-status-badge ${observation.status ?? "open"}`}>{t(`observations.status.${observation.status ?? "open"}`)}</span></span><span>{observation.note}</span><small>{floor?.name ?? t("sensors.unknownFloor")} | {observedLabel(observation, locale, props.house.timezone, t("observations.notRecorded"))}</small></span>
+                  <span className="observation-card-copy"><span><strong>{t(`observations.${observation.kind === "note" ? "noteKind" : observation.kind}`)}</strong><span className={`observation-severity-badge ${observation.severity}`}>{t(`alerts.${observation.severity}`)}</span><span className={`observation-status-badge ${observation.status ?? "open"}`}>{t(`observations.status.${observation.status ?? "open"}`)}</span></span><span>{observation.note}</span><small>{floor?.name ?? t("sensors.unknownFloor")} | {observedLabel(observation, locale, props.house.timezone, t("observations.notRecorded"))}</small></span>
                 </button>
                 {open && <div className="observation-card-detail">
                   <div className="observation-card-actions">

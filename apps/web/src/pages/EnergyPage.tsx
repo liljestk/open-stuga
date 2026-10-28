@@ -21,7 +21,8 @@ import { currentElectricityPrice, propertyElectricityKey, useEnergyOptimizationQ
 import { queryClient } from "../data/queryClient";
 import { useNow } from "../useNow";
 import type { SeriesLoadState } from "../useClimateData";
-import { ElectricityHistory, ELECTRICITY_METRICS, type ElectricityMetric } from "./ElectricityHistory";
+import { ElectricityHistory } from "./ElectricityHistory";
+import { ELECTRICITY_METRICS, type ElectricityMetric } from "./energyTelemetry";
 import { EnergyPlanningPanel } from "./EnergyPlanningPanel";
 import { useHomeEnergyProjectionQuery } from "../data/energy/homeEnergyProjectionQuery";
 import { ElectricityBillCheckPanel } from "./ElectricityBillCheckPanel";
@@ -38,7 +39,6 @@ import {
 } from "./energyTelemetry";
 import "./EnergyPage.css";
 
-export { ELECTRICITY_METRICS, type ElectricityMetric } from "./ElectricityHistory";
 
 const COST_INTERVALS = [
   { id: "1h", durationMs: 3_600_000, refreshMs: 60_000, labelKey: "energy.costInterval.1h" },

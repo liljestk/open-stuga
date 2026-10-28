@@ -1,6 +1,16 @@
 import type {
   AlertEvent,
   AlertRule,
+  HomeInsightConfidenceLevel,
+  HomeInsightEvidence,
+  HomeInsightFreshness,
+  HomeInsightFreshnessState,
+  HomeInsightKind,
+  HomeInsightSeverity,
+  HomeInsightTarget,
+  HomePulseCoverage,
+  HomePulseSensorCoverage,
+  HomePulseStatus,
   House,
   MeasurementSample,
   Metric,
@@ -8,8 +18,7 @@ import type {
   Sensor,
   WeatherWarning,
 } from "@climate-twin/contracts";
-import { isHomeRelevantWeatherWarning } from "@climate-twin/contracts";
-import { AGING_MS, EngineContext, FRESH_MS, FUTURE_TOLERANCE_MS, HOME_INSIGHT_DEFAULT_MAX, HOME_INSIGHT_THRESHOLDS, HomeInsightConfidence, HomeInsightConfidenceLevel, HomeInsightEvidence, HomeInsightFreshness, HomeInsightFreshnessState, HomeInsightTarget, HomePulseCoverage, HomePulseStatus, InsightCandidate, MINUTE_MS, SensorCoverageState, WindowEvidence, alertSeverityOrder, qualityOrder, severityOrder } from "./insights.js";
+import { compareCodeUnits } from "../../text-order.js";
 
 export function newestMetricSample(context: EngineContext, sensorId: string, metric: Metric): MeasurementSample | undefined {
   const direct = context.latest[sensorId]?.[metric];
@@ -26,14 +35,14 @@ export function newestMetricSample(context: EngineContext, sensorId: string, met
 export function newestSensorSample(context: EngineContext, sensorId: string): MeasurementSample | undefined {
   let newest: MeasurementSample | undefined;
   const latestMetrics = context.latest[sensorId] ?? {};
-  for (const metric of Object.keys(latestMetrics).sort(compareText)) {
+  for (const metric of Object.keys(latestMetrics).sort(compareCodeUnits)) {
     if (metric === "battery") continue;
     const sample = latestMetrics[metric];
     if (!sample || !validSample(sample, sensorId, metric, context.nowMs)) continue;
     newest = newest ? newerSample(newest, sample) : sample;
   }
   const historyMetrics = context.history[sensorId] ?? {};
-  for (const metric of Object.keys(historyMetrics).sort(compareText)) {
+  for (const metric of Object.keys(historyMetrics).sort(compareCodeUnits)) {
     if (metric === "battery") continue;
     for (const sample of historyMetrics[metric] ?? []) {
       if (!validSample(sample, sensorId, metric, context.nowMs)) continue;
@@ -59,7 +68,7 @@ export function coverageStateForSensor(context: EngineContext, sensorId: string)
     .map((rule) => rule.metric);
   const requiredMetrics = [...ruleMetrics, ...declaredMetrics]
     .filter((metric, index, metrics) => metrics.indexOf(metric) === index)
-    .sort(compareText);
+    .sort(compareCodeUnits);
   if (requiredMetrics.length === 0) {
     const sample = newestSensorSample(context, sensorId);
     return {
@@ -137,8 +146,8 @@ export function preferredSample(first: MeasurementSample, second: MeasurementSam
 }
 
 export function compareSamples(first: MeasurementSample, second: MeasurementSample): number {
-  return compareText(first.source, second.source)
-    || compareText(first.canonicalUnit, second.canonicalUnit)
+  return compareCodeUnits(first.source, second.source)
+    || compareCodeUnits(first.canonicalUnit, second.canonicalUnit)
     || first.value - second.value;
 }
 
@@ -179,7 +188,7 @@ export function unknownFreshness(): HomeInsightFreshness {
   return { state: "unknown", evidenceAt: null, ageMinutes: null };
 }
 
-export function confidenceForTrend(sample: MeasurementSample, window: WindowEvidence): HomeInsightConfidence {
+export function confidenceForTrend(sample: MeasurementSample, window: WindowEvidence): DerivedInsightConfidence {
   if (sample.quality === "estimated") {
     return confidence("low", "The latest reading is estimated; confirm it before making a major change.", 0.55);
   }
@@ -193,7 +202,7 @@ export function confidence(
   level: HomeInsightConfidenceLevel,
   reason: string,
   score = level === "high" ? 0.9 : level === "medium" ? 0.7 : 0.5,
-): HomeInsightConfidence {
+): DerivedInsightConfidence {
   return { level, score, reason };
 }
 
@@ -275,7 +284,7 @@ export function dewPointC(temperatureC: number, relativeHumidityPercent: number)
   return Number.isFinite(result) ? result : null;
 }
 
-export function finiteNumber(value: number | undefined): value is number {
+export function isFiniteNumber(value: number | undefined): value is number {
   return typeof value === "number" && Number.isFinite(value);
 }
 
@@ -302,18 +311,14 @@ export function round(value: number, digits: number): number {
 export function compareCandidates(first: InsightCandidate, second: InsightCandidate): number {
   return severityOrder[second.severity] - severityOrder[first.severity]
     || second.priority - first.priority
-    || compareText(first.id, second.id);
+    || compareCodeUnits(first.id, second.id);
 }
 
 export function compareAlerts(first: AlertEvent, second: AlertEvent): number {
   return alertSeverityOrder[second.severity] - alertSeverityOrder[first.severity]
     || Number(Boolean(first.acknowledgedAt)) - Number(Boolean(second.acknowledgedAt))
     || Date.parse(second.startedAt) - Date.parse(first.startedAt)
-    || compareText(first.id, second.id);
-}
-
-export function compareText(first: string, second: string): number {
-  return first < second ? -1 : first > second ? 1 : 0;
+    || compareCodeUnits(first.id, second.id);
 }
 
 export function pulseStatus(candidates: readonly InsightCandidate[], coverage: HomePulseCoverage): HomePulseStatus {
@@ -323,3 +328,141 @@ export function pulseStatus(candidates: readonly InsightCandidate[], coverage: H
   if (coverage.freshSensors > 0) return "steady";
   return "unknown";
 }
+
+export const MINUTE_MS = 60_000;
+
+export const HOME_INSIGHT_DEFAULT_MAX = 5;
+
+export const HOME_INSIGHT_THRESHOLDS = {
+  freshSampleMinutes: 30,
+  agingSampleMinutes: 120,
+  trendWindowMinutes: 120,
+  humidityPercent: 65,
+  highHumidityPercent: 75,
+  co2Ppm: 1_000,
+  highCo2Ppm: 1_500,
+  lowTemperatureC: 12,
+  criticalLowTemperatureC: 8,
+  highTemperatureC: 30,
+  criticalHighTemperatureC: 35,
+  temperatureImbalanceC: 3,
+} as const;
+
+export interface DerivedInsightConfidence {
+  level: HomeInsightConfidenceLevel;
+  score: number;
+  reason: string;
+}
+
+export type InsightCandidate = Omit<DerivedInsight, "rank">;
+
+export interface EngineContext {
+  house: House;
+  sensors: Sensor[];
+  enabledSensors: Sensor[];
+  latest: LatestMeasurements;
+  history: MeasurementHistory;
+  alerts: readonly AlertEvent[];
+  rules: ReadonlyMap<string, AlertRule>;
+  outdoor: HomeInsightOutdoorContext | null;
+  nowMs: number;
+}
+
+export interface WindowEvidence {
+  samples: MeasurementSample[];
+  matching: number;
+  sustained: boolean;
+  spanMinutes: number;
+}
+
+export interface SensorCoverageState {
+  sample: MeasurementSample | undefined;
+  freshness: HomeInsightFreshness;
+  requiredMetrics: Metric[];
+}
+
+export interface OutdoorGuidance {
+  action: string;
+  evidence: HomeInsightEvidence[];
+}
+
+export const FUTURE_TOLERANCE_MS = 2 * MINUTE_MS;
+
+export const FRESH_MS = HOME_INSIGHT_THRESHOLDS.freshSampleMinutes * MINUTE_MS;
+
+export const AGING_MS = HOME_INSIGHT_THRESHOLDS.agingSampleMinutes * MINUTE_MS;
+
+export const TREND_MS = HOME_INSIGHT_THRESHOLDS.trendWindowMinutes * MINUTE_MS;
+
+export const severityOrder: Record<HomeInsightSeverity, number> = {
+  critical: 4,
+  warning: 3,
+  notice: 2,
+  info: 1,
+};
+
+export const alertSeverityOrder = { critical: 3, warning: 2, info: 1 } as const;
+
+export const qualityOrder: Record<MeasurementSample["quality"], number> = { good: 3, estimated: 2, stale: 1 };
+
+export type LatestMeasurements = Record<string, Record<Metric, MeasurementSample>>;
+
+export type MeasurementHistory = Record<string, Record<Metric, MeasurementSample[]>>;
+
+/** An insight as the engine derives it, in English; the service maps it onto the localisable wire HomeInsight. */
+export interface DerivedInsight {
+  /** Stable across runs for the same underlying condition; suitable as a React key. */
+  id: string;
+  rank: number;
+  kind: HomeInsightKind;
+  severity: HomeInsightSeverity;
+  /** Transparent 0..100 ranking score. Higher means more actionable. */
+  priority: number;
+  title: string;
+  summary: string;
+  action: string;
+  /** Stable semantic presentation parameters; clients localize the codes. */
+  parameters?: Record<string, string | number | boolean | null>;
+  target: HomeInsightTarget;
+  evidence: HomeInsightEvidence[];
+  freshness: HomeInsightFreshness;
+  confidence: DerivedInsightConfidence;
+  safetyNote?: string;
+}
+
+/**
+ * Accepts either HouseWeather (`current`) or OutdoorBoundaryContext
+ * (`conditions`) without coupling the engine to a data-fetching hook.
+ */
+export interface HomeInsightOutdoorContext {
+  current?: OutdoorConditions | null;
+  conditions?: OutdoorConditions | null;
+  stale?: boolean;
+  warnings?: readonly WeatherWarning[];
+}
+
+export interface HomeInsightInput {
+  house: House;
+  sensors: readonly Sensor[];
+  latestMeasurements: LatestMeasurements;
+  measurementHistory?: MeasurementHistory;
+  alerts?: readonly AlertEvent[];
+  alertRules?: readonly AlertRule[];
+  outdoor?: HomeInsightOutdoorContext | null;
+  /** Required by design: the engine never reads the wall clock. */
+  referenceTime: string | number;
+  maxInsights?: number;
+}
+
+export interface HomePulseResult {
+  houseId: string;
+  generatedAt: string;
+  status: HomePulseStatus;
+  coverage: HomePulseCoverage;
+  sensorCoverage: HomePulseSensorCoverage[];
+  insights: DerivedInsight[];
+  advisory: typeof HOME_INSIGHT_ADVISORY;
+}
+
+export const HOME_INSIGHT_ADVISORY =
+  "These insights support household monitoring; they do not replace a physical inspection, a safety alarm, or professional advice.";

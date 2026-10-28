@@ -1,28 +1,18 @@
-import { createServer, type Server } from "node:http";
-
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
-
-import { tmpdir } from "node:os";
-
-import { join } from "node:path";
+import { readFileSync } from "node:fs";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import request from "supertest";
 
-import type { MeasurementSample } from "@climate-twin/contracts";
-
 import {
-  STUGBY_DATASETS,
   STUGBY_MEDIA_TYPE,
   STUGBY_PROTOCOL_VERSION,
   assertSafeFederationPayload,
   validateDatasetPayload,
   validateWireEvent,
-  type StugubyDatasetGrant,
 } from "@climate-twin/stuguby-protocol";
 
-import { createApi, type ApiRuntime } from "../src/app.js";
+import { createApi } from "../src/app.js";
 
 import { loadConfig } from "../src/config.js";
 
@@ -30,7 +20,7 @@ import { StugubyService } from "../src/stuguby/service.js";
 
 import { StugubyStore } from "../src/stuguby/store.js";
 
-import { RunningNode, editableHomeDatasets, fullRecoveryDatasets, node, stop } from "./stugubyTestSupport.js";
+import { RunningNode, node, stop } from "./stugubyTestSupport.js";
 
 describe("Stuguby federation", () => {
   const nodes: RunningNode[] = [];

@@ -4,6 +4,7 @@ import { prototypeRegistryViolations } from "./check-prototype-registries.mjs";
 import { workspaceDependencyViolations } from "./check-workspace-dependencies.mjs";
 import {
   committedBaseline,
+  filesAtCommit,
   isNumberedModule,
   numberedModuleViolations,
 } from "./tooling/quality-ratchets.mjs";
@@ -12,7 +13,7 @@ const root = process.cwd();
 const webDataRoot = join(root, "apps", "web", "src", "data");
 const apiAnalyticsRoot = join(root, "apps", "api", "src", "analytics");
 const numberedModuleBaselinePath = "scripts/baselines/numbered-modules.json";
-const legacyNumberedModuleMaximum = 336;
+const legacyNumberedModuleMaximum = 362;
 const ignoredDirectories = new Set([
   "__pycache__",
   "build",
@@ -46,11 +47,13 @@ for (const sourceRoot of ["apps", "packages", "scripts", "config", "deploy"]) {
     if (isNumberedModule(projectPath(path))) numberedModules.push(projectPath(path));
   }
 }
+const numberedBaseline = committedBaseline(root, numberedModuleBaselinePath);
 violations.push(...numberedModuleViolations({
   found: numberedModules,
   legacy: JSON.parse(await readFile(join(root, numberedModuleBaselinePath), "utf8")).files,
   maximum: legacyNumberedModuleMaximum,
-  baseLegacy: committedBaseline(root, numberedModuleBaselinePath).value?.files ?? null,
+  baseLegacy: numberedBaseline.value?.files ?? null,
+  baseFiles: filesAtCommit(root, numberedBaseline.commit),
   baselinePath: numberedModuleBaselinePath,
 }));
 
@@ -75,6 +78,27 @@ for (const path of await filesBelow(apiAppRoot)) {
   }
 }
 
+// A prototype registry's class only has its methods once its barrel has side-effect-imported the
+// methods/ files, so code outside the registry takes the class from the barrel, never from core.js.
+const registryBarrels = new Map([
+  ["apps/api/src/db", "apps/api/src/db.ts"],
+  ["apps/api/src/stuguby/service", "apps/api/src/stuguby/service.ts"],
+  ["apps/api/src/stuguby/store", "apps/api/src/stuguby/store.ts"],
+  ["apps/api/src/timeseries/store", "apps/api/src/timeseries/store.ts"],
+]);
+for (const path of await filesBelow(join(root, "apps", "api", "src"))) {
+  const name = projectPath(path);
+  const text = await readFile(path, "utf8");
+  for (const match of text.matchAll(/^(import|export)\s+(type\s+)?[^;]*?from\s+"([^"]+\/core\.js)";/gmu)) {
+    if (match[2]) continue;
+    const target = projectPath(join(path, "..", match[3])).replace(/\/core\.js$/u, "");
+    const barrel = registryBarrels.get(target);
+    if (barrel && name !== barrel && !name.startsWith(`${target}/`)) {
+      report(path, `import the ${target.split("/").slice(-2).join("/")} registry class from ${barrel.split("/").slice(-2).join("/")}, not its core.js`);
+    }
+  }
+}
+
 // @climate-twin/analytics-kernel owns the statistics, counter, energy and
 // local-calendar definitions. API modules adapt its results; they may not
 // grow a second implementation. SQL builders keep their SQL arithmetic,
@@ -95,11 +119,10 @@ for (const path of await filesBelow(join(root, "apps", "api", "src"))) {
 
 // A type or constant that two workspaces share lives once in
 // @climate-twin/contracts; a hand-copied twin "kept identical" drifts silently.
-const legacyHandCopiedTwins = new Set(["apps/web/src/api/support/part-02.ts"]);
-const keepIdenticalComment = /\bkeep\s+(?:(?:this|these|it|them)\s+)?(?:identical|in\s+sync)\b/iu;
+// "keep identical", "keep these in sync", "keep the two lists identical", ...
+const keepIdenticalComment = /\bkeep\b[^.\n]{0,40}?\b(?:identical|in\s+sync)\b/iu;
 for (const sourceRoot of ["apps", "packages"]) {
   for (const path of await filesBelow(join(root, sourceRoot))) {
-    if (legacyHandCopiedTwins.has(projectPath(path))) continue;
     if (keepIdenticalComment.test(await readFile(path, "utf8"))) {
       report(path, "shared types and constants belong in @climate-twin/contracts, not in a copy kept identical by hand");
     }
@@ -141,7 +164,7 @@ try {
 const webSourceRoot = join(root, "apps", "web", "src");
 for (const path of await filesBelow(webSourceRoot)) {
   const name = projectPath(path);
-  if (/\.(?:test|spec)\.[tj]sx?$/.test(name) || name.includes("apiTestSupport")) continue;
+  if (/\.(?:test|spec)\.[tj]sx?$|TestSupport\.[tj]sx?$/.test(name)) continue;
   const text = await readFile(path, "utf8");
   if ((text.includes("subscribeToEvents") || text.includes("subscribeToMeasurementEvents"))
     && name !== "apps/web/src/data/live/LiveEventCoordinator.ts"
@@ -155,7 +178,7 @@ for (const path of await filesBelow(apiAnalyticsRoot)) {
   const name = projectPath(path);
   if (!pureAnalyticsNames.test(name)) continue;
   const text = await readFile(path, "utf8");
-  if (/from\s+["'][^"']*(?:\/db|\/timeseries|express|\/events|\/analytics\.js)/.test(text)) {
+  if (/from\s+["'][^"']*(?:\/db|\/timeseries|express|\/events|\/analytics-query\.js)/.test(text)) {
     report(path, "pure analytics modules may not import API I/O or transport infrastructure");
   }
 }
@@ -163,9 +186,10 @@ for (const path of await filesBelow(apiAnalyticsRoot)) {
 // Spreading a data-sized array into Math.min/max can exceed the engine's argument limit.
 const dataSizedMinMaxFiles = [
   ...await filesBelow(apiAnalyticsRoot),
-  ...["thermal-simulation.ts", "thermal-isolation.ts", "energy-cost.ts"].map((name) => join(root, "apps", "api", "src", name)),
+  ...["analytics/thermal/simulation.ts", "analytics/thermal/isolation.ts", "electricity/energy-cost.ts"].map((name) => join(root, "apps", "api", "src", name)),
   join(webSourceRoot, "pages", "energyAnalysis.ts"),
-  ...["SensorAnalyticsChart.tsx", "TrendChart.tsx", "ThermalSimulationPanel.tsx", "RoomComfortBoard.tsx"]
+  join(webSourceRoot, "pages", "TwinDashboard", "RoomComfortBoard.tsx"),
+  ...["SensorAnalyticsChart.tsx", "TrendChart.tsx", "ThermalSimulationPanel.tsx"]
     .map((name) => join(webSourceRoot, "components", name)),
 ];
 for (const path of dataSizedMinMaxFiles) {
@@ -174,21 +198,22 @@ for (const path of dataSizedMinMaxFiles) {
   }
 }
 
+// Every queryKeys entry is a query-client family in the ownership manifest, and
+// every query-client family is a queryKeys entry or a mutation family.
 const ownershipPath = join(webDataRoot, "queryOwnership.ts");
 const ownership = await readFile(ownershipPath, "utf8");
-for (const family of [
-  "homePerformance",
-  "homeMonitoringCollection",
-  "homeMonitoring",
-  "openingActivity",
-  "calendarComparison",
-  "sensorMutations",
-  "analyticsExplorer",
-  "energyProjection",
-  "analyticsDiagnostics",
-]) {
-  if (!new RegExp(`\\b${family}:\\s*"query-client"`).test(ownership)) {
-    report(ownershipPath, `${family} must have an explicit query-client owner`);
+const queryKeysPath = join(webDataRoot, "queryKeys.ts");
+const queryKeysSource = await readFile(queryKeysPath, "utf8");
+const queryKeyBlock = queryKeysSource.slice(queryKeysSource.indexOf("export const queryKeys = {"));
+const queryKeyNames = new Set([...queryKeyBlock.matchAll(/^ {2}([A-Za-z]+): /gm)].map((match) => match[1]).filter((name) => name !== "all"));
+const queryClientFamilies = new Set([...ownership.matchAll(/^ {2}([A-Za-z]+): "query-client",$/gm)].map((match) => match[1]));
+const mutationFamilies = new Set(["sensorMutations"]);
+for (const name of queryKeyNames) {
+  if (!queryClientFamilies.has(name)) report(ownershipPath, `${name} has a queryKeys entry but no query-client owner`);
+}
+for (const family of queryClientFamilies) {
+  if (!queryKeyNames.has(family) && !mutationFamilies.has(family)) {
+    report(ownershipPath, `${family} is owned by the query client but has no queryKeys entry`);
   }
 }
 

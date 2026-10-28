@@ -230,6 +230,7 @@ export const svPart4 = {
   "setup.manualConnection": "Ange en adress manuellt",
   "setup.manualHost": "Värd, konto och autentiseringsuppgifter",
   "setup.tpLinkManualFallback": "Den automatiska sökningen gav ingen stödd TP-Link-källa. För en första energienhet anger du TP-Link-uppgifterna nedan och kör Sök enheter igen, eller anger enhetens reserverade IP-adress. Om detta är en lokal Node.js-installation, kontrollera att Python-hjälpens beroenden är installerade.",
+  "setup.integrationCredentialsAdminOnly": "Endast en ägare eller administratör kan ändra anslutningens inloggningsuppgifter.",
   "setup.manualService": "URL och åtkomsttoken",
   "setup.foundCount": "{count} hittades",
   "setup.weatherConfigurationTitle": "Väder och systemkonfiguration",

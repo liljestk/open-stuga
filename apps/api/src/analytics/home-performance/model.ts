@@ -1,23 +1,11 @@
-import type {
-  ActionRun,
-  AnalyticsPoint,
-  AnalyticsQueryResponse,
-  AnalyticsSeries,
-  House,
-  MaintenanceTask,
-  ManualObservation,
-  MeasurementDefinition,
-  OpeningStateObservation,
-  OutdoorTemperatureSample,
-  Sensor,
-  StaticParameter,
-} from "@climate-twin/contracts";
+import type { ActionRun, AnalyticsQueryResponse, AnalyticsSeries, HomePerformanceEnergy, HomePerformanceEvidenceState, HomePerformanceExposure, HomePerformanceLimitation, HomePerformanceMaintenance, HomePerformanceOpeningEffectiveness, HomePerformanceRecovery, HomePerformanceSensorHealth, House, MaintenanceTask, ManualObservation, MeasurementDefinition, OpeningStateObservation, OutdoorTemperatureSample, Sensor, StaticParameter } from "@climate-twin/contracts";
 import { HOME_PERFORMANCE_ALGORITHM_VERSION } from "@climate-twin/contracts";
 import { DEFAULT_COMFORT_BAND, roomComfortBands, type ComfortBand } from "../house-parameters.js";
 import {
   isTimeWithinPassiveIntervals,
   type PassiveInterval,
 } from "../heat-pump-evidence.js";
+import { compareCodeUnits } from "../../text-order.js";
 
 export { HOME_PERFORMANCE_ALGORITHM_VERSION };
 
@@ -38,106 +26,6 @@ export const RECOVERY_MAX_POINT_GAP_MS = 15 * 60_000;
 export const RECOVERY_MIN_BUCKET_COVERAGE = 0.5;
 
 export const ENERGY_MIN_BUCKET_COVERAGE = 0.75;
-
-export type HomePerformanceEvidenceState = "ready" | "limited" | "unavailable";
-
-export interface HomePerformanceRoomExposure {
-  id: string;
-  label: string;
-  sensorIds: string[];
-  guideRangePercent: number;
-  observedHours: number;
-  temperatureDegreeHours: number;
-  humidityOutsideGuideHours: number;
-  co2AboveGuideHours: number;
-  /** The temperature band this room was judged against. */
-  comfortTemperatureLowC?: number;
-  comfortTemperatureHighC?: number;
-}
-
-export interface HomePerformanceExposure {
-  state: HomePerformanceEvidenceState;
-  guideRangePercent: number | null;
-  observedHours: number;
-  temperatureDegreeHours: number;
-  humidityOutsideGuideHours: number;
-  co2AboveGuideHours: number;
-  worstRoom: HomePerformanceRoomExposure | null;
-  rooms: HomePerformanceRoomExposure[];
-  /** Rooms left out of comfort exposure, such as saunas. */
-  excludedRooms?: string[];
-}
-
-export interface HomePerformanceRecovery {
-  state: HomePerformanceEvidenceState;
-  episodeCount: number;
-  medianHalfLifeMinutes: number | null;
-}
-
-export interface HomePerformanceOpeningEffectiveness {
-  state: HomePerformanceEvidenceState;
-  evaluatedEvents: number;
-  effectiveEvents: number;
-  medianClearanceMinutes: number | null;
-  bestOpeningLabel: string | null;
-}
-
-export interface HomePerformanceEnergy {
-  state: HomePerformanceEvidenceState;
-  energyKwh: number | null;
-  heatingDegreeHours: number;
-  energyPerHeatingDegreeHour: number | null;
-  comparisonChangePercent: number | null;
-  source: "heating-meter" | "unclassified-electricity" | null;
-  /** Outdoor °C below which degree-hours accumulate: the house's parameter, 17 °C by default. */
-  heatingBaseTemperatureC?: number;
-  /** "regression" when the index is the fitted heating slope; "ratio" when too few days allow a fit. */
-  indexMethod?: "regression" | "ratio";
-  /** Fitted daily energy with no heating need. */
-  baseLoadKwhPerDay?: number | null;
-  /** 90% interval of the heating slope. */
-  heatingSlopeInterval?: { low: number; high: number } | null;
-  /** 90% interval of comparisonChangePercent. */
-  comparisonInterval?: { lowPercent: number; highPercent: number } | null;
-}
-
-export interface HomePerformanceMaintenance {
-  state: HomePerformanceEvidenceState;
-  evaluatedActions: number;
-  improvedActions: number;
-  improvementPercent: number | null;
-  linkedEvaluatedActions: number;
-  completedWithoutMeasurement: number;
-  recurringObservations: number;
-}
-
-export type HomePerformanceSensorIssueCode = "low-coverage" | "flatline" | "changed-baseline";
-
-export interface HomePerformanceSensorIssue {
-  code: HomePerformanceSensorIssueCode;
-  sensorId: string;
-  sensorName: string;
-  metric: string;
-  value: number;
-  unit: string;
-}
-
-export interface HomePerformanceSensorHealth {
-  state: HomePerformanceEvidenceState;
-  monitoredSensors: number;
-  healthySensors: number;
-  coveragePercent: number | null;
-  issues: HomePerformanceSensorIssue[];
-}
-
-export type HomePerformanceLimitation =
-  | "archive-incomplete"
-  | "sensor-scope-limited"
-  | "evidence-scope-limited"
-  | "opening-history-missing"
-  | "unclassified-energy"
-  | "maintenance-evidence-missing"
-  | "coverage-limited";
 
 export interface HomePerformanceResult {
   status: HomePerformanceEvidenceState;
@@ -210,10 +98,6 @@ export function round(value: number, precision = 1): number {
 export function clamp(value: number, minimum = 0, maximum = 1): number {
   if (!Number.isFinite(value)) return minimum;
   return Math.min(maximum, Math.max(minimum, value));
-}
-
-export function compareStable(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0;
 }
 
 export { median } from "@climate-twin/analytics-kernel";
@@ -306,6 +190,12 @@ export function roomKey(sensor: Sensor): string {
   return `${sensor.floorId}\u0000${sensor.roomId ?? (sensor.room.trim() || sensor.name)}`;
 }
 
+/** The room's comfort band; null means the room is excluded from comfort scoring. */
+function sensorComfortBand(bands: ReadonlyMap<string, ComfortBand | null>, roomId: string | null | undefined): ComfortBand | null {
+  const stored = roomId ? bands.get(roomId) : undefined;
+  return stored === undefined ? DEFAULT_COMFORT_BAND : stored;
+}
+
 export function exposureResult(input: HomePerformanceInput): HomePerformanceExposure {
   const home = newExposureAccumulator();
   const rooms = new Map<string, { label: string; band: ComfortBand; accumulator: ExposureAccumulator }>();
@@ -313,7 +203,7 @@ export function exposureResult(input: HomePerformanceInput): HomePerformanceExpo
   const excluded = new Set<string>();
   for (const sensor of input.sensors.filter((candidate) => candidate.enabled)) {
     const label = sensor.room.trim() || sensor.name;
-    const band = sensor.roomId && bands.has(sensor.roomId) ? bands.get(sensor.roomId)! : DEFAULT_COMFORT_BAND;
+    const band = sensorComfortBand(bands, sensor.roomId);
     if (band === null) {
       excluded.add(label);
       continue;
@@ -334,7 +224,7 @@ export function exposureResult(input: HomePerformanceInput): HomePerformanceExpo
     return [{
       id,
       label: room.label,
-      sensorIds: [...accumulator.sensorIds].sort(compareStable),
+      sensorIds: [...accumulator.sensorIds].sort(compareCodeUnits),
       guideRangePercent: round(accumulator.withinHours / accumulator.evaluatedHours * 100, 0),
       observedHours: round(accumulator.evaluatedHours / Math.max(1, accumulator.supportedSeries.size), 1),
       temperatureDegreeHours: round(accumulator.temperatureDegreeHours, 1),
@@ -343,7 +233,7 @@ export function exposureResult(input: HomePerformanceInput): HomePerformanceExpo
       comfortTemperatureLowC: room.band.lowC,
       comfortTemperatureHighC: room.band.highC,
     }];
-  }).sort((left, right) => left.guideRangePercent - right.guideRangePercent || compareStable(left.label, right.label));
+  }).sort((left, right) => left.guideRangePercent - right.guideRangePercent || compareCodeUnits(left.label, right.label));
   const observedHours = home.evaluatedHours / Math.max(1, home.supportedSeries.size);
   return {
     state: observedHours >= 24 ? "ready" : observedHours > 0 ? "limited" : "unavailable",
@@ -354,7 +244,7 @@ export function exposureResult(input: HomePerformanceInput): HomePerformanceExpo
     co2AboveGuideHours: round(home.co2AboveGuideHours, 1),
     worstRoom: formattedRooms[0] ?? null,
     rooms: formattedRooms,
-    ...(excluded.size > 0 ? { excludedRooms: [...excluded].sort(compareStable) } : {}),
+    ...(excluded.size > 0 ? { excludedRooms: [...excluded].sort(compareCodeUnits) } : {}),
   };
 }
 

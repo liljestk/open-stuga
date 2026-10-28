@@ -2,8 +2,10 @@
 
 Stugu exposes one local workspace through four transports:
 
-- REST under `/api/v1` for the original temperature/humidity compatibility
-  contract and `/api/v2` for registered sparse measurements;
+- REST under `/api/v1` for the control plane (properties, Homes, sensors,
+  integrations, alerts, electricity, sharing and system operations), whose
+  temperature/humidity tuple routes are the compatibility subset, and
+  `/api/v2` for the measurement registry, sparse measurements and analytics;
 - server-sent events at `/api/v1/stream` for compatibility readings,
   provider-neutral weather snapshots, and integration state, plus
   `/api/v2/measurements/events` for per-metric live updates;

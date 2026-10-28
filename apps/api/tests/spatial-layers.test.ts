@@ -1,17 +1,12 @@
-import { mkdtempSync, renameSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 
 import { tmpdir } from "node:os";
 
 import { join } from "node:path";
 
-import express from "express";
-
-import request from "supertest";
-
 import {
   ClimateScalarEngine,
   SpatialLayerEngineRegistry,
-  snapshotBase,
   type SpatialLayerEngine,
   type SpatialLayerEngineInput,
   type SpatialLayerEngineManifest,
@@ -22,8 +17,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ClimateDatabase } from "../src/db.js";
 
-import { openApiV1Document } from "../src/openapi.js";
-
 import { buildHouseTopology } from "../src/spatial-layers/core-input.js";
 
 import {
@@ -33,20 +26,13 @@ import {
 
 import {
   createLocalSpatialLayerRuntime,
-  DirectSpatialEngineExecutor,
   deriveSpatialStatePath,
-  registerSpatialLayerRoutes,
-  sourceDatabaseId,
   SpatialLayerStateStore,
-  SpatialSourceIdentityCollisionError,
   SpatialExecutionTimeoutError,
   WorkerThreadSpatialEngineExecutor,
-  type LocalSpatialLayerRuntime,
-  type SpatialDataPartition,
-  type SpatialLayerSnapshotDraft,
 } from "../src/spatial-layers/index.js";
 
-import { SPATIAL_PARTITION_TABLES, TestSchema, coreDatabases, documentedResponseSchema, enableEngine, engineSnapshot, expectOpenApiConformance, partition, partitionRowCount, resolvedSchema, runtimes, schemaConformanceErrors, scope, seedEverySpatialTable, seededRuntime, snapshot, spatialOpenApiPaths, spatialOpenApiSchemas, temporaryDirectories } from "./spatial-layersTestSupport.js";
+import { coreDatabases, enableEngine, engineSnapshot, partition, runtimes, scope, seededRuntime, snapshot, temporaryDirectories } from "./spatial-layersTestSupport.js";
 
 afterEach(async () => {
   await Promise.all(runtimes.splice(0).map((runtime) => runtime.stop()));
@@ -215,6 +201,29 @@ describe("failure-isolated engine host", () => {
       expect.objectContaining({ sensorId: sensor.id, observedAt: oldAt, temperatureC: 19, relativeHumidityPct: 42 }),
       expect.objectContaining({ sensorId: sensor.id, observedAt: overlapAt, temperatureC: 24, relativeHumidityPct: 48 }),
     ]));
+  });
+
+  it("describes a fresh scope from in-memory defaults and persists them only when inference runs", async () => {
+    const { runtime, core } = seededRuntime();
+    // Scopes that exist at start-up get their defaults then; a Home added later starts with none stored.
+    const existing = core.listHouses()[0]!;
+    const added = core.createHouse({
+      propertyId: existing.propertyId,
+      name: "Added after start-up",
+      timezone: existing.timezone,
+      floors: [{ id: "floor-added", name: "Ground", width: 8, height: 6, elevation: 0, walls: [], rooms: [] }],
+    });
+    const scope = { kind: "house" as const, id: added.id };
+
+    const overview = await runtime.host.describeScope(scope);
+    runtime.host.health(scope);
+    expect(overview.configuration).toMatchObject({ version: 0, createdBy: "system-default" });
+    expect(runtime.state.getCurrentConfiguration(runtime.host.partition, scope).version).toBe(0);
+    expect(runtime.state.listAssignments(runtime.host.partition, scope)).toEqual([]);
+
+    await runtime.host.inferScope(scope, "2035-01-01T12:00:00.000Z");
+    expect(runtime.state.getCurrentConfiguration(runtime.host.partition, scope).version).toBe(1);
+    expect(runtime.state.listAssignments(runtime.host.partition, scope).length).toBeGreaterThan(0);
   });
 
   it("threads cancellation through current topology descriptions", async () => {

@@ -13,39 +13,36 @@ import type {
   OpeningStateRecord,
   OutdoorTemperatureRecord,
 } from "./types.js";
+import { compareCodeUnits } from "../text-order.js";
 
 export type SourcedElectricityPrice = PropertyElectricityPricePoint & { source: string };
 
-export function compareText(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0;
-}
-
 export function compareMeasurements(left: MeasurementSample, right: MeasurementSample): number {
-  return compareText(left.timestamp, right.timestamp)
-    || compareText(left.sensorId, right.sensorId)
-    || compareText(left.metric, right.metric)
-    || compareText(left.source, right.source);
+  return compareCodeUnits(left.timestamp, right.timestamp)
+    || compareCodeUnits(left.sensorId, right.sensorId)
+    || compareCodeUnits(left.metric, right.metric)
+    || compareCodeUnits(left.source, right.source);
 }
 
 export function compareReadings(left: Reading, right: Reading): number {
-  return compareText(left.timestamp, right.timestamp)
-    || compareText(left.sensorId, right.sensorId)
-    || compareText(left.source, right.source);
+  return compareCodeUnits(left.timestamp, right.timestamp)
+    || compareCodeUnits(left.sensorId, right.sensorId)
+    || compareCodeUnits(left.source, right.source);
 }
 
 export function compareOutdoor(left: OutdoorTemperatureSample, right: OutdoorTemperatureSample): number {
-  return compareText(left.timestamp, right.timestamp)
-    || compareText(left.houseId, right.houseId)
-    || compareText(left.locationKey, right.locationKey)
-    || compareText(left.source, right.source);
+  return compareCodeUnits(left.timestamp, right.timestamp)
+    || compareCodeUnits(left.houseId, right.houseId)
+    || compareCodeUnits(left.locationKey, right.locationKey)
+    || compareCodeUnits(left.source, right.source);
 }
 
 export function compareElectricityPrices(left: SourcedElectricityPrice, right: SourcedElectricityPrice): number {
-  return compareText(left.startAt, right.startAt) || compareText(left.source, right.source);
+  return compareCodeUnits(left.startAt, right.startAt) || compareCodeUnits(left.source, right.source);
 }
 
 export function compareOpeningStates(left: OpeningStateObservation, right: OpeningStateObservation): number {
-  return compareText(left.observedAt, right.observedAt) || compareText(left.id, right.id);
+  return compareCodeUnits(left.observedAt, right.observedAt) || compareCodeUnits(left.id, right.id);
 }
 
 export const measurementKey = (record: MeasurementSample): string => (

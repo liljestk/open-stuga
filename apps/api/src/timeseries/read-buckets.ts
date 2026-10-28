@@ -4,7 +4,7 @@ import { compareMeasurements, compareReadings } from "./read-records.js";
 /**
  * The in-process half of one bucketing contract with three implementations:
  * this file, the `measurement_history_bucketed` SQL in
- * `store/methods/02-write-batches-to-electricity-price-history.ts`, and
+ * `store/methods/measurement-reads.ts`, and
  * `qualityWeightedThermalBuckets` in `read-facade.ts`.
  *
  * All three must agree that a bucket's value is the mean of its samples and

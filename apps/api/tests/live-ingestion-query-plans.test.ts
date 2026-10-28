@@ -7,11 +7,11 @@ import { ClimateDatabase } from "../src/db.js";
 import {
   SENSOR_SOURCE_METRICS_RECENT_ROWID_WINDOW,
   SENSOR_SOURCE_METRICS_RECENT_ROWS_SQL,
-} from "../src/db/methods/02-migrate-core-and-resource-schema.js";
-import { SENSOR_SOURCE_METRICS_SQL } from "../src/db/methods/16-resolve-weather-outages-to-expedite-sensor-data-gap-.js";
-import { PENDING_ALERT_EVALUATION_SAMPLES_SQL } from "../src/db/methods/22-create-alert-event-to-dead-letter-notification-outbo.js";
+} from "../src/db/methods/core-resource-schema.js";
+import { SENSOR_SOURCE_METRICS_SQL } from "../src/db/methods/sensor-data-gaps.js";
+import { PENDING_ALERT_EVALUATION_SAMPLES_SQL } from "../src/db/methods/alerts.js";
 import { TelemetryBus } from "../src/events.js";
-import { AlertEngine } from "../src/services.js";
+import { AlertEngine } from "../src/alerts/alert-engine.js";
 
 function queryPlan(database: ClimateDatabase, sql: string, ...parameters: Array<string | number>): string[] {
   return (database.db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all(...parameters) as Array<{ detail: string }>)

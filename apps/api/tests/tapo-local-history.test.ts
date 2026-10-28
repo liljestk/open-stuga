@@ -1,3 +1,4 @@
+import { waitFor } from "./waitForTestSupport.js";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -117,14 +118,6 @@ describe("direct TP-Link retained history IPC", () => {
     runtime = createApi({ config, startBackground: false });
     runtime.tpLink.start();
     return { sensorId: "sensor-01", pollMarker };
-  }
-
-  async function waitFor(predicate: () => boolean, timeoutMs = 2_000): Promise<void> {
-    const startedAt = Date.now();
-    while (!predicate()) {
-      if (Date.now() - startedAt >= timeoutMs) throw new Error("Timed out waiting for TP-Link helper state");
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    }
   }
 
   function markerPid(path: string): string | null {

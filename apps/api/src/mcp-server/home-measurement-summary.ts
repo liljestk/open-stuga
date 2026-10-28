@@ -4,12 +4,9 @@ import {
   mcpIsoDate,
   requireMcpHouse,
   requireMcpHouseSensor,
-} from "../mcp-validation.js";
-import {
-  database,
-  requiredString,
-  telemetryReader,
-} from "./01-config-to-get-house-weather.js";
+} from "./validation.js";
+import { requiredToolString } from "./arguments.js";
+import type { McpRuntime } from "./runtime.js";
 
 const MAX_RANGE_MS = 366 * 24 * 3_600_000;
 const allowedQualities = new Set<AnalyticsSampleQuality>(["good", "estimated", "stale"]);
@@ -43,16 +40,18 @@ function rounded(value: number, precision: number): number {
 }
 
 export async function homeMeasurementSummary(
+  runtime: McpRuntime,
   args: Record<string, unknown>,
 ): Promise<unknown> {
-  const house = requireMcpHouse(database, requiredString(args, "houseId"));
-  const measurementId = requiredString(args, "measurementId");
+  const { database, telemetryReader } = runtime;
+  const house = requireMcpHouse(database, requiredToolString(args, "houseId"));
+  const measurementId = requiredToolString(args, "measurementId");
   const definition = database.getMeasurementDefinition(measurementId);
   if (!definition || !definition.enabled) {
     throw new Error(`Unknown or disabled measurement: ${measurementId}`);
   }
-  const from = mcpIsoDate(requiredString(args, "from"), "from");
-  const to = mcpIsoDate(requiredString(args, "to"), "to");
+  const from = mcpIsoDate(requiredToolString(args, "from"), "from");
+  const to = mcpIsoDate(requiredToolString(args, "to"), "to");
   const durationMs = Date.parse(to) - Date.parse(from);
   if (durationMs <= 0 || durationMs > MAX_RANGE_MS) {
     throw new Error("Measurement summary range must be greater than zero and at most 366 days");

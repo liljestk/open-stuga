@@ -1,15 +1,7 @@
 import { Buffer } from "node:buffer";
 import type { HouseWeather } from "@climate-twin/contracts";
 import { registerDatabaseMethods } from "../core.js";
-import {
-  CANONICAL_WEATHER_HOURS,
-  MAX_WEATHER_SNAPSHOT_BYTES,
-  canonicalWeatherSnapshot,
-  storedWeatherSnapshotFromRow,
-  weatherSnapshotError,
-  type StoredWeatherSnapshot,
-  type WeatherSnapshotRow,
-} from "../weather-snapshot-types.js";
+import { CANONICAL_WEATHER_HOURS, MAX_WEATHER_SNAPSHOT_BYTES, canonicalWeatherSnapshot, storedWeatherSnapshotFromRow, weatherSnapshotError, type StoredWeatherSnapshot, type WeatherSnapshotRow } from "../weather-snapshot-types.js";
 
 function rowFor(
   database: { prepare(sql: string): { get(...parameters: unknown[]): unknown } },
@@ -31,11 +23,34 @@ function rowFor(
   }
 }
 
+declare module "../core.js" {
+  interface DatabaseInternals {
+    getWeatherSnapshot(houseId: string, locationKey: string): StoredWeatherSnapshot | null;
+    saveWeatherSnapshot(weather: HouseWeather, locationKey: string, attemptedAt?: string): StoredWeatherSnapshot;
+    noteWeatherSnapshotFailure(
+      houseId: string,
+      locationKey: string,
+      error: unknown,
+      attemptedAt?: string,
+    ): StoredWeatherSnapshot;
+  }
+
+  interface ClimateDatabaseCore {
+    getWeatherSnapshot(houseId: string, locationKey: string): StoredWeatherSnapshot | null;
+    saveWeatherSnapshot(weather: HouseWeather, locationKey: string, attemptedAt?: string): StoredWeatherSnapshot;
+    noteWeatherSnapshotFailure(
+      houseId: string,
+      locationKey: string,
+      error: unknown,
+      attemptedAt?: string,
+    ): StoredWeatherSnapshot;
+  }
+}
+
 registerDatabaseMethods({
   getWeatherSnapshot(houseId: string, locationKey: string): StoredWeatherSnapshot | null {
     return rowFor(this.db, houseId, locationKey);
   },
-
   saveWeatherSnapshot(
     weather: HouseWeather,
     locationKey: string,
@@ -69,7 +84,6 @@ registerDatabaseMethods({
       );
     return rowFor(this.db, weather.houseId, locationKey) as StoredWeatherSnapshot;
   },
-
   noteWeatherSnapshotFailure(
     houseId: string,
     locationKey: string,

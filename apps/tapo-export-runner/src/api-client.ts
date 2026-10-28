@@ -168,7 +168,8 @@ export class JobApiClient {
       throw new Error("Claim response must be an object");
     }
     const parsedBody = body as Record<string, unknown>;
-    const job = parsedBody.job ?? parsedBody;
+    // The API answers 204 when nothing is queued; a 200 always carries { job, leaseToken, serverNow }.
+    const job = parsedBody.job;
     if (job === null || job === undefined) return null;
     return parseJob(job, parsedBody.leaseToken, parsedBody.serverNow);
   }

@@ -1,31 +1,16 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import type { House, Property } from "@climate-twin/contracts";
+import { errorText } from "../../errorText";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  STUGBY_DATASETS,
-  type StugubyDataset,
-  type StugubyDatasetGrant,
   type StugubyMember,
   type StugubyRole,
   type StugubyShareGrant,
   type StugubySharedProperty,
-  type StugubySummary,
 } from "@climate-twin/stuguby-protocol";
-import { AlertTriangle, Check, Copy, Database, KeyRound, Link, LoaderCircle, Network, Pencil, Plus, RefreshCw, Settings2, ShieldCheck, Sparkles, Trash2, Unplug, Users } from "lucide-react";
-import {
-  api,
-  type StugubyDetailResponse,
-  type StugubyInvitationCreated,
-  type StugubyListResponse,
-  type StugubyLocalMember,
-  type StugubyLocalPublicationCatalog,
-  type StugubyRemoteTelemetrySample,
-} from "../../api";
-import { StugubyMark } from "../../components/StugubyMark";
-import { useI18n, type TranslationKey } from "../../i18n";
-import { CloudflareSetupPanel } from "../CloudflareSetupPanel";
+import { api, type StugubyDetailResponse, type StugubyInvitationCreated, type StugubyListResponse, type StugubyRemoteTelemetrySample } from "../../api";
+import { useI18n } from "../../i18n";
 import "../StugubyPage.css";
-import { MemberIdentity, activeGrant, datasetLabelKeys, editableHomeDatasets, errorMessage, formattedTime, grantHomeName, idlePublicationCatalog, initialDatasetDraft, localDateTimeInput, loopbackOrigin, memberStateLabelKeys, parseArray, roleLabelKeys, suggestedCoordinatorOrigin } from "./support";
-import type { DatasetDraft, PublicationCatalogState, StugubyPageProps } from "./support";
+import { activeGrant, idlePublicationCatalog, initialDatasetDraft, memberStateLabelKeys, roleLabelKeys, suggestedCoordinatorOrigin } from "./stugubyModel";
+import type { PublicationCatalogState, StugubyPageProps } from "./stugubyModel";
 
 type StugubyActiveScope = Readonly<{
   id: string;
@@ -33,7 +18,7 @@ type StugubyActiveScope = Readonly<{
 }>;
 
 export function useStugubyPagePart01(context: { houses: Readonly<StugubyPageProps>["houses"]; properties: Exclude<Readonly<StugubyPageProps>["properties"], undefined>; onInventoryChange: Readonly<StugubyPageProps>["onInventoryChange"] }) {
-  const { houses, properties, onInventoryChange } = context;
+  const { houses } = context;
   const { locale, t } = useI18n();
   const roleLabel = (role: StugubyRole) => t(roleLabelKeys[role]);
   const stateLabel = (state: StugubyMember["state"]) => t(memberStateLabelKeys[state]);
@@ -176,7 +161,7 @@ export function useStugubyPagePart01(context: { houses: Readonly<StugubyPageProp
         } catch (nextError) {
           if (request === detailRequest.current && selectedIdRef.current === id) {
             setTelemetrySamples([]);
-            setTelemetryError(errorMessage(nextError, t("stuguby.telemetryLoadError")));
+            setTelemetryError(errorText(nextError, t, t("stuguby.telemetryLoadError")));
           }
         }
         return loaded;

@@ -1,3 +1,4 @@
+import { errorText } from "../errorText";
 import { useEffect, useId, useMemo, useRef, useState, type DragEvent, type KeyboardEvent } from "react";
 import {
   ArrowLeft,
@@ -27,7 +28,7 @@ import {
 } from "../historicalImport";
 import { CSV_MEDIA_TYPE, csvDocument } from "../csv";
 import { formatInTimeZone } from "../dateTime";
-import { useI18n, type TranslationKey } from "../i18n";
+import { useI18n } from "../i18n";
 
 interface HistoricalImportWizardProps {
   open: boolean;
@@ -42,10 +43,6 @@ interface HistoricalImportWizardProps {
 }
 
 type WizardStep = 1 | 2 | 3 | 4;
-
-function message(error: unknown, fallback: string): string {
-  return error instanceof Error && error.message.trim() ? error.message : fallback;
-}
 
 export function HistoricalImportWizard({
   open,
@@ -114,7 +111,7 @@ export function HistoricalImportWizard({
       if (previewBuildGenerationRef.current === generation && !controller.signal.aborted) setPreview(nextPreview);
     }).catch((previewError) => {
       if (previewBuildGenerationRef.current === generation && !controller.signal.aborted) {
-        setError(message(previewError, t("historyImport.fileError")));
+        setError(errorText(previewError, t, t("historyImport.fileError")));
       }
     }).finally(() => {
       if (previewBuildGenerationRef.current === generation && !controller.signal.aborted) setPreviewing(false);
@@ -241,7 +238,7 @@ export function HistoricalImportWizard({
       setStep(2);
     } catch (loadError) {
       if (fileReadGenerationRef.current !== generation) return;
-      setError(message(loadError, t("historyImport.fileError")));
+      setError(errorText(loadError, t, t("historyImport.fileError")));
     } finally {
       if (fileReadGenerationRef.current === generation) setReadingFile(false);
     }
@@ -287,7 +284,7 @@ export function HistoricalImportWizard({
       const imported = await onImport(preview.samples, (completed, total) => setProgress({ completed, total }));
       setResult(imported);
     } catch (importError) {
-      setError(message(importError, t("historyImport.importError")));
+      setError(errorText(importError, t, t("historyImport.importError")));
     } finally {
       setImporting(false);
     }
@@ -356,10 +353,10 @@ export function HistoricalImportWizard({
         </header>
 
         <ol className="history-import-stepper" aria-label={t("historyImport.progress") }>
-          {[1, 2, 3, 4].map((item) => (
+          {([1, 2, 3, 4] as const).map((item) => (
             <li key={item} className={item < step ? "complete" : item === step ? "active" : ""} aria-current={item === step ? "step" : undefined}>
               <span>{item < step ? <Check size={13} aria-hidden="true" /> : item}</span>
-              <small>{t(`historyImport.step${item}Short` as TranslationKey)}</small>
+              <small>{t(`historyImport.step${item}Short`)}</small>
             </li>
           ))}
         </ol>

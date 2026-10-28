@@ -1,3 +1,3 @@
-@import "./styles/outdoor-weather/01-outdoor-weather-page.css";
-@import "./styles/outdoor-weather/02-outdoor-warning-heading-small.css";
-@import "./styles/outdoor-weather/03-outdoor-forecast-table-th.css";
+@import "./OutdoorWeatherPage/outdoor-weather-page.css";
+@import "./OutdoorWeatherPage/outdoor-warnings.css";
+@import "./OutdoorWeatherPage/outdoor-forecast.css";

@@ -1,20 +1,11 @@
 import type {
-  AlertEvent,
-  AlertRule,
   House,
   MeasurementSample,
   Sensor,
   WeatherWarning,
 } from "@climate-twin/contracts";
 
-import { describe, expect, it } from "vitest";
-
-import {
-  deriveHomeInsights,
-  deriveHomePulse,
-  HOME_INSIGHT_ADVISORY,
-  type HomeInsightInput,
-} from "../src/analytics/home-monitoring/insights.js";
+import { type HomeInsightInput } from "../src/analytics/home-monitoring/model.js";
 
 export const NOW = "2026-07-14T12:00:00.000Z";
 

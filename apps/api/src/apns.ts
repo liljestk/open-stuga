@@ -60,15 +60,34 @@ function validatedPayload(payloadJson: string): { payload: string; silent: boole
   return { payload: payloadJson, silent: root.aps.sound === undefined };
 }
 
+export interface APNSMessage {
+  payloadJson: string;
+  signal?: AbortSignal;
+  /** UUID sent as apns-id so Apple de-duplicates retries. */
+  notificationId?: string;
+}
+
+interface APNSRequest {
+  deviceToken: string;
+  payload: string;
+  silent: boolean;
+  signal?: AbortSignal | undefined;
+  notificationId?: string | undefined;
+}
+
 export class APNSService {
   #cachedToken: { value: string; createdAt: number; keyId: string; teamId: string } | null = null;
+  readonly #connect: (origin: string) => ClientHttp2Session;
+
+  /** `connectSession` opens the HTTP/2 session to Apple's origin; tests pass a fake. */
+  constructor(connectSession: (origin: string) => ClientHttp2Session = connect) {
+    this.#connect = connectSession;
+  }
 
   async send(
     config: AppConfig,
     destination: APNSDestination,
-    payloadJson: string,
-    signal?: AbortSignal,
-    notificationId?: string,
+    { payloadJson, signal, notificationId }: APNSMessage,
   ): Promise<void> {
     if (!apnsConfigured(config)) {
       throw new APNSDeliveryError("Apple Push Notification service is not configured", false);
@@ -84,17 +103,9 @@ export class APNSService {
     const origin = destination.environment === "sandbox"
       ? "https://api.sandbox.push.apple.com"
       : "https://api.push.apple.com";
-    const session = connect(origin);
+    const session = this.#connect(origin);
     try {
-      await this.sendRequest(
-        session,
-        config,
-        destination.deviceToken,
-        payload,
-        silent,
-        signal,
-        notificationId,
-      );
+      await this.sendRequest(session, config, { deviceToken: destination.deviceToken, payload, silent, signal, notificationId });
     } finally {
       session.close();
     }
@@ -125,11 +136,7 @@ export class APNSService {
   private sendRequest(
     session: ClientHttp2Session,
     config: AppConfig,
-    deviceToken: string,
-    payload: string,
-    silent: boolean,
-    signal?: AbortSignal,
-    notificationId?: string,
+    { deviceToken, payload, silent, signal, notificationId }: APNSRequest,
   ): Promise<void> {
     return new Promise((resolve, reject) => {
       let settled = false;

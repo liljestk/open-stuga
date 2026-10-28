@@ -1,3 +1,3 @@
-process.env.STUGA_MCP_PROFILE = "chatgpt";
+import { startStdioMcpServer } from "./mcp-server/stdio.js";
 
-await import("./mcp-server.js");
+await startStdioMcpServer("chatgpt");

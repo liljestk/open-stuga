@@ -15,7 +15,7 @@ export function useHouseElectricityPriceQuery(houseId: string, enabled: boolean)
   const query = useQuery({
     queryKey,
     queryFn: async ({ signal }: { signal: AbortSignal }): Promise<HomeElectricityPricePoint | null> => (
-      (await api.houseElectricityPrice(houseId, undefined, undefined, signal)).current
+      (await api.houseElectricityPrice(houseId, { signal })).current
     ),
     enabled: queryEnabled,
     staleTime: HOUSE_PRICE_REFRESH_MS,

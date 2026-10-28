@@ -1,14 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import buildingStyles from "../styles/global/05-outdoor-context-card-small.css?raw";
+import { cssRule, globalStyles } from "../test/styleSources";
 
 describe("BuildingScene layout styles", () => {
   it("keeps the collapsed outdoor summary from offsetting the 3D viewport", () => {
-    expect(buildingStyles).toMatch(
-      /\.floor-plan-layout,\s*\.building-map-layout\s*\{[^}]*position:\s*relative/,
-    );
-    expect(buildingStyles).toMatch(
-      /\.building-map-layout > \.outdoor-context-card\.collapsed\s*\{[^}]*position:\s*absolute[^}]*inset:\s*12px auto auto 12px/,
-    );
+    expect(cssRule(globalStyles, ".building-map-layout").get("position")).toBe("relative");
+    const collapsed = cssRule(globalStyles, ".building-map-layout > .outdoor-context-card.collapsed");
+    expect([collapsed.get("position"), collapsed.get("inset")]).toEqual(["absolute", "12px auto auto 12px"]);
   });
 });

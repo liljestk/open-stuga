@@ -573,7 +573,4 @@ export const CORE_SCHEMA_01 = `
               OR NEW.y < 0 OR NEW.y > CAST(json_extract(floor.value, '$.height') AS REAL))
         )
         BEGIN SELECT RAISE(ABORT, 'OBSERVATION_OUT_OF_BOUNDS'); END;
-      CREATE TRIGGER IF NOT EXISTS prevent_house_floor_orphaned_observation
-        BEFORE UPDATE OF floors_json ON houses
-        WHEN NEW.floors_json <> OLD.floors_json AND EXISTS (
 `;

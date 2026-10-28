@@ -121,6 +121,14 @@ export interface ForecastPoint {
   measurements?: Record<Metric, { value: number; low: number; high: number }>;
 }
 
+/** GET /api/v1/forecast. `forecast` repeats the series when exactly one sensor was requested. */
+export interface ForecastSeriesResponse {
+  generatedAt: string;
+  model: "backtested-v2";
+  series: Array<{ sensorId: string; forecast: ForecastPoint[] }>;
+  forecast?: ForecastPoint[];
+}
+
 export type AlertOperator = "gt" | "gte" | "lt" | "lte";
 
 export type AlertSeverity = "info" | "warning" | "critical";

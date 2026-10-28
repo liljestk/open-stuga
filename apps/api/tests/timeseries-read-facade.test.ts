@@ -1,3 +1,4 @@
+import type { LocalBucketQuery } from "../src/timeseries/local-telemetry-worker-thread.js";
 import type {
   MeasurementSample,
   OpeningStateObservation,
@@ -112,20 +113,45 @@ function opening(
   };
 }
 
+/**
+ * A complete local reader. The async worker reads delegate to the matching
+ * sync stubs (as the SQLite worker runs the same queries), so a test can
+ * override either form.
+ */
 function localReader(overrides: Partial<LocalTelemetryReader> = {}): LocalTelemetryReader {
-  return {
+  const reader: LocalTelemetryReader = {
     isRealDataMode: vi.fn(() => false),
     measurementCoverage: vi.fn(() => []),
     measurementHistory: vi.fn(() => []),
     measurementHistoryBucketed: vi.fn(() => []),
     measurementWindow: vi.fn(() => []),
+    measurementWindowPage: vi.fn(() => ({ samples: [], next: null })),
+    measurementBoundarySamples: vi.fn(() => []),
+    measurementSampleGaps: vi.fn(() => []),
+    thermalTemperatureHistory: vi.fn(() => []),
+    thermalClimateHistory: vi.fn(() => []),
     history: vi.fn(() => []),
     outdoorTemperatureHistory: vi.fn(() => []),
     listPropertyElectricityPrices: vi.fn(() => []),
+    getPropertyElectricityTariff: vi.fn(() => null),
+    propertyElectricityTimeZone: vi.fn(() => "UTC"),
     listOpeningStateObservations: vi.fn(() => []),
     listOpeningStateObservationHistory: vi.fn(() => []),
+    energyCostAggregate: vi.fn(() => { throw new Error("energyCostAggregate not stubbed"); }),
+    powerCostAggregate: vi.fn(() => { throw new Error("powerCostAggregate not stubbed"); }),
+    measurementWindowAsync: vi.fn(async (query) => reader.measurementWindow(query)),
+    measurementHistoryBucketedAsync: vi.fn(async (query) => reader.measurementHistoryBucketed(query)),
+    thermalMeasurementHistoryAsync: vi.fn(async (query) => (query.metrics.length === 1 && query.metrics[0] === "temperature"
+      ? reader.thermalTemperatureHistory(query)
+      : reader.thermalClimateHistory(query)
+        .filter((sample) => query.metrics.includes(sample.metric)))),
+    optimizerPowerProfileAsync: vi.fn(async () => { throw new Error("optimizerPowerProfileAsync not stubbed"); }),
+    costAggregateAsync: vi.fn(async (metric, query) => (metric === "energy"
+      ? reader.energyCostAggregate(query)
+      : reader.powerCostAggregate(query))),
     ...overrides,
   };
+  return reader;
 }
 
 function archiveReader(overrides: Partial<ArchiveTelemetryReader> = {}): ArchiveTelemetryReader {
@@ -372,7 +398,9 @@ describe("HybridTelemetryReader", () => {
     });
 
     expect(localBuckets).toHaveBeenCalledOnce();
-    expect(localBuckets).toHaveBeenCalledWith("sensor-a", "temperature", FROM, TO, 60, 2, false);
+    expect(localBuckets).toHaveBeenCalledWith(expect.objectContaining({
+      sensorId: "sensor-a", metric: "temperature", from: FROM, to: TO, bucketSeconds: 60, limit: 2, excludeSynthetic: false,
+    }));
     expect(archiveBuckets).toHaveBeenCalledOnce();
     expect(archiveBuckets).toHaveBeenCalledWith(expect.objectContaining({
       sensorId: "sensor-a", metric: "temperature", bucketSeconds: 60, limit: 2, excludeSynthetic: false,
@@ -398,7 +426,7 @@ describe("HybridTelemetryReader", () => {
     const now = Date.parse("2026-08-31T12:00:00.000Z");
     const from = new Date(now - 7 * 86_400_000).toISOString();
     const to = new Date(now).toISOString();
-    const localBuckets = vi.fn(() => []);
+    const localBuckets = vi.fn((_query: LocalBucketQuery) => []);
     const archiveBuckets = vi.fn(async () => [measurement(new Date(now - 3 * 86_400_000).toISOString(), 21)]);
     const reader = new HybridTelemetryReader({
       local: localReader({ measurementHistoryBucketed: localBuckets }),
@@ -413,8 +441,7 @@ describe("HybridTelemetryReader", () => {
     });
 
     expect(localBuckets).toHaveBeenCalledOnce();
-    expect(localBuckets.mock.calls[0]![2]).toBe(new Date(now - 86_400_000).toISOString());
-    expect(localBuckets.mock.calls[0]![3]).toBe(to);
+    expect(localBuckets.mock.calls[0]![0]).toMatchObject({ from: new Date(now - 86_400_000).toISOString(), to });
     expect(result.records.map((record) => record.value)).toEqual([21]);
   });
 
@@ -422,7 +449,7 @@ describe("HybridTelemetryReader", () => {
     const now = Date.parse("2026-08-31T12:00:00.000Z");
     const from = new Date(now - 3 * 86_400_000).toISOString();
     const to = new Date(now).toISOString();
-    const localBuckets = vi.fn(() => []);
+    const localBuckets = vi.fn((_query: LocalBucketQuery) => []);
     const reader = new HybridTelemetryReader({
       local: localReader({ measurementHistoryBucketed: localBuckets }),
       archive: archiveReader({ measurementHistoryBucketed: vi.fn(async () => []) }),
@@ -438,20 +465,17 @@ describe("HybridTelemetryReader", () => {
     // Newest chunk first with the inclusive bound; older chunks end
     // exclusively on the shared edge and the oldest reaches the window start.
     expect(localBuckets).toHaveBeenCalledTimes(3);
-    expect(localBuckets.mock.calls[0]![2]).toBe(new Date(now - 86_400_000).toISOString());
-    expect(localBuckets.mock.calls[0]![3]).toBe(to);
-    expect(localBuckets.mock.calls[0]).toHaveLength(7);
-    expect(localBuckets.mock.calls[1]![3]).toBe(new Date(now - 86_400_000).toISOString());
-    expect(localBuckets.mock.calls[1]![7]).toBe(true);
-    expect(localBuckets.mock.calls[2]![2]).toBe(from);
+    expect(localBuckets.mock.calls[0]![0]).toMatchObject({ from: new Date(now - 86_400_000).toISOString(), to, toExclusive: false });
+    expect(localBuckets.mock.calls[1]![0]).toMatchObject({ to: new Date(now - 86_400_000).toISOString(), toExclusive: true });
+    expect(localBuckets.mock.calls[2]![0]).toMatchObject({ from });
   });
 
   it("stops chunked local reads once enough newest buckets are collected", async () => {
     const now = Date.parse("2026-08-31T00:00:00.000Z");
     const from = new Date(now - 3 * 86_400_000).toISOString();
     const to = new Date(now).toISOString();
-    const localBuckets = vi.fn((...args: unknown[]) => {
-      const chunkFrom = Date.parse(args[2] as string);
+    const localBuckets = vi.fn((query: LocalBucketQuery) => {
+      const chunkFrom = Date.parse(query.from);
       return [measurement(new Date(chunkFrom).toISOString(), 20), measurement(new Date(chunkFrom + 3_600_000).toISOString(), 21)];
     });
     const reader = new HybridTelemetryReader({ local: localReader({ measurementHistoryBucketed: localBuckets }) });
@@ -664,13 +688,13 @@ describe("HybridTelemetryReader", () => {
       limit: 2,
     });
 
-    expect(local.measurementWindow).toHaveBeenCalledWith(
-      ["sensor-a", "sensor-b"],
-      ["temperature", "humidity"],
-      FROM,
-      TO,
-      2,
-    );
+    expect(local.measurementWindow).toHaveBeenCalledWith(expect.objectContaining({
+      sensorIds: ["sensor-a", "sensor-b"],
+      metrics: ["temperature", "humidity"],
+      from: FROM,
+      to: TO,
+      limit: 2,
+    }));
     expect(batch).toHaveBeenCalledWith(expect.objectContaining({
       sensorIds: ["sensor-a", "sensor-b"],
       metrics: ["temperature", "humidity"],
@@ -748,69 +772,6 @@ describe("HybridTelemetryReader", () => {
       from: FROM,
       to: TO,
     })).rejects.toBe(localFailure);
-  });
-
-  it("assembles the local window from keyset pages when the store can page", async () => {
-    const pages = [
-      {
-        samples: [
-          measurement("2026-07-18T00:30:00.000Z", 3, "api"),
-          measurement("2026-07-18T00:20:00.000Z", 2, "api"),
-        ],
-        next: { timestamp: "2026-07-18T00:20:00.000Z", id: 12 },
-      },
-      { samples: [measurement("2026-07-18T00:10:00.000Z", 1, "api")], next: null },
-    ];
-    const measurementWindowPage = vi.fn(() => pages.shift()!);
-    const measurementWindow = vi.fn(() => []);
-    const reader = new HybridTelemetryReader({
-      local: localReader({ measurementWindow, measurementWindowPage }),
-    });
-
-    const result = await reader.measurementWindow({
-      sensorIds: ["sensor-a"],
-      metrics: ["temperature"],
-      from: FROM,
-      to: TO,
-      limit: 100,
-    });
-
-    expect(measurementWindow).not.toHaveBeenCalled();
-    expect(measurementWindowPage).toHaveBeenCalledTimes(2);
-    expect(measurementWindowPage).toHaveBeenNthCalledWith(1, ["sensor-a"], ["temperature"], FROM, TO, 100, null);
-    expect(measurementWindowPage).toHaveBeenNthCalledWith(
-      2,
-      ["sensor-a"],
-      ["temperature"],
-      FROM,
-      TO,
-      98,
-      { timestamp: "2026-07-18T00:20:00.000Z", id: 12 },
-    );
-    expect(result.records.map((item) => item.value)).toEqual([1, 2, 3]);
-  });
-
-  it("stops paging the local window when the request is aborted", async () => {
-    const controller = new AbortController();
-    const measurementWindowPage = vi.fn(() => {
-      controller.abort(new DOMException("Client disconnected", "AbortError"));
-      return {
-        samples: [measurement("2026-07-18T00:20:00.000Z", 2, "api")],
-        next: { timestamp: "2026-07-18T00:20:00.000Z", id: 7 },
-      };
-    });
-    const reader = new HybridTelemetryReader({
-      local: localReader({ measurementWindowPage }),
-    });
-
-    await expect(reader.measurementWindow({
-      sensorIds: ["sensor-a"],
-      metrics: ["temperature"],
-      from: FROM,
-      to: TO,
-      signal: controller.signal,
-    })).rejects.toMatchObject({ name: "AbortError" });
-    expect(measurementWindowPage).toHaveBeenCalledTimes(1);
   });
 
   it("catches up the archive before serving a non-mergeable analytics rollup", async () => {

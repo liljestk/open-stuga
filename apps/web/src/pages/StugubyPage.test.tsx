@@ -4,14 +4,14 @@ import axe from "axe-core";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { StugubyShareGrant, StugubySummary } from "@climate-twin/stuguby-protocol";
+import type { StugubyShareGrant } from "@climate-twin/stuguby-protocol";
 
-import { api, type StugubyDetailResponse, type StugubyListResponse } from "../api";
+import { api, type StugubyDetailResponse } from "../api";
 import { confirmAction } from "../components/ConfirmationProvider";
 
 import { I18nProvider } from "../i18n";
 
-import { localDateTimeInput, StugubyPage } from "./StugubyPage";
+import { StugubyPage } from "./StugubyPage";
 
 import { detail, identity, localGrant, mockLoadedStugubys, summary } from "./StugubyPageTestSupport";
 
@@ -617,7 +617,7 @@ describe("StugubyPage", () => {
     await screen.findByRole("button", { name: "Start sharing" });
     await user.click(screen.getByText("Customize what is shared"));
     await user.click(screen.getByRole("checkbox", { name: /^Raw telemetry home\.telemetry/ }));
-    await screen.findByText("Catalog unavailable");
+    await screen.findByText("The sensor scope could not be loaded.");
 
     expect(screen.getByRole<HTMLButtonElement>("button", { name: "Start sharing" }).disabled).toBe(true);
     expect(screen.queryByRole("checkbox", { name: "All sensors in this Home" })).toBeNull();

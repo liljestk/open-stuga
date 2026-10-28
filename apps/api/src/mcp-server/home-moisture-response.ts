@@ -1,31 +1,28 @@
 import { outdoorLocationKey } from "../db.js";
 import { mapWithConcurrency } from "../timeseries/read-support.js";
 import { MCP_THERMAL_HISTORY_READ_CONCURRENCY } from "./thermal-work.js";
-import { mcpThermalDateRange, requireMcpHouse } from "../mcp-validation.js";
+import { mcpThermalDateRange, requireMcpHouse } from "./validation.js";
 import {
   isMoistureResponseSensor,
   runMoistureResponseAsync,
-} from "../moisture-response.js";
-import {
-  config,
-  database,
-  optionalString,
-  requiredString,
-  telemetryReader,
-} from "./01-config-to-get-house-weather.js";
+} from "../analytics/thermal/moisture-response.js";
+import { optionalToolString, requiredToolString } from "./arguments.js";
 import {
   configuredHeatPumpConnectionIds,
   filterHeatPumpAffectedSampleMap,
   loadHeatPumpExclusionWindow,
 } from "../analytics/heat-pump-evidence.js";
+import type { McpRuntime } from "./runtime.js";
 
 export async function homeMoistureResponse(
+  runtime: McpRuntime,
   args: Record<string, unknown>,
 ): Promise<unknown> {
-  const house = requireMcpHouse(database, requiredString(args, "houseId"));
+  const { config, database, telemetryReader } = runtime;
+  const house = requireMcpHouse(database, requiredToolString(args, "houseId"));
   const { from, to } = mcpThermalDateRange(
-    optionalString(args, "from"),
-    optionalString(args, "to"),
+    optionalToolString(args, "from"),
+    optionalToolString(args, "to"),
   );
   const candidates = database.listSensors(house.id).filter((sensor) => sensor.enabled);
   const coverage = (await telemetryReader.measurementCoverage({

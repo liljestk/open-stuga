@@ -8,7 +8,7 @@ import {
   AnalyticsQueryError,
   buildAnalyticsResponse,
   resolveAnalyticsQueryShape,
-} from "../src/analytics.js";
+} from "../src/analytics/query/analytics-query.js";
 
 const definition = {
   id: "temperature",

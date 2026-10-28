@@ -1,51 +1,21 @@
-import { useEffect, useId, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { BoxSelect, Grid3X3, ImagePlus, MapPinPlus, MousePointer2, PenLine, Plus, RotateCcw, RotateCw, Trash2 } from "lucide-react";
-import { floorMetersPerPlanUnit, isAirflowPlanElement, wallLengthPlanUnits, type ConfiguredOpeningState, type Floor, type House, type ManualObservation, type MeasurementDefinition, type MeasurementSample, type OpeningStateObservation, type PlanElement, type PlanElementKind, type Point, type Room, type Sensor, type UnitSystem, type Wall } from "@climate-twin/contracts";
-import { clamp, round, type ViewMode } from "../../domain";
-import { useI18n, type TranslationKey } from "../../i18n";
-import { formatMeasurement, formatMeasurementDelta, measurementGradient, measurementLabel, measurementValue, toDisplayValue, type LatestMeasurements } from "../../measurements";
-import { energyDeviceMapStats, isEnergyDeviceSensor } from "../../energyDeviceMap";
-import { createCloudLobes, estimateFieldFlows, heatColor, interpolateHeat } from "../../spatialField";
-import { simulateFloorAirflow, type AirflowPoint2D, type ClimateSampleMatrix, type FloorAirflowEstimate } from "../../airflowSimulation";
-import { configuredSpatialMaxSampleAgeMs, isSpatialSampleFresh } from "../../spatialFreshness";
-import { cardinalDirection, normalizeDegrees, type PlanEdge } from "../../outdoorContext";
-import {
-  formatOutdoorHumidity,
-  formatOutdoorTemperature,
-  formatOutdoorWindSpeed,
-  OutdoorConditionsBadge,
-  type OutdoorVisualizationState,
-} from "../OutdoorConditionsBadge";
+import { isAirflowPlanElement, type PlanElementKind } from "@climate-twin/contracts";
+import { normalizeDegrees } from "../../outdoor/context";
 import { PlanElementDimensionFields } from "../PlanElementDimensionFields";
-import { applyAirflowPlanElementPatch, PlanElementAirflowFields, type AirflowPlanElementPatch } from "../PlanElementAirflowFields";
-import { applyFixturePlanElementPatch, PlanElementFixtureFields, type FixturePlanElementPatch } from "../PlanElementFixtureFields";
+import { PlanElementAirflowFields } from "../PlanElementAirflowFields";
+import { PlanElementFixtureFields } from "../PlanElementFixtureFields";
 import { OpeningInventory } from "../OpeningInventory";
-import { SpatialLayerOverlay2D } from "../SpatialLayerOverlay2D";
-import type { SpatialLayerSnapshot, SpatialTopology } from "../../spatialLayers";
-import type { SensorCoverageAssessment } from "../../experimentalSpatialLayers";
-import { ExperimentalSensorCoverage2D } from "../ExperimentalSensorCoverage";
 import {
-  clampPlanElementHeight,
-  clampPlanElementWidth,
-  DEFAULT_CEILING_HEIGHT_METRES,
-  defaultPlanElementHeight,
   defaultPlanElementWidth,
-  defaultFireEscapeProjection,
-  editablePlanElementWidthBounds,
   effectivePlanElementHeight,
   isWallAttachedPlanElement,
-  isWallOpening,
-  planElementHeightBounds,
 } from "../../planElementGeometry";
-import { chimneyPenetrationsForFloor, fireplaceChimneyDimensions } from "../../architecturalGeometry";
-import { MapInformationToggle, useMapInformationVisibility } from "../MapInformationToggle";
-import { effectiveOpeningState, openingStateCanChange, openingStateKey, openingStateObservationsForHouse } from "../../openingState";
-import { GEOMETRY_EPSILON, GRID_DENSITY_MULTIPLIER, OUTDOOR_SHELL_CHIP_GAP, OUTDOOR_SHELL_CHIP_HEIGHT, OUTDOOR_SHELL_CHIP_RIGHT_INSET, OUTDOOR_SHELL_CHIP_WIDTH, OUTDOOR_SHELL_OFFSET, PLAN_ELEMENT_KINDS, PLAN_VIEWPORT_MARGIN, PlanElementGlyph, ROOM_KINDS, defaultFloorGridSize, floorGridSize, floorRenderScale, insertRoomVertex, isValidRoomPolygon, nearestWallOpeningPlacement, nearestWallPlacement, orientation, outdoorWindwardEdgePath, pointOnSegment, pointsEqual, roomRectanglePoints, segmentsIntersect, smoothAirflowPath, snapPointToGrid, wallLengthInputValue } from "./support";
-import type { DeletedWallUndo, EditorTool, FloorGridDensity, FloorPlanProps, PlanElementPatch, WallOpeningPlacementResult, WallPlacement } from "./support";
+import { PLAN_ELEMENT_KINDS, ROOM_KINDS } from "./support";
+import type { FloorGridDensity } from "./support";
 import { useFloorPlanPart05 } from "./part-05";
 import { renderFloorPlanEditorSection } from "./render-section";
 export function renderFloorPlan(context: ReturnType<typeof useFloorPlanPart05>) {
-  const { floor, house, sensors, samples, climateSamples, observations, definition, colorDomain, units, viewMode, selectedSensorId, editing, observationPlacement, onSensorSelect, onSensorMove, onFloorChange, onObservationPoint, onCancelObservationPlacement, referenceTimeMs, maxSampleAgeMs, outdoor, spatialLayerSnapshots, spatialLayerTopology, experimentalAirflowEnabled, experimentalAirflow, experimentalSensorCoverage, openingStateObservations, pendingOpeningStateKeys, onOpeningStateChange, sensorMeasurements, energyDevicesVisible, allowBackgroundImageEditing, locale, t, houseOpeningStateObservations, metricLabel, svgRef, fileRef, roomNameInputRef, undoButtonRef, roomNameBeforeEdit, dragging, draggingElement, draggingRoomVertex, roomVertexRefs, pendingRoomVertexFocus, planElementRefs, mapHelpId, mapInformationId, roomNameErrorId, wallLengthErrorId, fieldId, editorTool, setEditorTool, wallStart, setWallStart, roomStart, setRoomStart, selectedWallId, setSelectedWallId, wallLengthDraft, setWallLengthDraft, wallLengthError, setWallLengthError, selectedRoomId, setSelectedRoomId, selectedPlanElementId, setSelectedPlanElementId, planElementKind, setPlanElementKind, placementError, setPlacementError, roomNameError, setRoomNameError, deletedWallUndo, setDeletedWallUndo, undoMessage, setUndoMessage, snapEnabled, setSnapEnabled, gridDensity, setGridDensity, addToolsOpen, setAddToolsOpen, editorOptionsOpen, setEditorOptionsOpen, keyboardPoint, setKeyboardPoint, placementAnnouncement, setPlacementAnnouncement, uploadError, setUploadError, reducedMotion, setReducedMotion, mapInformationExpanded, setMapInformationExpanded, renderScale, metresPerPlanUnit, placementCoordinateScale, placementCoordinateUnit, renderWidth, renderHeight, gridSize, renderedGridSize, viewportMargin, resolvedReferenceTimeMs, spatialFreshness, renderSensors, heat, visualDomain, clouds, gradientFlows, transform, layoutEditing, drawingWall, drawingRoom, placingElement, selectingLayout, keyboardPlacementActive, wallSelectionActive, roomSelectionActive, planElementSelectionActive, showMonitoringOverlays, planElements, chimneyPenetrations, selectedWall, selectedRoom, selectedPlanElement, selectedRoomSensorCount, roomName, pointFromEvent, placementPoint, clearLayoutSelection, chooseEditorTool, applyFloorChange, resetSelectedWallLengthDraft, commitSelectedWallLength, nextUnusedRoomName, addWall, deleteWall, undoLastDeletion, addRoom, updateRoom, addRoomVertex, commitRoomName, deleteRoom, resolveElementPlacement, placementFailureMessage, addPlanElement, updatePlanElement, movePlanElement, updatePlanElementWidth, updatePlanElementHeight, deletePlanElement, mapPointerDown, mapPointerMove, mapKeyDown, wallPointerDown, wallKeyDown, roomPointerDown, roomKeyDown, roomVertexPointerDown, roomEdgeKeyDown, moveRoomVertex, roomVertexKeyDown, planElementPointerDown, planElementPointerMove, planElementKeyDown, startSensorDrag, moveSensor, sensorKeyDown, uploadBackground, legendMin, legendMax, outdoorContext, airflow, airflowPaths, activeGradientFlows, hasMapInformation, airflowSupport, airflowDriver, airflowDescription, airflowAria, outdoorTemperature, outdoorHumidity, outdoorTemperatureColor, outdoorHumidityColor, activeOutdoorColor, activeOutdoorStyle, outdoorTemperatureStyle, outdoorHumidityStyle, outdoorWindSpeed, outdoorWindDirection, outdoorWindwardSide, outdoorShellLabel, edgeLabels, elementPreviewPlacement, selectedElementWidthBounds, selectedElementHeightBounds, selectedElementRotation, selectedElementHasCardinalRotation, wallPreview, editorHint } = context;
+  const { floor, viewMode, editing, observationPlacement, allowBackgroundImageEditing, t, fileRef, roomNameInputRef, undoButtonRef, roomNameBeforeEdit, planElementRefs, mapHelpId, roomNameErrorId, wallLengthErrorId, selectedWallId, wallLengthDraft, setWallLengthDraft, wallLengthError, setWallLengthError, selectedPlanElementId, setSelectedPlanElementId, planElementKind, setPlanElementKind, roomNameError, setRoomNameError, deletedWallUndo, snapEnabled, setSnapEnabled, gridDensity, setGridDensity, addToolsOpen, setAddToolsOpen, editorOptionsOpen, setEditorOptionsOpen, placementAnnouncement, uploadError, metresPerPlanUnit, drawingWall, drawingRoom, placingElement, selectingLayout, selectedWall, selectedRoom, selectedPlanElement, selectedRoomSensorCount, roomName, chooseEditorTool, applyFloorChange, resetSelectedWallLengthDraft, commitSelectedWallLength, deleteWall, undoLastDeletion, updateRoom, commitRoomName, deleteRoom, updatePlanElement, updatePlanElementWidth, updatePlanElementHeight, deletePlanElement, uploadBackground, selectedElementWidthBounds, selectedElementHeightBounds, selectedElementRotation, selectedElementHasCardinalRotation, editorHint } = context;
   return (
       <div className="floor-plan-wrap">
         {editing && (
@@ -67,7 +37,7 @@ export function renderFloorPlan(context: ReturnType<typeof useFloorPlanPart05>) 
                     <label className="grid-size-control">
                       <span>{t("twin.planElement")}</span>
                       <select value={planElementKind} disabled={viewMode !== "plan"} aria-label={t("twin.planElement")} onChange={(event) => setPlanElementKind(event.target.value as PlanElementKind)}>
-                        {PLAN_ELEMENT_KINDS.map((kind) => <option key={kind} value={kind}>{t(`planElement.${kind}` as TranslationKey)}</option>)}
+                        {PLAN_ELEMENT_KINDS.map((kind) => <option key={kind} value={kind}>{t(`planElement.${kind}`)}</option>)}
                       </select>
                     </label>
                     <button type="button" className={placingElement ? "tool-button active" : "tool-button"} aria-pressed={placingElement} disabled={viewMode !== "plan"} onClick={() => chooseEditorTool("element")}>
@@ -122,7 +92,7 @@ export function renderFloorPlan(context: ReturnType<typeof useFloorPlanPart05>) 
             )}
             {selectedPlanElement && (
               <div className="editor-properties" role="group" aria-label={t("twin.elementProperties")}>
-                <strong>{t(`planElement.${selectedPlanElement.kind}` as TranslationKey)}</strong>
+                <strong>{t(`planElement.${selectedPlanElement.kind}`)}</strong>
                 {selectedElementWidthBounds && selectedElementHeightBounds && <PlanElementDimensionFields
                   widthLabel={t("twin.elementWidth")}
                   heightLabel={t("twin.elementHeight")}

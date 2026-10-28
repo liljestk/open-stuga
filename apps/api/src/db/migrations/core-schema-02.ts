@@ -1,4 +1,7 @@
-export const CORE_SCHEMA_02 = `          SELECT 1 FROM observations AS observation
+export const CORE_SCHEMA_02 = `      CREATE TRIGGER IF NOT EXISTS prevent_house_floor_orphaned_observation
+        BEFORE UPDATE OF floors_json ON houses
+        WHEN NEW.floors_json <> OLD.floors_json AND EXISTS (
+          SELECT 1 FROM observations AS observation
           WHERE observation.house_id = OLD.id
             AND NOT EXISTS (
               SELECT 1 FROM json_each(NEW.floors_json) AS floor
@@ -472,22 +475,4 @@ export const CORE_SCHEMA_02 = `          SELECT 1 FROM observations AS observati
         BEFORE INSERT ON sensors
         WHEN EXISTS (SELECT 1 FROM retired_telemetry_resource_ids WHERE resource_type = 'sensor' AND resource_id = NEW.id)
         BEGIN SELECT RAISE(ABORT, 'RETIRED_SENSOR_ID'); END;
-      CREATE TRIGGER IF NOT EXISTS prevent_demo_reading_insert_in_real_mode
-        BEFORE INSERT ON readings
-        WHEN NEW.source IN ('mock', 'replay')
-          AND EXISTS (SELECT 1 FROM metadata WHERE key = 'data_mode' AND value = 'real')
-        BEGIN SELECT RAISE(ABORT, 'DEMO_DATA_DISABLED'); END;
-      CREATE TRIGGER IF NOT EXISTS prevent_demo_reading_update_in_real_mode
-        BEFORE UPDATE OF source ON readings
-        WHEN NEW.source IN ('mock', 'replay')
-          AND EXISTS (SELECT 1 FROM metadata WHERE key = 'data_mode' AND value = 'real')
-        BEGIN SELECT RAISE(ABORT, 'DEMO_DATA_DISABLED'); END;
-      CREATE TRIGGER IF NOT EXISTS prevent_demo_measurement_insert_in_real_mode
-        BEFORE INSERT ON measurement_samples
-        WHEN NEW.source IN ('mock', 'replay')
-          AND EXISTS (SELECT 1 FROM metadata WHERE key = 'data_mode' AND value = 'real')
-        BEGIN SELECT RAISE(ABORT, 'DEMO_DATA_DISABLED'); END;
-      CREATE TRIGGER IF NOT EXISTS prevent_demo_measurement_update_in_real_mode
-        BEFORE UPDATE OF source ON measurement_samples
-        WHEN NEW.source IN ('mock', 'replay')
 `;

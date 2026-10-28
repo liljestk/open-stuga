@@ -1,10 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { House, HouseWeather, UnitSystem } from "@climate-twin/contracts";
 import { createDemoState } from "../domain";
 import { I18nProvider } from "../i18n";
 import { definitionFor } from "../measurements";
-import { createOutdoorBoundaryContext } from "../outdoorContext";
+import { createOutdoorBoundaryContext } from "../outdoor/context";
 import type { OutdoorVisualizationState } from "./OutdoorConditionsBadge";
 import { FloorPlan } from "./FloorPlan";
 import { BuildingScene } from "./BuildingScene";

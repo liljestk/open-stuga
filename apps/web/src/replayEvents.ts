@@ -1,6 +1,7 @@
 import { median as kernelMedian } from "@climate-twin/analytics-kernel";
 import type { MeasurementSample } from "@climate-twin/contracts";
 import type { MeasurementHistory } from "./measurements";
+import { compareCodeUnits } from "./textOrder";
 
 export type ReplayClimateMetric = "temperature" | "humidity";
 export type ReplayClimateDirection = "rise" | "drop";
@@ -65,10 +66,6 @@ const METRICS: readonly MetricConfig[] = [
   { metric: "temperature", threshold: 1.5 },
   { metric: "humidity", threshold: 8 },
 ];
-
-function compareText(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0;
-}
 
 /** Replay series are never empty where a median is taken. */
 const median = (values: readonly number[]): number => kernelMedian(values) ?? 0;
@@ -257,11 +254,11 @@ function eventForCandidate(
 }
 
 function eventOrder(left: ReplayClimateEvent, right: ReplayClimateEvent): number {
-  return left.timestamp - right.timestamp || compareText(left.id, right.id);
+  return left.timestamp - right.timestamp || compareCodeUnits(left.id, right.id);
 }
 
 function eventPriority(left: ReplayClimateEvent, right: ReplayClimateEvent): number {
-  return right.score - left.score || right.timestamp - left.timestamp || compareText(left.id, right.id);
+  return right.score - left.score || right.timestamp - left.timestamp || compareCodeUnits(left.id, right.id);
 }
 
 function requestedEventLimit(options: ReplayClimateEventOptions | undefined): number {
@@ -295,7 +292,7 @@ export function detectReplayClimateEvents(
   const window = requestedEventWindow(options);
   if (window.from > window.to) return [];
 
-  const events = [...new Set(sensorIds)].sort(compareText).flatMap((sensorId) => METRICS.flatMap(({ metric, threshold }) => {
+  const events = [...new Set(sensorIds)].sort(compareCodeUnits).flatMap((sensorId) => METRICS.flatMap(({ metric, threshold }) => {
     const points = normalizeSeries(history[sensorId]?.[metric] ?? [], sensorId, metric, window.from, window.to);
     if (points.length < MIN_SUPPORT_BUCKETS * 2) return [];
     return clusterCandidates(candidatesForSeries(points, threshold))

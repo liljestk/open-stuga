@@ -1,8 +1,8 @@
 import type { MeasurementSample, OutdoorTemperatureSample } from "@climate-twin/contracts";
 import { describe, expect, it } from "vitest";
 import { buildHeatPumpExclusionWindow, filterHeatPumpAffectedSamples } from "../src/analytics/heat-pump-evidence.js";
-import { calibrateMoistureResponse } from "../src/moisture-response-model.js";
-import { runThermalSimulation, runThermalSimulationAsync } from "../src/thermal-simulation.js";
+import { calibrateMoistureResponse } from "../src/analytics/thermal/moisture-response-model.js";
+import { runThermalSimulation, runThermalSimulationAsync } from "../src/analytics/thermal/simulation.js";
 import { ClimateDatabase } from "../src/db.js";
 import { DerivedAnalyticsComputer, derivedIdentity } from "../src/analytics/derived-artifacts/compute.js";
 import type { HybridTelemetryReader } from "../src/timeseries/read-facade.js";

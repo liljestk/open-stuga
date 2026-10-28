@@ -1,3 +1,4 @@
+import { isSqliteFailure } from "../db/sqlite-failure.js";
 import { randomUUID } from "node:crypto";
 import type {
   EquipmentBorrowInput,
@@ -124,7 +125,7 @@ export class TrackingPeopleStore {
         requiredText(borrowerLabel, "Borrower label", 320), now.toISOString(), expectedReturnAt, note,
       );
     } catch (error) {
-      if (error instanceof Error && error.message.includes("UNIQUE constraint failed")) {
+      if (isSqliteFailure(error, "unique")) {
         throw new TrackingError(409, "EQUIPMENT_ALREADY_BORROWED", "This equipment is already borrowed");
       }
       throw error;

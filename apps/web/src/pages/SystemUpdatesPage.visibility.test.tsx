@@ -1,6 +1,8 @@
+import { systemUpdateStatus } from "./SystemUpdatesTestSupport";
+import type { SystemUpdateStatus } from "@climate-twin/contracts";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
-import { api, type SystemUpdateStatus } from "../api";
+import { api } from "../api";
 import { I18nProvider } from "../i18n";
 import { SystemUpdatesPage } from "./SystemUpdatesPage";
 
@@ -23,7 +25,7 @@ class FakeEventSource {
   close(): void { this.closed = true; }
 }
 
-const status = {
+const statusApplication = {
   currentVersion: "0.39.2",
   latestVersion: null,
   updateAvailable: false,
@@ -47,7 +49,9 @@ const status = {
     reason: "not-configured",
   },
   operation: null,
-} satisfies SystemUpdateStatus;
+} satisfies Omit<SystemUpdateStatus, "schema" | "revision" | "application" | "host" | "workflow">;
+
+const status = systemUpdateStatus(statusApplication);
 
 afterEach(() => {
   FakeEventSource.instances = [];

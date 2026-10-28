@@ -1,10 +1,12 @@
 import type { EnergyOptimizationReport } from "@climate-twin/contracts";
 import { LruTtlCache } from "../cache.js";
-import { HttpError, localAuthorizationFingerprint, requestPrincipal, safeInteger } from "./support/index.js";
+import { HttpError } from "../http-error.js";
+import { localAuthorizationFingerprint, requestPrincipal } from "./support/local-sessions.js";
+import { safeInteger } from "./support/query-fields.js";
 import { withResponseSignal } from "./response-signal.js";
-import type { configureApiPart11 } from "./part-11.js";
+import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
 
-type Context = ReturnType<typeof configureApiPart11>;
+type Context = ApiRouteRegistrationContext;
 const REFRESH_MS = 30_000;
 /** Changes to these resources can change a report; live readings and device states cannot. */
 const RELEVANT_MUTATION = /^\/(?:properties|houses|sensors)(?:\/|$)/u;

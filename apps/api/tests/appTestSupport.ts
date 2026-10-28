@@ -1,22 +1,4 @@
-import { createServer, type Server } from "node:http";
-
-import { generateKeyPairSync } from "node:crypto";
-
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-
-import { tmpdir } from "node:os";
-
-import { join } from "node:path";
-
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-
-import request from "supertest";
-
-import type { TelemetryEvent } from "@climate-twin/contracts";
-
-import { loadConfig, type AppConfig } from "../src/config.js";
-
-import { createApi, type ApiRuntime } from "../src/app.js";
+import { type AppConfig } from "../src/config.js";
 
 export const config: AppConfig = {
   port: 0,
@@ -38,7 +20,6 @@ export const config: AppConfig = {
   tpLinkPollIntervalMs: 10_000,
   tpLinkPython: "python",
   tpLinkBridgeScript: "apps/api/python/tp_link_bridge.py",
-  alertWebhookUrl: null,
-  alertWebhookBearerToken: null,
   corsOrigin: "http://localhost:5173",
+  localAuthTestBypass: true,
 };

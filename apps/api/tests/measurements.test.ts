@@ -20,7 +20,8 @@ const config: AppConfig = {
   haUrl: null, haToken: null, haEntityMapFile: null,
   tpLinkHost: null, tpLinkUsername: null, tpLinkPassword: null, tpLinkDeviceMapFile: null,
   tpLinkPollIntervalMs: 10_000, tpLinkPython: "python", tpLinkBridgeScript: "apps/api/python/tp_link_bridge.py",
-  alertWebhookUrl: null, alertWebhookBearerToken: null, corsOrigin: null,
+  corsOrigin: null,
+  localAuthTestBypass: true,
 };
 
 describe("registry-driven measurements API", () => {
@@ -519,10 +520,10 @@ describe("registry-driven measurements API", () => {
       expect.objectContaining({ timestamp: "2026-07-14T10:01:00.000Z", value: 1200 }),
     ]);
     expect(bucketedRead).toHaveBeenCalledOnce();
-    expect(bucketedRead).toHaveBeenCalledWith(
-      "sensor-01", "co2", new Date(base).toISOString(), new Date(base + 120_000).toISOString(),
-      60, 2, true,
-    );
+    expect(bucketedRead).toHaveBeenCalledWith(expect.objectContaining({
+      sensorId: "sensor-01", metric: "co2", from: new Date(base).toISOString(), to: new Date(base + 120_000).toISOString(),
+      bucketSeconds: 60, limit: 2, excludeSynthetic: true,
+    }));
     expect(rawRead).not.toHaveBeenCalled();
 
     bucketedRead.mockClear();
@@ -547,12 +548,14 @@ describe("registry-driven measurements API", () => {
     // chunks end exclusively on the shared chunk edge.
     expect(rawRead).not.toHaveBeenCalled();
     expect(bucketedRead).toHaveBeenCalledTimes(2);
-    expect(bucketedRead).toHaveBeenNthCalledWith(
-      1, "sensor-01", "co2", new Date(base + 24 * 3_600_000).toISOString(), oversizedTo, 60, 20_001, true,
-    );
-    expect(bucketedRead).toHaveBeenNthCalledWith(
-      2, "sensor-01", "co2", new Date(base).toISOString(), new Date(base + 24 * 3_600_000).toISOString(), 60, 20_001, true, true,
-    );
+    expect(bucketedRead).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      sensorId: "sensor-01", metric: "co2", from: new Date(base + 24 * 3_600_000).toISOString(), to: oversizedTo,
+      bucketSeconds: 60, limit: 20_001, excludeSynthetic: true, toExclusive: false,
+    }));
+    expect(bucketedRead).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      sensorId: "sensor-01", metric: "co2", from: new Date(base).toISOString(), to: new Date(base + 24 * 3_600_000).toISOString(),
+      bucketSeconds: 60, limit: 20_001, excludeSynthetic: true, toExclusive: true,
+    }));
     await request(runtime.app).get("/api/v2/measurements/history").query({
       sensorId: "sensor-01", metric: "co2", bucketSeconds: 0,
     }).expect(400);
@@ -606,7 +609,7 @@ describe("registry-driven measurements API", () => {
     }]);
 
     expect(runtime.database.measurementHistoryBucketed(
-      "sensor-01", "co2", "2026-07-14T10:00:00.000Z", "2026-07-14T10:01:00.000Z", 60,
+      { sensorId: "sensor-01", metric: "co2", from: "2026-07-14T10:00:00.000Z", to: "2026-07-14T10:01:00.000Z", bucketSeconds: 60 },
     )).toEqual([expect.objectContaining({ value: 750, source: "home-assistant", quality: "estimated" })]);
     expect(runtime.database.historyBucketed(
       ["sensor-02"], "2026-07-14T10:00:00.000Z", "2026-07-14T10:01:00.000Z", 60,
@@ -759,7 +762,7 @@ describe("registry-driven measurements API", () => {
 
   it("serves truthful and complete version-specific OpenAPI documents", async () => {
     const v1 = await request(runtime.app).get("/api/v1/openapi.json").expect(200);
-    expect(v1.body.servers).toEqual([{ url: "/api/v1", description: "Legacy climate tuple API" }]);
+    expect(v1.body.servers).toEqual([{ url: "/api/v1", description: "Control-plane API" }]);
     expect(v1.body.paths).toHaveProperty("/houses");
     expect(v1.body.paths).not.toHaveProperty("/measurements");
     expect(v1.body.components.schemas.House.required).not.toContain("orientationDegrees");

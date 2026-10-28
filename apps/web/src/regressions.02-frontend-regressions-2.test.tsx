@@ -1,30 +1,22 @@
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 import userEvent from "@testing-library/user-event";
 
 import { describe, expect, it, vi } from "vitest";
 
-import { useState, type ReactNode } from "react";
+import { useState } from "react";
 
-import type { Floor, MeasurementDefinition, MeasurementSample, Sensor } from "@climate-twin/contracts";
+import type { Floor, MeasurementDefinition, MeasurementSample } from "@climate-twin/contracts";
 
 import { globalStyles as styles } from "./test/styleSources";
-
-import i18nSource from "./i18n.tsx?raw";
-
-import { AppShell } from "./components/AppShell";
 
 import { defaultPlanElementWidth, FloorPlan, floorGridSize, snapPointToGrid } from "./components/FloorPlan";
 
 import { TrendChart } from "./components/TrendChart";
 
-import { createDemoState, type ClimateState } from "./domain";
-
-import { I18nProvider } from "./i18n";
+import { createDemoState } from "./domain";
 
 import { definitionFor } from "./measurements";
-
-import { AlertsPage } from "./pages/AlertsPage";
 
 import { TwinDashboard } from "./pages/TwinDashboard";
 

@@ -1,27 +1,12 @@
-import type { AlertEvent, AlertRule, House, IntegrationStatus, Sensor } from "@climate-twin/contracts";
-import { deriveHomePulse, type HomePulseCoverage, type HomePulseSensorCoverage, type LatestMeasurements, type MeasurementHistory } from "./insights.js";
+import type { AlertEvent, AlertRule, HomeMonitoringBlockerKind, HomeMonitoringStatus, HomePulseCoverage, HomePulseSensorCoverage, House, IntegrationStatus, Sensor } from "@climate-twin/contracts";
+import { deriveHomePulse } from "./insights.js";
+import { type LatestMeasurements, type MeasurementHistory } from "./model.js";
 import { compareCodeUnits } from "../../text-order.js";
 
-export type HouseMonitoringStatus =
-  | "action-required"
-  | "inspection-recommended"
-  | "monitoring-ok"
-  | "unknown";
-
-export type HouseMonitoringBlockerKind =
-  | "critical-alert"
-  | "warning-alert"
-  | "information-alert"
-  | "no-sensors"
-  | "missing-data"
-  | "stale-data"
-  | "source-disconnected"
-  | "estimated-data"
-  | "aging-data";
-
-export interface HouseMonitoringBlocker {
+/** A blocker before localisation: an English summary instead of the wire code and parameters. */
+export interface HomeMonitoringDraftBlocker {
   id: string;
-  kind: HouseMonitoringBlockerKind;
+  kind: HomeMonitoringBlockerKind;
   summary: string;
   count: number;
   sensorIds: string[];
@@ -29,17 +14,17 @@ export interface HouseMonitoringBlocker {
   acknowledged: boolean;
 }
 
-export interface HouseMonitoringResult {
+export interface HomeMonitoringDraft {
   houseId: string;
   generatedAt: string;
-  status: HouseMonitoringStatus;
+  status: HomeMonitoringStatus;
   pulseStatus: ReturnType<typeof deriveHomePulse>["status"];
   coverage: HomePulseCoverage;
   activeAlertCount: number;
-  blockers: HouseMonitoringBlocker[];
+  blockers: HomeMonitoringDraftBlocker[];
 }
 
-export interface HouseMonitoringInput {
+export interface HomeMonitoringDraftInput {
   house: House;
   sensors: readonly Sensor[];
   latestMeasurements: LatestMeasurements;
@@ -51,7 +36,7 @@ export interface HouseMonitoringInput {
 }
 
 const severityOrder = { critical: 3, warning: 2, info: 1 } as const;
-const blockerPriority: Record<HouseMonitoringBlockerKind, number> = {
+const blockerPriority: Record<HomeMonitoringBlockerKind, number> = {
   "critical-alert": 9,
   "warning-alert": 8,
   "no-sensors": 7,
@@ -72,7 +57,7 @@ function alertBlockers(
   alerts: readonly AlertEvent[],
   rules: readonly AlertRule[],
   sensors: readonly Sensor[],
-): HouseMonitoringBlocker[] {
+): HomeMonitoringDraftBlocker[] {
   const sensorsById = new Map(sensors.map((sensor) => [sensor.id, sensor]));
   const rulesById = new Map(rules.map((rule) => [rule.id, rule]));
   const grouped = new Map<string, AlertEvent[]>();
@@ -92,7 +77,7 @@ function alertBlockers(
     const sensor = sensorsById.get(primary.sensorId)!;
     const rule = rulesById.get(primary.ruleId);
     const acknowledged = sorted.every((event) => Boolean(event.acknowledgedAt));
-    const kind: HouseMonitoringBlockerKind = primary.severity === "critical"
+    const kind: HomeMonitoringBlockerKind = primary.severity === "critical"
       ? "critical-alert"
       : primary.severity === "warning"
         ? "warning-alert"
@@ -116,7 +101,7 @@ function alertBlockers(
 function coverageBlockers(
   coverage: HomePulseCoverage,
   sensorCoverage: readonly HomePulseSensorCoverage[],
-): HouseMonitoringBlocker[] {
+): HomeMonitoringDraftBlocker[] {
   if (coverage.enabledSensors === 0) {
     return [{
       id: "coverage:no-sensors",
@@ -135,7 +120,7 @@ function coverageBlockers(
     items.map((item) => item.freshness.evidenceAt)
       .filter((value): value is string => typeof value === "string" && Number.isFinite(Date.parse(value)))
       .sort((left, right) => timestampValue(left) - timestampValue(right))[0] ?? null;
-  const blockers: HouseMonitoringBlocker[] = [];
+  const blockers: HomeMonitoringDraftBlocker[] = [];
   if (coverage.sensorsWithoutData > 0) {
     const affected = matching("unknown");
     blockers.push({
@@ -191,7 +176,7 @@ function integrationBlockers(
   integration: IntegrationStatus | undefined,
   sensors: readonly Sensor[],
   latest: LatestMeasurements,
-): HouseMonitoringBlocker[] {
+): HomeMonitoringDraftBlocker[] {
   if (!integration) return [];
   const homeAssistantDown = integration.homeAssistant.connections
     ? integration.homeAssistant.connections.some((connection) => connection.configured && !connection.connected)
@@ -236,7 +221,7 @@ function integrationBlockers(
  * to decide whether a house is genuinely known to be okay. Freshness and
  * quality classification come from the same Home Pulse engine used on Home.
  */
-export function deriveHouseMonitoring(input: HouseMonitoringInput): HouseMonitoringResult {
+export function deriveHomeMonitoringDraft(input: HomeMonitoringDraftInput): HomeMonitoringDraft {
   const houseSensors = input.sensors.filter((sensor) => sensor.houseId === input.house.id);
   const pulse = deriveHomePulse({
     house: input.house,
@@ -264,7 +249,7 @@ export function deriveHouseMonitoring(input: HouseMonitoringInput): HouseMonitor
     || pulse.coverage.agingSensors > 0
     || pulse.coverage.estimatedSensors > 0
     || integrations.length > 0;
-  const status: HouseMonitoringStatus = hasActionAlert
+  const status: HomeMonitoringStatus = hasActionAlert
     ? "action-required"
     : hasUnknownCoverage
       ? "unknown"
@@ -285,6 +270,6 @@ export function deriveHouseMonitoring(input: HouseMonitoringInput): HouseMonitor
   };
 }
 
-export function monitoringPrimaryBlocker(result: HouseMonitoringResult): HouseMonitoringBlocker | null {
+export function monitoringPrimaryBlocker(result: HomeMonitoringDraft): HomeMonitoringDraftBlocker | null {
   return result.blockers[0] ?? null;
 }

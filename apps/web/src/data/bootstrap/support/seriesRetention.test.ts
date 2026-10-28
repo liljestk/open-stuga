@@ -1,9 +1,9 @@
-import type { MeasurementSample, Reading } from "@climate-twin/contracts";
+import type { MeasurementSample } from "@climate-twin/contracts";
 import { describe, expect, it, vi } from "vitest";
 import { api } from "../../../api";
 
-import { replaceLegacySeriesWindow, replaceMeasurementSeriesWindow } from "./bootstrapState";
-import { canonicalSeries, isLegacySeriesCompatibilityError, MAX_SERIES_SAMPLES, seriesBucketSeconds } from "./telemetryState";
+import { replaceMeasurementSeriesWindow } from "./bootstrapState";
+import { canonicalSeries, MAX_SERIES_SAMPLES, seriesBucketSeconds } from "./telemetryState";
 
 function sample(timestamp: string, value: number): MeasurementSample {
   return {
@@ -17,22 +17,6 @@ function sample(timestamp: string, value: number): MeasurementSample {
   };
 }
 
-function reading(timestamp: string, temperature: number): Reading {
-  return {
-    sensorId: "sensor-1",
-    timestamp,
-    temperature,
-    humidity: 50,
-    battery: null,
-    source: "api",
-    quality: "good",
-  };
-}
-
-function apiError(status: number, code: string | null, message: string): Error {
-  return Object.assign(new Error(message), { name: "ApiRequestError", status, code });
-}
-
 describe("historical series retention", () => {
   it("loads a predecessor for electricity integration without extending other metrics", async () => {
     const from = "2026-09-01T00:00:00.000Z";
@@ -43,11 +27,13 @@ describe("historical series retention", () => {
     try {
       for (const metric of ["power", "energy", "temperature"]) {
         await canonicalSeries("sensor-1", metric, "24h", from, to, false);
-        expect(request).toHaveBeenLastCalledWith(
-          "sensor-1", metric,
-          metric === "temperature" ? from : "2026-08-31T23:45:00.000Z",
-          to, 20_000, 60,
-        );
+        expect(request).toHaveBeenLastCalledWith("sensor-1", {
+          metric,
+          from: metric === "temperature" ? from : "2026-08-31T23:45:00.000Z",
+          to,
+          limit: 20_000,
+          bucketSeconds: 60,
+        });
       }
     } finally {
       request.mockRestore();
@@ -62,16 +48,6 @@ describe("historical series retention", () => {
     expect(seriesBucketSeconds("90d")).toBe(900);
     expect(seriesBucketSeconds("1y")).toBe(3_600);
     expect(seriesBucketSeconds("1y", "power")).toBe(900);
-  });
-
-  it("recognizes only explicit compatibility responses for the legacy projection", () => {
-    expect(isLegacySeriesCompatibilityError(apiError(404, "NOT_FOUND", "API endpoint not found"))).toBe(true);
-    expect(isLegacySeriesCompatibilityError(apiError(405, null, "Method not allowed"))).toBe(true);
-    expect(isLegacySeriesCompatibilityError(apiError(501, null, "Not implemented"))).toBe(true);
-    expect(isLegacySeriesCompatibilityError(apiError(404, "NOT_FOUND", "Sensor not found"))).toBe(false);
-    expect(isLegacySeriesCompatibilityError(new DOMException("Timed out", "TimeoutError"))).toBe(false);
-    expect(isLegacySeriesCompatibilityError(new DOMException("Cancelled", "AbortError"))).toBe(false);
-    expect(isLegacySeriesCompatibilityError(new Error("Connection failed"))).toBe(false);
   });
 
   it("fully replaces an authoritative requested measurement window and retains samples outside it", () => {
@@ -131,20 +107,5 @@ describe("historical series retention", () => {
       "2026-08-12T00:00:00.000Z",
       true,
     )).toEqual([cached]);
-  });
-
-  it("applies the same requested-window replacement to legacy readings", () => {
-    const before = reading("2026-08-10T00:00:00.000Z", 10);
-    const stale = reading("2026-08-11T00:00:00.000Z", 11);
-    const refreshed = reading("2026-08-11T01:00:00.000Z", 21);
-    const after = reading("2026-08-12T00:00:00.000Z", 12);
-
-    expect(replaceLegacySeriesWindow(
-      [before, stale, after],
-      [refreshed],
-      [],
-      "2026-08-10T12:00:00.000Z",
-      "2026-08-11T12:00:00.000Z",
-    )).toEqual([before, refreshed, after]);
   });
 });

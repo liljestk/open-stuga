@@ -1,20 +1,10 @@
 import { createServer, type Server } from "node:http";
 
-import { generateKeyPairSync } from "node:crypto";
-
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-
-import { tmpdir } from "node:os";
-
-import { join } from "node:path";
-
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import request from "supertest";
 
 import type { TelemetryEvent } from "@climate-twin/contracts";
-
-import { loadConfig, type AppConfig } from "../src/config.js";
 
 import { createApi, type ApiRuntime } from "../src/app.js";
 
@@ -312,10 +302,10 @@ describe("Climate Twin API v1", () => {
 
     const created = await request(runtime.app).post("/api/v1/alert-rules")
       .send({ ...rule, durationSeconds: 1 }).expect(201);
-    await request(runtime.app).patch(`/api/v1/alert-rules/${String(created.body.id)}`)
+    await request(runtime.app).patch(`/api/v1/alert-rules/${String(created.body.rule.id)}`)
       .send({ durationSeconds: 0 })
       .expect(400).expect(({ body }) => expect(body.error.code).toBe("INVALID_FIELD"));
-    expect(runtime.database.getAlertRule(String(created.body.id))?.durationSeconds).toBe(1);
+    expect(runtime.database.getAlertRule(String(created.body.rule.id))?.durationSeconds).toBe(1);
   });
 
   it("creates, publishes, acknowledges, and resolves sustained alert events", async () => {
@@ -324,7 +314,7 @@ describe("Climate Twin API v1", () => {
       name: "Test humidity", sensorId: "sensor-01", metric: "humidity", operator: "gte",
       threshold: 70, durationSeconds: 1, severity: "critical", enabled: true, webhookEnabled: false,
     }).expect(201);
-    expect(ruleResponse.body.id).toBeTypeOf("string");
+    expect(ruleResponse.body.rule.id).toBeTypeOf("string");
 
     await request(runtime.app).post("/api/v1/readings").set("x-api-key", "test-ingest-key")
       .send({ sensorId: "sensor-01", timestamp: new Date(base).toISOString(), temperature: 21, humidity: 81 }).expect(201);
@@ -337,6 +327,13 @@ describe("Climate Twin API v1", () => {
     const acknowledged = await request(runtime.app)
       .post(`/api/v1/alert-events/${String(active.body.events[0].id)}/acknowledge`).expect(200);
     expect(acknowledged.body.event.acknowledgedAt).toBeTypeOf("string");
+    // The iOS companion's aliases answer the same data in their older envelopes.
+    const aliasList = await request(runtime.app).get("/api/v1/alerts?active=true").expect(200);
+    expect(aliasList.body).toEqual({ alerts: [acknowledged.body.event] });
+    const aliasAcknowledged = await request(runtime.app)
+      .post(`/api/v1/alerts/${String(active.body.events[0].id)}/acknowledge`).expect(200);
+    expect(aliasAcknowledged.body).toMatchObject({ id: active.body.events[0].id, sensorId: "sensor-01" });
+    expect(aliasAcknowledged.body.acknowledgedAt).toBeTypeOf("string");
 
     await request(runtime.app).post("/api/v1/readings").set("authorization", "Bearer test-ingest-key")
       .send({ sensorId: "sensor-01", timestamp: new Date(base + 2_500).toISOString(), temperature: 21, humidity: 45 }).expect(201);
@@ -354,6 +351,12 @@ describe("Climate Twin API v1", () => {
       expect(point.humidity).toBeLessThanOrEqual(100);
       expect(point.temperatureLow).toBeLessThan(point.temperatureHigh);
     }
+    expect(response.body.forecast).toEqual(response.body.series[0].forecast);
+  });
+
+  it("answers 404 for a single requested sensor that does not exist", async () => {
+    const response = await request(runtime.app).get("/api/v1/forecast?sensorId=no-such-sensor").expect(404);
+    expect(response.body.error.code).toBe("UNKNOWN_SENSOR");
   });
 
   it("stores manual observations, static context, and binary twin assets", async () => {
@@ -535,9 +538,26 @@ describe("Climate Twin API v1", () => {
     await request(runtime.app).delete("/api/v1/replay").expect(200);
   });
 
-  it("supports the web client compatibility routes and direct mutation shapes", async () => {
+  it("answers the compatibility aliases with the canonical data in their older envelopes", async () => {
     const snapshot = await request(runtime.app).get("/api/v1/snapshot?houseId=house-main").expect(200);
     expect(snapshot.body.snapshot).toHaveLength(10);
+    const canonicalSnapshot = await request(runtime.app).get("/api/v1/sensors/snapshots?houseId=house-main").expect(200);
+    expect(snapshot.body.snapshot).toEqual(canonicalSnapshot.body.sensors);
+
+    const parameterInput = {
+      houseId: "house-main", scopeType: "house", scopeId: "house-main", key: "ventilation", value: 2, unit: null, label: "Ventilation",
+    };
+    const aliasParameter = await request(runtime.app).post("/api/v1/static-parameters")
+      .send({ ...parameterInput, id: "ignored-on-the-alias" }).expect(201);
+    expect(aliasParameter.body).toMatchObject({ ...parameterInput });
+    expect(aliasParameter.body.id).not.toBe("ignored-on-the-alias");
+    const canonicalParameter = await request(runtime.app).post("/api/v1/parameters")
+      .send({ ...parameterInput, id: aliasParameter.body.id, value: 3 }).expect(200);
+    expect(canonicalParameter.body.parameter).toMatchObject({ id: aliasParameter.body.id, value: 3 });
+    const aliasParameters = await request(runtime.app).get("/api/v1/static-parameters?houseId=house-main").expect(200);
+    const canonicalParameters = await request(runtime.app).get("/api/v1/parameters?houseId=house-main").expect(200);
+    expect(aliasParameters.body).toEqual(canonicalParameters.body);
+    expect(canonicalParameters.body.parameters).toContainEqual(canonicalParameter.body.parameter);
 
     const readings = await request(runtime.app).get("/api/v1/readings").query({
       sensorId: "sensor-01", from: new Date(Date.now() - 3_600_000).toISOString(), to: new Date().toISOString(), limit: 100,

@@ -1,43 +1,14 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { Activity, AlertTriangle, BatteryMedium, Bolt, Box, Check, ChevronDown, Droplets, Edit3, Gauge, History, Home, Map, MapPinPlus, Maximize2, Minimize2, Save, Sparkles, Thermometer, Wind } from "lucide-react";
-import { isAirflowPlanElement, type ConfiguredOpeningState, type ConnectionState, type Floor, type House, type ManualObservation, type ManualObservationInput, type ManualObservationPatch, type MeasurementDefinition, type MeasurementSample, type Metric, type MockScenario, type ObservationConfidence, type ObservationRevision, type ObservationSource, type ObservationTimePrecision, type OpeningStateObservation, type Point, type Reading, type Sensor, type StaticParameter, type UnitSystem } from "@climate-twin/contracts";
-import { ReplayControls } from "../../../components/ReplayControls";
-import { RoomComfortBoard } from "../../../components/RoomComfortBoard";
-import { MoistureCoach } from "../../../components/MoistureCoach";
-import { HomePulsePanel } from "../../../components/HomePulsePanel";
-import { HomeOperationsPreview } from "../../../components/HomeOperationsPreview";
+import type { SensorPatch } from "@climate-twin/contracts";
+import { useEffect, useState, type FormEvent } from "react";
+import { BatteryMedium, Home } from "lucide-react";
+import { type Floor, type House, type MeasurementDefinition, type MeasurementSample, type Metric, type Reading, type Sensor, type UnitSystem } from "@climate-twin/contracts";
 import "../../../components/decisionLayer.css";
 import "../../OperationsPages.css";
 import { formatInTimeZone } from "../../../dateTime";
-import { clamp, round, type ClimateState, type TimeRange, type ViewMode } from "../../../domain";
-import { useI18n, type TranslationKey } from "../../../i18n";
-import { definitionFor, displayUnit, enabledDefinitions, formatMeasurement, formatMeasurementDelta, measurementComparisonColor, measurementDomain, measurementLabel, measurementValue, samplesAt, type LatestMeasurements } from "../../../measurements";
+import { clamp, round, type ClimateState } from "../../../domain";
+import { useI18n } from "../../../i18n";
+import { formatMeasurement, measurementLabel, measurementValue } from "../../../measurements";
 import { isEnergyDeviceSensor } from "../../../energyDeviceMap";
-import { configuredSpatialMaxSampleAgeMs, configuredSpatialReplayMaxSampleAgeMs, isSpatialSampleFresh } from "../../../spatialFreshness";
-import { createOutdoorBoundaryContext } from "../../../outdoorContext";
-import { useHouseWeather } from "../../../useHouseWeather";
-import type { OutdoorVisualizationState } from "../../../components/OutdoorConditionsBadge";
-import type { CreateHouseInput } from "../../../components/StructureEditor";
-import {
-  simulateBuildingAirflow,
-  simulateFloorAirflow,
-  type BuildingAirflowEstimate,
-  type ClimateSampleMatrix,
-  type FloorAirflowEstimate,
-} from "../../../airflowSimulation";
-import type { DataMode } from "../../../useClimateData";
-import { api, type MeasurementHistoryPage, type SensorPatch } from "../../../api";
-import { useSpatialLayers } from "../../../useSpatialLayers";
-import { SpatialLayerPanel } from "../../../components/SpatialLayerPanel";
-import {
-  assessSensorCoverage,
-  experimentalLayerSuggestions,
-  type ExperimentalVisualizationId,
-} from "../../../experimentalSpatialLayers";
-import { readLocalStorage, writeLocalStorage } from "../../../browserStorage";
-import { detectReplayClimateEvents, type ReplayClimateEvent } from "../../../replayEvents";
-import { openingStateCanChange, openingStateKey, openingStateObservationsForHouse } from "../../../openingState";
-import { integrationForHouse } from "../../../integrationScope";
 import { MeasurementGlyph } from "./part-01";
 
 export function sensorSupportsMeasurement(state: ClimateState, sensor: Sensor, metric: Metric): boolean {
@@ -131,7 +102,7 @@ export function SensorInspector({
               <strong>{value == null ? t("common.noData") : formatMeasurement(value, definition, units)}</strong>
               <small>
                 <span className={`quality-dot ${sample?.quality ?? "stale"}`} aria-hidden="true" />
-                {sample ? t(`measurement.quality.${sample.quality}` as TranslationKey) : t("common.noData")}
+                {sample ? t(`measurement.quality.${sample.quality}`) : t("common.noData")}
                 {sample && <time dateTime={sample.timestamp}>{formatInTimeZone(sample.timestamp, locale, house.timezone, { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</time>}
               </small>
             </div>
@@ -142,8 +113,8 @@ export function SensorInspector({
         <div><dt>{t("twin.sensorFloor")}</dt><dd>{floor.name}</dd></div>
         <div><dt>{t("twin.mountingHeight")}</dt><dd>{round(sensor.z - floor.elevation)} m</dd></div>
         <div><dt><BatteryMedium size={15} aria-hidden="true" />{t("twin.battery")}</dt><dd>{batteryValue == null ? t("common.noData") : `${batteryValue}%`}</dd></div>
-        <div><dt>{t("twin.quality")}</dt><dd><span className={`quality-dot ${selectedSample?.quality ?? "stale"}`} aria-hidden="true" />{selectedSample ? t(`measurement.quality.${selectedSample.quality}` as TranslationKey) : t("common.noData")}</dd></div>
-        <div><dt>{t("twin.source")}</dt><dd>{selectedSample ? t(`measurement.source.${selectedSample.source}` as TranslationKey) : t("common.noData")}</dd></div>
+        <div><dt>{t("twin.quality")}</dt><dd><span className={`quality-dot ${selectedSample?.quality ?? "stale"}`} aria-hidden="true" />{selectedSample ? t(`measurement.quality.${selectedSample.quality}`) : t("common.noData")}</dd></div>
+        <div><dt>{t("twin.source")}</dt><dd>{selectedSample ? t(`measurement.source.${selectedSample.source}`) : t("common.noData")}</dd></div>
         <div><dt>{t("twin.lastReading")}</dt><dd>{selectedSample ? <time dateTime={selectedSample.timestamp}>{formatInTimeZone(selectedSample.timestamp, locale, house.timezone, { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</time> : t("common.noData")}</dd></div>
       </dl></>}
       {editing && <>

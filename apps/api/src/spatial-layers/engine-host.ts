@@ -1,3 +1,4 @@
+import { withSignal } from "@climate-twin/contracts";
 import {
   immutableDependencySnapshots,
   type SpatialLayerEngineManifest,
@@ -27,6 +28,37 @@ const DEFAULT_WINDOWS_MINUTES: Record<string, number> = {
   "graph-propagation": 90,
   "unexplained-activity": 180,
 };
+
+/** Zero-config scalar output while research engines remain opt-in. */
+function defaultScopeConfig(): Record<string, unknown> {
+  return {
+    featureFlags: {
+      spatialLayersEnabled: true,
+      experimentalPropagationEnabled: false,
+      researchActivityEnabled: false,
+    },
+    engineWindowsMinutes: { ...DEFAULT_WINDOWS_MINUTES },
+  };
+}
+
+function defaultAssignment(
+  scope: SpatialScope,
+  manifest: SpatialLayerEngineManifest,
+  configVersion: number,
+  at: string,
+): SpatialEngineAssignment {
+  return {
+    scope,
+    engineId: manifest.id,
+    engineVersion: manifest.version,
+    enabled: manifest.id === "climate-scalars",
+    layerIds: [...manifest.producedLayerIds],
+    configVersion,
+    updatedAt: at,
+  };
+}
+
+const byEngineId = (left: SpatialEngineAssignment, right: SpatialEngineAssignment) => left.engineId.localeCompare(right.engineId);
 
 export interface SpatialEngineHostLogger {
   info?(fields: Record<string, unknown>, message: string): void;
@@ -265,7 +297,27 @@ export class EngineHost {
     return this.dependencies.now?.() ?? new Date();
   }
 
-  /** Ensure zero-config scalar output while research engines remain opt-in. */
+  /**
+   * The scope's stored configuration and engine assignments, with the defaults
+   * built in memory where nothing is stored yet. Reads never write.
+   */
+  scopeDefaults(scope: SpatialScope, at = this.now().toISOString()): {
+    configuration: SpatialConfigurationVersion;
+    assignments: SpatialEngineAssignment[];
+  } {
+    if (!this.dependencies.coreInput.scopeExists(scope)) throw new Error(`${scope.kind} ${scope.id} does not exist`);
+    const stored = this.dependencies.state.getCurrentConfiguration(this.#partition, scope);
+    const configuration = stored.version === 0
+      ? { scope, version: 0, config: defaultScopeConfig(), createdAt: at, createdBy: "system-default" }
+      : stored;
+    const existing = new Map(this.dependencies.state.listAssignments(this.#partition, scope).map((item) => [item.engineId, item]));
+    for (const manifest of this.manifests) {
+      if (!existing.has(manifest.id)) existing.set(manifest.id, defaultAssignment(scope, manifest, configuration.version, at));
+    }
+    return { configuration, assignments: [...existing.values()].sort(byEngineId) };
+  }
+
+  /** Persists the zero-config defaults where a scope becomes active (inference or a saved configuration). */
   ensureScopeDefaults(scope: SpatialScope, at = this.now().toISOString()): {
     configuration: SpatialConfigurationVersion;
     assignments: SpatialEngineAssignment[];
@@ -277,14 +329,7 @@ export class EngineHost {
         partition: this.#partition,
         scope,
         baseVersion: 0,
-        config: {
-          featureFlags: {
-            spatialLayersEnabled: true,
-            experimentalPropagationEnabled: false,
-            researchActivityEnabled: false,
-          },
-          engineWindowsMinutes: { ...DEFAULT_WINDOWS_MINUTES },
-        },
+        config: defaultScopeConfig(),
         createdAt: at,
         createdBy: "system-default",
       });
@@ -292,20 +337,11 @@ export class EngineHost {
     const existing = new Map(this.dependencies.state.listAssignments(this.#partition, scope).map((item) => [item.engineId, item]));
     for (const manifest of this.manifests) {
       if (existing.has(manifest.id)) continue;
-      const enabled = manifest.id === "climate-scalars";
-      const assignment: SpatialEngineAssignment = {
-        scope,
-        engineId: manifest.id,
-        engineVersion: manifest.version,
-        enabled,
-        layerIds: [...manifest.producedLayerIds],
-        configVersion: configuration.version,
-        updatedAt: at,
-      };
+      const assignment = defaultAssignment(scope, manifest, configuration.version, at);
       this.dependencies.state.putAssignment(this.#partition, assignment);
       existing.set(manifest.id, assignment);
     }
-    return { configuration, assignments: [...existing.values()].sort((left, right) => left.engineId.localeCompare(right.engineId)) };
+    return { configuration, assignments: [...existing.values()].sort(byEngineId) };
   }
 
   ensureAllScopeDefaults(at = this.now().toISOString()): SpatialScope[] {
@@ -322,7 +358,7 @@ export class EngineHost {
     signal?.throwIfAborted();
     const currentProjection = bucketAt === undefined;
     const resolvedBucketAt = bucketAt ?? this.now().toISOString();
-    const { configuration, assignments } = this.ensureScopeDefaults(scope, resolvedBucketAt);
+    const { configuration, assignments } = this.scopeDefaults(scope, resolvedBucketAt);
     const houses = this.dependencies.coreInput.housesForScope(scope);
     const from = new Date(Date.parse(resolvedBucketAt) - 180 * 60_000).toISOString();
     const bindings = houses.flatMap((house) => this.dependencies.state.listBindings(
@@ -338,7 +374,7 @@ export class EngineHost {
       configuration,
       bindings,
       currentProjection,
-      ...(signal ? { signal } : {}),
+      ...withSignal(signal),
     });
     signal?.throwIfAborted();
     return {
@@ -532,7 +568,7 @@ export class EngineHost {
   }
 
   health(scope: SpatialScope, currentSnapshots?: readonly PersistedSpatialLayerSnapshot[]): SpatialEngineHealth[] {
-    const defaults = this.ensureScopeDefaults(scope);
+    const defaults = this.scopeDefaults(scope);
     const assignments = defaults.assignments;
     const latestSnapshots = (currentSnapshots ?? this.dependencies.state.currentSnapshots(
       this.#partition,

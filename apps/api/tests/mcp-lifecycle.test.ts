@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { McpOperationTracker, runMcpToolRequest } from "../src/mcp-lifecycle.js";
+import { McpOperationTracker, runMcpToolRequest } from "../src/mcp-server/lifecycle.js";
 
 describe("MCP operation lifecycle", () => {
   it("rejects new work during shutdown and waits for active tool calls", async () => {

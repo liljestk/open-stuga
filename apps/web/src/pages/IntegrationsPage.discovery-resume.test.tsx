@@ -94,8 +94,8 @@ describe("integration discovery resume", () => {
     const found = {
       homeAssistant: [],
       tpLink: [
-        { host: "192.168.1.20", model: "P110", alias: "Desk plug", sourceType: "energy-device" as const },
-        { host: "192.168.1.21", model: "P110", alias: "Heater plug", sourceType: "energy-device" as const },
+        { host: "192.168.1.20", model: "P110", alias: "Desk plug", sourceType: "energy-device" as const, deviceId: null },
+        { host: "192.168.1.21", model: "P110", alias: "Heater plug", sourceType: "energy-device" as const, deviceId: null },
       ],
       warnings: [],
     };

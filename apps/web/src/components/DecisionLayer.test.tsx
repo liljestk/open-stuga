@@ -1,24 +1,24 @@
+import { BUILTIN_MEASUREMENT_DEFINITIONS } from "@climate-twin/contracts";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 import { describe, expect, it, vi } from "vitest";
 
-import type { AlertEvent, IntegrationStatus, MaintenanceTask, ManualObservation, MeasurementSample, ObservationRevision, Sensor } from "@climate-twin/contracts";
+import type { AlertEvent, MaintenanceTask, ManualObservation, ObservationRevision } from "@climate-twin/contracts";
 
 import { ApiRequestError } from "../api";
 
 import { I18nProvider } from "../i18n";
 
-import { BUILTIN_MEASUREMENTS } from "../measurements";
 
 import { createDemoState } from "../domain";
 
-import { buildRoomComforts, RoomComfortBoard } from "./RoomComfortBoard";
+import { buildRoomComforts, RoomComfortBoard } from "../pages/TwinDashboard/RoomComfortBoard";
 
-import { buildMoistureAdvice, dewPointCelsius, MoistureCoach } from "./MoistureCoach";
+import { buildMoistureAdvice, dewPointCelsius, MoistureCoach } from "../pages/TwinDashboard/MoistureCoach";
 
 import { buildHomeActivityEvents, HomeActivityTimeline } from "./HomeActivityTimeline";
 
-import { HomePulsePanel } from "./HomePulsePanel";
+import { HomePulsePanel } from "../pages/TwinDashboard/HomePulsePanel";
 
 import { observationInstantTimestamp } from "./RoomComparisonChart";
 import {
@@ -385,7 +385,7 @@ describe("decision layer", () => {
 
   it("opens stable Room evidence without selecting a representative sensor", () => {
     const onOpenRoom = vi.fn();
-    render(<I18nProvider><RoomComfortBoard sensors={[sensor]} latestMeasurements={{ [sensor.id]: { temperature: sample("temperature", 22), humidity: sample("humidity", 45), co2: sample("co2", 700) } }} measurementHistory={{}} definitions={BUILTIN_MEASUREMENTS} alerts={[]} units="metric" now={now} onOpenRoom={onOpenRoom} /></I18nProvider>);
+    render(<I18nProvider><RoomComfortBoard sensors={[sensor]} latestMeasurements={{ [sensor.id]: { temperature: sample("temperature", 22), humidity: sample("humidity", 45), co2: sample("co2", 700) } }} measurementHistory={{}} definitions={BUILTIN_MEASUREMENT_DEFINITIONS} alerts={[]} units="metric" now={now} onOpenRoom={onOpenRoom} /></I18nProvider>);
     fireEvent.click(screen.getByRole("button", { name: /^Open Office\. Status: Comfortable\./ }));
     expect(onOpenRoom).toHaveBeenCalledWith("floor", "room-office");
     expect(screen.getByRole("heading", { name: "Office" })).not.toBeNull();
@@ -406,7 +406,7 @@ describe("decision layer", () => {
       humidity: { ...sample("humidity", 75), sensorId: item.id },
     }]));
 
-    render(<I18nProvider><RoomComfortBoard sensors={sensors} latestMeasurements={latestMeasurements} measurementHistory={{}} definitions={BUILTIN_MEASUREMENTS} alerts={[]} units="metric" now={now} onOpenRoom={vi.fn()} /></I18nProvider>);
+    render(<I18nProvider><RoomComfortBoard sensors={sensors} latestMeasurements={latestMeasurements} measurementHistory={{}} definitions={BUILTIN_MEASUREMENT_DEFINITIONS} alerts={[]} units="metric" now={now} onOpenRoom={vi.fn()} /></I18nProvider>);
 
     for (const item of sensors) expect(screen.getByRole("button", { name: new RegExp(`^Open ${item.room}\\. Status: Needs attention\\.`) })).not.toBeNull();
     expect(screen.queryByText(/Show .* more rooms/)).toBeNull();

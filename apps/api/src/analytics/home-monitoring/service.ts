@@ -14,22 +14,12 @@ import type {
   MeasurementSample,
   Sensor,
 } from "@climate-twin/contracts";
-import { HOME_MONITORING_ALGORITHM_VERSION } from "@climate-twin/contracts";
+import { HOME_MONITORING_ALGORITHM_VERSION, withSignal } from "@climate-twin/contracts";
 import type { ClimateDatabase } from "../../db.js";
 import type { HybridTelemetryReader } from "../../timeseries/read-facade.js";
-import {
-  deriveHouseMonitoring,
-  type HouseMonitoringBlocker as DerivedBlocker,
-} from "./derive.js";
-import {
-  deriveHomePulse,
-  HOME_INSIGHT_ADVISORY,
-  HOME_INSIGHT_THRESHOLDS,
-  type HomeInsight as DerivedInsight,
-  type LatestMeasurements,
-  type MeasurementHistory,
-} from "./insights.js";
-import { coverageFreshnessForSample } from "./model.js";
+import { deriveHomeMonitoringDraft, type HomeMonitoringDraftBlocker } from "./derive.js";
+import { deriveHomePulse } from "./insights.js";
+import { coverageFreshnessForSample, HOME_INSIGHT_THRESHOLDS, type DerivedInsight, type LatestMeasurements, type MeasurementHistory, HOME_INSIGHT_ADVISORY } from "./model.js";
 import { HEAT_PUMP_SENSOR_TAG } from "../../heat-pump-measurements.js";
 
 const HISTORY_BUCKET_MINUTES = 5;
@@ -112,7 +102,7 @@ export async function loadHomeMonitoringHistory(input: {
     to: input.evaluatedAt,
     resolution: "5m",
     qualities: ["good", "estimated", "stale"],
-    ...(input.signal ? { signal: input.signal } : {}),
+    ...withSignal(input.signal),
   });
   if (rollup) {
     const history: MeasurementHistory = {};
@@ -144,12 +134,14 @@ export async function loadHomeMonitoringHistory(input: {
   }
 
   return historyFromSamples(input.database.measurementHistoryBucketedMulti(
-    sensors.map((sensor) => sensor.id),
-    [...HISTORY_METRICS],
-    from,
-    input.evaluatedAt,
-    HISTORY_BUCKET_MINUTES * 60,
-    HISTORY_LIMIT_PER_METRIC,
+    {
+      sensorIds: sensors.map((sensor) => sensor.id),
+      metrics: [...HISTORY_METRICS],
+      from,
+      to: input.evaluatedAt,
+      bucketSeconds: HISTORY_BUCKET_MINUTES * 60,
+      limitPerSeries: HISTORY_LIMIT_PER_METRIC,
+    },
   ));
 }
 
@@ -188,7 +180,7 @@ function evidence(
   };
 }
 
-function blocker(blocker: DerivedBlocker): HomeMonitoringBlocker {
+function blocker(blocker: HomeMonitoringDraftBlocker): HomeMonitoringBlocker {
   return {
     id: blocker.id,
     kind: blocker.kind,
@@ -262,7 +254,7 @@ function insight(item: DerivedInsight, input: ReturnType<typeof evidence>, evalu
 function summaryFrom(
   input: ReturnType<typeof evidence>,
 ): HomeMonitoringSummary {
-  const result = deriveHouseMonitoring(input);
+  const result = deriveHomeMonitoringDraft(input);
   return {
     houseId: result.houseId,
     generatedAt: result.generatedAt,

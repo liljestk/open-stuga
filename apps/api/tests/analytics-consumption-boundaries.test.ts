@@ -1,7 +1,7 @@
 import { PGlite } from "@electric-sql/pglite";
 import { describe, expect, it, vi } from "vitest";
 import { ClimateDatabase } from "../src/db.js";
-import { analyticsConsumptionBuckets } from "../src/analytics-consumption.js";
+import { analyticsConsumptionBuckets } from "../src/analytics/query/consumption.js";
 import { buildBaseSchemaSql } from "../src/timeseries/schema.js";
 import { orderedAnalyticsSql } from "../src/timeseries/store/measurement-analytics-rollup-sql.js";
 import type { MeasurementSample } from "@climate-twin/contracts";

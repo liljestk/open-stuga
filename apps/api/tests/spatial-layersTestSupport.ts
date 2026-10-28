@@ -1,46 +1,21 @@
-import { mkdtempSync, renameSync, rmSync } from "node:fs";
-
-import { tmpdir } from "node:os";
-
-import { join } from "node:path";
-
-import express from "express";
-
-import request from "supertest";
-
 import {
-  ClimateScalarEngine,
   SpatialLayerEngineRegistry,
   snapshotBase,
-  type SpatialLayerEngine,
   type SpatialLayerEngineInput,
   type SpatialLayerEngineManifest,
   type SpatialLayerSnapshot,
 } from "@climate-twin/spatial-layers";
 
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { expect } from "vitest";
 
 import { ClimateDatabase } from "../src/db.js";
 
 import { openApiV1Document } from "../src/openapi.js";
 
-import { buildHouseTopology } from "../src/spatial-layers/core-input.js";
-
-import {
-  HybridTelemetryReader,
-  type ArchiveTelemetryReader,
-} from "../src/timeseries/read-facade.js";
-
 import {
   createLocalSpatialLayerRuntime,
   DirectSpatialEngineExecutor,
-  deriveSpatialStatePath,
-  registerSpatialLayerRoutes,
-  sourceDatabaseId,
   SpatialLayerStateStore,
-  SpatialSourceIdentityCollisionError,
-  SpatialExecutionTimeoutError,
-  WorkerThreadSpatialEngineExecutor,
   type LocalSpatialLayerRuntime,
   type SpatialDataPartition,
   type SpatialLayerSnapshotDraft,

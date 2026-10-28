@@ -1,33 +1,26 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { BUILTIN_MEASUREMENT_DEFINITIONS } from "@climate-twin/contracts";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 
 import { describe, expect, it, vi } from "vitest";
 
-import type { AlertEvent, IntegrationStatus, MaintenanceTask, ManualObservation, MeasurementSample, ObservationRevision, Sensor } from "@climate-twin/contracts";
-
-import { ApiRequestError } from "../api";
+import type { AlertEvent, MeasurementSample } from "@climate-twin/contracts";
 
 import { I18nProvider } from "../i18n";
 
-import { BUILTIN_MEASUREMENTS } from "../measurements";
 
 import { createDemoState } from "../domain";
 
-import { buildRoomComforts, RoomComfortBoard } from "./RoomComfortBoard";
+import { buildRoomComforts, RoomComfortBoard } from "../pages/TwinDashboard/RoomComfortBoard";
 
-import { buildMoistureAdvice, dewPointCelsius, MoistureCoach } from "./MoistureCoach";
+import { HomePulsePanel } from "../pages/TwinDashboard/HomePulsePanel";
 
-import { buildHomeActivityEvents, HomeActivityTimeline } from "./HomeActivityTimeline";
-
-import { HomePulsePanel } from "./HomePulsePanel";
-
-import { observationInstantTimestamp } from "./RoomComparisonChart";
 import {
   monitoringDetail,
   monitoringInsight,
   monitoringSummary,
 } from "../monitoringTestSupport";
 
-import { integration, now, openHomePulseMore, sample, sensor } from "./DecisionLayerTestSupport";
+import { now, openHomePulseMore, sample, sensor } from "./DecisionLayerTestSupport";
 
 describe("decision layer", () => {
   it("omits unsupported CO2 from room cards but keeps configured missing readings visible", () => {
@@ -35,7 +28,7 @@ describe("decision layer", () => {
       sensors={[sensor]}
       latestMeasurements={{ [sensor.id]: { temperature: sample("temperature", 22), humidity: sample("humidity", 45) } }}
       measurementHistory={{}}
-      definitions={BUILTIN_MEASUREMENTS}
+      definitions={BUILTIN_MEASUREMENT_DEFINITIONS}
       alerts={[]}
       units="metric"
       now={now}
@@ -52,7 +45,7 @@ describe("decision layer", () => {
       sensors={[{ ...sensor, measurementEntityIds: { co2: "sensor.office_co2" } }]}
       latestMeasurements={{ [sensor.id]: { temperature: sample("temperature", 22), humidity: sample("humidity", 45) } }}
       measurementHistory={{}}
-      definitions={BUILTIN_MEASUREMENTS}
+      definitions={BUILTIN_MEASUREMENT_DEFINITIONS}
       alerts={[]}
       units="metric"
       now={now}
@@ -142,7 +135,7 @@ describe("decision layer", () => {
       sensors={[meter, plug]}
       latestMeasurements={latestMeasurements}
       measurementHistory={{}}
-      definitions={BUILTIN_MEASUREMENTS}
+      definitions={BUILTIN_MEASUREMENT_DEFINITIONS}
       alerts={[]}
       units="metric"
       now={now}

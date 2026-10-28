@@ -1,4 +1,4 @@
-import type { TenantMemberRole } from "@climate-twin/contracts";
+import { roleCanAccessNonGuestConfiguration, roleCanManageWorkspace, type TenantMemberRole } from "@climate-twin/contracts";
 
 export type BrowserCapability =
   | "workspace-administration"
@@ -26,9 +26,9 @@ const nonGuestCapabilities = new Set<BrowserCapability>([
   "area-mutation",
 ]);
 
-/** Mirrors the API's owner/admin and non-Guest authorization boundaries. */
+/** The browser's view of the API's owner/admin and non-Guest boundaries, built on the shared role predicates. */
 export function hasBrowserCapability(role: TenantMemberRole, capability: BrowserCapability): boolean {
-  if (role === "owner" || role === "admin") return administratorCapabilities.has(capability);
-  if (role === "guest") return false;
+  if (roleCanManageWorkspace(role)) return administratorCapabilities.has(capability);
+  if (!roleCanAccessNonGuestConfiguration(role)) return false;
   return nonGuestCapabilities.has(capability);
 }

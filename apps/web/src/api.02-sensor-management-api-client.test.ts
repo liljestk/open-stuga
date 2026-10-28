@@ -4,14 +4,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   api,
-  cancelPendingApiRequests,
-  COLLECTION_PAGE_SIZE,
-  subscribeToApiAuthorizationChanges,
-  subscribeToEvents,
-  subscribeToMeasurementEvents,
-  subscribeToSpatialLayerEvents,
-  subscribeToSystemUpdateEvents,
-  subscribeToTrackingEvents,
 } from "./api";
 
 import { createDemoState } from "./domain";
@@ -310,7 +302,7 @@ describe("house weather API client", () => {
     );
 
     fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => ({ current, prices: [current] }) } as Response);
-    await expect(api.houseElectricityPrice(house.id, current.startAt, current.endAt)).resolves.toEqual({ current, prices: [current] });
+    await expect(api.houseElectricityPrice(house.id, { from: current.startAt, to: current.endAt })).resolves.toEqual({ current, prices: [current] });
     expect(fetchMock).toHaveBeenLastCalledWith(
       `/api/v1/houses/house%2Fcoast/electricity-price?from=${encodeURIComponent(current.startAt)}&to=${encodeURIComponent(current.endAt)}`,
       expect.any(Object),

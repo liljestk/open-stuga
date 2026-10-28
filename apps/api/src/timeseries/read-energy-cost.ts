@@ -15,10 +15,9 @@ type CostAggregateMetric = "energy" | "power";
  */
 export const LOCAL_COST_FALLBACK_MAX_WINDOW_MS = 72 * 3_600_000;
 
+/** The local worker's cost aggregation; ClimateDatabase always provides it. */
 interface LocalCostAggregateReader {
-  energyCostAggregate?(query: EnergyCostAggregateQuery): EnergyCostAggregateRecord;
-  powerCostAggregate?(query: PowerCostAggregateQuery): EnergyCostAggregateRecord;
-  costAggregateAsync?(metric: CostAggregateMetric, query: CostAggregateQuery): Promise<EnergyCostAggregateRecord>;
+  costAggregateAsync(metric: CostAggregateMetric, query: CostAggregateQuery): Promise<EnergyCostAggregateRecord>;
 }
 
 interface ArchiveCostAggregateReader {
@@ -42,23 +41,15 @@ export async function readCostAggregate(input: {
 }): Promise<EnergyCostAggregateRecord> {
   const cancellation = aborted(input.query.signal);
   if (cancellation) throw cancellation;
-  const synchronousRead = input.metric === "energy"
-    ? input.local.energyCostAggregate
-    : input.local.powerCostAggregate;
-  const localRead = input.local.costAggregateAsync
-    ? () => input.local.costAggregateAsync!(input.metric, input.query)
-    : synchronousRead ? () => synchronousRead.call(input.local, input.query) : undefined;
+  const localRead = () => input.local.costAggregateAsync(input.metric, input.query);
   const archiveRead = input.metric === "energy"
     ? input.archive?.energyCostAggregate
     : input.archive?.powerCostAggregate;
   if (!input.archive || !archiveRead) {
     if (!input.localHistoryComplete) throw new IncompleteTelemetryHistoryError("not-configured");
-    if (!localRead) throw new Error(`Local ${input.metric}-cost aggregation is unavailable`);
     return { ...await localRead(), archiveState: "local-only" };
   }
-  const localFallbackReady = input.localHistoryComplete
-    && localRead !== undefined
-    && windowWithinLocalFallback(input.query);
+  const localFallbackReady = input.localHistoryComplete && windowWithinLocalFallback(input.query);
   // A synchronizing archive still has a consistent committed prefix. Use it
   // without merging the SQLite tail, and expose the result as pending.
   const archiveIsSynchronizing = input.archivePhase === "syncing";
@@ -67,7 +58,7 @@ export async function readCostAggregate(input: {
     if (!localFallbackReady) {
       throw new IncompleteTelemetryHistoryError("not-ready");
     }
-    return { ...await localRead!(), archiveState: "pending" };
+    return { ...await localRead(), archiveState: "pending" };
   }
   try {
     return {
@@ -83,7 +74,7 @@ export async function readCostAggregate(input: {
       || error instanceof AnalyticsCapacityError;
     if (!retryable) input.requestReconciliation();
     if (localFallbackReady) {
-      return { ...await localRead!(), archiveState: "pending" };
+      return { ...await localRead(), archiveState: "pending" };
     }
     if (retryable) throw error;
     throw new IncompleteTelemetryHistoryError("failed");

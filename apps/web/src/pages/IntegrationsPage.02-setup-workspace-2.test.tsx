@@ -1,8 +1,8 @@
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 
 import userEvent from "@testing-library/user-event";
 
-import type { House, IntegrationStatus, TpLinkDiscoveredDevice } from "@climate-twin/contracts";
+import type { IntegrationStatus } from "@climate-twin/contracts";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -56,7 +56,7 @@ describe("Setup workspace", () => {
   it("uses discovery first, then reveals manual credentials in Connections", async () => {
     const user = userEvent.setup();
     vi.spyOn(api, "discoverIntegrations").mockResolvedValue({
-      tpLink: [{ host: "192.168.1.42", model: "H200", alias: "Hall hub" }],
+      tpLink: [{ host: "192.168.1.42", model: "H200", alias: "Hall hub", sourceType: "hub", deviceId: null }],
       homeAssistant: [{ name: "Our home", url: "http://homeassistant.local:8123", host: "192.168.1.20", port: 8123, version: "2026.7.1" }],
       warnings: [],
     });
@@ -154,7 +154,7 @@ describe("Setup workspace", () => {
   it("does not report a device as added until the saved connection can be read back", async () => {
     const user = userEvent.setup();
     vi.spyOn(api, "discoverIntegrations").mockResolvedValue({
-      tpLink: [{ host: "192.168.1.41", model: "P110", alias: "Laundry plug", sourceType: "energy-device" }],
+      tpLink: [{ host: "192.168.1.41", model: "P110", alias: "Laundry plug", sourceType: "energy-device", deviceId: null }],
       homeAssistant: [],
       warnings: [],
     });
@@ -262,7 +262,7 @@ describe("Setup workspace", () => {
       }],
     });
     vi.spyOn(api, "discoverIntegrations").mockResolvedValue({
-      tpLink: [{ host: "192.168.1.41", model: "P110", alias: "Laundry plug", sourceType: "energy-device" }],
+      tpLink: [{ host: "192.168.1.41", model: "P110", alias: "Laundry plug", sourceType: "energy-device", deviceId: null }],
       homeAssistant: [],
       warnings: [],
     });
@@ -302,7 +302,7 @@ describe("Setup workspace", () => {
 
     await act(async () => {
       scan.resolve({
-        tpLink: [{ host: "192.168.1.56", model: "H200", alias: "Hall hub" }],
+        tpLink: [{ host: "192.168.1.56", model: "H200", alias: "Hall hub", sourceType: "hub", deviceId: null }],
         homeAssistant: [],
         warnings: [],
       });
@@ -355,8 +355,8 @@ describe("Setup workspace", () => {
     };
     vi.spyOn(api, "discoverIntegrations").mockResolvedValue({
       tpLink: [
-        { host: "192.168.1.56", model: "H200", alias: "Hall hub", sourceType: "hub" },
-        { host: "192.168.1.64", model: "P110", alias: "Laundry plug", sourceType: "energy-device" },
+        { host: "192.168.1.56", model: "H200", alias: "Hall hub", sourceType: "hub", deviceId: null },
+        { host: "192.168.1.64", model: "P110", alias: "Laundry plug", sourceType: "energy-device", deviceId: null },
       ],
       homeAssistant: [],
       warnings: [],
@@ -438,7 +438,7 @@ describe("Setup workspace", () => {
       mock: { ...integration.mock, enabled: false, mode: "real", activatedAt: "2026-07-14T12:00:00.000Z" },
     };
     vi.spyOn(api, "discoverIntegrations").mockResolvedValue({
-      tpLink: [{ host: "192.168.1.42", model: "H200", alias: "Hall hub" }],
+      tpLink: [{ host: "192.168.1.42", model: "H200", alias: "Hall hub", sourceType: "hub", deviceId: null }],
       homeAssistant: [],
       warnings: [],
     });
@@ -508,7 +508,7 @@ describe("Setup workspace", () => {
       tpLink: { ...connectingWithoutChildren.tpLink, connected: true, hubModel: "H200" },
     };
     vi.spyOn(api, "discoverIntegrations").mockResolvedValue({
-      tpLink: [{ host: "192.168.1.42", model: "H200", alias: "Hall hub" }],
+      tpLink: [{ host: "192.168.1.42", model: "H200", alias: "Hall hub", sourceType: "hub", deviceId: null }],
       homeAssistant: [],
       warnings: [],
     });

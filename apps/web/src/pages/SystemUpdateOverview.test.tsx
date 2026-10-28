@@ -1,6 +1,6 @@
+import type { SystemUpdateStatus } from "@climate-twin/contracts";
 import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import type { SystemUpdateStatus } from "../api";
 import { I18nProvider } from "../i18n";
 import { SystemUpdateOverview } from "./SystemUpdateOverview";
 

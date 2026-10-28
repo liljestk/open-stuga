@@ -1,6 +1,5 @@
 import { useRef, useState } from "react";
 import { useSeriesQueries } from "../data/bootstrap/useSeriesQueries";
-import type { LiveTelemetryContext } from "../data/bootstrap/pipelineTypes";
 import type { SeriesLoadState } from "../useClimateData";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -59,8 +58,8 @@ describe("electricity empty and denied states", () => {
     state.sensors = []; state.latestMeasurements = {}; state.measurementHistory = {};
     window.history.replaceState(null, "", "/electricity?metric=electricity_price");
     const now = Date.now();
-    vi.spyOn(api, "houseElectricityPrice").mockImplementation(async (_houseId, from) => {
-      if (from) throw denied();
+    vi.spyOn(api, "houseElectricityPrice").mockImplementation(async (_houseId, query) => {
+      if (query?.from) throw denied();
       return { current: { startAt: new Date(now - 60_000).toISOString(), endAt: new Date(now + 3_600_000).toISOString(),
         effectivePriceCentsPerKwh: 10, effectivePriceEurPerKwh: 0.1, fetchedAt: new Date(now).toISOString() } };
     });
@@ -80,7 +79,7 @@ describe("electricity empty and denied states", () => {
         activeSeriesTelemetryBuffers: useRef(new Set()), apiAvailable: useRef(true),
         seriesCommitSequence: useRef(0), seriesCommitVersions: useRef(new Map()),
         seriesLoadVersions: useRef(new Map()), setSeriesStates, setState,
-      } as unknown as LiveTelemetryContext;
+      } as unknown as Parameters<typeof useSeriesQueries>[0];
       const { loadSeries } = useSeriesQueries(context);
       return <I18nProvider><ElectricityHistory state={state} sensors={[sensor]} metric="power"
         onMetric={vi.fn()} units="metric" range="24h" onRange={vi.fn()} timeZone="UTC"

@@ -1,8 +1,9 @@
+import { withSignal } from "@climate-twin/contracts";
 import type { HomeEnergyProjection, House, Sensor } from "@climate-twin/contracts";
 import { LruTtlCache, type CacheStats } from "../cache.js";
 import type { AnalyticsWorkLimiter } from "../analytics/work-limiter.js";
 import { outdoorLocationKey, type ClimateDatabase } from "../db.js";
-import type { EnergySummaryCache } from "../energy-summary-cache.js";
+import type { EnergySummaryCache } from "./summary-cache.js";
 import type { HybridTelemetryReader } from "../timeseries/read-facade.js";
 import { EnergyProjectionService } from "./projection-service.js";
 
@@ -46,6 +47,6 @@ export class EnergyProjectionCache {
       "energy-projection",
       () => this.#service.project(house, sensors, loadSignal),
       loadSignal,
-    ), { serveStale: false, ...(signal ? { signal } : {}) });
+    ), { serveStale: false, ...withSignal(signal) });
   }
 }

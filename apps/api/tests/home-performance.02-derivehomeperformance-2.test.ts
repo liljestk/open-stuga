@@ -1,22 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import type {
-  ActionRun,
-  AnalyticsPoint,
-  AnalyticsQueryResponse,
-  AnalyticsSeries,
-  House,
-  MaintenanceTask,
-  ManualObservation,
-  MeasurementDefinition,
-  OpeningStateObservation,
-  OutdoorTemperatureSample,
-  Sensor,
-} from "@climate-twin/contracts";
-
 import { deriveHomePerformance } from "../src/analytics/home-performance/derive.js";
 
-import { actionRun, analyticsPoint, analyticsSeries, climateSensor, definition, definitions, energySensor, from, hourlyPoints, house, maintenanceTask, opening, recoveryPoints, recoveryStart, response, to } from "./home-performance-test-support.js";
+import { actionRun, analyticsPoint, analyticsSeries, climateSensor, definitions, from, house, maintenanceTask, opening, recoveryStart, response, to } from "./home-performance-test-support.js";
 
 describe("deriveHomePerformance", () => {
   it("rejects sparse recovery episodes and evidence outside the reporting window", () => {

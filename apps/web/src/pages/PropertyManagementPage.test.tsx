@@ -3,15 +3,10 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type {
-  AreaEquipment,
   EquipmentAttachment,
   EquipmentLink,
-  MaintenanceTask,
   PropertyArea,
   PropertyMemberLocation,
-  PropertyNote,
-  TenantMemberSummary,
-  TrackingCapabilities,
   TrackingMapSnapshot,
 } from "@climate-twin/contracts";
 
@@ -21,14 +16,12 @@ import { createDemoState, DEMO_PROPERTY_ID } from "../domain";
 
 import { I18nProvider } from "../i18n";
 
-import { PeopleAccessPage } from "./PeopleAccessPage";
-
 import { PropertyManagementPage } from "./PropertyManagementPage";
 
 import propertyStyles from "./PropertyManagementPage.css?raw";
 import carouselStyles from "./PropertyManagementPage/PropertyCarousel.css?raw";
 
-import { area, areaNavigation, areaTask, callbacks, enabledTrackingCapabilities, equipment, equipmentOnlyTask, note, originalClipboard, selectArea } from "./PropertyManagementPageTestSupport";
+import { area, areaTask, callbacks, enabledTrackingCapabilities, equipment, originalClipboard, selectArea } from "./PropertyManagementPageTestSupport";
 
 vi.mock("../components/PropertyAreaMap", () => ({
   PropertyAreaMap: ({

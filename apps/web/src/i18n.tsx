@@ -130,6 +130,11 @@ export function I18nProvider({ children, catalogLoader = requestCatalog }: Reado
         {catalogPending && <div className="bootstrap-screen" role="status" aria-busy="true"><strong>Stugu</strong></div>}
     </I18nContext.Provider>;
 }
+/** True when `key` names a catalog entry, for keys built from data the compiler cannot see. */
+export function isTranslationKey(key: string): key is TranslationKey {
+  return Object.hasOwn(en, key);
+}
+
 export function useI18n() {
     const context = useContext(I18nContext);
     if (!context)

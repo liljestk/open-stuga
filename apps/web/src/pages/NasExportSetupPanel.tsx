@@ -1,6 +1,7 @@
+import type { SystemStorageStatus } from "@climate-twin/contracts";
 import { useCallback, useEffect, useState } from "react";
 import { CheckCircle2, CircleAlert, HardDrive, LoaderCircle, Save } from "lucide-react";
-import { api, type SystemStorageStatus } from "../api";
+import { api } from "../api";
 import { confirmAction } from "../components/ConfirmationProvider";
 import { useI18n } from "../i18n";
 

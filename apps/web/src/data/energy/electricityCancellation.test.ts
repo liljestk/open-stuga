@@ -30,8 +30,8 @@ function pendingRequests(): AbortSignal[] {
     });
   };
   vi.spyOn(api, "analyticsQuery").mockImplementation((_input, signal) => pending(signal));
-  vi.spyOn(api, "houseElectricityPrice").mockImplementation((_id, _from, _to, signal) => pending(signal));
-  vi.spyOn(api, "houseEnergySummary").mockImplementation((_id, _from, _to, signal) => pending(signal));
+  vi.spyOn(api, "houseElectricityPrice").mockImplementation((_id, query) => pending(query?.signal));
+  vi.spyOn(api, "houseEnergySummary").mockImplementation((_id, query) => pending(query.signal));
   vi.spyOn(api, "propertyElectricity").mockImplementation((_id, signal) => pending(signal));
   vi.spyOn(api, "energyOptimization").mockImplementation((_id, _hours, signal) => pending(signal));
   return signals;

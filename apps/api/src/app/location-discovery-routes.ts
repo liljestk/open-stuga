@@ -1,13 +1,12 @@
-import {
-  HttpError,
-  optionalQueryNumber,
-  requireNonGuest,
-} from "./support/index.js";
+import { HttpError } from "../http-error.js";
+import { optionalQueryNumber } from "./support/query-fields.js";
+import { requireNonGuest } from "./support/local-sessions.js";
+import { recordFailureCause } from "../system-error-log.js";
 import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
 
 export type LocationDiscoveryRouteContext = Pick<
   ApiRouteRegistrationContext,
-  "app" | "prefix" | "locationDiscovery"
+  "app" | "prefix" | "locationDiscovery" | "systemErrorLog"
 >;
 
 export function registerLocationDiscoveryRoutes(context: LocationDiscoveryRouteContext): void {
@@ -19,7 +18,8 @@ export function registerLocationDiscoveryRoutes(context: LocationDiscoveryRouteC
     const language = typeof request.query.language === "string" ? request.query.language : "en";
     try {
       response.json({ results: await context.locationDiscovery.search(query, language) });
-    } catch {
+    } catch (error) {
+      recordFailureCause(context.systemErrorLog, "location-discovery", error);
       throw new HttpError(503, "LOCATION_DISCOVERY_UNAVAILABLE", "Location search is temporarily unavailable");
     }
   });
@@ -32,9 +32,8 @@ export function registerLocationDiscoveryRoutes(context: LocationDiscoveryRouteC
     try {
       response.json(await context.locationDiscovery.defaultsForCoordinates(latitude, longitude));
     } catch (error) {
-      if (error instanceof Error && error.message.includes("valid WGS84")) {
-        throw new HttpError(422, "INVALID_COORDINATES", error.message);
-      }
+      if (error instanceof HttpError) throw error;
+      recordFailureCause(context.systemErrorLog, "location-discovery", error);
       throw new HttpError(503, "LOCATION_DISCOVERY_UNAVAILABLE", "Timezone discovery is temporarily unavailable");
     }
   });

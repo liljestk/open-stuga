@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { median } from "../src/thermal-math.js";
+import { median } from "../src/analytics/thermal/math.js";
 
 function sortedMedian(values: number[]): number {
   const sorted = [...values].sort((left, right) => left - right);

@@ -1,5 +1,3 @@
-import { createServer, type Server } from "node:http";
-
 import { generateKeyPairSync } from "node:crypto";
 
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -12,9 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import request from "supertest";
 
-import type { TelemetryEvent } from "@climate-twin/contracts";
-
-import { loadConfig, type AppConfig } from "../src/config.js";
+import { loadConfig } from "../src/config.js";
 
 import { createApi, type ApiRuntime } from "../src/app.js";
 
@@ -506,7 +502,7 @@ describe("Climate Twin API v1", () => {
   it("validates outbound webhook URLs and does not accept orphan credentials", () => {
     expect(loadConfig({
       NODE_ENV: "test", DATABASE_PATH: ":memory:", ALERT_WEBHOOK_URL: "http://127.0.0.1:9000/hooks/",
-    }).alertWebhookUrl).toBe("http://127.0.0.1:9000/hooks");
+    }).alertWebhookDestinations).toEqual([{ id: "primary", url: "http://127.0.0.1:9000/hooks" }]);
     expect(() => loadConfig({
       NODE_ENV: "test", DATABASE_PATH: ":memory:", ALERT_WEBHOOK_URL: "file:///tmp/hook",
     })).toThrow(/valid HTTP\(S\) URL|must be an HTTP\(S\) URL/);
@@ -545,8 +541,6 @@ describe("Climate Twin API v1", () => {
       destinations[1],
     ]);
     expect(loaded.alertWebhookAllowedHosts).toEqual(["ops.example.test", "archive.example.test"]);
-    expect(loaded.alertWebhookUrl).toBe("https://ops.example.test/hooks");
-    expect(loaded.alertWebhookBearerToken).toBe("ops-bearer");
 
     expect(() => loadConfig({
       NODE_ENV: "test",

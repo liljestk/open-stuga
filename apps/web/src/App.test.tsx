@@ -16,7 +16,7 @@ import { useClimateData } from "./useClimateData";
 
 import { api } from "./api";
 
-import { ROUTE_READY_TIMEOUT_MS, findPageHeading, mockClimateData, renderApp } from "./AppTestSupport";
+import { findPageHeading, mockClimateData, renderApp } from "./AppTestSupport";
 
 vi.mock("./useClimateData", () => ({ useClimateData: vi.fn() }));
 

@@ -43,7 +43,7 @@ function writeForecastWindowToLocation(index: number, mode: "push" | "replace"):
   if (next !== current) window.history[`${mode}State`](window.history.state, "", next);
 }
 
-function finite(value: number | undefined): value is number {
+function isFiniteNumber(value: number | undefined): value is number {
   return typeof value === "number" && Number.isFinite(value);
 }
 
@@ -52,28 +52,28 @@ function decimal(value: number, locale: string, maximumFractionDigits = 1): stri
 }
 
 export function formatWeatherTemperature(value: number | undefined, units: UnitSystem, locale: string): string {
-  if (!finite(value)) return "—";
+  if (!isFiniteNumber(value)) return "—";
   return units === "imperial"
     ? `${decimal(value * 9 / 5 + 32, locale)} °F`
     : `${decimal(value, locale)} °C`;
 }
 
 export function formatWeatherWind(value: number | undefined, units: UnitSystem, locale: string): string {
-  if (!finite(value)) return "—";
+  if (!isFiniteNumber(value)) return "—";
   return units === "imperial"
     ? `${decimal(value * 2.236936, locale)} mph`
     : `${decimal(value, locale)} m/s`;
 }
 
 export function formatWeatherPrecipitation(value: number | undefined, units: UnitSystem, locale: string): string {
-  if (!finite(value)) return "—";
+  if (!isFiniteNumber(value)) return "—";
   return units === "imperial"
     ? `${decimal(value / 25.4, locale, 2)} in`
     : `${decimal(value, locale)} mm`;
 }
 
 export function formatWeatherPercent(value: number | undefined, locale: string): string {
-  return finite(value) ? `${decimal(value, locale, 0)}%` : "—";
+  return isFiniteNumber(value) ? `${decimal(value, locale, 0)}%` : "—";
 }
 
 /**
@@ -307,11 +307,11 @@ export function ForecastWindowNavigator({
                       <td>{formatWeatherTemperature(point.temperatureC, units, locale)}</td>
                       <td>
                         {formatWeatherPrecipitation(point.precipitation1hMm ?? point.precipitationIntensityMmPerHour, units, locale)}
-                        {finite(point.precipitationProbabilityPercent) && <small>{formatWeatherPercent(point.precipitationProbabilityPercent, locale)}</small>}
+                        {isFiniteNumber(point.precipitationProbabilityPercent) && <small>{formatWeatherPercent(point.precipitationProbabilityPercent, locale)}</small>}
                       </td>
                       <td>
                         {formatWeatherWind(point.windSpeedMps, units, locale)}
-                        {finite(point.windGustMps) && <small>{t("forecast.gust", { value: formatWeatherWind(point.windGustMps, units, locale) })}</small>}
+                        {isFiniteNumber(point.windGustMps) && <small>{t("forecast.gust", { value: formatWeatherWind(point.windGustMps, units, locale) })}</small>}
                       </td>
                       <td>{formatWeatherPercent(point.relativeHumidityPercent, locale)}</td>
                       <td>{formatWeatherPercent(point.cloudCoverPercent, locale)}</td>

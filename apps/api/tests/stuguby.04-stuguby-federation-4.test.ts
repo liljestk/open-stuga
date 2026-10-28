@@ -1,34 +1,6 @@
-import { createServer, type Server } from "node:http";
-
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
-
-import { tmpdir } from "node:os";
-
-import { join } from "node:path";
-
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import request from "supertest";
-
-import type { MeasurementSample } from "@climate-twin/contracts";
-
-import {
-  STUGBY_DATASETS,
-  STUGBY_MEDIA_TYPE,
-  STUGBY_PROTOCOL_VERSION,
-  assertSafeFederationPayload,
-  validateDatasetPayload,
-  validateWireEvent,
-  type StugubyDatasetGrant,
-} from "@climate-twin/stuguby-protocol";
-
-import { createApi, type ApiRuntime } from "../src/app.js";
-
-import { loadConfig } from "../src/config.js";
-
-import { StugubyService } from "../src/stuguby/service.js";
-
-import { StugubyStore } from "../src/stuguby/store.js";
 
 import { RunningNode, editableHomeDatasets, fullRecoveryDatasets, node, stop } from "./stugubyTestSupport.js";
 
@@ -258,6 +230,12 @@ describe("Stuguby federation", () => {
         : floor) })
       .expect(403);
     expect(blockedFloorPlanAsset.body.error.code).toBe("HOME_FLOORPLAN_ASSET_LOCAL_AUTHORITY");
+    // Floors are validated before the shared-Home asset check reads them.
+    const malformedFloors = await request(participant.runtime.app)
+      .put(`/api/v1/houses/${sharedHomeId}/layout`)
+      .send({ floors: [null] })
+      .expect(400);
+    expect(malformedFloors.body.error.code).toBe("INVALID_FLOOR");
 
     coordinatorOnline = false;
     await request(participant.runtime.app).patch(`/api/v1/houses/${sharedHomeId}`)

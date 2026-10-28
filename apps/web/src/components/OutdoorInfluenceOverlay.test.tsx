@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { createDemoState } from "../domain";
 import { I18nProvider } from "../i18n";
-import type { OutdoorInfluenceEstimate } from "../outdoorInfluence";
+import type { OutdoorInfluenceEstimate } from "../outdoor/influence";
 import { OutdoorInfluenceOverlay2D, OutdoorInfluenceOverlay3D } from "./OutdoorInfluenceOverlay";
 
 const estimate: OutdoorInfluenceEstimate = {

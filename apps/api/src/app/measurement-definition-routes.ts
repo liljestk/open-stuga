@@ -1,8 +1,5 @@
-import {
-  HttpError,
-  measurementId,
-  parseMeasurementDefinition,
-} from "./support/index.js";
+import { HttpError } from "../http-error.js";
+import { measurementId, parseMeasurementDefinition } from "./support/measurement-fields.js";
 import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
 
 export type MeasurementDefinitionRouteContext = Pick<

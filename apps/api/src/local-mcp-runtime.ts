@@ -1,3 +1,5 @@
+import { HttpError } from "./http-error.js";
+import type { LocalMcpRuntimeErrorCode, LocalMcpRuntimeStartResult, LocalMcpRuntimeStatus } from "@climate-twin/contracts";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { existsSync } from "node:fs";
 import { request as httpRequest, type OutgoingHttpHeaders } from "node:http";
@@ -5,24 +7,6 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { fork, type ChildProcess } from "node:child_process";
 import type { Request, Response } from "express";
-
-export type LocalMcpRuntimeState = "stopped" | "starting" | "running" | "stopping" | "error";
-export type LocalMcpRuntimeErrorCode = "build_missing" | "start_failed" | "unexpected_exit" | "stop_failed";
-
-export interface LocalMcpRuntimeStatus {
-  state: LocalMcpRuntimeState;
-  endpointPath: "/api/v1/mcp";
-  pid: number | null;
-  startedAt: string | null;
-  toolCount: number | null;
-  serverVersion: string | null;
-  errorCode: LocalMcpRuntimeErrorCode | null;
-}
-
-export interface LocalMcpRuntimeStartResult extends LocalMcpRuntimeStatus {
-  /** Returned only by the successful start request. It is never available from status. */
-  accessToken: string | null;
-}
 
 interface ReadyMessage {
   type: "ready";
@@ -41,13 +25,11 @@ export interface LocalMcpRuntimeOptions {
   shutdownTimeoutMs?: number;
 }
 
-export class LocalMcpRuntimeError extends Error {
-  constructor(
-    readonly status: number,
-    readonly code: "MCP_BUILD_MISSING" | "MCP_START_FAILED" | "MCP_STOP_FAILED" | "MCP_NOT_RUNNING",
-    message: string,
-  ) {
-    super(message);
+export class LocalMcpRuntimeError extends HttpError {
+  declare readonly code: "MCP_BUILD_MISSING" | "MCP_START_FAILED" | "MCP_STOP_FAILED" | "MCP_NOT_RUNNING";
+
+  constructor(status: number, code: "MCP_BUILD_MISSING" | "MCP_START_FAILED" | "MCP_STOP_FAILED" | "MCP_NOT_RUNNING", message: string) {
+    super(status, code, message);
     this.name = "LocalMcpRuntimeError";
   }
 }

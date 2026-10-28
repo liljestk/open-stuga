@@ -3,7 +3,7 @@ import type { HouseWeather } from "@climate-twin/contracts";
 import { ClimateDatabase, outdoorLocationKey } from "../src/db.js";
 import { TelemetryBus } from "../src/events.js";
 import { WEATHER_SNAPSHOT_SCHEMA_SQL } from "../src/db/migrations/weather-snapshot-schema.js";
-import { RuntimeStatus } from "../src/services.js";
+import { RuntimeStatus } from "../src/runtime-status.js";
 import { config } from "./weatherTestSupport.js";
 
 function snapshot(latitude = 60.1699, longitude = 24.9384): HouseWeather {

@@ -1,3 +1,4 @@
+import { errorText } from "../errorText";
 import { useEffect, useState, type FormEvent } from "react";
 import { AlertCircle, Bell, BellRing, Check, ChevronDown, Clock3, HelpCircle, LoaderCircle, MessageCircle, Plus, ShieldCheck } from "lucide-react";
 import type { AlertDeliveryPolicy, AlertEvent, AlertOperator, AlertRule, AlertRulePatch, AlertSeverity, HomeMonitoringBlocker, HomeMonitoringCollectionResponse, HomeMonitoringSummary, IntegrationStatus, MeasurementDefinition, Metric, Sensor, UnitSystem } from "@climate-twin/contracts";
@@ -118,7 +119,7 @@ function AlertsPageView({ state, units, onCreateRule, onUpdateRule, onAcknowledg
       setTelegramEnabled(false);
       setShowForm(false);
     } catch (error) {
-      setSubmitError(error instanceof Error && error.message.trim() ? error.message : t("alerts.createFailed"));
+      setSubmitError(errorText(error, t, t("alerts.createFailed")));
     } finally {
       setSubmitting(false);
     }

@@ -22,8 +22,11 @@ verified static Cloudflare operator must remain independent of the local owner
 login so first-owner setup, invitation cleanup, or a private local email cannot
 remove the recovery identity.
 
-The local Node API has built-in owner, administrator, and Guest accounts in one
-workspace. Browser sign-in creates a server-managed HttpOnly session; browser
+The local Node API has built-in owner, administrator, member, and Guest accounts
+in one workspace. Only an owner or administrator can save, test, move, rotate, or
+revoke integration credentials (Home Assistant, TP-Link, Gree, Tuya, Nexus433,
+Telegram, Apple Notes grants) or start a LAN discovery scan; members use the
+connections but cannot change them. Browser sign-in creates a server-managed HttpOnly session; browser
 JavaScript cannot read its credential. The API resolves the account role and
 resource grants on every request. Guests are always read-only, receive explicit
 Property, Home, and/or area grants, and see ungranted identifiers as not found.

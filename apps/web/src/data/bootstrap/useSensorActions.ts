@@ -1,65 +1,23 @@
-import { useCallback, useEffect, useRef, useState, type SetStateAction } from "react";
-import type {
-  AppSession,
-  AreaEquipment,
-  AreaEquipmentInput,
-  AreaEquipmentPatch,
-  AlertRule,
-  AlertRulePatch,
-  ConnectionState,
-  Floor,
-  House,
-  IntegrationStatus,
-  ManualObservation,
-  ManualObservationInput,
-  ManualObservationPatch,
-  MaintenanceTask,
-  MaintenanceTaskInput,
-  MaintenanceTaskPatch,
-  MeasurementSample,
-  MockScenario,
-  Point,
-  Property,
-  PropertyArea,
-  PropertyAreaInput,
-  PropertyAreaPatch,
-  PropertyCreateInput,
-  PropertyNote,
-  PropertyNoteInput,
-  PropertyNotePatch,
-  PropertyPatch,
-  Reading,
-  Sensor,
-  SensorSnapshot,
-  StaticParameter,
-  TelemetryEvent,
-  TpLinkDiscoveredDevice,
-} from "@climate-twin/contracts";
-import {
-  api,
-  cancelPendingApiRequests,
-  subscribeToApiAuthorizationChanges,
-  type CreateHouseInput,
-  type CreateSensorInput,
-  type HousePatch,
-  type HouseGeoreferencePatch,
-  type MeasurementHistoryPage,
-  type SensorPatch,
-} from "../../api";
-import { subscribeToAuthEpoch } from "../../authEpoch";
-import { createDemoState, nextMockReading, snapshotToReadings, timeRangeHours, type ClimateState, type TimeRange } from "../../domain";
-import { appendHistory, enabledDefinitions, legacyForecastSamples, readingSamples, upsertLatest } from "../../measurements";
-import { routeFromLocation } from "../../routing";
-import { publishHouseWeatherUpdate } from "../../useHouseWeather";
+import { apiErrorStatus, errorMessage } from "../../api/support/request-error";
+import { useCallback } from "react";
+import type { Point, Sensor, SensorPatch } from "@climate-twin/contracts";
+import { api, type CreateSensorInput, type MeasurementHistoryPage } from "../../api";
 import { useSensorMutations } from "../sensors/sensorMutations";
-import { HEARTBEAT_POLL_MIN_INTERVAL_MS, LIVE_TELEMETRY_BUFFER_LIMIT, MAX_SERIES_SAMPLES, PORTFOLIO_LOAD_CONCURRENCY, STREAM_BOOTSTRAP_WAIT_MS, advanceMockTelemetry, aggregateConnection, apiStatus, apiErrorStatus, blankState, bufferLiveTelemetry, bufferSeriesValue, canonicalSeries, errorMessage, houseMutationKey, isDemoSource, isPollingCompatibilityHeartbeat, legacySeries, loadPortfolioInBackground, mergeLegacySeries, mergeMeasurementSeries, metricForecastSamples, metricHistorySamples, optionalForecast, preserveMutatedSensorTelemetry, preserveSeriesCommittedDuringLoad, replaceFloor, replaceHouseSensors, replaceLoadedHouseTelemetry, replaceMeasurementSeriesWindow, replayBufferedLiveTelemetry, replayHouseInventory, replayHouseMutations, replayMaintenanceTaskMutation, sensorsFromSnapshots, seriesBucketSeconds, seriesLimit, seriesStateKey, settleInBackground, synchronizeSensorRoomLabels, unauthenticatedSession, withoutDemoTelemetry, withoutSensorIds } from "./support";
-import type { BootstrapStatus, BufferedHouseMutation, BufferedLiveTelemetry, BufferedSeriesTelemetry, DataMode, HistoricalSeriesWindow, HouseInventoryMutation, HouseMutationBuffer, LoadedTelemetryState, SeriesCommit, SeriesLoadState, SeriesLoadStatus, StreamConnections } from "./support";
-import type { SensorActions, SeriesContext } from "./pipelineTypes";
+import { MAX_SERIES_SAMPLES, replaceMeasurementSeriesWindow, seriesStateKey, settleInBackground, withoutSensorIds } from "./support";
+import type { BufferedSeriesTelemetry, HistoricalSeriesWindow } from "./support";
+import type { ClimateDataStore, PipelineActions, SensorActions } from "./pipelineTypes";
 export function useSensorActions(
-  context: SeriesContext,
-): SeriesContext & SensorActions {
+  store: Pick<ClimateDataStore,
+    | "activeSeriesTelemetryBuffers" | "activeTelemetryLoadBuffers" | "apiAvailable"
+    | "pendingMeasurementSamples" | "persistedSensorPoints" | "recordHouseMutation"
+    | "sensorMoveQueues" | "sensorMoveVersions" | "seriesCommitSequence" | "seriesCommitVersions"
+    | "seriesLoadVersions" | "setSeriesStates" | "setState" | "stateRef"
+  >,
+  actions: Pick<PipelineActions, "refreshTpLinkDevices">,
+): SensorActions {
   const sensorMutations = useSensorMutations();
-  const { initialHouseId, sessionLockedRef, sessionLocked, setSessionLocked, state, setStateInternal, setState, loading, setLoading, bootstrapStatus, setBootstrapStatus, bootstrapError, setBootstrapError, bootstrapAttempt, setBootstrapAttempt, dataMode, setDataMode, streamConnections, setStreamConnections, connection, pollingFallback, setPollingFallback, resourceErrors, setResourceErrors, seriesStates, setSeriesStates, scenario, setScenario, saveState, setSaveState, tpLinkDevices, setTpLinkDevices, tpLinkDevicesRef, tpLinkDevicesLoading, setTpLinkDevicesLoading, tpLinkDevicesError, setTpLinkDevicesError, tick, apiAvailable, dataModeRef, stateRef, streamConnectionsRef, hasReachedLiveConnection, hasHydratedActiveHouse, heartbeatPollAt, reconnectResyncTimer, heartbeatFallbackTimer, mutationRefreshTimer, sensorMoveQueues, sensorMoveVersions, persistedSensorPoints, activeHouseId, activeHouseLoadVersion, houseTelemetryVersions, seriesLoadVersions, seriesCommitVersions, seriesCommitSequence, tpLinkPollStatus, tpLinkRefreshVersion, pendingMeasurementSamples, measurementFlushTimer, saveStateTimer, activeTelemetryLoadBuffers, activeHouseMutationBuffers, activeSeriesTelemetryBuffers, activeInventoryMutationBuffers, activeStreamUnsubscribers, activeStreamGateReleases, sessionLifecycleEpoch, globalFieldVersions, recordResourceError, recordHouseMutation, recordInventoryMutation, applyIntegrationStatus, refreshTpLinkDevices, disconnectHomeAssistant, applyDetachedTpLinkSensors, disconnectTpLink, moveHomeAssistant, moveTpLink, loadHouseData, loadPortfolioHouseData, scheduleActiveHouseResync, updateStreamConnection, resetStreamConnections, handleHeartbeat, purgeSessionState, retryBootstrap, revalidateSession, endSession, handleTelemetry, flushMeasurements, handleMeasurement, selectHouse, importHistoricalMeasurements, loadSeries } = context;
+  const { seriesLoadVersions, setSeriesStates, apiAvailable, activeSeriesTelemetryBuffers, seriesCommitSequence, seriesCommitVersions, setState, recordHouseMutation, sensorMoveQueues, stateRef, persistedSensorPoints, pendingMeasurementSamples, activeTelemetryLoadBuffers, sensorMoveVersions } = store;
+  const { refreshTpLinkDevices } = actions;
   const loadHistoricalSeries = useCallback(async (
       sensorId: string,
       metric: string,
@@ -135,31 +93,21 @@ export function useSensorActions(
       activeSeriesTelemetryBuffers.current.add(liveTelemetry);
 
       try {
-        const history = signal
-          ? await api.measurementHistoryPage(
-              sensorId,
-              metric,
-              requestedFrom,
-              requestedTo,
-              MAX_SERIES_SAMPLES,
-              window.bucketSeconds ?? undefined,
-              signal,
-            )
-          : await api.measurementHistoryPage(
-              sensorId,
-              metric,
-              requestedFrom,
-              requestedTo,
-              MAX_SERIES_SAMPLES,
-              window.bucketSeconds ?? undefined,
-            );
+        const history = await api.measurementHistoryPage(sensorId, {
+          metric,
+          from: requestedFrom,
+          to: requestedTo,
+          limit: MAX_SERIES_SAMPLES,
+          bucketSeconds: window.bucketSeconds ?? undefined,
+          signal,
+        });
         if (signal?.aborted) {
           throw signal.reason ?? new DOMException("Historical replay was cancelled", "AbortError");
         }
         if (!isCurrentRequest()) return history;
 
         seriesCommitSequence.current += 1;
-        seriesCommitVersions.current.set(seriesKey, { version: seriesCommitSequence.current, legacy: false });
+        seriesCommitVersions.current.set(seriesKey, { version: seriesCommitSequence.current });
         setState((current) => {
           const samples = replaceMeasurementSeriesWindow(
             current.measurementHistory[sensorId]?.[metric] ?? [],
@@ -272,8 +220,6 @@ export function useSensorActions(
           ...current,
           sensors: current.sensors.filter((sensor) => sensor.id !== sensorId),
           readings: withoutSensorIds(current.readings, removedSensorIds),
-          history: withoutSensorIds(current.history, removedSensorIds),
-          forecasts: withoutSensorIds(current.forecasts, removedSensorIds),
           latestMeasurements: withoutSensorIds(current.latestMeasurements, removedSensorIds),
           measurementHistory: withoutSensorIds(current.measurementHistory, removedSensorIds),
           measurementForecasts: withoutSensorIds(current.measurementForecasts, removedSensorIds),
@@ -358,5 +304,5 @@ export function useSensorActions(
       }
       await Promise.all(requests);
     }, []);
-  return Object.assign(context, { loadHistoricalSeries, createSensor, updateSensor, deleteSensor, moveSensor, ensurePropertyWrite, refreshMovedPropertyContext });
+  return { loadHistoricalSeries, createSensor, updateSensor, deleteSensor, moveSensor, ensurePropertyWrite, refreshMovedPropertyContext };
 }

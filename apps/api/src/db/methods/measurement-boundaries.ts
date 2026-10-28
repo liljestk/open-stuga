@@ -1,7 +1,18 @@
 import type { MeasurementBoundaryQuery } from "../../timeseries/types.js";
 import { registerDatabaseMethods } from "../core.js";
-import type { MeasurementSampleRow } from "../support/02-equipment-attachment-row-to-sensor-data-gap-state.js";
-import { measurementSampleFromRow } from "../support/04-canonical-json-value-to-action-playbook-from-row.js";
+import type { MeasurementSampleRow } from "../support/row-types.js";
+import { measurementSampleFromRow } from "../support/row-mappers.js";
+import type { MeasurementSample } from "@climate-twin/contracts";
+
+declare module "../core.js" {
+  interface DatabaseInternals {
+    measurementBoundarySamples(query: MeasurementBoundaryQuery): MeasurementSample[];
+  }
+
+  interface ClimateDatabaseCore {
+    measurementBoundarySamples(query: MeasurementBoundaryQuery): MeasurementSample[];
+  }
+}
 
 registerDatabaseMethods({
   measurementBoundarySamples(query: MeasurementBoundaryQuery) {

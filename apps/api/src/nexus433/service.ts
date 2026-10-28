@@ -19,7 +19,7 @@ import type {
 } from "@climate-twin/contracts";
 import type { AppConfig } from "../config.js";
 import type { ClimateDatabase } from "../db.js";
-import type { TelemetryService } from "../services.js";
+import type { TelemetryService } from "../telemetry/ingest.js";
 import { MqttSourceTransport } from "../source-transports/mqtt-source-transport.js";
 import type { SourceTransport, SourceTransportState } from "../source-transports/source-transport.js";
 import { loadNexus433HostCapability } from "./capability.js";
@@ -50,7 +50,7 @@ export class Nexus433Service {
 
   constructor(
     private readonly config: AppConfig,
-    private readonly database: ClimateDatabase,
+    database: ClimateDatabase,
     private readonly telemetry: TelemetryService,
     transportFactory?: TransportFactory,
   ) {

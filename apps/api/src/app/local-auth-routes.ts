@@ -1,26 +1,16 @@
-import type { AppConfig } from "../config.js";
 import {
   LocalAuthError,
   type LocalAuthIdentity,
 } from "../local-auth.js";
 import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
-import {
-  HttpError,
-  LOCAL_SESSION_COOKIE,
-  auditAccountSubject,
-  authAttemptKeys,
-  bodyObject,
-  clearLocalSessionCookies,
-  cookieValue,
-  keyMatches,
-  localSetupRequestAllowed,
-  requestPrincipal,
-  requireJsonContentType,
-  sessionDocument,
-  setLocalSessionCookies,
-} from "./support/index.js";
+import { HttpError } from "../http-error.js";
+import { LOCAL_SESSION_COOKIE, auditAccountSubject, clearLocalSessionCookies, cookieValue, requestPrincipal, sessionDocument, setLocalSessionCookies } from "./support/local-sessions.js";
+import { authAttemptKeys } from "./support/auth-abuse-limits.js";
+import { bodyObject } from "../request-fields.js";
+import { keyMatches } from "./support/credentials.js";
+import { localSetupRequestAllowed } from "./support/trusted-network.js";
+import { requireJsonContentType } from "./support/request-classification.js";
 
-type NormalizedApiConfig = { [Key in keyof AppConfig]-?: Exclude<AppConfig[Key], undefined> };
 
 export type LocalAuthRouteContext = Pick<
   ApiRouteRegistrationContext,
@@ -34,7 +24,7 @@ export type LocalAuthRouteContext = Pick<
 >;
 
 export function registerLocalAuthRoutes(context: LocalAuthRouteContext): void {
-  const config = context.config as NormalizedApiConfig;
+  const config = context.config;
 
   context.app.post(`${context.prefix}/auth/setup`, async (request, response) => {
     requireJsonContentType(request);

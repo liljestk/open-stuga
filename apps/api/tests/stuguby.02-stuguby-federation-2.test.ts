@@ -1,11 +1,3 @@
-import { createServer, type Server } from "node:http";
-
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
-
-import { tmpdir } from "node:os";
-
-import { join } from "node:path";
-
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import request from "supertest";
@@ -13,24 +5,14 @@ import request from "supertest";
 import type { MeasurementSample } from "@climate-twin/contracts";
 
 import {
-  STUGBY_DATASETS,
-  STUGBY_MEDIA_TYPE,
-  STUGBY_PROTOCOL_VERSION,
-  assertSafeFederationPayload,
-  validateDatasetPayload,
-  validateWireEvent,
   type StugubyDatasetGrant,
 } from "@climate-twin/stuguby-protocol";
-
-import { createApi, type ApiRuntime } from "../src/app.js";
-
-import { loadConfig } from "../src/config.js";
 
 import { StugubyService } from "../src/stuguby/service.js";
 
 import { StugubyStore } from "../src/stuguby/store.js";
 
-import { RunningNode, editableHomeDatasets, fullRecoveryDatasets, node, stop } from "./stugubyTestSupport.js";
+import { RunningNode, node, stop } from "./stugubyTestSupport.js";
 
 describe("Stuguby federation", () => {
   const nodes: RunningNode[] = [];
@@ -141,7 +123,7 @@ describe("Stuguby federation", () => {
         rooms: [],
       }],
     });
-    const expiresAt = new Date(Date.now() + 250).toISOString();
+    const expiresAt = new Date(Date.now() + 3_600_000).toISOString();
     const expiring = await request(participant.runtime.app).post(`/api/v1/stugbys/${stugubyId}/grants`).send({
       localHouseId: "house-expiring-grant",
       audience: { kind: "all-members", nodeIds: [] },
@@ -149,7 +131,11 @@ describe("Stuguby federation", () => {
       expiresAt,
     }).expect(201);
     store.acknowledgeOutbox(store.dueOutbox(250).map((item) => item.id));
-    await new Promise((resolve) => setTimeout(resolve, Math.max(1, Date.parse(expiresAt) - Date.now() + 25)));
+    // Move the grant's expiry into the past instead of waiting for it on the real clock.
+    const expired = new Date(Date.now() - 60_000).toISOString();
+    participant.runtime.database.db.prepare(
+      "UPDATE stugby_share_grants SET expires_at=?, grant_json=json_set(grant_json, '$.expiresAt', ?) WHERE id=?",
+    ).run(expired, expired, expiring.body.id);
     const expiryFault = vi.spyOn(store, "enqueueOutbox").mockImplementation((...args) => {
       originalEnqueue(...args);
       throw new Error("simulated expiry enqueue failure");

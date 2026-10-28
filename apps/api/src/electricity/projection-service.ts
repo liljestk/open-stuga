@@ -1,16 +1,9 @@
-import {
-  HOME_ENERGY_PROJECTION_ALGORITHM_VERSION,
-  type AnalyticsQueryRequest,
-  type AnalyticsSeries,
-  type HomeEnergyProjection,
-  type House,
-  type Sensor,
-} from "@climate-twin/contracts";
+import { HOME_ENERGY_PROJECTION_ALGORITHM_VERSION, type AnalyticsQueryRequest, type AnalyticsSeries, type HomeEnergyProjection, type House, type Sensor, withSignal } from "@climate-twin/contracts";
 import { executeAnalyticsQuery } from "../analytics/query/execute.js";
 import { heatingBaseTemperature } from "../analytics/house-parameters.js";
 import type { DailyEnergy } from "../analytics/home-performance/energy-index.js";
 import { outdoorLocationKey, type ClimateDatabase } from "../db.js";
-import type { EnergySummaryCache } from "../energy-summary-cache.js";
+import type { EnergySummaryCache } from "./summary-cache.js";
 import type { HybridTelemetryReader } from "../timeseries/read-facade.js";
 import { FORECAST_REACH_DAYS, PROJECTION_HORIZON_DAYS, projectEnergy } from "./projection.js";
 
@@ -90,7 +83,7 @@ export class EnergyProjectionService {
     const coverage = await this.telemetryReader.measurementCoverage({
       sensorIds: sensors.map((sensor) => sensor.id),
       metrics: ["energy", "power"],
-      ...(signal ? { signal } : {}),
+      ...withSignal(signal),
     });
     const sources = homeEnergySources(sensors, new Set(coverage.records.map((record) => record.sensorId)));
     const definitions = ["energy", "power"].flatMap((metric) => {
@@ -118,7 +111,7 @@ export class EnergyProjectionService {
       definitions,
       telemetryReader: this.telemetryReader,
       generatedAt: now.toISOString(),
-      ...(signal ? { signal } : {}),
+      ...withSignal(signal),
     });
     const perSource = sources.map((sensor) => sourceDays(response.series, sensor.id));
     const baseTemperatureC = heatingBaseTemperature(this.database.listParameters(house.id), house.id);
@@ -126,7 +119,7 @@ export class EnergyProjectionService {
     const observedWeather = locationKey
       ? dailyDegreeHours((await this.telemetryReader.outdoorTemperatureHistory({
         houseId: house.id, locationKey, from: new Date(historyStart).toISOString(), to: new Date(historyEnd).toISOString(), limit: 100_000,
-        ...(signal ? { signal } : {}),
+        ...withSignal(signal),
       })).records, baseTemperatureC)
       : new Map<number, number>();
     const history: DailyEnergy[] = [];
@@ -160,15 +153,16 @@ export class EnergyProjectionService {
       sensors,
       from: new Date(historyEnd - 30 * DAY_MS).toISOString(),
       to: new Date(historyEnd).toISOString(),
-      ...(signal ? { signal } : {}),
-    }).then((read) => read.summary).catch(() => null);
+      ...withSignal(signal),
+    }).then((read) => read.summary);
     const pricePerKwh = summary && summary.costEur !== null && summary.pricedConsumptionKwh !== null
       && summary.pricedConsumptionKwh > 0 && summary.priceCoveragePercent >= MIN_PRICE_COVERAGE_PERCENT
       ? summary.costEur / summary.pricedConsumptionKwh
       : null;
     const fees = summary?.costBreakdown?.feesEur ?? 0;
-    const cost = (kwh: number) => (pricePerKwh === null ? null : kwh * pricePerKwh + fees);
-    const rounded = (value: number | null, digits = 2) => (value === null ? null : Number(value.toFixed(digits)));
+    const roundTo = (value: number, digits = 2) => Number(value.toFixed(digits));
+    const rounded = (value: number | null, digits = 2) => (value === null ? null : roundTo(value, digits));
+    const cost = pricePerKwh === null ? null : (kwh: number) => kwh * pricePerKwh + fees;
     return {
       houseId: house.id,
       generatedAt: now.toISOString(),
@@ -176,10 +170,10 @@ export class EnergyProjectionService {
       horizonStart: new Date(horizonStart).toISOString(),
       horizonDays: PROJECTION_HORIZON_DAYS,
       method: result.method,
-      next30DaysKwh: rounded(result.next30DaysKwh)!,
-      lowKwh: rounded(result.lowKwh)!,
-      highKwh: rounded(result.highKwh)!,
-      dailyKwh: rounded(result.dailyKwh, 3)!,
+      next30DaysKwh: roundTo(result.next30DaysKwh),
+      lowKwh: roundTo(result.lowKwh),
+      highKwh: roundTo(result.highKwh),
+      dailyKwh: roundTo(result.dailyKwh, 3),
       baseLoadKwhPerDay: rounded(result.baseLoadKwhPerDay, 3),
       heatingSlopeKwhPerDegreeHour: rounded(result.heatingSlopeKwhPerDegreeHour, 5),
       heatingBaseTemperatureC: baseTemperatureC,
@@ -192,11 +186,24 @@ export class EnergyProjectionService {
         baselineMeanAbsolutePercentError: rounded(result.backtest.baselineMeanAbsolutePercentError, 1),
         skill: rounded(result.backtest.skill, 3),
       },
-      estimatedCostEur: rounded(cost(result.next30DaysKwh)),
-      // Negative prices turn more energy into a lower cost.
-      lowCostEur: pricePerKwh === null ? null : rounded(Math.min(cost(result.lowKwh)!, cost(result.highKwh)!)),
-      highCostEur: pricePerKwh === null ? null : rounded(Math.max(cost(result.lowKwh)!, cost(result.highKwh)!)),
+      ...projectedCosts(cost, result),
       priceBasis: pricePerKwh === null ? "unavailable" : "historical",
     };
   }
+}
+
+/** Cost at the historical unit price; all null when no reliable price exists. */
+function projectedCosts(
+  cost: ((kwh: number) => number) | null,
+  kwh: { next30DaysKwh: number; lowKwh: number; highKwh: number },
+): { estimatedCostEur: number | null; lowCostEur: number | null; highCostEur: number | null } {
+  if (!cost) return { estimatedCostEur: null, lowCostEur: null, highCostEur: null };
+  const roundTo = (value: number) => Number(value.toFixed(2));
+  const [low, high] = [cost(kwh.lowKwh), cost(kwh.highKwh)];
+  return {
+    estimatedCostEur: roundTo(cost(kwh.next30DaysKwh)),
+    // Negative prices turn more energy into a lower cost.
+    lowCostEur: roundTo(Math.min(low, high)),
+    highCostEur: roundTo(Math.max(low, high)),
+  };
 }

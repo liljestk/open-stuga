@@ -1,7 +1,7 @@
 import { createServer, type Server } from "node:http";
 import { performance } from "node:perf_hooks";
 import type { AppConfig } from "./config.js";
-import type { ApiRuntime } from "./app/support/index.js";
+import type { ApiRuntime } from "./app/support/api-runtime.js";
 import { SYSTEM_VERSION } from "./version.js";
 
 export type ApiStartupPhase = "configuration" | "runtime" | "archive" | "listener";

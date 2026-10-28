@@ -1,6 +1,6 @@
 import { createServer, type Server } from "node:http";
 
-import type { House, HouseWeather, IntegrationStatus, WeatherUpdateEvent } from "@climate-twin/contracts";
+import type { HouseWeather, WeatherUpdateEvent } from "@climate-twin/contracts";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -8,24 +8,14 @@ import request from "supertest";
 
 import { createApi, type ApiRuntime } from "../src/app.js";
 
-import type { AppConfig } from "../src/config.js";
 import { outdoorLocationKey } from "../src/db.js";
 
 import {
-  currentObservation,
-  FmiWeatherProvider,
-  fmiWarningCoverage,
-  parseCapWarnings,
-  parseFmiTimeSeries,
-  readTextWithByteLimit,
-  WeatherRequestSupersededError,
-  WeatherService,
   WeatherUnavailableError,
-  type FmiTimeSeries,
   type WeatherProvider,
 } from "../src/weather.js";
 
-import { config, forecastXml, location, weather } from "./weatherTestSupport.js";
+import { config, location, weather } from "./weatherTestSupport.js";
 
 describe("GET /api/v1/houses/:id/weather", () => {
   let runtime: ApiRuntime | undefined;

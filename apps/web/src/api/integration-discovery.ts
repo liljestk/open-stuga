@@ -1,18 +1,16 @@
+import { withSignal } from "@climate-twin/contracts";
 import type {
   IntegrationDiscoveryJob,
   IntegrationDiscoveryResult,
 } from "@climate-twin/contracts";
 
-import {
-  API_BASE,
-  INTEGRATION_DISCOVERY_REQUEST_TIMEOUT_MS,
-  request,
-} from "./support";
-import { withSignal } from "./support/signal";
+import { API_BASE, INTEGRATION_DISCOVERY_REQUEST_TIMEOUT_MS } from "./support/client-state";
+import { request } from "./support/request";
+import { integrationDiscoveryJobShape } from "./support/entity-shapes";
+import { fields, nullable, type ShapeOf } from "./support/response-shapes";
 
-interface DiscoveryJobEnvelope {
-  job: IntegrationDiscoveryJob;
-}
+const discoveryJobEnvelope = fields({ job: integrationDiscoveryJobShape });
+type DiscoveryJobEnvelope = ShapeOf<typeof discoveryJobEnvelope>;
 
 interface ActiveDiscoveryWait {
   controller: AbortController;
@@ -86,8 +84,8 @@ async function pollDiscoveryJob(
     if (result) return result;
     if (Date.now() >= deadlineAt) throw new Error("Device discovery is still running. Return to Set up to see the result.");
     await pause(1_000, signal);
-    current = (await request<DiscoveryJobEnvelope>(
-      `/integrations/discovery-jobs/${encodeURIComponent(job.id)}`,
+    current = (await request(
+      `/integrations/discovery-jobs/${encodeURIComponent(job.id)}`, discoveryJobEnvelope,
       withSignal(signal),
     )).job;
   }
@@ -114,8 +112,8 @@ async function waitForIntegrationDiscoveryOnce(
     const timeout = globalThis.setTimeout(() => {
       if (settled) return;
       source.close();
-      void request<DiscoveryJobEnvelope>(
-        `/integrations/discovery-jobs/${encodeURIComponent(job.id)}`,
+      void request(
+        `/integrations/discovery-jobs/${encodeURIComponent(job.id)}`, discoveryJobEnvelope,
         withSignal(signal),
       ).then(({ job: latest }) => {
         const result = completedResult(latest);
@@ -227,8 +225,9 @@ export async function waitForIntegrationDiscovery(
 function discoveryJobRequest(jobId: string): Promise<DiscoveryJobEnvelope> {
   const existing = discoveryJobRequests.get(jobId);
   if (existing) return existing;
-  const pending = request<DiscoveryJobEnvelope>(
+  const pending = request(
     `/integrations/discovery-jobs/${encodeURIComponent(jobId)}`,
+    discoveryJobEnvelope,
   );
   discoveryJobRequests.set(jobId, pending);
   const settle = () => {
@@ -244,7 +243,7 @@ export async function discoverIntegrationsInBackground(
   onStarted?: (job: IntegrationDiscoveryJob) => void,
   signal?: AbortSignal,
 ): Promise<IntegrationDiscoveryResult> {
-  const response = await request<DiscoveryJobEnvelope>("/integrations/discovery-jobs", {
+  const response = await request("/integrations/discovery-jobs", discoveryJobEnvelope, {
     method: "POST",
     body: JSON.stringify({
       houseId,
@@ -272,8 +271,8 @@ export async function resumeIntegrationDiscovery(
 export async function latestIntegrationDiscovery(
   houseId: string,
 ): Promise<IntegrationDiscoveryJob | null> {
-  const response = await request<{ job: IntegrationDiscoveryJob | null }>(
-    `/integrations/discovery-jobs/latest?houseId=${encodeURIComponent(houseId)}`,
+  const response = await request(
+    `/integrations/discovery-jobs/latest?houseId=${encodeURIComponent(houseId)}`, fields({ job: nullable(integrationDiscoveryJobShape) }),
   );
   return response.job;
 }

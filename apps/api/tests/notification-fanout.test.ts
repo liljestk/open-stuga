@@ -11,7 +11,8 @@ import { TelemetryBus } from "../src/events.js";
 import { DEFAULT_ALERT_DELIVERY_POLICY } from "../src/notification-policy.js";
 import { notificationDestinationRef } from "../src/notification-snapshot.js";
 import { NotificationOutboxWorker } from "../src/outbox.js";
-import { AlertEngine, RuntimeStatus } from "../src/services.js";
+import { AlertEngine } from "../src/alerts/alert-engine.js";
+import { RuntimeStatus } from "../src/runtime-status.js";
 import { TelegramService } from "../src/telegram.js";
 
 const OPERATIONS_SIGNING_SECRET = "operations-signing-secret".padEnd(32, "x");
@@ -112,8 +113,10 @@ describe("durable webhook fan-out", () => {
         database,
         config,
         new RuntimeStatus(config, new TelemetryBus(), database),
-        new TelegramService(),
-        webhookFetch,
+        {
+          telegram: new TelegramService(),
+          fetchImpl: webhookFetch,
+        },
       );
       worker.start();
       await vi.waitFor(() => expect(database.pendingNotificationCount()).toBe(0));
@@ -166,8 +169,10 @@ describe("durable webhook fan-out", () => {
         database,
         config,
         status,
-        new TelegramService(),
-        webhookFetch,
+        {
+          telegram: new TelegramService(),
+          fetchImpl: webhookFetch,
+        },
       );
       worker.start();
       await vi.waitFor(() => expect(database.pendingNotificationCount()).toBe(0));

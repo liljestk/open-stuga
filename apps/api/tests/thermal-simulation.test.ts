@@ -1,10 +1,11 @@
 import { SYSTEM_VERSION, type HouseWeather, type MeasurementSample, type OutdoorTemperatureSample } from "@climate-twin/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import request from "supertest";
-import { createApi, persistWeatherObservation, type ApiRuntime } from "../src/app.js";
+import { createApi, type ApiRuntime } from "../src/app.js";
+import { persistWeatherObservation } from "../src/app/support/weather-observations.js";
 import type { AppConfig } from "../src/config.js";
 import { outdoorLocationKey } from "../src/db.js";
-import { runThermalSimulation, runThermalSimulationAsync, simulateThermalStep } from "../src/thermal-simulation.js";
+import { runThermalSimulation, runThermalSimulationAsync, simulateThermalStep } from "../src/analytics/thermal/simulation.js";
 
 const config: AppConfig = {
   port: 0,
@@ -26,9 +27,8 @@ const config: AppConfig = {
   tpLinkPollIntervalMs: 10_000,
   tpLinkPython: "python",
   tpLinkBridgeScript: "apps/api/python/tp_link_bridge.py",
-  alertWebhookUrl: null,
-  alertWebhookBearerToken: null,
   corsOrigin: null,
+  localAuthTestBypass: true,
 };
 
 function syntheticSeries(hours = 96, intervalMinutes = 15): { indoor: MeasurementSample[]; outdoor: OutdoorTemperatureSample[] } {
@@ -376,9 +376,11 @@ describe("thermal simulation API and outdoor persistence", () => {
       quality: "good" as const,
     })));
     const buckets = runtime.database.thermalTemperatureHistory(
-      "sensor-01",
-      "2026-07-14T10:00:00.000Z",
-      "2026-07-14T10:10:00.000Z",
+      {
+        sensorId: "sensor-01",
+        from: "2026-07-14T10:00:00.000Z",
+        to: "2026-07-14T10:10:00.000Z",
+      },
     );
     expect(buckets).toHaveLength(2);
     expect(buckets.map((sample) => sample.timestamp)).toEqual([

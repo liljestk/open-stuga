@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 
 import { tmpdir } from "node:os";
 
@@ -12,13 +12,11 @@ import { createApi, type ApiRuntime } from "../src/app.js";
 
 import { loadConfig } from "../src/config.js";
 
-import { ClimateDatabase } from "../src/db.js";
-
 import { homeAssistantInstanceFromService } from "../src/discovery.js";
 
 import { readIntegrationSecrets, writeIntegrationSecrets } from "../src/integration-secrets.js";
 
-import { waitFor } from "./integration-setupTestSupport.js";
+import { waitFor } from "./waitForTestSupport.js";
 
 describe("guided integration setup", () => {
   let directory: string | null = null;

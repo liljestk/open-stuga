@@ -1,7 +1,8 @@
+import { systemUpdateStatus } from "./SystemUpdatesTestSupport";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { HostSystemHealth } from "@climate-twin/contracts";
-import { api, type SystemStorageStatus, type SystemUpdateStatus } from "../api";
+import type { HostSystemHealth, SystemStorageStatus, SystemUpdateStatus } from "@climate-twin/contracts";
+import { api } from "../api";
 import { confirmAction } from "../components/ConfirmationProvider";
 import { I18nProvider } from "../i18n";
 import { SystemUpdatesPage } from "./SystemUpdatesPage";
@@ -36,7 +37,7 @@ vi.mock("../components/ConfirmationProvider", async (importOriginal) => {
   return { ...actual, confirmAction: vi.fn().mockResolvedValue(true) };
 });
 
-const status: SystemUpdateStatus = {
+const statusApplication = {
   currentVersion: "0.5.0",
   latestVersion: "0.6.0",
   updateAvailable: true,
@@ -68,7 +69,9 @@ const status: SystemUpdateStatus = {
     reason: "ready",
   },
   operation: null,
-};
+} satisfies Omit<SystemUpdateStatus, "schema" | "revision" | "application" | "host" | "workflow">;
+
+const status = systemUpdateStatus(statusApplication);
 
 const binding = {
   operationId: "80d65f28-33cc-4424-b72f-47be89c275ab",
@@ -761,10 +764,10 @@ describe("system updates page", () => {
   });
 
   it("disables installation when the external agent is not connected", async () => {
-    vi.spyOn(api, "systemUpdateStatus").mockResolvedValue({
-      ...status,
+    vi.spyOn(api, "systemUpdateStatus").mockResolvedValue(systemUpdateStatus({
+      ...statusApplication,
       capability: { available: false, runtime: null, agentLastSeenAt: null, reason: "agent-not-connected" },
-    });
+    }));
     render(<I18nProvider><SystemUpdatesPage /></I18nProvider>);
 
     expect(await screen.findByText(/trusted update service is not connected/)).toBeTruthy();

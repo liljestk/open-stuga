@@ -3,15 +3,15 @@ import { describe, expect, it } from "vitest";
 import setupOperationsStyles from "../pages/SetupOperationsPanel.css?raw";
 import propertyStyles from "../pages/PropertyManagementPage.css?raw";
 import hostSystemStyles from "../pages/HostSystemPanel.css?raw";
-import shellStyles from "./global/01-root.css?raw";
-import analyticsStyles from "./global/10-analytics-summary-card-dt.css?raw";
-import alertStateStyles from "./global/07-simulation-provenance.css?raw";
-import historyImportStyles from "./global/11-history-import-layout-choice-label-span.css?raw";
-import responsiveStyles from "./global/14-weather-current-card-weather-empty-p.css?raw";
-import mobileStyles from "./global/15-media-max-width-680px.css?raw";
-import accessibilityStyles from "./global/16-portfolio-facts-dd.css?raw";
+import { cssRule, globalStyles, type CssRule } from "../test/styleSources";
 
 const productionStyles = import.meta.glob("../**/*.css", {
+  eager: true,
+  import: "default",
+  query: "?raw",
+}) as Record<string, string>;
+
+const componentSources = import.meta.glob("../**/*.tsx", {
   eager: true,
   import: "default",
   query: "?raw",
@@ -21,25 +21,26 @@ const allProductionStyles = Object.entries(productionStyles)
   .map(([path, styles]) => `/* ${path} */\n${styles}`)
   .join("\n");
 
+/** A legacy value declared first and its modern replacement after it, in the same rule. */
+function expectFallback(rule: CssRule, property: string, legacy: string, modern: string): void {
+  const values = rule.values(property);
+  expect(values).toContain(legacy);
+  expect(values.indexOf(legacy)).toBeLessThan(values.lastIndexOf(modern));
+}
+
 describe("semantic stylesheet tokens", () => {
-  it("uses the canonical theme-aware tokens for corrected component styles", () => {
-    expect(analyticsStyles).toContain("background: var(--panel-soft)");
-    expect(analyticsStyles).toContain("color: var(--red)");
-    expect(analyticsStyles).not.toMatch(/var\(--(?:surface-soft|danger)\b/);
-
-    expect(historyImportStyles).toContain("border: 1px solid var(--line-strong)");
-    expect(historyImportStyles).not.toContain("var(--strong-line)");
-
-    expect(propertyStyles).toContain("background: var(--bg)");
-    expect(propertyStyles).not.toContain("var(--canvas)");
-
-    for (const token of ["panel-soft", "positive", "yellow", "red", "line", "action", "muted"]) {
-      expect(setupOperationsStyles).toContain(`var(--${token})`);
+  it("only reads custom properties that a stylesheet or component defines", () => {
+    const defined = new Set<string>();
+    for (const source of [allProductionStyles, ...Object.values(componentSources)]) {
+      for (const match of source.matchAll(/(--[\w-]+)["']?\s*:/g)) defined.add(match[1]!);
     }
-    expect(setupOperationsStyles).not.toMatch(
-      /var\(--(?:surface-muted|success|warning|danger|border|text-muted)\b/,
-    );
-    expect(setupOperationsStyles).not.toMatch(/var\(--[\w-]+\s*,\s*#[\da-f]+\)/i);
+    const undefinedTokens = [...new Set([...allProductionStyles.matchAll(/var\((--[\w-]+)/g)].map((match) => match[1]!))]
+      .filter((token) => !defined.has(token));
+    expect(undefinedTokens).toEqual([]);
+  });
+
+  it("uses theme-aware tokens without hard-coded fallbacks", () => {
+    expect(allProductionStyles).not.toMatch(/var\(--[\w-]+\s*,\s*#[\da-f]+\)/i);
   });
 
   it("keeps legacy pine tokens as root compatibility declarations only", () => {
@@ -47,7 +48,7 @@ describe("semantic stylesheet tokens", () => {
 
     for (const [path, styles] of Object.entries(productionStyles)) {
       if (!/--pine(?:-hover|-soft)?\s*:/.test(styles)) continue;
-      expect(path).toMatch(/global\/(?:01-root|15-media-max-width-680px)\.css$/);
+      expect(path).toMatch(/global\/(?:base|responsive)\.css$/);
     }
   });
 
@@ -85,61 +86,78 @@ describe("semantic stylesheet tokens", () => {
   });
 
   it("keeps the primary navigation vertical-only", () => {
-    expect(allProductionStyles).toMatch(/\.sidebar\s*\{[^}]*overflow-x:\s*hidden[^}]*overflow-y:\s*auto/);
+    const sidebar = cssRule(globalStyles, ".sidebar");
+    expect(sidebar.get("overflow-x")).toBe("hidden");
+    expect(sidebar.get("overflow-y")).toBe("auto");
   });
 
   it("keeps unknown monitoring visually neutral", () => {
-    expect(alertStateStyles).toMatch(/\.alerts-monitoring-summary\.unknown\s*\{[^}]*background:\s*var\(--panel-soft\)/);
-    expect(alertStateStyles).toMatch(/\.alerts-monitoring-summary\.unknown\s*>\s*span\s*\{[^}]*color:\s*var\(--muted\)/);
-    expect(alertStateStyles).not.toMatch(/\.alerts-monitoring-summary\.unknown[^}]*var\(--orange/);
+    const unknown = cssRule(globalStyles, ".alerts-monitoring-summary.unknown");
+    expect(unknown.get("background")).toBe("var(--panel-soft)");
+    expect(unknown.declarations.some(([, value]) => value.includes("var(--orange"))).toBe(false);
+    expect(cssRule(globalStyles, ".alerts-monitoring-summary.unknown > span").get("color")).toBe("var(--muted)");
   });
 
   it("stacks dense workspaces before the desktop rail makes them cramped", () => {
-    expect(propertyStyles).toMatch(/@media \(max-width: 1080px\)[\s\S]*?\.property-layout\s*\{\s*grid-template-columns:\s*1fr/);
-    expect(propertyStyles).toMatch(/@media \(max-width: 1080px\)[\s\S]*?\.property-sidebar\s*\{[^}]*grid-template-columns:\s*repeat\(2,/);
-    expect(propertyStyles).toMatch(/@media \(max-width: 1080px\)[\s\S]*?\.property-sidebar > \.property-house-group,[\s\S]*?\.property-sidebar > \.property-area-list,[\s\S]*?\.property-sidebar > \.property-action-disclosure,[\s\S]*?\{ grid-column: 1 \/ -1; \}/);
-    expect(responsiveStyles).toMatch(/@media \(max-width: 1180px\)[\s\S]*?\.sensor-workspace\s*\{\s*grid-template-columns:\s*1fr/);
-    expect(responsiveStyles).toMatch(/@media \(max-width: 1180px\)[\s\S]*?\.sensor-side-column\s*\{\s*grid-template-columns:\s*repeat\(2,/);
-    expect(hostSystemStyles).toMatch(/@media \(max-width: 1180px\)[\s\S]*?\.host-system-grid\s*\{\s*grid-template-columns:\s*1fr 1fr/);
-    expect(hostSystemStyles).toContain(".host-system-grid > :last-child:nth-child(odd) { grid-column: 1 / -1; }");
-    expect(setupOperationsStyles).toMatch(/\.setup-operations-grid\s*\{[^}]*min-width:\s*0[^}]*max-width:\s*100%/);
-    expect(setupOperationsStyles).toMatch(/@media \(max-width: 900px\)[^}]*\.setup-operations-grid\s*\{\s*grid-template-columns:\s*minmax\(0, 1fr\)/);
-    expect(setupOperationsStyles).toMatch(/\.bulk-mapping-scroll\s*\{[^}]*max-width:\s*100%[^}]*overflow-x:\s*auto/);
+    expect(cssRule(propertyStyles, ".property-layout", "(max-width: 1080px)").get("grid-template-columns")).toBe("1fr");
+    expect(cssRule(propertyStyles, ".property-sidebar", "(max-width: 1080px)").get("grid-template-columns")).toMatch(/^repeat\(2,/);
+    for (const child of [".property-house-group", ".property-area-list", ".property-action-disclosure"]) {
+      expect(cssRule(propertyStyles, `.property-sidebar > ${child}`, "(max-width: 1080px)").get("grid-column")).toBe("1 / -1");
+    }
+    expect(cssRule(globalStyles, ".sensor-workspace", "(max-width: 1180px)").get("grid-template-columns")).toBe("1fr");
+    expect(cssRule(globalStyles, ".sensor-side-column", "(max-width: 1180px)").get("grid-template-columns")).toMatch(/^repeat\(2,/);
+    expect(cssRule(hostSystemStyles, ".host-system-grid", "(max-width: 1180px)").get("grid-template-columns")).toBe("1fr 1fr");
+    expect(cssRule(hostSystemStyles, ".host-system-grid > :last-child:nth-child(odd)", "(max-width: 1180px)").get("grid-column")).toBe("1 / -1");
+    const grid = cssRule(setupOperationsStyles, ".setup-operations-grid");
+    expect(grid.get("min-width")).toBe("0");
+    expect(grid.get("max-width")).toBe("100%");
+    expect(cssRule(setupOperationsStyles, ".setup-operations-grid", "(max-width: 900px)").get("grid-template-columns")).toBe("minmax(0, 1fr)");
+    const bulkMapping = cssRule(setupOperationsStyles, ".bulk-mapping-scroll");
+    expect(bulkMapping.get("max-width")).toBe("100%");
+    expect(bulkMapping.get("overflow-x")).toBe("auto");
   });
 
   it("keeps mobile banners and full-height surfaces inside the visual viewport", () => {
-    expect(shellStyles).toMatch(/\.app-shell\s*\{[^}]*min-height:\s*100vh;[^}]*min-height:\s*100dvh/);
-    expect(shellStyles).toMatch(/\.sidebar\s*\{[^}]*height:\s*100vh;[^}]*height:\s*100dvh/);
-    expect(analyticsStyles).toMatch(/\.history-import-dialog\s*\{[^}]*calc\(100vh - 44px\)[^}]*calc\(100dvh - 44px\)/);
-    expect(mobileStyles).toMatch(/\.history-import-dialog\s*\{[^}]*max-height:\s*100vh;[^}]*max-height:\s*100dvh/);
-    expect(responsiveStyles).toMatch(/@media \(max-width: 900px\)[\s\S]*?\.demo-banner, \.connection-banner\s*\{\s*position:\s*static/);
-    expect(responsiveStyles).toMatch(/@media \(max-width: 900px\)[\s\S]*?\.demo-mode \.mobile-header\s*\{\s*top:\s*0/);
+    expectFallback(cssRule(globalStyles, ".app-shell"), "min-height", "100vh", "100dvh");
+    expectFallback(cssRule(globalStyles, ".sidebar"), "height", "100vh", "100dvh");
+    expectFallback(cssRule(globalStyles, ".history-import-dialog"), "max-height",
+      "min(900px, calc(100vh - 44px))", "min(900px, calc(100dvh - 44px))");
+    expectFallback(cssRule(globalStyles, ".history-import-dialog", "(max-width: 680px)"), "max-height", "100vh", "100dvh");
+    expect(cssRule(globalStyles, ".demo-banner", "(max-width: 900px)").get("position")).toBe("static");
+    expect(cssRule(globalStyles, ".connection-banner", "(max-width: 900px)").get("position")).toBe("static");
+    expect(cssRule(globalStyles, ".demo-mode .mobile-header", "(max-width: 900px)").get("top")).toBe("0");
   });
 
   it("turns narrow editor popovers into inline disclosures and stacks paired fields", () => {
-    expect(accessibilityStyles).toMatch(/@media \(max-width: 700px\)[\s\S]*?\.editor-disclosure-content\s*\{[^}]*position:\s*static[^}]*width:\s*100%[^}]*min-width:\s*0/);
-    expect(accessibilityStyles).toMatch(/@media \(max-width: 700px\)[\s\S]*?\.opening-inventory-list, \.opening-inventory > p\s*\{[^}]*position:\s*static[^}]*width:\s*100%/);
-    expect(mobileStyles).toMatch(/@media \(max-width: 680px\)[\s\S]*?\.field-row\s*\{\s*grid-template-columns:\s*1fr/);
+    const disclosure = cssRule(globalStyles, ".editor-disclosure-content", "(max-width: 700px)");
+    expect([disclosure.get("position"), disclosure.get("width"), disclosure.get("min-width")]).toEqual(["static", "100%", "0"]);
+    const inventory = cssRule(globalStyles, ".opening-inventory-list", "(max-width: 700px)");
+    expect([inventory.get("position"), inventory.get("width")]).toEqual(["static", "100%"]);
+    expect(cssRule(globalStyles, ".field-row", "(max-width: 680px)").get("grid-template-columns")).toBe("1fr");
   });
 
   it("reflows phone-width inventory actions and weather location controls", () => {
-    expect(propertyStyles).toMatch(/@media \(max-width: 760px\)[\s\S]*?\.inventory-overview \.panel-header\s*\{[^}]*flex-direction:\s*column/);
-    expect(propertyStyles).toMatch(/@media \(max-width: 760px\)[\s\S]*?\.inventory-item-actions\s*\{[^}]*grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\)/);
-    expect(propertyStyles).toMatch(/\.inventory-item-actions \.secondary-button\s*\{[^}]*min-width:\s*0[^}]*white-space:\s*normal/);
-    expect(accessibilityStyles).toMatch(/@media \(max-width: 760px\)[\s\S]*?\.location-discovery-current\s*\{[^}]*grid-template-columns:\s*auto minmax\(0, 1fr\)/);
-    expect(accessibilityStyles).toMatch(/\.location-discovery-current > \.secondary-button\s*\{[^}]*grid-column:\s*1 \/ -1[^}]*white-space:\s*normal/);
+    expect(cssRule(propertyStyles, ".inventory-overview .panel-header", "(max-width: 760px)").get("flex-direction")).toBe("column");
+    expect(cssRule(propertyStyles, ".inventory-item-actions", "(max-width: 760px)").get("grid-template-columns")).toBe("repeat(2, minmax(0, 1fr))");
+    const action = cssRule(propertyStyles, ".inventory-item-actions .secondary-button", "(max-width: 760px)");
+    expect([action.get("min-width"), action.get("white-space")]).toEqual(["0", "normal"]);
+    expect(cssRule(globalStyles, ".location-discovery-current", "(max-width: 760px)").get("grid-template-columns")).toBe("auto minmax(0, 1fr)");
+    const locationAction = cssRule(globalStyles, ".location-discovery-current > .secondary-button", "(max-width: 760px)");
+    expect([locationAction.get("grid-column"), locationAction.get("white-space")]).toEqual(["1 / -1", "normal"]);
   });
 
   it("stacks history mapping controls at 320px", () => {
-    expect(mobileStyles).toMatch(/@media \(max-width: 360px\)[\s\S]*?\.history-import-map-list > div\s*\{\s*grid-template-columns:\s*minmax\(0, 1fr\) auto/);
-    expect(mobileStyles).toMatch(/\.history-import-map-list > div > label:last-child\s*\{[^}]*grid-column:\s*1 \/ -1/);
+    expect(cssRule(globalStyles, ".history-import-map-list > div", "(max-width: 360px)").get("grid-template-columns")).toBe("minmax(0, 1fr) auto");
+    expect(cssRule(globalStyles, ".history-import-map-list > div > label:last-child", "(max-width: 360px)").get("grid-column")).toBe("1 / -1");
   });
 
   it("provides coarse-pointer touch targets for dense controls and property maps", () => {
-    expect(accessibilityStyles).toMatch(/@media \(pointer: coarse\)[\s\S]*?\.opening-binding-fields \.checkbox-row[^}]*min-height:\s*44px/);
-    expect(accessibilityStyles).toMatch(/@media \(pointer: coarse\)[\s\S]*?\.opening-advanced-fields > summary[^}]*min-height:\s*44px/);
-    expect(propertyStyles).toMatch(/@media \(pointer: coarse\)[\s\S]*?\.property-area-map\.leaflet-container \.leaflet-bar a\s*\{[^}]*width:\s*44px[^}]*height:\s*44px/);
-    expect(propertyStyles).toMatch(/\.property-map-handle-wrap::before\s*\{[^}]*width:\s*44px[^}]*height:\s*44px/);
-    expect(propertyStyles).toMatch(/\.grant-tree label\s*\{[^}]*min-height:\s*44px/);
+    expect(cssRule(globalStyles, ".opening-binding-fields .checkbox-row", "(pointer: coarse)").get("min-height")).toBe("44px");
+    expect(cssRule(globalStyles, ".opening-advanced-fields > summary", "(pointer: coarse)").get("min-height")).toBe("44px");
+    const leafletButton = cssRule(propertyStyles, ".property-area-map.leaflet-container .leaflet-bar a", "(pointer: coarse)");
+    expect([leafletButton.get("width"), leafletButton.get("height")]).toEqual(["44px", "44px"]);
+    const handle = cssRule(propertyStyles, ".property-map-handle-wrap::before", "(pointer: coarse)");
+    expect([handle.get("width"), handle.get("height")]).toEqual(["44px", "44px"]);
+    expect(cssRule(propertyStyles, ".grant-tree label", "(pointer: coarse)").get("min-height")).toBe("44px");
   });
 });

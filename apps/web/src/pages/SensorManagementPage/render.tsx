@@ -1,23 +1,11 @@
 import {
-  lazy,
   Suspense,
-  useEffect,
-  useId,
-  useMemo,
-  useRef,
-  useState,
-  type FormEvent,
-  type KeyboardEvent,
-  type PointerEvent as ReactPointerEvent,
 } from "react";
 import {
   Archive,
   Check,
   ChevronDown,
-  ChevronLeft,
-  ChevronRight,
   CircleDot,
-  Copy,
   Database,
   DoorOpen,
   Edit3,
@@ -26,54 +14,31 @@ import {
   LoaderCircle,
   MapPin,
   Plus,
-  Printer,
-  QrCode,
   RadioTower,
   RefreshCw,
   RotateCcw,
   Search,
-  Sparkles,
   ThermometerSun,
   Trash2,
   TriangleAlert,
   X,
 } from "lucide-react";
-import type {
-  Floor,
-  House,
-  IntegrationStatus,
-  MeasurementSample,
-  Metric,
-  Sensor,
-  SensorLabelDescriptor,
-  TpLinkDiscoveredDevice,
-  UnitSystem,
-} from "@climate-twin/contracts";
-import { api, type CreateSensorInput, type HistoricalImportResult, type SensorPatch } from "../../api";
-import type { ClimateState, TimeRange } from "../../domain";
-import { useI18n, type TranslationKey } from "../../i18n";
 import { formatInTimeZone } from "../../dateTime";
 import { measurementLabel } from "../../measurements";
-import { useNow } from "../../useNow";
-import { integrationForHouse } from "../../integrationScope";
-import { assessSensorCoverage, suggestSensorPlacement, type SensorCoverageAssessment, type SensorPlacementSuggestion } from "../../experimentalSpatialLayers";
-import { configuredSpatialMaxSampleAgeMs } from "../../spatialFreshness";
-import { useSpatialLayers } from "../../useSpatialLayers";
-import { qrCodeMatrix } from "../../qrCode";
 import { TrendChart } from "../../components/TrendChart";
-import { ContactSensorHistoryPanel } from "../../components/ContactSensorHistoryPanel";
-import { TpLinkContactAssignment } from "../../components/TpLinkContactAssignment";
+import { ContactSensorHistoryPanel } from "./ContactSensorHistoryPanel";
+import { TpLinkContactAssignment } from "./TpLinkContactAssignment";
 import {
   isLegacyTpLinkContactSensor,
   tpLinkContactDeviceForSensor,
   tpLinkOpeningForDevice,
 } from "../../tpLinkDeviceClassification";
-import { HistoricalImportWizard, PlacementPicker, SensorLabelCard, UNPLACED_TAG, availableForSensor, clamp, deviceBindingKey, draftContext, draftForSensor, errorMessage, hasHomeAssistantBinding, hasRealBinding, initialDraft, isDemoSensor, isGreeSensor, isLive, isUnplaced, latestSensorTimestamp, mergeMetricSamples, normalizedMeasurementEntityIds, roomCenter, rounded, sameMeasurementEntityIds, sensorFloor, sensorHasMetric, sensorMeasurementEntityIds, sensorStatus, stableRoomId, tpLinkDeviceSummary, validationErrors } from "./support";
-import type { AddStep, DraftErrors, DraftSource, EditorMode, Feedback, SensorDraft, SensorFilter, SensorManagementPageProps, SensorStatus, Translate } from "./support";
+import { HistoricalImportWizard, SensorLabelCard, deviceBindingKey, isDemoSensor, isGreeSensor, latestSensorTimestamp, sensorFloor } from "./support";
+import type { SensorFilter } from "./support";
 import { useSensorManagementPagePart04 } from "./part-04";
 import { Nexus433SendersPanel } from "./Nexus433SendersPanel";
 export function renderSensorManagementPage(context: ReturnType<typeof useSensorManagementPagePart04>) {
-  const { state, house, houses, integration, tpLinkDevices, tpLinkDevicesLoading, tpLinkDevicesError, requestedDevice, requestedDeviceId, readOnly, localAuthority, units, onRequestedDeviceHandled, onLoadSeries, onHouse, onRefreshDevices, onCreateSensor, onUpdateSensor, onDeleteSensor, onImportHistoricalData, locale, t, now, tpLinkStatus, formId, pageHeadingRef, editorHeadingRef, editorOpenerRef, importButtonRef, detailsHeadingRef, detailsOpenerRef, detailsRequestGeneration, search, setSearch, filter, setFilter, modelFilter, setModelFilter, mode, setMode, addStep, setAddStep, editingSensorId, setEditingSensorId, attachSensorId, setAttachSensorId, draft, setDraft, errors, setErrors, editorFeedback, setEditorFeedback, pageFeedback, setPageFeedback, contactSetupDevice, contactOpenerRef, submitting, setSubmitting, rowBusyId, setRowBusyId, cleanupBusy, setCleanupBusy, refreshing, setRefreshing, refreshError, setRefreshError, importOpen, setImportOpen, detailsSensor, setDetailsSensor, detailsContactKey, detailSamples, setDetailSamples, detailCursor, setDetailCursor, detailsLoading, setDetailsLoading, detailsError, setDetailsError, detailMetric, setDetailMetric, detailRange, setDetailRange, currentSensors, currentSensorIds, visibleDetailsSensor, visibleDetailsIsContactSensor, visibleDetailsContactDevice, visibleDetailsContactOpening, demoSensors, hasExistingRealBoundSensor, enabledMeasurementDefinitions, detailDefinitions, detailDefinition, detailHistory, usedDeviceIds, homeTpLinkDevices, contactDevices, mappedContactDevices, contactHistoryDevice, contactHistoryOpening, contactStatuses, availableContactDevices, addableDevices, attachableSensors, sensorStatuses, statusCounts, sensorModels, normalizedSearch, visibleSensors, visibleContactDevices, draftHouse, draftFloor, editingSensor, selectableDevices, currentBindingMissing, draftDevice, energyOnlyDraft, placementAnalysisEnabled, placementLayerScope, placementLayers, placementCoverage, placementSuggestion, clearError, beginAdd, beginAddDevice, beginEdit, restoreEditorFocus, cancelEditor, closeImport, loadSensorDetails, closeSensorDetails, openContactDetails, closeContactDetails, chooseSource, chooseDevice, attachDeviceToExistingSensor, beginContactSetup, closeContactSetup, assignContactToOpening, changeDraftHouse, changeDraftFloor, focusFirstError, advanceAdd, retreatAdd, buildPlacement, submitAdd, submitEdit, setArchived, removeSensor, removeDemoSensors, refreshDevices, renderFieldError, fieldA11y, renderDetailsFields, renderBindingField, renderHomeAssistantBindings, renderLocationFields, renderAddEditor, renderEditEditor } = context;
+  const { state, house, houses, tpLinkDevicesLoading, tpLinkDevicesError, readOnly, localAuthority, units, onImportHistoricalData, locale, t, tpLinkStatus, pageHeadingRef, importButtonRef, detailsHeadingRef, search, setSearch, filter, modelFilter, setModelFilter, mode, pageFeedback, setPageFeedback, contactSetupDevice, contactOpenerRef, rowBusyId, cleanupBusy, refreshing, refreshError, importOpen, setImportOpen, detailsContactKey, detailSamples, detailCursor, detailsLoading, detailsError, setDetailMetric, detailRange, currentSensors, visibleDetailsSensor, visibleDetailsIsContactSensor, visibleDetailsContactDevice, visibleDetailsContactOpening, demoSensors, detailDefinitions, detailDefinition, detailHistory, homeTpLinkDevices, contactDevices, mappedContactDevices, contactHistoryDevice, contactHistoryOpening, contactStatuses, availableContactDevices, addableDevices, sensorStatuses, statusCounts, sensorModels, visibleSensors, visibleContactDevices, beginAdd, beginAddDevice, beginEdit, closeImport, loadSensorDetails, closeSensorDetails, openContactDetails, closeContactDetails, beginContactSetup, closeContactSetup, assignContactToOpening, setArchived, removeSensor, removeDemoSensors, refreshDevices, renderAddEditor, renderEditEditor } = context;
   const visibleDetailsIsGreeSensor = Boolean(visibleDetailsSensor && isGreeSensor(visibleDetailsSensor));
   const visibleSensorNameCounts = visibleSensors.reduce((counts, sensor) => {
     const key = sensor.name.trim().toLocaleLowerCase(locale);
@@ -235,7 +200,7 @@ export function renderSensorManagementPage(context: ReturnType<typeof useSensorM
                 <span>
                   <small>{t("sensors.contactCurrentAssignment")}</small>
                   <strong>{visibleDetailsContactOpening?.element.label?.trim() || t("sensors.contactNotAttached")}</strong>
-                  {visibleDetailsContactOpening && <span>{t(`planElement.${visibleDetailsContactOpening.element.kind}` as TranslationKey)} · {visibleDetailsContactOpening.floor.name}</span>}
+                  {visibleDetailsContactOpening && <span>{t(`planElement.${visibleDetailsContactOpening.element.kind}`)} · {visibleDetailsContactOpening.floor.name}</span>}
                 </span>
                 {visibleDetailsContactDevice && <strong className={`contact-state ${visibleDetailsContactDevice.contactOpen === null || visibleDetailsContactDevice.contactOpen === undefined ? "unknown" : visibleDetailsContactDevice.contactOpen ? "open" : "closed"}`}>
                   {visibleDetailsContactDevice.contactOpen === true
@@ -256,7 +221,7 @@ export function renderSensorManagementPage(context: ReturnType<typeof useSensorM
               <p>{visibleDetailsContactOpening
                 ? t("sensors.contactLegacyExplanation", {
                     opening: visibleDetailsContactOpening.element.label?.trim()
-                      || t(`planElement.${visibleDetailsContactOpening.element.kind}` as TranslationKey),
+                      || t(`planElement.${visibleDetailsContactOpening.element.kind}`),
                   })
                 : t("sensors.contactLegacyUnmatchedExplanation")}</p>
             </div>
@@ -292,7 +257,7 @@ export function renderSensorManagementPage(context: ReturnType<typeof useSensorM
                 <td>{state.measurementDefinitions.find((definition) => definition.id === sample.metric)
                   ? measurementLabel(state.measurementDefinitions.find((definition) => definition.id === sample.metric)!, locale)
                   : sample.metric}</td>
-                <td>{sample.value} {sample.canonicalUnit}</td><td>{t(`measurement.source.${sample.source}` as TranslationKey)}</td><td>{t(`measurement.quality.${sample.quality}` as TranslationKey)}</td>
+                <td>{sample.value} {sample.canonicalUnit}</td><td>{t(`measurement.source.${sample.source}`)}</td><td>{t(`measurement.quality.${sample.quality}`)}</td>
               </tr>)}</tbody>
             </table></div> : !detailsLoading && !detailsError ? <p className="sensor-details-empty">{t("sensors.noData")}</p> : null}
           </>}

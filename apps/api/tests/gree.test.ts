@@ -9,10 +9,11 @@ import { loadConfig } from "../src/config.js";
 import { ClimateDatabase } from "../src/db.js";
 import type { TelemetryBus } from "../src/events.js";
 import type { EwpeCloudSnapshot, EwpeCloudTransport } from "../src/ewpe-cloud.js";
-import { GreeBridge, type GreeStatePayload } from "../src/gree.js";
+import { GreeBridge } from "../src/gree.js";
+import type { GreeStatePayload } from "../src/gree-protocol.js";
 import { HeatPumpStateStore } from "../src/heat-pump-state.js";
 import { readIntegrationSecrets, writeIntegrationSecrets } from "../src/integration-secrets.js";
-import type { RuntimeStatus } from "../src/services.js";
+import type { RuntimeStatus } from "../src/runtime-status.js";
 import type { TimeseriesStore } from "../src/timeseries/store.js";
 
 const MAC = "AABBCCDDEEFF";

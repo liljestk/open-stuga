@@ -1,19 +1,8 @@
 import { maximum, minimum } from "@climate-twin/analytics-kernel";
-import type {
-  ActionRun,
-  AnalyticsPoint,
-  AnalyticsQueryResponse,
-  AnalyticsSeries,
-  House,
-  MaintenanceTask,
-  ManualObservation,
-  MeasurementDefinition,
-  OpeningStateObservation,
-  OutdoorTemperatureSample,
-  Sensor,
-} from "@climate-twin/contracts";
-import { HOME_PERFORMANCE_ALGORITHM_VERSION, HomePerformanceInput, HomePerformanceLimitation, HomePerformanceResult, HomePerformanceSensorHealth, HomePerformanceSensorIssue, compareStable, exposureResult, median, recoveryEvidenceBySensor, round, values } from "./model.js";
+import type { AnalyticsQueryResponse, AnalyticsSeries, HomePerformanceLimitation, HomePerformanceSensorHealth, HomePerformanceSensorIssue } from "@climate-twin/contracts";
+import { HOME_PERFORMANCE_ALGORITHM_VERSION, HomePerformanceInput, HomePerformanceResult, exposureResult, median, recoveryEvidenceBySensor, round } from "./model.js";
 import { definitionFor, energyResult, maintenanceResult, moistureRecoveryResult, openingEffectivenessResult, sampleMedian } from "./derive-support.js";
+import { compareCodeUnits } from "../../text-order.js";
 
 export function sensorHealthResult(input: HomePerformanceInput): HomePerformanceSensorHealth {
   const midpoint = (Date.parse(input.from) + Date.parse(input.to)) / 2;
@@ -33,7 +22,7 @@ export function sensorHealthResult(input: HomePerformanceInput): HomePerformance
     if (supported.length === 0) continue;
     const lowestCoverage = [...supported]
       .sort((left, right) => left.summary.coverage - right.summary.coverage
-        || compareStable(left.measurementId, right.measurementId))[0];
+        || compareCodeUnits(left.measurementId, right.measurementId))[0];
     if (lowestCoverage && lowestCoverage.summary.coverage < 0.75) {
       issues.push({
         code: "low-coverage",
@@ -112,7 +101,7 @@ export function sensorHealthResult(input: HomePerformanceInput): HomePerformance
     healthySensors: Math.max(0, monitoredSensors - sensorsWithIssues.size),
     coveragePercent: coverage === null ? null : round(coverage * 100, 0),
     issues: issues.sort((left, right) => (
-      compareStable(left.sensorName, right.sensorName) || compareStable(left.metric, right.metric)
+      compareCodeUnits(left.sensorName, right.sensorName) || compareCodeUnits(left.metric, right.metric)
     )),
   };
 }
@@ -136,7 +125,7 @@ export function deriveHomePerformance(input: HomePerformanceInput): HomePerforma
     input.climate?.quality.seriesCount ? input.climate.provenance.map((item) => item.archiveState) : [],
     input.recoveryClimate?.quality.seriesCount ? input.recoveryClimate.provenance.map((item) => item.archiveState) : [],
     input.energy?.quality.seriesCount ? input.energy.provenance.map((item) => item.archiveState) : [],
-  ].flat()).sort(compareStable);
+  ].flat()).sort(compareCodeUnits);
   const limitations = unique<HomePerformanceLimitation>([
     ...(archiveStates.some((state) => state === "failed" || state === "not-ready") ? ["archive-incomplete" as const] : []),
     ...(input.sensorScopeTruncated ? ["sensor-scope-limited" as const] : []),
@@ -155,7 +144,7 @@ export function deriveHomePerformance(input: HomePerformanceInput): HomePerforma
     ...(input.recoveryClimate?.series ?? []),
     ...(input.energy?.series ?? []),
   ].filter((series) => series.summary.count > 0 && enabledSensorIds.has(series.entityId))
-    .map((series) => series.entityId)).sort(compareStable);
+    .map((series) => series.entityId)).sort(compareCodeUnits);
   return {
     status: available === 0
       ? "unavailable"

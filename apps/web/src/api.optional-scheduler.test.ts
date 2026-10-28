@@ -41,7 +41,7 @@ describe("optional hydration scheduling", () => {
     ];
     let settled = Promise.allSettled(requests);
     try {
-      const metric = api.houseEnergySummary("home", "2026-09-01T00:00:00Z", "2026-09-02T00:00:00Z");
+      const metric = api.houseEnergySummary("home", { from: "2026-09-01T00:00:00Z", to: "2026-09-02T00:00:00Z" });
       requests.push(metric);
       settled = Promise.allSettled(requests);
       await vi.waitFor(() => expect([...pending.keys()].some((url) => url.includes("/energy-summary?"))).toBe(true), { timeout: 250 });
@@ -56,7 +56,7 @@ describe("optional hydration scheduling", () => {
       expect(maximumReads).toBe(MAX_CONCURRENT_API_READ_REQUESTS);
       expect(fetchMock.mock.calls.every((call) => !("schedulingClass" in (call[1] ?? {})))).toBe(true);
       const metricUrl = [...pending.keys()].find((url) => url.includes("/energy-summary?"))!;
-      pending.get(metricUrl)!({ summary: { consumptionKwh: 4 } });
+      pending.get(metricUrl)!({ summary: { houseId: "home", consumptionKwh: 4, costBreakdown: null, contributions: [] } });
       await expect(metric).resolves.toMatchObject({ consumptionKwh: 4 });
       const price = api.houseElectricityPrice("home");
       requests.push(price);
@@ -85,16 +85,16 @@ describe("optional hydration scheduling", () => {
     const settled = Promise.allSettled([maintenance, observations]);
     try {
       await vi.waitFor(() => expect(pending.size).toBe(1));
-      pending.get("/api/v1/maintenance-tasks?houseId=home")!(Array.from({ length: COLLECTION_PAGE_SIZE }, (_, index) => ({ id: `task-${index}` })));
+      pending.get("/api/v1/maintenance-tasks?houseId=home")!({ maintenanceTasks: Array.from({ length: COLLECTION_PAGE_SIZE }, (_, index) => ({ id: `task-${index}`, propertyId: "property-home", houseId: "home", floorId: null, observationIds: [] })) });
       await vi.waitFor(() => expect(pending.has("/api/v1/observations?houseId=home")).toBe(true));
       await Promise.resolve();
       expect([...pending.keys()].some((url) => url.includes("offset="))).toBe(false);
       await expect(api.houseElectricityPrice("home")).resolves.toEqual({ current: null });
       expect([...pending.keys()].some((url) => url.includes("offset="))).toBe(false);
-      pending.get("/api/v1/observations?houseId=home")!([]);
+      pending.get("/api/v1/observations?houseId=home")!({ observations: [] });
       await observations;
       await vi.waitFor(() => expect([...pending.keys()].some((url) => url.includes("offset="))).toBe(true));
-      pending.get([...pending.keys()].find((url) => url.includes("offset="))!)!([]);
+      pending.get([...pending.keys()].find((url) => url.includes("offset="))!)!({ maintenanceTasks: [] });
       await expect(maintenance).resolves.toHaveLength(COLLECTION_PAGE_SIZE);
     } finally {
       cancelPendingApiRequests();

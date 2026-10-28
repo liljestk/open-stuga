@@ -1,2 +1,2 @@
-export * from "./StugubyPage/support";
+export { localDateTimeInput } from "./StugubyPage/stugubyModel";
 export { StugubyPage } from "./StugubyPage/main";

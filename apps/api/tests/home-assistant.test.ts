@@ -10,8 +10,6 @@ import { createServer, type Socket } from "node:net";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import request from "supertest";
-
 import { WebSocketServer, type WebSocket } from "ws";
 
 import { createApi, type ApiRuntime } from "../src/app.js";
@@ -26,7 +24,7 @@ import {
   testHomeAssistantCredentials,
 } from "../src/home-assistant.js";
 
-import { waitFor } from "./home-assistantTestSupport.js";
+import { waitFor } from "./waitForTestSupport.js";
 
 describe("Home Assistant normalization and state cache", () => {
   let runtime: ApiRuntime | null = null;
@@ -115,7 +113,8 @@ describe("Home Assistant normalization and state cache", () => {
       haUrl: null, haToken: null, haEntityMapFile: mappingPath,
       tpLinkHost: null, tpLinkUsername: null, tpLinkPassword: null, tpLinkDeviceMapFile: null,
       tpLinkPollIntervalMs: 10_000, tpLinkPython: "python", tpLinkBridgeScript: "apps/api/python/tp_link_bridge.py",
-      alertWebhookUrl: null, alertWebhookBearerToken: null, corsOrigin: null,
+      corsOrigin: null,
+      localAuthTestBypass: true,
     };
     runtime = createApi({ config, startBackground: false });
     runtime.database.db.exec(`CREATE TRIGGER fail_ha_mapping_persistence
@@ -195,7 +194,8 @@ describe("Home Assistant normalization and state cache", () => {
       haUrl: `http://127.0.0.1:${address.port}`, haToken: "test-token", haEntityMapFile: mappingPath,
       tpLinkHost: null, tpLinkUsername: null, tpLinkPassword: null, tpLinkDeviceMapFile: null,
       tpLinkPollIntervalMs: 10_000, tpLinkPython: "python", tpLinkBridgeScript: "apps/api/python/tp_link_bridge.py",
-      alertWebhookUrl: null, alertWebhookBearerToken: null, corsOrigin: null,
+      corsOrigin: null,
+      localAuthTestBypass: true,
     };
 
     runtime = createApi({ config, startBackground: false });
@@ -371,7 +371,8 @@ describe("Home Assistant normalization and state cache", () => {
       haUrl: `http://127.0.0.1:${address.port}`, haToken: "test-token", haEntityMapFile: mappingPath,
       tpLinkHost: null, tpLinkUsername: null, tpLinkPassword: null, tpLinkDeviceMapFile: null,
       tpLinkPollIntervalMs: 10_000, tpLinkPython: "python", tpLinkBridgeScript: "apps/api/python/tp_link_bridge.py",
-      alertWebhookUrl: null, alertWebhookBearerToken: null, corsOrigin: null,
+      corsOrigin: null,
+      localAuthTestBypass: true,
     };
     runtime = createApi({ config, startBackground: false });
     runtime.database.createSensor({
@@ -446,7 +447,8 @@ describe("Home Assistant normalization and state cache", () => {
       haUrl: `http://127.0.0.1:${address.port}`, haToken: "test-token", haEntityMapFile: null,
       tpLinkHost: null, tpLinkUsername: null, tpLinkPassword: null, tpLinkDeviceMapFile: null,
       tpLinkPollIntervalMs: 10_000, tpLinkPython: "python", tpLinkBridgeScript: "apps/api/python/tp_link_bridge.py",
-      alertWebhookUrl: null, alertWebhookBearerToken: null, corsOrigin: null,
+      corsOrigin: null,
+      localAuthTestBypass: true,
     };
     runtime = createApi({ config, startBackground: false });
     const wakeHouse = vi.spyOn(runtime.spatialLayers!.scheduler, "wakeHouse");

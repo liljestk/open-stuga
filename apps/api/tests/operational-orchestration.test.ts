@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { ClimateDatabase } from "../src/db.js";
 import { TelemetryBus } from "../src/events.js";
 import { normalizeAlertDeliveryPolicy, notificationScheduleDecision } from "../src/notification-policy.js";
-import { AlertEngine } from "../src/services.js";
+import { AlertEngine } from "../src/alerts/alert-engine.js";
 import type { AppConfig } from "../src/config.js";
 
 describe("operational orchestration", () => {
@@ -116,9 +116,7 @@ describe("operational orchestration", () => {
         dueBy: "2026-07-18",
       });
       const config = {
-        alertWebhookUrl: "https://alerts.example.test/stugu",
-        alertWebhookBearerToken: null,
-        alertWebhookSigningSecret: "test-signing-secret",
+        alertWebhookDestinations: [{ id: "primary", url: "https://alerts.example.test/stugu", signingSecret: "test-signing-secret" }],
         telegramBotToken: null,
         telegramChatId: null,
       } as unknown as AppConfig;

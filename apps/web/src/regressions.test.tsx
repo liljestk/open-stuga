@@ -4,31 +4,21 @@ import userEvent from "@testing-library/user-event";
 
 import { describe, expect, it, vi } from "vitest";
 
-import { useState, type ReactNode } from "react";
-
-import type { Floor, MeasurementDefinition, MeasurementSample, Sensor } from "@climate-twin/contracts";
-
-import { globalStyles as styles } from "./test/styleSources";
+import type { Floor } from "@climate-twin/contracts";
 
 import i18nSource from "./i18n.tsx?raw";
 
-import { AppShell } from "./components/AppShell";
+import { AppShell } from "./App/AppShell";
 
-import { defaultPlanElementWidth, FloorPlan, floorGridSize, snapPointToGrid } from "./components/FloorPlan";
+import { FloorPlan, floorGridSize } from "./components/FloorPlan";
 
-import { TrendChart } from "./components/TrendChart";
-
-import { createDemoState, type ClimateState } from "./domain";
-
-import { I18nProvider } from "./i18n";
+import { createDemoState } from "./domain";
 
 import { definitionFor } from "./measurements";
 
 import { AlertsPage } from "./pages/AlertsPage";
 
-import { TwinDashboard } from "./pages/TwinDashboard";
-
-import { ControlledFloorPlan, contrastRatio, declarationsFor, openFloorAddTools, openFloorEditorOptions, resolveVariable, samplesFor, withI18n } from "./regressionsTestSupport";
+import { ControlledFloorPlan, openFloorAddTools, openFloorEditorOptions, samplesFor, withI18n } from "./regressionsTestSupport";
 
 describe("frontend regressions", () => {
   it("keeps translation source free of common mojibake markers", () => {

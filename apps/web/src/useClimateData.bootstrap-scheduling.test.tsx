@@ -41,16 +41,16 @@ describe("bootstrap HTTP scheduling", () => {
     const optionalPaths = new Set([
       "/api/v2/measurements/snapshot",
       "/api/v1/observations",
-      "/api/v1/static-parameters",
+      "/api/v1/parameters",
       "/api/v2/measurement-definitions",
       "/api/v1/alert-rules",
-      "/api/v1/alerts",
+      "/api/v1/alert-events",
       "/api/v1/mock/scenarios",
     ]);
     vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input), "http://localhost");
       requests.push(`${url.pathname}${url.search}`);
-      if ((url.searchParams.get("houseId") === otherHouse.id && ["/api/v1/snapshot", "/api/v1/sensors"].includes(url.pathname))
+      if ((url.searchParams.get("houseId") === otherHouse.id && ["/api/v1/sensors/snapshots", "/api/v1/sensors"].includes(url.pathname))
         || optionalPaths.has(url.pathname)
         || (url.pathname === "/api/v1/maintenance-tasks" && url.searchParams.has("houseId"))) {
         pendingOptional.push(url.pathname);
@@ -60,19 +60,19 @@ describe("bootstrap HTTP scheduling", () => {
       }
       switch (url.pathname) {
       case "/api/v1/session": return Promise.resolve(response({ ...demo.session, systemVersion: SYSTEM_VERSION }));
-      case "/api/v1/properties": return Promise.resolve(response(demo.properties));
-      case "/api/v1/houses": return Promise.resolve(response([house, otherHouse]));
-      case `/api/v1/houses/${house.id}/energy-summary`: return Promise.resolve(response({ summary: { consumptionKwh: 4 } }));
-      case "/api/v1/sensors": return Promise.resolve(response(sensors));
-      case "/api/v1/snapshot": return Promise.resolve(response(emptySnapshot ? [] : sensors.map((sensor) => ({
+      case "/api/v1/properties": return Promise.resolve(response({ properties: demo.properties }));
+      case "/api/v1/houses": return Promise.resolve(response({ houses: [house, otherHouse] }));
+      case `/api/v1/houses/${house.id}/energy-summary`: return Promise.resolve(response({ summary: { houseId: house.id, consumptionKwh: 4, costBreakdown: null, contributions: [] } }));
+      case "/api/v1/sensors": return Promise.resolve(response({ sensors }));
+      case "/api/v1/sensors/snapshots": return Promise.resolve(response({ sensors: emptySnapshot ? [] : sensors.map((sensor) => ({
         ...sensor, reading: demo.readings[sensor.id] ?? null,
-      }))));
+      })) }));
       case "/api/v1/integrations/status": return Promise.resolve(response(demo.integration));
-      case "/api/v1/property-areas":
-      case "/api/v1/area-equipment":
-      case "/api/v1/property-notes":
-      case "/api/v1/maintenance-tasks":
-      case "/api/v1/integrations/tp-link/devices": return Promise.resolve(response([]));
+      case "/api/v1/property-areas": return Promise.resolve(response({ areas: [] }));
+      case "/api/v1/area-equipment": return Promise.resolve(response({ equipment: [] }));
+      case "/api/v1/property-notes": return Promise.resolve(response({ notes: [] }));
+      case "/api/v1/maintenance-tasks": return Promise.resolve(response({ maintenanceTasks: [] }));
+      case "/api/v1/integrations/tp-link/devices": return Promise.resolve(response({ devices: [] }));
       default: return Promise.reject(new Error(`Unexpected bootstrap request: ${url.pathname}`));
       }
     }));
@@ -85,10 +85,10 @@ describe("bootstrap HTTP scheduling", () => {
     expect(result.current.state.sensors).toEqual(sensors);
     // Non-active Home snapshots use the optional cap too; visible metrics
     // must reach the real HTTP scheduler while every optional call is slow.
-    await expect(api.houseEnergySummary(house.id, "2026-09-01T00:00:00Z", "2026-09-02T00:00:00Z"))
+    await expect(api.houseEnergySummary(house.id, { from: "2026-09-01T00:00:00Z", to: "2026-09-02T00:00:00Z" }))
       .resolves.toMatchObject({ consumptionKwh: 4 });
     expect(pendingOptional).toHaveLength(1);
-    expect(requests).toContain(`/api/v1/snapshot?houseId=${house.id}`);
+    expect(requests).toContain(`/api/v1/sensors/snapshots?houseId=${house.id}`);
     if (emptySnapshot) expect(requests).toContain(`/api/v1/sensors?houseId=${house.id}`);
   });
 });

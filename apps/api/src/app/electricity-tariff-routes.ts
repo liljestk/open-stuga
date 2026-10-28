@@ -1,19 +1,18 @@
-import type { ElectricityInvoiceInput, ElectricityTariffVersion } from "@climate-twin/contracts";
+import { roleCanAccessNonGuestConfiguration } from "@climate-twin/contracts";
+import { withResponseSignal } from "./response-signal.js";
+import type { ElectricityInvoiceInput } from "@climate-twin/contracts";
 import { invoiceRange, reconcileInvoice } from "../electricity/invoice-reconciliation.js";
-import {
-  HttpError,
-  bodyObject,
-  rejectUnknownFields,
-  requestPrincipal,
-} from "./support/index.js";
-import type { ElectricityRouteContext } from "./electricity-routes.js";
+import { HttpError } from "../http-error.js";
+import { bodyObject, rejectUnknownFields } from "../request-fields.js";
+import { requestPrincipal } from "./support/local-sessions.js";
+import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
 
 const INVOICE_FIELDS = new Set([
   "houseId", "periodStart", "periodEnd", "totalEur", "consumptionKwh",
   "energyEur", "networkEur", "taxEur", "feesEur", "note",
 ]);
 
-function optionalNumber(body: Record<string, unknown>, key: string): number | null {
+function numberOrNull(body: Record<string, unknown>, key: string): number | null {
   const value = body[key];
   if (value === undefined || value === null) return null;
   if (typeof value !== "number" || !Number.isFinite(value)) throw new HttpError(400, "INVALID_FIELD", `${key} must be a finite number or null`);
@@ -26,17 +25,22 @@ function stringField(body: Record<string, unknown>, key: string): string {
   return value;
 }
 
+export type ElectricityTariffRouteContext = Pick<
+  ApiRouteRegistrationContext,
+  "app" | "prefix" | "database" | "visibility" | "energyCost" | "analyticsWorkLimiter"
+>;
+
 /** Dated tariff versions, manually entered invoices, and their reconciliation against calculated costs. */
 export function registerElectricityTariffRoutes(
-  context: ElectricityRouteContext,
+  context: ElectricityTariffRouteContext,
   access: {
-    visibleProperty: (propertyId: string, response: Parameters<ElectricityRouteContext["visibility"]>[0]) => unknown;
-    houseSensorIds: (houseId: string, response: Parameters<ElectricityRouteContext["visibility"]>[0]) => string[];
+    visibleProperty: (propertyId: string, response: Parameters<ElectricityTariffRouteContext["visibility"]>[0]) => unknown;
+    houseSensorIds: (houseId: string, response: Parameters<ElectricityTariffRouteContext["visibility"]>[0]) => string[];
     invalidateSummaries: () => void;
   },
 ): void {
-  const nonGuest = (response: Parameters<ElectricityRouteContext["visibility"]>[0]) => {
-    if (requestPrincipal(response).role === "guest") {
+  const nonGuest = (response: Parameters<ElectricityTariffRouteContext["visibility"]>[0]) => {
+    if (!roleCanAccessNonGuestConfiguration(requestPrincipal(response).role)) {
       throw new HttpError(403, "GUEST_READ_ONLY", "Guest accounts cannot access electricity invoices");
     }
   };
@@ -60,7 +64,7 @@ export function registerElectricityTariffRoutes(
     }
     const tariff = context.database.savePropertyElectricityTariff(
       propertyId,
-      body.versions as ElectricityTariffVersion[],
+      body.versions,
       revision,
     );
     if (!tariff) throw new HttpError(404, "NOT_FOUND", "Property not found");
@@ -90,12 +94,12 @@ export function registerElectricityTariffRoutes(
       houseId,
       periodStart: stringField(body, "periodStart"),
       periodEnd: stringField(body, "periodEnd"),
-      totalEur: optionalNumber(body, "totalEur") ?? Number.NaN,
-      consumptionKwh: optionalNumber(body, "consumptionKwh"),
-      energyEur: optionalNumber(body, "energyEur"),
-      networkEur: optionalNumber(body, "networkEur"),
-      taxEur: optionalNumber(body, "taxEur"),
-      feesEur: optionalNumber(body, "feesEur"),
+      totalEur: numberOrNull(body, "totalEur") ?? Number.NaN,
+      consumptionKwh: numberOrNull(body, "consumptionKwh"),
+      energyEur: numberOrNull(body, "energyEur"),
+      networkEur: numberOrNull(body, "networkEur"),
+      taxEur: numberOrNull(body, "taxEur"),
+      feesEur: numberOrNull(body, "feesEur"),
       note,
     };
     const invoice = context.database.createElectricityInvoice(propertyId, input);
@@ -125,26 +129,19 @@ export function registerElectricityTariffRoutes(
     const house = context.database.getHouse(invoice.houseId);
     const range = house ? invoiceRange(invoice, house.timezone) : null;
     if (!house || !range) throw new HttpError(409, "INVOICE_PERIOD_UNAVAILABLE", "The invoice period cannot be resolved for its Home");
-    const abortController = new AbortController();
-    const abortOnClose = () => abortController.abort();
-    response.once("close", abortOnClose);
-    try {
-      const summary = await context.analyticsWorkLimiter.run(
-        "energy-summary",
-        () => context.energyCost.summarize({
-          houseId: house.id,
-          // The invoice belongs to this Property's contract and price feed.
-          propertyId,
-          sensorIds: access.houseSensorIds(house.id, response),
-          ...range,
-          signal: abortController.signal,
-        }),
-        abortController.signal,
-      );
-      response.setHeader("cache-control", "private, no-store");
-      response.json({ reconciliation: reconcileInvoice(invoice, summary) });
-    } finally {
-      response.off("close", abortOnClose);
-    }
+    const summary = await withResponseSignal(response, (signal) => context.analyticsWorkLimiter.run(
+      "energy-summary",
+      () => context.energyCost.summarize({
+        houseId: house.id,
+        // The invoice belongs to this Property's contract and price feed.
+        propertyId,
+        sensorIds: access.houseSensorIds(house.id, response),
+        ...range,
+        signal,
+      }),
+      signal,
+    ));
+    response.setHeader("cache-control", "private, no-store");
+    response.json({ reconciliation: reconcileInvoice(invoice, summary) });
   });
 }

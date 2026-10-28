@@ -1,5 +1,3 @@
-import { createHash, createHmac, randomUUID } from "node:crypto";
-
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import request from "supertest";
@@ -12,16 +10,12 @@ import { ClimateDatabase } from "../src/db.js";
 
 import {
   maxTapoHistoryJobSpanMs,
-  parseTapoHistoryCsv,
-  TAPO_HISTORY_ACCEPTANCE_REVISION,
-  TAPO_HISTORY_API_IMPLEMENTATION_SHA256,
-  TAPO_HISTORY_CSV_PARSER_VERSION,
   TAPO_TARGET_RECLAIM_GRACE_MS,
   tapoExportRecipient,
   TapoHistoryExportService,
 } from "../src/tapo-history-export.js";
 
-import { ACCEPTANCE_REVISION, APPROVED_SCHEMA_SIGNATURE, DEPLOYMENT_FINGERPRINT, DEPLOYMENT_HEADER, WORKER_TOKEN, approveTarget } from "./tapo-history-workerTestSupport.js";
+import { APPROVED_SCHEMA_SIGNATURE, DEPLOYMENT_FINGERPRINT, DEPLOYMENT_HEADER, WORKER_TOKEN, approveTarget } from "./tapo-history-workerTestSupport.js";
 
 describe("automated Tapo history worker protocol", () => {
   let runtime: ApiRuntime | null = null;

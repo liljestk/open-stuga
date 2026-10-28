@@ -1,16 +1,13 @@
-import { MAX_OBSERVATION_RESOLUTION_NOTE_LENGTH } from "@climate-twin/contracts";
-import { STUGBY_MEDIA_TYPE } from "@climate-twin/stuguby-protocol";
-import { jsonRequestBody, jsonResponse, localAuthPaths, localAuthSchemas, operationalOrchestrationPaths, spatialHouseResourcePath, spatialJsonResponse, spatialLayerPaths, spatialLayerSchemas, spatialRequestBody, spatialScopePaths, spatialScopeQueryParameters, stugubyIdParameter, stugubyNodeSecurity, stugubyObject, stugubyPaths, stugubyRequestBody, stugubyResponse, trackingObject, trackingObserverBearerSecurity, trackingObserverSecurity, trackingPathParameter, trackingPaths } from "./support/index.js";
-import type { OpenApiSchema } from "./support/index.js";
+import { SCHEDULED_DATA_EXPORT_FREQUENCIES, SCHEDULED_DATA_EXPORT_PERIODS } from "@climate-twin/contracts";
 
 const scheduledDataExportInputProperties = {
   name: { type: "string", minLength: 1, maxLength: 120 },
   enabled: { type: "boolean" },
-  frequency: { enum: ["daily", "weekly", "monthly"] },
+  frequency: { enum: SCHEDULED_DATA_EXPORT_FREQUENCIES },
   timeLocal: { type: "string", pattern: "^(?:[01]\\d|2[0-3]):[0-5]\\d$" },
   dayOfWeek: { type: ["integer", "null"], minimum: 0, maximum: 6 },
   dayOfMonth: { type: ["integer", "null"], minimum: 1, maximum: 31 },
-  period: { enum: ["24h", "7d", "30d", "90d"] },
+  period: { enum: SCHEDULED_DATA_EXPORT_PERIODS },
   sensorIds: { type: "array", minItems: 1, maxItems: 50, items: { type: "string" } },
   measurementIds: { type: "array", minItems: 1, maxItems: 8, items: { type: "string" } },
   resolution: { type: "string", pattern: "^(?:raw|1h|1d|[1-9]\\d{0,3}m)$" },

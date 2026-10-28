@@ -1,57 +1,17 @@
+import { isAirflowPlanElement, type ConfiguredOpeningState, type Floor, type ManualObservation, type PlanElement } from "@climate-twin/contracts";
 import {
-  useEffect, useId, useMemo, useRef, useState,
-  type CSSProperties, type KeyboardEvent, type MouseEvent, type PointerEvent as ReactPointerEvent, type WheelEvent,
-} from "react";
-import { isAirflowPlanElement, type ConfiguredOpeningState, type Floor, type House, type ManualObservation, type MeasurementDefinition, type MeasurementSample, type OpeningStateObservation, type PlanElement, type Sensor, type UnitSystem } from "@climate-twin/contracts";
-import { useI18n, type TranslationKey } from "../../i18n";
-import { formatMeasurement, formatMeasurementDelta, measurementGradient, measurementLabel, measurementValue, toDisplayValue, type LatestMeasurements } from "../../measurements";
-import { energyDeviceMapStats, isEnergyDeviceSensor } from "../../energyDeviceMap";
+  type Point3D,
+  type ProjectedPoint3D,
+} from "../../spatial/volume";
 import {
-  configuredSpatialMaxSampleAgeMs, isSpatialSampleFresh, type SpatialFreshnessOptions,
-} from "../../spatialFreshness";
-import { simulateBuildingAirflow, type BuildingAirflowEstimate, type ClimateSampleMatrix } from "../../airflowSimulation";
-import {
-  clampCameraOrbit, createVolumeClouds, estimateVolumeFlows, interpolateVolume, projectPoint3D,
-  type CameraOrbit, type Point3D, type ProjectedPoint3D, type VolumeBounds, type VolumeCloudBlob,
-} from "../../spatialVolume";
-import {
-  formatOutdoorHumidity,
-  formatOutdoorTemperature,
-  formatOutdoorWindSpeed,
-  OutdoorConditionsBadge,
-  type OutdoorVisualizationState,
-} from "../OutdoorConditionsBadge";
-import { PlanElementDimensionFields } from "../PlanElementDimensionFields";
-import { applyAirflowPlanElementPatch, PlanElementAirflowFields, type AirflowPlanElementPatch } from "../PlanElementAirflowFields";
-import { applyFixturePlanElementPatch, PlanElementFixtureFields, type FixturePlanElementPatch } from "../PlanElementFixtureFields";
-import { OpeningInventory } from "../OpeningInventory";
-import { SpatialLayerOverlay3D } from "../SpatialLayerOverlay3D";
-import type { SpatialLayerSnapshot, SpatialTopology } from "../../spatialLayers";
-import type { SensorCoverageAssessment } from "../../experimentalSpatialLayers";
-import { ExperimentalSensorCoverage3D } from "../ExperimentalSensorCoverage";
-import {
-  clampPlanElementHeight,
-  clampPlanElementWidth,
-  DEFAULT_CEILING_HEIGHT_METRES,
-  defaultPlanElementHeight,
-  defaultPlanElementWidth,
-  defaultFireEscapeProjection,
-  editablePlanElementWidthBounds,
-  effectivePlanElementHeight,
-  isWallAttachedPlanElement,
   isWallOpening,
-  planElementBottomOffset,
-  planElementHeightBounds,
-  planElementWidthBounds,
 } from "../../planElementGeometry";
-import { fireplaceChimneyDimensions, fireplaceChimneyTop, isRoofSpanningFireplace, roofEavesZ, roofPeakZ, roofSurfaces } from "../../architecturalGeometry";
-import { MapInformationToggle, useMapInformationVisibility } from "../MapInformationToggle";
-import { effectiveOpeningState, openingStateCanChange, openingStateKey, openingStateObservationsForHouse } from "../../openingState";
-import { DEFAULT_CAMERA, VIEW_HEIGHT, VIEW_WIDTH, buildingBounds, elementAxis, elementWorldGeometry, inferReferenceTime, points, projectedCloud, relativeSensorHeight, smoothProjectedAirflowPath, svgToken, visualLabel } from "./support";
-import type { AddableOpeningKind, BuildingSceneProps, DragState, ElementWorldGeometry, ProjectedCloud, SelectedElementPatch } from "./support";
+import { fireplaceChimneyDimensions, fireplaceChimneyTop, isRoofSpanningFireplace } from "../../architecturalGeometry";
+import { effectiveOpeningState, openingStateCanChange, openingStateKey } from "../../openingState";
+import { elementAxis, elementWorldGeometry, points } from "./sceneGeometry";
 import { useBuildingScenePart02 } from "./part-02";
 export function useBuildingScenePart03(context: ReturnType<typeof useBuildingScenePart02>) {
-  const { house, sensors, samples, climateSamples, observations, definition, colorDomain, units, activeFloorId, selectedSensorId, referenceTimeMs, maxSampleAgeMs, outdoor, editing, spatialLayerSnapshots, spatialLayerTopology, experimentalAirflowEnabled, experimentalAirflow, experimentalSensorCoverage, openingStateObservations, openingStateLabelsVisible, pendingOpeningStateKeys, onOpeningStateChange, sensorMeasurements, energyDevicesVisible, onFloorSelect, onSensorSelect, onFloorChange, locale, t, houseOpeningStateObservations, metricLabel, markerId, camera, setCamera, reducedMotion, setReducedMotion, mapInformationExpanded, setMapInformationExpanded, mapInformationId, selectedElementKey, setSelectedElementKey, addableOpeningKind, setAddableOpeningKind, openingEditorMessage, setOpeningEditorMessage, dragRef, suppressClickRef, effectiveReferenceTimeMs, effectiveMaxAgeMs, freshness, boundsSignature, bounds, floorModels, volume, heatMin, heatMax, clouds, gradientFlows, allValues, project, outdoorContext, airflow, airflowPaths, activeGradientFlows, airflowSupport, airflowDriver, airflowDescription, airflowAria, outdoorTemperature, outdoorHumidity, outdoorTemperatureColor, outdoorHumidityColor, activeOutdoorColor, activeOutdoorStyle, outdoorTemperatureStyle, outdoorHumidityStyle, outdoorWindSpeed, outdoorWindDirection, outdoorWindwardSide, outdoorShellLabel, outdoorShellWorld, outdoorShellProjected, outdoorWindwardProjected, outdoorShellRail, projectedClouds, renderedSensors, orderedFloors, selectedElementFloor, selectedElement, changeCamera, rotateCamera, onPointerDown, onPointerMove, endPointer, onWheel, activateFloor, floorKeyDown, selectSensor, selectArchitecturalElement, updateSelectedElement, selectedWidthBounds, selectedHeightBounds, updateSelectedWidth, updateSelectedHeight, deleteSelectedElement, addOpeningIn3d } = context;
+  const { house, editing, openingStateLabelsVisible, pendingOpeningStateKeys, onOpeningStateChange, t, houseOpeningStateObservations, selectedElementKey, effectiveReferenceTimeMs, project, activateFloor, selectArchitecturalElement } = context;
   const renderArchitecturalElement = (floor: Floor, element: PlanElement, index: number) => {
       const geometry = elementWorldGeometry(floor, element);
       const chimneyDimensions = isRoofSpanningFireplace(element) ? fireplaceChimneyDimensions(floor, element) : null;
@@ -126,15 +86,15 @@ export function useBuildingScenePart03(context: ReturnType<typeof useBuildingSce
       );
       const openingPending = openingControlEnabled && pendingOpeningStateKeys.has(openingStateKey(floor.id, element.id));
       const nextOpeningState: ConfiguredOpeningState | null = openingState?.state === "open" ? "closed" : openingState ? "open" : null;
-      const openingName = `${element.label ?? t(`planElement.${element.kind}` as TranslationKey)} ${index + 1}`;
-      const openingStateLabel = openingState ? t(`opening.state.${openingState.state}` as TranslationKey) : null;
+      const openingName = `${element.label ?? t(`planElement.${element.kind}`)} ${index + 1}`;
+      const openingStateLabel = openingState ? t(`opening.state.${openingState.state}`) : null;
       const stateLabel = openingStateLabel ? ` ${t("opening.state")} ${openingStateLabel}.` : "";
       const geometryLabel = `${openingName}, ${floor.name}.${stateLabel} ${t("twin.elementWidth")} ${Number(geometry.width.toFixed(2))} ${t("twin.planUnit")}. ${t("twin.elementHeight")} ${geometry.height.toFixed(2)} m.`;
       const label = openingControlEnabled && openingState && nextOpeningState
         ? t("opening.toggleAria", {
           opening: `${openingName}, ${floor.name}`,
-          state: t(`opening.state.${openingState.state}` as TranslationKey),
-          action: t(`opening.state.${nextOpeningState}` as TranslationKey),
+          state: t(`opening.state.${openingState.state}`),
+          action: t(`opening.state.${nextOpeningState}`),
         })
         : geometryLabel;
       const verticalMidpoint = (a: ProjectedPoint3D, b: ProjectedPoint3D) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
@@ -297,6 +257,6 @@ export function useBuildingScenePart03(context: ReturnType<typeof useBuildingSce
         </g>
       );
     };
-  const observationName = (observation: ManualObservation) => t(`observations.${observation.kind === "note" ? "noteKind" : observation.kind}` as TranslationKey);
+  const observationName = (observation: ManualObservation) => t(`observations.${observation.kind === "note" ? "noteKind" : observation.kind}`);
   return Object.assign(context, { renderArchitecturalElement, observationName });
 }

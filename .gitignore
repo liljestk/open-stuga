@@ -76,3 +76,6 @@ deploy/rpi/*.authkey
 .DS_Store
 Thumbs.db
 Desktop.ini
+
+# desloppify local scan state
+.desloppify/

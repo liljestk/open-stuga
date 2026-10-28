@@ -1,56 +1,9 @@
-import { useCallback, useEffect, useRef, useState, type SetStateAction } from "react";
 import type {
   AppSession,
-  AreaEquipment,
-  AreaEquipmentInput,
-  AreaEquipmentPatch,
-  AlertRule,
-  AlertRulePatch,
-  ConnectionState,
-  Floor,
-  House,
-  IntegrationStatus,
-  ManualObservation,
-  ManualObservationInput,
-  ManualObservationPatch,
-  MaintenanceTask,
-  MaintenanceTaskInput,
-  MaintenanceTaskPatch,
   MeasurementSample,
-  MockScenario,
-  Point,
-  Property,
-  PropertyArea,
-  PropertyAreaInput,
-  PropertyAreaPatch,
-  PropertyCreateInput,
-  PropertyNote,
-  PropertyNoteInput,
-  PropertyNotePatch,
-  PropertyPatch,
-  Reading,
-  Sensor,
-  SensorSnapshot,
-  StaticParameter,
-  TelemetryEvent,
-  TpLinkDiscoveredDevice,
 } from "@climate-twin/contracts";
-import {
-  api,
-  cancelPendingApiRequests,
-  subscribeToApiAuthorizationChanges,
-  type CreateHouseInput,
-  type CreateSensorInput,
-  type HousePatch,
-  type HouseGeoreferencePatch,
-  type MeasurementHistoryPage,
-  type SensorPatch,
-} from "../../../api";
-import { subscribeToAuthEpoch } from "../../../authEpoch";
-import { createDemoState, nextMockReading, snapshotToReadings, timeRangeHours, type ClimateState, type TimeRange } from "../../../domain";
-import { appendHistory, enabledDefinitions, legacyForecastSamples, readingSamples, upsertLatest } from "../../../measurements";
-import { routeFromLocation } from "../../../routing";
-import { publishHouseWeatherUpdate } from "../../../useHouseWeather";
+import { createDemoState, type ClimateState } from "../../../domain";
+import { upsertLatest } from "../../../measurements";
 import { MAX_SERIES_SAMPLES, withoutDemoTelemetry } from "./telemetryState";
 import type { HouseMutationBuffer, LoadedTelemetryState } from "./telemetryState";
 
@@ -89,15 +42,6 @@ export function preserveMutatedSensorTelemetry(
         ? { ...result.measurementForecasts, [sensorId]: current.measurementForecasts[sensorId] }
         : result.measurementForecasts,
       readings: useCurrentReading ? { ...result.readings, [sensorId]: currentReading } : result.readings,
-      history: current.history[sensorId]
-        ? {
-            ...result.history,
-            [sensorId]: mergeLegacySeries(current.history[sensorId], result.history[sensorId] ?? [], MAX_SERIES_SAMPLES),
-          }
-        : result.history,
-      forecasts: current.forecasts[sensorId]
-        ? { ...result.forecasts, [sensorId]: current.forecasts[sensorId] }
-        : result.forecasts,
     };
   }
   return result;
@@ -162,27 +106,6 @@ export function replaceMeasurementSeriesWindow(
   return mergeOrderedSeries(withRefreshedWindow, live, MAX_SERIES_SAMPLES);
 }
 
-export function mergeLegacySeries(loaded: Reading[], live: Iterable<Reading>, limit: number): Reading[] {
-  return mergeOrderedSeries(loaded, live, limit);
-}
-
-export function replaceLegacySeriesWindow(
-  current: Reading[],
-  refreshed: Iterable<Reading>,
-  live: Iterable<Reading>,
-  from: string,
-  to: string,
-): Reading[] {
-  const fromTime = Date.parse(from);
-  const toTime = Date.parse(to);
-  const retained = current.filter((reading) => {
-    const readingTime = Date.parse(reading.timestamp);
-    return !Number.isFinite(readingTime) || readingTime < fromTime || readingTime > toTime;
-  });
-  const withRefreshedWindow = mergeOrderedSeries(retained, refreshed, MAX_SERIES_SAMPLES);
-  return mergeOrderedSeries(withRefreshedWindow, live, MAX_SERIES_SAMPLES);
-}
-
 export const unauthenticatedSession: AppSession = {
   authenticated: false,
   principal: { type: "unauthenticated", email: null },
@@ -207,8 +130,6 @@ export function blankState(session: AppSession = unauthenticatedSession): Climat
     houses: [],
     sensors: [],
     readings: {},
-    history: {},
-    forecasts: {},
     alertRules: [],
     alerts: [],
     observations: [],

@@ -1,33 +1,13 @@
+import { HttpError } from "../../http-error.js";
 import { maximum, minimum } from "@climate-twin/analytics-kernel";
-import type {
-  AnalyticsQueryRequest,
-  AnalyticsQueryResponse,
-  AnalyticsSeries,
-  CalendarComparisonPoint,
-  CalendarComparisonRequest,
-  CalendarComparisonResponse,
-  CalendarComparisonSeries,
-  CalendarComparisonSummary,
-  CalendarComparisonValue,
-  House,
-  MeasurementDefinition,
-  Sensor,
-} from "@climate-twin/contracts";
-import { CALENDAR_COMPARISON_ALGORITHM_VERSION } from "@climate-twin/contracts";
+import type { AnalyticsQueryRequest, AnalyticsQueryResponse, AnalyticsSeries, CalendarComparisonPeriod, CalendarComparisonPoint, CalendarComparisonRequest, CalendarComparisonResponse, CalendarComparisonSeries, CalendarComparisonSummary, CalendarComparisonValue, House, MeasurementDefinition, Sensor } from "@climate-twin/contracts";
+import { CALENDAR_COMPARISON_ALGORITHM_VERSION, withSignal } from "@climate-twin/contracts";
 import type { HybridTelemetryReader } from "../../timeseries/read-facade.js";
 import { IncompleteTelemetryHistoryError } from "../../timeseries/read-facade.js";
-import { AnalyticsQueryError } from "../../analytics.js";
-import { resolveAnalyticsAggregation } from "../../analytics.js";
+import { AnalyticsQueryError } from "../query/analytics-query.js";
+import { resolveAnalyticsAggregation } from "../query/analytics-query.js";
 import { executeAnalyticsQuery } from "../query/execute.js";
-import {
-  appendAnalyticsSeries,
-  calendarAccumulatorValue,
-  calendarComparisonBuckets,
-  calendarComparisonPeriods,
-  createCalendarValueAccumulator,
-  type CalendarComparisonPeriod,
-  type CalendarValueAccumulator,
-} from "./model.js";
+import { appendAnalyticsSeries, calendarAccumulatorValue, calendarComparisonBuckets, calendarComparisonPeriods, createCalendarValueAccumulator, type CalendarValueAccumulator } from "./model.js";
 import { compareCodeUnits } from "../../text-order.js";
 
 const resolutionByUnit = {
@@ -48,11 +28,9 @@ const resolutionMilliseconds = {
 
 export const MAX_CALENDAR_COMPARISON_RESPONSE_BYTES = 1_000_000;
 
-export class CalendarComparisonSelectionError extends Error {
-  readonly code = "CALENDAR_COMPARISON_PERIOD_NOT_AVAILABLE";
-
+export class CalendarComparisonSelectionError extends HttpError {
   constructor(message: string) {
-    super(message);
+    super(422, "CALENDAR_COMPARISON_PERIOD_NOT_AVAILABLE", message);
     this.name = "CalendarComparisonSelectionError";
   }
 }
@@ -350,7 +328,7 @@ export async function compareCalendarPeriods(
   const coverage = await input.telemetryReader.measurementCoverage({
     sensorIds: input.sensors.map((sensor) => sensor.id),
     metrics: [input.definition.id],
-    ...(input.signal ? { signal: input.signal } : {}),
+    ...withSignal(input.signal),
   });
   if (!coverage.complete) {
     // `merged` with incomplete coverage is an internal reader failure, not
@@ -391,7 +369,7 @@ export async function compareCalendarPeriods(
       definitions: [input.definition],
       telemetryReader: input.telemetryReader,
       generatedAt: input.evaluatedAt,
-      ...(input.signal ? { signal: input.signal } : {}),
+      ...withSignal(input.signal),
     })
   )));
   const state = archiveState(coverage, responses);

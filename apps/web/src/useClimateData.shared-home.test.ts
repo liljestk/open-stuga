@@ -37,10 +37,8 @@ describe("shared Home demo telemetry isolation", () => {
     state.houses.push(sharedHouse);
     state.sensors.push(sharedSensor);
     state.readings[sharedSensor.id] = sharedReading;
-    state.history[sharedSensor.id] = [sharedReading];
     state.latestMeasurements[sharedSensor.id] = state.latestMeasurements[localSensor.id]!;
     state.measurementHistory[sharedSensor.id] = state.measurementHistory[localSensor.id]!;
-    state.forecasts[sharedSensor.id] = state.forecasts[localSensor.id]!;
     state.measurementForecasts[sharedSensor.id] = state.measurementForecasts[localSensor.id]!;
 
     expect(isRemoteSharedDemoTelemetry(state, sharedSensor.id, "mock")).toBe(true);
@@ -52,10 +50,8 @@ describe("shared Home demo telemetry isolation", () => {
     expect(next.sensors).toContainEqual(sharedSensor);
     expect(next.readings[localSensor.id]).not.toBe(state.readings[localSensor.id]);
     expect(next.readings[sharedSensor.id]).toBeUndefined();
-    expect(next.history[sharedSensor.id]).toBeUndefined();
     expect(next.latestMeasurements[sharedSensor.id]).toBeUndefined();
     expect(next.measurementHistory[sharedSensor.id]).toBeUndefined();
-    expect(next.forecasts[sharedSensor.id]).toBeUndefined();
     expect(next.measurementForecasts[sharedSensor.id]).toBeUndefined();
 
     state.houses = state.houses.map((house) => house.id === sharedHouse.id

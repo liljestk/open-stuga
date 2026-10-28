@@ -196,6 +196,6 @@ describe("SetupOperationsPanel", () => {
         }),
       }),
     ]));
-    expect(await screen.findByRole("alert")).toHaveTextContent("Mapping save failed");
+    expect(await screen.findByRole("alert")).toHaveTextContent("The operation could not be completed.");
   });
 });

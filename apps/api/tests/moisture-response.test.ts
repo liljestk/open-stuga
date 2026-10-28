@@ -4,12 +4,12 @@ import request from "supertest";
 import { describe, expect, it } from "vitest";
 import { createApi } from "../src/app.js";
 import { outdoorLocationKey } from "../src/db.js";
-import { calibrateMoistureResponse } from "../src/moisture-response-model.js";
+import { calibrateMoistureResponse } from "../src/analytics/thermal/moisture-response-model.js";
 import {
   isMoistureResponseSensor,
   runMoistureResponse,
   runMoistureResponseAsync,
-} from "../src/moisture-response.js";
+} from "../src/analytics/thermal/moisture-response.js";
 import { config as appTestConfig } from "./appTestSupport.js";
 
 const house: Pick<House, "id" | "name" | "floors"> = {
@@ -304,17 +304,21 @@ describe("moisture response comparison", () => {
       }
 
       const climateHistory = runtime.database.thermalClimateHistory(
-        "moisture-api",
-        series.indoor[0]!.timestamp,
-        series.indoor.at(-1)!.timestamp,
+        {
+          sensorId: "moisture-api",
+          from: series.indoor[0]!.timestamp,
+          to: series.indoor.at(-1)!.timestamp,
+        },
       );
       expect(new Set(climateHistory.map((sample) => sample.metric))).toEqual(new Set(["temperature", "humidity"]));
       const boundedClimateHistory = runtime.database.thermalClimateHistory(
-        "moisture-api",
-        series.indoor[0]!.timestamp,
-        series.indoor.at(-1)!.timestamp,
-        5,
-        10,
+        {
+          sensorId: "moisture-api",
+          from: series.indoor[0]!.timestamp,
+          to: series.indoor.at(-1)!.timestamp,
+          bucketMinutes: 5,
+          limitPerMetric: 10,
+        },
       );
       expect(boundedClimateHistory.filter((sample) => sample.metric === "temperature")).toHaveLength(10);
       expect(boundedClimateHistory.filter((sample) => sample.metric === "humidity")).toHaveLength(10);

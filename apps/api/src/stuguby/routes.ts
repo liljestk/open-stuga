@@ -1,23 +1,9 @@
-import express, { type Express, type Request, type RequestHandler, type Response } from "express";
+import express, { type Express, type Request, type RequestHandler } from "express";
 import { STUGBY_MAX_BLOB_BYTES, STUGBY_MEDIA_TYPE, STUGBY_PROTOCOL_VERSION } from "@climate-twin/stuguby-protocol";
 import { StugubyError, StugubyService, type MachineRequestProof } from "./service.js";
 
 const PROTOCOL_PREFIX = "/api/v1/stugby-protocol" as const;
 const LOCAL_PREFIX = "/api/v1/stugbys" as const;
-
-function sendError(response: Response, error: StugubyError): void {
-  response.status(error.status).json({ error: { code: error.code, message: error.message } });
-}
-
-function route(handler: (request: Request, response: Response) => void | Promise<void>): RequestHandler {
-  return (request, response, next) => {
-    Promise.resolve().then(() => handler(request, response)).catch((error: unknown) => {
-      if (error instanceof StugubyError) { sendError(response, error); return; }
-      if (error instanceof SyntaxError) { sendError(response, new StugubyError(400, "INVALID_JSON", "Request body is not valid JSON")); return; }
-      next(error);
-    });
-  };
-}
 
 function objectBody(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new StugubyError(400, "INVALID_BODY", "A JSON object is required");
@@ -32,7 +18,11 @@ function rawBody(request: Request): Buffer {
 function rawJson(request: Request): unknown {
   const body = rawBody(request);
   if (!body.byteLength) throw new StugubyError(400, "INVALID_BODY", "A JSON request body is required");
-  return JSON.parse(body.toString("utf8")) as unknown;
+  try {
+    return JSON.parse(body.toString("utf8")) as unknown;
+  } catch {
+    throw new StugubyError(400, "INVALID_JSON", "Request body is not valid JSON");
+  }
 }
 
 function stringValue(value: unknown, label: string): string {
@@ -105,27 +95,27 @@ export function registerStugubyProtocolRoutes(app: Express, service: StugubyServ
     next();
   });
 
-  app.post(`${PROTOCOL_PREFIX}/join`, joinRaw, route((request, response) => {
+  app.post(`${PROTOCOL_PREFIX}/join`, joinRaw, (request, response) => {
     coordinatorOrigin(request, service);
     response.type(STUGBY_MEDIA_TYPE).status(201).send(JSON.stringify(service.acceptJoin(rawJson(request) as never)));
-  }));
+  });
 
-  app.post(`${PROTOCOL_PREFIX}/stugbys/:stugubyId/events`, jsonRaw, route((request, response) => {
+  app.post(`${PROTOCOL_PREFIX}/stugbys/:stugubyId/events`, jsonRaw, (request, response) => {
     const id = stugubyId(request);
     const actor = service.authenticateMachineRequest(id, protocolProof(request));
     const result = service.ingestEventBatch(actor, id, rawJson(request) as never);
     response.type(STUGBY_MEDIA_TYPE).send(JSON.stringify(result));
-  }));
+  });
 
-  app.get(`${PROTOCOL_PREFIX}/stugbys/:stugubyId/events`, route((request, response) => {
+  app.get(`${PROTOCOL_PREFIX}/stugbys/:stugubyId/events`, (request, response) => {
     const id = stugubyId(request);
     const actor = service.authenticateMachineRequest(id, protocolProof(request));
     const cursor = integerValue(request.query.cursor, "cursor", 0);
     const limit = integerValue(request.query.limit, "limit", 100);
     response.type(STUGBY_MEDIA_TYPE).send(JSON.stringify(service.eventPage(actor, id, cursor, limit)));
-  }));
+  });
 
-  app.get(`${PROTOCOL_PREFIX}/stugbys/:stugubyId/events/stream`, route((request, response) => {
+  app.get(`${PROTOCOL_PREFIX}/stugbys/:stugubyId/events/stream`, (request, response) => {
     const id = stugubyId(request);
     const actor = service.authenticateMachineRequest(id, protocolProof(request));
     const cursor = integerValue(request.query.cursor ?? request.header("last-event-id"), "cursor", 0);
@@ -173,17 +163,17 @@ export function registerStugubyProtocolRoutes(app: Express, service: StugubyServ
       if (!response.write(": keep-alive\n\n")) close();
     }, 20_000);
     heartbeat.unref();
-  }));
+  });
 
-  app.put(`${PROTOCOL_PREFIX}/stugbys/:stugubyId/blobs/:digest`, blobRaw, route((request, response) => {
+  app.put(`${PROTOCOL_PREFIX}/stugbys/:stugubyId/blobs/:digest`, blobRaw, (request, response) => {
     const id = stugubyId(request);
     const actor = service.authenticateMachineRequest(id, protocolProof(request));
     const mediaType = request.header("content-type")?.split(";", 1)[0]?.trim() ?? "";
     const stored = service.storeUploadedBlob(actor, id, rawBody(request), mediaType, stringValue(request.params.digest, "Blob digest"));
     response.type(STUGBY_MEDIA_TYPE).status(201).send(JSON.stringify(stored));
-  }));
+  });
 
-  app.get(`${PROTOCOL_PREFIX}/stugbys/:stugubyId/blobs/:digest`, route((request, response) => {
+  app.get(`${PROTOCOL_PREFIX}/stugbys/:stugubyId/blobs/:digest`, (request, response) => {
     const id = stugubyId(request);
     const actor = service.authenticateMachineRequest(id, protocolProof(request));
     const blob = service.readBlobFor(actor, id, stringValue(request.params.digest, "Blob digest"));
@@ -191,38 +181,38 @@ export function registerStugubyProtocolRoutes(app: Express, service: StugubyServ
     response.setHeader("content-length", blob.data.byteLength);
     response.setHeader("cache-control", "private, max-age=31536000, immutable");
     response.send(blob.data);
-  }));
+  });
 
-  app.put(`${PROTOCOL_PREFIX}/stugbys/:stugubyId/property`, jsonRaw, route((request, response) => {
+  app.put(`${PROTOCOL_PREFIX}/stugbys/:stugubyId/property`, jsonRaw, (request, response) => {
     const id = stugubyId(request);
     const actor = service.authenticateMachineRequest(id, protocolProof(request));
     const body = objectBody(rawJson(request));
     const property = service.updateSharedPropertyAs(actor.nodeId, id, integerValue(body.baseRevision, "baseRevision"), objectBody(body.property) as never);
     response.type(STUGBY_MEDIA_TYPE).send(JSON.stringify(property));
-  }));
+  });
 
-  app.post(`${PROTOCOL_PREFIX}/stugbys/:stugubyId/property-commands`, jsonRaw, route((request, response) => {
+  app.post(`${PROTOCOL_PREFIX}/stugbys/:stugubyId/property-commands`, jsonRaw, (request, response) => {
     const id = stugubyId(request);
     const actor = service.authenticateMachineRequest(id, protocolProof(request));
     const command = objectBody(rawJson(request));
     if (command.stugubyId !== id) throw new StugubyError(400, "STUGBY_ID_MISMATCH", "Property command targets another Stuguby");
     response.type(STUGBY_MEDIA_TYPE).send(JSON.stringify(service.applyPropertyCommandAs(actor.nodeId, command)));
-  }));
+  });
 
-  app.post(`${PROTOCOL_PREFIX}/stugbys/:stugubyId/home-commands`, jsonRaw, route((request, response) => {
+  app.post(`${PROTOCOL_PREFIX}/stugbys/:stugubyId/home-commands`, jsonRaw, (request, response) => {
     const id = stugubyId(request);
     const actor = service.authenticateMachineRequest(id, protocolProof(request));
     const command = objectBody(rawJson(request));
     if (command.stugubyId !== id) throw new StugubyError(400, "STUGBY_ID_MISMATCH", "Home command targets another Stuguby");
     response.type(STUGBY_MEDIA_TYPE).send(JSON.stringify(service.applyHomeCommandAs(actor.nodeId, command)));
-  }));
+  });
 
-  app.post(`${PROTOCOL_PREFIX}/stugbys/:stugubyId/deletion-receipts`, jsonRaw, route((request, response) => {
+  app.post(`${PROTOCOL_PREFIX}/stugbys/:stugubyId/deletion-receipts`, jsonRaw, (request, response) => {
     const id = stugubyId(request);
     const actor = service.authenticateMachineRequest(id, protocolProof(request));
     service.recordDeletionReceipt(actor, rawJson(request) as never);
     response.status(204).end();
-  }));
+  });
 }
 
 export interface StugubyLocalRouteOptions {
@@ -233,7 +223,7 @@ export interface StugubyLocalRouteOptions {
 export function registerStugubyLocalRoutes(app: Express, service: StugubyService, options: StugubyLocalRouteOptions): void {
   const admin = options.requireAdmin;
 
-  app.get(LOCAL_PREFIX, admin, route((request, response) => {
+  app.get(LOCAL_PREFIX, admin, (request, response) => {
     response.json({
       identity: service.identity,
       publicOrigin: service.publicOrigin ?? loopbackRequestOrigin(request),
@@ -241,34 +231,34 @@ export function registerStugubyLocalRoutes(app: Express, service: StugubyService
       publicOriginConfigurable: service.publicOriginConfigurable,
       stugubys: service.listStugubys(),
     });
-  }));
+  });
 
-  app.put(`${LOCAL_PREFIX}/configuration`, admin, route(async (request, response) => {
+  app.put(`${LOCAL_PREFIX}/configuration`, admin, async (request, response) => {
     const body = objectBody(request.body);
     response.json({
       publicOrigin: await service.configurePublicOrigin(stringValue(body.publicOrigin, "Stugu address")),
     });
-  }));
+  });
 
-  app.post(LOCAL_PREFIX, admin, route((request, response) => {
+  app.post(LOCAL_PREFIX, admin, (request, response) => {
     const body = objectBody(request.body);
     response.status(201).json(service.createStuguby({
       name: stringValue(body.name, "Name"),
       coordinatorUrl: coordinatorOrigin(request, service),
       ...(typeof body.description === "string" || body.description === null ? { description: body.description } : {}),
     }));
-  }));
+  });
 
-  app.post(`${LOCAL_PREFIX}/join`, admin, route(async (request, response) => {
+  app.post(`${LOCAL_PREFIX}/join`, admin, async (request, response) => {
     const body = objectBody(request.body);
     response.status(201).json(await service.joinStuguby({
       coordinatorUrl: stringValue(body.coordinatorUrl, "Coordinator URL"),
       invitationId: stringValue(body.invitationId, "Invitation id"),
       joinSecret: stringValue(body.joinSecret, "Join secret"),
     }));
-  }));
+  });
 
-  app.get(`${LOCAL_PREFIX}/:stugubyId`, admin, route((request, response) => {
+  app.get(`${LOCAL_PREFIX}/:stugubyId`, admin, (request, response) => {
     const id = stugubyId(request);
     response.json({
       stuguby: service.getStuguby(id),
@@ -286,14 +276,14 @@ export function registerStugubyLocalRoutes(app: Express, service: StugubyService
       deletionReceipts: service.store.listDeletionReceipts(id),
       audit: service.store.listAudit(id),
     });
-  }));
+  });
 
-  app.delete(`${LOCAL_PREFIX}/:stugubyId`, admin, route((request, response) => {
+  app.delete(`${LOCAL_PREFIX}/:stugubyId`, admin, (request, response) => {
     service.deleteStuguby(stugubyId(request));
     response.status(204).end();
-  }));
+  });
 
-  app.post(`${LOCAL_PREFIX}/:stugubyId/invitations`, admin, route((request, response) => {
+  app.post(`${LOCAL_PREFIX}/:stugubyId/invitations`, admin, (request, response) => {
     coordinatorOrigin(request, service);
     const body = objectBody(request.body);
     response.status(201).json(service.createInvitation(stugubyId(request), {
@@ -301,71 +291,71 @@ export function registerStugubyLocalRoutes(app: Express, service: StugubyService
       localLabel: body.localLabel,
       ...(typeof body.expiresAt === "string" ? { expiresAt: body.expiresAt } : {}),
     }));
-  }));
+  });
 
-  app.delete(`${LOCAL_PREFIX}/:stugubyId/invitations/:invitationId`, admin, route((request, response) => {
+  app.delete(`${LOCAL_PREFIX}/:stugubyId/invitations/:invitationId`, admin, (request, response) => {
     service.revokeInvitation(stugubyId(request), stringValue(request.params.invitationId, "Invitation id"));
     response.status(204).end();
-  }));
+  });
 
-  app.patch(`${LOCAL_PREFIX}/:stugubyId/members/:nodeId`, admin, route((request, response) => {
+  app.patch(`${LOCAL_PREFIX}/:stugubyId/members/:nodeId`, admin, (request, response) => {
     const body = objectBody(request.body);
     response.json(service.updateMember(stugubyId(request), stringValue(request.params.nodeId, "Node id"),
       stringValue(body.role, "Role") as never, stringValue(body.state, "State") as never));
-  }));
+  });
 
-  app.patch(`${LOCAL_PREFIX}/:stugubyId/members/:nodeId/label`, admin, route((request, response) => {
+  app.patch(`${LOCAL_PREFIX}/:stugubyId/members/:nodeId/label`, admin, (request, response) => {
     const body = objectBody(request.body);
     response.json(service.updateMemberLocalLabel(
       stugubyId(request),
       stringValue(request.params.nodeId, "Node id"),
       body.localLabel,
     ));
-  }));
+  });
 
-  app.get(`${LOCAL_PREFIX}/:stugubyId/property`, admin, route((request, response) => {
+  app.get(`${LOCAL_PREFIX}/:stugubyId/property`, admin, (request, response) => {
     const property = service.store.getSharedProperty(stugubyId(request));
     if (!property) throw new StugubyError(404, "SHARED_PROPERTY_NOT_FOUND", "Shared Stuguby property was not found");
     response.json(property);
-  }));
+  });
 
-  app.put(`${LOCAL_PREFIX}/:stugubyId/property`, admin, route(async (request, response) => {
+  app.put(`${LOCAL_PREFIX}/:stugubyId/property`, admin, async (request, response) => {
     const body = objectBody(request.body);
     response.json(await service.updateSharedProperty(stugubyId(request), integerValue(body.baseRevision, "baseRevision"), objectBody(body.property) as never));
-  }));
+  });
 
-  app.post(`${LOCAL_PREFIX}/:stugubyId/property/adopt`, admin, route((request, response) => {
+  app.post(`${LOCAL_PREFIX}/:stugubyId/property/adopt`, admin, (request, response) => {
     const body = objectBody(request.body);
     response.status(201).json(service.adoptProperty(stugubyId(request),
       typeof body.localPropertyId === "string" ? stringValue(body.localPropertyId, "Local Property id") : undefined));
-  }));
+  });
 
-  app.post(`${LOCAL_PREFIX}/:stugubyId/property/migrate`, admin, route((request, response) => {
+  app.post(`${LOCAL_PREFIX}/:stugubyId/property/migrate`, admin, (request, response) => {
     const body = objectBody(request.body);
     if (body.confirmation !== "MIGRATE") {
       throw new StugubyError(400, "MIGRATION_CONFIRMATION_REQUIRED", "Confirm this destructive merge with MIGRATE");
     }
     response.json(service.migrateProperty(stugubyId(request), stringValue(body.sourcePropertyId, "Source Property id")));
-  }));
+  });
 
-  app.post(`${LOCAL_PREFIX}/:stugubyId/property/disconnect`, admin, route((request, response) => {
+  app.post(`${LOCAL_PREFIX}/:stugubyId/property/disconnect`, admin, (request, response) => {
     const body = objectBody(request.body);
     if (body.confirmation !== "DISCONNECT") {
       throw new StugubyError(400, "DISCONNECT_CONFIRMATION_REQUIRED", "Confirm permanent disconnection with DISCONNECT");
     }
     response.json(service.detachProperty(stugubyId(request)));
-  }));
+  });
 
-  app.post(`${LOCAL_PREFIX}/:stugubyId/property-conflicts/:commandId/resolve`, admin, route((request, response) => {
+  app.post(`${LOCAL_PREFIX}/:stugubyId/property-conflicts/:commandId/resolve`, admin, (request, response) => {
     const resolved = service.store.resolvePropertyConflict(
       stugubyId(request),
       stringValue(request.params.commandId, "Command id"),
     );
     if (!resolved) throw new StugubyError(404, "PROPERTY_CONFLICT_NOT_FOUND", "Open Property conflict was not found");
     response.status(204).end();
-  }));
+  });
 
-  app.post(`${LOCAL_PREFIX}/:stugubyId/grants`, admin, route((request, response) => {
+  app.post(`${LOCAL_PREFIX}/:stugubyId/grants`, admin, (request, response) => {
     const body = objectBody(request.body);
     response.status(201).json(service.createGrant(stugubyId(request), {
       localHouseId: stringValue(body.localHouseId, "House id"),
@@ -374,13 +364,13 @@ export function registerStugubyLocalRoutes(app: Express, service: StugubyService
       ...(body.housePolicy !== undefined ? { housePolicy: objectBody(body.housePolicy) as never } : {}),
       ...(typeof body.expiresAt === "string" || body.expiresAt === null ? { expiresAt: body.expiresAt } : {}),
     }));
-  }));
+  });
 
-  app.get(`${LOCAL_PREFIX}/:stugubyId/publications/:houseId`, admin, route((request, response) => {
+  app.get(`${LOCAL_PREFIX}/:stugubyId/publications/:houseId`, admin, (request, response) => {
     response.json(service.localPublicationCatalog(stugubyId(request), stringValue(request.params.houseId, "House id")));
-  }));
+  });
 
-  app.put(`${LOCAL_PREFIX}/:stugubyId/grants/:grantId`, admin, route((request, response) => {
+  app.put(`${LOCAL_PREFIX}/:stugubyId/grants/:grantId`, admin, (request, response) => {
     const body = objectBody(request.body);
     const id = stugubyId(request);
     const grantId = stringValue(request.params.grantId, "Grant id");
@@ -391,35 +381,35 @@ export function registerStugubyLocalRoutes(app: Express, service: StugubyService
       housePolicy: objectBody(body.housePolicy) as never,
       expiresAt: typeof body.expiresAt === "string" ? body.expiresAt : null,
     }));
-  }));
+  });
 
-  app.delete(`${LOCAL_PREFIX}/:stugubyId/grants/:grantId`, admin, route((request, response) => {
+  app.delete(`${LOCAL_PREFIX}/:stugubyId/grants/:grantId`, admin, (request, response) => {
     const id = stugubyId(request);
     const grantId = stringValue(request.params.grantId, "Grant id");
     service.assertGrantScope(id, grantId);
     response.json(service.revokeGrant(grantId));
-  }));
+  });
 
-  app.delete(`${LOCAL_PREFIX}/:stugubyId/grants/:grantId/invalid`, admin, route((request, response) => {
+  app.delete(`${LOCAL_PREFIX}/:stugubyId/grants/:grantId/invalid`, admin, (request, response) => {
     const id = stugubyId(request);
     const grantId = stringValue(request.params.grantId, "Grant id");
     service.assertGrantScope(id, grantId);
     response.json(service.removeInvalidGrant(grantId));
-  }));
+  });
 
-  app.post(`${LOCAL_PREFIX}/:stugubyId/grants/:grantId/republish`, admin, route((request, response) => {
+  app.post(`${LOCAL_PREFIX}/:stugubyId/grants/:grantId/republish`, admin, (request, response) => {
     const id = stugubyId(request);
     const grantId = stringValue(request.params.grantId, "Grant id");
     service.assertGrantScope(id, grantId);
     service.republishGrant(grantId);
     response.status(202).json({ queued: true });
-  }));
+  });
 
-  app.post(`${LOCAL_PREFIX}/:stugubyId/sync`, admin, route(async (request, response) => {
+  app.post(`${LOCAL_PREFIX}/:stugubyId/sync`, admin, async (request, response) => {
     response.json(await service.syncNow(stugubyId(request)));
-  }));
+  });
 
-  app.get(`${LOCAL_PREFIX}/:stugubyId/telemetry`, admin, route((request, response) => {
+  app.get(`${LOCAL_PREFIX}/:stugubyId/telemetry`, admin, (request, response) => {
     response.json({ samples: service.store.remoteTelemetry({
       stugubyId: stugubyId(request),
       ...(typeof request.query.authorityNodeId === "string" ? { authorityNodeId: request.query.authorityNodeId } : {}),
@@ -430,14 +420,14 @@ export function registerStugubyLocalRoutes(app: Express, service: StugubyService
       ...(typeof request.query.to === "string" ? { to: request.query.to } : {}),
       limit: integerValue(request.query.limit, "limit", 5_000),
     }) });
-  }));
+  });
 
-  app.get(`${LOCAL_PREFIX}/:stugubyId/assets/:digest`, admin, route((request, response) => {
+  app.get(`${LOCAL_PREFIX}/:stugubyId/assets/:digest`, admin, (request, response) => {
     service.getStuguby(stugubyId(request));
     const blob = service.readBlob(stringValue(request.params.digest, "Blob digest"));
     response.setHeader("content-type", blob.mediaType);
     response.setHeader("content-length", blob.data.byteLength);
     response.setHeader("cache-control", "private, max-age=31536000, immutable");
     response.send(blob.data);
-  }));
+  });
 }

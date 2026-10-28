@@ -1,6 +1,6 @@
 {
   "name": "@climate-twin/web",
-  "version": "0.51.4",
+  "version": "0.52.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -13,14 +13,13 @@
     "typecheck": "tsc -b --pretty false"
   },
   "dependencies": {
-    "@climate-twin/analytics-kernel": "0.51.4",
-    "@climate-twin/contracts": "0.51.4",
-    "@climate-twin/spatial-layers": "0.51.4",
-    "@climate-twin/stuguby-protocol": "0.51.4",
+    "@climate-twin/analytics-kernel": "0.52.0",
+    "@climate-twin/contracts": "0.52.0",
+    "@climate-twin/spatial-layers": "0.52.0",
+    "@climate-twin/stuguby-protocol": "0.52.0",
     "@fontsource/dm-sans": "^5.3.0",
     "@fontsource/manrope": "^5.3.0",
     "@tanstack/react-query": "5.101.4",
-    "@vitejs/plugin-react": "^6.0.4",
     "fflate": "^0.8.3",
     "leaflet": "^1.9.4",
     "lucide-react": "^1.48.0",
@@ -35,6 +34,7 @@
     "@types/leaflet": "^1.9.21",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.4",
     "@vitest/coverage-v8": "^4.1.12",
     "axe-core": "^4.12.1",
     "jsdom": "^30.1.3",

@@ -1,8 +1,8 @@
 import { STUGBY_MAX_BLOB_BYTES, STUGBY_MAX_EVENT_BYTES, STUGBY_PROTOCOL_VERSION } from "./protocol-contracts.js";
-import type { JsonObject, JsonValue, StugubyDataset, StugubyDatasetPayload, StugubyHomeRecoveryKind, StugubySignedEvent, StugubyWireEvent } from "./protocol-contracts.js";
+import type { JsonObject, JsonValue, StugubyDataset, StugubyDatasetPayload, StugubyHomeRecoveryKind, StugubySignedEvent, StugubyWireEvent, StugubyHomeCommand } from "./protocol-contracts.js";
 
 import { eventPayloadForHash, legacySigningEnvelope, normalizeLegacySignedEvent, rememberLegacySignedEvent } from "./legacy-wire.js";
-import { ENVELOPE_SCHEMA_SET, EVENT_KIND_SET, assertSafeFederationPayload, coordinate, fail, isObject, isStugubyDataset, isStugubyRole, onlyKeys, optionalString, point, requireArray, requireBoolean, requireEnumString, requireFiniteNumber, requireIdentifier, requireInteger, requireIsoDate, requireNullableFiniteNumber, requireNullableString, requireString, requireStringArray, validateShareGrant, validateSharedProperty } from "./validation.js";
+import { ENVELOPE_SCHEMA_SET, EVENT_KIND_SET, assertSafeFederationPayload, coordinate, fail, isObject, isStugubyDataset, isStugubyRole, onlyKeys, assertOptionalString, point, requireArray, requireBoolean, requireEnumString, requireFiniteNumber, requireIdentifier, requireInteger, requireIsoDate, requireNullableFiniteNumber, requireNullableIsoDate, requireNullableString, requireString, requireStringArray, validateShareGrant, validateSharedProperty } from "./validation.js";
 import { compareCodeUnits } from "./text-order.js";
 
 export function validateDatasetPayload(dataset: StugubyDataset, value: unknown): StugubyDatasetPayload {
@@ -14,20 +14,20 @@ export function validateDatasetPayload(dataset: StugubyDataset, value: unknown):
       onlyKeys(value, ["publicationId", "name", "timezone", "localHouseId"], dataset);
       requireString(value, "name");
       requireString(value, "timezone");
-      optionalString(value, "localHouseId");
+      assertOptionalString(value, "localHouseId");
       break;
     case "home.location.v1":
       onlyKeys(value, ["publicationId", "latitude", "longitude", "label", "countryCode", "mapPlacement", "orientationDegrees"], dataset);
       if (requireFiniteNumber(value, "latitude") < -90 || Number(value.latitude) > 90) fail("latitude is outside WGS84 bounds");
       if (requireFiniteNumber(value, "longitude") < -180 || Number(value.longitude) > 180) fail("longitude is outside WGS84 bounds");
-      optionalString(value, "label"); optionalString(value, "countryCode");
+      assertOptionalString(value, "label"); assertOptionalString(value, "countryCode");
       if (value.orientationDegrees !== undefined) requireFiniteNumber(value, "orientationDegrees");
       if (value.mapPlacement !== undefined) {
         if (!isObject(value.mapPlacement)) fail("mapPlacement must be an object");
         onlyKeys(value.mapPlacement, ["latitude", "longitude", "metersPerPlanUnit", "footprintFloorPublicationId"], "mapPlacement");
         coordinate(value.mapPlacement, "mapPlacement");
         if (requireFiniteNumber(value.mapPlacement, "metersPerPlanUnit") <= 0) fail("metersPerPlanUnit must be positive");
-        optionalString(value.mapPlacement, "footprintFloorPublicationId");
+        assertOptionalString(value.mapPlacement, "footprintFloorPublicationId");
       }
       break;
     case "home.structure.v1":
@@ -40,7 +40,7 @@ export function validateDatasetPayload(dataset: StugubyDataset, value: unknown):
         const floorId = requireIdentifier(floor, "floorPublicationId"); requireString(floor, "name");
         if (floorIds.has(floorId)) fail(`duplicate floor publication id ${floorId}`);
         floorIds.add(floorId);
-        optionalString(floor, "localFloorId"); optionalString(floor, "type");
+        assertOptionalString(floor, "localFloorId"); assertOptionalString(floor, "type");
         if (requireFiniteNumber(floor, "width") <= 0 || requireFiniteNumber(floor, "height") <= 0) fail("floor dimensions must be positive");
         requireFiniteNumber(floor, "elevation");
         for (const key of ["metersPerPlanUnit", "ceilingHeight", "wallHeight"] as const) {
@@ -56,7 +56,7 @@ export function validateDatasetPayload(dataset: StugubyDataset, value: unknown):
         for (const wall of requireArray(floor.walls, "floor.walls", 100_000)) {
           if (!isObject(wall)) fail("each wall must be an object");
           onlyKeys(wall, ["wallPublicationId", "localWallId", "from", "to"], "wall");
-          const wallId = requireIdentifier(wall, "wallPublicationId"); optionalString(wall, "localWallId");
+          const wallId = requireIdentifier(wall, "wallPublicationId"); assertOptionalString(wall, "localWallId");
           if (wallIds.has(wallId)) fail(`duplicate wall publication id ${wallId}`);
           wallIds.add(wallId);
           point(wall.from, "wall.from"); point(wall.to, "wall.to");
@@ -65,17 +65,17 @@ export function validateDatasetPayload(dataset: StugubyDataset, value: unknown):
         for (const room of requireArray(floor.rooms, "floor.rooms", 100_000)) {
           if (!isObject(room)) fail("each room must be an object");
           onlyKeys(room, ["roomPublicationId", "localRoomId", "name", "points", "kind"], "room");
-          const roomId = requireIdentifier(room, "roomPublicationId"); optionalString(room, "localRoomId");
+          const roomId = requireIdentifier(room, "roomPublicationId"); assertOptionalString(room, "localRoomId");
           if (roomIds.has(roomId)) fail(`duplicate room publication id ${roomId}`);
           roomIds.add(roomId);
-          requireString(room, "name"); optionalString(room, "kind");
+          requireString(room, "name"); assertOptionalString(room, "kind");
           for (const roomPoint of requireArray(room.points, "room.points", 100_000)) point(roomPoint, "room point");
         }
         const elementIds = new Set<string>();
         for (const element of requireArray(floor.planElements, "floor.planElements", 100_000)) {
           if (!isObject(element)) fail("each plan element must be an object");
           onlyKeys(element, ["planElementPublicationId", "localPlanElementId", "kind", "position", "rotationDegrees", "width", "height", "label", "state", "openFraction", "bottomOffsetM", "wallPublicationId", "variant", "nominalFlowM3h", "verticalExtent", "chimneyHeightAboveRoof", "chimneyWidth", "chimneyDepth", "projection"], "plan element");
-          const elementId = requireIdentifier(element, "planElementPublicationId"); optionalString(element, "localPlanElementId");
+          const elementId = requireIdentifier(element, "planElementPublicationId"); assertOptionalString(element, "localPlanElementId");
           if (elementIds.has(elementId)) fail(`duplicate plan element publication id ${elementId}`);
           elementIds.add(elementId);
           requireString(element, "kind"); point(element.position, "plan element position");
@@ -83,7 +83,7 @@ export function validateDatasetPayload(dataset: StugubyDataset, value: unknown):
           for (const key of ["width", "height", "openFraction", "bottomOffsetM", "nominalFlowM3h", "chimneyHeightAboveRoof", "chimneyWidth", "chimneyDepth", "projection"] as const) {
             if (element[key] !== undefined) requireFiniteNumber(element, key);
           }
-          for (const key of ["label", "state", "wallPublicationId", "variant", "verticalExtent"] as const) optionalString(element, key);
+          for (const key of ["label", "state", "wallPublicationId", "variant", "verticalExtent"] as const) assertOptionalString(element, key);
           if (typeof element.wallPublicationId === "string" && !wallIds.has(element.wallPublicationId)) fail(`plan element ${elementId} references an unknown wall`);
         }
       }
@@ -123,7 +123,7 @@ export function validateDatasetPayload(dataset: StugubyDataset, value: unknown):
         requireString(sensor, "model");
         requireStringArray(sensor.tags, "sensor.tags", 100);
         requireBoolean(sensor, "enabled");
-        optionalString(sensor, "localSensorId"); optionalString(sensor, "roomPublicationId");
+        assertOptionalString(sensor, "localSensorId"); assertOptionalString(sensor, "roomPublicationId");
         requireFiniteNumber(sensor, "x");
         requireFiniteNumber(sensor, "y");
         requireFiniteNumber(sensor, "z");
@@ -147,7 +147,7 @@ export function validateDatasetPayload(dataset: StugubyDataset, value: unknown):
         if (Date.parse(String(sample.timestamp)) < Date.parse(String(value.from)) || Date.parse(String(sample.timestamp)) > Date.parse(String(value.to))) fail("telemetry sample is outside chunk bounds");
         requireFiniteNumber(sample, "value");
         if (!["good", "estimated", "stale"].includes(String(sample.quality))) fail("invalid telemetry quality");
-        optionalString(sample, "correctionOf");
+        assertOptionalString(sample, "correctionOf");
       }
       break;
     case "home.notes.v1":
@@ -157,7 +157,7 @@ export function validateDatasetPayload(dataset: StugubyDataset, value: unknown):
       for (const note of requireArray(value.notes, "notes", 100_000)) {
         if (!isObject(note)) fail("each Home note must be an object");
         onlyKeys(note, ["notePublicationId", "localNoteId", "kind", "text", "createdAt", "updatedAt"], "Home note");
-        const noteId = requireIdentifier(note, "notePublicationId"); requireString(note, "text"); optionalString(note, "localNoteId");
+        const noteId = requireIdentifier(note, "notePublicationId"); requireString(note, "text"); assertOptionalString(note, "localNoteId");
         if (noteIds.has(noteId)) fail(`duplicate Home note publication id ${noteId}`);
         noteIds.add(noteId);
         if (!["note", "inspection", "maintenance"].includes(String(note.kind))) fail("invalid Home note kind");
@@ -177,11 +177,11 @@ export function validateDatasetPayload(dataset: StugubyDataset, value: unknown):
         if (observationIds.has(observationId)) fail(`duplicate observation publication id ${observationId}`);
         observationIds.add(observationId);
         requireString(observation, "kind"); requireString(observation, "severity"); requireString(observation, "note");
-        optionalString(observation, "localObservationId"); optionalString(observation, "sensorPublicationId");
+        assertOptionalString(observation, "localObservationId"); assertOptionalString(observation, "sensorPublicationId");
         for (const axis of ["x", "y"] as const) if (observation[axis] !== null) requireFiniteNumber(observation, axis);
         requireIsoDate(observation.occurredAt, "observation.occurredAt"); requireIsoDate(observation.updatedAt, "observation.updatedAt");
-        for (const key of ["validFrom", "validTo", "resolvedAt"] as const) if (observation[key] !== undefined) requireIsoDate(observation[key], `observation.${key}`, true);
-        for (const key of ["timePrecision", "confidence", "status"] as const) optionalString(observation, key);
+        for (const key of ["validFrom", "validTo", "resolvedAt"] as const) if (observation[key] !== undefined) requireNullableIsoDate(observation[key], `observation.${key}`);
+        for (const key of ["timePrecision", "confidence", "status"] as const) assertOptionalString(observation, key);
         if (observation.resolutionNote !== undefined) requireNullableString(observation.resolutionNote, "observation.resolutionNote");
       }
       }
@@ -243,7 +243,7 @@ export function validateDatasetPayload(dataset: StugubyDataset, value: unknown):
             || Object.values(record.labels).some((label) => typeof label !== "string" || label.length === 0 || label.length > 500)) {
             fail("measurement definition labels must be a non-empty string map");
           }
-          optionalString(record, "dimension");
+          assertOptionalString(record, "dimension");
           if (record.allowedUnits !== undefined) requireStringArray(record.allowedUnits, "measurement definition allowedUnits", 100);
           if (record.kind !== undefined) {
             requireEnumString(record, "kind", ["gauge", "rate", "increment", "cumulative_counter", "binary_state", "categorical_state"]);
@@ -274,7 +274,7 @@ export function validateDatasetPayload(dataset: StugubyDataset, value: unknown):
           requireInteger(record, "durationSeconds", 0);
           requireEnumString(record, "severity", ["info", "warning", "critical"]);
           requireBoolean(record, "enabled");
-          requireIsoDate(record.retiredAt, "alert rule retiredAt", true);
+          requireNullableIsoDate(record.retiredAt, "alert rule retiredAt");
         }
       } else if (kind === "alert-events") {
         for (const record of typedRecords) {
@@ -284,9 +284,9 @@ export function validateDatasetPayload(dataset: StugubyDataset, value: unknown):
           requireFiniteNumber(record, "value");
           requireFiniteNumber(record, "threshold");
           requireEnumString(record, "severity", ["info", "warning", "critical"]);
-          const startedAt = requireIsoDate(record.startedAt, "alert event startedAt")!;
-          const acknowledgedAt = requireIsoDate(record.acknowledgedAt, "alert event acknowledgedAt", true);
-          const resolvedAt = requireIsoDate(record.resolvedAt, "alert event resolvedAt", true);
+          const startedAt = requireIsoDate(record.startedAt, "alert event startedAt");
+          const acknowledgedAt = requireNullableIsoDate(record.acknowledgedAt, "alert event acknowledgedAt");
+          const resolvedAt = requireNullableIsoDate(record.resolvedAt, "alert event resolvedAt");
           if (acknowledgedAt && Date.parse(acknowledgedAt) < Date.parse(startedAt)) fail("alert event acknowledgedAt precedes startedAt");
           if (resolvedAt && Date.parse(resolvedAt) < Date.parse(startedAt)) fail("alert event resolvedAt precedes startedAt");
         }
@@ -312,8 +312,8 @@ export function validateDatasetPayload(dataset: StugubyDataset, value: unknown):
             || (state !== "open" && openFraction !== 0))) {
             fail("opening-state openFraction is invalid");
           }
-          const observedAt = requireIsoDate(record.observedAt, "opening-state observedAt")!;
-          const validUntil = requireIsoDate(record.validUntil, "opening-state validUntil", true);
+          const observedAt = requireIsoDate(record.observedAt, "opening-state observedAt");
+          const validUntil = requireNullableIsoDate(record.validUntil, "opening-state validUntil");
           if (validUntil && Date.parse(validUntil) <= Date.parse(observedAt)) fail("opening-state validUntil must follow observedAt");
         }
       } else if (kind === "weather-history") {
@@ -331,8 +331,8 @@ export function validateDatasetPayload(dataset: StugubyDataset, value: unknown):
         }
       } else if (kind === "electricity-history") {
         for (const record of typedRecords) {
-          const startAt = requireIsoDate(record.startAt, "electricity startAt")!;
-          const endAt = requireIsoDate(record.endAt, "electricity endAt")!;
+          const startAt = requireIsoDate(record.startAt, "electricity startAt");
+          const endAt = requireIsoDate(record.endAt, "electricity endAt");
           if (Date.parse(endAt) <= Date.parse(startAt)) fail("electricity endAt must follow startAt");
           requireFiniteNumber(record, "rawPriceCentsPerKwh");
           requireFiniteNumber(record, "marginCentsPerKwh");
@@ -400,7 +400,7 @@ export function validateWireEvent(value: unknown): StugubyWireEvent {
     if (!["invited", "active", "suspended", "left", "revoked"].includes(String(value.payload.state))) fail("invalid member state");
     requireString(value.payload, "publicKey");
     requireString(value.payload, "keyFingerprint");
-    requireIsoDate(value.payload.joinedAt, "member.joinedAt", true);
+    requireNullableIsoDate(value.payload.joinedAt, "member.joinedAt");
     requireIsoDate(value.payload.updatedAt, "member.updatedAt");
   } else if (value.schema === "stuguby.shared-property.v2") {
     if (value.eventKind !== "shared-property.updated" || value.operation !== "upsert") fail("invalid shared-property event");
@@ -468,4 +468,42 @@ export function requestSigningValue(input: {
   nodeId: string;
 }): string {
   return [input.method.toUpperCase(), input.path, input.bodyHash, input.timestamp, input.requestId, input.nodeId, STUGBY_PROTOCOL_VERSION].join("\n");
+}
+
+export function validateHomeCommand(value: unknown): StugubyHomeCommand {
+  assertSafeFederationPayload(value);
+  if (!isObject(value)) fail("Home command must be an object");
+  onlyKeys(value, [
+    "id", "stugubyId", "actorNodeId", "authorityNodeId", "publicationId", "grantId", "grantEpoch",
+    "authorityEpoch", "baseRevision", "snapshot", "createdAt",
+  ], "Home command");
+  for (const key of ["id", "stugubyId", "actorNodeId", "authorityNodeId", "publicationId", "grantId"] as const) {
+    requireString(value, key);
+  }
+  requireInteger(value, "grantEpoch", 1);
+  requireInteger(value, "authorityEpoch", 1);
+  requireInteger(value, "baseRevision", 1);
+  requireIsoDate(value.createdAt, "createdAt");
+  if (!isObject(value.snapshot)) fail("Home command snapshot must be an object");
+  onlyKeys(value.snapshot, ["directory", "location", "structure", "sensorCatalog", "notes", "observations"], "Home command snapshot");
+  validateDatasetPayload("home.directory.v1", value.snapshot.directory);
+  if (value.snapshot.location !== null) validateDatasetPayload("home.location.v1", value.snapshot.location);
+  validateDatasetPayload("home.structure.v1", value.snapshot.structure);
+  validateDatasetPayload("home.sensor-catalog.v1", value.snapshot.sensorCatalog);
+  validateDatasetPayload("home.notes.v1", value.snapshot.notes);
+  validateDatasetPayload("home.observations.v1", value.snapshot.observations);
+  const publicationId = String(value.publicationId);
+  for (const payload of [
+    value.snapshot.directory,
+    value.snapshot.location,
+    value.snapshot.structure,
+    value.snapshot.sensorCatalog,
+    value.snapshot.notes,
+    value.snapshot.observations,
+  ]) {
+    if (payload !== null && isObject(payload) && payload.publicationId !== publicationId) {
+      fail("Home command snapshot publication ids must match");
+    }
+  }
+  return value as unknown as StugubyHomeCommand;
 }

@@ -1,24 +1,12 @@
 import { createHash, createHmac, randomUUID } from "node:crypto";
 
-import { afterEach, describe, expect, it, vi } from "vitest";
-
-import request from "supertest";
-
-import { createApi, type ApiRuntime } from "../src/app.js";
-
-import { loadConfig } from "../src/config.js";
-
 import { ClimateDatabase } from "../src/db.js";
 
 import {
-  maxTapoHistoryJobSpanMs,
   parseTapoHistoryCsv,
   TAPO_HISTORY_ACCEPTANCE_REVISION,
   TAPO_HISTORY_API_IMPLEMENTATION_SHA256,
   TAPO_HISTORY_CSV_PARSER_VERSION,
-  TAPO_TARGET_RECLAIM_GRACE_MS,
-  tapoExportRecipient,
-  TapoHistoryExportService,
 } from "../src/tapo-history-export.js";
 
 export const WORKER_TOKEN = "worker-token-with-at-least-thirty-two-bytes";

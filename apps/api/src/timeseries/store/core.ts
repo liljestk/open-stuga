@@ -1,55 +1,19 @@
-import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
-import type { PoolClient, QueryResult, QueryResultRow } from "pg";
 import { AnalyticsWorkLimiter } from "../../analytics/work-limiter.js";
 import {
+  assertRegisteredMethods,
   installRegisteredMethods,
-  type AssertNoMethodKeys,
-  type IncompatibleMethodKeys,
   type RegisteredMethodSet,
 } from "../../method-registry.js";
 import {
-  HYPERTABLE_DEFINITIONS,
-  MEASUREMENT_BUCKETS,
-  TELEMETRY_TABLES,
-  buildBaseSchemaSql,
-  buildContinuousAggregateSql,
-  buildFallbackAggregateSql,
-  measurementAggregateName,
-  qualifiedName,
-  quoteIdentifier,
   validateSchemaName,
 } from "../schema.js";
 import type {
-  AggregateRefreshQuery,
-  ArchiveCheckpoint,
-  ArchiveTableName,
-  BatchWriteResult,
-  ColdStorageMode,
-  EnergyCostAggregateQuery,
-  EnergyCostAggregateRecord,
-  ElectricityPriceHistoryQuery,
-  ElectricityPriceRecord,
-  LegacyReadingHistoryQuery,
-  LegacyReadingRecord,
-  MeasurementBucketQuery,
-  MeasurementBucketRecord,
-  MeasurementCoverageQuery,
-  MeasurementCoverageRecord,
-  MeasurementHistoryQuery,
-  MeasurementSampleRecord,
-  MeasurementWindowQuery,
-  OutdoorTemperatureHistoryQuery,
-  OutdoorTemperatureRecord,
-  PowerCostAggregateQuery,
-  QueryControl,
-  TelemetryHealth,
   TelemetrySchemaInitResult,
-  TelemetryStorageStats,
   TelemetryStoreOptions,
-  TelemetryTableStorage,
 } from "../types.js";
-import { DEFAULT_BATCH_SIZE, DEFAULT_CONNECTION_TIMEOUT_MS, DEFAULT_IDLE_TIMEOUT_MS, DEFAULT_POOL_SIZE, DEFAULT_SCHEMA, DEFAULT_STATEMENT_TIMEOUT_MS, positiveInteger, timeoutValue } from "./support/01-default-schema-to-measurement-bucket-from-row.js";
+import { DEFAULT_BATCH_SIZE, DEFAULT_CONNECTION_TIMEOUT_MS, DEFAULT_IDLE_TIMEOUT_MS, DEFAULT_POOL_SIZE, DEFAULT_SCHEMA, DEFAULT_STATEMENT_TIMEOUT_MS } from "./support/store-limits.js";
+import { positiveInteger, timeoutValue } from "./support/query-values.js";
 
 export const timeseriesStoreState = Symbol("TimeseriesStore.state");
 
@@ -118,7 +82,7 @@ export class TimeseriesStoreCore {
   readonly pool: Pool;
   readonly [timeseriesStoreState] = createTimeseriesStoreState();
   constructor(options: TelemetryStoreOptions = {}) {
-      const service = this as unknown as TimeseriesStoreInternals;
+      assertRegisteredMethods("TimeseriesStore", this, "initialize", "timeseries/store.js");
 
       this.schema = validateSchemaName(options.schema ?? DEFAULT_SCHEMA);
       this[timeseriesStoreState].batchSize = positiveInteger(options.batchSize, DEFAULT_BATCH_SIZE, 5_000);
@@ -181,10 +145,6 @@ export class TimeseriesStoreCore {
       this.pool.on("error", this[timeseriesStoreState].poolErrorListener);
     }
 }
-
-type TimeseriesStorePublicMethodMismatch = AssertNoMethodKeys<
-  IncompatibleMethodKeys<TimeseriesStoreCore, TimeseriesStoreInternals>
->;
 
 export function registerTimeseriesStoreMethods(methods: TimeseriesStoreMethodSet): void {
   installRegisteredMethods("TimeseriesStore", TimeseriesStoreCore.prototype, methods);

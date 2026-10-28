@@ -41,7 +41,7 @@ describe("API request scheduling", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    const requests = deferred.map((_, index) => requestFrom<{ index: number }>(
+    const requests = deferred.map((_, index) => requestFrom(
       "/api/v1",
       `/scheduler-test/${index}`,
     ));
@@ -67,11 +67,11 @@ describe("API request scheduling", () => {
     ));
     vi.stubGlobal("fetch", fetchMock);
     const reads = Array.from({ length: MAX_CONCURRENT_API_READ_REQUESTS + 1 }, (_, index) => (
-      requestFrom<{ index: number }>("/api/v1", `/history/${index}`)
+      requestFrom("/api/v1", `/history/${index}`)
     ));
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(MAX_CONCURRENT_API_READ_REQUESTS));
 
-    const mutation = requestFrom<{ saved: boolean }>("/api/v1", "/settings", { method: "POST" });
+    const mutation = requestFrom("/api/v1", "/settings", { method: "POST" });
 
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(MAX_CONCURRENT_API_REQUESTS));
     expect(fetchMock.mock.calls.at(-1)?.[1]).toMatchObject({ method: "POST" });
@@ -92,11 +92,11 @@ describe("API request scheduling", () => {
     ));
     vi.stubGlobal("fetch", fetchMock);
     const reads = Array.from({ length: MAX_CONCURRENT_API_READ_REQUESTS + 1 }, (_, index) => (
-      requestFrom<{ index: number }>("/api/v1", `/history/session-${index}`)
+      requestFrom("/api/v1", `/history/session-${index}`)
     ));
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(MAX_CONCURRENT_API_READ_REQUESTS));
 
-    const session = requestFrom<{ authenticated: boolean }>("/api/v1", "/session");
+    const session = requestFrom("/api/v1", "/session");
 
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(MAX_CONCURRENT_API_REQUESTS));
     expect(fetchMock.mock.calls.at(-1)?.[0]).toBe("/api/v1/session");
@@ -125,14 +125,14 @@ describe("API request scheduling", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const analytics = ["/analytics/query", "/analytics/coverage", "/analytics/calendar-comparison"]
-      .map((path) => requestFrom<{ path: string }>("/api/v2", path, {
+      .map((path) => requestFrom("/api/v2", path, {
         method: "POST",
         schedulingClass: "background",
         body: "{}",
       }));
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(MAX_CONCURRENT_API_READ_REQUESTS));
 
-    const interactive = requestFrom<{ interactive: boolean }>(
+    const interactive = requestFrom(
       "/api/v1",
       interactivePath,
       interactiveOptions,
@@ -162,13 +162,12 @@ describe("API request scheduling", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const running = Array.from({ length: MAX_CONCURRENT_API_READ_REQUESTS }, (_, index) => (
-      requestFrom<{ index: number }>("/api/v1", `/queue-timeout/${index}`, undefined, 1_000)
+      requestFrom("/api/v1", `/queue-timeout/${index}`, { timeoutMs: 1_000 })
     ));
-    const queued = requestFrom<{ index: number }>(
+    const queued = requestFrom(
       "/api/v1",
       "/queue-timeout/queued",
-      undefined,
-      10,
+      { timeoutMs: 10 },
     );
     const queuedOutcome = queued.then(() => "resolved", (error: unknown) => (
       error instanceof Error ? error.name : "rejected"

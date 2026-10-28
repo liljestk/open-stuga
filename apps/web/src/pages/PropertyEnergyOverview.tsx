@@ -9,7 +9,7 @@ import { homeEnergySummaryQueryOptions } from "../data/energy/homeEnergySummaryQ
 import { historyIsPreparing } from "../data/energy/historyPreparation";
 import { queryClient } from "../data/queryClient";
 import { energySummaryState } from "./energySummaryState";
-import { ELECTRICITY_METRICS } from "./ElectricityHistory";
+import { ELECTRICITY_METRICS } from "./energyTelemetry";
 import {
   freshSourcesForMetric,
   sensorsForHomeTotal,

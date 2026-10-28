@@ -1,6 +1,6 @@
 import type { AlertEvent, AlertRule, House, IntegrationStatus, MeasurementSample, Sensor } from "@climate-twin/contracts";
 import { describe, expect, it } from "vitest";
-import { deriveHouseMonitoring } from "../src/analytics/home-monitoring/derive.js";
+import { deriveHomeMonitoringDraft } from "../src/analytics/home-monitoring/derive.js";
 
 const referenceTime = "2026-07-15T12:00:00.000Z";
 const house: House = {
@@ -76,8 +76,8 @@ function alert(overrides: Partial<AlertEvent> = {}): AlertEvent {
   };
 }
 
-function derive(overrides: Partial<Parameters<typeof deriveHouseMonitoring>[0]> = {}) {
-  return deriveHouseMonitoring({
+function derive(overrides: Partial<Parameters<typeof deriveHomeMonitoringDraft>[0]> = {}) {
+  return deriveHomeMonitoringDraft({
     house,
     sensors: [sensor],
     latestMeasurements: { [sensor.id]: { temperature: sample() } },
@@ -87,7 +87,7 @@ function derive(overrides: Partial<Parameters<typeof deriveHouseMonitoring>[0]> 
   });
 }
 
-describe("deriveHouseMonitoring", () => {
+describe("deriveHomeMonitoringDraft", () => {
   it("returns monitoring-ok only when every enabled sensor has current trustworthy coverage", () => {
     const result = derive();
     expect(result.status).toBe("monitoring-ok");

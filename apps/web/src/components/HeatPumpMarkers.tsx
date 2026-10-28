@@ -8,14 +8,14 @@ import type {
   Point,
   UnitSystem,
 } from "@climate-twin/contracts";
-import { estimateHeatPumpInfluence } from "../heatPumpImpact";
+import { estimateHeatPumpInfluence } from "../heatPump/impact";
 import {
   heatPumpMarkerReading,
   heatPumpName,
   heatPumpSensorId,
-} from "../heatPumpPresentation";
+} from "../heatPump/presentation";
 import { measurementLabel } from "../measurements";
-import { DEFAULT_SPATIAL_MAX_SAMPLE_AGE_MS } from "../spatialFreshness";
+import { DEFAULT_SPATIAL_MAX_SAMPLE_AGE_MS } from "../spatial/freshness";
 import { useI18n, type TranslationKey } from "../i18n";
 
 interface ProjectedPoint { x: number; y: number }
@@ -68,7 +68,7 @@ function markerLabel(
     state: markerState(t, state, pending, reading.fresh),
     metric: measurementLabel(definition, locale),
     value: reading.formatted,
-    influence: t(`heatPump.influence.${impact.kind}` as TranslationKey),
+    influence: t(`heatPump.influence.${impact.kind}`),
     evidence: impact.compressorEvidence && state.compressorFrequencyHz !== null
       ? t("heatPump.frequencyEvidence", { value: number.format(state.compressorFrequencyHz) })
       : t("heatPump.selectedModeEvidence"),
@@ -79,27 +79,6 @@ function influenceStyle(intensity: number): CSSProperties {
   return { "--heat-pump-influence": intensity } as CSSProperties;
 }
 
-function markerReading(
-  state: HeatPumpState,
-  sample: MeasurementSample | undefined,
-  definition: MeasurementDefinition,
-  units: UnitSystem,
-  referenceTimeMs: number,
-  maxSampleAgeMs: number,
-  locale: string,
-  noData: string,
-) {
-  return heatPumpMarkerReading(
-    state,
-    sample,
-    definition,
-    units,
-    referenceTimeMs,
-    maxSampleAgeMs,
-    locale,
-    noData,
-  );
-}
 
 export function HeatPumpMarker2D({
   state,
@@ -140,7 +119,7 @@ export function HeatPumpMarker2D({
   const selectable = Boolean(onSelect);
   const interactive = movable || selectable;
   const impact = estimateHeatPumpInfluence(state);
-  const reading = markerReading(state, sample, definition, units, referenceTimeMs, maxSampleAgeMs, locale, t("common.noData"));
+  const reading = heatPumpMarkerReading({ state, sample, definition, units, referenceTimeMs, maxSampleAgeMs, locale, noData: t("common.noData") });
   const label = markerLabel(t, locale, state, floor, pending, definition, reading);
   const status = markerState(t, state, pending, reading.fresh);
   const x = state.x ?? 0;
@@ -238,7 +217,7 @@ export function HeatPumpMarker3D({
 }) {
   const { locale, t } = useI18n();
   const impact = estimateHeatPumpInfluence(state);
-  const reading = markerReading(state, sample, definition, units, referenceTimeMs, maxSampleAgeMs, locale, t("common.noData"));
+  const reading = heatPumpMarkerReading({ state, sample, definition, units, referenceTimeMs, maxSampleAgeMs, locale, noData: t("common.noData") });
   const label = markerLabel(t, locale, state, floor, false, definition, reading);
   const status = markerState(t, state, false, reading.fresh);
   return <g

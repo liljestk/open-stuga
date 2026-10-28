@@ -1,8 +1,6 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { render } from "@testing-library/react";
 
-import userEvent from "@testing-library/user-event";
-
-import { describe, expect, it, vi } from "vitest";
+import { vi } from "vitest";
 
 import type { ConfiguredOpeningState, Floor, ManualObservation, MeasurementDefinition, MeasurementSample, OpeningStateObservation, Sensor, UnitSystem } from "@climate-twin/contracts";
 
@@ -11,10 +9,6 @@ import { createDemoState } from "../domain";
 import { I18nProvider } from "../i18n";
 
 import { definitionFor } from "../measurements";
-
-import { TwinDashboard } from "../pages/TwinDashboard";
-
-import { api } from "../api";
 
 import { BuildingScene } from "./BuildingScene";
 

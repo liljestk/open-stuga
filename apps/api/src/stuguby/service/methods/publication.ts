@@ -1,0 +1,284 @@
+import type { House } from "@climate-twin/contracts";
+import { assertSafeFederationPayload, type JsonValue, type StugubyDatasetGrant, type StugubyHomeDirectoryPayload, type StugubyHomeFloorPlanPayload, type StugubyHomeLocationPayload, type StugubyHomeNotesPayload, type StugubyHomeObservationsPayload, type StugubyHomeStructurePayload, type StugubySensorCatalogPayload, type StugubyShareGrant, STUGBY_PROTOCOL_VERSION, canonicalJson, eventSigningValue, validateDatasetPayload, type StugubyDataset, type StugubySignedEvent, type StugubyWireEvent } from "@climate-twin/stuguby-protocol";
+import { Notification } from "../support/service-types.js";
+import { asJson, sha256 } from "../support/federation-validation.js";
+import { registerStugubyServiceMethods, stugubyServiceState, type StugubyServiceInternals } from "../core.js";
+import { randomUUID } from "node:crypto";
+
+declare module "../core.js" {
+  interface StugubyServiceInternals {
+    atomicPublication<T>(operation: () => T): T;
+    publishGrantSnapshots(
+        grant: StugubyShareGrant,
+        house: House,
+        revision?: number,
+      ): void;
+    projectDataset(grant: StugubyShareGrant, house: House, dataset: StugubyDatasetGrant): JsonValue | null;
+    projectStructure(grant: StugubyShareGrant, house: House, local: boolean): StugubyHomeStructurePayload;
+    projectFloorPlans(grant: StugubyShareGrant, house: House): StugubyHomeFloorPlanPayload;
+    projectSensors(grant: StugubyShareGrant, house: House, local: boolean): StugubySensorCatalogPayload;
+    sensorMetrics(sensorId: string): string[];
+    publishDataset(grant: StugubyShareGrant, dataset: StugubyDataset, payload: JsonValue, resourceId: string, revision: number): void;
+    createEvent(input: Omit<StugubyWireEvent, "protocolVersion" | "eventId" | "authorityNodeId" | "sequence" | "occurredAt" | "payloadHash">): StugubySignedEvent;
+  }
+}
+
+registerStugubyServiceMethods({
+  atomicPublication<T>(this: StugubyServiceInternals, operation: () => T): T {
+      const state = this[stugubyServiceState];
+      if (state.deferredNotifications) return operation();
+      const notifications: Notification[] = [];
+      state.deferredNotifications = notifications;
+      try {
+        const result = this.database.transaction(operation);
+        for (const notification of notifications) state.notifications.emit("event", notification);
+        return result;
+      } finally {
+        state.deferredNotifications = null;
+      }
+    },
+  publishGrantSnapshots(this: StugubyServiceInternals,
+      grant: StugubyShareGrant,
+      house: House,
+      revision = this.store.homeRevision(grant.stugubyId, this.identity.nodeId, grant.publicationId),
+    ): void {
+      let recoveryTelemetrySamples = 0;
+      for (const dataset of grant.datasets) {
+        if (!dataset.enabled) continue;
+        if (dataset.dataset === "home.telemetry.v1") {
+          recoveryTelemetrySamples = grant.housePolicy.recoveryMode === "full"
+            ? this.publishFullRecoveryTelemetry(grant, house, dataset)
+            : (this.publishHistoricalTelemetry(grant, house, dataset), 0);
+          continue;
+        }
+        if (dataset.dataset === "home.recovery.v1") {
+          this.publishRecoveryArchive(grant, house, recoveryTelemetrySamples, revision);
+          continue;
+        }
+        const projected = this.projectDataset(grant, house, dataset);
+        const resourceId = `${grant.publicationId}:${dataset.dataset}`;
+        if (projected) {
+          this.publishDataset(grant, dataset.dataset, projected, resourceId, revision);
+          continue;
+        }
+        this.distribute(this.createEvent({
+          stugubyId: grant.stugubyId,
+          eventKind: "dataset.published",
+          streamId: `dataset:${grant.id}:${dataset.dataset}`,
+          schema: dataset.dataset,
+          resourceId,
+          operation: "tombstone",
+          revision: Math.max(1, Math.min(Number.MAX_SAFE_INTEGER, revision)),
+          grantId: grant.id,
+          grantEpoch: grant.epoch,
+          payload: null,
+        }), grant);
+      }
+    },
+  projectDataset(this: StugubyServiceInternals, grant: StugubyShareGrant, house: House, dataset: StugubyDatasetGrant): JsonValue | null {
+      const local = dataset.includeLocalIds;
+      const publicationId = grant.publicationId;
+      switch (dataset.dataset) {
+        case "home.directory.v1": {
+          const payload: StugubyHomeDirectoryPayload = {
+            publicationId,
+            name: house.name,
+            timezone: house.timezone,
+            ...(local ? { localHouseId: house.id } : {}),
+          };
+          return payload;
+        }
+        case "home.location.v1": {
+          if (!house.location) return null;
+          const payload: StugubyHomeLocationPayload = {
+            publicationId,
+            latitude: house.location.latitude,
+            longitude: house.location.longitude,
+            ...(house.location.label ? { label: house.location.label } : {}),
+            ...(house.location.countryCode ? { countryCode: house.location.countryCode } : {}),
+            ...(house.mapPlacement ? { mapPlacement: {
+              latitude: house.mapPlacement.latitude,
+              longitude: house.mapPlacement.longitude,
+              metersPerPlanUnit: house.mapPlacement.metersPerPlanUnit,
+              ...(house.mapPlacement.footprintFloorId ? {
+                footprintFloorPublicationId: this.store.publicationId(grant.stugubyId, "floor", house.mapPlacement.footprintFloorId),
+              } : {}),
+            } } : {}),
+            ...(house.orientationDegrees !== undefined ? { orientationDegrees: house.orientationDegrees } : {}),
+          };
+          return payload;
+        }
+        case "home.structure.v1":
+          return this.projectStructure(grant, house, local);
+        case "home.floorplan.v1":
+          return this.projectFloorPlans(grant, house);
+        case "home.sensor-catalog.v1":
+          return this.projectSensors(grant, house, local);
+        case "home.notes.v1": {
+          const notes = this.database.listPropertyNotes({ houseId: house.id, limit: 10_000 }).map((note) => ({
+            notePublicationId: this.store.publicationId(grant.stugubyId, "note", note.id),
+            ...(local ? { localNoteId: note.id } : {}),
+            kind: note.kind,
+            text: note.text,
+            createdAt: note.createdAt,
+            updatedAt: note.updatedAt,
+          }));
+          return { publicationId, notes } satisfies StugubyHomeNotesPayload;
+        }
+        case "home.observations.v1": {
+          const observations = this.database.listObservations(house.id).map((observation) => ({
+            observationPublicationId: this.store.publicationId(grant.stugubyId, "observation", observation.id),
+            ...(local ? { localObservationId: observation.id } : {}),
+            floorPublicationId: this.store.publicationId(grant.stugubyId, "floor", observation.floorId),
+            ...(observation.sensorId ? { sensorPublicationId: this.store.publicationId(grant.stugubyId, "sensor", observation.sensorId) } : {}),
+            kind: observation.kind,
+            severity: observation.severity,
+            note: observation.note,
+            x: observation.x,
+            y: observation.y,
+            occurredAt: observation.occurredAt,
+            ...(observation.timePrecision ? { timePrecision: observation.timePrecision } : {}),
+            ...(observation.validFrom !== undefined ? { validFrom: observation.validFrom } : {}),
+            ...(observation.validTo !== undefined ? { validTo: observation.validTo } : {}),
+            ...(observation.confidence ? { confidence: observation.confidence } : {}),
+            ...(observation.status ? { status: observation.status } : {}),
+            ...(observation.resolutionNote !== undefined ? { resolutionNote: observation.resolutionNote } : {}),
+            ...(observation.resolvedAt !== undefined ? { resolvedAt: observation.resolvedAt } : {}),
+            updatedAt: observation.updatedAt ?? observation.createdAt,
+          }));
+          return { publicationId, observations } satisfies StugubyHomeObservationsPayload;
+        }
+        case "home.recovery.v1":
+        case "home.telemetry.v1":
+          return null;
+      }
+    },
+  projectStructure(this: StugubyServiceInternals, grant: StugubyShareGrant, house: House, local: boolean): StugubyHomeStructurePayload {
+      const floors = house.floors.map((floor) => {
+        const walls = floor.walls.map((wall) => ({
+          wallPublicationId: this.store.publicationId(grant.stugubyId, "wall", wall.id),
+          ...(local ? { localWallId: wall.id } : {}),
+          from: { x: wall.from.x, y: wall.from.y },
+          to: { x: wall.to.x, y: wall.to.y },
+        }));
+        const rooms = floor.rooms.map((room) => ({
+          roomPublicationId: this.store.publicationId(grant.stugubyId, "room", room.id),
+          ...(local ? { localRoomId: room.id } : {}),
+          name: room.name,
+          points: room.points.map((point) => ({ x: point.x, y: point.y })),
+          ...(room.kind ? { kind: room.kind } : {}),
+        }));
+        const planElements = (floor.planElements ?? []).map((element) => {
+          const projected: Record<string, JsonValue> = {
+            planElementPublicationId: this.store.publicationId(grant.stugubyId, "plan-element", element.id),
+            ...(local ? { localPlanElementId: element.id } : {}),
+            kind: element.kind,
+            position: { x: element.position.x, y: element.position.y },
+            rotationDegrees: element.rotationDegrees,
+          };
+          for (const key of ["width", "height", "label", "state", "openFraction", "bottomOffsetM", "variant",
+            "nominalFlowM3h", "verticalExtent", "chimneyHeightAboveRoof", "chimneyWidth", "chimneyDepth", "projection"] as const) {
+            const value = element[key as keyof typeof element];
+            if (value !== undefined) projected[key] = value as JsonValue;
+          }
+          if ("wallId" in element && typeof element.wallId === "string") {
+            projected.wallPublicationId = this.store.publicationId(grant.stugubyId, "wall", element.wallId);
+          }
+          return projected;
+        });
+        const result: Record<string, JsonValue> = {
+          floorPublicationId: this.store.publicationId(grant.stugubyId, "floor", floor.id),
+          ...(local ? { localFloorId: floor.id } : {}),
+          name: floor.name,
+          width: floor.width,
+          height: floor.height,
+          elevation: floor.elevation,
+          walls: asJson(walls),
+          rooms: asJson(rooms),
+          planElements,
+        };
+        for (const [key, value] of [
+          ["type", floor.type], ["metersPerPlanUnit", floor.metersPerPlanUnit], ["ceilingHeight", floor.ceilingHeight],
+          ["wallHeight", floor.wallHeight], ["roof", floor.roof ? {
+            style: floor.roof.style,
+            pitchDegrees: floor.roof.pitchDegrees,
+            ridgeAxis: floor.roof.ridgeAxis,
+            overhang: floor.roof.overhang,
+            eavesHeight: floor.roof.eavesHeight,
+          } : undefined],
+        ] as const) if (value !== undefined) result[key] = value as JsonValue;
+        return result;
+      });
+      const payload = { publicationId: grant.publicationId, floors } as unknown as StugubyHomeStructurePayload;
+      assertSafeFederationPayload(payload);
+      return payload;
+    },
+  projectFloorPlans(this: StugubyServiceInternals, grant: StugubyShareGrant, house: House): StugubyHomeFloorPlanPayload {
+      const assets = house.floors.flatMap((floor) => {
+        if (!floor.backgroundImage) return [];
+        const image = this.storeDataUrl(floor.backgroundImage);
+        this.store.registerBlobReference(grant.stugubyId, image.digest, grant.id, grant.epoch, "local");
+        return [{ floorPublicationId: this.store.publicationId(grant.stugubyId, "floor", floor.id), image }];
+      });
+      return { publicationId: grant.publicationId, assets };
+    },
+  projectSensors(this: StugubyServiceInternals, grant: StugubyShareGrant, house: House, local: boolean): StugubySensorCatalogPayload {
+      const sensors = this.database.listSensors(house.id).map((sensor) => ({
+        sensorPublicationId: this.store.publicationId(grant.stugubyId, "sensor", sensor.id),
+        ...(local ? { localSensorId: sensor.id } : {}),
+        floorPublicationId: this.store.publicationId(grant.stugubyId, "floor", sensor.floorId),
+        ...(sensor.roomId ? { roomPublicationId: this.store.publicationId(grant.stugubyId, "room", sensor.roomId) } : {}),
+        name: sensor.name,
+        model: sensor.model,
+        tags: sensor.tags.filter((tag) => tag !== "stuguby-shared"),
+        enabled: sensor.enabled,
+        x: sensor.x,
+        y: sensor.y,
+        z: sensor.z,
+        metricIds: this.sensorMetrics(sensor.id),
+      }));
+      return { publicationId: grant.publicationId, sensors };
+    },
+  sensorMetrics(this: StugubyServiceInternals, sensorId: string): string[] {
+      return (this.database.db.prepare("SELECT DISTINCT metric FROM measurement_samples WHERE sensor_id=? ORDER BY metric")
+        .all(sensorId) as Array<{ metric: string }>).map((row) => row.metric);
+    },
+  publishDataset(this: StugubyServiceInternals, grant: StugubyShareGrant, dataset: StugubyDataset, payload: JsonValue, resourceId: string, revision: number): void {
+      validateDatasetPayload(dataset, payload);
+      const event = this.createEvent({
+        stugubyId: grant.stugubyId,
+        eventKind: "dataset.published",
+        streamId: `dataset:${grant.id}:${dataset}`,
+        schema: dataset,
+        resourceId,
+        operation: "upsert",
+        revision: Math.max(1, Math.min(Number.MAX_SAFE_INTEGER, revision)),
+        grantId: grant.id,
+        grantEpoch: grant.epoch,
+        payload,
+      });
+      this.distribute(event, grant);
+    },
+  createEvent(this: StugubyServiceInternals, input: Omit<StugubyWireEvent, "protocolVersion" | "eventId" | "authorityNodeId" | "sequence" | "occurredAt" | "payloadHash">): StugubySignedEvent {
+      const payload = input.operation === "tombstone" ? null : input.payload;
+      const wire: StugubyWireEvent = {
+        protocolVersion: STUGBY_PROTOCOL_VERSION,
+        stugubyId: input.stugubyId,
+        eventId: randomUUID(),
+        eventKind: input.eventKind,
+        authorityNodeId: this.identity.nodeId,
+        streamId: input.streamId,
+        sequence: this.store.nextSequence(input.stugubyId, input.streamId),
+        schema: input.schema,
+        resourceId: input.resourceId,
+        operation: input.operation,
+        revision: input.revision,
+        grantId: input.grantId,
+        grantEpoch: input.grantEpoch,
+        occurredAt: new Date().toISOString(),
+        payload,
+        payloadHash: sha256(canonicalJson(payload)),
+      };
+      return { ...wire, keyFingerprint: this.identity.keyFingerprint, signature: this.keys.sign(eventSigningValue(wire)) };
+    },
+});

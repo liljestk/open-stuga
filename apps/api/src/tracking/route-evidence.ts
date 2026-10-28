@@ -1,3 +1,4 @@
+import { bodyObject, enumValue, optionalBoolean, rejectUnknownFields, requiredString } from "../request-fields.js";
 import {
   TRACKING_SCHEMA_VERSION,
   type TrackingGatewayRollupInput,
@@ -7,14 +8,8 @@ import {
 } from "@climate-twin/contracts";
 import { TrackingError } from "./errors.js";
 import {
-  bodyObject,
   coordinate,
-  enumValue,
   metadata,
-  optionalBoolean,
-  optionalNumber,
-  rejectUnknown,
-  requiredString,
 } from "./route-support.js";
 
 function integer(
@@ -32,7 +27,7 @@ function integer(
   return value as number;
 }
 
-function finite(
+function boundedNumberField(
   body: Record<string, unknown>,
   field: string,
   minimum: number,
@@ -50,7 +45,7 @@ function finite(
 function observerPosition(value: unknown): TrackingObserverPosition | undefined {
   if (value === undefined) return undefined;
   const body = bodyObject(value, "observerPosition");
-  rejectUnknown(body, [
+  rejectUnknownFields(body, [
     "latitude", "longitude", "horizontalAccuracyMeters", "source", "capturedAt", "reducedAccuracy",
   ], "observerPosition");
   const point = coordinate(
@@ -59,7 +54,7 @@ function observerPosition(value: unknown): TrackingObserverPosition | undefined 
   );
   return {
     ...point,
-    horizontalAccuracyMeters: finite(body, "horizontalAccuracyMeters", 0, 10_000)!,
+    horizontalAccuracyMeters: boundedNumberField(body, "horizontalAccuracyMeters", 0, 10_000)!,
     source: enumValue(body.source, ["gps", "fused", "network", "fixed", "manual"] as const, "source"),
     capturedAt: requiredString(body, "capturedAt", 100),
     ...(body.reducedAccuracy === undefined ? {} : { reducedAccuracy: optionalBoolean(body, "reducedAccuracy")! }),
@@ -68,7 +63,7 @@ function observerPosition(value: unknown): TrackingObserverPosition | undefined 
 
 function observation(value: unknown): TrackingObservationInput {
   const body = bodyObject(value, "observation");
-  rejectUnknown(body, [
+  rejectUnknownFields(body, [
     "schemaVersion", "dataMode", "observationId", "idempotencyKey", "propertyId",
     "endpointId", "equipmentId", "observerId", "observedAt", "profileId", "profileVersion",
     "rssi", "txPower", "batteryPercent", "motion", "counter", "observerPosition",
@@ -85,15 +80,15 @@ function observation(value: unknown): TrackingObservationInput {
   return {
     schemaVersion: TRACKING_SCHEMA_VERSION,
     dataMode: enumValue(body.dataMode, ["live", "demo"] as const, "dataMode"),
-    observationId: requiredString(body, "observationId"),
-    idempotencyKey: requiredString(body, "idempotencyKey"),
-    propertyId: requiredString(body, "propertyId"),
-    endpointId: requiredString(body, "endpointId"),
-    equipmentId: requiredString(body, "equipmentId"),
-    observerId: requiredString(body, "observerId"),
+    observationId: requiredString(body, "observationId", 200),
+    idempotencyKey: requiredString(body, "idempotencyKey", 200),
+    propertyId: requiredString(body, "propertyId", 200),
+    endpointId: requiredString(body, "endpointId", 200),
+    equipmentId: requiredString(body, "equipmentId", 200),
+    observerId: requiredString(body, "observerId", 200),
     observedAt: requiredString(body, "observedAt", 100),
-    profileId: requiredString(body, "profileId"),
-    profileVersion: requiredString(body, "profileVersion"),
+    profileId: requiredString(body, "profileId", 200),
+    profileVersion: requiredString(body, "profileVersion", 200),
     rssi: integer(body, "rssi", -127, 20)!,
     ...(txPower === undefined ? {} : { txPower }),
     ...(batteryPercent === undefined ? {} : { batteryPercent }),
@@ -109,7 +104,7 @@ function observation(value: unknown): TrackingObservationInput {
 
 function rollup(value: unknown): TrackingGatewayRollupInput {
   const body = bodyObject(value, "rollup");
-  rejectUnknown(body, [
+  rejectUnknownFields(body, [
     "schemaVersion", "dataMode", "rollupId", "idempotencyKey", "propertyId", "endpointId",
     "equipmentId", "observerId", "profileId", "profileVersion", "windowStartedAt",
     "windowEndedAt", "packetCount", "rssiMinimum", "rssiMaximum", "rssiMean",
@@ -122,8 +117,8 @@ function rollup(value: unknown): TrackingGatewayRollupInput {
   const packetCount = integer(body, "packetCount", 1, 1_000_000)!;
   const rssiMinimum = integer(body, "rssiMinimum", -127, 20)!;
   const rssiMaximum = integer(body, "rssiMaximum", -127, 20)!;
-  const rssiMean = finite(body, "rssiMean", -127, 20)!;
-  const rssiVariance = finite(body, "rssiVariance", 0, 20_000)!;
+  const rssiMean = boundedNumberField(body, "rssiMean", -127, 20)!;
+  const rssiVariance = boundedNumberField(body, "rssiVariance", 0, 20_000)!;
   if (rssiMinimum > rssiMean || rssiMean > rssiMaximum) {
     throw new TrackingError(400, "INVALID_EVIDENCE", "Rollup RSSI statistics are inconsistent");
   }
@@ -134,14 +129,14 @@ function rollup(value: unknown): TrackingGatewayRollupInput {
   return {
     schemaVersion: TRACKING_SCHEMA_VERSION,
     dataMode: enumValue(body.dataMode, ["live", "demo"] as const, "dataMode"),
-    rollupId: requiredString(body, "rollupId"),
-    idempotencyKey: requiredString(body, "idempotencyKey"),
-    propertyId: requiredString(body, "propertyId"),
-    endpointId: requiredString(body, "endpointId"),
-    equipmentId: requiredString(body, "equipmentId"),
-    observerId: requiredString(body, "observerId"),
-    profileId: requiredString(body, "profileId"),
-    profileVersion: requiredString(body, "profileVersion"),
+    rollupId: requiredString(body, "rollupId", 200),
+    idempotencyKey: requiredString(body, "idempotencyKey", 200),
+    propertyId: requiredString(body, "propertyId", 200),
+    endpointId: requiredString(body, "endpointId", 200),
+    equipmentId: requiredString(body, "equipmentId", 200),
+    observerId: requiredString(body, "observerId", 200),
+    profileId: requiredString(body, "profileId", 200),
+    profileVersion: requiredString(body, "profileVersion", 200),
     windowStartedAt: requiredString(body, "windowStartedAt", 100),
     windowEndedAt: requiredString(body, "windowEndedAt", 100),
     packetCount,
@@ -159,7 +154,7 @@ function rollup(value: unknown): TrackingGatewayRollupInput {
 
 export function trackingEvidenceBatch(value: unknown): TrackingObservationBatchInput {
   const body = bodyObject(value);
-  rejectUnknown(body, ["observations", "rollups"], "Tracking evidence batch");
+  rejectUnknownFields(body, ["observations", "rollups"], "Tracking evidence batch");
   if (!Array.isArray(body.observations)) {
     throw new TrackingError(400, "INVALID_EVIDENCE", "observations must be an array");
   }

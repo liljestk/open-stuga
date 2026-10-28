@@ -1,3 +1,4 @@
+import { UserFacingError } from "../api/support/request-error";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import type {
   AnalyticsAggregation,
@@ -302,7 +303,7 @@ export function DataExportPanel(props: Readonly<DataExportPanelProps>) {
           total + response.series.reduce((seriesTotal, series) => seriesTotal + series.points.length, 0)
         ), 0);
         if (responsePointCount > MAX_CLIENT_EXPORT_ROWS * selectedDefinitions.length) {
-          throw new Error(t("dataExport.errorRowLimit"));
+          throw new UserFacingError(t("dataExport.errorRowLimit"));
         }
         setProgress({ complete: Math.min(index + group.length, sensorBatches.length), total: sensorBatches.length });
       }

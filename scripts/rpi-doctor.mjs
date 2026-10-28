@@ -330,7 +330,7 @@ export function diagnoseEvidence(evidence) {
   // appliance itself is healthy and container updates never consult the
   // failing metadata, so they degrade the check to a warning rather than a
   // failure. Keep aligned with FEED_SCOPED_SYSTEM_UPDATE_REASONS in
-  // apps/api/src/system-update-reasons.ts.
+  // apps/api/src/system-updates/reasons.ts.
   const feedScopedCodes = new Set(["TRUST_VERIFICATION_FAILED", "METADATA_FETCH_FAILED"]);
   const feedDegraded = updaterPhase === "failed" && feedScopedCodes.has(updaterErrorCode ?? "");
   const badUpdaterPhases = new Set(["failed", "recovery-needed", "rolled-back", "rollback-failed"]);

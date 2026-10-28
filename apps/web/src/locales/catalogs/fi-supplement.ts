@@ -7,6 +7,7 @@ import { fiDataExport } from "./fi-supplement/data-export";
 import { fiBugReports } from "./fi-supplement/bug-reports";
 import { fiElectricityTariffs } from "./fi-supplement/electricity-tariffs";
 import { fiAnalyticsQuality } from "./fi-supplement/analytics-quality";
+import { fiRequestErrors } from "./fi-supplement/request-errors";
 import type { TranslationKey } from "./en";
 
 export const fiSupplement = {
@@ -19,4 +20,5 @@ export const fiSupplement = {
   ...fiBugReports,
   ...fiElectricityTariffs,
   ...fiAnalyticsQuality,
+  ...fiRequestErrors,
 } satisfies Partial<Record<TranslationKey, string>>;

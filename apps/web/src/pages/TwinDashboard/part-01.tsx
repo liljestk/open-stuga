@@ -1,52 +1,24 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type SetStateAction } from "react";
-import { Activity, AlertTriangle, BatteryMedium, Bolt, Box, Check, ChevronDown, Droplets, Edit3, Gauge, History, Home, Map, MapPinPlus, Maximize2, Minimize2, Save, Sparkles, Thermometer, Wind } from "lucide-react";
-import { isAirflowPlanElement, type ConfiguredOpeningState, type ConnectedDeviceState, type ConnectionState, type Floor, type House, type ManualObservation, type ManualObservationInput, type ManualObservationPatch, type MeasurementDefinition, type MeasurementSample, type Metric, type MockScenario, type ObservationConfidence, type ObservationRevision, type ObservationSource, type ObservationTimePrecision, type OpeningStateObservation, type OutdoorTemperatureSample, type Point, type Reading, type Sensor, type StaticParameter, type UnitSystem } from "@climate-twin/contracts";
-import { ReplayControls } from "../../components/ReplayControls";
-import { RoomComfortBoard } from "../../components/RoomComfortBoard";
-import { MoistureCoach } from "../../components/MoistureCoach";
-import { HomePulsePanel } from "../../components/HomePulsePanel";
-import { HomeOperationsPreview } from "../../components/HomeOperationsPreview";
+import { useCallback, useEffect, useMemo, useRef, useState, type SetStateAction } from "react";
+import { type ConnectedDeviceState, type Floor, type ManualObservation, type ManualObservationInput, type MeasurementDefinition, type ObservationConfidence, type ObservationSource, type ObservationTimePrecision, type OutdoorTemperatureSample, type Point } from "@climate-twin/contracts";
 import "../../components/decisionLayer.css";
 import "../OperationsPages.css";
-import { formatInTimeZone } from "../../dateTime";
-import { clamp, round, type ClimateState, type TimeRange, type ViewMode } from "../../domain";
+import { clamp, type TimeRange } from "../../domain";
 import { createClientUuid } from "../../clientUuid";
-import { useI18n, type TranslationKey } from "../../i18n";
-import { definitionFor, displayUnit, enabledDefinitions, formatMeasurement, formatMeasurementDelta, measurementComparisonColor, measurementDomain, measurementLabel, measurementValue, samplesAt, type LatestMeasurements } from "../../measurements";
-import { isEnergyDeviceSensor } from "../../energyDeviceMap";
-import { configuredSpatialMaxSampleAgeMs, configuredSpatialReplayMaxSampleAgeMs, isSpatialSampleFresh } from "../../spatialFreshness";
-import { createOutdoorBoundaryContext } from "../../outdoorContext";
-import { useHouseWeather } from "../../useHouseWeather";
-import type { OutdoorVisualizationState } from "../../components/OutdoorConditionsBadge";
-import type { CreateHouseInput } from "../../components/StructureEditor";
+import { useI18n } from "../../i18n";
+import { api } from "../../api";
 import {
-  simulateBuildingAirflow,
-  simulateFloorAirflow,
-  type BuildingAirflowEstimate,
-  type ClimateSampleMatrix,
-  type FloorAirflowEstimate,
-} from "../../airflowSimulation";
-import type { DataMode } from "../../useClimateData";
-import { api, type MeasurementHistoryPage, type SensorPatch } from "../../api";
-import { useSpatialLayers } from "../../useSpatialLayers";
-import { SpatialLayerPanel } from "../../components/SpatialLayerPanel";
-import {
-  assessSensorCoverage,
-  experimentalLayerSuggestions,
   type ExperimentalVisualizationId,
-} from "../../experimentalSpatialLayers";
-import { readLocalStorage, writeLocalStorage } from "../../browserStorage";
-import { detectReplayClimateEvents, type ReplayClimateEvent } from "../../replayEvents";
-import { openingStateCanChange, openingStateKey, openingStateObservationsForHouse } from "../../openingState";
+} from "../../spatial/experimentalLayers";
+import { writeLocalStorage } from "../../browserStorage";
 import { integrationForHouse } from "../../integrationScope";
 import { useConnectedDevicesQuery } from "../../data/connectedDevicesQuery";
 import { queryClient } from "../../data/queryClient";
 import { queryKeys } from "../../data/queryKeys";
 import type { HeatPumpState } from "@climate-twin/contracts";
 import { useHeatPumpsQuery } from "../../data/heatPumpsQuery";
-import { heatPumpSensorId } from "../../heatPumpPresentation";
+import { heatPumpSensorId } from "../../heatPump/presentation";
 import { heatPumpInfluencePreferenceKey, initialHeatPumpInfluenceVisibility } from "./support";
-import { BuildingScene, FloorPlan, HomeActivityTimeline, MeasurementGlyph, RoomComparisonChart, SensorInspector, SpatialLayerLab, StructureEditor, ThermalSimulationPanel, climateSensorLayerPreferenceKey, connectedDeviceLayerPreferenceKey, energyDeviceLayerPreferenceKey, experimentalVisualizationPreferenceKey, houseLocalDateTimeCandidates, initialClimateSensorLayerVisibility, initialConnectedDeviceLayerVisibility, initialEnergyDeviceLayerVisibility, initialExperimentalVisualizations, initialMapAnimationsEnabled, initialOpeningStateLabelsVisibility, initialOutdoorExtrasVisibility, initialOutdoorInfluenceMetric, localDateTimeValue, localDateValue, mapAnimationsPreferenceKey, mergeOpeningStateObservations, observationConfidences, observationKinds, observationSources, observationTimeFields, observationTimePrecisions, openingStateLabelsPreferenceKey, outdoorExtrasPreferenceKey, outdoorInfluenceMetricPreferenceKey, zonedDateTimeParts } from "./support";
+import { climateSensorLayerPreferenceKey, connectedDeviceLayerPreferenceKey, energyDeviceLayerPreferenceKey, experimentalVisualizationPreferenceKey, initialClimateSensorLayerVisibility, initialConnectedDeviceLayerVisibility, initialEnergyDeviceLayerVisibility, initialExperimentalVisualizations, initialMapAnimationsEnabled, initialOpeningStateLabelsVisibility, initialOutdoorExtrasVisibility, initialOutdoorInfluenceMetric, localDateTimeValue, localDateValue, mapAnimationsPreferenceKey, openingStateLabelsPreferenceKey, outdoorExtrasPreferenceKey, outdoorInfluenceMetricPreferenceKey } from "./support";
 import type { TwinDashboardProps } from "./support";
 import type { TwinDashboardHomeView } from "./queryState";
 export function useTwinDashboardPart01(context: {

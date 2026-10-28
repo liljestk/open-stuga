@@ -1,7 +1,7 @@
 import { useId, type CSSProperties } from "react";
 import type { Floor, House } from "@climate-twin/contracts";
-import type { SensorCoverageAssessment } from "../experimentalSpatialLayers";
-import type { Point3D, ProjectedPoint3D } from "../spatialVolume";
+import type { SensorCoverageAssessment } from "../spatial/experimentalLayers";
+import type { Point3D, ProjectedPoint3D } from "../spatial/volume";
 import { useI18n } from "../i18n";
 
 interface SensorCoverage2DProps {

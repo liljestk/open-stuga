@@ -7,7 +7,7 @@ import { AnalyticsWorkLimiter } from "../src/analytics/work-limiter.js";
 import { DerivedAnalyticsCoordinator } from "../src/analytics/derived-artifacts/coordinator.js";
 import { canonicalWindowDays, lastCompleteDayCutoff } from "../src/analytics/derived-artifacts/compute.js";
 import { ClimateDatabase } from "../src/db.js";
-import { DataModeCoordinator } from "../src/services.js";
+import { DataModeCoordinator } from "../src/demo/data-mode.js";
 import type { HybridTelemetryReader } from "../src/timeseries/read-facade.js";
 import { HeatPumpStateStore } from "../src/heat-pump-state.js";
 import { heatPumpSensorId } from "../src/heat-pump-measurements.js";

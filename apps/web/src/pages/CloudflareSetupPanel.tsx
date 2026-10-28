@@ -1,11 +1,8 @@
+import { errorText } from "../errorText";
+import type { CloudflareSetupOperation, CloudflareSetupPhase, CloudflareSetupStatusResponse } from "@climate-twin/contracts";
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type FormEvent } from "react";
 import { CircleHelp, ExternalLink, LoaderCircle, ShieldCheck } from "lucide-react";
-import {
-  api,
-  type CloudflareSetupOperation,
-  type CloudflareSetupPhase,
-  type CloudflareSetupStatus,
-} from "../api";
+import { api } from "../api";
 import { useI18n, type TranslationKey } from "../i18n";
 
 interface CloudflareSetupPanelProps {
@@ -45,10 +42,6 @@ function suggestedZone(hostname: string): string {
   return labels.length > 1 ? labels.slice(-2).join(".") : "";
 }
 
-function errorMessage(error: unknown, fallback: string): string {
-  return error instanceof Error && error.message.trim() ? error.message : fallback;
-}
-
 function trustedAuthorizationUrl(value: string): string {
   const url = new URL(value);
   if (url.protocol !== "https:" || url.hostname !== "dash.cloudflare.com") {
@@ -63,7 +56,7 @@ export function CloudflareSetupPanel({
 }: Readonly<CloudflareSetupPanelProps>) {
   const { t } = useI18n();
   const initialHostname = useMemo(() => hostnameFromOrigin(suggestedOrigin), [suggestedOrigin]);
-  const [status, setStatus] = useState<CloudflareSetupStatus | null>(null);
+  const [status, setStatus] = useState<CloudflareSetupStatusResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -94,7 +87,7 @@ export function CloudflareSetupPanel({
         hydrated.current = true;
       }
     } catch (error) {
-      setLoadError(errorMessage(error, t("cloudflareSetup.loadFailed")));
+      setLoadError(errorText(error, t, t("cloudflareSetup.loadFailed")));
     }
   }, [initialHostname, t]);
 
@@ -162,7 +155,7 @@ export function CloudflareSetupPanel({
       popup?.close();
       setOauthClientToken("");
       setRuntimeToken("");
-      setSubmitError(errorMessage(error, t("cloudflareSetup.startFailed")));
+      setSubmitError(errorText(error, t, t("cloudflareSetup.startFailed")));
       await refresh();
     } finally {
       setSubmitting(false);

@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   InMemoryWeatherEventBroker,
   WeatherEventSupersededError,
-} from "../src/weather-events.js";
+} from "../src/weather/events.js";
 
 function weather(overrides: Partial<HouseWeather> = {}): HouseWeather {
   return {

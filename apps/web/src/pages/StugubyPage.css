@@ -1,4 +1,4 @@
-@import "./styles/stuguby/01-stuguby-page.css";
-@import "./styles/stuguby/02-stuguby-json-help-stuguby-sensitive-warning.css";
-@import "./styles/stuguby/03-stuguby-collapsible.css";
-@import "./styles/stuguby/04-media-max-width-900px.css";
+@import "./StugubyPage/stuguby-page.css";
+@import "./StugubyPage/stuguby-setup-notes.css";
+@import "./StugubyPage/stuguby-collapsible.css";
+@import "./StugubyPage/stuguby-responsive.css";

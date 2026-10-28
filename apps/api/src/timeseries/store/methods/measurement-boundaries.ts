@@ -1,7 +1,18 @@
 import { qualifiedName } from "../../schema.js";
-import type { MeasurementBoundaryQuery } from "../../types.js";
+import type { MeasurementBoundaryQuery, MeasurementSampleRecord } from "../../types.js";
 import { registerTimeseriesStoreMethods, type TimeseriesStoreInternals } from "../core.js";
-import { measurementFromRow, type MeasurementRow } from "../support/01-default-schema-to-measurement-bucket-from-row.js";
+import { measurementFromRow } from "../support/row-mappers.js";
+import type { MeasurementRow } from "../support/row-types.js";
+
+declare module "../core.js" {
+  interface TimeseriesStoreInternals {
+    measurementBoundarySamples(query: MeasurementBoundaryQuery): Promise<MeasurementSampleRecord[]>;
+  }
+
+  interface TimeseriesStoreCore {
+    measurementBoundarySamples(query: MeasurementBoundaryQuery): Promise<MeasurementSampleRecord[]>;
+  }
+}
 
 registerTimeseriesStoreMethods({
   async measurementBoundarySamples(this: TimeseriesStoreInternals, query: MeasurementBoundaryQuery) {

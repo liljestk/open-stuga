@@ -1,17 +1,13 @@
-import { spawn, type ChildProcess } from "node:child_process";
-import { randomUUID } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { type ChildProcess } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { networkInterfaces } from "node:os";
-import { createInterface } from "node:readline";
-import type { OpeningStateObservation, Reading, TpLinkDiscoveredDevice } from "@climate-twin/contracts";
-import type { AppConfig } from "../../config.js";
+import type { OpeningStateObservation, TpLinkDiscoveredDevice, TpLinkDiscoveredSource } from "@climate-twin/contracts";
 import type { ClimateDatabase } from "../../db.js";
 import type {
-  SensorGapRecoveryAdapter,
   SensorHistoryRecoveryResult,
-  SensorMetricAvailability,
 } from "../../sensor-gap-recovery.js";
-import { MeasurementService, RuntimeStatus, TelemetryService } from "../../services.js";
+import { RuntimeStatus } from "../../runtime-status.js";
+import { compareCodeUnits } from "../../text-order.js";
 
 export const TP_LINK_LOCAL_CLIMATE_HISTORY_CAPABILITY_REVISION = "t310-t315-retained-history-v1";
 export const TP_LINK_HUB_MODELS = ["H100", "H200", "H500"] as const;
@@ -153,15 +149,6 @@ export function mergeTpLinkHistoryRecovery(
   };
 }
 
-export interface TpLinkDiscoveredSource {
-  host: string;
-  model: string;
-  alias: string | null;
-  sourceType: "hub" | "energy-device";
-  deviceId: string | null;
-  configuredConnectionId?: string;
-}
-
 export interface TpLinkSourceDiscoveryResult {
   sources: TpLinkDiscoveredSource[];
   warnings: string[];
@@ -252,10 +239,6 @@ export function nonEmptyString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-export function finiteNumber(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
-
 export function tpLinkDeviceType(
   device: Pick<TpLinkSnapshotDevice, "model" | "contactOpen" | "temperature" | "humidity" | "power" | "energy">,
 ): NonNullable<TpLinkDiscoveredDevice["deviceType"]> {
@@ -301,8 +284,7 @@ export function validateTpLinkDeviceMappings(value: unknown): TpLinkDeviceMappin
     deviceIds.add(deviceId);
     sensorIds.add(sensorId);
     return { deviceId, sensorId };
-  }).sort((left, right) => left.deviceId < right.deviceId ? -1 : left.deviceId > right.deviceId ? 1
-    : left.sensorId < right.sensorId ? -1 : left.sensorId > right.sensorId ? 1 : 0);
+  }).sort((left, right) => compareCodeUnits(left.deviceId, right.deviceId) || compareCodeUnits(left.sensorId, right.sensorId));
 }
 
 export function importTpLinkMappingFile(database: ClimateDatabase, path: string): TpLinkDeviceMapping[] {

@@ -6,8 +6,8 @@ import {
   compareSystemVersions,
   SystemUpdateError,
   SystemUpdateService,
-} from "../src/system-updates.js";
-import { fetchReleaseManifest } from "../src/system-update-release-manifest.js";
+} from "../src/system-updates/service.js";
+import { fetchReleaseManifest } from "../src/system-updates/release-manifest.js";
 
 const releasePayload = [
   {

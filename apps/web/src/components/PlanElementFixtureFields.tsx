@@ -1,9 +1,7 @@
-import type { FireEscapeVariant, Floor, PlanElement } from "@climate-twin/contracts";
+import type { FireEscapeVariant, FixturePlanElement, Floor } from "@climate-twin/contracts";
 import { fireplaceChimneyDimensions } from "../architecturalGeometry";
 import { defaultFireEscapeProjection, effectivePlanElementHeight, planElementWidthBounds } from "../planElementGeometry";
-import { useI18n, type TranslationKey } from "../i18n";
-
-export type FixturePlanElement = Extract<PlanElement, { kind: "fireplace" | "fireEscape" }>;
+import { useI18n } from "../i18n";
 
 export interface FixturePlanElementPatch {
   label?: string | undefined;
@@ -63,7 +61,7 @@ export function PlanElementFixtureFields({ floor, element, planUnitLabel, onChan
       <input
         value={element.label ?? ""}
         maxLength={120}
-        placeholder={t(`planElement.${element.kind}` as TranslationKey)}
+        placeholder={t(`planElement.${element.kind}`)}
         onChange={(event) => onChange({ label: event.currentTarget.value.trim() ? event.currentTarget.value : undefined })}
       />
     </label>

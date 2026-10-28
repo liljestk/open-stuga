@@ -37,13 +37,16 @@ original `climate-twin` identifier.
 | `scripts/` | Setup, local CI, release publishing, update agent, Cloudflare provisioning, their `node --test` suites |
 | `deploy/` | Compose extras, MQTT/Nexus433 images, Raspberry Pi image + host updater (Python) |
 
-API routes are registered from `apps/api/src/app/main.ts`; the numbered
-`part-NN.ts` modules are historical splits of one large registration file, not
-feature boundaries. Analytics, forecast, thermal/moisture and electricity routes
-live in feature modules (`apps/api/src/analytics/**/routes.ts`,
-`app/electricity-routes.ts`), and the architecture check keeps them out of the
-numbered parts. Web pages/panels live in `apps/web/src/pages`, dialogs in
-`apps/web/src/components`.
+`apps/api/src/app/main.ts` builds the API from named composition steps
+(config, data services, telemetry, integrations, request pipeline, access
+control) and then registers one route module per domain
+(`app/*-routes.ts`, `apps/api/src/analytics/**/routes.ts`, `stuguby/routes.ts`,
+`spatial-layers/routes.ts`). Add a route to the module that owns its domain.
+Web pages live in `apps/web/src/pages`. A component or helper with a single
+page consumer lives in that page's folder (`pages/<Page>/`);
+`apps/web/src/components` holds the ones two or more modules use. Feature
+code that is not a page has its own folder (`spatial/`, `outdoor/`,
+`heatPump/`), and server-state hooks live under `apps/web/src/data`.
 
 ## Build and test
 
@@ -108,8 +111,8 @@ commits) and keeps the turn from ending while it fails. Other agents run that
 command themselves before reporting work as done.
 
 1. **Split modules by domain, never by line count.** Name a module after what it
-   owns. No new `part-NN`, `NN-name` or `name.part-NN` file anywhere: code,
-   styles or tests. Gate: `check:architecture` fails on any numbered module not
+   owns. No new `part-NN`, `NN-name`, `name.part-NN`, `name-NN` or
+   `Name.NN-slug.test` file anywhere: code, styles or tests. Gate: `check:architecture` fails on any numbered module not
    listed in `scripts/baselines/numbered-modules.json`. That list may only
    shrink; when you rename a legacy module after its domain, delete its line.
 2. **Import only what the file uses.** New code has no unused imports, locals or
@@ -131,12 +134,15 @@ command themselves before reporting work as done.
    multi-key list fallbacks such as `body.items ?? body.sensors ?? body`. Gate:
    OpenAPI parity requires the single documented body; the client side is
    review-enforced.
-5. **Validate API responses at the boundary.** The `apps/web/src/api` function
-   that fetches a new endpoint checks the body's shape with a `parse…`/`is…`
-   guard and throws on a mismatch. Share the guard from
-   `@climate-twin/contracts` when the API needs it too. Hooks and components
-   receive typed data and never cast a response with `as`. Gate: none yet;
-   review-enforced.
+5. **Validate API responses at the boundary.** `request`/`requestV2` in
+   `apps/web/src/api/support/request.ts` take the `ResponseShape` the body must
+   match and throw a `ResponseShapeError` otherwise. Build shapes from the
+   combinators in `response-shapes.ts` (`fields`, `arrayOf`, `nullable`,
+   `optional`, `guarded` for a contracts `is…` guard) and the entity
+   descriptors in `entity-shapes.ts`; add a descriptor there for a new entity.
+   Share a guard from `@climate-twin/contracts` when the API needs it too.
+   Hooks and components receive typed data and never cast a response with
+   `as`. Gate: the typecheck (a request without a shape does not compile).
 6. **Use an options object instead of more than three positional parameters.**
    Write `createReport(store, { houseId, from, to, signal })`, not
    `createReport(store, houseId, from, to, signal)`. Gate: none yet;

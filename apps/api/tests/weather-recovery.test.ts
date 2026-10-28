@@ -1,7 +1,7 @@
 import type { HouseWeather, WeatherComponentStatuses } from "@climate-twin/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ClimateDatabase, outdoorLocationKey } from "../src/db.js";
-import { WeatherRecoveryCoordinator } from "../src/weather-recovery.js";
+import { WeatherRecoveryCoordinator } from "../src/weather/recovery.js";
 import type { WeatherProvider } from "../src/weather.js";
 import type { HybridTelemetryReader } from "../src/timeseries/read-facade.js";
 

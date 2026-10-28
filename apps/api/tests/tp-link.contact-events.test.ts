@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { OpeningStateObservation } from "@climate-twin/contracts";
 import { createApi, type ApiRuntime } from "../src/app.js";
 import type { AppConfig } from "../src/config.js";
-import { waitFor } from "./tp-linkTestSupport.js";
+import { waitFor } from "./waitForTestSupport.js";
 
 describe("direct TP-Link contact events", () => {
   let runtime: ApiRuntime | null = null;
@@ -50,7 +50,8 @@ describe("direct TP-Link contact events", () => {
       tpLinkHost: "192.0.2.12", tpLinkUsername: "local@example.test", tpLinkPassword: "secret",
       tpLinkDeviceMapFile: null, tpLinkPollIntervalMs: 2_000,
       tpLinkPython: process.execPath, tpLinkBridgeScript: helperPath,
-      alertWebhookUrl: null, alertWebhookBearerToken: null, corsOrigin: null,
+      corsOrigin: null,
+      localAuthTestBypass: true,
     };
     runtime = createApi({ config, startBackground: false });
     const house = runtime.database.getHouse("house-main")!;

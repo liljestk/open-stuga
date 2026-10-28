@@ -1,73 +1,22 @@
+import { UserFacingError } from "../../api/support/request-error";
+import { errorText } from "../../errorText";
 import {
-  lazy,
-  Suspense,
   useEffect,
-  useId,
-  useMemo,
-  useRef,
-  useState,
-  type FormEvent,
-  type KeyboardEvent,
-  type PointerEvent as ReactPointerEvent,
 } from "react";
-import {
-  Archive,
-  Check,
-  ChevronDown,
-  ChevronLeft,
-  ChevronRight,
-  CircleDot,
-  Copy,
-  Database,
-  Edit3,
-  FileSpreadsheet,
-  Home,
-  LoaderCircle,
-  MapPin,
-  Plus,
-  Printer,
-  QrCode,
-  RadioTower,
-  RefreshCw,
-  RotateCcw,
-  Search,
-  Sparkles,
-  ThermometerSun,
-  Trash2,
-  TriangleAlert,
-  X,
-} from "lucide-react";
 import type {
-  Floor,
-  House,
-  IntegrationStatus,
-  MeasurementSample,
-  Metric,
   Sensor,
-  SensorLabelDescriptor,
   TpLinkDiscoveredDevice,
-  UnitSystem,
 } from "@climate-twin/contracts";
-import { api, type CreateSensorInput, type HistoricalImportResult, type SensorPatch } from "../../api";
-import type { ClimateState, TimeRange } from "../../domain";
-import { useI18n, type TranslationKey } from "../../i18n";
-import { formatInTimeZone } from "../../dateTime";
-import { measurementLabel } from "../../measurements";
-import { useNow } from "../../useNow";
-import { integrationForHouse } from "../../integrationScope";
-import { assessSensorCoverage, suggestSensorPlacement, type SensorCoverageAssessment, type SensorPlacementSuggestion } from "../../experimentalSpatialLayers";
-import { configuredSpatialMaxSampleAgeMs } from "../../spatialFreshness";
-import { useSpatialLayers } from "../../useSpatialLayers";
-import { qrCodeMatrix } from "../../qrCode";
-import { TrendChart } from "../../components/TrendChart";
+import { api } from "../../api";
+import type { TimeRange } from "../../domain";
 import { isLegacyTpLinkContactSensor, tpLinkOpeningMatchesDevice } from "../../tpLinkDeviceClassification";
-import { HistoricalImportWizard, PlacementPicker, SensorLabelCard, UNPLACED_TAG, availableForSensor, clamp, deviceBindingKey, draftContext, draftForSensor, errorMessage, hasHomeAssistantBinding, hasRealBinding, initialDraft, isDemoSensor, isLive, isUnplaced, latestSensorTimestamp, mergeMetricSamples, normalizedMeasurementEntityIds, roomCenter, rounded, sameMeasurementEntityIds, sensorFloor, sensorHasMetric, sensorMeasurementEntityIds, sensorStatus, stableRoomId, tpLinkDeviceSummary, validationErrors } from "./support";
-import type { AddStep, DraftErrors, DraftSource, EditorMode, Feedback, SensorDraft, SensorFilter, SensorStatus, Translate } from "./support";
+import { deviceBindingKey, draftContext, draftForSensor, hasHomeAssistantBinding, initialDraft, roomCenter, rounded, validationErrors } from "./support";
+import type { AddStep, DraftErrors, DraftSource, SensorFilter } from "./support";
 import { useSensorManagementPagePart01 } from "./part-01";
 import { sensorUrlStateFromLocation, writeSensorUrlStateToLocation, type SensorDetailTarget } from "./urlState";
 import { compareCodeUnits } from "../../textOrder";
 export function useSensorManagementPagePart02(context: ReturnType<typeof useSensorManagementPagePart01>) {
-  const { state, house, houses, integration, tpLinkDevices, tpLinkDevicesLoading, tpLinkDevicesError, requestedDevice, requestedDeviceId, readOnly, localAuthority, units, onRequestedDeviceHandled, onLoadSeries, onHouse, onUpdateHouse, onRefreshDevices, onCreateSensor, onUpdateSensor, onDeleteSensor, onImportHistoricalData, locale, t, now, tpLinkStatus, formId, pageHeadingRef, editorHeadingRef, editorOpenerRef, importButtonRef, detailsHeadingRef, detailsOpenerRef, detailsRequestGeneration, search, setSearch, filter, setFilter, mode, setMode, addStep, setAddStep, editingSensorId, setEditingSensorId, attachSensorId, setAttachSensorId, draft, setDraft, errors, setErrors, editorFeedback, setEditorFeedback, pageFeedback, setPageFeedback, contactSetupDevice, setContactSetupDevice, setLocallyAssignedContactKeys, contactOpenerRef, submitting, setSubmitting, rowBusyId, setRowBusyId, cleanupBusy, setCleanupBusy, refreshing, setRefreshing, refreshError, setRefreshError, importOpen, setImportOpen, detailsSensor, setDetailsSensor, detailsContactKey, setDetailsContactKey, detailSamples, setDetailSamples, detailCursor, setDetailCursor, detailsLoading, setDetailsLoading, detailsError, setDetailsError, detailMetric, setDetailMetric, detailRange, setDetailRange, currentSensors, currentSensorIds, visibleDetailsSensor, demoSensors, hasExistingRealBoundSensor, enabledMeasurementDefinitions, detailDefinitions, detailDefinition, detailHistory, usedDeviceIds, homeTpLinkDevices, contactHistoryDevice, availableContactDevices, addableDevices, attachableSensors, sensorStatuses, statusCounts, normalizedSearch, visibleSensors, draftHouse, draftFloor, editingSensor, selectableDevices, currentBindingMissing, draftDevice, energyOnlyDraft, placementAnalysisEnabled, placementLayerScope, placementLayers, placementCoverage, placementSuggestion } = context;
+  const { state, house, houses, tpLinkDevicesLoading, requestedDevice, requestedDeviceId, readOnly, localAuthority, onRequestedDeviceHandled, onLoadSeries, onUpdateHouse, onUpdateSensor, locale, t, formId, pageHeadingRef, editorHeadingRef, editorOpenerRef, importButtonRef, detailsHeadingRef, detailsOpenerRef, detailsRequestGeneration, filter, setFilter, mode, setMode, addStep, setAddStep, setEditingSensorId, attachSensorId, setAttachSensorId, draft, setDraft, setErrors, setEditorFeedback, setPageFeedback, contactSetupDevice, setContactSetupDevice, setLocallyAssignedContactKeys, contactOpenerRef, setSubmitting, setImportOpen, detailsSensor, setDetailsSensor, detailsContactKey, setDetailsContactKey, setDetailSamples, setDetailCursor, detailsLoading, setDetailsLoading, setDetailsError, detailMetric, setDetailMetric, detailRange, setDetailRange, currentSensors, visibleDetailsSensor, detailDefinition, contactHistoryDevice, availableContactDevices, addableDevices, attachableSensors, draftHouse, draftDevice } = context;
   useEffect(() => {
       if (mode === "closed") return;
       const timer = window.setTimeout(() => editorHeadingRef.current?.focus(), 0);
@@ -190,7 +139,7 @@ export function useSensorManagementPagePart02(context: ReturnType<typeof useSens
         setDetailCursor(page.nextCursor);
       } catch (error) {
         if (detailsRequestGeneration.current !== generation) return;
-        setDetailsError(errorMessage(error, t("sensors.detailsError")));
+        setDetailsError(errorText(error, t, t("sensors.detailsError")));
       } finally {
         if (detailsRequestGeneration.current === generation) setDetailsLoading(false);
       }
@@ -386,12 +335,12 @@ export function useSensorManagementPagePart02(context: ReturnType<typeof useSens
       const targetElement = targetFloor?.planElements?.find((element) => element.id === elementId);
       if (!device || !targetFloor || !targetElement
         || (targetElement.kind !== "door" && targetElement.kind !== "window")) {
-        throw new Error(t("sensors.contactInvalidOpening"));
+        throw new UserFacingError(t("sensors.contactInvalidOpening"));
       }
       if ((targetElement.kind === "door" && targetElement.variant === "open-passage")
         || (targetElement.kind === "window" && targetElement.variant === "fixed")
         || (targetElement.stateBinding && !tpLinkOpeningMatchesDevice(targetElement.stateBinding, device))) {
-        throw new Error(t("sensors.contactOpeningUnavailable"));
+        throw new UserFacingError(t("sensors.contactOpeningUnavailable"));
       }
       const floors = house.floors.map((floor) => ({
         ...floor,
@@ -435,7 +384,7 @@ export function useSensorManagementPagePart02(context: ReturnType<typeof useSens
         kind: "success",
         message: t("sensors.contactSaved", {
           name: device.alias?.trim() || device.model,
-          opening: targetElement.label?.trim() || t(`planElement.${targetElement.kind}` as TranslationKey),
+          opening: targetElement.label?.trim() || t(`planElement.${targetElement.kind}`),
         }),
       });
       closeContactSetup();
@@ -538,7 +487,7 @@ export function useSensorManagementPagePart02(context: ReturnType<typeof useSens
     };
   const buildPlacement = () => {
       const { floor } = draftContext(draft, houses);
-      if (!floor) throw new Error(t("sensors.validationFloor"));
+      if (!floor) throw new UserFacingError(t("sensors.validationFloor"));
       return {
         x: rounded(Number(draft.x)),
         y: rounded(Number(draft.y)),
