@@ -1,3 +1,4 @@
+import { HttpError } from "../http-error.js";
 import type { CloudflareSetupOperation, CloudflareSetupPhase } from "@climate-twin/contracts";
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import {
@@ -113,13 +114,9 @@ export interface CloudflareSetupServiceOptions {
   randomBytesImpl?: typeof randomBytes;
 }
 
-export class CloudflareSetupError extends Error {
-  constructor(
-    readonly status: number,
-    readonly code: string,
-    message: string,
-  ) {
-    super(message);
+export class CloudflareSetupError extends HttpError {
+  constructor(status: number, code: string, message: string) {
+    super(status, code, message);
     this.name = "CloudflareSetupError";
   }
 }

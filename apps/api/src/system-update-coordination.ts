@@ -1,3 +1,4 @@
+import { HttpError } from "./http-error.js";
 import { SYSTEM_UPDATE_WORKFLOW_PHASES } from "@climate-twin/contracts";
 import { randomUUID } from "node:crypto";
 import {
@@ -461,25 +462,25 @@ export function workflowProjection(workflow: WorkflowStatusFile): SystemUpdateWo
 
 export function parseSystemUpdateOperationRequest(value: unknown): SystemUpdateOperationRequest {
   if (!isRecord(value) || typeof value.action !== "string") {
-    throw new TypeError("System update operation must be an object with an action");
+    throw new HttpError(400, "INVALID_SYSTEM_UPDATE_OPERATION", "System update operation must be an object with an action");
   }
   if (!nonnegativeRevision(value.expectedRevision)) {
-    throw new TypeError("expectedRevision must be a nonnegative integer");
+    throw new HttpError(400, "INVALID_SYSTEM_UPDATE_OPERATION", "expectedRevision must be a nonnegative integer");
   }
   if (value.action === "update-everything") {
     if (!hasExactKeys(value, ["action", "expectedRevision"])) {
-      throw new TypeError("update-everything contains unsupported fields");
+      throw new HttpError(400, "INVALID_SYSTEM_UPDATE_OPERATION", "update-everything contains unsupported fields");
     }
     return { action: value.action, expectedRevision: value.expectedRevision };
   }
   if (value.action === "retry-application") {
     if (!hasExactKeys(value, ["action", "expectedRevision", "workflowId"]) || !canonicalUuid(value.workflowId)) {
-      throw new TypeError("retry-application requires an exact workflowId binding");
+      throw new HttpError(400, "INVALID_SYSTEM_UPDATE_OPERATION", "retry-application requires an exact workflowId binding");
     }
     return { action: value.action, expectedRevision: value.expectedRevision, workflowId: value.workflowId };
   }
   if (value.action !== "activate-host" && value.action !== "cancel-host") {
-    throw new TypeError("Unsupported system update action");
+    throw new HttpError(400, "INVALID_SYSTEM_UPDATE_OPERATION", "Unsupported system update action");
   }
   const expectedKeys = [
     "action", "expectedRevision", "workflowId", "hostOperationId", "targetVersion",
@@ -491,11 +492,11 @@ export function parseSystemUpdateOperationRequest(value: unknown): SystemUpdateO
     || !validReleaseVersion(value.targetVersion)
     || !positiveGeneration(value.targetGeneration)
     || !validDigest(value.targetDigest)) {
-    throw new TypeError(`${value.action} requires exact host identity bindings`);
+    throw new HttpError(400, "INVALID_SYSTEM_UPDATE_OPERATION", `${value.action} requires exact host identity bindings`);
   }
   if (value.action === "activate-host") {
     if (value.confirmation !== "RESTART_AND_INSTALL") {
-      throw new TypeError("activate-host requires RESTART_AND_INSTALL confirmation");
+      throw new HttpError(400, "INVALID_SYSTEM_UPDATE_OPERATION", "activate-host requires RESTART_AND_INSTALL confirmation");
     }
     return {
       action: value.action,

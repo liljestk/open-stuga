@@ -9,7 +9,6 @@ import {
 import { HttpError, bodyObject, dateValue, enumValue, optionalResourceQuery, propertyText, rejectUnknownFields, requestPrincipal, requiredNumber, requiredString, requireVisibleHouse } from "./support/index.js";
 import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
 import { registerElectricityTariffRoutes } from "./electricity-tariff-routes.js";
-import { IncompleteTelemetryHistoryError } from "../timeseries/read-facade.js";
 import { summaryLatencyOperation } from "../analytics/diagnostics/latency.js";
 
 export type ElectricityRouteContext = Pick<
@@ -222,17 +221,10 @@ export function registerElectricityRoutes(context: ElectricityRouteContext): () 
     const house = requireVisibleHouse(context, response, houseId);
     const sensors = visibleEnergySensors(houseId, response);
     const startedAt = performance.now();
-    try {
-      const projection = await withResponseSignal(response, (signal) => projectionCache.get(house, sensors, signal));
-      response.setHeader("cache-control", "private, no-store");
-      response.setHeader("server-timing", `energy-projection;dur=${(performance.now() - startedAt).toFixed(1)}`);
-      response.json({ projection });
-    } catch (error) {
-      if (error instanceof IncompleteTelemetryHistoryError) {
-        throw new HttpError(503, "TELEMETRY_ARCHIVE_REQUIRED", "Complete telemetry history is temporarily unavailable");
-      }
-      throw error;
-    }
+    const projection = await withResponseSignal(response, (signal) => projectionCache.get(house, sensors, signal));
+    response.setHeader("cache-control", "private, no-store");
+    response.setHeader("server-timing", `energy-projection;dur=${(performance.now() - startedAt).toFixed(1)}`);
+    response.json({ projection });
   });
   return () => { removeStats(); removeProjectionStats(); projectionCache.clear(); energySummaryCache.clear(); };
 }

@@ -1,3 +1,4 @@
+import { HttpError } from "../http-error.js";
 import {
   hasLocalHouseAuthority,
   type AlertEvent,
@@ -189,12 +190,11 @@ export const LIVE_TIMESTAMP_FUTURE_SKEW_MS = 5 * 60_000;
 export function validateLiveTimestamp(timestamp: string, nowMs: number): void {
   const timestampMs = Date.parse(timestamp);
   if (!Number.isFinite(timestampMs)) {
-    throw new MeasurementValidationError("INVALID_TIMESTAMP", 400, "Measurement timestamp must be an ISO date-time");
+    throw new MeasurementValidationError(400, "INVALID_TIMESTAMP", "Measurement timestamp must be an ISO date-time");
   }
   if (timestampMs > nowMs + LIVE_TIMESTAMP_FUTURE_SKEW_MS) {
     throw new MeasurementValidationError(
-      "TIMESTAMP_TOO_FAR_IN_FUTURE",
-      422,
+      422, "TIMESTAMP_TOO_FAR_IN_FUTURE",
       "Measurement timestamp cannot be more than five minutes ahead of the server clock",
     );
   }
@@ -498,23 +498,22 @@ export function localCalendarDate(value: Date, timeZone: string): string {
   return `${part("year")}-${part("month")}-${part("day")}`;
 }
 
-export class TelemetryValidationError extends Error {
-  constructor(
-    readonly code: "UNKNOWN_SENSOR" | "SENSOR_DISABLED",
-    readonly status: 404 | 409,
-    message: string,
-  ) {
-    super(message);
+export class TelemetryValidationError extends HttpError {
+  declare readonly code: "UNKNOWN_SENSOR" | "SENSOR_DISABLED";
+  declare readonly status: 404 | 409;
+
+  constructor(status: 404 | 409, code: "UNKNOWN_SENSOR" | "SENSOR_DISABLED", message: string) {
+    super(status, code, message);
+    this.name = "TelemetryValidationError";
   }
 }
 
-export class MeasurementValidationError extends Error {
-  constructor(
-    readonly code: string,
-    readonly status: 400 | 404 | 409 | 422,
-    message: string,
-  ) {
-    super(message);
+export class MeasurementValidationError extends HttpError {
+  declare readonly status: 400 | 404 | 409 | 422;
+
+  constructor(status: 400 | 404 | 409 | 422, code: string, message: string) {
+    super(status, code, message);
+    this.name = "MeasurementValidationError";
   }
 }
 

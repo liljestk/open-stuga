@@ -1,3 +1,4 @@
+import { HttpError } from "./http-error.js";
 import { createHash, randomUUID } from "node:crypto";
 import {
   closeSync,
@@ -86,9 +87,9 @@ interface ZonedParts {
   second: number;
 }
 
-export class ScheduledDataExportError extends Error {
-  constructor(readonly status: number, readonly code: string, message: string) {
-    super(message);
+export class ScheduledDataExportError extends HttpError {
+  constructor(status: number, code: string, message: string) {
+    super(status, code, message);
     this.name = "ScheduledDataExportError";
   }
 }

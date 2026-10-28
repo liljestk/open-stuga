@@ -1,3 +1,4 @@
+import { HttpError } from "./http-error.js";
 import {
   createHash,
   randomBytes,
@@ -69,9 +70,10 @@ export interface IssuedLocalSession {
   session: LocalAuthSession;
 }
 
-export class LocalAuthError extends Error {
-  constructor(readonly status: number, readonly code: string, message: string) {
-    super(message);
+export class LocalAuthError extends HttpError {
+  constructor(status: number, code: string, message: string) {
+    super(status, code, message);
+    this.name = "LocalAuthError";
   }
 }
 

@@ -1,5 +1,5 @@
 import type { House } from "@climate-twin/contracts";
-import { HttpError } from "./http-error.js";
+import { HttpError } from "../../http-error.js";
 
 /** What a route needs to resolve a Home for the caller. */
 export interface VisibleHouseContext<TResponse> {

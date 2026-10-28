@@ -1,3 +1,4 @@
+import { HttpError } from "./http-error.js";
 import { SYSTEM_UPDATE_DAYS, SYSTEM_UPDATE_PHASES } from "@climate-twin/contracts";
 import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
@@ -453,17 +454,17 @@ export class SystemUpdateService {
   }
 
   updateSettings(patch: unknown): SystemUpdateStatus {
-    if (!patch || typeof patch !== "object" || Array.isArray(patch)) throw new TypeError("Update settings must be an object");
+    if (!patch || typeof patch !== "object" || Array.isArray(patch)) throw new SystemUpdateError(400, "INVALID_UPDATE_SETTINGS", "Update settings must be an object");
     const candidate = { ...this.#settings, ...(patch as Partial<SystemUpdateSettings>) };
     const normalized = normalizedSettings(candidate);
-    if (candidate.mode !== normalized.mode) throw new TypeError("mode must be manual or automatic");
-    if (candidate.includePrereleases !== normalized.includePrereleases) throw new TypeError("includePrereleases must be boolean");
-    if (candidate.checkIntervalHours !== normalized.checkIntervalHours) throw new TypeError("checkIntervalHours must be 6, 12, 24, or 168");
-    if (candidate.updateTime !== normalized.updateTime) throw new TypeError("updateTime must use HH:mm");
+    if (candidate.mode !== normalized.mode) throw new SystemUpdateError(400, "INVALID_UPDATE_SETTINGS", "mode must be manual or automatic");
+    if (candidate.includePrereleases !== normalized.includePrereleases) throw new SystemUpdateError(400, "INVALID_UPDATE_SETTINGS", "includePrereleases must be boolean");
+    if (candidate.checkIntervalHours !== normalized.checkIntervalHours) throw new SystemUpdateError(400, "INVALID_UPDATE_SETTINGS", "checkIntervalHours must be 6, 12, 24, or 168");
+    if (candidate.updateTime !== normalized.updateTime) throw new SystemUpdateError(400, "INVALID_UPDATE_SETTINGS", "updateTime must use HH:mm");
     if (!Array.isArray(candidate.updateDays) || candidate.updateDays.length !== normalized.updateDays.length) {
-      throw new TypeError("updateDays must contain one or more unique weekday names");
+      throw new SystemUpdateError(400, "INVALID_UPDATE_SETTINGS", "updateDays must contain one or more unique weekday names");
     }
-    if (candidate.timezone !== normalized.timezone) throw new TypeError("timezone must be a valid IANA time zone");
+    if (candidate.timezone !== normalized.timezone) throw new SystemUpdateError(400, "INVALID_UPDATE_SETTINGS", "timezone must be a valid IANA time zone");
     this.#settings = normalized;
     this.#nextWindowCache = null;
     if (this.#directory) writeJson(join(this.#directory, "settings.json"), this.#settings);
@@ -1075,13 +1076,9 @@ export class SystemUpdateService {
   }
 }
 
-export class SystemUpdateError extends Error {
-  constructor(
-    readonly status: number,
-    readonly code: string,
-    message: string,
-  ) {
-    super(message);
+export class SystemUpdateError extends HttpError {
+  constructor(status: number, code: string, message: string) {
+    super(status, code, message);
     this.name = "SystemUpdateError";
   }
 }

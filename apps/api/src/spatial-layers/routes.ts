@@ -1,3 +1,4 @@
+import { HttpError } from "../http-error.js";
 import { withResponseSignal } from "../app/response-signal.js";
 import { randomUUID } from "node:crypto";
 import type { Application, Request, Response } from "express";
@@ -26,9 +27,10 @@ const PLACEMENT_RISKS: NonNullable<StoredSpatialSensorBinding["placementRisks"]>
 ];
 const MAX_LAYER_QUERY_IDS = 100;
 
-export class SpatialRouteError extends Error {
-  constructor(readonly status: number, readonly code: string, message: string) {
-    super(message);
+export class SpatialRouteError extends HttpError {
+  constructor(status: number, code: string, message: string) {
+    super(status, code, message);
+    this.name = "SpatialRouteError";
   }
 }
 

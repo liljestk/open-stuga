@@ -20,7 +20,7 @@ import {
 import {
   cloudflareSetupCallbackPath,
 } from "../../cloudflare-setup.js";
-import { HttpError } from "./http-error.js";
+import { HttpError } from "../../http-error.js";
 import { compareCodeUnits } from "../../text-order.js";
 
 export function visibleCollectionPage<T>(

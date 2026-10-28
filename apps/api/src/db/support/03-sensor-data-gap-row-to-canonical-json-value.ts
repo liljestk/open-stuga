@@ -1,3 +1,4 @@
+import { HttpError } from "../../http-error.js";
 import type { SecurityAuditEvent, Sensor, SensorDataGapCompleteness, SensorDataGapSource, SensorDataGapState } from "@climate-twin/contracts";
 import { SecurityAuditEventRow } from "./01-json-value-to-area-equipment-row.js";
 
@@ -37,13 +38,12 @@ export interface SensorDataGapRecord {
   recoveryError: string | null;
 }
 
-export class ClimateDataValidationError extends Error {
-  constructor(
-    readonly status: 400 | 404 | 409 | 422,
-    readonly code: string,
-    message: string,
-  ) {
-    super(message);
+export class ClimateDataValidationError extends HttpError {
+  declare readonly status: 400 | 404 | 409 | 422;
+
+  constructor(status: 400 | 404 | 409 | 422, code: string, message: string) {
+    super(status, code, message);
+    this.name = "ClimateDataValidationError";
   }
 }
 

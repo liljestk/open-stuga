@@ -1,6 +1,5 @@
 import type { CloudflareSetupStatusResponse } from "@climate-twin/contracts";
 import type { CloudflareSetupStartInput } from "@climate-twin/contracts";
-import { CloudflareSetupError } from "../cloudflare-setup.js";
 import {
   HttpError,
   bodyObject,
@@ -35,47 +34,41 @@ export function registerCloudflareSetupRoutes(context: CloudflareSetupRouteConte
       },
     } satisfies CloudflareSetupStatusResponse);
   });
-  context.app.post(`${context.prefix}/cloudflare/setup/start`, requireWorkspaceAdmin, async (request, response, next) => {
+  context.app.post(`${context.prefix}/cloudflare/setup/start`, requireWorkspaceAdmin, async (request, response) => {
+    requireJsonContentType(request);
+    const redirectUri = cloudflareUiRedirectUri(request, config);
+    const body = bodyObject(request.body);
+    const optionalText = (key: string): string | null => {
+      const value = body[key];
+      if (value === undefined || value === null || value === "") return null;
+      if (typeof value !== "string") throw new HttpError(400, "INVALID_FIELD", `${key} must be a string`);
+      return value;
+    };
+    const input: CloudflareSetupStartInput = {
+      mode: requiredString(body, "mode") as CloudflareSetupStartInput["mode"],
+      hostname: requiredString(body, "hostname"),
+      zone: requiredString(body, "zone"),
+      ownerEmail: requiredString(body, "ownerEmail"),
+      accountId: optionalText("accountId"),
+      zoneId: optionalText("zoneId"),
+      oauthClientToken: optionalText("oauthClientToken"),
+      runtimeToken: optionalText("runtimeToken"),
+    };
+    const result = await context.cloudflareSetup.start(input, redirectUri);
+    const principal = requestPrincipal(response);
     try {
-      requireJsonContentType(request);
-      const redirectUri = cloudflareUiRedirectUri(request, config);
-      const body = bodyObject(request.body);
-      const optionalText = (key: string): string | null => {
-        const value = body[key];
-        if (value === undefined || value === null || value === "") return null;
-        if (typeof value !== "string") throw new HttpError(400, "INVALID_FIELD", `${key} must be a string`);
-        return value;
-      };
-      const input: CloudflareSetupStartInput = {
-        mode: requiredString(body, "mode") as CloudflareSetupStartInput["mode"],
-        hostname: requiredString(body, "hostname"),
-        zone: requiredString(body, "zone"),
-        ownerEmail: requiredString(body, "ownerEmail"),
-        accountId: optionalText("accountId"),
-        zoneId: optionalText("zoneId"),
-        oauthClientToken: optionalText("oauthClientToken"),
-        runtimeToken: optionalText("runtimeToken"),
-      };
-      const result = await context.cloudflareSetup.start(input, redirectUri);
-      const principal = requestPrincipal(response);
-      try {
-        context.recordSecurityAudit(principal, {
-          eventType: "cloudflare.setup.started",
-          subjectType: "cloudflare-connection",
-          subjectId: result.operation.hostname,
-          details: { mode: result.operation.mode, operationId: result.operation.id },
-        });
-      } catch {
-        // Cloudflare has already accepted the external operation. Do not turn
-        // that success into a retryable 500 and create a duplicate setup.
-        console.error("[security-audit] Cloudflare setup started, but its local audit event could not be recorded");
-      }
-      response.setHeader("cache-control", "no-store");
-      response.status(202).json(result);
-    } catch (error) {
-      next(error instanceof CloudflareSetupError
-        ? new HttpError(error.status, error.code, error.message)
-        : error);
+      context.recordSecurityAudit(principal, {
+        eventType: "cloudflare.setup.started",
+        subjectType: "cloudflare-connection",
+        subjectId: result.operation.hostname,
+        details: { mode: result.operation.mode, operationId: result.operation.id },
+      });
+    } catch {
+      // Cloudflare has already accepted the external operation. Do not turn
+      // that success into a retryable 500 and create a duplicate setup.
+      console.error("[security-audit] Cloudflare setup started, but its local audit event could not be recorded");
     }
+    response.setHeader("cache-control", "no-store");
+    response.status(202).json(result);
   });
 }

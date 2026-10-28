@@ -1,3 +1,4 @@
+import { HttpError } from "../../http-error.js";
 import { maximum, minimum } from "@climate-twin/analytics-kernel";
 import type { AnalyticsQueryRequest, AnalyticsQueryResponse, AnalyticsSeries, CalendarComparisonPeriod, CalendarComparisonPoint, CalendarComparisonRequest, CalendarComparisonResponse, CalendarComparisonSeries, CalendarComparisonSummary, CalendarComparisonValue, House, MeasurementDefinition, Sensor } from "@climate-twin/contracts";
 import { CALENDAR_COMPARISON_ALGORITHM_VERSION, withSignal } from "@climate-twin/contracts";
@@ -27,11 +28,9 @@ const resolutionMilliseconds = {
 
 export const MAX_CALENDAR_COMPARISON_RESPONSE_BYTES = 1_000_000;
 
-export class CalendarComparisonSelectionError extends Error {
-  readonly code = "CALENDAR_COMPARISON_PERIOD_NOT_AVAILABLE";
-
+export class CalendarComparisonSelectionError extends HttpError {
   constructor(message: string) {
-    super(message);
+    super(422, "CALENDAR_COMPARISON_PERIOD_NOT_AVAILABLE", message);
     this.name = "CalendarComparisonSelectionError";
   }
 }

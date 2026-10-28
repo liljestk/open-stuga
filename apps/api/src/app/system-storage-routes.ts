@@ -1,8 +1,4 @@
 import {
-  SystemStorageError,
-} from "../system-storage.js";
-import {
-  HttpError,
   bodyObject,
   requestPrincipal,
   requireWorkspaceAdmin,
@@ -20,29 +16,19 @@ export function registerSystemStorageRoutes(context: SystemStorageRouteContext):
     response.json(context.systemStorage.status());
   });
 
-  context.app.put(`${context.prefix}/system/storage`, requireWorkspaceAdmin, (request, response, next) => {
-    try {
-      const status = context.systemStorage.queue(bodyObject(request.body));
-      const principal = requestPrincipal(response);
-      context.recordSecurityAudit(principal, {
-        eventType: "system.storage.change.requested",
-        subjectType: "system-storage",
-        subjectId: status.operation?.id ?? "unchanged",
-        details: {
-          timeseriesKind: status.operation?.target.timeseries.kind ?? status.settings.timeseries.kind,
-          backupKind: status.operation?.target.backups.kind ?? status.settings.backups.kind,
-        },
-      });
-      response.setHeader("cache-control", "no-store");
-      response.status(status.operation?.phase === "queued" ? 202 : 200).json(status);
-    } catch (error) {
-      if (error instanceof SystemStorageError) {
-        next(new HttpError(error.status, error.code, error.message));
-        return;
-      }
-      next(error instanceof TypeError
-        ? new HttpError(400, "INVALID_STORAGE_SETTINGS", error.message)
-        : error);
-    }
+  context.app.put(`${context.prefix}/system/storage`, requireWorkspaceAdmin, (request, response) => {
+    const status = context.systemStorage.queue(bodyObject(request.body));
+    const principal = requestPrincipal(response);
+    context.recordSecurityAudit(principal, {
+      eventType: "system.storage.change.requested",
+      subjectType: "system-storage",
+      subjectId: status.operation?.id ?? "unchanged",
+      details: {
+        timeseriesKind: status.operation?.target.timeseries.kind ?? status.settings.timeseries.kind,
+        backupKind: status.operation?.target.backups.kind ?? status.settings.backups.kind,
+      },
+    });
+    response.setHeader("cache-control", "no-store");
+    response.status(status.operation?.phase === "queued" ? 202 : 200).json(status);
   });
 }

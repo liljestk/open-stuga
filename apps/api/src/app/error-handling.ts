@@ -1,14 +1,7 @@
 import type { NextFunction, Request, Response } from "express";
-import { ClimateDataValidationError } from "../db.js";
-import { MeasurementValidationError, TelemetryValidationError } from "../services.js";
 import { TelegramServiceError } from "../telegram.js";
-import { LocalAuthError } from "../local-auth.js";
 import { IncompleteTelemetryHistoryError } from "../timeseries/read-facade.js";
 import { RollupsMaterializingError } from "../timeseries/read-support.js";
-import { StugubyError } from "../stuguby/service.js";
-import { SpatialRouteError } from "../spatial-layers/routes.js";
-import { SpatialStateValidationError } from "../spatial-layers/state-store.js";
-import { TrackingError } from "../tracking/store.js";
 import { AnalyticsCapacityError } from "../analytics/work-limiter.js";
 import { LocalTelemetryTimeoutError } from "../timeseries/local-telemetry-worker.js";
 import { HttpError, isRequestCancellation } from "./support/index.js";
@@ -23,36 +16,24 @@ interface ErrorResponse {
   retryAfter?: string;
 }
 
-/** Domain errors that already carry the HTTP status and code they answer with. */
-const STATUS_CODED_ERRORS = [
-  LocalAuthError,
-  TrackingError,
-  ClimateDataValidationError,
-  StugubyError,
-  SpatialRouteError,
-  SpatialStateValidationError,
-  TelemetryValidationError,
-  MeasurementValidationError,
-] as const;
-
-function isStatusCodedError(error: unknown): error is InstanceType<(typeof STATUS_CODED_ERRORS)[number]> {
-  return STATUS_CODED_ERRORS.some((type) => error instanceof type);
-}
-
-/** Maps the API's own error types; null for anything else. */
+/**
+ * Maps the API's own error types; null for anything else. Domain errors extend
+ * HttpError and carry their own status and code.
+ */
 function knownErrorResponse(error: unknown): ErrorResponse | null {
+  if (error instanceof HttpError) {
+    return { status: error.status, code: error.code, message: error.message, ...(error.details !== undefined ? { details: error.details } : {}) };
+  }
   if (error instanceof LocalTelemetryTimeoutError) {
     return { status: 503, code: error.code, message: error.message, retryAfter: "1" };
   }
   if (error instanceof AnalyticsCapacityError || error instanceof RollupsMaterializingError) {
     return { status: 503, code: error.code, message: error.message, retryAfter: String(error.retryAfterSeconds) };
   }
-  if (error instanceof IncompleteTelemetryHistoryError) return { status: 503, code: error.code, message: error.message };
-  if (isStatusCodedError(error)) return { status: error.status, code: error.code, message: error.message };
-  if (error instanceof TelegramServiceError) return { status: error.status, code: `TELEGRAM_${error.code}`, message: error.message };
-  if (error instanceof HttpError) {
-    return { status: error.status, code: error.code, message: error.message, ...(error.details !== undefined ? { details: error.details } : {}) };
+  if (error instanceof IncompleteTelemetryHistoryError) {
+    return { status: 503, code: error.code, message: error.message, details: { archiveState: error.archiveState } };
   }
+  if (error instanceof TelegramServiceError) return { status: error.status, code: `TELEGRAM_${error.code}`, message: error.message };
   return null;
 }
 

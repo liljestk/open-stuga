@@ -1,3 +1,4 @@
+import { HttpError } from "../../../http-error.js";
 import { createHash } from "node:crypto";
 import type {
   PropertyAreaKind,
@@ -30,9 +31,9 @@ import {
   StugubyStore,
 } from "../../store.js";
 
-export class StugubyError extends Error {
-  constructor(readonly status: number, readonly code: string, message: string) {
-    super(message);
+export class StugubyError extends HttpError {
+  constructor(status: number, code: string, message: string) {
+    super(status, code, message);
     this.name = "StugubyError";
   }
 }

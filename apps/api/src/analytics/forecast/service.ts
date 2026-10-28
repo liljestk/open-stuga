@@ -1,3 +1,4 @@
+import { HttpError } from "../../http-error.js";
 import { MEASUREMENT_FORECAST_ALGORITHM_VERSION, type House, type MeasurementDefinition, type MeasurementForecastEvaluation, type MeasurementForecastPoint, withSignal } from "@climate-twin/contracts";
 import { outdoorLocationKey, type ClimateDatabase } from "../../db.js";
 import type { HybridTelemetryReader } from "../../timeseries/read-facade.js";
@@ -19,9 +20,12 @@ const MAXIMUM_HORIZON_HOURS = 168;
 /** The latest reading must be this fresh to anchor a forecast. */
 const MAXIMUM_ANCHOR_AGE_MS = 3 * HOUR_MS;
 
-export class ForecastUnavailableError extends Error {
-  constructor(readonly code: "UNKNOWN_METRIC" | "FORECAST_UNSUPPORTED", readonly status: 404 | 422, message: string) {
-    super(message);
+export class ForecastUnavailableError extends HttpError {
+  declare readonly code: "UNKNOWN_METRIC" | "FORECAST_UNSUPPORTED";
+  declare readonly status: 404 | 422;
+
+  constructor(status: 404 | 422, code: "UNKNOWN_METRIC" | "FORECAST_UNSUPPORTED", message: string) {
+    super(status, code, message);
     this.name = "ForecastUnavailableError";
   }
 }
@@ -110,9 +114,9 @@ export class MeasurementForecastService {
 
   private definition(metric: string): MeasurementDefinition {
     const definition = this.database.getMeasurementDefinition(metric);
-    if (!definition) throw new ForecastUnavailableError("UNKNOWN_METRIC", 404, `Unknown measurement metric: ${metric}`);
+    if (!definition) throw new ForecastUnavailableError(404, "UNKNOWN_METRIC", `Unknown measurement metric: ${metric}`);
     if (!definition.forecastSupported) {
-      throw new ForecastUnavailableError("FORECAST_UNSUPPORTED", 422, `Forecasting is not enabled for metric: ${metric}`);
+      throw new ForecastUnavailableError(422, "FORECAST_UNSUPPORTED", `Forecasting is not enabled for metric: ${metric}`);
     }
     return definition;
   }

@@ -10,7 +10,7 @@ import type {
 import { ClimateDatabase } from "../db.js";
 import { TelemetryBus } from "../events.js";
 import type { HybridTelemetryReader } from "../timeseries/read-facade.js";
-import { ForecastUnavailableError, MeasurementForecastService, type MeasurementForecast } from "../analytics/forecast/service.js";
+import { MeasurementForecastService, type MeasurementForecast } from "../analytics/forecast/service.js";
 import { AlertEngine, DEMO_TELEMETRY_SOURCES, MeasurementValidationError, TelemetrySource, TelemetryValidationError, validateLiveTimestamp } from "./01-weather-connection-status-to-demo-data-was-disabled.js";
 
 /** Coordinates the irreversible boundary between the bundled demo and real telemetry. */
@@ -42,10 +42,10 @@ export class DataModeCoordinator {
     const hasDemo = sources.some((source) => DEMO_TELEMETRY_SOURCES.has(source));
     const hasReal = sources.some((source) => !DEMO_TELEMETRY_SOURCES.has(source));
     if (hasDemo && hasReal) {
-      throw new MeasurementValidationError("MIXED_DATA_MODES", 409, "Demo and real telemetry cannot be ingested in the same batch");
+      throw new MeasurementValidationError(409, "MIXED_DATA_MODES", "Demo and real telemetry cannot be ingested in the same batch");
     }
     if (hasDemo && this.synchronize()) {
-      throw new MeasurementValidationError("DEMO_DATA_DISABLED", 409, "Demo telemetry is permanently disabled after a real integration or real sample is accepted");
+      throw new MeasurementValidationError(409, "DEMO_DATA_DISABLED", "Demo telemetry is permanently disabled after a real integration or real sample is accepted");
     }
     // The repository latches real-data mode inside the same SQLite transaction
     // as the first persisted real sample. Activating here would commit the
@@ -135,9 +135,9 @@ export class MeasurementService {
   ): void {
     if (sensors.has(sample.sensorId)) return;
     const sensor = this.database.getSensor(sample.sensorId);
-    if (!sensor) throw new MeasurementValidationError("UNKNOWN_SENSOR", 404, `Unknown sensor: ${sample.sensorId}`);
+    if (!sensor) throw new MeasurementValidationError(404, "UNKNOWN_SENSOR", `Unknown sensor: ${sample.sensorId}`);
     if (!sensor.enabled && !allowDisabled) {
-      throw new MeasurementValidationError("SENSOR_DISABLED", 409, `Sensor is disabled: ${sample.sensorId}`);
+      throw new MeasurementValidationError(409, "SENSOR_DISABLED", `Sensor is disabled: ${sample.sensorId}`);
     }
     sensors.set(sensor.id, sensor);
   }
@@ -149,9 +149,9 @@ export class MeasurementService {
     const cached = definitions.get(metric);
     if (cached) return cached;
     const definition = this.database.getMeasurementDefinition(metric);
-    if (!definition) throw new MeasurementValidationError("UNKNOWN_METRIC", 404, `Unknown measurement metric: ${metric}`);
+    if (!definition) throw new MeasurementValidationError(404, "UNKNOWN_METRIC", `Unknown measurement metric: ${metric}`);
     if (!definition.enabled) {
-      throw new MeasurementValidationError("METRIC_DISABLED", 409, `Measurement metric is disabled: ${metric}`);
+      throw new MeasurementValidationError(409, "METRIC_DISABLED", `Measurement metric is disabled: ${metric}`);
     }
     definitions.set(definition.id, definition);
     return definition;
@@ -159,16 +159,16 @@ export class MeasurementService {
 
   private validateSample(sample: MeasurementSample, definition: StoredMeasurementDefinition, nowMs: number): void {
     if (!Number.isFinite(sample.value)) {
-      throw new MeasurementValidationError("INVALID_VALUE", 400, "Measurement value must be finite");
+      throw new MeasurementValidationError(400, "INVALID_VALUE", "Measurement value must be finite");
     }
     if (definition.validMin !== null && sample.value < definition.validMin) {
-      throw new MeasurementValidationError("OUT_OF_RANGE", 422, `${sample.metric} must be at least ${definition.validMin} ${definition.unit}`);
+      throw new MeasurementValidationError(422, "OUT_OF_RANGE", `${sample.metric} must be at least ${definition.validMin} ${definition.unit}`);
     }
     if (definition.validMax !== null && sample.value > definition.validMax) {
-      throw new MeasurementValidationError("OUT_OF_RANGE", 422, `${sample.metric} must be at most ${definition.validMax} ${definition.unit}`);
+      throw new MeasurementValidationError(422, "OUT_OF_RANGE", `${sample.metric} must be at most ${definition.validMax} ${definition.unit}`);
     }
     if (sample.canonicalUnit !== definition.unit) {
-      throw new MeasurementValidationError("UNIT_MISMATCH", 422, `${sample.metric} canonicalUnit must be ${definition.unit}`);
+      throw new MeasurementValidationError(422, "UNIT_MISMATCH", `${sample.metric} canonicalUnit must be ${definition.unit}`);
     }
     validateLiveTimestamp(sample.timestamp, nowMs);
   }
@@ -224,8 +224,8 @@ export class TelemetryService {
   private validateSensor(reading: Reading, validated: Map<string, Sensor>): void {
     if (validated.has(reading.sensorId)) return;
     const sensor = this.database.getSensor(reading.sensorId);
-    if (!sensor) throw new TelemetryValidationError("UNKNOWN_SENSOR", 404, `Unknown sensor: ${reading.sensorId}`);
-    if (!sensor.enabled) throw new TelemetryValidationError("SENSOR_DISABLED", 409, `Sensor is disabled: ${reading.sensorId}`);
+    if (!sensor) throw new TelemetryValidationError(404, "UNKNOWN_SENSOR", `Unknown sensor: ${reading.sensorId}`);
+    if (!sensor.enabled) throw new TelemetryValidationError(409, "SENSOR_DISABLED", `Sensor is disabled: ${reading.sensorId}`);
     validated.set(sensor.id, sensor);
   }
 
@@ -236,20 +236,20 @@ export class TelemetryService {
 
   private validateMeasurement(metric: string, value: number): void {
     const definition = this.database.getMeasurementDefinition(metric);
-    if (!definition) throw new MeasurementValidationError("UNKNOWN_METRIC", 404, `Unknown measurement metric: ${metric}`);
-    if (!definition.enabled) throw new MeasurementValidationError("METRIC_DISABLED", 409, `Measurement metric is disabled: ${metric}`);
-    if (!Number.isFinite(value)) throw new MeasurementValidationError("INVALID_VALUE", 400, `${metric} must be finite`);
+    if (!definition) throw new MeasurementValidationError(404, "UNKNOWN_METRIC", `Unknown measurement metric: ${metric}`);
+    if (!definition.enabled) throw new MeasurementValidationError(409, "METRIC_DISABLED", `Measurement metric is disabled: ${metric}`);
+    if (!Number.isFinite(value)) throw new MeasurementValidationError(400, "INVALID_VALUE", `${metric} must be finite`);
     if (definition.validMin !== null && value < definition.validMin
       || definition.validMax !== null && value > definition.validMax) {
-      throw new MeasurementValidationError("OUT_OF_RANGE", 422, `${metric} is outside its registered valid range`);
+      throw new MeasurementValidationError(422, "OUT_OF_RANGE", `${metric} is outside its registered valid range`);
     }
   }
 
   /** Maintains the v1 tuple projection after independently ingesting canonical samples. */
   ingestLegacyProjection(reading: Reading): boolean {
     const sensor = this.database.getSensor(reading.sensorId);
-    if (!sensor) throw new TelemetryValidationError("UNKNOWN_SENSOR", 404, `Unknown sensor: ${reading.sensorId}`);
-    if (!sensor.enabled) throw new TelemetryValidationError("SENSOR_DISABLED", 409, `Sensor is disabled: ${reading.sensorId}`);
+    if (!sensor) throw new TelemetryValidationError(404, "UNKNOWN_SENSOR", `Unknown sensor: ${reading.sensorId}`);
+    if (!sensor.enabled) throw new TelemetryValidationError(409, "SENSOR_DISABLED", `Sensor is disabled: ${reading.sensorId}`);
     validateLiveTimestamp(reading.timestamp, Date.now());
     this.dataMode.prepareSources([reading.source]);
     const inserted = this.database.upsertLegacyReading(reading);
@@ -271,14 +271,9 @@ async function measurementForecast(
   telemetryReader?: HybridTelemetryReader,
   signal?: AbortSignal,
 ): Promise<MeasurementForecast> {
-  try {
-    return await new MeasurementForecastService(database, telemetryReader).forecast({
-      sensorId, metric, hours, ...withSignal(signal),
-    });
-  } catch (error) {
-    if (error instanceof ForecastUnavailableError) throw new MeasurementValidationError(error.code, error.status, error.message);
-    throw error;
-  }
+  return new MeasurementForecastService(database, telemetryReader).forecast({
+    sensorId, metric, hours, ...withSignal(signal),
+  });
 }
 
 /** Temperature and humidity forecast pairs for the v1 API, where both are available. */

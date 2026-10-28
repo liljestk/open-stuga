@@ -5,7 +5,7 @@ import type {
 } from "@climate-twin/contracts";
 import { type AppConfig } from "../../config.js";
 import { trustedProxyRequest } from "./part-04.js";
-import { HttpError } from "./http-error.js";
+import { HttpError } from "../../http-error.js";
 
 /**
  * True when work was explicitly aborted for the caller. Server-owned deadlines

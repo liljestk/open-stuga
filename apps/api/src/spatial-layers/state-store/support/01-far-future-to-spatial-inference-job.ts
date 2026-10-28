@@ -1,3 +1,4 @@
+import { HttpError } from "../../../http-error.js";
 import { createHash } from "node:crypto";
 import { basename, dirname, resolve } from "node:path";
 import type {
@@ -15,13 +16,10 @@ export const FAR_FUTURE = "9999-12-31T23:59:59.999Z";
 
 export type SqlRow = Record<string, unknown>;
 
-export class SpatialStateValidationError extends Error {
-  constructor(
-    readonly status: number,
-    readonly code: string,
-    message: string,
-  ) {
-    super(message);
+export class SpatialStateValidationError extends HttpError {
+  constructor(status: number, code: string, message: string) {
+    super(status, code, message);
+    this.name = "SpatialStateValidationError";
   }
 }
 

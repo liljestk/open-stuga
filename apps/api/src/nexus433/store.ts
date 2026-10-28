@@ -1,3 +1,4 @@
+import { HttpError } from "../http-error.js";
 import { randomUUID } from "node:crypto";
 import type {
   Nexus433Binding,
@@ -56,9 +57,10 @@ interface BindingRow {
   created_at: string;
 }
 
-export class Nexus433StoreError extends Error {
-  constructor(readonly status: number, readonly code: string, message: string) {
-    super(message);
+export class Nexus433StoreError extends HttpError {
+  constructor(status: number, code: string, message: string) {
+    super(status, code, message);
+    this.name = "Nexus433StoreError";
   }
 }
 

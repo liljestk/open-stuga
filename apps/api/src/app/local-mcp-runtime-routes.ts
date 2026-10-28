@@ -3,7 +3,7 @@ import {
   LocalMcpRuntimeError,
   type LocalMcpRuntimeService,
 } from "../local-mcp-runtime.js";
-import { HttpError, requestPrincipal, requireWorkspaceAdmin } from "./support/index.js";
+import { requestPrincipal, requireWorkspaceAdmin } from "./support/index.js";
 import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
 
 export type LocalMcpRuntimeRouteContext = Pick<ApiRouteRegistrationContext, "app" | "prefix" | "recordSecurityAudit">;
@@ -12,12 +12,6 @@ export type LocalMcpRuntimeController = Pick<
   LocalMcpRuntimeService,
   "status" | "start" | "stop" | "authorize" | "proxy"
 >;
-
-function routeError(error: unknown): unknown {
-  return error instanceof LocalMcpRuntimeError
-    ? new HttpError(error.status, error.code, error.message)
-    : error;
-}
 
 function mcpError(response: express.Response, status: number, code: number, message: string): void {
   response.status(status).json({
@@ -87,37 +81,29 @@ export function registerLocalMcpRuntimeRoutes(
 
   // The MCP bearer bypasses browser sessions and Guest grants, so issuing and
   // revoking it is audited like every other integration credential.
-  context.app.post(`${context.prefix}/system/mcp-runtime/start`, requireWorkspaceAdmin, async (_request, response, next) => {
-    try {
-      response.setHeader("cache-control", "no-store");
-      const started = await runtime.start();
-      if (started.accessToken !== null) {
-        context.recordSecurityAudit(requestPrincipal(response), {
-          eventType: "integration.grant.issued",
-          subjectType: "integration-grant",
-          subjectId: "mcp-http",
-          details: { integration: "mcp" },
-        });
-      }
-      response.json(started);
-    } catch (error) {
-      next(routeError(error));
-    }
-  });
-
-  context.app.post(`${context.prefix}/system/mcp-runtime/stop`, requireWorkspaceAdmin, async (_request, response, next) => {
-    try {
-      response.setHeader("cache-control", "no-store");
-      const stopped = await runtime.stop();
+  context.app.post(`${context.prefix}/system/mcp-runtime/start`, requireWorkspaceAdmin, async (_request, response) => {
+    response.setHeader("cache-control", "no-store");
+    const started = await runtime.start();
+    if (started.accessToken !== null) {
       context.recordSecurityAudit(requestPrincipal(response), {
-        eventType: "integration.grant.revoked",
+        eventType: "integration.grant.issued",
         subjectType: "integration-grant",
         subjectId: "mcp-http",
         details: { integration: "mcp" },
       });
-      response.json(stopped);
-    } catch (error) {
-      next(routeError(error));
     }
+    response.json(started);
+  });
+
+  context.app.post(`${context.prefix}/system/mcp-runtime/stop`, requireWorkspaceAdmin, async (_request, response) => {
+    response.setHeader("cache-control", "no-store");
+    const stopped = await runtime.stop();
+    context.recordSecurityAudit(requestPrincipal(response), {
+      eventType: "integration.grant.revoked",
+      subjectType: "integration-grant",
+      subjectId: "mcp-http",
+      details: { integration: "mcp" },
+    });
+    response.json(stopped);
   });
 }

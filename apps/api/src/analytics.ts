@@ -1,3 +1,4 @@
+import { HttpError } from "./http-error.js";
 import {
   counterDelta,
   maximum,
@@ -42,13 +43,10 @@ export const MAX_INTERACTIVE_OUTPUT_POINTS = 100_000;
 
 type BucketResolution = Exclude<AnalyticsResolution, "auto" | "raw">;
 
-export class AnalyticsQueryError extends Error {
-  constructor(
-    readonly status: number,
-    readonly code: string,
-    message: string,
-  ) {
-    super(message);
+export class AnalyticsQueryError extends HttpError {
+  constructor(status: number, code: string, message: string) {
+    super(status, code, message);
+    this.name = "AnalyticsQueryError";
   }
 }
 

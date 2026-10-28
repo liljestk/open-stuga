@@ -1,3 +1,4 @@
+import { HttpError } from "./http-error.js";
 import type { LocalMcpRuntimeErrorCode, LocalMcpRuntimeStartResult, LocalMcpRuntimeStatus } from "@climate-twin/contracts";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { existsSync } from "node:fs";
@@ -24,13 +25,11 @@ export interface LocalMcpRuntimeOptions {
   shutdownTimeoutMs?: number;
 }
 
-export class LocalMcpRuntimeError extends Error {
-  constructor(
-    readonly status: number,
-    readonly code: "MCP_BUILD_MISSING" | "MCP_START_FAILED" | "MCP_STOP_FAILED" | "MCP_NOT_RUNNING",
-    message: string,
-  ) {
-    super(message);
+export class LocalMcpRuntimeError extends HttpError {
+  declare readonly code: "MCP_BUILD_MISSING" | "MCP_START_FAILED" | "MCP_STOP_FAILED" | "MCP_NOT_RUNNING";
+
+  constructor(status: number, code: "MCP_BUILD_MISSING" | "MCP_START_FAILED" | "MCP_STOP_FAILED" | "MCP_NOT_RUNNING", message: string) {
+    super(status, code, message);
     this.name = "LocalMcpRuntimeError";
   }
 }

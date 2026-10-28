@@ -4,7 +4,6 @@ import {
   type LocalAuthSession,
 } from "../local-auth.js";
 import {
-  CloudflareSetupError,
   cloudflareSetupCallbackPath,
 } from "../cloudflare-setup.js";
 import { registerStugubyProtocolRoutes } from "../stuguby/routes.js";
@@ -20,27 +19,26 @@ import type { RuntimeCoordination } from "./runtime-coordination.js";
 /** Request middleware ahead of authentication: body parsers per route zone, Cloudflare setup callbacks, the Stuguby peer protocol and request guards. */
 export function installRequestPipeline(context: RuntimeCoordination) {
   const config = context.config;
-  context.app.get(cloudflareSetupCallbackPath, async (request, response, next) => {
-      try {
-        if (!localCloudflareUiRequestAllowed(request, config)) {
-          throw new HttpError(403, "CLOUDFLARE_SETUP_LOCAL_ONLY", "Cloudflare approval must return to this Stugu's local address");
-        }
-        const query = new URLSearchParams();
-        for (const [key, value] of Object.entries(request.query)) {
-          if (typeof value === "string") query.set(key, value);
-        }
-        const operation = await context.cloudflareSetup.completeOAuth(query);
-        const successful = operation.phase !== "failed";
-        response.status(successful ? 200 : 400);
-        response.type("html");
-        response.setHeader("cache-control", "no-store");
-        response.setHeader("referrer-policy", "no-referrer");
-        response.setHeader("x-frame-options", "DENY");
-        response.setHeader(
-          "content-security-policy",
-          "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'",
-        );
-        response.send(`<!doctype html>
+  context.app.get(cloudflareSetupCallbackPath, async (request, response) => {
+      if (!localCloudflareUiRequestAllowed(request, config)) {
+        throw new HttpError(403, "CLOUDFLARE_SETUP_LOCAL_ONLY", "Cloudflare approval must return to this Stugu's local address");
+      }
+      const query = new URLSearchParams();
+      for (const [key, value] of Object.entries(request.query)) {
+        if (typeof value === "string") query.set(key, value);
+      }
+      const operation = await context.cloudflareSetup.completeOAuth(query);
+      const successful = operation.phase !== "failed";
+      response.status(successful ? 200 : 400);
+      response.type("html");
+      response.setHeader("cache-control", "no-store");
+      response.setHeader("referrer-policy", "no-referrer");
+      response.setHeader("x-frame-options", "DENY");
+      response.setHeader(
+        "content-security-policy",
+        "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'",
+      );
+      response.send(`<!doctype html>
   <html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width">
   <title>${successful ? "Cloudflare approved" : "Cloudflare approval not completed"}</title>
   <body style="font:16px system-ui,sans-serif;max-width:38rem;margin:10vh auto;padding:1.5rem;color:#1b1d1a;background:#f1efe9">
@@ -49,11 +47,6 @@ export function installRequestPipeline(context: RuntimeCoordination) {
       ? "Stugu is finishing the secure connection. You can close this window and return to Stugu."
       : "Return to Stugu to review the problem and try again."}</p>
   </body></html>`);
-      } catch (error) {
-        next(error instanceof CloudflareSetupError
-          ? new HttpError(error.status, error.code, error.message)
-          : error);
-      }
     });
   context.app.get(`${context.prefix}/internal/cloudflare-setup/claims/:id`, (request, response) => {
       const authorization = request.header("authorization");
