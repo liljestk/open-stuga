@@ -1,7 +1,7 @@
 import type { ApiReadSchedulingClass } from "./support/requestScheduler";
 import type { ActionPlaybook, ActionRun, ActionRunStartInput, AlertEvent, AlertRule, AlertRulePatch, AnalyticsCoverageRequest, AnalyticsCoverageResponse, AnalyticsDiagnostics, AnalyticsQueryRequest, AnalyticsQueryResponse, AppleNotesGrantCreated, AppleNotesGrantSummary, BackupOperationStatus, CalendarComparisonRequest, CalendarComparisonResponse, ConnectedDeviceCommand, ConnectedDevicePlacementPatch, ConnectedDeviceState, CoordinateDefaults, DailyAnalyticsFindingsResponse, DataExportPreview, DataExportPrivacyLevel, DurableDerivedAnalyticsResponse, EnergyOptimizationReport, GreeDiscoveredDevice, HeatPumpPlacementPatch, HeatPumpState, HomeMonitoringCollectionResponse, HomeMonitoringDetailResponse, HomePerformanceResponse, IntegrationStatus, IntegrationTestResult, MaintenanceTask, MaintenanceTaskInput, MaintenanceTaskPatch, MaintenanceTaskRevision, ManualObservation, ManualObservationInput, ManualObservationPatch, MeasurementDefinition, MockScenario, NotificationDeliveryStatus, ObservationRevision, OpeningActivityRequest, OpeningActivityResponse, ScheduledDataExport, ScheduledDataExportInput, ScheduledDataExportUpdate, SensorDataGap, SetupDoctorReport, StaticParameter, TelegramConfigInput, TelegramDiscoveryResult, TpLinkDiscoveredDevice, TuyaConfigInput, TuyaDiscoveredDevice, TuyaDiscoveryInput } from "@climate-twin/contracts";
 import { expectShape, isAnalyticsDiagnostics, isNotificationDeliveryList, isNotificationDeliveryStatus, withSignal } from "@climate-twin/contracts";
-import { API_BASE, completeCollection, entity, list, observationResponse, request, requestV2 } from "./support";
+import { API_BASE, completeCollection, list, request, requestV2 } from "./support";
 import type { AppleNotesSetupMetadata, LocationSuggestion, MaintenanceTaskFilters, TpLinkHistoryExportJob, TpLinkHistoryExportJobsResponse } from "./support";
 import { discoverIntegrationsInBackground, latestIntegrationDiscovery, resumeIntegrationDiscovery } from "./integration-discovery";
 
@@ -9,10 +9,10 @@ import { discoverIntegrationsInBackground, latestIntegrationDiscovery, resumeInt
 
 export const apiPart03 = {
   updateAlertRule: async (id: string, patch: AlertRulePatch) => {
-      const response = await request<AlertRule | { rule: AlertRule }>(`/alert-rules/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(patch) });
-      return "rule" in response ? response.rule : response;
+      const response = await request<{ rule: AlertRule }>(`/alert-rules/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(patch) });
+      return response.rule;
     },
-  alerts: async (schedulingClass: ApiReadSchedulingClass = "background") => list<AlertEvent>(await request<unknown>("/alerts", { schedulingClass }), ["alerts", "events", "data"]),
+  alerts: async (schedulingClass: ApiReadSchedulingClass = "background") => list<AlertEvent>(await request<unknown>("/alerts", { schedulingClass }), "alerts"),
   acknowledgeAlert: (id: string) => request<AlertEvent>(`/alerts/${encodeURIComponent(id)}/acknowledge`, { method: "POST" }),
   notificationDeliveries: async (options: { limit?: number } = {}): Promise<NotificationDeliveryStatus[]> => {
       const endpoint = `/notification-deliveries${options.limit ? `?limit=${options.limit}` : ""}`;
@@ -24,8 +24,8 @@ export const apiPart03 = {
       const body = await request<{ delivery?: unknown }>(endpoint, { method: "POST" });
       return expectShape(body.delivery, isNotificationDeliveryStatus, endpoint);
     },
-  actionPlaybooks: async (metric?: string) => list<ActionPlaybook>(await request<unknown>(`/action-playbooks${metric ? `?metric=${encodeURIComponent(metric)}` : ""}`), ["playbooks", "data"]),
-  alertActionPlaybooks: async (alertId: string) => list<ActionPlaybook>(await request<unknown>(`/alerts/${encodeURIComponent(alertId)}/action-playbooks`), ["playbooks", "data"]),
+  actionPlaybooks: async (metric?: string) => list<ActionPlaybook>(await request<unknown>(`/action-playbooks${metric ? `?metric=${encodeURIComponent(metric)}` : ""}`), "playbooks"),
+  alertActionPlaybooks: async (alertId: string) => list<ActionPlaybook>(await request<unknown>(`/alerts/${encodeURIComponent(alertId)}/action-playbooks`), "playbooks"),
   actionRuns: async (
       options: { active?: boolean; houseId?: string; sensorId?: string; alertEventId?: string; limit?: number } = {},
       signal?: AbortSignal,
@@ -39,15 +39,15 @@ export const apiPart03 = {
       return list<ActionRun>(await request<unknown>(
         `/action-runs${query.size ? `?${query}` : ""}`,
         withSignal(signal),
-      ), ["runs", "data"]);
+      ), "runs");
     },
-  startActionRun: async (input: ActionRunStartInput) => entity(await request<ActionRun | { run: ActionRun }>("/action-runs", { method: "POST", body: JSON.stringify(input) }), "run"),
-  completeActionRun: async (id: string) => entity(await request<ActionRun | { run: ActionRun }>(`/action-runs/${encodeURIComponent(id)}/complete`, { method: "POST" }), "run"),
-  cancelActionRun: async (id: string, note?: string) => entity(await request<ActionRun | { run: ActionRun }>(`/action-runs/${encodeURIComponent(id)}/cancel`, { method: "POST", body: JSON.stringify({ note: note ?? null }) }), "run"),
-  observations: async (houseId: string, schedulingClass: ApiReadSchedulingClass = "background") => list<ManualObservation>(await request<unknown>(`/observations?houseId=${encodeURIComponent(houseId)}`, { schedulingClass }), ["observations", "data"]),
-  createObservation: async (observation: ManualObservationInput) => observationResponse(await request<ManualObservation | { observation: ManualObservation }>("/observations", { method: "POST", body: JSON.stringify(observation) })),
-  updateObservation: async (id: string, patch: ManualObservationPatch) => observationResponse(await request<ManualObservation | { observation: ManualObservation }>(`/observations/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(patch) })),
-  observationRevisions: async (id: string) => list<ObservationRevision>(await request<unknown>(`/observations/${encodeURIComponent(id)}/revisions`), ["revisions", "data"]),
+  startActionRun: async (input: ActionRunStartInput) => (await request<{ run: ActionRun }>("/action-runs", { method: "POST", body: JSON.stringify(input) })).run,
+  completeActionRun: async (id: string) => (await request<{ run: ActionRun }>(`/action-runs/${encodeURIComponent(id)}/complete`, { method: "POST" })).run,
+  cancelActionRun: async (id: string, note?: string) => (await request<{ run: ActionRun }>(`/action-runs/${encodeURIComponent(id)}/cancel`, { method: "POST", body: JSON.stringify({ note: note ?? null }) })).run,
+  observations: async (houseId: string, schedulingClass: ApiReadSchedulingClass = "background") => list<ManualObservation>(await request<unknown>(`/observations?houseId=${encodeURIComponent(houseId)}`, { schedulingClass }), "observations"),
+  createObservation: async (observation: ManualObservationInput) => (await request<{ observation: ManualObservation }>("/observations", { method: "POST", body: JSON.stringify(observation) })).observation,
+  updateObservation: async (id: string, patch: ManualObservationPatch) => (await request<{ observation: ManualObservation }>(`/observations/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(patch) })).observation,
+  observationRevisions: async (id: string) => list<ObservationRevision>(await request<unknown>(`/observations/${encodeURIComponent(id)}/revisions`), "revisions"),
   maintenanceTasks: async (filters: MaintenanceTaskFilters = {}, schedulingClass: ApiReadSchedulingClass = "background") => {
       const query = new URLSearchParams();
       if (filters.propertyId) query.set("propertyId", filters.propertyId);
@@ -55,46 +55,37 @@ export const apiPart03 = {
       if (filters.areaId) query.set("areaId", filters.areaId);
       if (filters.equipmentId) query.set("equipmentId", filters.equipmentId);
       const suffix = query.size ? `?${query.toString()}` : "";
-      return completeCollection<MaintenanceTask>(`/maintenance-tasks${suffix}`, ["maintenanceTasks", "data"], { schedulingClass });
+      return completeCollection<MaintenanceTask>(`/maintenance-tasks${suffix}`, "maintenanceTasks", { schedulingClass });
     },
   createMaintenanceTask: (input: MaintenanceTaskInput) => request<MaintenanceTask>("/maintenance-tasks", { method: "POST", body: JSON.stringify(input) }),
   maintenanceTask: (id: string) => request<MaintenanceTask>(`/maintenance-tasks/${encodeURIComponent(id)}`),
   updateMaintenanceTask: (id: string, patch: MaintenanceTaskPatch) => request<MaintenanceTask>(`/maintenance-tasks/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(patch) }),
-  maintenanceTaskRevisions: async (id: string) => list<MaintenanceTaskRevision>(await request<unknown>(`/maintenance-tasks/${encodeURIComponent(id)}/revisions`), ["revisions", "data"]),
+  maintenanceTaskRevisions: async (id: string) => list<MaintenanceTaskRevision>(await request<unknown>(`/maintenance-tasks/${encodeURIComponent(id)}/revisions`), "revisions"),
   deleteMaintenanceTask: (id: string) => request<void>(`/maintenance-tasks/${encodeURIComponent(id)}`, { method: "DELETE" }),
-  staticParameters: async (houseId: string, schedulingClass: ApiReadSchedulingClass = "background") => list<StaticParameter>(await request<unknown>(`/static-parameters?houseId=${encodeURIComponent(houseId)}`, { schedulingClass }), ["parameters", "staticParameters", "data"]),
-  energyOptimization: async (propertyId: string, windowHours = 2, signal?: AbortSignal) => entity(await request<EnergyOptimizationReport | { report: EnergyOptimizationReport }>(`/properties/${encodeURIComponent(propertyId)}/energy-optimization?windowHours=${encodeURIComponent(windowHours)}`, withSignal(signal)), "report"),
-  setupDoctor: async () => entity(await request<SetupDoctorReport | { report: SetupDoctorReport }>("/setup/doctor"), "report"),
-  dataExportPreview: async (privacyLevel: DataExportPrivacyLevel, includeTelemetry: boolean) => entity(await request<DataExportPreview | { preview: DataExportPreview }>(`/data-export/preview?privacyLevel=${encodeURIComponent(privacyLevel)}&includeTelemetry=${includeTelemetry}`), "preview"),
+  staticParameters: async (houseId: string, schedulingClass: ApiReadSchedulingClass = "background") => list<StaticParameter>(await request<unknown>(`/static-parameters?houseId=${encodeURIComponent(houseId)}`, { schedulingClass }), "parameters"),
+  energyOptimization: async (propertyId: string, windowHours = 2, signal?: AbortSignal) => (await request<{ report: EnergyOptimizationReport }>(`/properties/${encodeURIComponent(propertyId)}/energy-optimization?windowHours=${encodeURIComponent(windowHours)}`, withSignal(signal))).report,
+  setupDoctor: async () => (await request<{ report: SetupDoctorReport }>("/setup/doctor")).report,
+  dataExportPreview: async (privacyLevel: DataExportPrivacyLevel, includeTelemetry: boolean) => (await request<{ preview: DataExportPreview }>(`/data-export/preview?privacyLevel=${encodeURIComponent(privacyLevel)}&includeTelemetry=${includeTelemetry}`)).preview,
   dataExportUrl: (privacyLevel: DataExportPrivacyLevel, includeTelemetry: boolean) => `${API_BASE}/data-export?privacyLevel=${encodeURIComponent(privacyLevel)}&includeTelemetry=${includeTelemetry}`,
   scheduledDataExports: async (houseId: string, signal?: AbortSignal) => list<ScheduledDataExport>(
       await request<unknown>(`/houses/${encodeURIComponent(houseId)}/scheduled-data-exports`, withSignal(signal)),
-      ["exports", "data"],
+      "exports",
     ),
-  createScheduledDataExport: async (houseId: string, input: ScheduledDataExportInput) => entity(
-      await request<ScheduledDataExport | { export: ScheduledDataExport }>(`/houses/${encodeURIComponent(houseId)}/scheduled-data-exports`, {
+  createScheduledDataExport: async (houseId: string, input: ScheduledDataExportInput) => (await request<{ export: ScheduledDataExport }>(`/houses/${encodeURIComponent(houseId)}/scheduled-data-exports`, {
         method: "POST",
         body: JSON.stringify(input),
-      }),
-      "export",
-    ),
-  updateScheduledDataExport: async (houseId: string, id: string, input: ScheduledDataExportUpdate) => entity(
-      await request<ScheduledDataExport | { export: ScheduledDataExport }>(`/houses/${encodeURIComponent(houseId)}/scheduled-data-exports/${encodeURIComponent(id)}`, {
+      })).export,
+  updateScheduledDataExport: async (houseId: string, id: string, input: ScheduledDataExportUpdate) => (await request<{ export: ScheduledDataExport }>(`/houses/${encodeURIComponent(houseId)}/scheduled-data-exports/${encodeURIComponent(id)}`, {
         method: "PUT",
         body: JSON.stringify(input),
-      }),
-      "export",
-    ),
+      })).export,
   deleteScheduledDataExport: (houseId: string, id: string) => request<void>(
       `/houses/${encodeURIComponent(houseId)}/scheduled-data-exports/${encodeURIComponent(id)}`,
       { method: "DELETE" },
     ),
-  runScheduledDataExport: async (houseId: string, id: string) => entity(
-      await request<ScheduledDataExport | { export: ScheduledDataExport }>(`/houses/${encodeURIComponent(houseId)}/scheduled-data-exports/${encodeURIComponent(id)}/run`, { method: "POST" }),
-      "export",
-    ),
-  backupStatus: async () => entity(await request<BackupOperationStatus | { backup: BackupOperationStatus }>("/backups/status"), "backup"),
-  requestBackup: async () => entity(await request<BackupOperationStatus | { backup: BackupOperationStatus }>("/backups", { method: "POST" }), "backup"),
+  runScheduledDataExport: async (houseId: string, id: string) => (await request<{ export: ScheduledDataExport }>(`/houses/${encodeURIComponent(houseId)}/scheduled-data-exports/${encodeURIComponent(id)}/run`, { method: "POST" })).export,
+  backupStatus: async () => (await request<{ backup: BackupOperationStatus }>("/backups/status")).backup,
+  requestBackup: async () => (await request<{ backup: BackupOperationStatus }>("/backups", { method: "POST" })).backup,
   createStaticParameter: (parameter: Omit<StaticParameter, "id">) => request<StaticParameter>("/static-parameters", { method: "POST", body: JSON.stringify(parameter) }),
   integrations: (houseId?: string) => request<IntegrationStatus>(`/integrations/status${houseId ? `?houseId=${encodeURIComponent(houseId)}` : ""}`),
   discoverIntegrations: discoverIntegrationsInBackground,
@@ -112,7 +103,7 @@ export const apiPart03 = {
   testTelegram: () => request<IntegrationTestResult>("/integrations/telegram/test", { method: "POST" }),
   disconnectTelegram: () => request<{ ok: boolean; integration: IntegrationStatus }>("/integrations/telegram/config", { method: "DELETE" }),
   appleNotesSetup: () => request<AppleNotesSetupMetadata>("/integrations/apple-notes/setup"),
-  appleNotesGrants: async () => list<AppleNotesGrantSummary>(await request<unknown>("/integrations/apple-notes/grants"), ["grants", "data"]),
+  appleNotesGrants: async () => list<AppleNotesGrantSummary>(await request<unknown>("/integrations/apple-notes/grants"), "grants"),
   createAppleNotesGrant: (input: { houseId: string; deviceLabel: string }) => request<AppleNotesGrantCreated>("/integrations/apple-notes/grants", {
       method: "POST",
       body: JSON.stringify(input),
@@ -144,14 +135,14 @@ export const apiPart03 = {
         method: "POST",
         body: JSON.stringify({ houseId }),
       }),
-      ["devices", "data"],
+      "devices",
     ),
   discoverGreeCloud: async (configuration: { houseId: string; username: string; password: string }) => list<GreeDiscoveredDevice>(
       await request<unknown>("/integrations/gree/cloud/discover", {
         method: "POST",
         body: JSON.stringify(configuration),
       }),
-      ["devices", "data"],
+      "devices",
     ),
   configureGree: (configuration: { houseId: string; mac: string }) => request<{
     ok: boolean;
@@ -189,7 +180,7 @@ export const apiPart03 = {
         method: "POST",
         body: JSON.stringify(input),
       }),
-      ["devices", "data"],
+      "devices",
     ),
   configureTuya: (configuration: TuyaConfigInput) => request<{
     ok: boolean;
@@ -210,7 +201,7 @@ export const apiPart03 = {
         `/connected-devices${houseId ? `?houseId=${encodeURIComponent(houseId)}` : ""}`,
         withSignal(signal),
       ),
-      ["devices", "data"],
+      "devices",
     ),
   commandConnectedDevice: (connectionId: string, command: ConnectedDeviceCommand) => request<{
     ok: boolean;
@@ -232,7 +223,7 @@ export const apiPart03 = {
         `/heat-pumps${houseId ? `?houseId=${encodeURIComponent(houseId)}` : ""}`,
         withSignal(signal),
       ),
-      ["states", "data"],
+      "states",
     ),
   placeHeatPump: (connectionId: string, placement: HeatPumpPlacementPatch) => request<{
     state: HeatPumpState | null;
@@ -251,7 +242,7 @@ export const apiPart03 = {
     const suffix = query.size ? `?${query.toString()}` : "";
     return list<HeatPumpState>(
       await request<unknown>(`/heat-pumps/${encodeURIComponent(connectionId)}/history${suffix}`),
-      ["states", "data"],
+      "states",
     );
   },
   moveHomeAssistant: (fromHouseId: string, houseId: string) => request<{ ok: boolean; fromHouseId: string; houseId: string; integration: IntegrationStatus }>(`/integrations/home-assistant/config/${encodeURIComponent(fromHouseId)}`, {
@@ -274,7 +265,7 @@ export const apiPart03 = {
     }),
   tpLinkDevices: async (houseId?: string) => list<TpLinkDiscoveredDevice>(
       await request<unknown>(`/integrations/tp-link/devices${houseId ? `?houseId=${encodeURIComponent(houseId)}` : ""}`),
-      ["devices", "data"],
+      "devices",
     ),
   tpLinkHistoryExportJobs: () => request<TpLinkHistoryExportJobsResponse>("/integrations/tp-link/history-export/jobs"),
   createTpLinkHistoryExportCanary: (input: {
@@ -297,10 +288,10 @@ export const apiPart03 = {
       if (houseId) query.set("houseId", houseId);
       return list<SensorDataGap>(
         await request<unknown>(`/integrations/sensor-data-gaps?${query}`, withSignal(signal)),
-        ["gaps", "data"],
+        "gaps",
       );
     },
-  scenarios: async (schedulingClass: ApiReadSchedulingClass = "background") => list<MockScenario>(await request<unknown>("/mock/scenarios", { schedulingClass }), ["scenarios", "data"]),
+  scenarios: async (schedulingClass: ApiReadSchedulingClass = "background") => list<MockScenario>(await request<unknown>("/mock/scenarios", { schedulingClass }), "scenarios"),
   runScenario: (scenarioId: MockScenario["id"]) => request<{ ok: boolean }>("/mock/scenario", { method: "POST", body: JSON.stringify({ scenarioId }) }),
   measurementDefinitions: async (schedulingClass: ApiReadSchedulingClass = "background") => (await requestV2<{ definitions: MeasurementDefinition[] }>("/measurement-definitions", { schedulingClass })).definitions,
   analyticsFindings: (houseId: string, signal?: AbortSignal) => requestV2<DailyAnalyticsFindingsResponse>(

@@ -85,16 +85,16 @@ describe("optional hydration scheduling", () => {
     const settled = Promise.allSettled([maintenance, observations]);
     try {
       await vi.waitFor(() => expect(pending.size).toBe(1));
-      pending.get("/api/v1/maintenance-tasks?houseId=home")!(Array.from({ length: COLLECTION_PAGE_SIZE }, (_, index) => ({ id: `task-${index}` })));
+      pending.get("/api/v1/maintenance-tasks?houseId=home")!({ maintenanceTasks: Array.from({ length: COLLECTION_PAGE_SIZE }, (_, index) => ({ id: `task-${index}` })) });
       await vi.waitFor(() => expect(pending.has("/api/v1/observations?houseId=home")).toBe(true));
       await Promise.resolve();
       expect([...pending.keys()].some((url) => url.includes("offset="))).toBe(false);
       await expect(api.houseElectricityPrice("home")).resolves.toEqual({ current: null });
       expect([...pending.keys()].some((url) => url.includes("offset="))).toBe(false);
-      pending.get("/api/v1/observations?houseId=home")!([]);
+      pending.get("/api/v1/observations?houseId=home")!({ observations: [] });
       await observations;
       await vi.waitFor(() => expect([...pending.keys()].some((url) => url.includes("offset="))).toBe(true));
-      pending.get([...pending.keys()].find((url) => url.includes("offset="))!)!([]);
+      pending.get([...pending.keys()].find((url) => url.includes("offset="))!)!({ maintenanceTasks: [] });
       await expect(maintenance).resolves.toHaveLength(COLLECTION_PAGE_SIZE);
     } finally {
       cancelPendingApiRequests();

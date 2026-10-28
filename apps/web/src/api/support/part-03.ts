@@ -2,8 +2,6 @@ import { SYSTEM_UPDATE_WORKFLOW_PHASES } from "@climate-twin/contracts";
 import type {
   AppSession,
   House,
-  ManualObservation,
-  Sensor,
   TenantMemberSummary,
   TrackingEvent,
 } from "@climate-twin/contracts";
@@ -114,15 +112,10 @@ function objectList<T extends object>(value: unknown, label: string): T[] {
   return value as T[];
 }
 
-export function list<T extends object>(value: unknown, keys: string[]): T[] {
-  if (Array.isArray(value)) return objectList<T>(value, "collection");
-  if (value && typeof value === "object") {
-    for (const key of keys) {
-      const candidate = (value as Record<string, unknown>)[key];
-      if (candidate !== undefined) return objectList<T>(candidate, key);
-    }
-  }
-  throw new ResponseShapeError(keys.join(" or "), "expected an array");
+/** The array an endpoint documents under `key`; any other body is a ResponseShapeError. */
+export function list<T extends object>(value: unknown, key: string): T[] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new ResponseShapeError(key, "expected an object");
+  return objectList<T>((value as Record<string, unknown>)[key], key);
 }
 
 export function collectionPagePath(path: string, offset: number): string {
@@ -130,12 +123,12 @@ export function collectionPagePath(path: string, offset: number): string {
   return `${path}${path.includes("?") ? "&" : "?"}limit=${COLLECTION_PAGE_SIZE}&offset=${offset}`;
 }
 
-export async function completeCollection<T extends { id: string }>(path: string, keys: string[], options?: Pick<ApiRequestInit, "schedulingClass">): Promise<T[]> {
+export async function completeCollection<T extends { id: string }>(path: string, key: string, options?: Pick<ApiRequestInit, "schedulingClass">): Promise<T[]> {
   const result: T[] = [];
   const seenIds = new Set<string>();
   let offset = 0;
   while (true) {
-    const page = list<T>(await request<unknown>(collectionPagePath(path, offset), options), keys);
+    const page = list<T>(await request<unknown>(collectionPagePath(path, offset), options), key);
     let added = 0;
     for (const item of page) {
       if (typeof item.id !== "string" || !item.id) {
@@ -151,12 +144,6 @@ export async function completeCollection<T extends { id: string }>(path: string,
     offset += page.length;
     if (offset > 1_000_000) throw new Error(`Collection pagination exceeded the supported offset for ${path}`);
   }
-}
-
-export function entity<T>(value: T | Record<string, T>, key: string): T {
-  return value && typeof value === "object" && key in value
-    ? (value as Record<string, T>)[key]!
-    : value as T;
 }
 
 export function spatialConfigurationResponse(value: unknown): SpatialLayerConfigurationResponse {
@@ -216,23 +203,11 @@ export async function completeAuthentication(promise: Promise<AppSession>): Prom
 }
 
 export async function updateHouseGeoreference(houseId: string, patch: HouseGeoreferencePatch): Promise<House> {
-  const response = await request<House | { house: House }>(`/houses/${encodeURIComponent(houseId)}`, {
+  const response = await request<{ house: House }>(`/houses/${encodeURIComponent(houseId)}`, {
     method: "PATCH",
     body: JSON.stringify(patch),
   });
-  return "house" in response ? response.house : response;
-}
-
-export function sensorResponse(value: Sensor | { sensor: Sensor }): Sensor {
-  return "sensor" in value ? value.sensor : value;
-}
-
-export function houseResponse(value: House | { house: House }): House {
-  return "house" in value ? value.house : value;
-}
-
-export function observationResponse(value: ManualObservation | { observation: ManualObservation }): ManualObservation {
-  return "observation" in value ? value.observation : value;
+  return response.house;
 }
 
 const systemUpdateWorkflowPhases: ReadonlySet<string> = new Set(SYSTEM_UPDATE_WORKFLOW_PHASES);

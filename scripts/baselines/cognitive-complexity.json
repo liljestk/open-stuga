@@ -183,7 +183,7 @@
     "apps/web/src/pages/StugubyPage/GrantOverview.tsx": [16],
     "apps/web/src/pages/StugubyPage/part-02.tsx": [17],
     "apps/web/src/pages/StugubyPage/render.tsx": [138],
-    "apps/web/src/pages/SystemUpdateOverview.tsx": [211, 17],
+    "apps/web/src/pages/SystemUpdateOverview.tsx": [211, 16],
     "apps/web/src/pages/SystemUpdatesPage.tsx": [33, 18],
     "apps/web/src/pages/TelegramSetupPanel.tsx": [48],
     "apps/web/src/pages/TwinDashboard/queryState.ts": [19],

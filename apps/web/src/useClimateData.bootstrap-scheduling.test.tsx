@@ -60,19 +60,19 @@ describe("bootstrap HTTP scheduling", () => {
       }
       switch (url.pathname) {
       case "/api/v1/session": return Promise.resolve(response({ ...demo.session, systemVersion: SYSTEM_VERSION }));
-      case "/api/v1/properties": return Promise.resolve(response(demo.properties));
-      case "/api/v1/houses": return Promise.resolve(response([house, otherHouse]));
+      case "/api/v1/properties": return Promise.resolve(response({ properties: demo.properties }));
+      case "/api/v1/houses": return Promise.resolve(response({ houses: [house, otherHouse] }));
       case `/api/v1/houses/${house.id}/energy-summary`: return Promise.resolve(response({ summary: { consumptionKwh: 4 } }));
-      case "/api/v1/sensors": return Promise.resolve(response(sensors));
-      case "/api/v1/snapshot": return Promise.resolve(response(emptySnapshot ? [] : sensors.map((sensor) => ({
+      case "/api/v1/sensors": return Promise.resolve(response({ sensors }));
+      case "/api/v1/snapshot": return Promise.resolve(response({ snapshot: emptySnapshot ? [] : sensors.map((sensor) => ({
         ...sensor, reading: demo.readings[sensor.id] ?? null,
-      }))));
+      })) }));
       case "/api/v1/integrations/status": return Promise.resolve(response(demo.integration));
-      case "/api/v1/property-areas":
-      case "/api/v1/area-equipment":
-      case "/api/v1/property-notes":
-      case "/api/v1/maintenance-tasks":
-      case "/api/v1/integrations/tp-link/devices": return Promise.resolve(response([]));
+      case "/api/v1/property-areas": return Promise.resolve(response({ areas: [] }));
+      case "/api/v1/area-equipment": return Promise.resolve(response({ equipment: [] }));
+      case "/api/v1/property-notes": return Promise.resolve(response({ notes: [] }));
+      case "/api/v1/maintenance-tasks": return Promise.resolve(response({ maintenanceTasks: [] }));
+      case "/api/v1/integrations/tp-link/devices": return Promise.resolve(response({ devices: [] }));
       default: return Promise.reject(new Error(`Unexpected bootstrap request: ${url.pathname}`));
       }
     }));

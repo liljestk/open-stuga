@@ -15,7 +15,7 @@ export function registerAlertRoutes(context: ApiRouteRegistrationContext): void 
       const input = parseAlertRule(request.body, context.database);
       const sensor = input.sensorId ? context.database.getSensor(input.sensorId) : null;
       if (sensor) context.stuguby.assertHouseLocalAuthority(sensor.houseId);
-      response.status(201).json(context.database.saveAlertRule(input));
+      response.status(201).json({ rule: context.database.saveAlertRule(input) });
     });
   context.app.patch(`${context.prefix}/alert-rules/:id`, (request, response) => {
       const current = context.database.getAlertRule(request.params.id as string);

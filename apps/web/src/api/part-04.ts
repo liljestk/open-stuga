@@ -32,7 +32,7 @@ import {
   type SpatialInferenceSessionStartInput,
 } from "../spatialLayers";
 import { ResponseShapeError, expectShape, isMeasurementForecastEvaluation, isMeasurementForecastPoints, withSignal } from "@climate-twin/contracts";
-import { entity, list, request, requestV2, spatialConfigurationResponse } from "./support";
+import { list, request, requestV2, spatialConfigurationResponse } from "./support";
 import type { HistoricalImportResult, MeasurementHistoryPage, SensorMeasurementPage } from "./support";
 
 const measurementHistoryPageRequest = async (
@@ -222,20 +222,14 @@ export const apiPart04 = {
     ),
   houseSpatialLayerBindings: async (houseId: string, signal?: AbortSignal): Promise<SpatialSensorBinding[]> => list<SpatialSensorBinding>(
       await request<unknown>(`/houses/${encodeURIComponent(houseId)}/layers/bindings`, withSignal(signal)),
-      ["bindings", "data"],
+      "bindings",
     ),
-  createHouseSpatialLayerBinding: async (houseId: string, binding: SpatialSensorBinding, signal?: AbortSignal): Promise<SpatialSensorBinding> => entity(
-      await request<SpatialSensorBinding | { binding: SpatialSensorBinding }>(`/houses/${encodeURIComponent(houseId)}/layers/bindings`, { method: "POST", body: JSON.stringify(binding), ...withSignal(signal) }),
-      "binding",
-    ),
+  createHouseSpatialLayerBinding: async (houseId: string, binding: SpatialSensorBinding, signal?: AbortSignal): Promise<SpatialSensorBinding> => (await request<{ binding: SpatialSensorBinding }>(`/houses/${encodeURIComponent(houseId)}/layers/bindings`, { method: "POST", body: JSON.stringify(binding), ...withSignal(signal) })).binding,
   houseSpatialLayerCalibrations: async (houseId: string, signal?: AbortSignal): Promise<SpatialSensorCalibration[]> => list<SpatialSensorCalibration>(
       await request<unknown>(`/houses/${encodeURIComponent(houseId)}/layers/calibrations`, withSignal(signal)),
-      ["calibrations", "sessions", "data"],
+      "calibrations",
     ),
-  createHouseSpatialLayerCalibration: async (houseId: string, calibration: SpatialSensorCalibration, signal?: AbortSignal): Promise<SpatialSensorCalibration> => entity(
-      await request<SpatialSensorCalibration | { calibration: SpatialSensorCalibration }>(`/houses/${encodeURIComponent(houseId)}/layers/calibrations`, { method: "POST", body: JSON.stringify(calibration), ...withSignal(signal) }),
-      "calibration",
-    ),
+  createHouseSpatialLayerCalibration: async (houseId: string, calibration: SpatialSensorCalibration, signal?: AbortSignal): Promise<SpatialSensorCalibration> => (await request<{ calibration: SpatialSensorCalibration }>(`/houses/${encodeURIComponent(houseId)}/layers/calibrations`, { method: "POST", body: JSON.stringify(calibration), ...withSignal(signal) })).calibration,
   houseSpatialLayerCalibrationSessions: async (houseId: string, signal?: AbortSignal): Promise<SpatialCalibrationSession[]> => parseSpatialCalibrationSessions(
       await request<unknown>(`/houses/${encodeURIComponent(houseId)}/layers/calibration-sessions`, withSignal(signal)),
     ),
@@ -250,20 +244,14 @@ export const apiPart04 = {
     },
   houseSpatialLayerContextEvents: async (houseId: string, signal?: AbortSignal): Promise<SpatialContextEvent[]> => list<SpatialContextEvent>(
       await request<unknown>(`/houses/${encodeURIComponent(houseId)}/layers/context-events`, withSignal(signal)),
-      ["events", "contextEvents", "data"],
+      "events",
     ),
-  createHouseSpatialLayerContextEvent: async (houseId: string, event: SpatialContextEvent, signal?: AbortSignal): Promise<SpatialContextEvent> => entity(
-      await request<SpatialContextEvent | { event: SpatialContextEvent }>(`/houses/${encodeURIComponent(houseId)}/layers/context-events`, { method: "POST", body: JSON.stringify(event), ...withSignal(signal) }),
-      "event",
-    ),
+  createHouseSpatialLayerContextEvent: async (houseId: string, event: SpatialContextEvent, signal?: AbortSignal): Promise<SpatialContextEvent> => (await request<{ event: SpatialContextEvent }>(`/houses/${encodeURIComponent(houseId)}/layers/context-events`, { method: "POST", body: JSON.stringify(event), ...withSignal(signal) })).event,
   houseSpatialLayerGroundTruth: async (houseId: string, signal?: AbortSignal): Promise<SpatialGroundTruth[]> => list<SpatialGroundTruth>(
       await request<unknown>(`/houses/${encodeURIComponent(houseId)}/layers/ground-truth`, withSignal(signal)),
-      ["labels", "groundTruth", "data"],
-    ),
-  createHouseSpatialLayerGroundTruth: async (houseId: string, truth: SpatialGroundTruth, signal?: AbortSignal): Promise<SpatialGroundTruth> => entity(
-      await request<SpatialGroundTruth | { groundTruth: SpatialGroundTruth }>(`/houses/${encodeURIComponent(houseId)}/layers/ground-truth`, { method: "POST", body: JSON.stringify(truth), ...withSignal(signal) }),
       "groundTruth",
     ),
+  createHouseSpatialLayerGroundTruth: async (houseId: string, truth: SpatialGroundTruth, signal?: AbortSignal): Promise<SpatialGroundTruth> => (await request<{ groundTruth: SpatialGroundTruth }>(`/houses/${encodeURIComponent(houseId)}/layers/ground-truth`, { method: "POST", body: JSON.stringify(truth), ...withSignal(signal) })).groundTruth,
   houseSpatialLayersCurrent: async (
       houseId: string,
       layerIds: readonly string[] = [],

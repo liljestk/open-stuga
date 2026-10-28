@@ -302,10 +302,10 @@ describe("Climate Twin API v1", () => {
 
     const created = await request(runtime.app).post("/api/v1/alert-rules")
       .send({ ...rule, durationSeconds: 1 }).expect(201);
-    await request(runtime.app).patch(`/api/v1/alert-rules/${String(created.body.id)}`)
+    await request(runtime.app).patch(`/api/v1/alert-rules/${String(created.body.rule.id)}`)
       .send({ durationSeconds: 0 })
       .expect(400).expect(({ body }) => expect(body.error.code).toBe("INVALID_FIELD"));
-    expect(runtime.database.getAlertRule(String(created.body.id))?.durationSeconds).toBe(1);
+    expect(runtime.database.getAlertRule(String(created.body.rule.id))?.durationSeconds).toBe(1);
   });
 
   it("creates, publishes, acknowledges, and resolves sustained alert events", async () => {
@@ -314,7 +314,7 @@ describe("Climate Twin API v1", () => {
       name: "Test humidity", sensorId: "sensor-01", metric: "humidity", operator: "gte",
       threshold: 70, durationSeconds: 1, severity: "critical", enabled: true, webhookEnabled: false,
     }).expect(201);
-    expect(ruleResponse.body.id).toBeTypeOf("string");
+    expect(ruleResponse.body.rule.id).toBeTypeOf("string");
 
     await request(runtime.app).post("/api/v1/readings").set("x-api-key", "test-ingest-key")
       .send({ sensorId: "sensor-01", timestamp: new Date(base).toISOString(), temperature: 21, humidity: 81 }).expect(201);

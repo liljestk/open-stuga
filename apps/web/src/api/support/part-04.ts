@@ -6,7 +6,7 @@ import {
   parseSpatialLayerSnapshotEvent,
   type SpatialLayerSnapshotEvent,
 } from "../../spatialLayers";
-import { API_BASE, API_V2_BASE, STREAM_STABILITY_DELAY_MS, authorizationChange, isPollingHeartbeat, notifyAuthorizationChange } from "./part-02";
+import { API_BASE, API_V2_BASE, STREAM_STABILITY_DELAY_MS, authorizationChange, notifyAuthorizationChange } from "./part-02";
 
 type ApiEventStreamState = "live" | "reconnecting";
 
@@ -108,20 +108,11 @@ export function subscribeToMeasurementEvents(
       // A malformed sample is ignored; the stream remains connected.
     }
   };
-  const consumeHeartbeat = (message: MessageEvent<string>, reportReconnecting: () => void) => {
-    try {
-      const parsed = JSON.parse(message.data) as unknown;
-      if (!isPollingHeartbeat(parsed)) return;
-      reportReconnecting();
-    } catch {
-      // A malformed heartbeat is ignored; EventSource will still report disconnects.
-    }
-  };
   return openApiEventStream(`${API_V2_BASE}/measurements/events`, {
     onState,
     onOpen,
     onMessage: consume,
-    listeners: { measurement: consume, heartbeat: consumeHeartbeat },
+    listeners: { measurement: consume },
   });
 }
 
@@ -130,13 +121,9 @@ export function subscribeToEvents(
   onState: (state: "live" | "reconnecting") => void,
   onOpen?: () => void,
 ): () => void {
-  const consume = (message: MessageEvent<string>, reportReconnecting: () => void, forcedType?: TelemetryEvent["type"]) => {
+  const consume = (message: MessageEvent<string>, forcedType?: TelemetryEvent["type"]) => {
     try {
       const parsed = JSON.parse(message.data) as TelemetryEvent | TelemetryEvent["data"];
-      const payload = parsed && typeof parsed === "object" && "type" in parsed && "data" in parsed
-        ? parsed.data
-        : parsed;
-      if (forcedType === "heartbeat" && isPollingHeartbeat(payload)) reportReconnecting();
       if (parsed && typeof parsed === "object" && "type" in parsed && "data" in parsed) onEvent(parsed as TelemetryEvent);
       else if (forcedType) onEvent({ type: forcedType, data: parsed as TelemetryEvent["data"] } as TelemetryEvent);
     } catch {
@@ -147,10 +134,10 @@ export function subscribeToEvents(
   return openApiEventStream(`${API_BASE}/events`, {
     onState,
     onOpen,
-    onMessage: (message, reportReconnecting) => consume(message, reportReconnecting),
+    onMessage: (message) => consume(message),
     listeners: Object.fromEntries(eventTypes.map((type): [string, ApiEventStreamListener] => [
       type,
-      (message, reportReconnecting) => consume(message, reportReconnecting, type),
+      (message) => consume(message, type),
     ])),
   });
 }

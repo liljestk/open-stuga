@@ -11,7 +11,7 @@ import { ApiVersionMismatchError,subscribeToApiVersionMismatch } from "../../api
 import { type ClimateState } from "../../domain";
 import { activateAccountStorage,deactivateAccountStorage } from "../../browserStorage";
 import { LiveEventCoordinator } from "../live/LiveEventCoordinator";
-import { HEARTBEAT_POLL_MIN_INTERVAL_MS,STREAM_BOOTSTRAP_WAIT_MS,aggregateConnection,apiStatus,blankState,isPollingCompatibilityHeartbeat,replayHouseInventory,replayHouseMutations,settleInBackground,withoutDemoTelemetry } from "./support";
+import { HEARTBEAT_POLL_MIN_INTERVAL_MS,STREAM_BOOTSTRAP_WAIT_MS,aggregateConnection,apiStatus,blankState,replayHouseInventory,replayHouseMutations,settleInBackground,withoutDemoTelemetry } from "./support";
 import type { HouseInventoryMutation,HouseMutationBuffer,StreamConnections } from "./support";
 import type { SessionLifecycleActions,WorkspaceHydrationContext } from "./pipelineTypes";
 type DeferredContext = {
@@ -122,22 +122,19 @@ export function useSessionLifecycle(
       setLoading(false);
     }, [resetStreamConnections]);
   useEffect(() => subscribeToApiVersionMismatch(enterIncompatibleState), [enterIncompatibleState]);
-  const handleHeartbeat = useCallback((data: unknown) => {
-      const pollingCompatibility = isPollingCompatibilityHeartbeat(data);
+  // A heartbeat that arrives while no stream is live means the client should poll instead.
+  const handleHeartbeat = useCallback(() => {
       if (heartbeatFallbackTimer.current !== null) window.clearTimeout(heartbeatFallbackTimer.current);
-      const activatePollingFallback = () => {
+      heartbeatFallbackTimer.current = window.setTimeout(() => {
         heartbeatFallbackTimer.current = null;
-        if (!pollingCompatibility && aggregateConnection(streamConnectionsRef.current) === "live") return;
-        if (pollingCompatibility) updateStreamConnection("legacy", "reconnecting");
+        if (aggregateConnection(streamConnectionsRef.current) === "live") return;
         setPollingFallback(true);
         const now = Date.now();
         if (now - heartbeatPollAt.current < HEARTBEAT_POLL_MIN_INTERVAL_MS) return;
         heartbeatPollAt.current = now;
         scheduleActiveHouseResync(0);
-      };
-      if (pollingCompatibility) activatePollingFallback();
-      else heartbeatFallbackTimer.current = window.setTimeout(activatePollingFallback, 1_000);
-    }, [scheduleActiveHouseResync, updateStreamConnection]);
+      }, 1_000);
+    }, [scheduleActiveHouseResync]);
   useEffect(() => {
       if (sessionLocked) return undefined;
       let cancelled = false;
@@ -231,7 +228,7 @@ export function useSessionLifecycle(
           onTelemetry: (event) => {
             if (invalidated()) return;
             deferred.handleTelemetry(event);
-            if (event.type === "heartbeat") handleHeartbeat(event.data);
+            if (event.type === "heartbeat") handleHeartbeat();
           },
           onMeasurement: (sample) => {
             if (!invalidated()) deferred.handleMeasurement(sample);

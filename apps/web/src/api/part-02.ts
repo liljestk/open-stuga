@@ -1,7 +1,7 @@
 import type { ApiReadSchedulingClass } from "./support/requestScheduler";
 import type { AlertRule, EquipmentAttachment, EquipmentAttachmentUploadInput, EquipmentLink, EquipmentLinkInput, EquipmentLinkPatch, EquipmentTrackingBinding, ForecastPoint, GuestAccessGrant, House, HouseLocation, HousePatch, HouseWeather, OpeningStateObservation, OpeningStateObservationInput, OpeningStateSnapshot, OutdoorTemperatureSample, PropertyNote, PropertyNoteInput, PropertyNotePatch, Reading, Sensor, SensorLabelDescriptor, SensorPatch, SensorSnapshot, TenantInvitationCreated, TenantMemberSummary, TenantMembersResponse, TrackedEquipmentState, TrackingCapabilities, TrackingEndpoint, TrackingEndpointEnrollmentInput, TrackingMapSnapshot, TrackingProfileManifest } from "@climate-twin/contracts";
 import { expectShape, isForecastSeriesResponse, withSignal } from "@climate-twin/contracts";
-import { API_BASE, completeCollection, entity, houseResponse, list, memberSummary, request, requestV2, sensorResponse, updateHouseGeoreference } from "./support";
+import { API_BASE, completeCollection, list, memberSummary, request, requestV2, updateHouseGeoreference } from "./support";
 import type { CreateHouseInput, CreateSensorInput, OutdoorTemperatureHistoryPage } from "./support";
 
 
@@ -10,15 +10,9 @@ export const apiPart02 = {
   deleteAreaEquipment: (id: string) => request<void>(`/area-equipment/${encodeURIComponent(id)}`, { method: "DELETE" }),
   equipmentAttachments: async (equipmentId: string) => list<EquipmentAttachment>(
       await request<unknown>(`/area-equipment/${encodeURIComponent(equipmentId)}/attachments`),
-      ["attachments", "data"],
+      "attachments",
     ),
-  uploadEquipmentAttachment: async (equipmentId: string, input: EquipmentAttachmentUploadInput) => entity<EquipmentAttachment>(
-      await request<EquipmentAttachment | { attachment: EquipmentAttachment }>(
-        `/area-equipment/${encodeURIComponent(equipmentId)}/attachments`,
-        { method: "POST", body: JSON.stringify(input) },
-      ),
-      "attachment",
-    ),
+  uploadEquipmentAttachment: async (equipmentId: string, input: EquipmentAttachmentUploadInput) => (await request<{ attachment: EquipmentAttachment }>(`/area-equipment/${encodeURIComponent(equipmentId)}/attachments`, { method: "POST", body: JSON.stringify(input) })).attachment,
   equipmentAttachmentUrl: (equipmentId: string, attachmentId: string) => (
       `${API_BASE}/area-equipment/${encodeURIComponent(equipmentId)}/attachments/${encodeURIComponent(attachmentId)}`
     ),
@@ -28,57 +22,33 @@ export const apiPart02 = {
     ),
   equipmentLinks: async (equipmentId: string) => list<EquipmentLink>(
       await request<unknown>(`/area-equipment/${encodeURIComponent(equipmentId)}/links`),
-      ["links", "data"],
+      "links",
     ),
-  createEquipmentLink: async (equipmentId: string, input: EquipmentLinkInput) => entity<EquipmentLink>(
-      await request<EquipmentLink | { link: EquipmentLink }>(
-        `/area-equipment/${encodeURIComponent(equipmentId)}/links`,
-        { method: "POST", body: JSON.stringify(input) },
-      ),
-      "link",
-    ),
-  updateEquipmentLink: async (equipmentId: string, linkId: string, patch: EquipmentLinkPatch) => entity<EquipmentLink>(
-      await request<EquipmentLink | { link: EquipmentLink }>(
-        `/area-equipment/${encodeURIComponent(equipmentId)}/links/${encodeURIComponent(linkId)}`,
-        { method: "PATCH", body: JSON.stringify(patch) },
-      ),
-      "link",
-    ),
+  createEquipmentLink: async (equipmentId: string, input: EquipmentLinkInput) => (await request<{ link: EquipmentLink }>(`/area-equipment/${encodeURIComponent(equipmentId)}/links`, { method: "POST", body: JSON.stringify(input) })).link,
+  updateEquipmentLink: async (equipmentId: string, linkId: string, patch: EquipmentLinkPatch) => (await request<{ link: EquipmentLink }>(`/area-equipment/${encodeURIComponent(equipmentId)}/links/${encodeURIComponent(linkId)}`, { method: "PATCH", body: JSON.stringify(patch) })).link,
   deleteEquipmentLink: (equipmentId: string, linkId: string) => request<void>(
       `/area-equipment/${encodeURIComponent(equipmentId)}/links/${encodeURIComponent(linkId)}`,
       { method: "DELETE" },
     ),
   trackedEquipment: async (propertyId: string) => list<TrackedEquipmentState>(
       await request<unknown>(`/properties/${encodeURIComponent(propertyId)}/tracked-equipment`),
-      ["equipment", "data"],
+      "equipment",
     ),
   trackingCapabilities: () => request<TrackingCapabilities>("/tracking/capabilities"),
   trackingProfiles: () => request<TrackingProfileManifest>("/tracking/profiles"),
   trackingEndpoints: async (propertyId: string) => list<TrackingEndpoint>(
       await request<unknown>(`/tracking/endpoints?propertyId=${encodeURIComponent(propertyId)}`),
-      ["endpoints", "data"],
+      "endpoints",
     ),
-  enrollTrackingEndpoint: async (input: TrackingEndpointEnrollmentInput) => entity<TrackingEndpoint>(
-    await request<TrackingEndpoint | { endpoint: TrackingEndpoint }>(
-      "/tracking/endpoints",
-      { method: "POST", body: JSON.stringify(input) },
-    ),
-    "endpoint",
-  ),
+  enrollTrackingEndpoint: async (input: TrackingEndpointEnrollmentInput) => (await request<{ endpoint: TrackingEndpoint }>("/tracking/endpoints", { method: "POST", body: JSON.stringify(input) })).endpoint,
   bindTrackingEndpoint: async (
     equipmentId: string,
     endpointId: string,
     observerId?: string,
-  ) => entity<EquipmentTrackingBinding>(
-      await request<EquipmentTrackingBinding | { binding: EquipmentTrackingBinding }>(
-        `/area-equipment/${encodeURIComponent(equipmentId)}/tracking-binding`,
-        {
+  ) => (await request<{ binding: EquipmentTrackingBinding }>(`/area-equipment/${encodeURIComponent(equipmentId)}/tracking-binding`, {
           method: "POST",
           body: JSON.stringify({ endpointId, ...(observerId ? { observerId } : {}) }),
-        },
-      ),
-      "binding",
-    ),
+        })).binding,
   unbindTrackingEndpoint: async (equipmentId: string) => (
       await request<{ binding: EquipmentTrackingBinding | null }>(
         `/area-equipment/${encodeURIComponent(equipmentId)}/tracking-binding`,
@@ -90,15 +60,15 @@ export const apiPart02 = {
     ),
   propertyNotes: (propertyId?: string) => completeCollection<PropertyNote>(propertyId
       ? `/property-notes?propertyId=${encodeURIComponent(propertyId)}`
-      : "/property-notes", ["notes", "propertyNotes", "data"]),
-  createPropertyNote: async (input: PropertyNoteInput) => entity<PropertyNote>(await request<PropertyNote | { note: PropertyNote }>("/property-notes", {
+      : "/property-notes", "notes"),
+  createPropertyNote: async (input: PropertyNoteInput) => (await request<{ note: PropertyNote }>("/property-notes", {
       method: "POST",
       body: JSON.stringify(input),
-    }), "note"),
-  updatePropertyNote: async (id: string, patch: PropertyNotePatch) => entity<PropertyNote>(await request<PropertyNote | { note: PropertyNote }>(`/property-notes/${encodeURIComponent(id)}`, {
+    })).note,
+  updatePropertyNote: async (id: string, patch: PropertyNotePatch) => (await request<{ note: PropertyNote }>(`/property-notes/${encodeURIComponent(id)}`, {
       method: "PATCH",
       body: JSON.stringify(patch),
-    }), "note"),
+    })).note,
   deletePropertyNote: (id: string) => request<void>(`/property-notes/${encodeURIComponent(id)}`, { method: "DELETE" }),
   tenantMembers: async (): Promise<TenantMembersResponse> => {
       const response = await request<Partial<TenantMembersResponse>>("/tenant/members");
@@ -115,22 +85,22 @@ export const apiPart02 = {
       return { ...response, invitation: memberSummary(response.invitation) };
     },
   updateMemberAccess: async (email: string, grants: GuestAccessGrant[]) => {
-      const response = await request<TenantMemberSummary | { member: TenantMemberSummary }>(`/tenant/members/${encodeURIComponent(email)}/access`, {
+      const response = await request<{ member: TenantMemberSummary }>(`/tenant/members/${encodeURIComponent(email)}/access`, {
         method: "PUT",
         body: JSON.stringify({ grants }),
       });
-      return memberSummary(entity(response, "member"));
+      return memberSummary(response.member);
     },
   removeTenantMember: (email: string) => request<void>(`/tenant/members/${encodeURIComponent(email.trim().toLowerCase())}`, { method: "DELETE" }),
-  houses: async () => list<House>(await request<unknown>("/houses"), ["houses", "data"]),
-  createHouse: async (house: CreateHouseInput) => houseResponse(await request<House | { house: House }>("/houses", {
+  houses: async () => list<House>(await request<unknown>("/houses"), "houses"),
+  createHouse: async (house: CreateHouseInput) => (await request<{ house: House }>("/houses", {
       method: "POST",
       body: JSON.stringify(house),
-    })),
-  updateHouse: async (houseId: string, patch: HousePatch) => houseResponse(await request<House | { house: House }>(`/houses/${encodeURIComponent(houseId)}`, {
+    })).house,
+  updateHouse: async (houseId: string, patch: HousePatch) => (await request<{ house: House }>(`/houses/${encodeURIComponent(houseId)}`, {
       method: "PATCH",
       body: JSON.stringify(patch),
-    })),
+    })).house,
   deleteHouse: (houseId: string) => request<void>(`/houses/${encodeURIComponent(houseId)}`, { method: "DELETE" }),
   openingStates: (houseId: string, at?: string, signal?: AbortSignal) => request<{ snapshot: OpeningStateSnapshot; observations: OpeningStateObservation[] }>(
       `/houses/${encodeURIComponent(houseId)}/opening-states${at ? `?at=${encodeURIComponent(at)}` : ""}`,
@@ -152,16 +122,16 @@ export const apiPart02 = {
       return result.history ?? [];
     },
   recordOpeningState: async (houseId: string, observation: Omit<OpeningStateObservationInput, "observedAt"> & { observedAt?: string }) => {
-      const response = await request<OpeningStateObservation | { observation: OpeningStateObservation }>(`/houses/${encodeURIComponent(houseId)}/opening-states`, { method: "POST", body: JSON.stringify(observation) });
-      return "observation" in response ? response.observation : response;
+      const response = await request<{ observation: OpeningStateObservation }>(`/houses/${encodeURIComponent(houseId)}/opening-states`, { method: "POST", body: JSON.stringify(observation) });
+      return response.observation;
     },
   sensors: async (houseId?: string, schedulingClass: ApiReadSchedulingClass = "background") => list<Sensor>(await request<unknown>(
       houseId === undefined ? "/sensors" : `/sensors?houseId=${encodeURIComponent(houseId)}`, { schedulingClass },
-    ), ["sensors", "data"]),
-  snapshot: async (houseId: string, schedulingClass: ApiReadSchedulingClass = "background") => list<SensorSnapshot>(await request<unknown>(`/snapshot?houseId=${encodeURIComponent(houseId)}`, { schedulingClass }), ["snapshot", "sensors", "data"]),
+    ), "sensors"),
+  snapshot: async (houseId: string, schedulingClass: ApiReadSchedulingClass = "background") => list<SensorSnapshot>(await request<unknown>(`/snapshot?houseId=${encodeURIComponent(houseId)}`, { schedulingClass }), "snapshot"),
   readings: async (sensorId: string, from: string, to: string, limit = 500, signal?: AbortSignal) => list<Reading>(
       await request<unknown>(`/readings?sensorId=${encodeURIComponent(sensorId)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&limit=${limit}`, withSignal(signal)),
-      ["readings", "data"],
+      "readings",
     ),
   forecast: async (sensorId: string, horizonMinutes = 360, signal?: AbortSignal): Promise<ForecastPoint[]> => {
     const endpoint = `/forecast?sensorId=${encodeURIComponent(sensorId)}&horizonMinutes=${horizonMinutes}`;
@@ -171,11 +141,11 @@ export const apiPart02 = {
   updateHouseGeoreference,
   updateHouseLocation: (houseId: string, location: HouseLocation | null) => updateHouseGeoreference(houseId, { location }),
   houseWeather: async (houseId: string, hours = 48, signal?: AbortSignal) => {
-      const response = await request<HouseWeather | { weather: HouseWeather }>(
+      const response = await request<{ weather: HouseWeather }>(
         `/houses/${encodeURIComponent(houseId)}/weather?hours=${hours}`,
         withSignal(signal),
       );
-      return "weather" in response ? response.weather : response;
+      return response.weather;
     },
   outdoorTemperatureHistory: async (
       houseId: string,
@@ -196,20 +166,20 @@ export const apiPart02 = {
       };
     },
   updateFloor: (houseId: string, floorId: string, floor: House["floors"][number]) => request<House["floors"][number]>(`/houses/${encodeURIComponent(houseId)}/floors/${encodeURIComponent(floorId)}`, { method: "PUT", body: JSON.stringify(floor) }),
-  createSensor: async (sensor: CreateSensorInput) => sensorResponse(await request<Sensor | { sensor: Sensor }>("/sensors", {
+  createSensor: async (sensor: CreateSensorInput) => (await request<{ sensor: Sensor }>("/sensors", {
       method: "POST",
       body: JSON.stringify(sensor),
-    })),
-  updateSensor: async (sensorId: string, sensor: SensorPatch) => sensorResponse(await request<Sensor | { sensor: Sensor }>(`/sensors/${encodeURIComponent(sensorId)}`, {
+    })).sensor,
+  updateSensor: async (sensorId: string, sensor: SensorPatch) => (await request<{ sensor: Sensor }>(`/sensors/${encodeURIComponent(sensorId)}`, {
       method: "PATCH",
       body: JSON.stringify(sensor),
-    })),
+    })).sensor,
   deleteSensor: (sensorId: string) => request<void>(`/sensors/${encodeURIComponent(sensorId)}`, { method: "DELETE" }),
-  sensorLabel: async (sensorId: string) => entity(await request<SensorLabelDescriptor | { label: SensorLabelDescriptor }>(`/sensors/${encodeURIComponent(sensorId)}/label`), "label"),
+  sensorLabel: async (sensorId: string) => (await request<{ label: SensorLabelDescriptor }>(`/sensors/${encodeURIComponent(sensorId)}/label`)).label,
   bulkSensorMappings: (houseId: string, mappings: Array<{ sensorId: string; measurementEntityIds: Record<string, string> }>) => request<{ sensors: Sensor[] }>("/setup/bulk-sensor-mappings", {
       method: "POST",
       body: JSON.stringify({ houseId, mappings }),
     }),
-  alertRules: async (schedulingClass: ApiReadSchedulingClass = "background") => list<AlertRule>(await request<unknown>("/alert-rules", { schedulingClass }), ["rules", "alertRules", "data"]),
-  createAlertRule: (rule: Omit<AlertRule, "id">) => request<AlertRule>("/alert-rules", { method: "POST", body: JSON.stringify(rule) }),
+  alertRules: async (schedulingClass: ApiReadSchedulingClass = "background") => list<AlertRule>(await request<unknown>("/alert-rules", { schedulingClass }), "rules"),
+  createAlertRule: async (rule: Omit<AlertRule, "id">) => (await request<{ rule: AlertRule }>("/alert-rules", { method: "POST", body: JSON.stringify(rule) })).rule,
 };

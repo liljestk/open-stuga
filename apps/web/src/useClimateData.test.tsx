@@ -491,26 +491,6 @@ describe("useClimateData", () => {
     expect(result.current.state.latestMeasurements[sensor.id]?.temperature?.value).not.toBe(39.5);
   });
 
-  it("treats a polling compatibility heartbeat as periodic refresh, never continuous live", async () => {
-    const { result } = renderHook(() => useClimateData());
-    await waitFor(() => expect(result.current.loading).toBe(false));
-    const [[handleEvent]] = mocks.subscribeToEvents.mock.calls as unknown as [[(event: TelemetryEvent) => void]];
-
-    act(() => handleEvent({
-      type: "heartbeat",
-      data: {
-        timestamp: "2026-07-16T12:00:00.000Z",
-        mode: "polling-compatibility",
-        continuous: false,
-        finite: true,
-        reconnectAfterMs: 60_000,
-      },
-    } as unknown as TelemetryEvent));
-
-    expect(result.current.pollingFallback).toBe(true);
-    expect(result.current.connection).toBe("reconnecting");
-  });
-
   it("debounces mutation events into one authoritative live refresh", async () => {
     const { result } = renderHook(() => useClimateData());
     await waitFor(() => expect(result.current.loading).toBe(false));

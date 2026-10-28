@@ -109,15 +109,6 @@ export function aggregateConnection({ legacy, measurements }: StreamConnections)
   return "reconnecting";
 }
 
-export function isPollingCompatibilityHeartbeat(data: unknown): boolean {
-  if (!data || typeof data !== "object") return false;
-  const heartbeat = data as { mode?: unknown; continuous?: unknown; finite?: unknown };
-  return heartbeat.mode === "polling"
-    || heartbeat.mode === "polling-compatibility"
-    || heartbeat.continuous === false
-    || heartbeat.finite === true;
-}
-
 export function bufferLiveTelemetry(buffer: Map<string, BufferedLiveTelemetry>, event: BufferedLiveTelemetry): void {
   const metric = event.type === "measurement" ? event.data.metric : "reading";
   const key = `${event.type}\u0000${event.data.sensorId}\u0000${metric}\u0000${event.data.timestamp}`;

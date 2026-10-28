@@ -146,19 +146,6 @@ export function cancelPendingApiRequests(): void {
   activeRequestControllers.clear();
 }
 
-export function isPollingHeartbeat(value: unknown): value is {
-  mode: "polling" | "polling-compatibility";
-  pollAfterMs?: number;
-  reconnectAfterMs?: number;
-} {
-  if (!value || typeof value !== "object") return false;
-  const heartbeat = value as { mode?: unknown; continuous?: unknown; finite?: unknown };
-  return heartbeat.mode === "polling"
-    || heartbeat.mode === "polling-compatibility"
-    || heartbeat.continuous === false
-    || heartbeat.finite === true;
-}
-
 export function assertSafeApiPath(path: string): void {
   const pathname = path.split("?", 1).at(0) ?? "";
   const containsTraversal = pathname

@@ -38,7 +38,7 @@ export interface SessionLifecycleActions {
     next: ConnectionState,
   ) => void;
   resetStreamConnections: () => void;
-  handleHeartbeat: (data: unknown) => void;
+  handleHeartbeat: () => void;
 }
 
 export interface LiveTelemetryActions {

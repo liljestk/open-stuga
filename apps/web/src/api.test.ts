@@ -577,14 +577,6 @@ describe("live event client", () => {
         state: "open",
       }),
     });
-    source?.emit("heartbeat", {
-      timestamp: "2026-07-16T12:00:00.000Z",
-      mode: "polling-compatibility",
-      continuous: false,
-      finite: true,
-      reconnectAfterMs: 60_000,
-    });
-    expect(onState).toHaveBeenCalledWith("reconnecting");
     source?.emit("authorization", { data: { status: "expired" } });
     source?.emit("authorization", { data: { status: "expired" } });
     expect(source?.closed).toBe(true);
