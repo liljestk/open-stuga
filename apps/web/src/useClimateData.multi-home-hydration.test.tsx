@@ -82,8 +82,6 @@ describe("useClimateData", () => {
     mocks.measurementHistory.mockResolvedValue([]);
     mocks.measurementHistoryPage.mockResolvedValue({ samples: [], from: "", to: "", bucketSeconds: null, truncated: false });
     mocks.measurementForecast.mockResolvedValue([]);
-    mocks.readings.mockResolvedValue([]);
-    mocks.forecast.mockResolvedValue([]);
     mocks.tpLinkDevices.mockResolvedValue([]);
     mocks.disconnectHomeAssistant.mockResolvedValue({ ok: true, integration: demo.integration });
     mocks.disconnectTpLink.mockResolvedValue({ ok: true, detachedSensorIds: [], integration: demo.integration });
@@ -163,8 +161,6 @@ describe("useClimateData", () => {
     expect(result.current.state.measurementHistory[sensor.id]).toBeUndefined();
     expect(result.current.state.measurementForecasts[sensor.id]).toBeUndefined();
     expect(result.current.state.readings[sensor.id]).toBeUndefined();
-    expect(result.current.state.history[sensor.id]).toBeUndefined();
-    expect(result.current.state.forecasts[sensor.id]).toBeUndefined();
   });
 
   it("keeps initial telemetry requests constant as secondary homes grow", async () => {

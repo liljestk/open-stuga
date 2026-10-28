@@ -14,7 +14,7 @@ import { type ClimateState } from "../../domain";
 import { appendLiveHistory, readingSamples, upsertLatest } from "../../measurements";
 import { publishHouseWeatherUpdate } from "../../useHouseWeather";
 import { deactivateAccountStorage } from "../../browserStorage";
-import { LIVE_SERIES_SAMPLES, advanceMockTelemetry, blankState, bufferLiveTelemetry, bufferSeriesValue, isDemoSource, isRemoteSharedDemoTelemetry, mergeLegacySeries, settleInBackground } from "./support";
+import { LIVE_SERIES_SAMPLES, advanceMockTelemetry, blankState, bufferLiveTelemetry, bufferSeriesValue, isDemoSource, isRemoteSharedDemoTelemetry, settleInBackground } from "./support";
 import type { LiveTelemetryActions, SessionLifecycleContext } from "./pipelineTypes";
 
 // Live values only count for the active Home's sensors, and never as demo data in a real workspace.
@@ -28,14 +28,13 @@ function acceptsLiveValue(
     && !isRemoteSharedDemoTelemetry(current, value.sensorId, value.source);
 }
 
-// The newest reading per sensor becomes its latest value; every reading joins its history.
+// The newest reading per sensor becomes its latest value.
 function withLiveReadings(
   current: ClimateState,
   acceptedReadings: readonly Reading[],
-): Pick<ClimateState, "readings" | "history"> {
-  if (!acceptedReadings.length) return { readings: current.readings, history: current.history };
+): Pick<ClimateState, "readings"> {
+  if (!acceptedReadings.length) return { readings: current.readings };
   const readingsState = { ...current.readings };
-  const historyState = { ...current.history };
   const readingsBySensor = new Map<string, Reading[]>();
   for (const reading of acceptedReadings) {
     const sensorReadings = readingsBySensor.get(reading.sensorId) ?? [];
@@ -44,14 +43,8 @@ function withLiveReadings(
   }
   for (const [sensorId, sensorReadings] of readingsBySensor) {
     readingsState[sensorId] = newestReading(readingsState[sensorId], sensorReadings);
-    const existing = current.history[sensorId] ?? [];
-    historyState[sensorId] = mergeLegacySeries(
-      existing,
-      sensorReadings,
-      Math.max(LIVE_SERIES_SAMPLES, existing.length),
-    );
   }
-  return { readings: readingsState, history: historyState };
+  return { readings: readingsState };
 }
 
 function newestReading(previous: Reading | undefined, readings: readonly Reading[]): Reading {

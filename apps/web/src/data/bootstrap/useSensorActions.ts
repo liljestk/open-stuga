@@ -110,7 +110,7 @@ export function useSensorActions(
         if (!isCurrentRequest()) return history;
 
         seriesCommitSequence.current += 1;
-        seriesCommitVersions.current.set(seriesKey, { version: seriesCommitSequence.current, legacy: false });
+        seriesCommitVersions.current.set(seriesKey, { version: seriesCommitSequence.current });
         setState((current) => {
           const samples = replaceMeasurementSeriesWindow(
             current.measurementHistory[sensorId]?.[metric] ?? [],
@@ -223,8 +223,6 @@ export function useSensorActions(
           ...current,
           sensors: current.sensors.filter((sensor) => sensor.id !== sensorId),
           readings: withoutSensorIds(current.readings, removedSensorIds),
-          history: withoutSensorIds(current.history, removedSensorIds),
-          forecasts: withoutSensorIds(current.forecasts, removedSensorIds),
           latestMeasurements: withoutSensorIds(current.latestMeasurements, removedSensorIds),
           measurementHistory: withoutSensorIds(current.measurementHistory, removedSensorIds),
           measurementForecasts: withoutSensorIds(current.measurementForecasts, removedSensorIds),

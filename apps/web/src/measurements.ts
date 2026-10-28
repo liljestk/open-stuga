@@ -106,21 +106,6 @@ export function readingSamples(reading: Reading, definitions: readonly Measureme
   });
 }
 
-export function legacyForecastSamples(
-  point: ForecastPoint,
-  definitions: MeasurementDefinition[],
-): MeasurementForecastPoint[] {
-  return enabledDefinitions(definitions).flatMap((definition) => {
-    const measurement = forecastMeasurement(point, definition.id);
-    return measurement ? [{
-      sensorId: point.sensorId,
-      metric: definition.id,
-      timestamp: point.timestamp,
-      ...measurement,
-    }] : [];
-  });
-}
-
 export function upsertLatest(latest: LatestMeasurements, samples: MeasurementSample[]): LatestMeasurements {
   const next = { ...latest };
   for (const sample of samples) {

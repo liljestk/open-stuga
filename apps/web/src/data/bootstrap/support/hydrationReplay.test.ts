@@ -1,8 +1,8 @@
-import type { MaintenanceTask, ManualObservation, Sensor, StaticParameter } from "@climate-twin/contracts";
+import type { MaintenanceTask, ManualObservation, MeasurementSample, Sensor, StaticParameter } from "@climate-twin/contracts";
 import { describe, expect, it } from "vitest";
-import type { ClimateState } from "../../../domain";
+import { createDemoState } from "../../../domain";
 import { preserveSeriesCommittedDuringLoad, replayHouseMutations } from "./hydrationReplay";
-import type { HouseMutationBuffer, LoadedTelemetryState } from "./telemetryState";
+import type { HouseMutationBuffer } from "./telemetryState";
 
 const sensor = (id: string, name = id) => ({ id, houseId: "house-a", name }) as Sensor;
 const observation = (id: string, sensorId: string | null) => ({ id, sensorId }) as ManualObservation;
@@ -72,31 +72,35 @@ describe("replayHouseMutations", () => {
 });
 
 describe("preserveSeriesCommittedDuringLoad", () => {
-  it("keeps committed legacy history and forecasts only for loaded sensors", () => {
-    const reading = (timestamp: string, temperature: number) => ({ sensorId: "s1", timestamp, temperature, humidity: 40, source: "api", quality: "good" });
+  const sample = (sensorId: string, timestamp: string, value: number) => ({
+    sensorId, metric: "temperature", value, canonicalUnit: "°C", timestamp, source: "api", quality: "good",
+  }) as MeasurementSample;
+
+  it("keeps an explicitly loaded measurement series across a snapshot refresh, only for loaded sensors", () => {
+    const current = createDemoState();
+    current.measurementHistory = {
+      s1: { temperature: [sample("s1", "2026-07-14T10:00:00.000Z", 20)] },
+      s2: { temperature: [sample("s2", "2026-07-14T10:00:00.000Z", 18)] },
+    };
+    current.measurementForecasts = { s1: { temperature: [] }, s2: { temperature: [] } };
     const loaded = {
-      measurementHistory: {},
+      latestMeasurements: {},
+      measurementHistory: { s1: { temperature: [sample("s1", "2026-07-14T10:01:00.000Z", 21)] } },
       measurementForecasts: {},
-      history: { s1: [reading("2026-07-14T10:01:00.000Z", 21)] },
-      forecasts: {},
-    } as unknown as LoadedTelemetryState;
-    const current = {
-      measurementHistory: {},
-      measurementForecasts: {},
-      history: { s1: [reading("2026-07-14T10:00:00.000Z", 20)], s2: [reading("2026-07-14T10:00:00.000Z", 19)] },
-      forecasts: { s1: [{ timestamp: "2026-07-14T11:00:00.000Z" }], s2: [{ timestamp: "2026-07-14T11:00:00.000Z" }] },
-    } as unknown as ClimateState;
+      readings: {},
+    };
     const commits = new Map([
-      ["s1\u0000temperature", { legacy: true }],
-      ["s2\u0000temperature", { legacy: true }],
-      ["malformed", { legacy: true }],
-    ]) as unknown as Parameters<typeof preserveSeriesCommittedDuringLoad>[3];
+      ["s1\u0000temperature", { version: 1 }],
+      ["s2\u0000temperature", { version: 2 }],
+      ["malformed", { version: 3 }],
+    ]);
 
     const preserved = preserveSeriesCommittedDuringLoad(loaded, current, new Set(["s1"]), commits);
 
-    expect(preserved.history.s1?.map((item) => item.timestamp)).toEqual(["2026-07-14T10:00:00.000Z", "2026-07-14T10:01:00.000Z"]);
-    expect(preserved.forecasts.s1).toEqual(current.forecasts.s1);
-    expect(preserved.history.s2).toBeUndefined();
-    expect(preserved.forecasts.s2).toBeUndefined();
+    expect(preserved.measurementHistory.s1?.temperature?.map((item) => item.timestamp))
+      .toEqual(["2026-07-14T10:00:00.000Z", "2026-07-14T10:01:00.000Z"]);
+    expect(preserved.measurementForecasts.s1?.temperature).toEqual([]);
+    expect(preserved.measurementHistory.s2).toBeUndefined();
+    expect(preserved.measurementForecasts.s2).toBeUndefined();
   });
 });

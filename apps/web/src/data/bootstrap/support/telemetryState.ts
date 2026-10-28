@@ -1,4 +1,4 @@
-import { ApiRequestError, errorMessage } from "../../../api/support/request-error";
+import { errorMessage } from "../../../api/support/request-error";
 import type {
   ConnectionState,
   House,
@@ -63,7 +63,7 @@ export function seriesStateKey(sensorId: string, metric: string): string {
 
 export type LoadedTelemetryState = Pick<
   ClimateState,
-  "latestMeasurements" | "measurementHistory" | "measurementForecasts" | "readings" | "history" | "forecasts"
+  "latestMeasurements" | "measurementHistory" | "measurementForecasts" | "readings"
 >;
 
 export type BufferedLiveTelemetry =
@@ -94,7 +94,7 @@ export type StreamConnections = {
   measurements: ConnectionState;
 };
 
-export type SeriesCommit = { version: number; legacy: boolean };
+export type SeriesCommit = { version: number };
 
 export type BufferedSeriesTelemetry = {
   sensorId: string;
@@ -180,10 +180,6 @@ export function isRemoteSharedDemoTelemetry(
 /** Removes demo values already held in browser memory when the API enters real-data mode. */
 export function withoutDemoTelemetry(current: ClimateState, clearAlerts = false): ClimateState {
   const readings = Object.fromEntries(Object.entries(current.readings).filter(([, reading]) => !isDemoSource(reading.source)));
-  const history = Object.fromEntries(Object.entries(current.history).flatMap(([sensorId, values]) => {
-    const retained = values.filter((reading) => !isDemoSource(reading.source));
-    return retained.length ? [[sensorId, retained]] : [];
-  }));
   const latestMeasurements = Object.fromEntries(Object.entries(current.latestMeasurements).flatMap(([sensorId, values]) => {
     const retained = Object.fromEntries(Object.entries(values).filter(([, sample]) => !isDemoSource(sample.source)));
     return Object.keys(retained).length ? [[sensorId, retained]] : [];
@@ -198,12 +194,10 @@ export function withoutDemoTelemetry(current: ClimateState, clearAlerts = false)
   return {
     ...current,
     readings,
-    history,
     latestMeasurements,
     measurementHistory,
     // Forecast contracts do not carry provenance. Drop cached forecasts at the
     // boundary rather than risk retaining values derived from demo history.
-    forecasts: {},
     measurementForecasts: {},
     ...(clearAlerts ? { alerts: [] } : {}),
   };
@@ -223,12 +217,6 @@ export function advanceMockTelemetry(
     .map((sensor) => sensor.id));
   const readings = Object.fromEntries(Object.entries(current.readings)
     .filter(([sensorId, reading]) => !sharedSensorIds.has(sensorId) || !isDemoSource(reading.source)));
-  const history = Object.fromEntries(Object.entries(current.history).flatMap(([sensorId, values]) => {
-    const retained = sharedSensorIds.has(sensorId)
-      ? values.filter((reading) => !isDemoSource(reading.source))
-      : values;
-    return retained.length ? [[sensorId, retained]] : [];
-  }));
   let latestMeasurements = Object.fromEntries(Object.entries(current.latestMeasurements)
     .flatMap(([sensorId, values]) => {
       const retained = sharedSensorIds.has(sensorId)
@@ -252,7 +240,6 @@ export function advanceMockTelemetry(
     if (!previous) continue;
     const next = nextMockReading(sensor, previous, scenario, tick);
     readings[sensor.id] = next;
-    history[sensor.id] = [...(history[sensor.id] ?? []), next].slice(-500);
     const samples = readingSamples(next, current.measurementDefinitions);
     latestMeasurements = upsertLatest(latestMeasurements, samples);
     measurementHistory = appendHistory(measurementHistory, samples, LIVE_SERIES_SAMPLES);
@@ -260,10 +247,8 @@ export function advanceMockTelemetry(
   return {
     ...current,
     readings,
-    history,
     latestMeasurements,
     measurementHistory,
-    forecasts: withoutSensorIds(current.forecasts, sharedSensorIds),
     measurementForecasts: withoutSensorIds(current.measurementForecasts, sharedSensorIds),
   };
 }
@@ -287,15 +272,6 @@ export function seriesBucketSeconds(range: TimeRange, metric?: string): number |
   // Power-derived energy holds a value for at most 15 minutes. Coarser
   // samples would undercount even continuous yearly histories.
   return metric === "power" ? 15 * 60 : 60 * 60;
-}
-
-export function isLegacySeriesCompatibilityError(error: unknown): boolean {
-  if (!(error instanceof ApiRequestError)) return false;
-  if (error.status === 405 || error.status === 501) return true;
-  // The API's unknown-path 404 shares NOT_FOUND with missing resources; only its message tells them apart.
-  return error.status === 404
-    && error.code === "NOT_FOUND"
-    && /\bAPI endpoint not found\b/i.test(error.message);
 }
 
 export async function optionalForecast<T>(request: Promise<T[]>): Promise<{ value: T[] | null; error: string | null }> {

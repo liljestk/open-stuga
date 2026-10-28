@@ -81,8 +81,6 @@ describe("useClimateData", () => {
     mocks.measurementHistory.mockResolvedValue([]);
     mocks.measurementHistoryPage.mockResolvedValue({ samples: [], from: "", to: "", bucketSeconds: null, truncated: false });
     mocks.measurementForecast.mockResolvedValue([]);
-    mocks.readings.mockResolvedValue([]);
-    mocks.forecast.mockResolvedValue([]);
     mocks.tpLinkDevices.mockResolvedValue([]);
     mocks.disconnectHomeAssistant.mockResolvedValue({ ok: true, integration: demo.integration });
     mocks.disconnectTpLink.mockResolvedValue({ ok: true, detachedSensorIds: [], integration: demo.integration });
@@ -168,7 +166,6 @@ describe("useClimateData", () => {
     await waitFor(() => expect(result.current.loading).toBe(false));
 
     expect(result.current.state.readings[sensor.id]).toEqual(liveReading);
-    expect(result.current.state.history[sensor.id]?.at(-1)).toEqual(liveReading);
     expect(result.current.state.latestMeasurements[sensor.id]?.temperature).toMatchObject({
       value: liveReading.temperature,
       timestamp: liveReading.timestamp,

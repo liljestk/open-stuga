@@ -1,6 +1,6 @@
 import type { ApiReadSchedulingClass } from "./support/requestScheduler";
-import type { AlertRule, EquipmentAttachment, EquipmentAttachmentUploadInput, EquipmentLink, EquipmentLinkInput, EquipmentLinkPatch, EquipmentTrackingBinding, ForecastPoint, GuestAccessGrant, House, HouseLocation, HousePatch, HouseWeather, OpeningStateObservation, OpeningStateObservationInput, OpeningStateSnapshot, OutdoorTemperatureSample, PropertyNote, PropertyNoteInput, PropertyNotePatch, Reading, Sensor, SensorLabelDescriptor, SensorPatch, SensorSnapshot, TenantInvitationCreated, TenantMemberSummary, TenantMembersResponse, TrackedEquipmentState, TrackingCapabilities, TrackingEndpoint, TrackingEndpointEnrollmentInput, TrackingMapSnapshot, TrackingProfileManifest } from "@climate-twin/contracts";
-import { expectShape, isForecastSeriesResponse, withSignal } from "@climate-twin/contracts";
+import type { AlertRule, EquipmentAttachment, EquipmentAttachmentUploadInput, EquipmentLink, EquipmentLinkInput, EquipmentLinkPatch, EquipmentTrackingBinding, GuestAccessGrant, House, HouseLocation, HousePatch, HouseWeather, OpeningStateObservation, OpeningStateObservationInput, OpeningStateSnapshot, OutdoorTemperatureSample, PropertyNote, PropertyNoteInput, PropertyNotePatch, Sensor, SensorLabelDescriptor, SensorPatch, SensorSnapshot, TenantInvitationCreated, TenantMemberSummary, TenantMembersResponse, TrackedEquipmentState, TrackingCapabilities, TrackingEndpoint, TrackingEndpointEnrollmentInput, TrackingMapSnapshot, TrackingProfileManifest } from "@climate-twin/contracts";
+import { withSignal } from "@climate-twin/contracts";
 import { API_BASE, completeCollection, list, memberSummary, request, requestV2, updateHouseGeoreference } from "./support";
 import type { CreateHouseInput, CreateSensorInput, OutdoorTemperatureHistoryPage } from "./support";
 
@@ -129,15 +129,6 @@ export const apiPart02 = {
       houseId === undefined ? "/sensors" : `/sensors?houseId=${encodeURIComponent(houseId)}`, { schedulingClass },
     ), "sensors"),
   snapshot: async (houseId: string, schedulingClass: ApiReadSchedulingClass = "background") => list<SensorSnapshot>(await request<unknown>(`/snapshot?houseId=${encodeURIComponent(houseId)}`, { schedulingClass }), "snapshot"),
-  readings: async (sensorId: string, from: string, to: string, limit = 500, signal?: AbortSignal) => list<Reading>(
-      await request<unknown>(`/readings?sensorId=${encodeURIComponent(sensorId)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&limit=${limit}`, withSignal(signal)),
-      "readings",
-    ),
-  forecast: async (sensorId: string, horizonMinutes = 360, signal?: AbortSignal): Promise<ForecastPoint[]> => {
-    const endpoint = `/forecast?sensorId=${encodeURIComponent(sensorId)}&horizonMinutes=${horizonMinutes}`;
-    const body = expectShape(await request<unknown>(endpoint, withSignal(signal)), isForecastSeriesResponse, endpoint);
-    return body.series.find((series) => series.sensorId === sensorId)?.forecast ?? [];
-  },
   updateHouseGeoreference,
   updateHouseLocation: (houseId: string, location: HouseLocation | null) => updateHouseGeoreference(houseId, { location }),
   houseWeather: async (houseId: string, hours = 48, signal?: AbortSignal) => {

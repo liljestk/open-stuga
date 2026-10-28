@@ -4,15 +4,8 @@ import { type TimeRange, timeRangeHours } from "../../domain";
 import {
   MAX_SERIES_SAMPLES,
   canonicalSeries,
-  isLegacySeriesCompatibilityError,
-  legacySeries,
-  mergeLegacySeries,
   mergeMeasurementSeries,
-  metricForecastSamples,
-  metricHistorySamples,
-  replaceLegacySeriesWindow,
   replaceMeasurementSeriesWindow,
-  seriesLimit,
   seriesStateKey,
 } from "./support";
 import type { BufferedSeriesTelemetry } from "./support";
@@ -42,7 +35,6 @@ export function useSeriesQueries(
       const from = new Date(to.getTime() - timeRangeHours(range) * 3600000);
       const requestedFrom = from.toISOString();
       const requestedTo = to.toISOString();
-      const limit = seriesLimit(range);
       setSeriesStates((current) => {
         const previous = current[seriesKey];
         return {
@@ -99,7 +91,6 @@ export function useSeriesQueries(
           loaded = await canonicalSeries(sensorId, metric, range, requestedFrom, requestedTo, forecastSupported, signal);
         } catch (error) {
           canonicalError = error;
-          // The v1 projection below remains available during a staggered upgrade.
         }
         if (signal?.aborted) return;
         if (!isCurrentRequest()) return;
@@ -110,7 +101,7 @@ export function useSeriesQueries(
             MAX_SERIES_SAMPLES,
           );
           seriesCommitSequence.current += 1;
-          seriesCommitVersions.current.set(seriesKey, { version: seriesCommitSequence.current, legacy: false });
+          seriesCommitVersions.current.set(seriesKey, { version: seriesCommitSequence.current });
           setState((current) => {
             const samples = replaceMeasurementSeriesWindow(
               current.measurementHistory[sensorId]?.[metric] ?? [],
@@ -154,75 +145,7 @@ export function useSeriesQueries(
           }));
           return;
         }
-        if ((metric !== "temperature" && metric !== "humidity")
-          || !isLegacySeriesCompatibilityError(canonicalError)) {
-          fail(canonicalError);
-          return;
-        }
-        let fallback: Awaited<ReturnType<typeof legacySeries>>;
-        try {
-          fallback = await legacySeries(sensorId, range, requestedFrom, requestedTo, forecastSupported, signal);
-        } catch (error) {
-          if (signal?.aborted) return;
-          fail(error ?? canonicalError);
-          return;
-        }
-        if (!isCurrentRequest()) return;
-        const refreshedHistory = mergeLegacySeries(fallback.history, liveTelemetry.readings.values(), limit);
-        seriesCommitSequence.current += 1;
-        seriesCommitVersions.current.set(seriesKey, { version: seriesCommitSequence.current, legacy: true });
-        setState((current) => {
-          const history = replaceLegacySeriesWindow(
-            current.history[sensorId] ?? [],
-            fallback.history,
-            liveTelemetry.readings.values(),
-            requestedFrom,
-            requestedTo,
-          );
-          const metricSamples = replaceMeasurementSeriesWindow(
-            current.measurementHistory[sensorId]?.[metric] ?? [],
-            metricHistorySamples(refreshedHistory, current.measurementDefinitions, metric),
-            liveTelemetry.samples.values(),
-            requestedFrom,
-            requestedTo,
-          );
-          const next = {
-            ...current,
-            history: { ...current.history, [sensorId]: history },
-            measurementHistory: {
-              ...current.measurementHistory,
-              [sensorId]: { ...current.measurementHistory[sensorId], [metric]: metricSamples },
-            },
-          };
-          if (fallback.forecasts.value === null) return next;
-          return {
-            ...next,
-            forecasts: { ...current.forecasts, [sensorId]: fallback.forecasts.value },
-            measurementForecasts: {
-              ...current.measurementForecasts,
-              [sensorId]: {
-                ...current.measurementForecasts[sensorId],
-                [metric]: metricForecastSamples(fallback.forecasts.value, current.measurementDefinitions, metric),
-              },
-            },
-          };
-        });
-        const loadedFrom = refreshedHistory[0]?.timestamp ?? null;
-        const loadedTo = refreshedHistory.at(-1)?.timestamp ?? null;
-        setSeriesStates((current) => ({
-          ...current,
-          [seriesKey]: {
-            status: "ready",
-            error: null,
-            forecastError: fallback.forecasts.error,
-            requestedFrom,
-            requestedTo,
-            loadedFrom,
-            loadedTo,
-            partial: refreshedHistory.length >= limit && loadedFrom !== null && Date.parse(loadedFrom) > from.getTime(),
-            truncated: refreshedHistory.length >= limit && loadedFrom !== null && Date.parse(loadedFrom) > from.getTime(),
-          },
-        }));
+        fail(canonicalError);
       } finally {
         activeSeriesTelemetryBuffers.current.delete(liveTelemetry);
       }

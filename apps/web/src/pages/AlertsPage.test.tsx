@@ -100,7 +100,6 @@ describe("AlertsPage monitoring coverage", () => {
             latestMeasurements: {},
             measurementHistory: {},
             readings: {},
-            history: {},
           }}
           units="metric"
           monitoring={monitoringCollection(state.houses.map((house) => monitoringSummary({
@@ -306,7 +305,6 @@ describe("AlertsPage monitoring coverage", () => {
           latestMeasurements: {},
           measurementHistory: {},
           readings: {},
-          history: {},
         }}
         units="metric"
         readOnly
@@ -380,7 +378,6 @@ describe("AlertsPage monitoring coverage", () => {
     state.latestMeasurements = {};
     state.measurementHistory = {};
     state.readings = {};
-    state.history = {};
     render(
       <I18nProvider><AlertsPage state={state} units="metric" onCreateRule={vi.fn()} onUpdateRule={vi.fn()} onAcknowledge={vi.fn()} onIntegrationChange={vi.fn()} /></I18nProvider>,
     );

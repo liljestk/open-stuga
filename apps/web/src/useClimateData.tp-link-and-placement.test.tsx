@@ -61,8 +61,6 @@ describe("useClimateData", () => {
     mocks.measurementHistory.mockResolvedValue([]);
     mocks.measurementHistoryPage.mockResolvedValue({ samples: [], from: "", to: "", bucketSeconds: null, truncated: false });
     mocks.measurementForecast.mockResolvedValue([]);
-    mocks.readings.mockResolvedValue([]);
-    mocks.forecast.mockResolvedValue([]);
     mocks.tpLinkDevices.mockResolvedValue([]);
     mocks.disconnectHomeAssistant.mockResolvedValue({ ok: true, integration: demo.integration });
     mocks.disconnectTpLink.mockResolvedValue({ ok: true, detachedSensorIds: [], integration: demo.integration });
@@ -374,8 +372,6 @@ describe("replaceLoadedHouseTelemetry", () => {
       metric, points.map((point) => ({ ...point, sensorId: unrelatedSensorId })),
     ]));
     const unrelatedReading = { ...sourceReading, sensorId: unrelatedSensorId };
-    const unrelatedLegacyHistory = (demo.history[collidingSensorId] ?? []).map((reading) => ({ ...reading, sensorId: unrelatedSensorId }));
-    const unrelatedLegacyForecasts = (demo.forecasts[collidingSensorId] ?? []).map((point) => ({ ...point, sensorId: unrelatedSensorId }));
     const current: ClimateState = {
       ...demo,
       sensors: [...demo.sensors, { ...demo.sensors[0]!, id: unrelatedSensorId, houseId: "house-unrelated" }],
@@ -383,8 +379,6 @@ describe("replaceLoadedHouseTelemetry", () => {
       measurementHistory: { ...demo.measurementHistory, [unrelatedSensorId]: unrelatedMeasurementHistory },
       measurementForecasts: { ...demo.measurementForecasts, [unrelatedSensorId]: unrelatedMeasurementForecasts },
       readings: { ...demo.readings, [unrelatedSensorId]: unrelatedReading },
-      history: { ...demo.history, [unrelatedSensorId]: unrelatedLegacyHistory },
-      forecasts: { ...demo.forecasts, [unrelatedSensorId]: unrelatedLegacyForecasts },
     };
 
     expect(current.latestMeasurements[collidingSensorId]?.co2).toBeDefined();
@@ -398,15 +392,11 @@ describe("replaceLoadedHouseTelemetry", () => {
       expect(replaced.measurementHistory[sensorId]).toBeUndefined();
       expect(replaced.measurementForecasts[sensorId]).toBeUndefined();
       expect(replaced.readings[sensorId]).toBeUndefined();
-      expect(replaced.history[sensorId]).toBeUndefined();
-      expect(replaced.forecasts[sensorId]).toBeUndefined();
     }
     expect(replaced.latestMeasurements[unrelatedSensorId]).toEqual(current.latestMeasurements[unrelatedSensorId]);
     expect(replaced.measurementHistory[unrelatedSensorId]).toEqual(current.measurementHistory[unrelatedSensorId]);
     expect(replaced.measurementForecasts[unrelatedSensorId]).toEqual(current.measurementForecasts[unrelatedSensorId]);
     expect(replaced.readings[unrelatedSensorId]).toEqual(current.readings[unrelatedSensorId]);
-    expect(replaced.history[unrelatedSensorId]).toEqual(current.history[unrelatedSensorId]);
-    expect(replaced.forecasts[unrelatedSensorId]).toEqual(current.forecasts[unrelatedSensorId]);
   });
 });
 
@@ -419,7 +409,6 @@ describe("withoutDemoTelemetry", () => {
     const current: ClimateState = {
       ...demo,
       readings: { ...demo.readings, [sensorId]: realReading },
-      history: { ...demo.history, [sensorId]: [...demo.history[sensorId]!, realReading] },
       latestMeasurements: { ...demo.latestMeasurements, [sensorId]: { ...demo.latestMeasurements[sensorId], temperature: realSample } },
       measurementHistory: {
         ...demo.measurementHistory,
@@ -432,10 +421,8 @@ describe("withoutDemoTelemetry", () => {
 
     const sanitized = withoutDemoTelemetry(current, true);
     expect(Object.values(sanitized.readings).every((reading) => reading.source !== "mock" && reading.source !== "replay")).toBe(true);
-    expect(sanitized.history[sensorId]).toEqual([realReading]);
     expect(sanitized.latestMeasurements[sensorId]).toEqual({ temperature: realSample });
     expect(sanitized.measurementHistory[sensorId]).toEqual({ temperature: [realSample] });
-    expect(sanitized.forecasts).toEqual({});
     expect(sanitized.measurementForecasts).toEqual({});
     expect(sanitized.alerts).toEqual([]);
   });

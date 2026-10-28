@@ -80,8 +80,6 @@ describe("useClimateData", () => {
     mocks.measurementHistory.mockResolvedValue([]);
     mocks.measurementHistoryPage.mockResolvedValue({ samples: [], from: "", to: "", bucketSeconds: null, truncated: false });
     mocks.measurementForecast.mockResolvedValue([]);
-    mocks.readings.mockResolvedValue([]);
-    mocks.forecast.mockResolvedValue([]);
     mocks.tpLinkDevices.mockResolvedValue([]);
     mocks.disconnectHomeAssistant.mockResolvedValue({ ok: true, integration: demo.integration });
     mocks.disconnectTpLink.mockResolvedValue({ ok: true, detachedSensorIds: [], integration: demo.integration });

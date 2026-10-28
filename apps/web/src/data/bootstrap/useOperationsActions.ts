@@ -46,8 +46,6 @@ export function useOperationsActions(
         observations: current.observations.filter((observation) => observation.houseId !== houseId),
         staticParameters: current.staticParameters.filter((parameter) => parameter.houseId !== houseId),
         readings: withoutSensorIds(current.readings, removedSensorIds),
-        history: withoutSensorIds(current.history, removedSensorIds),
-        forecasts: withoutSensorIds(current.forecasts, removedSensorIds),
         latestMeasurements: withoutSensorIds(current.latestMeasurements, removedSensorIds),
         measurementHistory: withoutSensorIds(current.measurementHistory, removedSensorIds),
         measurementForecasts: withoutSensorIds(current.measurementForecasts, removedSensorIds),

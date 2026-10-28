@@ -83,8 +83,6 @@ describe("useClimateData", () => {
     mocks.measurementHistory.mockResolvedValue([]);
     mocks.measurementHistoryPage.mockResolvedValue({ samples: [], from: "", to: "", bucketSeconds: null, truncated: false });
     mocks.measurementForecast.mockResolvedValue([]);
-    mocks.readings.mockResolvedValue([]);
-    mocks.forecast.mockResolvedValue([]);
     mocks.tpLinkDevices.mockResolvedValue([]);
     mocks.disconnectHomeAssistant.mockResolvedValue({ ok: true, integration: demo.integration });
     mocks.disconnectTpLink.mockResolvedValue({ ok: true, detachedSensorIds: [], integration: demo.integration });
@@ -107,67 +105,21 @@ describe("useClimateData", () => {
     });
   });
 
-  it("merges a legacy live reading received while the fallback series request is in flight", async () => {
-    const demo = createDemoState();
-    const sensor = demo.sensors[0]!;
-    const staleReading = {
-      ...demo.readings[sensor.id]!,
-      timestamp: "2026-07-16T09:00:00.000Z",
-      temperature: 20.2,
-    };
-    const liveReading = {
-      ...staleReading,
-      timestamp: "2026-07-16T09:01:00.000Z",
-      temperature: 27.3,
-      measurements: { ...staleReading.measurements, temperature: 27.3 },
-    };
-    const readingsRequest = deferred<Array<typeof staleReading>>();
-    const { result } = renderHook(() => useClimateData());
-    await waitFor(() => expect(result.current.loading).toBe(false));
-    mocks.measurementHistoryPage.mockRejectedValueOnce(new ApiRequestError(404, "NOT_FOUND", "API endpoint not found"));
-    mocks.readings.mockReturnValueOnce(readingsRequest.promise);
-    mocks.forecast.mockResolvedValueOnce([]);
-    const [[handleTelemetry]] = mocks.subscribeToEvents.mock.calls as unknown as [[(event: TelemetryEvent) => void]];
-
-    let seriesLoad!: Promise<void>;
-    act(() => { seriesLoad = result.current.loadSeries(sensor.id, "temperature", "24h"); });
-    await waitFor(() => expect(mocks.readings).toHaveBeenCalled());
-    act(() => handleTelemetry({ type: "reading", data: liveReading }));
-    await act(async () => {
-      readingsRequest.resolve([staleReading]);
-      await seriesLoad;
-    });
-
-    expect(result.current.state.history[sensor.id]).toEqual([staleReading, liveReading]);
-    expect(result.current.state.measurementHistory[sensor.id]?.temperature?.at(-1)?.value).toBe(27.3);
-    expect(mocks.measurementHistoryPage).toHaveBeenLastCalledWith(
-      sensor.id,
-      "temperature",
-      expect.any(String),
-      expect.any(String),
-      20_000,
-      60,
-    );
-  });
-
   it.each([
     ["timeout", () => new DOMException("The API request timed out", "TimeoutError")],
     ["abort", () => new DOMException("The authenticated session changed", "AbortError")],
     ["general failure", () => new Error("The history service failed")],
-  ])("does not start the legacy fallback after a canonical %s", async (_label, createError) => {
+    ["missing endpoint", () => new ApiRequestError(404, "NOT_FOUND", "API endpoint not found")],
+  ])("reports a canonical %s as the series error", async (_label, createError) => {
     const { result } = renderHook(() => useClimateData());
     await waitFor(() => expect(result.current.loading).toBe(false));
     const sensorId = result.current.state.sensors[0]!.id;
-    const readingsCallsBefore = mocks.readings.mock.calls.length;
-    const forecastCallsBefore = mocks.forecast.mock.calls.length;
     mocks.measurementHistoryPage.mockRejectedValueOnce(createError());
 
     await act(async () => {
       await result.current.loadSeries(sensorId, "temperature", "24h");
     });
 
-    expect(mocks.readings).toHaveBeenCalledTimes(readingsCallsBefore);
-    expect(mocks.forecast).toHaveBeenCalledTimes(forecastCallsBefore);
     expect(result.current.seriesStates[seriesStateKey(sensorId, "temperature")]).toMatchObject({
       status: "error",
     });
@@ -247,7 +199,6 @@ describe("useClimateData", () => {
 
     expect(result.current.state.sensors.some((candidate) => candidate.id === sensor.id)).toBe(false);
     expect(result.current.state.readings[sensor.id]).toBeUndefined();
-    expect(result.current.state.history[sensor.id]).toBeUndefined();
   });
 
   it("keeps a non-first deep link intact and initializes its house-specific state", async () => {

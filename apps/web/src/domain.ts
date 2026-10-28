@@ -61,8 +61,6 @@ export interface ClimateState {
   houses: House[];
   sensors: Sensor[];
   readings: Record<string, Reading>;
-  history: Record<string, Reading[]>;
-  forecasts: Record<string, ForecastPoint[]>;
   alertRules: AlertRule[];
   alerts: AlertEvent[];
   observations: ManualObservation[];
@@ -286,8 +284,6 @@ export function createDemoState(now = new Date()): ClimateState {
     houses,
     sensors,
     readings,
-    history,
-    forecasts,
     alertRules: [{
       id: "rule-high-humidity",
       name: "Sustained high humidity",
