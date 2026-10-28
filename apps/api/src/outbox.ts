@@ -246,13 +246,11 @@ export class NotificationOutboxWorker extends DurableWorker {
     if (!apnsDestination) {
       throw new APNSDeliveryError("iOS notification registration is no longer active", true);
     }
-    await this.apns.send(
-      this.config,
-      apnsDestination,
-      item.payloadJson,
-      AbortSignal.any([signal, AbortSignal.timeout(10_000)]),
-      item.id,
-    );
+    await this.apns.send(this.config, apnsDestination, {
+      payloadJson: item.payloadJson,
+      signal: AbortSignal.any([signal, AbortSignal.timeout(10_000)]),
+      notificationId: item.id,
+    });
     return this.releaseIfAborted(delivery);
   }
 
