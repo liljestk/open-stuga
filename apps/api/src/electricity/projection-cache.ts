@@ -3,7 +3,7 @@ import type { HomeEnergyProjection, House, Sensor } from "@climate-twin/contract
 import { LruTtlCache, type CacheStats } from "../cache.js";
 import type { AnalyticsWorkLimiter } from "../analytics/work-limiter.js";
 import { outdoorLocationKey, type ClimateDatabase } from "../db.js";
-import type { EnergySummaryCache } from "../energy-summary-cache.js";
+import type { EnergySummaryCache } from "./summary-cache.js";
 import type { HybridTelemetryReader } from "../timeseries/read-facade.js";
 import { EnergyProjectionService } from "./projection-service.js";
 

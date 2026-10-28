@@ -7,15 +7,15 @@ import {
   WeatherService,
 } from "../weather.js";
 import { LocationDiscoveryService } from "../location-discovery.js";
-import { AutomaticWeatherProvider, OpenMeteoWeatherProvider } from "../open-meteo.js";
-import { WeatherMonitor } from "../weather-monitor.js";
-import { WeatherRecoveryCoordinator } from "../weather-recovery.js";
+import { AutomaticWeatherProvider, OpenMeteoWeatherProvider } from "../weather/open-meteo.js";
+import { WeatherMonitor } from "../weather/monitor.js";
+import { WeatherRecoveryCoordinator } from "../weather/recovery.js";
 import {
   InMemoryWeatherEventBroker,
-} from "../weather-events.js";
+} from "../weather/events.js";
 import {
   ElectricityPriceService,
-} from "../electricity-prices.js";
+} from "../electricity/prices.js";
 import { persistWeatherObservation } from "./support/weather-observations.js";
 import type { IntegrationBridges } from "./integration-bridges.js";
 /** Outside data the API pulls in: weather forecasts and history, electricity prices and location lookup. */

@@ -392,8 +392,8 @@ Use current source rather than line numbers copied from this incident:
   receipt contract;
 - `deploy/rpi/host-updater/stugu_host_updater/repository.py` — distinction
   between no target and trust verification failure;
-- `apps/api/src/system-update-reasons.ts` — canonical host/feed reason mapping;
-- `apps/api/src/system-updates.ts` — app-only queue checks and request builder;
+- `apps/api/src/system-updates/reasons.ts` — canonical host/feed reason mapping;
+- `apps/api/src/system-updates/service.ts` — app-only queue checks and request builder;
 - `apps/web/src/pages/SystemUpdateOverview.tsx` and `SystemUpdatesPage.tsx` —
   displayed safety state and action routing;
 - `scripts/stugu-update-agent/configuration-request.mjs` — request, repository,

@@ -1,6 +1,6 @@
 import { ClimateDatabase } from "../db.js";
-import { publicElectricityConfiguration } from "../electricity-prices.js";
-import { requireMcpHouse, requireMcpHouseSensor, validateMcpDateRange } from "../mcp-validation.js";
+import { publicElectricityConfiguration } from "../electricity/prices.js";
+import { requireMcpHouse, requireMcpHouseSensor, validateMcpDateRange } from "./validation.js";
 import type { McpRuntime } from "./runtime.js";
 import { mcpDateTime, requiredToolString } from "./arguments.js";
 

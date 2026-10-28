@@ -2,22 +2,19 @@ import { loadConfig, type AppConfig } from "../config.js";
 import { DataOperationsService } from "../data-operations.js";
 import { ClimateDatabase, ensureSqliteSpillDirectory } from "../db.js";
 import { databaseTariffContext } from "../electricity/tariff-context.js";
-import { EnergyCostService } from "../energy-cost.js";
-import { EnergyOptimizer } from "../energy-optimizer.js";
+import { EnergyCostService } from "../electricity/energy-cost.js";
+import { EnergyOptimizer } from "../electricity/optimizer.js";
 import { TelemetryBus } from "../events.js";
 import { HomeAssistantBridge } from "../home-assistant.js";
 import { LocationDiscoveryService } from "../location-discovery.js";
-import { McpOperationTracker } from "../mcp-lifecycle.js";
-import { AutomaticWeatherProvider, OpenMeteoWeatherProvider } from "../open-meteo.js";
-import {
-  AlertEngine,
-  DataModeCoordinator,
-  MeasurementService,
-  MockEngine,
-  ReplayEngine,
-  RuntimeStatus,
-  TelemetryService,
-} from "../services.js";
+import { McpOperationTracker } from "./lifecycle.js";
+import { AutomaticWeatherProvider, OpenMeteoWeatherProvider } from "../weather/open-meteo.js";
+import { AlertEngine } from "../alerts/alert-engine.js";
+import { DataModeCoordinator } from "../demo/data-mode.js";
+import { MeasurementService, TelemetryService } from "../telemetry/ingest.js";
+import { MockEngine } from "../demo/mock-engine.js";
+import { ReplayEngine } from "../demo/replay-engine.js";
+import { RuntimeStatus } from "../runtime-status.js";
 import { SetupDoctor } from "../setup-doctor.js";
 import { StugubyStore } from "../stuguby/store.js";
 import { timeseriesPoolConfig } from "../timeseries/pool-options.js";

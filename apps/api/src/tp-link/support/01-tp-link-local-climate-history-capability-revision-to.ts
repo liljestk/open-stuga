@@ -6,7 +6,7 @@ import type { ClimateDatabase } from "../../db.js";
 import type {
   SensorHistoryRecoveryResult,
 } from "../../sensor-gap-recovery.js";
-import { RuntimeStatus } from "../../services.js";
+import { RuntimeStatus } from "../../runtime-status.js";
 import { compareCodeUnits } from "../../text-order.js";
 
 export const TP_LINK_LOCAL_CLIMATE_HISTORY_CAPABILITY_REVISION = "t310-t315-retained-history-v1";

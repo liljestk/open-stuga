@@ -1,12 +1,12 @@
 import { withSignal } from "@climate-twin/contracts";
 import { outdoorLocationKey } from "../db.js";
-import { mcpBoundedInteger, mcpOptionalFiniteNumber, mcpThermalDateRange, requireMcpHouse, requireMcpHouseSensor } from "../mcp-validation.js";
-import { runThermalSimulationAsync } from "../thermal-simulation.js";
+import { mcpBoundedInteger, mcpOptionalFiniteNumber, mcpThermalDateRange, requireMcpHouse, requireMcpHouseSensor } from "./validation.js";
+import { runThermalSimulationAsync } from "../analytics/thermal/simulation.js";
 import { runMcpThermalWork } from "./thermal-work.js";
 import { configuredHeatPumpConnectionIds, filterHeatPumpAffectedSamples, loadHeatPumpExclusionWindow, filterHeatPumpAffectedSampleMap } from "../analytics/heat-pump-evidence.js";
 import { HEAT_PUMP_SENSOR_TAG } from "../heat-pump-measurements.js";
 import type { McpRuntime } from "./runtime.js";
-import { isThermalIsolationTemperatureSensor, runThermalIsolationAsync } from "../thermal-isolation.js";
+import { isThermalIsolationTemperatureSensor, runThermalIsolationAsync } from "../analytics/thermal/isolation.js";
 import { optionalToolString, requiredToolString } from "./arguments.js";
 
 export async function thermalSimulation(

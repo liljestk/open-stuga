@@ -1,5 +1,5 @@
 import { hasLocalHouseAuthority } from "@climate-twin/contracts";
-import { MOCK_SCENARIOS } from "../services.js";
+import { MOCK_SCENARIOS } from "../demo/mock-engine.js";
 import { HttpError } from "../http-error.js";
 import { bodyObject, enumValue } from "../request-fields.js";
 import { dateValue } from "./support/query-fields.js";

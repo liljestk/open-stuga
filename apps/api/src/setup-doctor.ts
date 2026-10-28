@@ -2,7 +2,7 @@ import type { SensorLabelDescriptor, SetupDoctorCheck, SetupDoctorReport } from 
 import { configuredAlertWebhookDestinations, type AppConfig } from "./config.js";
 import type { ClimateDatabase } from "./db.js";
 import type { DataOperationsService } from "./data-operations.js";
-import type { RuntimeStatus } from "./services.js";
+import type { RuntimeStatus } from "./runtime-status.js";
 import type { TelemetryArchiveWorker } from "./timeseries/archive-worker.js";
 
 export class SetupDoctor {

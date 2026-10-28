@@ -5,7 +5,7 @@ import { createApi, type ApiRuntime } from "../src/app.js";
 import { persistWeatherObservation } from "../src/app/support/weather-observations.js";
 import type { AppConfig } from "../src/config.js";
 import { outdoorLocationKey } from "../src/db.js";
-import { runThermalSimulation, runThermalSimulationAsync, simulateThermalStep } from "../src/thermal-simulation.js";
+import { runThermalSimulation, runThermalSimulationAsync, simulateThermalStep } from "../src/analytics/thermal/simulation.js";
 
 const config: AppConfig = {
   port: 0,

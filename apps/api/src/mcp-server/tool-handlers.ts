@@ -10,12 +10,9 @@ import {
   summarizeMcpHouse,
   summarizeMcpProperty,
   summarizeMcpPropertyArea,
-} from "../mcp-validation.js";
-import {
-  forecastMeasurement,
-  MOCK_SCENARIOS,
-  temperatureHumidityForecast,
-} from "../services.js";
+} from "./validation.js";
+import { forecastMeasurement, temperatureHumidityForecast } from "../analytics/forecast/measurement-forecast.js";
+import { MOCK_SCENARIOS } from "../demo/mock-engine.js";
 import { getHouseWeather } from "./weather-tools.js";
 import { measurementSnapshot } from "./history-tools.js";
 import { optionalBoolean, optionalToolString, requiredToolString } from "./arguments.js";

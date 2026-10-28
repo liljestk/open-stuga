@@ -1,0 +1,518 @@
+import type {
+  AnalyticsQueryRequest,
+  DailyAnalyticsFindingsSnapshot,
+  DataMode,
+  House,
+  MeasurementDefinition,
+  MeasurementSample,
+  Sensor,
+} from "@climate-twin/contracts";
+import {
+  analyticsDefinitionSemantics,
+  buildAnalyticsResponse,
+} from "../analytics/query/analytics-query.js";
+import { buildAnalyticsResponseFromRollup, planAnalyticsRollup } from "../analytics/query/rollup-plan.js";
+import {
+  ClimateDatabase,
+  outdoorLocationKey,
+} from "../db.js";
+import { deriveOpeningActivity } from "../analytics/temporal/opening-intervals.js";
+import { heatingBaseTemperature } from "../analytics/house-parameters.js";
+import { HEAT_PUMP_SENSOR_TAG } from "../heat-pump-measurements.js";
+import {
+  HybridTelemetryReader,
+  IncompleteTelemetryHistoryError,
+  type HybridArchiveReadState,
+} from "../timeseries/read-facade.js";
+import { ComparisonWeather, DAILY_ANALYTICS_ALGORITHM_VERSION, DEFAULT_INTERVAL_MS, DEFAULT_STARTUP_JITTER_MS, DailyAnalyticsFindingsRunSummary, DailyAnalyticsFindingsWorkerOptions, DailyAnalyticsFindingsWorkerStatus, FindingPeriods, HISTORY_LIMIT, MAX_FINDINGS, MAX_MEASUREMENT_SERIES, OUTDOOR_TEMPERATURE_DEFINITION, PeerPeriod, PeriodValue, RankedFinding, TestedComparison, aggregateAnalyticsSeries, comparisonFinding, dailyFindingPeriods, electricityDefinition, errorMessage, rounded, usable } from "./findings-model.js";
+import { compareCodeUnits } from "../text-order.js";
+import { FALSE_DISCOVERY_RATE, benjaminiHochberg, hourlyWeather, type HourlyWeather } from "./peer-statistics.js";
+
+/** A strong difference must also be clear beyond chance at this adjusted level. */
+const STRONG_Q_VALUE = 0.01;
+
+interface OutdoorPeriods {
+  values: Map<string, PeriodValue | null>;
+  hourly: Map<string, HourlyWeather>;
+}
+
+/** Keeps findings that survive the false-discovery control, with their adjusted p-values. */
+export function controlledFindings(tested: readonly TestedComparison[]): RankedFinding[] {
+  const qValues = benjaminiHochberg(tested.map((item) => item.pValue));
+  return tested.flatMap((item, index) => {
+    const qValue = qValues[index]!;
+    if (!item.ranked || qValue > FALSE_DISCOVERY_RATE) return [];
+    const strong = item.ranked.finding.strength === "strong" && qValue <= STRONG_Q_VALUE;
+    return [{
+      score: item.ranked.score - (item.ranked.finding.strength === "strong" && !strong ? 1 : 0),
+      finding: { ...item.ranked.finding, strength: strong ? "strong" : "notable", qValue: rounded(qValue, 6) },
+    }];
+  });
+}
+
+export async function mapWithConcurrency<T, R>(
+  values: readonly T[],
+  concurrency: number,
+  operation: (value: T) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(values.length);
+  let cursor = 0;
+  const worker = async (): Promise<void> => {
+    while (cursor < values.length) {
+      const index = cursor;
+      cursor += 1;
+      results[index] = await operation(values[index]!);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(concurrency, values.length) }, worker));
+  return results;
+}
+
+export class DailyAnalyticsFindingsWorker {
+  readonly #database: ClimateDatabase;
+  readonly #telemetryReader: HybridTelemetryReader;
+  readonly #intervalMs: number;
+  readonly #startupJitterMs: number;
+  readonly #now: () => number;
+  readonly #random: () => number;
+  #timer: ReturnType<typeof setTimeout> | null = null;
+  #activeRun: Promise<DailyAnalyticsFindingsRunSummary> | null = null;
+  #lifecycle = 0;
+  #status: DailyAnalyticsFindingsWorkerStatus = { started: false, running: false, nextRunAt: null, lastRun: null };
+
+  constructor(options: DailyAnalyticsFindingsWorkerOptions) {
+    this.#database = options.database;
+    this.#telemetryReader = options.telemetryReader;
+    this.#intervalMs = Math.max(60_000, Math.trunc(options.intervalMs ?? DEFAULT_INTERVAL_MS));
+    this.#startupJitterMs = Math.max(0, Math.trunc(options.startupJitterMs ?? DEFAULT_STARTUP_JITTER_MS));
+    this.#now = options.now ?? Date.now;
+    this.#random = options.random ?? Math.random;
+  }
+
+  status(): DailyAnalyticsFindingsWorkerStatus {
+    return { ...this.#status, lastRun: this.#status.lastRun ? { ...this.#status.lastRun } : null };
+  }
+
+  start(): void {
+    if (this.#status.started) return;
+    this.#status.started = true;
+    const lifecycle = ++this.#lifecycle;
+    const sample = Math.max(0, Math.min(1, this.#random()));
+    this.#schedule(Math.floor(sample * this.#startupJitterMs), lifecycle);
+  }
+
+  async stop(): Promise<void> {
+    this.#status.started = false;
+    this.#status.nextRunAt = null;
+    this.#lifecycle += 1;
+    if (this.#timer) clearTimeout(this.#timer);
+    this.#timer = null;
+    await this.#activeRun?.catch(() => undefined);
+  }
+
+  runOnce(options: { force?: boolean } = {}): Promise<DailyAnalyticsFindingsRunSummary> {
+    if (this.#activeRun) return this.#activeRun;
+    this.#activeRun = this.#execute(options.force === true).finally(() => { this.#activeRun = null; });
+    return this.#activeRun;
+  }
+
+  async #execute(force: boolean): Promise<DailyAnalyticsFindingsRunSummary> {
+    const startedAt = new Date(this.#now()).toISOString();
+    const summary: DailyAnalyticsFindingsRunSummary = {
+      startedAt,
+      completedAt: startedAt,
+      houses: 0,
+      generated: 0,
+      skipped: 0,
+      failed: 0,
+      findings: 0,
+      lastError: null,
+    };
+    this.#status.running = true;
+    try {
+      const houses = this.#database.listHouses();
+      summary.houses = houses.length;
+      await mapWithConcurrency(houses, 2, async (house) => {
+        const dataMode: DataMode = this.#database.isRealDataMode() ? "live" : "demo";
+        const periods = dailyFindingPeriods(this.#now(), house.timezone);
+        const stored = this.#database.dailyAnalyticsFindings(house.id, dataMode);
+        if (!force && stored?.snapshot?.evaluatedThrough === periods.evaluatedThrough
+          && stored.snapshot.algorithmVersion === DAILY_ANALYTICS_ALGORITHM_VERSION) {
+          summary.skipped += 1;
+          return;
+        }
+        try {
+          const snapshot = await this.#generateHouse(house, dataMode, periods);
+          this.#database.saveDailyAnalyticsFindings(snapshot);
+          summary.generated += 1;
+          summary.findings += snapshot.findings.length;
+        } catch (error) {
+          const detail = errorMessage(error);
+          summary.failed += 1;
+          summary.lastError = detail;
+          if (this.#database.getHouse(house.id)) {
+            this.#database.recordDailyAnalyticsFindingsFailure(house.id, dataMode, new Date(this.#now()).toISOString(), detail);
+          }
+        }
+      });
+    } catch (error) {
+      summary.lastError = errorMessage(error);
+    } finally {
+      summary.completedAt = new Date(this.#now()).toISOString();
+      this.#status.running = false;
+      this.#status.lastRun = { ...summary };
+    }
+    return { ...summary };
+  }
+
+  async #generateHouse(house: House, dataMode: DataMode, periods: FindingPeriods): Promise<DailyAnalyticsFindingsSnapshot> {
+    const warnings = new Set<DailyAnalyticsFindingsSnapshot["warnings"][number]>();
+    const tested: TestedComparison[] = [];
+    const outdoor = house.location ? await this.#outdoorPeriods(house, dataMode, periods, warnings) : null;
+    const baseTemperatureC = heatingBaseTemperature(this.#database.listParameters(house.id), house.id);
+    const weatherFor = (definition: MeasurementDefinition): ComparisonWeather | null => {
+      if (!outdoor) return null;
+      if (electricityDefinition(definition)) return { driver: "heating-degree-hours", baseTemperatureC, hourly: outdoor.hourly };
+      return definition.id.toLowerCase().includes("temperature")
+        ? { driver: "outdoor-temperature", baseTemperatureC, hourly: outdoor.hourly }
+        : null;
+    };
+    const sensors = this.#database.listSensors(house.id)
+      .filter((sensor) => sensor.enabled && !sensor.tags.includes(HEAT_PUMP_SENSOR_TAG));
+    const definitions = this.#database.listMeasurementDefinitions(false).filter((definition) => {
+      const semantics = analyticsDefinitionSemantics(definition);
+      return definition.genericHistoryEnabled !== false
+        && definition.genericStatsEnabled !== false
+        && semantics.kind !== "categorical_state"
+        && semantics.aggregation !== "duration"
+        && semantics.aggregation !== "custom";
+    });
+    if (sensors.length > 0 && definitions.length > 0) {
+      const coverage = await this.#telemetryReader.measurementCoverage({
+        sensorIds: sensors.map((sensor) => sensor.id),
+        metrics: definitions.map((definition) => definition.id),
+      });
+      if (!coverage.complete) warnings.add("archive-incomplete");
+      const sensorById = new Map(sensors.map((sensor) => [sensor.id, sensor]));
+      const definitionById = new Map(definitions.map((definition) => [definition.id, definition]));
+      const candidates = coverage.records
+        .filter((record) => sensorById.has(record.sensorId) && definitionById.has(record.metric))
+        .sort((left, right) => {
+          const leftDefinition = definitionById.get(left.metric)!;
+          const rightDefinition = definitionById.get(right.metric)!;
+          return Number(electricityDefinition(rightDefinition)) - Number(electricityDefinition(leftDefinition))
+            || left.sensorId.localeCompare(right.sensorId)
+            || left.metric.localeCompare(right.metric);
+        })
+        .slice(0, MAX_MEASUREMENT_SERIES);
+      if (coverage.records.length > MAX_MEASUREMENT_SERIES) warnings.add("scope-limited");
+      const measurementFindings = await mapWithConcurrency(candidates, 4, async (record) => {
+        const sensor = sensorById.get(record.sensorId)!;
+        const definition = definitionById.get(record.metric)!;
+        return this.#measurementFinding(sensor, definition, dataMode, periods, warnings, weatherFor(definition));
+      });
+      tested.push(...measurementFindings.filter((item): item is TestedComparison => item !== null));
+    }
+
+    if (house.location && outdoor) {
+      const comparison = this.#outdoorFinding(house, periods, outdoor);
+      if (comparison) tested.push(comparison);
+    }
+    tested.push(...await this.#openingFindings(house, periods, warnings));
+    const ranked = controlledFindings(tested);
+
+    return {
+      apiVersion: "1.0",
+      houseId: house.id,
+      dataMode,
+      periodKind: "month-to-date",
+      evaluatedThrough: periods.evaluatedThrough,
+      algorithmVersion: DAILY_ANALYTICS_ALGORITHM_VERSION,
+      generatedAt: new Date(this.#now()).toISOString(),
+      findings: ranked.sort((left, right) => right.score - left.score
+        || left.finding.subjectLabel.localeCompare(right.finding.subjectLabel))
+        .slice(0, MAX_FINDINGS)
+        .map((item) => item.finding),
+      warnings: [...warnings].sort(compareCodeUnits),
+      seriesTested: tested.length,
+      falseDiscoveryRate: FALSE_DISCOVERY_RATE,
+    };
+  }
+
+  async #measurementFinding(
+    sensor: Sensor,
+    definition: MeasurementDefinition,
+    dataMode: DataMode,
+    periods: FindingPeriods,
+    warnings: Set<DailyAnalyticsFindingsSnapshot["warnings"][number]>,
+    weather: ComparisonWeather | null,
+  ): Promise<TestedComparison | null> {
+    const current = await this.#measurementPeriod(sensor, definition, dataMode, periods.current, warnings);
+    if (!usable(current)) return null;
+    const peers = await Promise.all(periods.baseline.map(async (period) => ({
+      period,
+      value: await this.#measurementPeriod(sensor, definition, dataMode, period, warnings),
+    })));
+    const usablePeers = peers.filter((peer): peer is { period: PeerPeriod; value: PeriodValue } => usable(peer.value));
+    if (usablePeers.length === 0) return null;
+    return comparisonFinding({
+      category: electricityDefinition(definition) ? "electricity" : "sensor",
+      subjectId: sensor.id,
+      subjectLabel: sensor.name,
+      metric: definition.id,
+      unit: definition.unit,
+      definition,
+      currentPeriod: periods.current,
+      current,
+      baselinePeriods: usablePeers.map((peer) => peer.period),
+      baseline: usablePeers.map((peer) => peer.value),
+      weather,
+    });
+  }
+
+  async #measurementPeriod(
+    sensor: Sensor,
+    definition: MeasurementDefinition,
+    dataMode: DataMode,
+    period: PeerPeriod,
+    warnings: Set<DailyAnalyticsFindingsSnapshot["warnings"][number]>,
+  ): Promise<PeriodValue | null> {
+    try {
+      const request = this.#measurementRequest(sensor, definition, dataMode, period);
+      const entities = [{ id: sensor.id, label: sensor.name }];
+      const rollupPlan = planAnalyticsRollup({ request, definitions: [definition], entities });
+      if (rollupPlan) {
+        const rollup = await this.#telemetryReader.measurementAnalyticsRollup(rollupPlan);
+        if (rollup) {
+          const response = buildAnalyticsResponseFromRollup({
+            request,
+            definitions: [definition],
+            entities,
+            plan: rollupPlan,
+            rollup: rollup.result,
+            archiveState: rollup.archiveState,
+          });
+          return aggregateAnalyticsSeries(response.series[0]!, period);
+        }
+      }
+      const read = await this.#telemetryReader.measurementHistory({
+        sensorId: sensor.id,
+        metric: definition.id,
+        from: period.start,
+        to: period.end,
+        limit: HISTORY_LIMIT,
+      });
+      if (read.records.length >= HISTORY_LIMIT) {
+        warnings.add("source-truncated");
+        return null;
+      }
+      const records = read.records.filter((sample) => sample.timestamp >= period.start
+        && sample.timestamp < period.end && sample.quality !== "stale");
+      return this.#aggregateSamples(records, sensor, definition, dataMode, period, read.provenance.archiveState);
+    } catch (error) {
+      if (error instanceof IncompleteTelemetryHistoryError) {
+        warnings.add("archive-incomplete");
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  #measurementRequest(
+    sensor: Pick<Sensor, "id">,
+    definition: MeasurementDefinition,
+    dataMode: DataMode,
+    period: PeerPeriod,
+  ): AnalyticsQueryRequest {
+    return {
+      apiVersion: "1.0",
+      dataMode,
+      scope: { kind: "house", id: "daily-findings", entityIds: [sensor.id] },
+      measurementIds: [definition.id],
+      range: { start: period.start, end: period.end, timezone: "UTC" },
+      resolution: "1d",
+      aggregation: "default",
+      qualityFilter: { include: ["good", "estimated"] },
+      include: ["series", "summary", "quality", "provenance"],
+      maxPointsPerSeries: 5_000,
+      requestId: `daily-${sensor.id}-${definition.id}-${period.key}`,
+    };
+  }
+
+  async #aggregateSamples(
+    samples: MeasurementSample[],
+    sensor: Pick<Sensor, "id" | "name">,
+    definition: MeasurementDefinition,
+    dataMode: DataMode,
+    period: PeerPeriod,
+    archiveState: HybridArchiveReadState,
+  ): Promise<PeriodValue | null> {
+    const response = await buildAnalyticsResponse({
+      request: this.#measurementRequest(sensor, definition, dataMode, period),
+      samples,
+      definitions: [definition],
+      entities: [{ id: sensor.id, label: sensor.name }],
+      archiveState,
+    });
+    return aggregateAnalyticsSeries(response.series[0]!, period);
+  }
+
+  /** Outdoor temperature per period: its level for the weather finding and its hourly means for adjusting others. */
+  async #outdoorPeriods(
+    house: House,
+    dataMode: DataMode,
+    periods: FindingPeriods,
+    warnings: Set<DailyAnalyticsFindingsSnapshot["warnings"][number]>,
+  ): Promise<OutdoorPeriods> {
+    const locationKey = outdoorLocationKey(house.location);
+    const result: OutdoorPeriods = { values: new Map(), hourly: new Map() };
+    await Promise.all([periods.current, ...periods.baseline].map(async (period) => {
+      try {
+        const read = await this.#telemetryReader.outdoorTemperatureHistory({
+          houseId: house.id,
+          locationKey,
+          from: period.start,
+          to: period.end,
+          limit: HISTORY_LIMIT,
+        });
+        if (read.records.length >= HISTORY_LIMIT) {
+          warnings.add("source-truncated");
+          result.values.set(period.key, null);
+          return;
+        }
+        const records = read.records.filter((sample) => sample.timestamp >= period.start && sample.timestamp < period.end);
+        result.hourly.set(period.key, hourlyWeather(records));
+        const samples: MeasurementSample[] = records.map((sample) => ({
+          sensorId: "outdoor-weather",
+          metric: OUTDOOR_TEMPERATURE_DEFINITION.id,
+          value: sample.temperatureC,
+          canonicalUnit: "°C",
+          timestamp: sample.timestamp,
+          source: "import",
+          quality: "good",
+        }));
+        result.values.set(period.key, await this.#aggregateSamples(samples, { id: "outdoor-weather", name: "Outdoor weather" },
+          OUTDOOR_TEMPERATURE_DEFINITION, dataMode, period, read.provenance.archiveState));
+      } catch (error) {
+        if (error instanceof IncompleteTelemetryHistoryError) {
+          warnings.add("archive-incomplete");
+          result.values.set(period.key, null);
+          return;
+        }
+        throw error;
+      }
+    }));
+    return result;
+  }
+
+  #outdoorFinding(house: House, periods: FindingPeriods, outdoor: OutdoorPeriods): TestedComparison | null {
+    const current = outdoor.values.get(periods.current.key) ?? null;
+    if (!usable(current)) return null;
+    const usablePeers = periods.baseline.flatMap((period) => {
+      const value = outdoor.values.get(period.key) ?? null;
+      return usable(value) ? [{ period, value }] : [];
+    });
+    if (usablePeers.length === 0) return null;
+    return comparisonFinding({
+      category: "outdoor-weather",
+      subjectId: `${house.id}:outdoor-weather`,
+      subjectLabel: "Outdoor weather",
+      metric: "outdoor_temperature",
+      unit: "°C",
+      definition: OUTDOOR_TEMPERATURE_DEFINITION,
+      currentPeriod: periods.current,
+      current,
+      baselinePeriods: usablePeers.map((peer) => peer.period),
+      baseline: usablePeers.map((peer) => peer.value),
+    });
+  }
+
+  async #openingFindings(
+    house: House,
+    periods: FindingPeriods,
+    warnings: Set<DailyAnalyticsFindingsSnapshot["warnings"][number]>,
+  ): Promise<TestedComparison[]> {
+    const activity = await Promise.all([periods.current, ...periods.baseline].map(async (period) => {
+      try {
+        const [leading, history] = await Promise.all([
+          this.#telemetryReader.openingStateSnapshot({
+            houseId: house.id,
+            at: period.start,
+            limit: 10_000,
+          }),
+          this.#telemetryReader.openingStateHistory({
+            houseId: house.id,
+            from: period.start,
+            to: period.end,
+            limit: HISTORY_LIMIT,
+          }),
+        ]);
+        return {
+          period,
+          series: deriveOpeningActivity(
+            house,
+            [...leading.records, ...history.records],
+            period.start,
+            period.end,
+          ),
+        };
+      } catch (error) {
+        if (error instanceof IncompleteTelemetryHistoryError) {
+          warnings.add("archive-incomplete");
+          return { period, series: [] as ReturnType<typeof deriveOpeningActivity> };
+        }
+        throw error;
+      }
+    }));
+    const result: TestedComparison[] = [];
+    for (const floor of house.floors) {
+      for (const element of floor.planElements ?? []) {
+        if ((element.kind !== "door" && element.kind !== "window")
+          || (element.kind === "door" && element.variant === "open-passage")
+          || (element.kind === "window" && element.variant === "fixed")) continue;
+        const key = `${floor.id}:${element.id}`;
+        const periodValue = (series: ReturnType<typeof deriveOpeningActivity>): PeriodValue | null => {
+          const opening = series.find((item) => item.target.key === key);
+          return opening && opening.observationCount > 0
+            ? {
+                value: opening.openedCount,
+                sampleCount: opening.observationCount,
+                coverage: null,
+                statistic: "open-count",
+              }
+            : null;
+        };
+        const current = periodValue(activity[0]!.series);
+        if (!current) continue;
+        const peers = activity.slice(1).flatMap(({ period, series }) => {
+          const value = periodValue(series);
+          return value ? [{ period, value }] : [];
+        });
+        if (peers.length === 0) continue;
+        const finding = comparisonFinding({
+          category: "opening",
+          subjectId: `${floor.id}:${element.id}`,
+          subjectLabel: element.label?.trim() || `${element.kind === "door" ? "Door" : "Window"} · ${floor.name}`,
+          metric: "opening_events",
+          unit: "opens",
+          currentPeriod: periods.current,
+          current,
+          baselinePeriods: peers.map((peer) => peer.period),
+          baseline: peers.map((peer) => peer.value),
+        });
+        if (finding) result.push(finding);
+      }
+    }
+    return result;
+  }
+
+  #schedule(delayMs: number, lifecycle: number): void {
+    if (!this.#status.started || lifecycle !== this.#lifecycle) return;
+    this.#status.nextRunAt = new Date(this.#now() + delayMs).toISOString();
+    this.#timer = setTimeout(() => {
+      this.#timer = null;
+      this.#status.nextRunAt = null;
+      void this.runOnce().finally(() => this.#schedule(this.#intervalMs, lifecycle));
+    }, delayMs);
+  }
+}

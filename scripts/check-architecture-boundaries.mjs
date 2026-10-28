@@ -178,7 +178,7 @@ for (const path of await filesBelow(apiAnalyticsRoot)) {
   const name = projectPath(path);
   if (!pureAnalyticsNames.test(name)) continue;
   const text = await readFile(path, "utf8");
-  if (/from\s+["'][^"']*(?:\/db|\/timeseries|express|\/events|\/analytics\.js)/.test(text)) {
+  if (/from\s+["'][^"']*(?:\/db|\/timeseries|express|\/events|\/analytics-query\.js)/.test(text)) {
     report(path, "pure analytics modules may not import API I/O or transport infrastructure");
   }
 }
@@ -186,7 +186,7 @@ for (const path of await filesBelow(apiAnalyticsRoot)) {
 // Spreading a data-sized array into Math.min/max can exceed the engine's argument limit.
 const dataSizedMinMaxFiles = [
   ...await filesBelow(apiAnalyticsRoot),
-  ...["thermal-simulation.ts", "thermal-isolation.ts", "energy-cost.ts"].map((name) => join(root, "apps", "api", "src", name)),
+  ...["analytics/thermal/simulation.ts", "analytics/thermal/isolation.ts", "electricity/energy-cost.ts"].map((name) => join(root, "apps", "api", "src", name)),
   join(webSourceRoot, "pages", "energyAnalysis.ts"),
   ...["SensorAnalyticsChart.tsx", "TrendChart.tsx", "ThermalSimulationPanel.tsx", "RoomComfortBoard.tsx"]
     .map((name) => join(webSourceRoot, "components", name)),

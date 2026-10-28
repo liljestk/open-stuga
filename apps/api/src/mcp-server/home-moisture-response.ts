@@ -1,11 +1,11 @@
 import { outdoorLocationKey } from "../db.js";
 import { mapWithConcurrency } from "../timeseries/read-support.js";
 import { MCP_THERMAL_HISTORY_READ_CONCURRENCY } from "./thermal-work.js";
-import { mcpThermalDateRange, requireMcpHouse } from "../mcp-validation.js";
+import { mcpThermalDateRange, requireMcpHouse } from "./validation.js";
 import {
   isMoistureResponseSensor,
   runMoistureResponseAsync,
-} from "../moisture-response.js";
+} from "../analytics/thermal/moisture-response.js";
 import { optionalToolString, requiredToolString } from "./arguments.js";
 import {
   configuredHeatPumpConnectionIds,

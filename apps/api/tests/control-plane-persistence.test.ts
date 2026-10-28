@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ClimateDatabase, outdoorLocationKey } from "../src/db.js";
 import { LocalAuthStore } from "../src/local-auth.js";
-import { MockEngine } from "../src/services.js";
+import { MockEngine } from "../src/demo/mock-engine.js";
 
 describe("SQLite control-plane durability", () => {
   it("rolls property creation back if its required default configuration cannot be stored", () => {

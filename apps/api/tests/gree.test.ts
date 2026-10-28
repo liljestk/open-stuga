@@ -13,7 +13,7 @@ import { GreeBridge } from "../src/gree.js";
 import type { GreeStatePayload } from "../src/gree-protocol.js";
 import { HeatPumpStateStore } from "../src/heat-pump-state.js";
 import { readIntegrationSecrets, writeIntegrationSecrets } from "../src/integration-secrets.js";
-import type { RuntimeStatus } from "../src/services.js";
+import type { RuntimeStatus } from "../src/runtime-status.js";
 import type { TimeseriesStore } from "../src/timeseries/store.js";
 
 const MAC = "AABBCCDDEEFF";

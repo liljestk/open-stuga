@@ -1,5 +1,5 @@
 import type { MeasurementSample } from "@climate-twin/contracts";
-import { HA_HISTORY_CHUNK_MS } from "./support/01-home-assistant-measurement-binding-to-validate-entit.js";
+import { HA_HISTORY_CHUNK_MS } from "./support/entity-model.js";
 
 export const HA_HISTORY_MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
 export const HA_HISTORY_MAX_CHUNKS = 30;

@@ -7,8 +7,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   CURRENT_SYSTEM_UPDATE_REASON_CODE_GROUPS,
   canonicalSystemUpdateReason,
-} from "../src/system-update-reasons.js";
-import { SystemUpdateService } from "../src/system-updates.js";
+} from "../src/system-updates/reasons.js";
+import { SystemUpdateService } from "../src/system-updates/service.js";
 
 const currentReasonMappings = Object.entries(CURRENT_SYSTEM_UPDATE_REASON_CODE_GROUPS)
   .flatMap(([canonicalReason, codes]) => codes.map((code) => [code, canonicalReason] as const));

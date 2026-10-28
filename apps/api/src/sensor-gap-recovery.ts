@@ -5,7 +5,7 @@ import {
   type SensorDataGapRecord,
   type SensorDataGapSource,
 } from "./db.js";
-import type { MeasurementService } from "./services.js";
+import type { MeasurementService } from "./telemetry/ingest.js";
 import type { HybridTelemetryReader } from "./timeseries/read-facade.js";
 
 export interface SensorMetricAvailability {

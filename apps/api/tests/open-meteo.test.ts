@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { AutomaticWeatherProvider, OpenMeteoWeatherProvider, openMeteoConditions, prefersFmi } from "../src/open-meteo.js";
+import { AutomaticWeatherProvider, OpenMeteoWeatherProvider, openMeteoConditions, prefersFmi } from "../src/weather/open-meteo.js";
 import type { HouseWeather } from "@climate-twin/contracts";
 
 describe("Open-Meteo weather provider", () => {

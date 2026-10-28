@@ -6,7 +6,8 @@ import { loadConfig } from "../src/config.js";
 import { TelemetryBus } from "../src/events.js";
 import { DEFAULT_ALERT_DELIVERY_POLICY } from "../src/notification-policy.js";
 import { NotificationOutboxWorker, type NotificationDeliveryFailure } from "../src/outbox.js";
-import { AlertEngine, RuntimeStatus } from "../src/services.js";
+import { AlertEngine } from "../src/alerts/alert-engine.js";
+import { RuntimeStatus } from "../src/runtime-status.js";
 import { TelegramService } from "../src/telegram.js";
 
 const OWNER = { email: "owner@example.test", password: "correct horse battery staple" };

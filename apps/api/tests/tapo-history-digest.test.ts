@@ -5,7 +5,7 @@ import {
   TAPO_HISTORY_API_IMPLEMENTATION_SHA256,
   TAPO_HISTORY_API_ROOT_DIRECTORY,
   apiImplementationSha256,
-} from "../src/tapo-history-export/support/01-max-csv-bytes-to-tapo-csv-schema-signature.js";
+} from "../src/tapo-history-export/support/export-limits.js";
 
 describe("Tapo canary implementation digest", () => {
   it("hashes the whole API build rather than the Tapo export folder", () => {

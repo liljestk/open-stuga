@@ -5,9 +5,9 @@ import {
   type HostCpuTimes,
   type HostProcessCpuTimes,
   type HostSystemDataSource,
-} from "../src/host-system.js";
+} from "../src/host-system/monitor.js";
 import { createApi } from "../src/app.js";
-import { enqueueHostSystemAlertNotifications } from "../src/host-system-notifications.js";
+import { enqueueHostSystemAlertNotifications } from "../src/host-system/notifications.js";
 import { redactSystemErrorMessage } from "../src/system-error-log.js";
 import { config } from "./appTestSupport.js";
 

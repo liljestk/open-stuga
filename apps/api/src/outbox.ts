@@ -1,7 +1,7 @@
 import { createHmac } from "node:crypto";
 import { configuredAlertWebhookDestinations, type AppConfig } from "./config.js";
 import type { ClimateDatabase, NotificationOutboxItem } from "./db.js";
-import type { RuntimeStatus } from "./services.js";
+import type { RuntimeStatus } from "./runtime-status.js";
 import { TelegramService } from "./telegram.js";
 import { APNSDeliveryError, APNSService } from "./apns.js";
 import {

@@ -1,6 +1,6 @@
 import { hasLocalHouseAuthority, type HouseWeather } from "@climate-twin/contracts";
 import { outdoorLocationKey } from "../db.js";
-import { requireMcpHouse, mcpBoundedInteger, validateMcpDateRange } from "../mcp-validation.js";
+import { requireMcpHouse, mcpBoundedInteger, validateMcpDateRange } from "./validation.js";
 import { WeatherRequestSupersededError } from "../weather.js";
 import type { McpRuntime } from "./runtime.js";
 import { mcpDateTime, requiredToolString } from "./arguments.js";

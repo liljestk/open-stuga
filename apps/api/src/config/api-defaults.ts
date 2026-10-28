@@ -1,5 +1,5 @@
 import { dirname, join } from "node:path";
-import type { AppConfig } from "./01-app-config-to-system-update-image-prefix.js";
+import type { AppConfig } from "./app-config.js";
 
 /** The AppConfig fields a programmatic caller may leave out; normalizeAppConfig fills them. */
 export type ApiDefaultedConfigKey =

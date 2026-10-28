@@ -6,7 +6,7 @@ import { createApi, type ApiRuntime } from "../src/app.js";
 import type { AppConfig } from "../src/config.js";
 import "../src/home-assistant.js";
 import { HomeAssistantConnectionBridgeCore } from "../src/home-assistant/core.js";
-import { HA_HISTORY_CHUNK_MS, type EntityTarget, type HaState, type HomeAssistantEntityMapping } from "../src/home-assistant/support/01-home-assistant-measurement-binding-to-validate-entit.js";
+import { HA_HISTORY_CHUNK_MS, type EntityTarget, type HaState, type HomeAssistantEntityMapping } from "../src/home-assistant/support/entity-model.js";
 
 /** The bridge's private entry points these unit tests drive directly. */
 interface BridgeInternals {

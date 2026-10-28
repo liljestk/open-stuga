@@ -17,8 +17,8 @@ import type {
   StoredSpatialSensorBinding,
   StoredSpatialSensorCalibration,
 } from "../types.js";
-import { CoreClimateReader, SpatialTelemetryReader } from "./01-spatial-telemetry-reader-to-architectural-opening-ar.js";
-import { ResolvedSpatialControlData, buildHouseTopology, buildOpeningConnectionStateIntervals, buildPropertyTopology, canonicalCalibrations, canonicalContextEvents, pairSparseClimateSamples, queryMetrics, telemetryReadWarnings } from "./02-apply-architectural-opening-states-to-telemetry-read.js";
+import { CoreClimateReader, SpatialTelemetryReader } from "./topology-geometry.js";
+import { ResolvedSpatialControlData, buildHouseTopology, buildOpeningConnectionStateIntervals, buildPropertyTopology, canonicalCalibrations, canonicalContextEvents, pairSparseClimateSamples, queryMetrics, telemetryReadWarnings } from "./topology-builder.js";
 
 export class ClimateDatabaseSpatialInputAdapter implements SpatialCoreInputPort {
   constructor(readonly core: CoreClimateReader, readonly telemetry: SpatialTelemetryReader) {}

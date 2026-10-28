@@ -4,7 +4,7 @@ import { dirname, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { compareCodeUnits } from "../../text-order.js";
 import type { PersistedSpatialLayerSnapshot, SpatialCalibrationSession, SpatialConfigurationVersion, SpatialDataPartition, SpatialEngineAssignment, SpatialGroundTruth, SpatialInferenceRun, SpatialInferenceSession, SpatialLayerSnapshotDraft, SpatialRunStatus, SpatialScope, StoredSpatialContextEvent, StoredSpatialSensorBinding, StoredSpatialSensorCalibration } from "../types.js";
-import { assertInterval, assertIsoTimestamp, calibrationMethodForStorage, calibrationMethodFromStorage, contentHash, FAR_FUTURE, inferenceSessionFromRow, NonDeterministicSpatialOutputError, parseJson, partitionFromRow, partitionParams, runFromRow, scopeFromRow, scopeParams, snapshotFromRow, SpatialInferenceJob, SpatialSourceIdentityCollisionError, SpatialStateValidationError, sqlIdentifier, SqlRow, stableJson } from "./support/01-far-future-to-spatial-inference-job.js";
+import { assertInterval, assertIsoTimestamp, calibrationMethodForStorage, calibrationMethodFromStorage, contentHash, FAR_FUTURE, inferenceSessionFromRow, NonDeterministicSpatialOutputError, parseJson, partitionFromRow, partitionParams, runFromRow, scopeFromRow, scopeParams, snapshotFromRow, SpatialInferenceJob, SpatialSourceIdentityCollisionError, SpatialStateValidationError, sqlIdentifier, SqlRow, stableJson } from "./support/state-rows.js";
 
 export class SpatialLayerStateStoreCore {
   #transactionDepth: number = 0;

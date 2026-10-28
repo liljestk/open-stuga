@@ -5,8 +5,8 @@ import { createApi, type ApiRuntime } from "../src/app.js";
 import { loadConfig } from "../src/config.js";
 import type { AnalyticsWorkLimiter } from "../src/analytics/work-limiter.js";
 import type { ClimateDatabase } from "../src/db.js";
-import type { EnergyCostService } from "../src/energy-cost.js";
-import { EnergySummaryCache } from "../src/energy-summary-cache.js";
+import type { EnergyCostService } from "../src/electricity/energy-cost.js";
+import { EnergySummaryCache } from "../src/electricity/summary-cache.js";
 import {
   HybridTelemetryReader,
   type ArchiveTelemetryReader,

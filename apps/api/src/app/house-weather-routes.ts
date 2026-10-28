@@ -1,7 +1,7 @@
 import { outdoorLocationKey } from "../db.js";
 import { WeatherRequestSupersededError, WeatherUnavailableError } from "../weather.js";
-import { prefersFmi } from "../open-meteo.js";
-import { WeatherEventSupersededError } from "../weather-events.js";
+import { prefersFmi } from "../weather/open-meteo.js";
+import { WeatherEventSupersededError } from "../weather/events.js";
 import { HttpError } from "../http-error.js";
 import { dateValue, safeInteger } from "./support/query-fields.js";
 import { requireVisibleHouse } from "./support/house-access.js";

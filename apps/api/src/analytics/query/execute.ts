@@ -8,12 +8,12 @@ import type {
 import {
   AnalyticsQueryError,
   buildAnalyticsResponse,
-} from "../../analytics.js";
+} from "./analytics-query.js";
 import {
   buildAnalyticsResponseFromRollup,
   planAnalyticsRollup,
   planSummaryRollup,
-} from "../../analytics-rollup.js";
+} from "./rollup-plan.js";
 import type { HybridTelemetryReader } from "../../timeseries/read-facade.js";
 import { mapWithConcurrency } from "../../timeseries/read-support.js";
 

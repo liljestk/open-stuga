@@ -5,7 +5,7 @@ import { apiErrorMiddleware } from "../src/app/error-handling.js";
 import { registerScheduledDataExportRoutes, type ScheduledDataExportRouteContext } from "../src/app/scheduled-data-export-routes.js";
 import { registerSystemUpdateRoutes, type SystemUpdateRouteContext } from "../src/app/system-update-routes.js";
 import type { LocalRequestPrincipal } from "../src/app/support/local-sessions.js";
-import { SystemUpdateError } from "../src/system-updates.js";
+import { SystemUpdateError } from "../src/system-updates/service.js";
 
 function principal(role: LocalRequestPrincipal["role"]): LocalRequestPrincipal {
   return { userId: `user-${role}`, email: `${role}@example.test`, role, joinedAt: "2026-01-01T00:00:00.000Z", grants: [], bootstrap: false };

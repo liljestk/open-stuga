@@ -1,6 +1,6 @@
 import type { HouseWeather } from "@climate-twin/contracts";
 import { ClimateDatabase, outdoorLocationKey } from "../../db.js";
-import { DataModeCoordinator } from "../../services.js";
+import { DataModeCoordinator } from "../../demo/data-mode.js";
 
 export function persistWeatherObservation(database: ClimateDatabase, weather: HouseWeather, dataMode?: DataModeCoordinator): void {
   if (weather.stale || !weather.current || !Number.isFinite(weather.current.temperatureC)) return;

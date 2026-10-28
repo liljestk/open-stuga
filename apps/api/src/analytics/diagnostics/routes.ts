@@ -2,7 +2,7 @@ import { roleCanAccessNonGuestConfiguration } from "@climate-twin/contracts";
 import { withResponseSignal } from "../../app/response-signal.js";
 import type express from "express";
 import type { ClimateDatabase } from "../../db.js";
-import type { EnergySummaryCache } from "../../energy-summary-cache.js";
+import type { EnergySummaryCache } from "../../electricity/summary-cache.js";
 import type { EnergyProjectionCache } from "../../electricity/projection-cache.js";
 import { HttpError } from "../../http-error.js";
 import { requestPrincipal } from "../../app/support/local-sessions.js";

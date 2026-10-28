@@ -10,7 +10,7 @@ import type { AppConfig } from "./config.js";
 import type { TelemetryBus } from "./events.js";
 import type { GreeConnectionSecret } from "./integration-secrets.js";
 import type { HeatPumpStateStore } from "./heat-pump-state.js";
-import type { RuntimeStatus } from "./services.js";
+import type { RuntimeStatus } from "./runtime-status.js";
 import { tpLinkDiscoveryTargets } from "./tp-link.js";
 import {
   EwpeCloudClient,

@@ -4,7 +4,7 @@ import type { Request } from "express";
 import type { AppConfig } from "../../config.js";
 import { ClimateDatabase } from "../../db.js";
 import type { AppleNotesGrantSecret } from "../../integration-secrets.js";
-import { RuntimeStatus } from "../../services.js";
+import { RuntimeStatus } from "../../runtime-status.js";
 import { HttpError } from "../../http-error.js";
 import { bodyObject, requiredString } from "../../request-fields.js";
 import { keyMatches } from "./credentials.js";

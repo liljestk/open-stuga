@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { ClimateDatabase } from "../src/db.js";
 import { TelemetryBus } from "../src/events.js";
 import { normalizeAlertDeliveryPolicy, notificationScheduleDecision } from "../src/notification-policy.js";
-import { AlertEngine } from "../src/services.js";
+import { AlertEngine } from "../src/alerts/alert-engine.js";
 import type { AppConfig } from "../src/config.js";
 
 describe("operational orchestration", () => {

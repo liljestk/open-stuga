@@ -1,9 +1,9 @@
 import express from "express";
 import request from "supertest";
 import { describe, expect, it, vi } from "vitest";
-import { AnalyticsQueryError } from "../src/analytics.js";
+import { AnalyticsQueryError } from "../src/analytics/query/analytics-query.js";
 import { apiErrorMiddleware } from "../src/app/error-handling.js";
-import { MeasurementValidationError } from "../src/services.js";
+import { MeasurementValidationError } from "../src/telemetry/ingest.js";
 import { IncompleteTelemetryHistoryError } from "../src/timeseries/read-facade.js";
 
 function appThrowing(error: unknown, recordUnexpected = vi.fn()) {

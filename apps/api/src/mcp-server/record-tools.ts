@@ -1,6 +1,6 @@
 import type { MaintenanceTask } from "@climate-twin/contracts";
 import type { McpRuntime } from "./runtime.js";
-import { mcpBoundedInteger } from "../mcp-validation.js";
+import { mcpBoundedInteger } from "./validation.js";
 import { optionalToolString, requiredToolString } from "./arguments.js";
 
 export function listObservationRevisions(runtime: McpRuntime, args: Record<string, unknown>): unknown[] {

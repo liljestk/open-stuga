@@ -1,8 +1,8 @@
 import { parentPort, workerData } from "node:worker_threads";
-import type { MoistureResponseInput } from "../../moisture-response.js";
-import { runMoistureResponse } from "../../moisture-response.js";
-import type { ThermalIsolationInput } from "../../thermal-isolation.js";
-import { runThermalIsolation } from "../../thermal-isolation.js";
+import type { MoistureResponseInput } from "../thermal/moisture-response.js";
+import { runMoistureResponse } from "../thermal/moisture-response.js";
+import type { ThermalIsolationInput } from "../thermal/isolation.js";
+import { runThermalIsolation } from "../thermal/isolation.js";
 
 export type DerivedFitWorkerRequest =
   | { kind: "thermal-isolation"; input: ThermalIsolationInput }

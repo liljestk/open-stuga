@@ -8,20 +8,17 @@ import {
   type TpLinkConnectionSecret,
   type TuyaConnectionSecret,
 } from "../integration-secrets.js";
-import {
-  AlertEngine,
-  MeasurementService,
-  MockEngine,
-  ReplayEngine,
-  TelemetryService,
-} from "../services.js";
+import { AlertEngine } from "../alerts/alert-engine.js";
+import { MeasurementService, TelemetryService } from "../telemetry/ingest.js";
+import { MockEngine } from "../demo/mock-engine.js";
+import { ReplayEngine } from "../demo/replay-engine.js";
 import { SensorGapRecoveryCoordinator } from "../sensor-gap-recovery.js";
 import {
   TapoHistoryExportService,
 } from "../tapo-history-export.js";
 import { TelegramService } from "../telegram.js";
 import { NotificationOutboxWorker } from "../outbox.js";
-import { enqueueHostSystemAlertNotifications } from "../host-system-notifications.js";
+import { enqueueHostSystemAlertNotifications } from "../host-system/notifications.js";
 import { Nexus433Service } from "../nexus433/index.js";
 import { testHomeAssistantCredentials } from "../home-assistant.js";
 import type { SpatialLayerServices } from "./spatial-layer-services.js";

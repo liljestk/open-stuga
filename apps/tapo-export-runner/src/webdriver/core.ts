@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdir, open, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { readBoundedResponseText, ResponseLimitError } from "../bounded-response.js";
-import { abortableDelay, AppiumClientOptions, ELEMENT_KEY, ElementNotFoundError, MAX_ACTIVE_APPIUM_SESSIONS, MAX_APPIUM_JSON_RESPONSE_BYTES, MAX_APPIUM_SCREENSHOT_RESPONSE_BYTES, parseError, Selector, SessionRecord, WebDriverError } from "./support/01-max-appium-json-response-bytes-to-abortable-delay.js";
+import { abortableDelay, AppiumClientOptions, ELEMENT_KEY, ElementNotFoundError, MAX_ACTIVE_APPIUM_SESSIONS, MAX_APPIUM_JSON_RESPONSE_BYTES, MAX_APPIUM_SCREENSHOT_RESPONSE_BYTES, parseError, Selector, SessionRecord, WebDriverError } from "./support/appium-protocol.js";
 
 export class AppiumClientCore {
   #sessionId: string | undefined = undefined;

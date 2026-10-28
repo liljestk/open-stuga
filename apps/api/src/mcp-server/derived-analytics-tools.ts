@@ -1,5 +1,5 @@
 import { ANALYTICS_AGGREGATIONS, type AnalyticsAggregation, type AnalyticsSampleQuality, type CalendarComparisonRequest } from "@climate-twin/contracts";
-import { requireMcpHouse, requireMcpHouseSensor } from "../mcp-validation.js";
+import { requireMcpHouse, requireMcpHouseSensor } from "./validation.js";
 import { DAILY_ANALYTICS_ALGORITHM_VERSION } from "../daily-analytics-findings.js";
 import { configuredHeatPumpConnectionIds } from "../analytics/heat-pump-evidence.js";
 import type { McpRuntime } from "./runtime.js";

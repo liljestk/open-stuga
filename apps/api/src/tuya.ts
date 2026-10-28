@@ -16,7 +16,8 @@ import type { ConnectedDeviceStore } from "./connected-device-store.js";
 import type { ClimateDatabase } from "./db.js";
 import type { TelemetryBus } from "./events.js";
 import type { TuyaConnectionSecret } from "./integration-secrets.js";
-import type { MeasurementService, RuntimeStatus } from "./services.js";
+import type { MeasurementService } from "./telemetry/ingest.js";
+import type { RuntimeStatus } from "./runtime-status.js";
 
 const VERSIONS = new Set(["3.1", "3.2", "3.3", "3.4", "3.5"]);
 const KINDS = new Set<ConnectedDeviceKind>(["light", "outlet", "switch"]);

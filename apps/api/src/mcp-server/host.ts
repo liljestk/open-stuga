@@ -1,6 +1,6 @@
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
-import { runMcpToolRequest } from "../mcp-lifecycle.js";
-import { validateMcpToolRegistry } from "../mcp-validation.js";
+import { runMcpToolRequest } from "./lifecycle.js";
+import { validateMcpToolRegistry } from "./validation.js";
 import { objectArguments } from "./arguments.js";
 import { createMcpServer } from "./server.js";
 import { activeMcpToolNames } from "./tool-catalog.js";

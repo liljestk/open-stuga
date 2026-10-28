@@ -17,7 +17,7 @@ import {
   IncompleteTelemetryHistoryError,
   type HybridTelemetryReader,
 } from "../../timeseries/read-facade.js";
-import type { WeatherEventBroker } from "../../weather-events.js";
+import type { WeatherEventBroker } from "../../weather/events.js";
 import type { AnalyticsWorkLimiter } from "../work-limiter.js";
 import {
   getHomeMonitoringCollection,

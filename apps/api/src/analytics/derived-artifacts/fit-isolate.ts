@@ -6,11 +6,11 @@ import type { MoistureResponseResult, ThermalIsolationResult } from "@climate-tw
 import {
   runMoistureResponseAsync,
   type MoistureResponseInput,
-} from "../../moisture-response.js";
+} from "../thermal/moisture-response.js";
 import {
   runThermalIsolationAsync,
   type ThermalIsolationInput,
-} from "../../thermal-isolation.js";
+} from "../thermal/isolation.js";
 import type { DerivedFitWorkerRequest } from "./fit-worker.js";
 
 type DerivedFitResult = ThermalIsolationResult | MoistureResponseResult;

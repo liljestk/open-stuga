@@ -8,7 +8,8 @@ import { loadConfig } from "../src/config.js";
 import { ClimateDatabase } from "../src/db.js";
 import { TelemetryBus } from "../src/events.js";
 import { NotificationOutboxWorker } from "../src/outbox.js";
-import { AlertEngine, RuntimeStatus } from "../src/services.js";
+import { AlertEngine } from "../src/alerts/alert-engine.js";
+import { RuntimeStatus } from "../src/runtime-status.js";
 import { TelegramService } from "../src/telegram.js";
 
 const OLD_BOT_TOKEN = "123456:old_stuga_bot_token";

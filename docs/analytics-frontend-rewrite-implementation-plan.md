@@ -42,7 +42,7 @@ The relevant production surface is approximately:
 
 Known correctness issue:
 
-- `apps/api/src/daily-analytics-findings/01-daily-analytics-algorithm-version-to-error-message.ts:428`
+- `apps/api/src/daily-analytics-findings/findings-model.ts`
   suppresses a state transition after the preceding observation expires.
 - `apps/web/src/openingAnalytics.ts:141` counts a transition based only on the
   previous state. It applies expiry only to rendered timeline segments.
@@ -58,7 +58,7 @@ freshness and moisture thresholds that differ from the web implementation.
 
 This plan was prepared against a dirty development worktree that already contains
 in-flight Gree/heat-pump and Timescale analytics-rollup work. In particular,
-`apps/api/src/analytics-rollup.ts` and
+`apps/api/src/analytics/query/rollup-plan.ts` and
 `apps/api/src/timeseries/read-analytics-rollup.ts` are currently untracked, while
 `analytics.ts`, `app/part-10.ts`, contracts, OpenAPI, tests, and architecture docs
 have related edits.
@@ -231,9 +231,9 @@ apps/api/src/analytics/
   routes.ts
 ```
 
-`apps/api/src/analytics.ts` becomes a short compatibility facade during the
+`apps/api/src/analytics/query/analytics-query.ts` becomes a short compatibility facade during the
 rewrite and is deleted or reduced to stable exports at the cleanup gate.
-`apps/api/src/analytics-rollup.ts` is moved without behavior change into
+`apps/api/src/analytics/query/rollup-plan.ts` is moved without behavior change into
 `analytics/query/archive-rollup.ts`.
 
 Move analytics route registration out of `apps/api/src/app/part-10.ts` into
@@ -621,7 +621,7 @@ Deliverables:
    archive rollup into the target `analytics/query` modules without changing the
    generic endpoint contract.
 2. Preserve the current database-side rollup work in
-   `apps/api/src/analytics-rollup.ts`.
+   `apps/api/src/analytics/query/rollup-plan.ts`.
 3. Move route registration out of `app/part-10.ts`.
 4. Rename/split daily-finding period math, detectors, and worker by domain.
 5. Introduce `AnalyticsEvidenceReader` and adapters for rollups, raw opening

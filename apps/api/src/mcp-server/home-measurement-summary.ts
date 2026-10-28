@@ -4,7 +4,7 @@ import {
   mcpIsoDate,
   requireMcpHouse,
   requireMcpHouseSensor,
-} from "../mcp-validation.js";
+} from "./validation.js";
 import { requiredToolString } from "./arguments.js";
 import type { McpRuntime } from "./runtime.js";
 

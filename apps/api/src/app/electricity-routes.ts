@@ -5,7 +5,7 @@ import {
   ElectricityEndpointPolicyError,
   publicElectricityConfiguration,
   validateElectricityEndpointUrl,
-} from "../electricity-prices.js";
+} from "../electricity/prices.js";
 import { HttpError } from "../http-error.js";
 import { bodyObject, enumValue, rejectUnknownFields, requiredNumber, requiredString } from "../request-fields.js";
 import { dateValue, optionalResourceQuery } from "./support/query-fields.js";

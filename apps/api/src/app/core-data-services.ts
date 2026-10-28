@@ -9,14 +9,12 @@ import {
 } from "../db.js";
 import { TelemetryBus } from "../events.js";
 import { recoverCoordinatedIntegrationSecrets } from "../integration-secrets-coordinator.js";
-import {
-  DataModeCoordinator,
-} from "../services.js";
+import { DataModeCoordinator } from "../demo/data-mode.js";
 import { SYSTEM_VERSION } from "../version.js";
-import { SystemUpdateService } from "../system-updates.js";
+import { SystemUpdateService } from "../system-updates/service.js";
 import { SystemStorageService } from "../system-storage.js";
-import { HostSystemMonitor } from "../host-system.js";
-import { HostDatabaseMetricsCollector, SqliteHostStorageHistory } from "../host-database-metrics.js";
+import { HostSystemMonitor } from "../host-system/monitor.js";
+import { HostDatabaseMetricsCollector, SqliteHostStorageHistory } from "../host-system/database-metrics.js";
 import { SystemErrorLog } from "../system-error-log.js";
 import {
   LocalAuthStore,
@@ -27,7 +25,7 @@ import {
   CloudflareSetupService,
 } from "../cloudflare-setup.js";
 import { DataOperationsService } from "../data-operations.js";
-import { EnergyOptimizer } from "../energy-optimizer.js";
+import { EnergyOptimizer } from "../electricity/optimizer.js";
 import {
   isLocalTelemetryHistoryComplete,
 } from "../timeseries/read-facade.js";

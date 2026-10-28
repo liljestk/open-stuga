@@ -4,10 +4,10 @@ import { createHash, createHmac, randomBytes, randomUUID } from "node:crypto";
 import type { AppConfig } from "../config.js";
 import type { ClimateDatabase, SensorDataGapRecord, TapoHistoryExportClaim, TapoHistoryExportJob, TapoHistoryExportJobStatus, TapoHistoryExportProvider } from "../db.js";
 import type { SensorHistoryRecoveryResult } from "../sensor-gap-recovery.js";
-import { CANARY_JOB_RETENTION_MS, CONSUMED_STAGE_RETENTION_MS, EXPORT_JOB_RETENTION_MS, MAX_GMAIL_SEARCH_MS, TAPO_CANARY_APPROVAL_MAX_AGE_MS, TAPO_CANARY_RENEWAL_LEAD_MS, TAPO_HISTORY_ACCEPTANCE_REVISION, TAPO_HISTORY_API_IMPLEMENTATION_SHA256, TAPO_HISTORY_CSV_PARSER_VERSION, TAPO_TARGET_RECLAIM_GRACE_MS, TapoHistoryCanaryError, TapoHistoryFormatError } from "./support/01-max-csv-bytes-to-tapo-csv-schema-signature.js";
-import { assertTapoCanaryMatchesLive, assertTapoHistoryCsvCoverage, parseTapoHistoryCsv, tapoExportRecipient } from "./support/02-finite-csv-number-to-gmail-header.js";
-import { GmailAuthenticationUnavailable, gmailSearchBudget, GmailSearchBudgetExceeded, GmailTapoMailbox } from "./support/03-bounded-response-bytes-to-tapo-private-history-clien.js";
-import { maxTapoHistoryJobSpanMs, recoveryKey, safeError, stagedMeasurement, stageMeasurement, TapoHistoryMailboxHealth, TapoHistoryServiceOptions, TapoPrivateHistoryClient, TapoWorkerStatusUpdate } from "./support/04-private-history-payload-to-staged-measurement.js";
+import { CANARY_JOB_RETENTION_MS, CONSUMED_STAGE_RETENTION_MS, EXPORT_JOB_RETENTION_MS, MAX_GMAIL_SEARCH_MS, TAPO_CANARY_APPROVAL_MAX_AGE_MS, TAPO_CANARY_RENEWAL_LEAD_MS, TAPO_HISTORY_ACCEPTANCE_REVISION, TAPO_HISTORY_API_IMPLEMENTATION_SHA256, TAPO_HISTORY_CSV_PARSER_VERSION, TAPO_TARGET_RECLAIM_GRACE_MS, TapoHistoryCanaryError, TapoHistoryFormatError } from "./support/export-limits.js";
+import { assertTapoCanaryMatchesLive, assertTapoHistoryCsvCoverage, parseTapoHistoryCsv, tapoExportRecipient } from "./support/history-csv.js";
+import { GmailAuthenticationUnavailable, gmailSearchBudget, GmailSearchBudgetExceeded, GmailTapoMailbox } from "./support/gmail-mailbox.js";
+import { maxTapoHistoryJobSpanMs, recoveryKey, safeError, stagedMeasurement, stageMeasurement, TapoHistoryMailboxHealth, TapoHistoryServiceOptions, TapoPrivateHistoryClient, TapoWorkerStatusUpdate } from "./support/private-history-client.js";
 
 export class TapoHistoryExportServiceCore {
   readonly #mailbox: GmailTapoMailbox | null;

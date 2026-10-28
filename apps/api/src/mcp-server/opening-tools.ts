@@ -1,5 +1,5 @@
 import { resolvePlanElementOpeningState } from "@climate-twin/contracts";
-import { mcpBoundedInteger, mcpIsoDate, requireMcpHouse } from "../mcp-validation.js";
+import { mcpBoundedInteger, mcpIsoDate, requireMcpHouse } from "./validation.js";
 import { getOpeningActivity } from "../analytics/opening-activity/service.js";
 import type { McpRuntime } from "./runtime.js";
 import { mcpDateTime, requiredToolString } from "./arguments.js";

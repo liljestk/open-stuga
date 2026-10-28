@@ -4,8 +4,8 @@ import type { AnalyticsQueryRequest, AnalyticsQueryResponse, AnalyticsSeries, Ca
 import { CALENDAR_COMPARISON_ALGORITHM_VERSION, withSignal } from "@climate-twin/contracts";
 import type { HybridTelemetryReader } from "../../timeseries/read-facade.js";
 import { IncompleteTelemetryHistoryError } from "../../timeseries/read-facade.js";
-import { AnalyticsQueryError } from "../../analytics.js";
-import { resolveAnalyticsAggregation } from "../../analytics.js";
+import { AnalyticsQueryError } from "../query/analytics-query.js";
+import { resolveAnalyticsAggregation } from "../query/analytics-query.js";
 import { executeAnalyticsQuery } from "../query/execute.js";
 import { appendAnalyticsSeries, calendarAccumulatorValue, calendarComparisonBuckets, calendarComparisonPeriods, createCalendarValueAccumulator, type CalendarValueAccumulator } from "./model.js";
 import { compareCodeUnits } from "../../text-order.js";

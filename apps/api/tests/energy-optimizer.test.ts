@@ -1,8 +1,8 @@
 import type { MeasurementSample, PropertyElectricityPricePoint, Sensor } from "@climate-twin/contracts";
 import { describe, expect, it, vi } from "vitest";
 import type { ClimateDatabase } from "../src/db.js";
-import { EnergyOptimizer } from "../src/energy-optimizer.js";
-import { propertyPowerProfile } from "../src/energy-optimizer-power.js";
+import { EnergyOptimizer } from "../src/electricity/optimizer.js";
+import { propertyPowerProfile } from "../src/electricity/optimizer-power.js";
 import { HybridTelemetryReader, type ArchiveTelemetryReader, type LocalTelemetryReader } from "../src/timeseries/read-facade.js";
 
 const FROM = Date.parse("2026-09-01T12:00:00Z");

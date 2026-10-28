@@ -6,8 +6,8 @@ import type {
   MeasurementDefinition,
   MeasurementSample,
 } from "@climate-twin/contracts";
-import { buildAnalyticsResponse, parseAnalyticsQueryRequest } from "../src/analytics.js";
-import { buildAnalyticsResponseFromRollup, planAnalyticsRollup, planSummaryRollup } from "../src/analytics-rollup.js";
+import { buildAnalyticsResponse, parseAnalyticsQueryRequest } from "../src/analytics/query/analytics-query.js";
+import { buildAnalyticsResponseFromRollup, planAnalyticsRollup, planSummaryRollup } from "../src/analytics/query/rollup-plan.js";
 import { ClimateDatabase } from "../src/db.js";
 import { RollupsMaterializingError } from "../src/timeseries/read-support.js";
 import {

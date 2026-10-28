@@ -4,7 +4,7 @@ import {
   WeatherMonitor,
   type WeatherMonitorHouseRepository,
   type WeatherMonitorRefreshService,
-} from "../src/weather-monitor.js";
+} from "../src/weather/monitor.js";
 
 const baseTime = Date.parse("2026-07-14T10:00:00.000Z");
 

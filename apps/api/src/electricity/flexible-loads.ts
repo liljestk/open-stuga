@@ -1,4 +1,4 @@
-import { nullWhenTemporarilyUnavailable } from "../energy-cost.js";
+import { nullWhenTemporarilyUnavailable } from "./energy-cost.js";
 import { withSignal } from "@climate-twin/contracts";
 import { median, quantile } from "@climate-twin/analytics-kernel";
 import type { EnergyFlexibleLoad, PropertyElectricityPricePoint, Sensor } from "@climate-twin/contracts";

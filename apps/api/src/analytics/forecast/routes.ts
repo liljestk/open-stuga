@@ -2,7 +2,7 @@ import { withResponseSignal } from "../../app/response-signal.js";
 import type express from "express";
 import type { ForecastSeriesResponse } from "@climate-twin/contracts";
 import type { ClimateDatabase } from "../../db.js";
-import { forecastMeasurement, temperatureHumidityForecast } from "../../services.js";
+import { forecastMeasurement, temperatureHumidityForecast } from "./measurement-forecast.js";
 import type { HybridTelemetryReader } from "../../timeseries/read-facade.js";
 import { HttpError } from "../../http-error.js";
 import { measurementId } from "../../app/support/measurement-fields.js";

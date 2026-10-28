@@ -7,7 +7,7 @@ import {
   normalizedWebhookDestinations,
   type WebhookDestinationSecret,
 } from "../integration-secrets.js";
-import { AppConfig, booleanValue, boundedInteger, environmentTuple, exportIntervalMinutes, githubRepository, httpEndpoint, inferredStugubyPublicOrigin, localAuthProxySecret, nonNegativeInteger, normalizedEmailList, optional, optionalFileSecret, positiveInteger, stugubyPublicOrigin, systemUpdateImagePrefix, timeseriesPassword, timeseriesSslMode } from "./01-app-config-to-system-update-image-prefix.js";
+import { AppConfig, booleanValue, boundedInteger, environmentTuple, exportIntervalMinutes, githubRepository, httpEndpoint, inferredStugubyPublicOrigin, localAuthProxySecret, nonNegativeInteger, normalizedEmailList, optional, optionalFileSecret, positiveInteger, stugubyPublicOrigin, systemUpdateImagePrefix, timeseriesPassword, timeseriesSslMode } from "./app-config.js";
 
 type Env = NodeJS.ProcessEnv;
 type StoredSecrets = ReturnType<typeof readIntegrationSecrets>;

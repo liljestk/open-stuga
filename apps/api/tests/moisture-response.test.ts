@@ -4,12 +4,12 @@ import request from "supertest";
 import { describe, expect, it } from "vitest";
 import { createApi } from "../src/app.js";
 import { outdoorLocationKey } from "../src/db.js";
-import { calibrateMoistureResponse } from "../src/moisture-response-model.js";
+import { calibrateMoistureResponse } from "../src/analytics/thermal/moisture-response-model.js";
 import {
   isMoistureResponseSensor,
   runMoistureResponse,
   runMoistureResponseAsync,
-} from "../src/moisture-response.js";
+} from "../src/analytics/thermal/moisture-response.js";
 import { config as appTestConfig } from "./appTestSupport.js";
 
 const house: Pick<House, "id" | "name" | "floors"> = {

@@ -5,7 +5,7 @@ import {
   AnalyticsQueryError,
   parseAnalyticsCoverageRequest,
   parseAnalyticsQueryRequest,
-} from "../../analytics.js";
+} from "./analytics-query.js";
 import type { ClimateDatabase } from "../../db.js";
 import {
   type HybridTelemetryReader,

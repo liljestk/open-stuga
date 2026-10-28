@@ -1,5 +1,5 @@
 import type { Sensor } from "@climate-twin/contracts";
-import { propertyPowerProfile } from "../energy-optimizer-power.js";
+import { propertyPowerProfile } from "../electricity/optimizer-power.js";
 import type { MeasurementWindowQuery } from "./types.js";
 import { IncompleteTelemetryHistoryError } from "./read-support.js";
 

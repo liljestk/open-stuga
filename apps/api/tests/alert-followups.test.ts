@@ -3,7 +3,7 @@ import type { AppConfig } from "../src/config.js";
 import { ClimateDatabase } from "../src/db.js";
 import { TelemetryBus } from "../src/events.js";
 import { normalizeAlertDeliveryPolicy } from "../src/notification-policy.js";
-import { AlertEngine } from "../src/services.js";
+import { AlertEngine } from "../src/alerts/alert-engine.js";
 
 const webhookConfig = {
   alertWebhookDestinations: [{ id: "primary", url: "https://alerts.example.test/stugu", signingSecret: "test-signing-secret" }],

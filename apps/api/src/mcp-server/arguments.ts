@@ -1,4 +1,4 @@
-import { mcpIsoDate } from "../mcp-validation.js";
+import { mcpIsoDate } from "./validation.js";
 
 export function objectArguments(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};

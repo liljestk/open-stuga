@@ -4,11 +4,11 @@ import WebSocket from "ws";
 import type { AppConfig } from "../config.js";
 import type { ClimateDatabase } from "../db.js";
 import type { SensorHistoryRecoveryResult, SensorMetricAvailability } from "../sensor-gap-recovery.js";
-import type { MeasurementService, TelemetryService } from "../services.js";
+import type { MeasurementService, TelemetryService } from "../telemetry/ingest.js";
 import { compareCodeUnits } from "../text-order.js";
 import { assertHomeAssistantHistoryChunkLimit, boundedHomeAssistantHistoryJson, storeBoundedHomeAssistantHistorySample } from "./history-limits.js";
-import { AUTOMATIC_ELECTRICITY_METRICS, CachedSensorState, EntityTarget, HA_COMPOSITE_MAX_SKEW_MS, HA_HANDSHAKE_TIMEOUT_MS, HA_HISTORY_CHUNK_MS, HA_LIVENESS_INTERVAL_MS, HA_LIVENESS_TIMEOUT_MS, HA_OPENING_HEARTBEAT_MS, HA_SNAPSHOT_EVENT_BUFFER_LIMIT, HA_SNAPSHOT_TIMEOUT_MS, HaMessage, HaState, HomeAssistantBridgeOptions, HomeAssistantEntityMapping, HomeAssistantStatusHost, normalizeHomeAssistantElectricityMeasurement, normalizeHomeAssistantTemperature, normalizeHomeAssistantTimestamp, OpeningTarget, parseHaMessage, websocketUrl } from "./support/01-home-assistant-measurement-binding-to-validate-entit.js";
-import { importEntityMappingFile, mappedEntityIds, mappingFingerprint, mappingMetricKeys, sensorMetricKey, validateEntityMappings } from "./support/02-validate-entity-mappings-to-home-assistant-bridge.js";
+import { AUTOMATIC_ELECTRICITY_METRICS, CachedSensorState, EntityTarget, HA_COMPOSITE_MAX_SKEW_MS, HA_HANDSHAKE_TIMEOUT_MS, HA_HISTORY_CHUNK_MS, HA_LIVENESS_INTERVAL_MS, HA_LIVENESS_TIMEOUT_MS, HA_OPENING_HEARTBEAT_MS, HA_SNAPSHOT_EVENT_BUFFER_LIMIT, HA_SNAPSHOT_TIMEOUT_MS, HaMessage, HaState, HomeAssistantBridgeOptions, HomeAssistantEntityMapping, HomeAssistantStatusHost, normalizeHomeAssistantElectricityMeasurement, normalizeHomeAssistantTemperature, normalizeHomeAssistantTimestamp, OpeningTarget, parseHaMessage, websocketUrl } from "./support/entity-model.js";
+import { importEntityMappingFile, mappedEntityIds, mappingFingerprint, mappingMetricKeys, sensorMetricKey, validateEntityMappings } from "./support/entity-mappings.js";
 
 interface HistoryWindow {
   sensorId: string;

@@ -5,7 +5,7 @@ import { queryList, boundedQueryInteger, dateValue, safeInteger } from "./suppor
 import { boundedSseWriter } from "./support/event-streams.js";
 import { localAuthorizationFingerprint, requestPrincipal } from "./support/local-sessions.js";
 import { type Request, type Response } from "express";
-import { temperatureHumidityForecast } from "../services.js";
+import { temperatureHumidityForecast } from "../analytics/forecast/measurement-forecast.js";
 import { withResponseSignal } from "./response-signal.js";
 import { bucketLegacyReadings } from "../timeseries/read-facade.js";
 import { visibleStreamEvent } from "./live-stream-visibility.js";

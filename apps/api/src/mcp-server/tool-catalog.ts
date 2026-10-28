@@ -1,5 +1,5 @@
-import type { McpToolHandler } from "../mcp-lifecycle.js";
-import { mcpToolAnnotations } from "../mcp-validation.js";
+import type { McpToolHandler } from "./lifecycle.js";
+import { mcpToolAnnotations } from "./validation.js";
 import { type McpProfile, CHATGPT_MCP_TOOL_NAMES, presentationForChatgptTool } from "./chatgpt-profile.js";
 import { propertyToolDefinitions } from "./property-tool-definitions.js";
 import { homeToolDefinitions } from "./home-tool-definitions.js";

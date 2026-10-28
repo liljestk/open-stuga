@@ -1,5 +1,5 @@
 import type { MeasurementSample, MeasurementSnapshotEntry, Reading } from "@climate-twin/contracts";
-import { requireMcpHouse, mcpBoundedInteger, mcpIsoDate, requireMcpMeasurementTarget, requireMcpSensor, validateMcpDateRange } from "../mcp-validation.js";
+import { requireMcpHouse, mcpBoundedInteger, mcpIsoDate, requireMcpMeasurementTarget, requireMcpSensor, validateMcpDateRange } from "./validation.js";
 import type { McpRuntime } from "./runtime.js";
 import { optionalToolString, requiredToolString } from "./arguments.js";
 

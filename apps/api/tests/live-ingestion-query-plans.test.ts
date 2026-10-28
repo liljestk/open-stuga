@@ -11,7 +11,7 @@ import {
 import { SENSOR_SOURCE_METRICS_SQL } from "../src/db/methods/sensor-data-gaps.js";
 import { PENDING_ALERT_EVALUATION_SAMPLES_SQL } from "../src/db/methods/alerts.js";
 import { TelemetryBus } from "../src/events.js";
-import { AlertEngine } from "../src/services.js";
+import { AlertEngine } from "../src/alerts/alert-engine.js";
 
 function queryPlan(database: ClimateDatabase, sql: string, ...parameters: Array<string | number>): string[] {
   return (database.db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all(...parameters) as Array<{ detail: string }>)

@@ -1,7 +1,7 @@
 import type { StugubyRole, StugubySummary } from "@climate-twin/stuguby-protocol";
 import { StugubyStore } from "../stuguby/store.js";
 import type { McpRuntime } from "./runtime.js";
-import { summarizeMcpHouse, summarizeMcpProperty } from "../mcp-validation.js";
+import { summarizeMcpHouse, summarizeMcpProperty } from "./validation.js";
 import { requiredToolString } from "./arguments.js";
 
 export function stugubySide(role: StugubyRole): "host" | "client" {

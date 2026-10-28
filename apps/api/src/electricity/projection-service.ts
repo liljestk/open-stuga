@@ -3,7 +3,7 @@ import { executeAnalyticsQuery } from "../analytics/query/execute.js";
 import { heatingBaseTemperature } from "../analytics/house-parameters.js";
 import type { DailyEnergy } from "../analytics/home-performance/energy-index.js";
 import { outdoorLocationKey, type ClimateDatabase } from "../db.js";
-import type { EnergySummaryCache } from "../energy-summary-cache.js";
+import type { EnergySummaryCache } from "./summary-cache.js";
 import type { HybridTelemetryReader } from "../timeseries/read-facade.js";
 import { FORECAST_REACH_DAYS, PROJECTION_HORIZON_DAYS, projectEnergy } from "./projection.js";
 

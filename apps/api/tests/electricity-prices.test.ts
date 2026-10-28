@@ -8,7 +8,7 @@ import {
   MAX_ELECTRICITY_RESPONSE_BYTES,
   parseElectricityPricePayload,
   validateElectricityEndpointUrl,
-} from "../src/electricity-prices.js";
+} from "../src/electricity/prices.js";
 import { ClimateDatabase } from "../src/db.js";
 import { HybridTelemetryReader } from "../src/timeseries/read-facade.js";
 

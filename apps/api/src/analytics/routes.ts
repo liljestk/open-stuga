@@ -13,7 +13,7 @@ import { DAILY_ANALYTICS_ALGORITHM_VERSION } from "../daily-analytics-findings.j
 import type { AnalyticsWorkLimiter } from "./work-limiter.js";
 import type { ClimateDatabase } from "../db.js";
 import type { TelemetryBus } from "../events.js";
-import type { WeatherEventBroker } from "../weather-events.js";
+import type { WeatherEventBroker } from "../weather/events.js";
 import {
   type HybridTelemetryReader,
 } from "../timeseries/read-facade.js";

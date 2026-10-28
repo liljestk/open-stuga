@@ -7,7 +7,8 @@ import type {
   SensorHistoryRecoveryResult,
   SensorMetricAvailability,
 } from "../../sensor-gap-recovery.js";
-import { MeasurementService, RuntimeStatus, TelemetryService } from "../../services.js";
+import { MeasurementService, TelemetryService } from "../../telemetry/ingest.js";
+import { RuntimeStatus } from "../../runtime-status.js";
 import { TP_LINK_LOCAL_CLIMATE_HISTORY_CAPABILITY_REVISION, TpLinkBridgeOptions, TpLinkCredentialTestResult, TpLinkDeviceMapping, TpLinkSourceDiscoveryResult, TpLinkStatusHost, loadTpLinkDeviceMappings, mergeTpLinkHistoryRecovery } from "./01-tp-link-local-climate-history-capability-revision-to.js";
 import { TpLinkConnectionBridgeCore as TpLinkConnectionBridge } from "../core.js";
 import { compareCodeUnits } from "../../text-order.js";

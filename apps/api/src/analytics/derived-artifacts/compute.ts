@@ -10,10 +10,10 @@ import { outdoorLocationKey } from "../../db.js";
 import { addLocalDays, localDate, localDateStart } from "../../daily-analytics-findings.js";
 import {
   isMoistureResponseSensor,
-} from "../../moisture-response.js";
+} from "../thermal/moisture-response.js";
 import {
   isThermalIsolationTemperatureSensor,
-} from "../../thermal-isolation.js";
+} from "../thermal/isolation.js";
 import type { HybridTelemetryReader } from "../../timeseries/read-facade.js";
 import { getHomePerformance } from "../home-performance/service.js";
 import {

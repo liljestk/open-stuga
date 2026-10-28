@@ -9,7 +9,8 @@ import {
   apnsNotificationSnapshot,
 } from "../src/notification-snapshot.js";
 import { NotificationOutboxWorker } from "../src/outbox.js";
-import { AlertEngine, RuntimeStatus } from "../src/services.js";
+import { AlertEngine } from "../src/alerts/alert-engine.js";
+import { RuntimeStatus } from "../src/runtime-status.js";
 import { TelegramService } from "../src/telegram.js";
 
 const OWNER = { email: "owner@example.test", password: "correct horse battery staple" };
