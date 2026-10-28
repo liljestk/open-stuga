@@ -1,24 +1,39 @@
-function joinStyleModules(modules: Record<string, string>): string {
-  return Object.entries(modules)
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([, source]) => source)
+const stylesheets = import.meta.glob(["../*.css", "../styles/**/*.css", "../pages/**/*.css"], {
+  eager: true,
+  import: "default",
+  query: "?raw",
+}) as Record<string, string>;
+
+/** The `../`-relative glob key of `specifier` imported from the stylesheet at `from`. */
+function importedPath(from: string, specifier: string): string {
+  const segments = from.split("/").slice(0, -1);
+  for (const part of specifier.split("/")) {
+    if (part === "..") segments.pop();
+    else if (part !== ".") segments.push(part);
+  }
+  return segments.join("/");
+}
+
+/**
+ * The fragments a stylesheet @imports from under `within`, joined in its @import order, which is the
+ * cascade order the bundler produces.
+ */
+function importedFragments(sheet: string, within: string): string {
+  const source = stylesheets[sheet];
+  if (source === undefined) throw new Error(`No stylesheet ${sheet}`);
+  return [...source.matchAll(/@import\s+"([^"]+)";/gu)]
+    .map((match) => importedPath(sheet, match[1]!))
+    .filter((path) => path.startsWith(within))
+    .map((path) => {
+      const fragment = stylesheets[path];
+      if (fragment === undefined) throw new Error(`${sheet} imports missing ${path}`);
+      return fragment;
+    })
     .join("\n");
 }
 
-const globalModules = import.meta.glob("../styles/global/*.css", {
-  eager: true,
-  import: "default",
-  query: "?raw",
-}) as Record<string, string>;
-
-const outdoorWeatherModules = import.meta.glob("../pages/styles/outdoor-weather/*.css", {
-  eager: true,
-  import: "default",
-  query: "?raw",
-}) as Record<string, string>;
-
-export const globalStyles = joinStyleModules(globalModules);
-export const outdoorWeatherStyles = joinStyleModules(outdoorWeatherModules);
+export const globalStyles = importedFragments("../styles.css", "../styles/global/");
+export const outdoorWeatherStyles = importedFragments("../pages/OutdoorWeatherPage.css", "../pages/OutdoorWeatherPage/");
 
 /** One rule's declarations in source order, so fallbacks such as `100vh` before `100dvh` stay checkable. */
 export interface CssRule {

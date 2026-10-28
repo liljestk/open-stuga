@@ -12,6 +12,7 @@ import { useI18n, type TranslationKey } from "../../i18n";
 import { defaultPlanElementWidth } from "../../planElementGeometry";
 import { PlanElementGlyph } from "../../components/FloorPlan";
 import { tpLinkOpeningMatchesDevice } from "../../tpLinkDeviceClassification";
+import "./TpLinkContactAssignment.css";
 
 type SelectableOpening = DoorPlanElement | WindowPlanElement;
 

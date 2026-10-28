@@ -48,7 +48,7 @@ describe("semantic stylesheet tokens", () => {
 
     for (const [path, styles] of Object.entries(productionStyles)) {
       if (!/--pine(?:-hover|-soft)?\s*:/.test(styles)) continue;
-      expect(path).toMatch(/global\/(?:01-root|15-media-max-width-680px)\.css$/);
+      expect(path).toMatch(/global\/(?:base|responsive)\.css$/);
     }
   });
 

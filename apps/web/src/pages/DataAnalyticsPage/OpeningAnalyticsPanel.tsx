@@ -13,6 +13,7 @@ import { ANALYTICS_TIME_RANGES, timeRangeHours, type TimeRange } from "../../dom
 import { formatInTimeZone } from "../../dateTime";
 import { useI18n } from "../../i18n";
 import { useNow } from "../../useNow";
+import "./OpeningAnalyticsPanel.css";
 
 const TABLE_LIMIT = 500;
 

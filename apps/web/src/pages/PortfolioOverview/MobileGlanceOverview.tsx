@@ -41,6 +41,7 @@ import {
 } from "../../measurements";
 import { useI18n, type TranslationKey } from "../../i18n";
 import { useNow } from "../../useNow";
+import "./MobileGlanceOverview.css";
 
 export const MOBILE_GLANCE_STORAGE_KEY = "stugu-mobile-overview";
 

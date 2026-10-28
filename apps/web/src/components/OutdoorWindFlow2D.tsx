@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import type { OutdoorBoundaryContext } from "../outdoor/context";
 import { createOutdoorWindFlowGeometry } from "../outdoor/windFlow";
+import "./OutdoorWindFlow2D.css";
 
 export interface OutdoorWindFlow2DProps {
   context: OutdoorBoundaryContext;

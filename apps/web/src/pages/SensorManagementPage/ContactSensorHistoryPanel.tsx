@@ -19,6 +19,7 @@ import { api } from "../../api";
 import { formatInTimeZone } from "../../dateTime";
 import { useI18n } from "../../i18n";
 import type { TpLinkOpeningTarget } from "../../tpLinkDeviceClassification";
+import "./ContactSensorHistoryPanel.css";
 
 type ContactHistoryRange = "6h" | "24h" | "7d";
 type ContactTransitionKind = "opened" | "closed";
