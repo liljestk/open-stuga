@@ -1,28 +1,43 @@
-import { ANALYTICS_AGGREGATIONS } from "@climate-twin/contracts";
-import type {
-  AnalyticsAggregation,
-  AnalyticsSampleQuality,
-  CalendarComparisonRequest,
-} from "@climate-twin/contracts";
-import { compareCalendarPeriods } from "../analytics/calendar-comparison/service.js";
-import { configuredHeatPumpConnectionIds } from "../analytics/heat-pump-evidence.js";
-import { getHomePerformance } from "../analytics/home-performance/service.js";
-import {
-  getHomeMonitoringCollection,
-  getHomeMonitoringDetail,
-  loadHomeMonitoringHistory,
-} from "../analytics/home-monitoring/service.js";
+import { ANALYTICS_AGGREGATIONS, type AnalyticsAggregation, type AnalyticsSampleQuality, type CalendarComparisonRequest } from "@climate-twin/contracts";
 import { requireMcpHouse, requireMcpHouseSensor } from "../mcp-validation.js";
-import {
-  dataMode,
-  database,
-  config,
-  objectArguments,
-  optionalToolString,
-  requiredToolString,
-  status,
-  telemetryReader,
-} from "./01-config-to-get-house-weather.js";
+import { DAILY_ANALYTICS_ALGORITHM_VERSION } from "../daily-analytics-findings.js";
+import { configuredHeatPumpConnectionIds } from "../analytics/heat-pump-evidence.js";
+import type { McpRuntime } from "./runtime.js";
+import { compareCalendarPeriods } from "../analytics/calendar-comparison/service.js";
+import { getHomePerformance } from "../analytics/home-performance/service.js";
+import { getHomeMonitoringCollection, getHomeMonitoringDetail, loadHomeMonitoringHistory } from "../analytics/home-monitoring/service.js";
+import { objectArguments, optionalToolString, requiredToolString } from "./arguments.js";
+
+export function dailyAnalyticsFindings(runtime: McpRuntime, args: Record<string, unknown>): object {
+  const { database } = runtime;
+  const house = requireMcpHouse(database, requiredToolString(args, "houseId"));
+  const dataMode = database.isRealDataMode() ? "live" : "demo";
+  const stored = database.dailyAnalyticsFindings(house.id, dataMode);
+  const staleAlgorithm = Boolean(
+    stored?.snapshot
+    && stored.snapshot.algorithmVersion !== DAILY_ANALYTICS_ALGORITHM_VERSION,
+  );
+  return {
+    snapshot: stored?.snapshot ?? null,
+    status: {
+      state: stored?.lastError
+        ? "failed"
+        : staleAlgorithm
+          ? "stale-algorithm"
+          : stored?.snapshot
+            ? "ready"
+            : "pending",
+      lastAttemptAt: stored?.lastAttemptAt ?? null,
+      lastError: stored?.lastError ?? null,
+      ...(staleAlgorithm && stored?.snapshot
+        ? {
+            expectedAlgorithmVersion: DAILY_ANALYTICS_ALGORITHM_VERSION,
+            actualAlgorithmVersion: stored.snapshot.algorithmVersion,
+          }
+        : {}),
+    },
+  };
+}
 
 const aggregations = new Set<AnalyticsAggregation>([
   "default",
@@ -34,7 +49,9 @@ const aggregations = new Set<AnalyticsAggregation>([
   "min",
   "max",
 ]);
+
 const units = new Set(["day", "week", "month", "year", "decade"]);
+
 const qualities = new Set<AnalyticsSampleQuality>(["good", "estimated", "stale"]);
 
 function stringList(
@@ -69,7 +86,8 @@ function boundedInteger(
   return value as number;
 }
 
-function monitoringContext(evaluatedAt: string) {
+function monitoringContext(runtime: McpRuntime, evaluatedAt: string) {
+  const { dataMode, database, status } = runtime;
   dataMode.synchronize();
   status.refreshDataMode();
   return {
@@ -82,7 +100,8 @@ function monitoringContext(evaluatedAt: string) {
   };
 }
 
-export async function homePerformance(args: Record<string, unknown>) {
+export async function homePerformance(runtime: McpRuntime, args: Record<string, unknown>) {
+  const { config, database, telemetryReader } = runtime;
   const house = requireMcpHouse(database, requiredToolString(args, "houseId"));
   const evaluatedAt = new Date().toISOString();
   return getHomePerformance({
@@ -97,9 +116,10 @@ export async function homePerformance(args: Record<string, unknown>) {
   });
 }
 
-export async function homeMonitoring(args: Record<string, unknown>) {
+export async function homeMonitoring(runtime: McpRuntime, args: Record<string, unknown>) {
+  const { database, telemetryReader } = runtime;
   const evaluatedAt = new Date().toISOString();
-  const context = monitoringContext(evaluatedAt);
+  const context = monitoringContext(runtime, evaluatedAt);
   const houseId = optionalToolString(args, "houseId");
   if (houseId) {
     const house = requireMcpHouse(database, houseId);
@@ -124,7 +144,8 @@ export async function homeMonitoring(args: Record<string, unknown>) {
   );
 }
 
-export async function calendarComparison(args: Record<string, unknown>) {
+export async function calendarComparison(runtime: McpRuntime, args: Record<string, unknown>) {
+  const { database, telemetryReader } = runtime;
   const house = requireMcpHouse(database, requiredToolString(args, "houseId"));
   const sensorIds = stringList(args.sensorIds, "sensorIds", 50);
   const sensors = sensorIds.map((sensorId) => (

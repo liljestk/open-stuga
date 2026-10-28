@@ -243,7 +243,7 @@ telemetry reader, services, visibility resolver, and cache. Call
 `registerAnalyticsRoutes(context)` from the existing configuration chain using
 structural typing. Do not pass the entire chained context into analytics
 internals, add another numbered app part, or change the public `ApiRuntime`
-surface in `finish.ts`/`app/support/part-07.ts`.
+surface in `finish.ts`/`app/support/api-runtime.ts`.
 
 ### 4.2 Contracts
 

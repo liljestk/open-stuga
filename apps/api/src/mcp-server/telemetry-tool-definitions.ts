@@ -1,6 +1,6 @@
 
 
-export const mcpToolDefinitionsPart03 = [
+export const telemetryToolDefinitions = [
   {
         name: "get_measurement_snapshot",
         description: "Get the latest independently timestamped sample for every registered metric on each sensor, optionally scoped to one house.",

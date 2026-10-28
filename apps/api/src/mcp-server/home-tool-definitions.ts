@@ -1,6 +1,6 @@
 
 
-export const mcpToolDefinitionsPart02 = [
+export const homeToolDefinitions = [
   {
         name: "search_locations",
         description: "Search worldwide place and timezone suggestions through Open-Meteo geocoding. The query is sent to that public service only when this tool is called.",

@@ -6,22 +6,19 @@ import {
   isMoistureResponseSensor,
   runMoistureResponseAsync,
 } from "../moisture-response.js";
-import {
-  config,
-  database,
-  optionalToolString,
-  requiredToolString,
-  telemetryReader,
-} from "./01-config-to-get-house-weather.js";
+import { optionalToolString, requiredToolString } from "./arguments.js";
 import {
   configuredHeatPumpConnectionIds,
   filterHeatPumpAffectedSampleMap,
   loadHeatPumpExclusionWindow,
 } from "../analytics/heat-pump-evidence.js";
+import type { McpRuntime } from "./runtime.js";
 
 export async function homeMoistureResponse(
+  runtime: McpRuntime,
   args: Record<string, unknown>,
 ): Promise<unknown> {
+  const { config, database, telemetryReader } = runtime;
   const house = requireMcpHouse(database, requiredToolString(args, "houseId"));
   const { from, to } = mcpThermalDateRange(
     optionalToolString(args, "from"),

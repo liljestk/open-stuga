@@ -1,49 +1,8 @@
-import type {
-  MaintenanceTask,
-} from "@climate-twin/contracts";
 import { discoverHomeAssistant } from "../discovery.js";
-import { database, optionalToolString, requiredToolString, status, tpLink } from "./01-config-to-get-house-weather.js";
+import type { McpRuntime } from "./runtime.js";
 
-export function listObservationRevisions(args: Record<string, unknown>): unknown[] {
-  const observationId = requiredToolString(args, "observationId");
-  if (!database.getObservation(observationId)) throw new Error(`Unknown observation: ${observationId}`);
-  return database.listObservationRevisions(observationId);
-}
-
-export function listMaintenanceTasks(args: Record<string, unknown>): MaintenanceTask[] {
-  const propertyId = optionalToolString(args, "propertyId");
-  const houseId = optionalToolString(args, "houseId");
-  const areaId = optionalToolString(args, "areaId");
-  const equipmentId = optionalToolString(args, "equipmentId");
-  return database.listMaintenanceTasks({
-    ...(propertyId ? { propertyId } : {}),
-    ...(houseId ? { houseId } : {}),
-    ...(areaId ? { areaId } : {}),
-    ...(equipmentId ? { equipmentId } : {}),
-  });
-}
-
-export function listMaintenanceTaskRevisions(args: Record<string, unknown>): unknown[] {
-  const maintenanceTaskId = requiredToolString(args, "maintenanceTaskId");
-  if (!database.getMaintenanceTask(maintenanceTaskId)) {
-    throw new Error(`Unknown maintenance task: ${maintenanceTaskId}`);
-  }
-  return database.listMaintenanceTaskRevisions(maintenanceTaskId);
-}
-
-export function assetMetadata(asset: { id: string; houseId: string; name: string; mimeType: string; kind: string; size: number; createdAt: string }): object {
-  return {
-    id: asset.id,
-    houseId: asset.houseId,
-    name: asset.name,
-    mimeType: asset.mimeType,
-    kind: asset.kind,
-    size: asset.size,
-    createdAt: asset.createdAt,
-  };
-}
-
-export async function discoverIntegrations(): Promise<object> {
+export async function discoverIntegrations(runtime: McpRuntime): Promise<object> {
+  const { tpLink } = runtime;
   const [homeAssistantResult, tpLinkResult] = await Promise.allSettled([
     discoverHomeAssistant(),
     tpLink.discoverSources(),
@@ -58,7 +17,8 @@ export async function discoverIntegrations(): Promise<object> {
   };
 }
 
-export function homeAssistantSetup(): object {
+export function homeAssistantSetup(runtime: McpRuntime): object {
+  const { status } = runtime;
   return {
     configured: status.value.homeAssistant.configured,
     steps: [
@@ -85,7 +45,8 @@ export function homeAssistantSetup(): object {
   };
 }
 
-export function tpLinkSetup(): object {
+export function tpLinkSetup(runtime: McpRuntime): object {
+  const { status } = runtime;
   return {
     configured: status.value.tpLink.configured,
     supportedHubs: ["H100", "H200", "H500"],
@@ -125,4 +86,10 @@ export function tpLinkConnectionTest(): object {
     runtimeScope: "mcp-process",
     message: "Live TP-Link connection testing belongs to the long-running API process and is unavailable in the isolated MCP process.",
   };
+}
+
+export function backupStatus(runtime: McpRuntime): object {
+  const { dataOperations } = runtime;
+  const { backupPath, ...backup } = dataOperations.backupStatus();
+  return { ...backup, backupPathConfigured: backupPath !== null };
 }

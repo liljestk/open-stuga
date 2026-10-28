@@ -5,11 +5,8 @@ import {
   requireMcpHouse,
   requireMcpHouseSensor,
 } from "../mcp-validation.js";
-import {
-  database,
-  requiredToolString,
-  telemetryReader,
-} from "./01-config-to-get-house-weather.js";
+import { requiredToolString } from "./arguments.js";
+import type { McpRuntime } from "./runtime.js";
 
 const MAX_RANGE_MS = 366 * 24 * 3_600_000;
 const allowedQualities = new Set<AnalyticsSampleQuality>(["good", "estimated", "stale"]);
@@ -43,8 +40,10 @@ function rounded(value: number, precision: number): number {
 }
 
 export async function homeMeasurementSummary(
+  runtime: McpRuntime,
   args: Record<string, unknown>,
 ): Promise<unknown> {
+  const { database, telemetryReader } = runtime;
   const house = requireMcpHouse(database, requiredToolString(args, "houseId"));
   const measurementId = requiredToolString(args, "measurementId");
   const definition = database.getMeasurementDefinition(measurementId);

@@ -3,13 +3,9 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import type { AddressInfo } from "node:net";
 import { createMcpExpressApp } from "@modelcontextprotocol/sdk/server/express.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import "./mcp-server/01-config-to-get-house-weather.js";
-import { buildMcpTools } from "./mcp-server/09-mcp-tool-definitions-part04-to-tool-handler.js";
-import {
-  close,
-  connectMcpTransport,
-  disconnectMcpServer,
-} from "./mcp-server/10-all-tool-handlers.js";
+import { buildMcpTools } from "./mcp-server/tool-catalog.js";
+import { McpHost, type ConnectedMcpServer, type McpTransport } from "./mcp-server/host.js";
+import { createMcpRuntime } from "./mcp-server/runtime.js";
 import { SYSTEM_VERSION } from "./version.js";
 
 const host = "127.0.0.1";
@@ -28,6 +24,7 @@ function authorized(authorization: string | undefined): boolean {
   );
 }
 
+const mcpHost = new McpHost(createMcpRuntime());
 const app = createMcpExpressApp({ host });
 app.disable("x-powered-by");
 app.post("/mcp", (request, response, next) => {
@@ -46,16 +43,16 @@ app.post("/mcp", (request, response, next) => {
   const transport = new StreamableHTTPServerTransport({
     enableJsonResponse: true,
   });
-  let server: Awaited<ReturnType<typeof connectMcpTransport>> | undefined;
+  let server: ConnectedMcpServer | undefined;
   try {
-    server = await connectMcpTransport(transport as unknown as Parameters<typeof connectMcpTransport>[0]);
+    server = await mcpHost.connect(transport as unknown as McpTransport);
     const connectedServer = server;
     response.once("close", () => {
-      void disconnectMcpServer(connectedServer);
+      void mcpHost.disconnect(connectedServer);
     });
     await transport.handleRequest(request, response, request.body);
   } catch {
-    if (server) await disconnectMcpServer(server).catch(() => undefined);
+    if (server) await mcpHost.disconnect(server).catch(() => undefined);
     if (!response.headersSent) {
       response.status(500).json({
         jsonrpc: "2.0",
@@ -96,7 +93,7 @@ let shutdownPromise: Promise<void> | null = null;
 function shutdown(): Promise<void> {
   if (shutdownPromise) return shutdownPromise;
   shutdownPromise = Promise.all([
-    close(),
+    mcpHost.close(),
     new Promise<void>((resolve) => httpServer.close(() => resolve())),
   ]).then(() => undefined);
   return shutdownPromise;
