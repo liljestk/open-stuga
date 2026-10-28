@@ -2,12 +2,18 @@
 
 All notable Stugu releases are recorded here.
 
-## 0.52.3
+## 0.52.8
 
 - Saving something in Stugu no longer makes every open browser reload the whole workspace. Before, each save (renaming a sensor, dragging it, adding a note, acknowledging an alert) reopened both live connections in every open tab and queued about 18 reads, which delayed the page you were looking at. Other tabs now reload only what changed: renaming a sensor reloads the sensor list and refreshes monitoring and analytics, and a new note reloads the notes. Adding or deleting a Home or property, membership and Stuguby changes still reload everything, as do changes a Guest is not allowed to see in detail.
 - Opening activity and calendar comparison charts no longer announce themselves as workspace changes. While one was open, each load could trigger the next one and a reload in every other tab.
 - Home monitoring answers are reused for up to 10 seconds, and routine integration polls no longer discard them. Gree and TP-Link republish their status after every poll; the cache is now cleared only when a connection's state actually changes, or by alerts, weather and saves. Open pages also stop refreshing monitoring for those polls.
 - Upgrade impact: application-only update; no schema, Compose, configuration or host-trust change. The live-stream `mutation` event is unchanged, but `POST /api/v2/analytics/opening-activity` and `POST /api/v2/analytics/calendar-comparison` no longer emit one.
+
+## 0.52.5
+
+- Long chart ranges load much faster. The dashboard, sensor details and electricity charts, replay, per-sensor forecasts and the optimizer's flexible-load profiles now read their history buckets from the TimescaleDB continuous aggregates. Raw samples are read only for the partial periods at the range edges and for the newest period the aggregate has not finished. On a Raspberry Pi, the history of a power plug reporting every 2 seconds took 2.0 s for 30 days and 6.2 s for a year; it now takes 0.13 s and 0.32 s. A 14-day forecast history went from 0.20 s to 0.03 s.
+- Chart values are unchanged: each bucket keeps the same mean and the latest reading's source, quality and unit. The 6-hour chart's 15-second buckets and installs without TimescaleDB still group raw samples.
+- Upgrade impact: application-only update; no schema, Compose, configuration or host-trust change. The aggregates already exist on every TimescaleDB install.
 
 ## 0.52.1
 

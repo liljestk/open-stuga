@@ -1,11 +1,12 @@
 import type { QueryResultRow } from "pg";
-import { MEASUREMENT_ANALYTICS_BUCKETS, measurementAnalyticsAggregateName, measurementAggregateName, qualifiedName } from "../../schema.js";
+import { MEASUREMENT_ANALYTICS_BUCKETS, measurementAnalyticsAggregateName, measurementAggregateName, qualifiedName, type MeasurementAnalyticsBaseBucket } from "../../schema.js";
 import type { MeasurementBucketQuery, MeasurementBucketRecord, MeasurementCoverageQuery, MeasurementCoverageRecord, MeasurementGapQuery, MeasurementGapRecord, MeasurementHistoryBucketedQuery, MeasurementHistoryQuery, MeasurementSampleRecord, MeasurementWindowQuery, ThermalMeasurementHistoryQuery, QueryControl } from "../../types.js";
 import { LatestMeasurementFilter, MeasurementBucketRow, MeasurementCoverageRow, MeasurementRow, SqlValue } from "../support/row-types.js";
 import { MAX_HISTORY_LIMIT, MAX_MEASUREMENT_WINDOW_LIMIT } from "../support/store-limits.js";
 import { measurementBucketFromRow, measurementFromRow } from "../support/row-mappers.js";
 import { positiveInteger, timestamp } from "../support/query-values.js";
-import { registerTimeseriesStoreMethods, type TimeseriesStoreInternals } from "../core.js";
+import { registerTimeseriesStoreMethods, timeseriesStoreState, type TimeseriesStoreInternals } from "../core.js";
+import { aggregateBucketedHistorySql, bucketedHistoryBase, rawBucketedHistorySql } from "../measurement-history-bucketed-sql.js";
 
 interface MeasurementGapRow {
   started_at: string | Date;
@@ -31,6 +32,7 @@ declare module "../core.js" {
     latestMeasurementSamples(filter?: LatestMeasurementFilter): Promise<MeasurementSampleRecord[]>;
     measurementHistory(query: MeasurementHistoryQuery): Promise<MeasurementSampleRecord[]>;
     measurementHistoryBucketed(query: MeasurementHistoryBucketedQuery): Promise<MeasurementSampleRecord[]>;
+    __analyticsAggregateReadable(base: MeasurementAnalyticsBaseBucket, control: QueryControl): Promise<boolean>;
     measurementSampleGaps(query: MeasurementGapQuery): Promise<MeasurementGapRecord[]>;
     thermalMeasurementHistory(query: ThermalMeasurementHistoryQuery): Promise<MeasurementSampleRecord[]>;
     measurementWindow(query: MeasurementWindowQuery): Promise<MeasurementSampleRecord[]>;
@@ -114,57 +116,37 @@ registerTimeseriesStoreMethods({
       if (!Number.isInteger(query.bucketSeconds) || query.bucketSeconds < 1 || query.bucketSeconds > 86_400) {
         throw new RangeError("bucketSeconds must be an integer from 1 to 86400");
       }
-      const measurements = qualifiedName(this.schema, "measurement_samples");
-      const syntheticFilter = query.excludeSynthetic ? "AND source NOT IN ('mock', 'replay')" : "";
-      // Chart DTOs do not expose metadata. Avoid decompressing that wide column
-      // for every historical row just to discard the returned latest payloads.
-      const metadataColumn = query.includeMetadata === false ? "" : ", metadata";
-      const metadataResult = query.includeMetadata === false ? "'{}'::JSONB AS metadata" : "latest.metadata";
-      const result = await this.__query<MeasurementRow>(`WITH source_rows AS (
-          SELECT value, observed_at,
-            date_bin(make_interval(secs => $5::INT), observed_at, TIMESTAMPTZ '1970-01-01 00:00:00+00') AS bucket_start
-          FROM ${measurements}
-          WHERE sensor_id = $1 AND metric = $2
-            AND observed_at >= $3::TIMESTAMPTZ AND observed_at <= $4::TIMESTAMPTZ
-            ${syntheticFilter}
-        ), recent_buckets AS (
-          SELECT bucket_start, AVG(value)::DOUBLE PRECISION AS value,
-            COUNT(*) AS sample_count,
-            MAX(observed_at) AS latest_at
-          FROM source_rows
-          GROUP BY bucket_start
-          ORDER BY bucket_start DESC
-          LIMIT $6
-        ), latest_rows AS (
-          -- Read provenance once for the returned timestamps. Per-bucket
-          -- lookups repeatedly decompress the same historical chunks.
-          SELECT DISTINCT ON (observed_at) observed_at, canonical_unit,
-            source, quality${metadataColumn}
-          FROM ${measurements}
-          WHERE sensor_id = $1 AND metric = $2
-            AND observed_at >= $3::TIMESTAMPTZ AND observed_at <= $4::TIMESTAMPTZ
-            AND observed_at IN (SELECT latest_at FROM recent_buckets)
-            ${syntheticFilter}
-          ORDER BY observed_at DESC, source DESC
-        )
-        SELECT $1::TEXT AS sensor_id, $2::TEXT AS metric, bucket.value,
-          latest.canonical_unit, bucket.bucket_start AS observed_at, latest.source,
-          -- Distinct sources already imply multiple samples. Counting them
-          -- would force a sort over the dense input instead of bucket hashing.
-          CASE WHEN bucket.sample_count > 1
-            THEN 'estimated' ELSE latest.quality END AS quality,
-          ${metadataResult}
-        FROM recent_buckets bucket
-        JOIN latest_rows latest ON latest.observed_at = bucket.latest_at
-        ORDER BY bucket.bucket_start ASC`, [
-        query.sensorId,
-        query.metric,
-        query.from,
-        query.to,
-        query.bucketSeconds,
-        limit,
-      ], query);
+      const excludeSynthetic = query.excludeSynthetic === true;
+      const values: SqlValue[] = [query.sensorId, query.metric, query.from, query.to, query.bucketSeconds, limit];
+      // Chart reads skip metadata, so they can merge the continuous aggregates
+      // instead of grouping every raw sample in a 30-day or yearly window.
+      const base = query.includeMetadata === false ? bucketedHistoryBase(query.bucketSeconds) : null;
+      if (base && await this.__analyticsAggregateReadable(base, query)) {
+        const result = await this.__query<MeasurementRow>(
+          aggregateBucketedHistorySql(this.schema, base, { excludeSynthetic }),
+          [...values, MEASUREMENT_ANALYTICS_BUCKETS[base].interval],
+          query,
+        );
+        return result.rows.map(measurementFromRow);
+      }
+      const result = await this.__query<MeasurementRow>(rawBucketedHistorySql(this.schema, {
+        excludeSynthetic,
+        includeMetadata: query.includeMetadata !== false,
+      }), values, query);
       return result.rows.map(measurementFromRow);
+    },
+  async __analyticsAggregateReadable(
+    this: TimeseriesStoreInternals,
+    base: MeasurementAnalyticsBaseBucket,
+    control: QueryControl,
+  ): Promise<boolean> {
+      // Plain-PostgreSQL archives fall back to views without these aggregates.
+      const name = measurementAnalyticsAggregateName(base);
+      const readable = this[timeseriesStoreState].readableAggregates;
+      if (readable.has(name)) return true;
+      if (await this.__relationKind(name, control) === null) return false;
+      readable.add(name);
+      return true;
     },
   async measurementSampleGaps(this: TimeseriesStoreInternals, query: MeasurementGapQuery): Promise<MeasurementGapRecord[]> {
       const limit = positiveInteger(query.limit, 100, 1_000);
