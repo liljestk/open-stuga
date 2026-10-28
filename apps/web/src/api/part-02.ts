@@ -128,7 +128,7 @@ export const apiPart02 = {
   sensors: async (houseId?: string, schedulingClass: ApiReadSchedulingClass = "background") => list<Sensor>(await request<unknown>(
       houseId === undefined ? "/sensors" : `/sensors?houseId=${encodeURIComponent(houseId)}`, { schedulingClass },
     ), "sensors"),
-  snapshot: async (houseId: string, schedulingClass: ApiReadSchedulingClass = "background") => list<SensorSnapshot>(await request<unknown>(`/snapshot?houseId=${encodeURIComponent(houseId)}`, { schedulingClass }), "snapshot"),
+  snapshot: async (houseId: string, schedulingClass: ApiReadSchedulingClass = "background") => list<SensorSnapshot>(await request<unknown>(`/sensors/snapshots?houseId=${encodeURIComponent(houseId)}`, { schedulingClass }), "sensors"),
   updateHouseGeoreference,
   updateHouseLocation: (houseId: string, location: HouseLocation | null) => updateHouseGeoreference(houseId, { location }),
   houseWeather: async (houseId: string, hours = 48, signal?: AbortSignal) => {

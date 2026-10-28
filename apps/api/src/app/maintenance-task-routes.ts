@@ -1,7 +1,11 @@
 import { HttpError, collectionPage, optionalResourceQuery, parseMaintenanceTaskInput, parseMaintenanceTaskPatch, visibleCollectionPage } from "./support/index.js";
 import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
 
-/** Maintenance tasks and their revisions. */
+/**
+ * Maintenance tasks and their revisions. A single task is answered bare, not as
+ * `{ maintenanceTask }`: installed iOS companion builds decode it that way (see
+ * "REST response envelopes" in docs/architecture.md).
+ */
 export function registerMaintenanceTaskRoutes(context: ApiRouteRegistrationContext): void {
   context.app.get(`${context.prefix}/maintenance-tasks`, (request, response) => {
       const propertyId = optionalResourceQuery(request.query.propertyId, "propertyId");

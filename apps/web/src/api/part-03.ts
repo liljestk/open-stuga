@@ -12,8 +12,8 @@ export const apiPart03 = {
       const response = await request<{ rule: AlertRule }>(`/alert-rules/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(patch) });
       return response.rule;
     },
-  alerts: async (schedulingClass: ApiReadSchedulingClass = "background") => list<AlertEvent>(await request<unknown>("/alerts", { schedulingClass }), "alerts"),
-  acknowledgeAlert: (id: string) => request<AlertEvent>(`/alerts/${encodeURIComponent(id)}/acknowledge`, { method: "POST" }),
+  alerts: async (schedulingClass: ApiReadSchedulingClass = "background") => list<AlertEvent>(await request<unknown>("/alert-events", { schedulingClass }), "events"),
+  acknowledgeAlert: async (id: string) => (await request<{ event: AlertEvent }>(`/alert-events/${encodeURIComponent(id)}/acknowledge`, { method: "POST" })).event,
   notificationDeliveries: async (options: { limit?: number } = {}): Promise<NotificationDeliveryStatus[]> => {
       const endpoint = `/notification-deliveries${options.limit ? `?limit=${options.limit}` : ""}`;
       const body = await request<{ deliveries?: unknown }>(endpoint);
@@ -62,7 +62,7 @@ export const apiPart03 = {
   updateMaintenanceTask: (id: string, patch: MaintenanceTaskPatch) => request<MaintenanceTask>(`/maintenance-tasks/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(patch) }),
   maintenanceTaskRevisions: async (id: string) => list<MaintenanceTaskRevision>(await request<unknown>(`/maintenance-tasks/${encodeURIComponent(id)}/revisions`), "revisions"),
   deleteMaintenanceTask: (id: string) => request<void>(`/maintenance-tasks/${encodeURIComponent(id)}`, { method: "DELETE" }),
-  staticParameters: async (houseId: string, schedulingClass: ApiReadSchedulingClass = "background") => list<StaticParameter>(await request<unknown>(`/static-parameters?houseId=${encodeURIComponent(houseId)}`, { schedulingClass }), "parameters"),
+  staticParameters: async (houseId: string, schedulingClass: ApiReadSchedulingClass = "background") => list<StaticParameter>(await request<unknown>(`/parameters?houseId=${encodeURIComponent(houseId)}`, { schedulingClass }), "parameters"),
   energyOptimization: async (propertyId: string, windowHours = 2, signal?: AbortSignal) => (await request<{ report: EnergyOptimizationReport }>(`/properties/${encodeURIComponent(propertyId)}/energy-optimization?windowHours=${encodeURIComponent(windowHours)}`, withSignal(signal))).report,
   setupDoctor: async () => (await request<{ report: SetupDoctorReport }>("/setup/doctor")).report,
   dataExportPreview: async (privacyLevel: DataExportPrivacyLevel, includeTelemetry: boolean) => (await request<{ preview: DataExportPreview }>(`/data-export/preview?privacyLevel=${encodeURIComponent(privacyLevel)}&includeTelemetry=${includeTelemetry}`)).preview,
@@ -86,7 +86,7 @@ export const apiPart03 = {
   runScheduledDataExport: async (houseId: string, id: string) => (await request<{ export: ScheduledDataExport }>(`/houses/${encodeURIComponent(houseId)}/scheduled-data-exports/${encodeURIComponent(id)}/run`, { method: "POST" })).export,
   backupStatus: async () => (await request<{ backup: BackupOperationStatus }>("/backups/status")).backup,
   requestBackup: async () => (await request<{ backup: BackupOperationStatus }>("/backups", { method: "POST" })).backup,
-  createStaticParameter: (parameter: Omit<StaticParameter, "id">) => request<StaticParameter>("/static-parameters", { method: "POST", body: JSON.stringify(parameter) }),
+  createStaticParameter: async (parameter: Omit<StaticParameter, "id">) => (await request<{ parameter: StaticParameter }>("/parameters", { method: "POST", body: JSON.stringify(parameter) })).parameter,
   integrations: (houseId?: string) => request<IntegrationStatus>(`/integrations/status${houseId ? `?houseId=${encodeURIComponent(houseId)}` : ""}`),
   discoverIntegrations: discoverIntegrationsInBackground,
   resumeIntegrationDiscovery,

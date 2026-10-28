@@ -118,5 +118,6 @@ export function registerTelemetryRoutes(context: ApiRouteRegistrationContext): v
       response.json({ from, to, bucketSeconds, series, truncated });
     });
   context.app.get(`${context.prefix}/stream`, streamTelemetry);
+  // Compatibility path for the iOS companion.
   context.app.get(`${context.prefix}/events`, streamTelemetry);
 }

@@ -21,7 +21,7 @@
     "apps/api/src/analytics/temporal/opening-intervals.ts": [25],
     "apps/api/src/analytics/work-limiter.ts": [16],
     "apps/api/src/app/integration-bridges.ts": [29],
-    "apps/api/src/app/request-pipeline.ts": [50],
+    "apps/api/src/app/request-pipeline.ts": [46],
     "apps/api/src/app/support/part-03.ts": [17, 17],
     "apps/api/src/app/support/part-07.ts": [24, 21],
     "apps/api/src/app/support/part-08.ts": [32],

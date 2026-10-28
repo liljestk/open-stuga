@@ -1,5 +1,6 @@
 import { HttpError, alertDurationSeconds, bodyObject, enumValue, measurementId, optionalBoolean, parseAlertDeliveryPolicy, parseAlertRule, requiredNumber, requiredString, safeInteger, visibleCollectionPage } from "./support/index.js";
-import type { AlertRulePatch } from "@climate-twin/contracts";
+import type { Request, Response } from "express";
+import type { AlertEvent, AlertRulePatch } from "@climate-twin/contracts";
 import type { ClimateDatabase } from "../db.js";
 import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
 
@@ -39,47 +40,43 @@ export function registerAlertRoutes(context: ApiRouteRegistrationContext): void 
       response.status(204).end();
     });
   context.app.get(`${context.prefix}/alert-events`, (request, response) => {
-      const activeOnly = request.query.active === "true";
-      const access = context.visibility(response);
-      const limit = safeInteger(request.query.limit, 200, 1, 1_000);
-      response.json({ events: visibleCollectionPage(
-        (batchLimit, offset) => context.database.listAlertEvents(batchLimit, activeOnly, offset),
-        (event) => access.sensor(event.sensorId),
-        { limit, offset: 0 },
-      ) });
+      response.json({ events: visibleAlertEvents(context, request, response) });
     });
+  // Compatibility path for the iOS companion: the same events under `alerts`.
   context.app.get(`${context.prefix}/alerts`, (request, response) => {
-      const activeOnly = request.query.active === "true";
-      const access = context.visibility(response);
-      const limit = safeInteger(request.query.limit, 200, 1, 1_000);
-      response.json({ alerts: visibleCollectionPage(
-        (batchLimit, offset) => context.database.listAlertEvents(batchLimit, activeOnly, offset),
-        (event) => access.sensor(event.sensorId),
-        { limit, offset: 0 },
-      ) });
+      response.json({ alerts: visibleAlertEvents(context, request, response) });
     });
   context.app.post(`${context.prefix}/alert-events/:id/acknowledge`, (request, response) => {
-      const id = request.params.id as string;
-      const current = context.database.getAlertEvent(id);
-      if (!current || !context.visibility(response).sensor(current.sensorId)) {
-        throw new HttpError(404, "NOT_FOUND", "Alert event not found");
-      }
-      const event = context.database.acknowledgeAlert(id, new Date().toISOString());
-      if (!event) throw new HttpError(404, "NOT_FOUND", "Alert event not found");
-      context.bus.publish({ type: "alert", data: event });
-      response.json({ event });
+      response.json({ event: acknowledgeVisibleAlert(context, request.params.id as string, response) });
     });
+  // Compatibility path for the iOS companion: the same acknowledgement, answered with the bare event.
   context.app.post(`${context.prefix}/alerts/:id/acknowledge`, (request, response) => {
-      const id = request.params.id as string;
-      const current = context.database.getAlertEvent(id);
-      if (!current || !context.visibility(response).sensor(current.sensorId)) {
-        throw new HttpError(404, "NOT_FOUND", "Alert event not found");
-      }
-      const event = context.database.acknowledgeAlert(id, new Date().toISOString());
-      if (!event) throw new HttpError(404, "NOT_FOUND", "Alert event not found");
-      context.bus.publish({ type: "alert", data: event });
-      response.json(event);
+      response.json(acknowledgeVisibleAlert(context, request.params.id as string, response));
     });
+}
+
+/** The newest alert events whose sensor the caller may see. */
+function visibleAlertEvents(context: ApiRouteRegistrationContext, request: Request, response: Response): AlertEvent[] {
+  const activeOnly = request.query.active === "true";
+  const access = context.visibility(response);
+  const limit = safeInteger(request.query.limit, 200, 1, 1_000);
+  return visibleCollectionPage(
+    (batchLimit, offset) => context.database.listAlertEvents(batchLimit, activeOnly, offset),
+    (event) => access.sensor(event.sensorId),
+    { limit, offset: 0 },
+  );
+}
+
+/** Acknowledges a visible alert event and publishes the change; an event the caller cannot see is not found. */
+function acknowledgeVisibleAlert(context: ApiRouteRegistrationContext, id: string, response: Response): AlertEvent {
+  const current = context.database.getAlertEvent(id);
+  if (!current || !context.visibility(response).sensor(current.sensorId)) {
+    throw new HttpError(404, "NOT_FOUND", "Alert event not found");
+  }
+  const event = context.database.acknowledgeAlert(id, new Date().toISOString());
+  if (!event) throw new HttpError(404, "NOT_FOUND", "Alert event not found");
+  context.bus.publish({ type: "alert", data: event });
+  return event;
 }
 
 /** Validated alert-rule patch; only the fields present in the body change. */

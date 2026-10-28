@@ -129,7 +129,7 @@ export function subscribeToEvents(
     }
   };
   const eventTypes = ["reading", "alert", "integration", "weather", "opening", "heat-pump", "connected-device", "mutation", "heartbeat"] as const;
-  return openApiEventStream(`${API_BASE}/events`, {
+  return openApiEventStream(`${API_BASE}/stream`, {
     onState,
     onOpen,
     listeners: Object.fromEntries(eventTypes.map((type): [string, ApiEventStreamListener] => [

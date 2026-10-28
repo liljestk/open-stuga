@@ -193,10 +193,10 @@ export function DeveloperPage({ canManageSystem = false }: { canManageSystem?: b
         <summary><span><span className="eyebrow">{t("developer.localRuntime")} {"\u00b7"} /api/v1 {"\u00b7"} /api/v2</span><strong id="routes-title">{t("developer.localRoutesTitle")}</strong><small>{t("developer.routeCount", { count: 11 })}</small></span><ChevronDown size={18} aria-hidden="true" /></summary>
         <div className="table-scroll" role="region" aria-labelledby="routes-title" tabIndex={0}><table><caption className="sr-only">{t("developer.routeTableCaption")}</caption><thead><tr><th>{t("developer.method")}</th><th>{t("developer.route")}</th><th>{t("developer.resource")}</th></tr></thead><tbody>
           <tr><td><code>GET</code></td><td><code>/houses</code></td><td>{t("developer.routeHouses")}</td></tr>
-          <tr><td><code>GET</code></td><td><code>/snapshot?houseId=…</code></td><td>{t("developer.routeSnapshot")}</td></tr>
+          <tr><td><code>GET</code></td><td><code>/sensors/snapshots?houseId=…</code></td><td>{t("developer.routeSnapshot")}</td></tr>
           <tr><td><code>GET</code></td><td><code>/readings?sensorId=…</code></td><td>{t("developer.routeReadings")}</td></tr>
           <tr><td><code>GET</code></td><td><code>/forecast?sensorId=…</code></td><td>{t("developer.routeForecast")}</td></tr>
-          <tr><td><code>GET</code></td><td><code>/events</code></td><td>{t("developer.routeEvents")}</td></tr>
+          <tr><td><code>GET</code></td><td><code>/stream</code></td><td>{t("developer.routeEvents")}</td></tr>
           <tr><td><code>POST</code></td><td><code>/observations</code></td><td>{t("developer.routeObservations")}</td></tr>
           <tr><td><code>GET v2</code></td><td><code>/measurement-definitions</code></td><td>{t("developer.routeDefinitions")}</td></tr>
           <tr><td><code>GET v2</code></td><td><code>/measurements/snapshot?houseId=…</code></td><td>{t("developer.routeMeasurementSnapshot")}</td></tr>

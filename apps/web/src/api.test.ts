@@ -528,7 +528,7 @@ describe("live event client", () => {
     const disposeAuthorization = subscribeToApiAuthorizationChanges(onAuthorization);
     const dispose = subscribeToEvents(onEvent, onState);
     const source = FakeEventSource.latest;
-    expect(source?.url).toBe("/api/v1/events");
+    expect(source?.url).toBe("/api/v1/stream");
     expect(source?.options).toEqual({ withCredentials: true });
     expect(source?.listeners.has("weather")).toBe(true);
     expect(source?.listeners.has("opening")).toBe(true);
