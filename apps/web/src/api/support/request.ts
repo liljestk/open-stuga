@@ -1,5 +1,5 @@
 import { type House, ResponseShapeError } from "@climate-twin/contracts";
-import type { SpatialLayerConfigurationResponse, SpatialTopology } from "../../spatialLayers";
+import type { SpatialLayerConfigurationResponse, SpatialTopology } from "../../spatial/layers";
 import { recordApiError } from "../../bugReportDiagnostics";
 import { API_RUNTIME_VERSION_HEADER, assertApiRuntimeVersion } from "../../apiRuntimeVersion";
 import { ApiRequestError } from "./request-error";

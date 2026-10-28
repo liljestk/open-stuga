@@ -1,6 +1,6 @@
 import { BoxSelect, Grid3X3, ImagePlus, MapPinPlus, MousePointer2, PenLine, Plus, RotateCcw, RotateCw, Trash2 } from "lucide-react";
 import { isAirflowPlanElement, type PlanElementKind } from "@climate-twin/contracts";
-import { normalizeDegrees } from "../../outdoorContext";
+import { normalizeDegrees } from "../../outdoor/context";
 import { PlanElementDimensionFields } from "../PlanElementDimensionFields";
 import { PlanElementAirflowFields } from "../PlanElementAirflowFields";
 import { PlanElementFixtureFields } from "../PlanElementFixtureFields";

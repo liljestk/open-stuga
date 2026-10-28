@@ -10,7 +10,7 @@ import { createClientUuid } from "../../clientUuid";
 import {
   clampCameraOrbit,
   type CameraOrbit,
-} from "../../spatialVolume";
+} from "../../spatial/volume";
 import { applyAirflowPlanElementPatch } from "../PlanElementAirflowFields";
 import { applyFixturePlanElementPatch } from "../PlanElementFixtureFields";
 import {

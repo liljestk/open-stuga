@@ -26,8 +26,8 @@ import {
 import { formatInTimeZone } from "../../dateTime";
 import { measurementLabel } from "../../measurements";
 import { TrendChart } from "../../components/TrendChart";
-import { ContactSensorHistoryPanel } from "../../components/ContactSensorHistoryPanel";
-import { TpLinkContactAssignment } from "../../components/TpLinkContactAssignment";
+import { ContactSensorHistoryPanel } from "./ContactSensorHistoryPanel";
+import { TpLinkContactAssignment } from "./TpLinkContactAssignment";
 import {
   isLegacyTpLinkContactSensor,
   tpLinkContactDeviceForSensor,

@@ -5,7 +5,7 @@ import type { Sensor, ThermalSimulationPoint, UnitSystem } from "@climate-twin/c
 import { formatInTimeZone } from "../dateTime";
 import type { TimeRange } from "../domain";
 import { useI18n, type TranslationKey } from "../i18n";
-import { useThermalSimulation } from "../useThermalSimulation";
+import { useThermalSimulation } from "../data/analytics/useThermalSimulation";
 
 interface ThermalSimulationPanelProps {
   houseId: string;

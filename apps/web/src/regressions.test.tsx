@@ -8,7 +8,7 @@ import type { Floor } from "@climate-twin/contracts";
 
 import i18nSource from "./i18n.tsx?raw";
 
-import { AppShell } from "./components/AppShell";
+import { AppShell } from "./App/AppShell";
 
 import { FloorPlan, floorGridSize } from "./components/FloorPlan";
 

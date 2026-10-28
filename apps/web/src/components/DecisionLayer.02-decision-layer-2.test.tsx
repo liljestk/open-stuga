@@ -10,9 +10,9 @@ import { I18nProvider } from "../i18n";
 
 import { createDemoState } from "../domain";
 
-import { buildRoomComforts, RoomComfortBoard } from "./RoomComfortBoard";
+import { buildRoomComforts, RoomComfortBoard } from "../pages/TwinDashboard/RoomComfortBoard";
 
-import { HomePulsePanel } from "./HomePulsePanel";
+import { HomePulsePanel } from "../pages/TwinDashboard/HomePulsePanel";
 
 import {
   monitoringDetail,

@@ -13,14 +13,14 @@ import type {
 } from "@climate-twin/contracts";
 import { timeRangeHours, type ClimateState, type TimeRange } from "../domain";
 import { observedSeries, SensorAnalyticsChart } from "../components/SensorAnalyticsChart";
-import { DailyAnalyticsFindings } from "../components/DailyAnalyticsFindings";
-import { HomePerformancePanel } from "../components/HomePerformancePanel";
-import { OpeningAnalyticsPanel } from "../components/OpeningAnalyticsPanel";
-import { ThermalIsolationPanel } from "../components/ThermalIsolationPanel";
-import { MoistureResponsePanel } from "../components/MoistureResponsePanel";
+import { DailyAnalyticsFindings } from "./DataAnalyticsPage/DailyAnalyticsFindings";
+import { HomePerformancePanel } from "./DataAnalyticsPage/HomePerformancePanel";
+import { OpeningAnalyticsPanel } from "./DataAnalyticsPage/OpeningAnalyticsPanel";
+import { ThermalIsolationPanel } from "./DataAnalyticsPage/ThermalIsolationPanel";
+import { MoistureResponsePanel } from "./DataAnalyticsPage/MoistureResponsePanel";
 import { DataExportPanel } from "../components/DataExportPanel";
-import { ForecastNotes } from "../components/ForecastNotes";
-import { AnalyticsHealthPanel } from "../components/AnalyticsHealthPanel";
+import { ForecastNotes } from "./DataAnalyticsPage/ForecastNotes";
+import { AnalyticsHealthPanel } from "./DataAnalyticsPage/AnalyticsHealthPanel";
 import { chartGapThresholdMs, detectSeriesGaps } from "../chartGaps";
 import { formatInTimeZone } from "../dateTime";
 import { useHouseWeather } from "../useHouseWeather";
@@ -44,8 +44,8 @@ import {
   type AnalyticsLocationState,
   type AnalyticsTool,
   type QualityPreset,
-} from "./dataAnalytics/explorerState";
-import { analyticsCsv, downloadText } from "./dataAnalytics/analyticsExport";
+} from "./DataAnalyticsPage/explorerState";
+import { analyticsCsv, downloadText } from "./DataAnalyticsPage/analyticsExport";
 import { useExplorerAnalyticsQuery, useExplorerContextQuery, useExplorerForecastsQuery } from "../data/analytics/explorerQueries";
 
 interface DataAnalyticsPageProps {
@@ -74,7 +74,7 @@ const NO_GAPS: SensorDataGap[] = [];
 const NO_FORECASTS: MeasurementForecasts = {};
 const NO_EVALUATIONS: Record<string, MeasurementForecastEvaluation> = {};
 
-export { analyticsCsv } from "./dataAnalytics/analyticsExport";
+export { analyticsCsv } from "./DataAnalyticsPage/analyticsExport";
 
 export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
   const { locale, t } = useI18n();

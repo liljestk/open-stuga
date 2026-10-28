@@ -22,8 +22,8 @@ import type {
 } from "@climate-twin/contracts";
 import { api } from "../../../api";
 import { useI18n } from "../../../i18n";
-import { type SensorCoverageAssessment, type SensorPlacementSuggestion } from "../../../experimentalSpatialLayers";
-import { qrCodeMatrix } from "../../../qrCode";
+import { type SensorCoverageAssessment, type SensorPlacementSuggestion } from "../../../spatial/experimentalLayers";
+import { qrCodeMatrix } from "../qrCode";
 import { isTpLinkContactDevice } from "../../../tpLinkDeviceClassification";
 import { clamp } from "./part-01";
 

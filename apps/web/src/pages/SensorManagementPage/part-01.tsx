@@ -15,9 +15,9 @@ import type { TimeRange } from "../../domain";
 import { useI18n } from "../../i18n";
 import { useNow } from "../../useNow";
 import { integrationForHouse } from "../../integrationScope";
-import { assessSensorCoverage, suggestSensorPlacement, type SensorCoverageAssessment, type SensorPlacementSuggestion } from "../../experimentalSpatialLayers";
-import { configuredSpatialMaxSampleAgeMs } from "../../spatialFreshness";
-import { useSpatialLayers } from "../../useSpatialLayers";
+import { assessSensorCoverage, suggestSensorPlacement, type SensorCoverageAssessment, type SensorPlacementSuggestion } from "../../spatial/experimentalLayers";
+import { configuredSpatialMaxSampleAgeMs } from "../../spatial/freshness";
+import { useSpatialLayers } from "../../spatial/useSpatialLayers";
 import {
   houseHasTpLinkOpeningBinding,
   isLegacyTpLinkContactSensor,

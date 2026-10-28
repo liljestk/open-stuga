@@ -18,7 +18,7 @@ import {
 } from "../../components/ForecastWindowNavigator";
 import { type Locale, type TranslationKey } from "../../i18n";
 import { ApiRequestError } from "../../api";
-import { homeRelevantWeatherWarnings } from "../../weatherWarningRelevance";
+import { homeRelevantWeatherWarnings } from "../../outdoor/warningRelevance";
 import "../OutdoorWeatherPage.css";
 
 export interface OutdoorPageCopy {

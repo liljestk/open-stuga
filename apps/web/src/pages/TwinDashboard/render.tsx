@@ -1,11 +1,11 @@
 import { Suspense } from "react";
 import { Bolt, Box, Check, ChevronDown, DoorOpen, Edit3, Gauge, History, Home, Lightbulb, Map, MapPinPlus, Maximize2, Minimize2, Save, SlidersHorizontal, Snowflake, Sparkles, Thermometer, Wind } from "lucide-react";
 import { type ConfiguredOpeningState, type ManualObservation, type MockScenario, type ObservationConfidence, type ObservationSource, type ObservationTimePrecision, type Point } from "@climate-twin/contracts";
-import { ReplayControls } from "../../components/ReplayControls";
-import { RoomComfortBoard } from "../../components/RoomComfortBoard";
-import { MoistureCoach } from "../../components/MoistureCoach";
-import { HomePulsePanelData } from "../../components/HomePulsePanel";
-import { HomeOperationsPreview } from "../../components/HomeOperationsPreview";
+import { ReplayControls } from "./ReplayControls";
+import { RoomComfortBoard } from "./RoomComfortBoard";
+import { MoistureCoach } from "./MoistureCoach";
+import { HomePulsePanelData } from "./HomePulsePanel";
+import { HomeOperationsPreview } from "./HomeOperationsPreview";
 import "../../components/decisionLayer.css";
 import "../OperationsPages.css";
 import { formatInTimeZone, twentyFourHourInputLocale } from "../../dateTime";
@@ -13,8 +13,8 @@ import { clamp } from "../../domain";
 import { type TranslationKey } from "../../i18n";
 import { displayUnit, formatMeasurement, formatMeasurementDelta, measurementLabel } from "../../measurements";
 import { SpatialLayerPanel } from "../../components/SpatialLayerPanel";
-import { HeatPumpInspector } from "../../components/HeatPumpInspector";
-import { heatPumpSensorId } from "../../heatPumpPresentation";
+import { HeatPumpInspector } from "./HeatPumpInspector";
+import { heatPumpSensorId } from "../../heatPump/presentation";
 import { BuildingScene, FloorPlan, HomeActivityTimeline, MeasurementGlyph, RoomComparisonChart, SensorInspector, SpatialLayerLab, StructureEditor, ThermalSimulationPanel, observationConfidences, observationKinds, observationSources, observationTimePrecisions } from "./support";
 import { useTwinDashboardPart05 } from "./part-05";
 export function renderTwinDashboard(context: ReturnType<typeof useTwinDashboardPart05>) {

@@ -1,9 +1,9 @@
-import type { CardinalDirection } from "../outdoorContext";
+import type { CardinalDirection } from "../outdoor/context";
 import { Compass, Droplets, Eye, EyeOff, LoaderCircle, PauseCircle, Thermometer, TriangleAlert, Wind } from "lucide-react";
 import { useEffect, useId, useState, type CSSProperties } from "react";
 import type { UnitSystem } from "@climate-twin/contracts";
 import { formatInTimeZone } from "../dateTime";
-import type { OutdoorBoundaryContext, PlanEdge } from "../outdoorContext";
+import type { OutdoorBoundaryContext, PlanEdge } from "../outdoor/context";
 import { useI18n, type TranslationKey } from "../i18n";
 import { readLocalStorage, subscribeToAccountStorageScope, writeLocalStorage } from "../browserStorage";
 

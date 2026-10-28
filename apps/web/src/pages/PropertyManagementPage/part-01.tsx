@@ -12,7 +12,7 @@ import type {
 } from "@climate-twin/contracts";
 import type { ClimateState } from "../../domain";
 import { useI18n } from "../../i18n";
-import { derivePropertyTrafficLights } from "../../propertyStatus";
+import { derivePropertyTrafficLights } from "./propertyStatus";
 import { useNow } from "../../useNow";
 import "../PropertyManagementPage.css";
 import { MAP_ITEM_BATCH_SIZE, emptyAreaDraft, fixedAssetKinds } from "./support";

@@ -36,10 +36,10 @@ import type {
   PropertyNote,
 } from "@climate-twin/contracts";
 import { api } from "../../api";
-import { EquipmentQrLabel } from "../../components/EquipmentQrLabel";
+import { EquipmentQrLabel } from "./EquipmentQrLabel";
 import { StugubyMark } from "../../components/StugubyMark";
 import { formatInTimeZone } from "../../dateTime";
-import { type PropertyTrafficLight } from "../../propertyStatus";
+import { type PropertyTrafficLight } from "./propertyStatus";
 import "../PropertyManagementPage.css";
 import { AccessPanel, EQUIPMENT_DOCUMENT_ACCEPT, EQUIPMENT_DRAFT_MAP_ID, EQUIPMENT_PHOTO_ACCEPT, MAP_ITEM_BATCH_SIZE, NEW_FIXED_ASSET_ID, PropertyAreaMap, PropertyStatusLights, areaDraft, areaKinds, attachmentSize, isForeignSharedHouse, targetLabel } from "./support";
 import type { EquipmentPlacement, InventoryLocationFilter, MapItemFilter } from "./support";

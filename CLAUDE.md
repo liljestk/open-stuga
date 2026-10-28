@@ -41,8 +41,11 @@ original `climate-twin` identifier.
 control) and then registers one route module per domain
 (`app/*-routes.ts`, `apps/api/src/analytics/**/routes.ts`, `stuguby/routes.ts`,
 `spatial-layers/routes.ts`). Add a route to the module that owns its domain.
-Web pages/panels live in `apps/web/src/pages`, dialogs in
-`apps/web/src/components`.
+Web pages live in `apps/web/src/pages`. A component or helper with a single
+page consumer lives in that page's folder (`pages/<Page>/`);
+`apps/web/src/components` holds the ones two or more modules use. Feature
+code that is not a page has its own folder (`spatial/`, `outdoor/`,
+`heatPump/`), and server-state hooks live under `apps/web/src/data`.
 
 ## Build and test
 

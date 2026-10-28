@@ -3,7 +3,7 @@ import { formatMeasurement, formatMeasurementDelta, measurementGradient, measure
 import { energyDeviceMapStats, isEnergyDeviceSensor } from "../../energyDeviceMap";
 import {
   isSpatialSampleFresh,
-} from "../../spatialFreshness";
+} from "../../spatial/freshness";
 import {
   OutdoorConditionsBadge,
 } from "../OutdoorConditionsBadge";
@@ -16,7 +16,7 @@ import { ExperimentalSensorCoverage3D } from "../ExperimentalSensorCoverage";
 import { OutdoorInfluenceOverlay3D } from "../OutdoorInfluenceOverlay";
 import { ConnectedDeviceMarker3D } from "../ConnectedDeviceMarkers";
 import { HeatPumpMarker3D } from "../HeatPumpMarkers";
-import { heatPumpSensorId, sensorRepresentsHeatPump } from "../../heatPumpPresentation";
+import { heatPumpSensorId, sensorRepresentsHeatPump } from "../../heatPump/presentation";
 import {
   DEFAULT_CEILING_HEIGHT_METRES,
   defaultPlanElementWidth,

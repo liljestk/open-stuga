@@ -19,7 +19,7 @@ import { useNow } from "../useNow";
 import type { LatestMeasurements } from "../measurements";
 import { HomeOriginIndicator, isRemoteHome } from "../components/HomeOriginIndicator";
 import { useHomeMonitoringCollectionQuery } from "../data/analytics/homeMonitoringQuery";
-import { MobileGlanceOverview } from "../components/MobileGlanceOverview";
+import { MobileGlanceOverview } from "./PortfolioOverview/MobileGlanceOverview";
 
 type MonitoringRequestState = "pending" | "error" | "ready" | "unknown";
 

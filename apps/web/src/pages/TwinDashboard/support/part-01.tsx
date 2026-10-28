@@ -5,13 +5,13 @@ import { type ConnectionState, type Floor, type House, type ManualObservation, t
 import "../../../components/decisionLayer.css";
 import "../../OperationsPages.css";
 import { type ClimateState, type TimeRange, type ViewMode } from "../../../domain";
-import type { CreateHouseInput } from "../../../components/StructureEditor";
+import type { CreateHouseInput } from "../StructureEditor";
 import type { ClientDataMode } from "../../../useClimateData";
 import { type MeasurementHistoryPage } from "../../../api";
 import {
   type ExperimentalVisualizationId,
-} from "../../../experimentalSpatialLayers";
-import type { OutdoorInfluenceMetric } from "../../../outdoorInfluence";
+} from "../../../spatial/experimentalLayers";
+import type { OutdoorInfluenceMetric } from "../../../outdoor/influence";
 import { readLocalStorage } from "../../../browserStorage";
 import { zonedDateTimeParts } from "../../../observationTime";
 
@@ -19,7 +19,7 @@ export const BuildingScene = lazy(() => import("../../../components/BuildingScen
 
 export const FloorPlan = lazy(() => import("../../../components/FloorPlan").then((module) => ({ default: module.FloorPlan })));
 
-export const StructureEditor = lazy(() => import("../../../components/StructureEditor").then((module) => ({ default: module.StructureEditor })));
+export const StructureEditor = lazy(() => import("../StructureEditor").then((module) => ({ default: module.StructureEditor })));
 
 export const ThermalSimulationPanel = lazy(() => import("../../../components/ThermalSimulationPanel").then((module) => ({ default: module.ThermalSimulationPanel })));
 

@@ -1,5 +1,5 @@
 import { type CSSProperties } from "react";
-import { cardinalDirection, normalizeDegrees } from "../../outdoorContext";
+import { cardinalDirection, normalizeDegrees } from "../../outdoor/context";
 import {
   formatOutdoorHumidity,
   formatOutdoorTemperature,

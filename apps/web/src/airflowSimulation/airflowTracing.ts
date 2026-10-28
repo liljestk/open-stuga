@@ -3,8 +3,8 @@ import {
   type OpeningStateObservation,
   type Sensor,
 } from "@climate-twin/contracts";
-import type { OutdoorBoundaryContext } from "../outdoorContext";
-import { type SpatialFreshnessOptions } from "../spatialFreshness";
+import type { OutdoorBoundaryContext } from "../outdoor/context";
+import { type SpatialFreshnessOptions } from "../spatial/freshness";
 import { AirflowDataSupport, AirflowEvidence, AirflowPath2D, AirflowPath3D, AirflowPoint2D, AirflowPoint3D, BuildGridInput, BuildingAirflowEstimate, ClimateSampleMatrix, FIELD_EPSILON, FloorAirflowEstimate, NormalizedPoint3D, SolverGrid, blockedByWall, ceilingHeight, clamp } from "./airflowModel";
 import { buildGrid, chooseSeeds, emptyEvidence, fluidAt, velocityAt, naturalDoorCounterflow } from "./airflowSolver";
 

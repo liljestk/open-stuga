@@ -6,7 +6,7 @@ import { useI18n } from "../i18n";
 import { formatInTimeZone } from "../dateTime";
 import { useHouseWeather } from "../useHouseWeather";
 import { HomeActivityTimeline, ObservationLifecycle, ObservationRevisionHistory } from "../components/HomeActivityTimeline";
-import { ObservationComposer } from "../components/ObservationComposer";
+import { ObservationComposer } from "./ActivityPage/ObservationComposer";
 import "./OperationsPages.css";
 
 type ObservationFilter = "all" | "open" | "resolved" | "critical";

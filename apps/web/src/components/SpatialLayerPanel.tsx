@@ -1,13 +1,13 @@
 import { AlertTriangle, Box, ChevronDown, CloudSun, FlaskConical, History, Map as MapIcon, Radar, RefreshCw, Waves, Wind } from "lucide-react";
 import type { UnitSystem } from "@climate-twin/contracts";
-import type { SpatialLayerEngineManifest, SpatialLayerSnapshot } from "../spatialLayers";
-import type { UseSpatialLayersResult } from "../useSpatialLayers";
+import type { SpatialLayerEngineManifest, SpatialLayerSnapshot } from "../spatial/layers";
+import type { UseSpatialLayersResult } from "../spatial/useSpatialLayers";
 import type { AirflowEvidence } from "../airflowSimulation";
 import type {
   ExperimentalLayerSuggestion,
   ExperimentalVisualizationId,
   SensorCoverageAssessment,
-} from "../experimentalSpatialLayers";
+} from "../spatial/experimentalLayers";
 import { formatInTimeZone } from "../dateTime";
 import { useI18n, type TranslationKey } from "../i18n";
 import { readLocalStorage, writeLocalStorage } from "../browserStorage";
@@ -15,7 +15,7 @@ import {
   formatOutdoorInfluenceValue,
   type OutdoorInfluenceEstimate,
   type OutdoorInfluenceMetric,
-} from "../outdoorInfluence";
+} from "../outdoor/influence";
 
 export interface SpatialLayerPanelProps {
   layers: UseSpatialLayersResult;

@@ -927,7 +927,7 @@ Focused work:
 ```powershell
 npm run build:packages
 npm run test --workspace @climate-twin/api -- tests/analytics.test.ts tests/daily-analytics-findings.test.ts tests/timeseries-analytics-rollup.test.ts tests/timeseries-read-facade.test.ts tests/openapi-parity.test.ts tests/mcp-validation.test.ts tests/mcp-server.test.ts
-npm run test --workspace @climate-twin/web -- src/pages/DataAnalyticsPage.test.tsx src/components/OpeningAnalyticsPanel.test.tsx src/components/CalendarPeriodComparison.test.tsx src/pages/PortfolioOverview.test.tsx src/pages/AlertsPage.test.tsx
+npm run test --workspace @climate-twin/web -- src/pages/DataAnalyticsPage.test.tsx src/pages/DataAnalyticsPage/OpeningAnalyticsPanel.test.tsx src/components/CalendarPeriodComparison.test.tsx src/pages/PortfolioOverview.test.tsx src/pages/AlertsPage.test.tsx
 npm run typecheck --workspace @climate-twin/api
 npm run typecheck --workspace @climate-twin/web
 swift test --package-path apps/ios

@@ -25,7 +25,7 @@ import { type HouseGeoreferencePatch } from "../../../api";
 import { createClientUuid } from "../../../clientUuid";
 import type { ClimateState } from "../../../domain";
 import { useI18n } from "../../../i18n";
-import { type PropertyTrafficLight } from "../../../propertyStatus";
+import { type PropertyTrafficLight } from "../propertyStatus";
 import "../../PropertyManagementPage.css";
 
 export const PropertyAreaMap = lazy(() => import("../../../components/PropertyAreaMap").then((module) => ({ default: module.PropertyAreaMap })));

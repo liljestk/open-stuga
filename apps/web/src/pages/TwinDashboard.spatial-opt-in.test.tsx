@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { api } from "../api";
 import { createDemoState } from "../domain";
 import { I18nProvider } from "../i18n";
-import { SPATIAL_LAYER_POLL_MS } from "../useSpatialLayers";
+import { SPATIAL_LAYER_POLL_MS } from "../spatial/useSpatialLayers";
 import { TwinDashboard } from "./TwinDashboard";
 
 afterEach(() => vi.restoreAllMocks());

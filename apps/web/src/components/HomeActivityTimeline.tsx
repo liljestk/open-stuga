@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "re
 import { useI18n } from "../i18n";
 import { formatInTimeZone } from "../dateTime";
 import { ApiRequestError } from "../api";
-import { isHomeRelevantWeatherWarning } from "../weatherWarningRelevance";
+import { isHomeRelevantWeatherWarning } from "../outdoor/warningRelevance";
 import "./decisionLayer.css";
 
 export type HomeActivityKind = "alert" | "observation" | "maintenance" | "weather" | "system";

@@ -2,7 +2,7 @@ import { isAirflowPlanElement, type ConfiguredOpeningState, type Floor, type Man
 import {
   type Point3D,
   type ProjectedPoint3D,
-} from "../../spatialVolume";
+} from "../../spatial/volume";
 import {
   isWallOpening,
 } from "../../planElementGeometry";

@@ -10,9 +10,9 @@ import {
   type Point,
   type Sensor,
 } from "@climate-twin/contracts";
-import type { OutdoorBoundaryContext } from "../outdoorContext";
+import type { OutdoorBoundaryContext } from "../outdoor/context";
 import { defaultPlanElementWidth, effectivePlanElementHeight, planElementBottomOffset } from "../planElementGeometry";
-import { isSpatialSampleFresh, type SpatialFreshnessOptions } from "../spatialFreshness";
+import { isSpatialSampleFresh, type SpatialFreshnessOptions } from "../spatial/freshness";
 
 /**
  * This is deliberately a relative-motion model, not a calibrated CFD result.

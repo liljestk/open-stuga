@@ -2,10 +2,10 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { HeatPumpState, MeasurementDefinition, Sensor } from "@climate-twin/contracts";
 import { createDemoState } from "../domain";
-import { heatPumpSensorId, sensorRepresentsHeatPump } from "../heatPumpPresentation";
+import { heatPumpSensorId, sensorRepresentsHeatPump } from "../heatPump/presentation";
 import { I18nProvider } from "../i18n";
 import { definitionFor } from "../measurements";
-import { HeatPumpInspector } from "./HeatPumpInspector";
+import { HeatPumpInspector } from "../pages/TwinDashboard/HeatPumpInspector";
 import { HeatPumpMarker2D, HeatPumpMarker3D } from "./HeatPumpMarkers";
 
 const observedAt = "2026-08-04T16:00:00.000Z";

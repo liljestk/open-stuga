@@ -188,7 +188,8 @@ const dataSizedMinMaxFiles = [
   ...await filesBelow(apiAnalyticsRoot),
   ...["analytics/thermal/simulation.ts", "analytics/thermal/isolation.ts", "electricity/energy-cost.ts"].map((name) => join(root, "apps", "api", "src", name)),
   join(webSourceRoot, "pages", "energyAnalysis.ts"),
-  ...["SensorAnalyticsChart.tsx", "TrendChart.tsx", "ThermalSimulationPanel.tsx", "RoomComfortBoard.tsx"]
+  join(webSourceRoot, "pages", "TwinDashboard", "RoomComfortBoard.tsx"),
+  ...["SensorAnalyticsChart.tsx", "TrendChart.tsx", "ThermalSimulationPanel.tsx"]
     .map((name) => join(webSourceRoot, "components", name)),
 ];
 for (const path of dataSizedMinMaxFiles) {

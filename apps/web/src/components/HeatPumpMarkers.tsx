@@ -8,14 +8,14 @@ import type {
   Point,
   UnitSystem,
 } from "@climate-twin/contracts";
-import { estimateHeatPumpInfluence } from "../heatPumpImpact";
+import { estimateHeatPumpInfluence } from "../heatPump/impact";
 import {
   heatPumpMarkerReading,
   heatPumpName,
   heatPumpSensorId,
-} from "../heatPumpPresentation";
+} from "../heatPump/presentation";
 import { measurementLabel } from "../measurements";
-import { DEFAULT_SPATIAL_MAX_SAMPLE_AGE_MS } from "../spatialFreshness";
+import { DEFAULT_SPATIAL_MAX_SAMPLE_AGE_MS } from "../spatial/freshness";
 import { useI18n, type TranslationKey } from "../i18n";
 
 interface ProjectedPoint { x: number; y: number }

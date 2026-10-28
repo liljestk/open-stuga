@@ -4,7 +4,7 @@ import { isAirflowPlanElement, type OpeningStateObservation } from "@climate-twi
 import "../../components/decisionLayer.css";
 import "../OperationsPages.css";
 import { samplesAt, type LatestMeasurements } from "../../measurements";
-import { createOutdoorBoundaryContextFromConditions } from "../../outdoorContext";
+import { createOutdoorBoundaryContextFromConditions } from "../../outdoor/context";
 import type { OutdoorVisualizationState } from "../../components/OutdoorConditionsBadge";
 import {
   type ClimateSampleMatrix,
@@ -12,7 +12,7 @@ import {
 import { api } from "../../api";
 import {
   assessSensorCoverage,
-} from "../../experimentalSpatialLayers";
+} from "../../spatial/experimentalLayers";
 import { type ReplayClimateEvent } from "../../replayEvents";
 import { replayOutdoorAttribution, replayOutdoorConditions, replayOutdoorSampleAt } from "../../replayWeather";
 import { openingStateCanChange, openingStateObservationsForHouse } from "../../openingState";

@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createDemoState } from "../domain";
 import { I18nProvider } from "../i18n";
-import type { UseSpatialLayersResult } from "../useSpatialLayers";
+import type { UseSpatialLayersResult } from "../spatial/useSpatialLayers";
 
 const mocks = vi.hoisted(() => ({
   config: vi.fn(), inference: vi.fn(), startInference: vi.fn(), stopInference: vi.fn(), bindings: vi.fn(), calibrations: vi.fn(), sessions: vi.fn(), context: vi.fn(), truth: vi.fn(), createSession: vi.fn(),

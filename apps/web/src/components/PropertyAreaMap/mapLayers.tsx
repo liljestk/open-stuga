@@ -9,7 +9,7 @@ import type {
 } from "@climate-twin/contracts";
 import L, { type Marker } from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { layerConfidence, layerVisualStrength, type SpatialLayerSnapshot, type SpatialTopology } from "../../spatialLayers";
+import { layerConfidence, layerVisualStrength, type SpatialLayerSnapshot, type SpatialTopology } from "../../spatial/layers";
 
 export type PropertyMapHouse = Pick<House, "id" | "name" | "location" | "mapPlacement">;
 

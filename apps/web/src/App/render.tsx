@@ -1,11 +1,11 @@
 import { Suspense } from "react";
 import { hasLocalHouseAuthority } from "@climate-twin/contracts";
 import { AlertTriangle, LoaderCircle, RotateCcw, ShieldCheck, Wrench } from "lucide-react";
-import { AppShell } from "../components/AppShell";
+import { AppShell } from "./AppShell";
 import { preferredHouseForProperty } from "../domain";
 import { locationForPropertySection } from "../routing";
 import { StuguMark } from "../components/StuguMark";
-import { RouteErrorBoundary } from "../components/RouteErrorBoundary";
+import { RouteErrorBoundary } from "./RouteErrorBoundary";
 import {
   LocalAuthPage,
 } from "../pages/LocalAuthPage";

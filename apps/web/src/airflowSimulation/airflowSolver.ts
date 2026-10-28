@@ -6,7 +6,7 @@ import {
   type Point,
   type VentPlanElement,
 } from "@climate-twin/contracts";
-import type { OutdoorBoundaryContext, PlanEdge } from "../outdoorContext";
+import type { OutdoorBoundaryContext, PlanEdge } from "../outdoor/context";
 import { effectivePlanElementHeight, planElementBottomOffset } from "../planElementGeometry";
 import { AirflowEvidence, BuildGridInput, ClimateAnchor, FIELD_EPSILON, GRAVITY_MPS2, MIN_TEMPERATURE_ANCHORS, NormalizedPoint3D, PRESSURE_ITERATIONS, STEADY_STEPS, SolverGrid, Velocity3D, anchorsForFloor, ceilingHeight, clamp, effectiveGridInput, faceOpen, isFiniteNumber, freshSample, gridDimensions, index, lineOfSightPenalty, openingIsActive, rasterizeFluid, rasterizeWalls, supportLevel, virtualTemperatureK, AirflowPath3D, AirflowPoint3D, elementWidth, pointInPolygon } from "./airflowModel";
 

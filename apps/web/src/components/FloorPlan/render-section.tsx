@@ -3,7 +3,7 @@ import { isAirflowPlanElement, wallLengthPlanUnits, type ConfiguredOpeningState 
 import { clamp } from "../../domain";
 import { formatMeasurement, formatMeasurementDelta, measurementGradient, measurementValue, toDisplayValue } from "../../measurements";
 import { energyDeviceMapStats, isEnergyDeviceSensor } from "../../energyDeviceMap";
-import { isSpatialSampleFresh } from "../../spatialFreshness";
+import { isSpatialSampleFresh } from "../../spatial/freshness";
 import {
   OutdoorConditionsBadge,
 } from "../OutdoorConditionsBadge";
@@ -13,7 +13,7 @@ import { OutdoorInfluenceOverlay2D } from "../OutdoorInfluenceOverlay";
 import { OutdoorWindFlow2D } from "../OutdoorWindFlow2D";
 import { ConnectedDeviceMarker2D } from "../ConnectedDeviceMarkers";
 import { HeatPumpMarker2D } from "../HeatPumpMarkers";
-import { heatPumpSensorId, sensorRepresentsHeatPump } from "../../heatPumpPresentation";
+import { heatPumpSensorId, sensorRepresentsHeatPump } from "../../heatPump/presentation";
 import {
   defaultPlanElementWidth,
   defaultFireEscapeProjection,

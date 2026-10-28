@@ -12,13 +12,13 @@ import { I18nProvider } from "../i18n";
 
 import { createDemoState } from "../domain";
 
-import { buildRoomComforts, RoomComfortBoard } from "./RoomComfortBoard";
+import { buildRoomComforts, RoomComfortBoard } from "../pages/TwinDashboard/RoomComfortBoard";
 
-import { buildMoistureAdvice, dewPointCelsius, MoistureCoach } from "./MoistureCoach";
+import { buildMoistureAdvice, dewPointCelsius, MoistureCoach } from "../pages/TwinDashboard/MoistureCoach";
 
 import { buildHomeActivityEvents, HomeActivityTimeline } from "./HomeActivityTimeline";
 
-import { HomePulsePanel } from "./HomePulsePanel";
+import { HomePulsePanel } from "../pages/TwinDashboard/HomePulsePanel";
 
 import { observationInstantTimestamp } from "./RoomComparisonChart";
 import {

@@ -3,8 +3,8 @@ import { floorMetersPerPlanUnit, type PlanElementKind, type Point } from "@clima
 import { clamp } from "../../domain";
 import { useI18n } from "../../i18n";
 import { measurementLabel } from "../../measurements";
-import { createCloudLobes, estimateFieldFlows, interpolateHeat } from "../../spatialField";
-import { configuredSpatialMaxSampleAgeMs } from "../../spatialFreshness";
+import { createCloudLobes, estimateFieldFlows, interpolateHeat } from "../../spatial/field";
+import { configuredSpatialMaxSampleAgeMs } from "../../spatial/freshness";
 import { chimneyPenetrationsForFloor } from "../../architecturalGeometry";
 import { useMapInformationVisibility } from "../MapInformationToggle";
 import { openingStateObservationsForHouse } from "../../openingState";

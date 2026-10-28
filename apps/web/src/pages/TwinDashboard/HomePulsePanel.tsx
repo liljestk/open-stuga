@@ -1,0 +1,432 @@
+import { AlertTriangle, ArrowRight, CheckCircle2, ChevronDown, Eye, EyeOff, Gauge, LoaderCircle, RadioTower, Sparkles } from "lucide-react";
+import type {
+  AlertEvent,
+  AlertRule,
+  HomeInsight,
+  HomeMonitoringDetailResponse,
+  HomePulseStatus,
+  House,
+  HouseWeather,
+  Sensor,
+} from "@climate-twin/contracts";
+import { useEffect, useMemo, useRef, useState, type Ref } from "react";
+import { useHomeMonitoringQuery } from "../../data/analytics/homeMonitoringQuery";
+import { useI18n, type Locale, type TranslationKey } from "../../i18n";
+import type { LatestMeasurements, MeasurementHistory } from "../../measurements";
+import { readLocalStorage, removeLocalStorage, subscribeToAccountStorageScope, writeLocalStorage } from "../../browserStorage";
+
+type Translate = (key: TranslationKey, values?: Record<string, string | number>) => string;
+interface DisplayInsight {
+  title: string;
+  summary: string;
+  action: string;
+  evidence: HomeInsight["evidence"];
+}
+
+type MonitoringRequestState = "pending" | "error" | "ready" | "unknown";
+
+interface HomePulsePanelProps {
+  house: House;
+  sensors: Sensor[];
+  latestMeasurements: LatestMeasurements;
+  measurementHistory: MeasurementHistory;
+  alerts: AlertEvent[];
+  alertRules: AlertRule[];
+  weather: HouseWeather | null;
+  referenceTime: number;
+  dataMode?: "demo" | "real" | "unknown";
+  monitoring?: HomeMonitoringDetailResponse;
+  monitoringRequestState?: MonitoringRequestState;
+  onOpenTarget: (floorId: string, sensorId: string) => void;
+  onOpenSetup?: () => void;
+  onAcknowledge?: (alertId: string) => Promise<void>;
+  setupDestination?: "connections" | "sensors";
+}
+
+const hiddenPulseStoragePrefix = "stugu-home-pulse-hidden:v1";
+
+function hiddenPulseStorageKey(houseId: string): string {
+  return `${hiddenPulseStoragePrefix}:${houseId}`;
+}
+
+function insightHideFingerprint(insight: HomeInsight): string {
+  return `${insight.id}:${insight.severity}`;
+}
+
+function canHideInsight(insight: HomeInsight): boolean {
+  return insight.severity !== "critical";
+}
+
+function alertForInsight(insight: HomeInsight, alerts: AlertEvent[]): AlertEvent | undefined {
+  if (insight.kind !== "active-alert") return undefined;
+  return alerts.find((alert) => insight.id === `active-alert:${alert.id}`);
+}
+
+function readHiddenInsights(houseId: string): string[] {
+  try {
+    const stored = readLocalStorage(hiddenPulseStorageKey(houseId));
+    if (!stored) return [];
+    const parsed: unknown = JSON.parse(stored);
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function persistHiddenInsights(houseId: string, fingerprints: string[]): void {
+  const key = hiddenPulseStorageKey(houseId);
+  if (fingerprints.length) writeLocalStorage(key, JSON.stringify(fingerprints));
+  else removeLocalStorage(key);
+}
+
+function PulseIcon({ status }: { status: HomePulseStatus }) {
+  if (status === "critical" || status === "attention") return <AlertTriangle size={23} aria-hidden="true" />;
+  if (status === "steady") return <CheckCircle2 size={23} aria-hidden="true" />;
+  if (status === "unknown") return <RadioTower size={23} aria-hidden="true" />;
+  return <Gauge size={23} aria-hidden="true" />;
+}
+
+function formatEvidenceValue(value: number | string, locale: Locale): string {
+  if (typeof value === "number") return new Intl.NumberFormat(locale, { maximumFractionDigits: 2 }).format(value);
+  const count = /^(\d+) of (\d+)$/.exec(value);
+  if (!count) return value;
+  if (locale === "fi") return `${count[1]} / ${count[2]}`;
+  if (locale === "sv") return `${count[1]} av ${count[2]}`;
+  return value;
+}
+
+function evidenceValue(insight: HomeInsight, label: string, locale: Locale): string {
+  const evidence = insight.evidence.find((item) => item.label === label);
+  if (!evidence) return "\u2014";
+  return `${formatEvidenceValue(evidence.value, locale)}${evidence.unit ? ` ${evidence.unit}` : ""}`;
+}
+
+function localizedEvidenceLabel(label: string, t: Translate): string {
+  const keys: Record<string, TranslationKey> = {
+    "Latest reading": "decision.evidence.latestReading",
+    "Alert value": "decision.evidence.alertValue",
+    "Trigger threshold": "decision.evidence.triggerThreshold",
+    "Latest humidity": "decision.evidence.latestHumidity",
+    "Elevated readings": "decision.evidence.elevatedReadings",
+    "Latest CO2": "decision.evidence.latestCo2",
+    "Latest temperature": "decision.evidence.latestTemperature",
+    "Outdoor temperature": "decision.evidence.outdoorTemperature",
+    "Fresh sensors": "decision.evidence.freshSensors",
+    "Sensors needing data": "decision.evidence.sensorsNeedData",
+    "Oldest affected reading": "decision.evidence.oldestAffectedReading",
+    "Outdoor dew point": "decision.evidence.outdoorDewPoint",
+    "Indoor dew point": "decision.evidence.indoorDewPoint",
+    "Outdoor wind": "decision.evidence.outdoorWind",
+  };
+  const key = keys[label];
+  if (key) return t(key);
+  if (label.endsWith(" temperature")) return t("decision.evidence.roomTemperature", { room: label.slice(0, -" temperature".length) });
+  return label;
+}
+
+export function displayHomeInsight(insight: HomeInsight, locale: Locale, t: Translate): DisplayInsight {
+  const room = insight.target.room || insight.target.sensorName || t("decision.thisHome");
+  const evidence = insight.evidence.map((item) => ({
+    ...item,
+    label: localizedEvidenceLabel(item.label, t),
+    value: typeof item.value === "string" ? formatEvidenceValue(item.value, locale) : item.value,
+  }));
+  const translated = (title: string, summary: string, action: string): DisplayInsight => ({ title, summary, action, evidence });
+
+  if (insight.kind === "active-alert") {
+    return translated(
+      t("decision.insight.alert.title", { severity: t(`decision.severity.${insight.severity}`), room }),
+      t(insight.parameters.acknowledged ? "decision.insight.alert.summaryAcknowledged" : "decision.insight.alert.summaryOpen"),
+      t("decision.insight.alert.action", { room }),
+    );
+  }
+  if (insight.kind === "humidity") {
+    return translated(
+      t("decision.insight.humidity.title", { room }),
+      t("decision.insight.humidity.summary", { value: evidenceValue(insight, "Latest humidity", locale) }),
+      t("decision.insight.humidity.action"),
+    );
+  }
+  if (insight.kind === "indoor-air") {
+    return translated(
+      t("decision.insight.co2.title", { room }),
+      t("decision.insight.co2.summary", { value: evidenceValue(insight, "Latest CO2", locale) }),
+      t("decision.insight.co2.action"),
+    );
+  }
+  if (insight.kind === "temperature") {
+    const temperature = Number(insight.evidence.find((item) => item.label === "Latest temperature")?.value);
+    const titleKey = temperature <= 8
+      ? "decision.insight.temperature.veryLowTitle"
+      : temperature <= 12
+        ? "decision.insight.temperature.lowTitle"
+        : temperature >= 35
+          ? "decision.insight.temperature.veryHighTitle"
+          : "decision.insight.temperature.highTitle";
+    return translated(
+      t(titleKey, { room }),
+      t("decision.insight.temperature.summary", { value: evidenceValue(insight, "Latest temperature", locale) }),
+      t(temperature <= 12 ? "decision.insight.temperature.coldAction" : "decision.insight.temperature.hotAction"),
+    );
+  }
+  if (insight.kind === "temperature-balance") {
+    const temperatures = insight.evidence.filter((item) => item.label.endsWith(" temperature")).slice(0, 2);
+    const first = temperatures[0];
+    const second = temperatures[1];
+    const firstNumber = typeof first?.value === "number" ? first.value : Number.NaN;
+    const secondNumber = typeof second?.value === "number" ? second.value : Number.NaN;
+    const difference = Number.isFinite(firstNumber) && Number.isFinite(secondNumber)
+      ? `${formatEvidenceValue(Math.abs(secondNumber - firstNumber), locale)} \u00b0C`
+      : "\u2014";
+    return translated(
+      t("decision.insight.balance.title", { difference }),
+      t("decision.insight.balance.summary", {
+        firstRoom: first?.label.replace(/ temperature$/, "") ?? t("decision.thisHome"),
+        firstValue: first ? `${formatEvidenceValue(first.value, locale)}${first.unit ? ` ${first.unit}` : ""}` : "\u2014",
+        secondRoom: second?.label.replace(/ temperature$/, "") ?? t("decision.thisHome"),
+        secondValue: second ? `${formatEvidenceValue(second.value, locale)}${second.unit ? ` ${second.unit}` : ""}` : "\u2014",
+      }),
+      t("decision.insight.balance.action"),
+    );
+  }
+  if (insight.kind === "sensor-coverage") {
+    const fresh = Number(insight.evidence.find((item) => item.label === "Fresh sensors")?.value ?? 0);
+    const affected = Number(insight.evidence.find((item) => item.label === "Sensors needing data")?.value ?? 0);
+    return translated(
+      t(affected === 1 ? "decision.insight.coverage.oneTitle" : "decision.insight.coverage.manyTitle", { count: affected }),
+      t("decision.insight.coverage.summary", { fresh, affected }),
+      t("decision.insight.coverage.action"),
+    );
+  }
+  return translated(
+    t("decision.insight.setup.title"),
+    t("decision.insight.setup.summary"),
+    t("decision.insight.setup.action"),
+  );
+}
+
+function InsightCard({ insight, onOpen, onHide, onAcknowledge, summaryRef, allowOpen = true }: { insight: HomeInsight; onOpen: () => void; onHide?: () => void; onAcknowledge?: () => Promise<void>; summaryRef?: Ref<HTMLElement>; allowOpen?: boolean }) {
+  const { locale, t } = useI18n();
+  const [expanded, setExpanded] = useState(insight.severity === "critical");
+  const [acknowledgeState, setAcknowledgeState] = useState<"idle" | "pending" | "done" | "error">("idle");
+  const openable = allowOpen && Boolean(insight.target.floorId && insight.target.sensorId);
+  const display = displayHomeInsight(insight, locale, t);
+  const acknowledge = async () => {
+    if (!onAcknowledge || acknowledgeState === "pending") return;
+    setAcknowledgeState("pending");
+    try {
+      await onAcknowledge();
+      setAcknowledgeState("done");
+    } catch {
+      setAcknowledgeState("error");
+    }
+  };
+  return (
+    <div className={`pulse-insight-shell ${insight.severity}`}>
+      <details className={`pulse-insight ${insight.severity}`} open={expanded} onToggle={(event) => setExpanded(event.currentTarget.open)}>
+        <summary ref={summaryRef}>
+          <span className="pulse-insight-summary-copy">
+            <span className="pulse-insight-top"><span className={`pulse-severity ${insight.severity}`}>{t(`decision.severity.${insight.severity}`)}</span><span>{t("decision.confidence", { level: t(`decision.confidence.${insight.confidence.level}`) })}</span></span>
+            <strong>{display.title}</strong>
+            <span className="pulse-insight-interpretation">{display.summary}</span>
+          </span>
+          <span className="pulse-disclosure-icon"><span className="sr-only">{t("home.detailLabel")}</span><ChevronDown size={16} aria-hidden="true" /></span>
+        </summary>
+        <div className="pulse-insight-details">
+          <span className="pulse-action"><Sparkles size={13} aria-hidden="true" /><span><b>{t("decision.suggestedAction")}</b>{display.action}</span></span>
+          <span className="pulse-evidence">{display.evidence.slice(0, 3).map((item) => <span key={`${item.label}:${item.value}`}><small>{item.label}</small><b>{formatEvidenceValue(item.value, locale)}{item.unit ? ` ${item.unit}` : ""}</b></span>)}</span>
+          {openable && <button type="button" className="text-button pulse-open" onClick={onOpen}>{t("decision.inspectRoom")}<ArrowRight size={13} aria-hidden="true" /></button>}
+          {onAcknowledge && acknowledgeState !== "done" && <button type="button" className="secondary-button" disabled={acknowledgeState === "pending"} onClick={() => void acknowledge()}>{acknowledgeState === "pending" && <LoaderCircle className="spin" size={15} aria-hidden="true" />}{t("alerts.acknowledge")}</button>}
+          {acknowledgeState === "done" && <span className="acknowledged"><CheckCircle2 size={15} aria-hidden="true" />{t("alerts.acknowledged")}</span>}
+          {acknowledgeState === "error" && <p className="event-action-error" role="alert">{t("alerts.acknowledgeFailed")}</p>}
+        </div>
+      </details>
+      {onHide && <div className="pulse-insight-actions">
+        <button type="button" className="text-button pulse-hide" aria-label={t("decision.hideInsightLabel", { title: display.title })} onClick={onHide}><EyeOff size={13} aria-hidden="true" />{t("decision.hideInsight")}</button>
+      </div>}
+    </div>
+  );
+}
+
+export function HomePulsePanel(props: HomePulsePanelProps) {
+  const { locale, t } = useI18n();
+  const monitoring = props.monitoring;
+  const effectiveMonitoringRequestState = props.monitoringRequestState ?? (monitoring ? "ready" : "unknown");
+  const monitoringEvidenceComplete = effectiveMonitoringRequestState === "ready"
+    && monitoring?.completeness === "complete"
+    && monitoring.house.houseId === props.house.id
+    && monitoring.house.coverage.enabledSensors > 0
+    && monitoring.house.coverage.freshSensors === monitoring.house.coverage.enabledSensors
+    && monitoring.house.coverage.estimatedSensors === 0
+    && monitoring.house.coverage.agingSensors === 0
+    && monitoring.house.coverage.staleSensors === 0
+    && monitoring.house.coverage.sensorsWithoutData === 0;
+  const monitoringSuccessful = monitoringEvidenceComplete
+    && monitoring.house.status === "monitoring-ok"
+    && monitoring.house.blockers.length === 0;
+  const pulse = useMemo(() => ({
+    status: monitoring?.house.pulseStatus === "steady" && !monitoringSuccessful
+      ? "unknown" as HomePulseStatus
+      : monitoring?.house.pulseStatus ?? "unknown" as HomePulseStatus,
+    coverage: monitoring?.house.coverage ?? {
+      enabledSensors: props.sensors.filter((sensor) => sensor.enabled).length,
+      freshSensors: 0,
+      estimatedSensors: 0,
+      agingSensors: 0,
+      staleSensors: 0,
+      sensorsWithoutData: props.sensors.filter((sensor) => sensor.enabled).length,
+    },
+    insights: monitoring?.insights ?? [],
+  }), [monitoring, monitoringSuccessful, props.sensors]);
+  const [hiddenInsightFingerprints, setHiddenInsightFingerprints] = useState(() => readHiddenInsights(props.house.id));
+  useEffect(() => subscribeToAccountStorageScope(() => {
+    setHiddenInsightFingerprints(readHiddenInsights(props.house.id));
+  }), [props.house.id]);
+  const [focusTarget, setFocusTarget] = useState<{ kind: "hidden" } | { kind: "insight"; fingerprint: string } | null>(null);
+  const hiddenSummaryRef = useRef<HTMLElement>(null);
+  const insightSummaryRefs = useRef(new Map<string, HTMLElement>());
+  const currentFingerprints = useMemo(() => new Set(pulse.insights.filter(canHideInsight).map(insightHideFingerprint)), [pulse.insights]);
+  const hiddenInsights = pulse.insights.filter((insight) => canHideInsight(insight) && hiddenInsightFingerprints.includes(insightHideFingerprint(insight)));
+  const visibleInsights = pulse.insights.filter((insight) => !canHideInsight(insight) || !hiddenInsightFingerprints.includes(insightHideFingerprint(insight))).slice(0, 3);
+  const hiddenInsightCount = hiddenInsights.length;
+
+  useEffect(() => {
+    setHiddenInsightFingerprints((current) => {
+      const active = current.filter((fingerprint) => currentFingerprints.has(fingerprint));
+      return active.length === current.length && active.every((fingerprint, index) => fingerprint === current[index]) ? current : active;
+    });
+  }, [currentFingerprints]);
+
+  useEffect(() => {
+    persistHiddenInsights(props.house.id, hiddenInsightFingerprints);
+  }, [hiddenInsightFingerprints, props.house.id]);
+
+  useEffect(() => {
+    if (focusTarget?.kind === "hidden" && hiddenInsightCount > 0) hiddenSummaryRef.current?.focus();
+    if (focusTarget?.kind === "insight" && visibleInsights.length > 0) {
+      const fallback = insightSummaryRefs.current.get(insightHideFingerprint(visibleInsights[0]!));
+      (insightSummaryRefs.current.get(focusTarget.fingerprint) ?? fallback)?.focus();
+    }
+    if (focusTarget) setFocusTarget(null);
+  }, [focusTarget, hiddenInsightCount, visibleInsights.length]);
+
+  const hideInsight = (insight: HomeInsight) => {
+    if (!canHideInsight(insight)) return;
+    const fingerprint = insightHideFingerprint(insight);
+    setHiddenInsightFingerprints((current) => current.includes(fingerprint) ? current : [...current, fingerprint]);
+    setFocusTarget({ kind: "hidden" });
+  };
+
+  const restoreInsight = (insight: HomeInsight) => {
+    const fingerprint = insightHideFingerprint(insight);
+    setHiddenInsightFingerprints((current) => current.filter((candidate) => candidate !== fingerprint));
+    setFocusTarget({ kind: "insight", fingerprint });
+  };
+
+  const restoreAllInsights = () => {
+    const fingerprint = hiddenInsights[0] ? insightHideFingerprint(hiddenInsights[0]) : "";
+    setHiddenInsightFingerprints([]);
+    if (fingerprint) setFocusTarget({ kind: "insight", fingerprint });
+  };
+
+  const hiddenInsightLabel = t(hiddenInsightCount === 1 ? "decision.hiddenInsightOne" : "decision.hiddenInsightMany", { count: hiddenInsightCount });
+  const enabledSensorCount = props.sensors.filter((sensor) => sensor.enabled).length;
+  const setupIncomplete = enabledSensorCount === 0;
+  const hasLocalSensorData = props.sensors.some((sensor) =>
+    sensor.enabled && Object.keys(props.latestMeasurements[sensor.id] ?? {}).length > 0);
+  const applicableMonitoring = monitoring?.house.houseId === props.house.id ? monitoring : null;
+  const monitoredCoverage = applicableMonitoring?.house.coverage;
+  const coverageNeedsReview = Boolean(monitoredCoverage && enabledSensorCount > 0 && (
+    monitoredCoverage.enabledSensors !== enabledSensorCount
+    || monitoredCoverage.freshSensors !== monitoredCoverage.enabledSensors
+    || monitoredCoverage.estimatedSensors > 0
+    || monitoredCoverage.agingSensors > 0
+    || monitoredCoverage.staleSensors > 0
+    || monitoredCoverage.sensorsWithoutData > 0
+  ));
+  const sourceNeedsReview = applicableMonitoring?.house.blockers.some(
+    (blocker) => blocker.kind === "source-disconnected",
+  ) ?? false;
+  const monitoringNeedsReview = applicableMonitoring ? coverageNeedsReview || sourceNeedsReview : !hasLocalSensorData;
+  const showRemediation = Boolean(props.onOpenSetup && (setupIncomplete || monitoringNeedsReview));
+  const remediationLabel = setupIncomplete
+    ? t("overview.finishSetup")
+    : t(props.setupDestination === "connections" ? "overview.checkConnections" : "overview.checkSensors");
+  return (
+    <section className={`panel home-pulse ${pulse.status}`} aria-labelledby="home-pulse-heading">
+      <div className="home-pulse-header">
+        <span className="home-pulse-icon"><PulseIcon status={pulse.status} /></span>
+        <div><span className="eyebrow">{t("decision.pulseEyebrow")}</span><h2 id="home-pulse-heading">{t(`decision.pulse.${pulse.status}.title`)}</h2></div>
+        <span className={`pulse-status ${pulse.status}`}>{t(`decision.pulse.${pulse.status}.label`)}</span>
+      </div>
+      {visibleInsights.length ? <ul className="pulse-glance-list">{visibleInsights.slice(0, 1).map((insight) => {
+        const display = displayHomeInsight(insight, locale, t);
+        return <li key={insight.id} className={insight.severity}><span>{t(`decision.severity.${insight.severity}`)}</span><strong>{display.title}</strong></li>;
+      })}</ul> : pulse.insights.length === 0 ? monitoringSuccessful && pulse.status === "steady" ? <div className="pulse-calm"><CheckCircle2 size={18} aria-hidden="true" /><span><strong>{t("decision.pulseCalmTitle")}</strong></span></div> : <p className="home-pulse-explanation" data-pulse-empty-state={pulse.status} role="status"><PulseIcon status={pulse.status} /> <span>{t(`decision.pulse.${pulse.status}.body`)}</span></p> : null}
+      {showRemediation && props.onOpenSetup && <button type="button" className="secondary-button home-pulse-remediation" data-remediation={props.setupDestination ?? "sensors"} onClick={props.onOpenSetup}>{remediationLabel}<ArrowRight size={15} aria-hidden="true" /></button>}
+      <details className="home-pulse-more">
+        <summary><span>{t("home.moreInformation")}</span>{visibleInsights.length > 0 && <small>{visibleInsights.length}</small>}<ChevronDown size={15} aria-hidden="true" /></summary>
+        <div className="home-pulse-more-content">
+          <p className="home-pulse-explanation">{t(`decision.pulse.${pulse.status}.body`)}</p>
+          {visibleInsights.length > 0 && <div className="pulse-insights">{visibleInsights.map((insight) => {
+            const fingerprint = insightHideFingerprint(insight);
+            const alert = alertForInsight(insight, props.alerts);
+            const onAcknowledge = props.onAcknowledge;
+            const acknowledge = insight.severity === "critical" && alert && !alert.acknowledgedAt && onAcknowledge
+              ? () => onAcknowledge(alert.id)
+              : undefined;
+            return <InsightCard key={insight.id} insight={insight} summaryRef={(node) => { if (node) insightSummaryRefs.current.set(fingerprint, node); else insightSummaryRefs.current.delete(fingerprint); }} allowOpen={!showRemediation || !props.onOpenSetup} {...(canHideInsight(insight) ? { onHide: () => hideInsight(insight) } : {})} {...(acknowledge ? { onAcknowledge: acknowledge } : {})} onOpen={() => {
+              if (insight.target.floorId && insight.target.sensorId) props.onOpenTarget(insight.target.floorId, insight.target.sensorId);
+            }} />;
+          })}</div>}
+          {hiddenInsightCount > 0 && <>
+            <span className="sr-only" role="status">{hiddenInsightLabel}</span>
+            <details className="pulse-hidden-disclosure">
+              <summary ref={hiddenSummaryRef}><EyeOff size={16} aria-hidden="true" /><span>{hiddenInsightLabel}</span><ChevronDown size={15} aria-hidden="true" /></summary>
+              <div className="pulse-hidden-content">
+                <p>{t("decision.hiddenInsightBody")}</p>
+                <ul>{hiddenInsights.map((insight) => {
+                  const display = displayHomeInsight(insight, locale, t);
+                  return <li key={insightHideFingerprint(insight)}><span><small>{t(`decision.severity.${insight.severity}`)}</small><strong>{display.title}</strong></span><button type="button" className="text-button" aria-label={t("decision.restoreInsightLabel", { title: display.title })} onClick={() => restoreInsight(insight)}><Eye size={13} aria-hidden="true" />{t("decision.restoreInsight")}</button></li>;
+                })}</ul>
+                {hiddenInsightCount > 1 && <button type="button" className="secondary-button" onClick={restoreAllInsights}><Eye size={14} aria-hidden="true" />{t("decision.restoreAllInsights")}</button>}
+              </div>
+            </details>
+          </>}
+          <small className="decision-caveat home-pulse-advisory">{t("decision.pulseAdvisory")}</small>
+          <details className="pulse-context">
+            <summary>{t("home.whyStatus")}<ChevronDown size={15} aria-hidden="true" /></summary>
+            <div className="pulse-coverage" aria-label={t("decision.coverageLabel")}>
+              <span><b>{pulse.coverage.freshSensors}</b>{t("decision.freshOf", { total: pulse.coverage.enabledSensors })}</span>
+              <span><b>{pulse.coverage.estimatedSensors}</b>{t("decision.estimatedSensors")}</span>
+              <span><b>{pulse.coverage.agingSensors + pulse.coverage.staleSensors}</b>{t("decision.agingSensors")}</span>
+              <span><b>{pulse.coverage.sensorsWithoutData}</b>{t("decision.missingSensors")}</span>
+            </div>
+          </details>
+        </div>
+      </details>
+    </section>
+  );
+}
+
+export function HomePulsePanelData(props: HomePulsePanelProps) {
+  const mode = props.dataMode === "real" ? "live" as const : "demo" as const;
+  const monitoringQuery = useHomeMonitoringQuery(
+    props.house.id,
+    mode,
+    props.dataMode !== "unknown",
+  );
+  return <HomePulsePanel
+    {...props}
+    {...(monitoringQuery.data ? { monitoring: monitoringQuery.data } : {})}
+    monitoringRequestState={props.dataMode === "unknown"
+      ? "unknown"
+      : monitoringQuery.isPending
+        ? "pending"
+        : monitoringQuery.isError
+          ? "error"
+          : monitoringQuery.data
+            ? "ready"
+            : "unknown"}
+  />;
+}

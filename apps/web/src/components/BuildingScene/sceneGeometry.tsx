@@ -7,15 +7,15 @@ import {
   type ProjectedPoint3D,
   type VolumeBounds,
   type VolumeCloudBlob,
-} from "../../spatialVolume";
+} from "../../spatial/volume";
 import {
   type OutdoorVisualizationState,
 } from "../OutdoorConditionsBadge";
 import { type AirflowPlanElementPatch } from "../PlanElementAirflowFields";
 import { type FixturePlanElementPatch } from "../PlanElementFixtureFields";
-import type { SpatialLayerSnapshot, SpatialTopology } from "../../spatialLayers";
-import type { SensorCoverageAssessment } from "../../experimentalSpatialLayers";
-import type { OutdoorInfluenceEstimate } from "../../outdoorInfluence";
+import type { SpatialLayerSnapshot, SpatialTopology } from "../../spatial/layers";
+import type { SensorCoverageAssessment } from "../../spatial/experimentalLayers";
+import type { OutdoorInfluenceEstimate } from "../../outdoor/influence";
 import {
   DEFAULT_CEILING_HEIGHT_METRES,
   defaultPlanElementWidth,

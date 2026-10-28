@@ -15,9 +15,9 @@ import type {
   SpatialLayerConfigurationResponse,
   SpatialSensorBinding,
   SpatialSensorCalibration,
-} from "../spatialLayers";
+} from "../spatial/layers";
 import { formatInTimeZone, twentyFourHourInputLocale } from "../dateTime";
-import type { UseSpatialLayersResult } from "../useSpatialLayers";
+import type { UseSpatialLayersResult } from "../spatial/useSpatialLayers";
 import { useI18n } from "../i18n";
 import { spatialLayerLabel } from "./SpatialLayerPanel";
 

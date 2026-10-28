@@ -2,15 +2,15 @@ import { type ConfiguredOpeningState, type ConnectedDeviceState, type Floor, typ
 import { clamp, type ViewMode } from "../../../domain";
 import { type LatestMeasurements } from "../../../measurements";
 import { type AirflowPoint2D, type ClimateSampleMatrix, type FloorAirflowEstimate } from "../../../airflowSimulation";
-import { windPathOnRectangle, type PlanEdge } from "../../../outdoorContext";
+import { windPathOnRectangle, type PlanEdge } from "../../../outdoor/context";
 import {
   type OutdoorVisualizationState,
 } from "../../OutdoorConditionsBadge";
-import type { SpatialLayerSnapshot, SpatialTopology } from "../../../spatialLayers";
-import type { SensorCoverageAssessment } from "../../../experimentalSpatialLayers";
-import type { OutdoorInfluenceEstimate } from "../../../outdoorInfluence";
+import type { SpatialLayerSnapshot, SpatialTopology } from "../../../spatial/layers";
+import type { SensorCoverageAssessment } from "../../../spatial/experimentalLayers";
+import type { OutdoorInfluenceEstimate } from "../../../outdoor/influence";
 
-export { heatColor, interpolateHeat } from "../../../spatialField";
+export { heatColor, interpolateHeat } from "../../../spatial/field";
 
 export { clampPlanElementWidth, defaultPlanElementWidth, planElementWidthBounds } from "../../../planElementGeometry";
 

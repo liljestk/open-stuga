@@ -4,7 +4,7 @@ import "../../components/decisionLayer.css";
 import "../OperationsPages.css";
 import { round, type TimeRange } from "../../domain";
 import { definitionFor, measurementComparisonColor, measurementDomain, measurementValue, samplesAt } from "../../measurements";
-import { isSpatialSampleFresh } from "../../spatialFreshness";
+import { isSpatialSampleFresh } from "../../spatial/freshness";
 import type { OutdoorVisualizationState } from "../../components/OutdoorConditionsBadge";
 import {
   simulateBuildingAirflow,
@@ -17,8 +17,8 @@ import {
   experimentalLayerSuggestions,
   nextExperimentalVisualizationSelection,
   type ExperimentalVisualizationId,
-} from "../../experimentalSpatialLayers";
-import { estimateOutdoorInfluence } from "../../outdoorInfluence";
+} from "../../spatial/experimentalLayers";
+import { estimateOutdoorInfluence } from "../../outdoor/influence";
 import { openingStateCanChange, openingStateKey } from "../../openingState";
 import { localDateTimeValue, localDateValue, mergeOpeningStateObservations } from "./support";
 import { observationTimeFields } from "../../observationTime";

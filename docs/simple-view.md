@@ -32,7 +32,7 @@ hard rule for this work:
 ## 2. Current surface inventory
 
 Fifteen destinations in `AppPage` ([`domain.ts:40`](../apps/web/src/domain.ts:40)),
-grouped by the scope model in [`AppShell.tsx:173-201`](../apps/web/src/components/AppShell.tsx:173).
+grouped by the scope model in [`AppShell.tsx:173-201`](../apps/web/src/App/AppShell.tsx:173).
 
 | Scope | Destination | Route | Nested surfaces |
 |---|---|---|---|
@@ -166,7 +166,7 @@ for this exact distinction, which is a good sign the seam is in the right place.
 ## 5. Where the setting lives
 
 **Web** has no settings page; language and units live as `compact-field`
-selects in the sidebar foot ([`AppShell.tsx:418-432`](../apps/web/src/components/AppShell.tsx:418)).
+selects in the sidebar foot ([`AppShell.tsx:418-432`](../apps/web/src/App/AppShell.tsx:418)).
 Add a third select there — *View: Simple / Advanced*. It matches the existing
 pattern exactly, adds no route, and is reachable from the mobile drawer.
 

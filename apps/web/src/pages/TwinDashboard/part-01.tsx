@@ -8,7 +8,7 @@ import { useI18n } from "../../i18n";
 import { api } from "../../api";
 import {
   type ExperimentalVisualizationId,
-} from "../../experimentalSpatialLayers";
+} from "../../spatial/experimentalLayers";
 import { writeLocalStorage } from "../../browserStorage";
 import { integrationForHouse } from "../../integrationScope";
 import { useConnectedDevicesQuery } from "../../data/connectedDevicesQuery";
@@ -16,7 +16,7 @@ import { queryClient } from "../../data/queryClient";
 import { queryKeys } from "../../data/queryKeys";
 import type { HeatPumpState } from "@climate-twin/contracts";
 import { useHeatPumpsQuery } from "../../data/heatPumpsQuery";
-import { heatPumpSensorId } from "../../heatPumpPresentation";
+import { heatPumpSensorId } from "../../heatPump/presentation";
 import { heatPumpInfluencePreferenceKey, initialHeatPumpInfluenceVisibility } from "./support";
 import { climateSensorLayerPreferenceKey, connectedDeviceLayerPreferenceKey, energyDeviceLayerPreferenceKey, experimentalVisualizationPreferenceKey, initialClimateSensorLayerVisibility, initialConnectedDeviceLayerVisibility, initialEnergyDeviceLayerVisibility, initialExperimentalVisualizations, initialMapAnimationsEnabled, initialOpeningStateLabelsVisibility, initialOutdoorExtrasVisibility, initialOutdoorInfluenceMetric, localDateTimeValue, localDateValue, mapAnimationsPreferenceKey, openingStateLabelsPreferenceKey, outdoorExtrasPreferenceKey, outdoorInfluenceMetricPreferenceKey } from "./support";
 import type { TwinDashboardProps } from "./support";

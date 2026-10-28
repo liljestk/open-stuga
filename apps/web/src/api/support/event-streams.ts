@@ -1,5 +1,5 @@
 import { SYSTEM_UPDATE_WORKFLOW_PHASES, type TrackingEvent, type MeasurementSample, type TelemetryEvent } from "@climate-twin/contracts";
-import { parseSpatialLayerSnapshotEvent, type SpatialLayerSnapshotEvent } from "../../spatialLayers";
+import { parseSpatialLayerSnapshotEvent, type SpatialLayerSnapshotEvent } from "../../spatial/layers";
 import { decodeTelemetryEvent } from "./telemetry-events";
 import type { SystemUpdateLiveStatus } from "./response-types";
 import { API_BASE, API_V2_BASE, STREAM_STABILITY_DELAY_MS, authorizationChange, notifyAuthorizationChange } from "./client-state";

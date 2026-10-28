@@ -2,11 +2,11 @@ import { render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { createDemoState } from "../domain";
 import { I18nProvider } from "../i18n";
-import { parseSpatialLayerSnapshots } from "../spatialLayers";
+import { parseSpatialLayerSnapshots } from "../spatial/layers";
 import { SpatialLayerOverlay2D } from "./SpatialLayerOverlay2D";
 import { SpatialLayerOverlay3D } from "./SpatialLayerOverlay3D";
 import { ExperimentalSensorCoverage2D, ExperimentalSensorCoverage3D } from "./ExperimentalSensorCoverage";
-import type { SensorCoverageAssessment } from "../experimentalSpatialLayers";
+import type { SensorCoverageAssessment } from "../spatial/experimentalLayers";
 
 function rawSnapshot(layerId = "climate.temperature") {
   const state = createDemoState();

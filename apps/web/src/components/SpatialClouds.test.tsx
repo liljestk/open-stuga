@@ -4,7 +4,7 @@ import type { MeasurementDefinition, MeasurementSample, Sensor } from "@climate-
 import { createDemoState } from "../domain";
 import { I18nProvider } from "../i18n";
 import { definitionFor } from "../measurements";
-import { createCloudLobes, estimateFieldFlows, interpolateHeat, MAX_SPATIAL_FIELD_CELLS } from "../spatialField";
+import { createCloudLobes, estimateFieldFlows, interpolateHeat, MAX_SPATIAL_FIELD_CELLS } from "../spatial/field";
 import { cssRule, globalStyles } from "../test/styleSources";
 import { BuildingScene } from "./BuildingScene";
 import { FloorPlan } from "./FloorPlan";

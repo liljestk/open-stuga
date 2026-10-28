@@ -5,9 +5,9 @@ import {
   formatOutdoorInfluenceValue,
   type OutdoorInfluenceEdge,
   type OutdoorInfluenceEstimate,
-} from "../outdoorInfluence";
-import type { PlanEdge } from "../outdoorContext";
-import type { Point3D, ProjectedPoint3D } from "../spatialVolume";
+} from "../outdoor/influence";
+import type { PlanEdge } from "../outdoor/context";
+import type { Point3D, ProjectedPoint3D } from "../spatial/volume";
 
 function influenceLabel(
   estimate: OutdoorInfluenceEstimate,

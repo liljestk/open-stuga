@@ -11,7 +11,7 @@ import {
   type SpatialLayerSnapshot,
   type SpatialTopology,
   type SpatialLayerZone,
-} from "../spatialLayers";
+} from "../spatial/layers";
 import { useI18n } from "../i18n";
 import { spatialLayerLabel } from "./SpatialLayerPanel";
 

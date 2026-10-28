@@ -3,7 +3,7 @@ import { type PlanElement, type Sensor } from "@climate-twin/contracts";
 import { clamp } from "../../domain";
 import { formatMeasurement } from "../../measurements";
 import { simulateFloorAirflow } from "../../airflowSimulation";
-import { normalizeDegrees } from "../../outdoorContext";
+import { normalizeDegrees } from "../../outdoor/context";
 import {
   isWallAttachedPlanElement,
 } from "../../planElementGeometry";
