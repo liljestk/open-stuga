@@ -16,7 +16,7 @@ import { homeAssistantInstanceFromService } from "../src/discovery.js";
 
 import { readIntegrationSecrets, writeIntegrationSecrets } from "../src/integration-secrets.js";
 
-import { waitFor } from "./integration-setupTestSupport.js";
+import { waitFor } from "./waitForTestSupport.js";
 
 describe("guided integration setup", () => {
   let directory: string | null = null;

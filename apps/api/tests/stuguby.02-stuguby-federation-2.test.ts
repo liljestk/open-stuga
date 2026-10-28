@@ -123,7 +123,7 @@ describe("Stuguby federation", () => {
         rooms: [],
       }],
     });
-    const expiresAt = new Date(Date.now() + 250).toISOString();
+    const expiresAt = new Date(Date.now() + 3_600_000).toISOString();
     const expiring = await request(participant.runtime.app).post(`/api/v1/stugbys/${stugubyId}/grants`).send({
       localHouseId: "house-expiring-grant",
       audience: { kind: "all-members", nodeIds: [] },
@@ -131,7 +131,11 @@ describe("Stuguby federation", () => {
       expiresAt,
     }).expect(201);
     store.acknowledgeOutbox(store.dueOutbox(250).map((item) => item.id));
-    await new Promise((resolve) => setTimeout(resolve, Math.max(1, Date.parse(expiresAt) - Date.now() + 25)));
+    // Move the grant's expiry into the past instead of waiting for it on the real clock.
+    const expired = new Date(Date.now() - 60_000).toISOString();
+    participant.runtime.database.db.prepare(
+      "UPDATE stugby_share_grants SET expires_at=?, grant_json=json_set(grant_json, '$.expiresAt', ?) WHERE id=?",
+    ).run(expired, expired, expiring.body.id);
     const expiryFault = vi.spyOn(store, "enqueueOutbox").mockImplementation((...args) => {
       originalEnqueue(...args);
       throw new Error("simulated expiry enqueue failure");

@@ -6,7 +6,7 @@ import { createApi, type ApiRuntime } from "../src/app.js";
 import type { AppConfig } from "../src/config.js";
 import { TpLinkConnectionBridgeCore } from "../src/tp-link/core.js";
 import "../src/tp-link.js";
-import { waitFor } from "./tp-linkTestSupport.js";
+import { waitFor } from "./waitForTestSupport.js";
 
 function config(directory: string, helperPath: string): AppConfig {
   return {

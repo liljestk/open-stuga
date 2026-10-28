@@ -12,7 +12,7 @@ import { createApi, type ApiRuntime } from "../src/app.js";
 
 import type { AppConfig } from "../src/config.js";
 
-import { waitFor } from "./tp-linkTestSupport.js";
+import { waitFor } from "./waitForTestSupport.js";
 
 describe("direct TP-Link H100/H200/H500 bridge", () => {
   let runtime: ApiRuntime | null = null;

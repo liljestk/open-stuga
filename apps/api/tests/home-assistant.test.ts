@@ -24,7 +24,7 @@ import {
   testHomeAssistantCredentials,
 } from "../src/home-assistant.js";
 
-import { waitFor } from "./home-assistantTestSupport.js";
+import { waitFor } from "./waitForTestSupport.js";
 
 describe("Home Assistant normalization and state cache", () => {
   let runtime: ApiRuntime | null = null;

@@ -10,14 +10,7 @@ import { createApi, type ApiRuntime } from "../src/app.js";
 import { SensorGapRecoveryCoordinator, type SensorGapRecoveryAdapter } from "../src/sensor-gap-recovery.js";
 import { HybridTelemetryReader } from "../src/timeseries/read-facade.js";
 import { sensorGapRecoveryConfig as config } from "./sensor-gap-recoveryTestSupport.js";
-
-async function waitFor(predicate: () => boolean, timeoutMs = 3_000): Promise<void> {
-  const started = Date.now();
-  while (!predicate()) {
-    if (Date.now() - started > timeoutMs) throw new Error("Timed out waiting for condition");
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-}
+import { waitFor } from "./waitForTestSupport.js";
 
 describe("sensor data-gap recovery", () => {
   let runtime: ApiRuntime | null = null;

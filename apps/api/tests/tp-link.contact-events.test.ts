@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { OpeningStateObservation } from "@climate-twin/contracts";
 import { createApi, type ApiRuntime } from "../src/app.js";
 import type { AppConfig } from "../src/config.js";
-import { waitFor } from "./tp-linkTestSupport.js";
+import { waitFor } from "./waitForTestSupport.js";
 
 describe("direct TP-Link contact events", () => {
   let runtime: ApiRuntime | null = null;

@@ -16,7 +16,7 @@ import { readIntegrationSecrets, writeIntegrationSecrets } from "../src/integrat
 
 import { ipv4BroadcastAddress, loadTpLinkDeviceMappings, normalizeTpLinkTemperature, tpLinkDiscoveryTargets } from "../src/tp-link.js";
 
-import { waitFor } from "./tp-linkTestSupport.js";
+import { waitFor } from "./waitForTestSupport.js";
 
 describe("direct TP-Link H100/H200 bridge", () => {
   let runtime: ApiRuntime | null = null;
