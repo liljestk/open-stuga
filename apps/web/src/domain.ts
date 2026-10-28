@@ -1,3 +1,4 @@
+import { BUILTIN_MEASUREMENT_DEFINITIONS } from "@climate-twin/contracts";
 import type {
   AppSession,
   AreaEquipment,
@@ -23,7 +24,6 @@ import type {
   UnitSystem,
 } from "@climate-twin/contracts";
 import {
-  BUILTIN_MEASUREMENTS,
   definitionFor,
   formatMeasurement,
   fromDisplayValue,
@@ -222,12 +222,12 @@ export function createDemoState(now = new Date()): ClimateState {
     }
     history[id] = points;
     readings[id] = points.at(-1)!;
-    const samples = points.flatMap((reading) => readingSamples(reading, BUILTIN_MEASUREMENTS));
-    measurementHistory[id] = Object.fromEntries(BUILTIN_MEASUREMENTS.map((definition) => [
+    const samples = points.flatMap((reading) => readingSamples(reading, BUILTIN_MEASUREMENT_DEFINITIONS));
+    measurementHistory[id] = Object.fromEntries(BUILTIN_MEASUREMENT_DEFINITIONS.map((definition) => [
       definition.id,
       samples.filter((sample) => sample.metric === definition.id),
     ]));
-    latestMeasurements[id] = Object.fromEntries(BUILTIN_MEASUREMENTS.flatMap((definition) => {
+    latestMeasurements[id] = Object.fromEntries(BUILTIN_MEASUREMENT_DEFINITIONS.flatMap((definition) => {
       const sample = measurementHistory[id]?.[definition.id]?.at(-1);
       return sample ? [[definition.id, sample]] : [];
     }));
@@ -257,7 +257,7 @@ export function createDemoState(now = new Date()): ClimateState {
         },
       };
     });
-    measurementForecasts[id] = Object.fromEntries(BUILTIN_MEASUREMENTS.map((definition) => [
+    measurementForecasts[id] = Object.fromEntries(BUILTIN_MEASUREMENT_DEFINITIONS.map((definition) => [
       definition.id,
       forecasts[id]!.flatMap((point) => {
         const measurement = point.measurements?.[definition.id];
@@ -279,7 +279,7 @@ export function createDemoState(now = new Date()): ClimateState {
     propertyAreas: [],
     areaEquipment: [],
     propertyNotes: [],
-    measurementDefinitions: BUILTIN_MEASUREMENTS,
+    measurementDefinitions: [...BUILTIN_MEASUREMENT_DEFINITIONS],
     latestMeasurements,
     measurementHistory,
     measurementForecasts,
@@ -408,11 +408,11 @@ export function readingAt(readings: Reading[], timestamp: number): Reading | und
 }
 
 export function displayValue(value: number, metric: Metric, units: UnitSystem): string {
-  return formatMeasurement(value, definitionFor(BUILTIN_MEASUREMENTS, metric), units);
+  return formatMeasurement(value, definitionFor(BUILTIN_MEASUREMENT_DEFINITIONS, metric), units);
 }
 
 export function toCanonicalValue(value: number, metric: Metric, units: UnitSystem): number {
-  return fromDisplayValue(value, definitionFor(BUILTIN_MEASUREMENTS, metric), units);
+  return fromDisplayValue(value, definitionFor(BUILTIN_MEASUREMENT_DEFINITIONS, metric), units);
 }
 
 export function metricValue(reading: Reading, metric: Metric): number {

@@ -1,3 +1,4 @@
+import { BUILTIN_MEASUREMENT_DEFINITIONS } from "@climate-twin/contracts";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 
 import { describe, expect, it, vi } from "vitest";
@@ -6,7 +7,6 @@ import type { AlertEvent, MeasurementSample } from "@climate-twin/contracts";
 
 import { I18nProvider } from "../i18n";
 
-import { BUILTIN_MEASUREMENTS } from "../measurements";
 
 import { createDemoState } from "../domain";
 
@@ -28,7 +28,7 @@ describe("decision layer", () => {
       sensors={[sensor]}
       latestMeasurements={{ [sensor.id]: { temperature: sample("temperature", 22), humidity: sample("humidity", 45) } }}
       measurementHistory={{}}
-      definitions={BUILTIN_MEASUREMENTS}
+      definitions={BUILTIN_MEASUREMENT_DEFINITIONS}
       alerts={[]}
       units="metric"
       now={now}
@@ -45,7 +45,7 @@ describe("decision layer", () => {
       sensors={[{ ...sensor, measurementEntityIds: { co2: "sensor.office_co2" } }]}
       latestMeasurements={{ [sensor.id]: { temperature: sample("temperature", 22), humidity: sample("humidity", 45) } }}
       measurementHistory={{}}
-      definitions={BUILTIN_MEASUREMENTS}
+      definitions={BUILTIN_MEASUREMENT_DEFINITIONS}
       alerts={[]}
       units="metric"
       now={now}
@@ -135,7 +135,7 @@ describe("decision layer", () => {
       sensors={[meter, plug]}
       latestMeasurements={latestMeasurements}
       measurementHistory={{}}
-      definitions={BUILTIN_MEASUREMENTS}
+      definitions={BUILTIN_MEASUREMENT_DEFINITIONS}
       alerts={[]}
       units="metric"
       now={now}

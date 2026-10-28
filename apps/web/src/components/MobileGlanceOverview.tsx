@@ -1,3 +1,4 @@
+import { BUILTIN_MEASUREMENT_DEFINITIONS } from "@climate-twin/contracts";
 import { useEffect, useMemo, useState, type ComponentType } from "react";
 import type {
   AlertEvent,
@@ -34,7 +35,6 @@ import {
   type GlanceScope,
 } from "../glanceOverview";
 import {
-  BUILTIN_MEASUREMENTS,
   definitionFor,
   formatMeasurement,
   type LatestMeasurements,
@@ -224,7 +224,7 @@ export function MobileGlanceOverview({
       .sort((left, right) => left.label.localeCompare(right.label, locale));
 
   const definition = (metric: Metric) => definitionFor(
-    measurementDefinitions.length ? measurementDefinitions : BUILTIN_MEASUREMENTS,
+    measurementDefinitions.length ? measurementDefinitions : BUILTIN_MEASUREMENT_DEFINITIONS,
     metric,
   );
 

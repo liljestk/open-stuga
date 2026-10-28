@@ -1,14 +1,15 @@
+import { BUILTIN_MEASUREMENT_DEFINITIONS } from "@climate-twin/contracts";
 import { describe, expect, it } from "vitest";
 import type { MeasurementDefinition, MeasurementColorScale } from "@climate-twin/contracts";
-import { BUILTIN_MEASUREMENTS, measurementColor, measurementComparisonColor } from "./measurements";
+import { measurementColor, measurementComparisonColor } from "./measurements";
 
 function channels(color: string): number[] {
   return color.match(/\d+/g)?.map(Number) ?? [];
 }
 
 function definition(colorScale: MeasurementColorScale): MeasurementDefinition {
-  return BUILTIN_MEASUREMENTS.find((item) => item.colorScale === colorScale) ?? {
-    ...BUILTIN_MEASUREMENTS[0]!,
+  return BUILTIN_MEASUREMENT_DEFINITIONS.find((item) => item.colorScale === colorScale) ?? {
+    ...BUILTIN_MEASUREMENT_DEFINITIONS[0]!,
     id: "custom",
     colorScale,
     builtin: false,

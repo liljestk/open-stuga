@@ -1,6 +1,6 @@
+import { BUILTIN_MEASUREMENT_DEFINITIONS } from "@climate-twin/contracts";
 import { describe, expect, it } from "vitest";
 import { floorMetersPerPlanUnit, wallLengthMeters, wallLengthPlanUnits, type MeasurementDefinition, type MeasurementSample, type Sensor } from "@climate-twin/contracts";
-import { BUILTIN_MEASUREMENTS } from "../measurements";
 import {
   clampPlanElementHeight,
   defaultPlanElementHeight,
@@ -29,8 +29,8 @@ const sensors: Sensor[] = [
   { id: "warm", houseId: "home", floorId: "ground", name: "Warm", room: "B", model: "T310", x: 900, y: 500, z: 1, tags: [], enabled: true },
 ];
 
-const temperature = BUILTIN_MEASUREMENTS.find((definition) => definition.id === "temperature")!;
-const humidity = BUILTIN_MEASUREMENTS.find((definition) => definition.id === "humidity")!;
+const temperature = BUILTIN_MEASUREMENT_DEFINITIONS.find((definition) => definition.id === "temperature")!;
+const humidity = BUILTIN_MEASUREMENT_DEFINITIONS.find((definition) => definition.id === "humidity")!;
 
 const sample = (sensorId: string, definition: MeasurementDefinition, value: number): MeasurementSample => ({
   sensorId, metric: definition.id, value, canonicalUnit: definition.unit,

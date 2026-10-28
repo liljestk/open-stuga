@@ -18,7 +18,7 @@ describe("TrendChart", () => {
   });
 
   it("gives a flat series readable padding without crossing a physical boundary", () => {
-    const definition = definitionFor(createDemoState().measurementDefinitions, "power");
+    const definition = definitionFor(createDemoState().measurementDefinitions, "co2");
 
     expect(timelineValueDomain(definition, [155.5])).toEqual({ min: 147.725, max: 163.275 });
     expect(timelineValueDomain(definition, [0])).toEqual({ min: 0, max: 3 });

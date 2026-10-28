@@ -1,7 +1,7 @@
+import { BUILTIN_MEASUREMENT_DEFINITIONS } from "@climate-twin/contracts";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "../i18n";
-import { BUILTIN_MEASUREMENTS } from "../measurements";
 import { now, sample, sensor } from "./DecisionLayerTestSupport";
 import { RoomComfortBoard } from "./RoomComfortBoard";
 
@@ -17,7 +17,7 @@ function renderBoard(input: {
       sensors={[sensor]}
       latestMeasurements={input.latestMeasurements ?? {}}
       measurementHistory={{}}
-      definitions={BUILTIN_MEASUREMENTS}
+      definitions={BUILTIN_MEASUREMENT_DEFINITIONS}
       alerts={[]}
       units="metric"
       now={now}
@@ -67,7 +67,7 @@ describe("RoomComfortBoard evidence", () => {
           },
         }}
         measurementHistory={{}}
-        definitions={BUILTIN_MEASUREMENTS}
+        definitions={BUILTIN_MEASUREMENT_DEFINITIONS}
         alerts={[]}
         units="metric"
         now={now}

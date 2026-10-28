@@ -39,7 +39,7 @@ interface RoomComfortBoardProps {
   sensors: Sensor[];
   latestMeasurements: LatestMeasurements;
   measurementHistory: MeasurementHistory;
-  definitions: MeasurementDefinition[];
+  definitions: readonly MeasurementDefinition[];
   alerts: AlertEvent[];
   units: UnitSystem;
   now?: number;

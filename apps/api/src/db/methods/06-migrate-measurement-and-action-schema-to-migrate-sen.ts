@@ -1,3 +1,4 @@
+import { BUILTIN_MEASUREMENT_DEFINITIONS } from "@climate-twin/contracts";
 import {
   SECURITY_AUDIT_SUBJECT_TYPES,
 } from "@climate-twin/contracts";
@@ -41,13 +42,7 @@ registerDatabaseMethods({
              generic_history_enabled, generic_stats_enabled, precision, valid_min, valid_max, display_min, display_max,
              interpolation_delta, color_scale, builtin, enabled, spatial_interpolation, forecast_supported)
             VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1, ?, ?, ?, ?, ?, ?, ?, 1, 1, ?, ?)`);
-      insertDefinition.run("temperature", JSON.stringify({ en: "Temperature", fi: "Lämpötila" }), "°C", "temperature", JSON.stringify(["°C", "°F"]), "gauge", "mean", 1, -80, 100, 15, 30, 2, "thermal", 1, 1);
-      insertDefinition.run("humidity", JSON.stringify({ en: "Humidity", fi: "Ilmankosteus" }), "%", "relative_humidity", JSON.stringify(["%"]), "gauge", "mean", 0, 0, 100, 20, 80, 10, "humidity", 1, 1);
-      insertDefinition.run("co2", JSON.stringify({ en: "Carbon dioxide", fi: "Hiilidioksidi" }), "ppm", "co2_concentration", JSON.stringify(["ppm"]), "gauge", "mean", 0, 0, 10_000, 400, 2_000, 250, "air-quality", 1, 1);
-      insertDefinition.run("power", JSON.stringify({ en: "Power", fi: "Teho" }), "W", "power", JSON.stringify(["W", "kW"]), "rate", "time_weighted_mean", 1, null, null, 0, 10_000, 500, "sequential", 0, 0);
-      insertDefinition.run("energy", JSON.stringify({ en: "Energy (cumulative)", fi: "Energia (kumulatiivinen)" }), "kWh", "energy", JSON.stringify(["Wh", "kWh"]), "cumulative_counter", "delta", 3, 0, null, 0, null, 1, "sequential", 0, 0);
-      insertDefinition.run("electricity_price", JSON.stringify({ en: "Electricity price", fi: "Sähkön hinta" }), "€/kWh", "finite_scalar", JSON.stringify(["€/kWh"]), "gauge", "mean", 4, null, null, -0.5, 1, 0.05, "sequential", 0, 0);
-      for (const definition of HEAT_PUMP_MEASUREMENT_DEFINITIONS) {
+      for (const definition of [...BUILTIN_MEASUREMENT_DEFINITIONS, ...HEAT_PUMP_MEASUREMENT_DEFINITIONS]) {
         insertDefinition.run(
           definition.id,
           JSON.stringify(definition.labels) ?? "{}",
@@ -70,12 +65,15 @@ registerDatabaseMethods({
       const updateBuiltinAnalytics = this.db.prepare(`UPDATE measurement_definitions SET
             dimension = ?, allowed_units_json = ?, kind = ?, default_aggregation = ?,
             generic_history_enabled = 1, generic_stats_enabled = 1 WHERE id = ?`);
-      updateBuiltinAnalytics.run("temperature", JSON.stringify(["°C", "°F"]), "gauge", "mean", "temperature");
-      updateBuiltinAnalytics.run("relative_humidity", JSON.stringify(["%"]), "gauge", "mean", "humidity");
-      updateBuiltinAnalytics.run("co2_concentration", JSON.stringify(["ppm"]), "gauge", "mean", "co2");
-      updateBuiltinAnalytics.run("power", JSON.stringify(["W", "kW"]), "rate", "time_weighted_mean", "power");
-      updateBuiltinAnalytics.run("energy", JSON.stringify(["Wh", "kWh"]), "cumulative_counter", "delta", "energy");
-      updateBuiltinAnalytics.run("finite_scalar", JSON.stringify(["€/kWh"]), "gauge", "mean", "electricity_price");
+      for (const definition of BUILTIN_MEASUREMENT_DEFINITIONS) {
+        updateBuiltinAnalytics.run(
+          definition.dimension ?? "finite_scalar",
+          JSON.stringify(definition.allowedUnits ?? [definition.unit]),
+          definition.kind ?? "gauge",
+          definition.defaultAggregation ?? "mean",
+          definition.id,
+        );
+      }
       this.db.exec(`
             CREATE TABLE IF NOT EXISTS action_playbooks (
               id TEXT PRIMARY KEY,
