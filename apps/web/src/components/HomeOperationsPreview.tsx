@@ -2,7 +2,7 @@ import { ArrowRight, CheckCircle2, ChevronDown, Clock3, Eye, Wrench } from "luci
 import { useState } from "react";
 import type { AlertEvent, IntegrationStatus, MaintenanceTask, ManualObservation, Sensor, WeatherWarning } from "@climate-twin/contracts";
 import { buildHomeActivityEvents } from "./HomeActivityTimeline";
-import { useI18n, type TranslationKey } from "../i18n";
+import { useI18n } from "../i18n";
 import { formatInTimeZone } from "../dateTime";
 
 interface HomeOperationsPreviewProps {
@@ -49,7 +49,7 @@ export function HomeOperationsPreview(props: Readonly<HomeOperationsPreviewProps
       </article>
       <article className="panel home-preview-card maintenance">
         <header><span className="home-preview-icon maintenance" aria-hidden="true"><Wrench size={17} /></span><div><span className="eyebrow">{t("home.maintenancePreviewEyebrow")}</span><h2>{t("home.maintenancePreviewTitle")}</h2></div>{work.length > 0 && <span className="count-badge">{activeWork.length}</span>}</header>
-        {work.length === 0 ? <p className="home-preview-empty"><CheckCircle2 size={15} aria-hidden="true" />{t("home.noPlannedWork")}</p> : <ol>{work.map((task) => <li key={task.id}><Clock3 size={14} aria-hidden="true" /><span><strong>{task.title}</strong><small>{t(`maintenance.status.${task.status}` as TranslationKey)}{task.dueBy ? ` | ${t("maintenance.dueDate", { date: task.dueBy })}` : ""}</small></span></li>)}</ol>}
+        {work.length === 0 ? <p className="home-preview-empty"><CheckCircle2 size={15} aria-hidden="true" />{t("home.noPlannedWork")}</p> : <ol>{work.map((task) => <li key={task.id}><Clock3 size={14} aria-hidden="true" /><span><strong>{task.title}</strong><small>{t(`maintenance.status.${task.status}`)}{task.dueBy ? ` | ${t("maintenance.dueDate", { date: task.dueBy })}` : ""}</small></span></li>)}</ol>}
         {props.onOpenMaintenance && <button type="button" className="text-button home-preview-link" onClick={props.onOpenMaintenance}>{t("maintenance.viewPlan")}<ArrowRight size={14} aria-hidden="true" /></button>}
       </article>
     </section>}

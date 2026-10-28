@@ -1,5 +1,4 @@
 import { isAirflowPlanElement } from "@climate-twin/contracts";
-import { type TranslationKey } from "../../i18n";
 import { formatMeasurement, formatMeasurementDelta, measurementGradient, measurementValue, toDisplayValue } from "../../measurements";
 import { energyDeviceMapStats, isEnergyDeviceSensor } from "../../energyDeviceMap";
 import {
@@ -56,7 +55,7 @@ export function renderBuildingScene(context: ReturnType<typeof useBuildingSceneP
           <div className="building-element-editor-heading">
             <span className="eyebrow">{t("twin.planElements")}</span>
             <strong>{selectedElement
-              ? t(`planElement.${selectedElement.kind}` as TranslationKey)
+              ? t(`planElement.${selectedElement.kind}`)
               : t("twin.elementProperties")}</strong>
             {selectedElementFloor && <small>{selectedElementFloor.name}</small>}
           </div>

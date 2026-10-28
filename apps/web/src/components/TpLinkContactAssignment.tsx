@@ -51,7 +51,7 @@ function openingChoices(
       return [{
         floor,
         element,
-        label: element.label?.trim() || `${t(`planElement.${element.kind}` as TranslationKey)} ${index}`,
+        label: element.label?.trim() || `${t(`planElement.${element.kind}`)} ${index}`,
         eligible: !fixed && !alreadyBound,
         unavailableReason: fixed ? "fixed" as const : alreadyBound ? "already-bound" as const : null,
       }];
@@ -119,7 +119,7 @@ function OpeningPlanPicker({
         const symbolWidth = Math.max(28, (element.width ?? defaultPlanElementWidth(floor, element.kind)) * scale);
         const label = t("sensors.contactMapOpeningLabel", {
           name: choice.label,
-          kind: t(`planElement.${element.kind}` as TranslationKey),
+          kind: t(`planElement.${element.kind}`),
           state: choice.eligible
             ? selected ? t("sensors.contactSelected") : t("sensors.contactAvailable")
             : t(choice.unavailableReason === "fixed" ? "sensors.contactFixed" : "sensors.contactAlreadyBound"),

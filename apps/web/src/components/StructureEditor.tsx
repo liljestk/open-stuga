@@ -1,7 +1,7 @@
 import { useEffect, useId, useState, type FormEvent, type ReactNode } from "react";
 import { Building2, ChevronDown, ChevronUp, Copy, Layers3, Plus, Trash2 } from "lucide-react";
 import { floorMetersPerPlanUnit, type Floor, type FloorType, type House, type PlanElement, type RoofDesign, type RoofStyle, type Sensor } from "@climate-twin/contracts";
-import { useI18n, type TranslationKey } from "../i18n";
+import { useI18n } from "../i18n";
 import { createClientUuid } from "../clientUuid";
 import { DEFAULT_ROOF_DESIGN, roofPeakZ } from "../architecturalGeometry";
 import { confirmAction } from "./ConfirmationProvider";
@@ -327,7 +327,7 @@ export function StructureEditor({
                 <div key={item.id} role="listitem">
                   <button type="button" className={`level-card ${item.id === floor.id ? "active" : ""}`} aria-current={item.id === floor.id ? "true" : undefined} onClick={() => onFloorSelect(item.id)}>
                     <span className={`level-glyph ${type}`}><Layers3 size={16} aria-hidden="true" /></span>
-                    <span><strong>{item.name}</strong><small>{t(`floorType.${type}` as TranslationKey)} · {item.elevation.toFixed(1)} m</small></span>
+                    <span><strong>{item.name}</strong><small>{t(`floorType.${type}`)} · {item.elevation.toFixed(1)} m</small></span>
                     <span className="level-sensor-count">{sensorCount}</span>
                   </button>
                 </div>
@@ -339,7 +339,7 @@ export function StructureEditor({
               <button type="button" className="structure-add-button" disabled={!onHouseChange} aria-expanded={addingFloor} aria-controls={addingFloor ? `${inlineFormId}-level` : undefined} onClick={() => setAddingFloor((value) => !value)}><Plus size={16} aria-hidden="true" />{t("structure.addLevel")}</button>
               {addingFloor && (
                 <form id={`${inlineFormId}-level`} className="structure-inline-form" onSubmit={addFloor}>
-                  <label className="field compact-field"><span>{t("structure.levelType")}</span><select value={newFloorType} onChange={(event) => setNewFloorType(event.target.value as FloorType)}>{FLOOR_TYPES.map((type) => <option key={type} value={type}>{t(`floorType.${type}` as TranslationKey)}</option>)}</select></label>
+                  <label className="field compact-field"><span>{t("structure.levelType")}</span><select value={newFloorType} onChange={(event) => setNewFloorType(event.target.value as FloorType)}>{FLOOR_TYPES.map((type) => <option key={type} value={type}>{t(`floorType.${type}`)}</option>)}</select></label>
                   <label className="field compact-field"><span>{t("structure.levelName")}</span><input required value={newFloorName} onChange={(event) => setNewFloorName(event.target.value)} /></label>
                   <div className="inline-form-actions"><button type="button" className="text-button" onClick={() => setAddingFloor(false)}>{t("common.cancel")}</button><button type="submit" className="primary-button" disabled={!onHouseChange}>{t("structure.addLevel")}</button></div>
                 </form>
@@ -361,7 +361,7 @@ export function StructureEditor({
         >
           <div className="structure-disclosure-content">
             <label className="field compact-field"><span>{t("structure.levelName")}</span><input value={floor.name} disabled={!onHouseChange} onChange={(event) => changeFloor({ name: event.target.value })} /></label>
-            <label className="field compact-field"><span>{t("structure.levelType")}</span><select value={inferredFloorType(floor)} disabled={!onHouseChange} onChange={(event) => changeFloor({ type: event.target.value as FloorType })}>{FLOOR_TYPES.map((type) => <option key={type} value={type}>{t(`floorType.${type}` as TranslationKey)}</option>)}</select></label>
+            <label className="field compact-field"><span>{t("structure.levelType")}</span><select value={inferredFloorType(floor)} disabled={!onHouseChange} onChange={(event) => changeFloor({ type: event.target.value as FloorType })}>{FLOOR_TYPES.map((type) => <option key={type} value={type}>{t(`floorType.${type}`)}</option>)}</select></label>
             <div className="structure-number-grid">
               <label className="field compact-field"><span>{t("structure.elevation")}</span><span className="input-suffix"><input type="number" step="0.1" value={floor.elevation} disabled={!onHouseChange} onChange={(event) => changeFloor({ elevation: Number(event.target.value) })} /><span>m</span></span></label>
               <label className="field compact-field"><span>{t("structure.wallHeight")}</span><span className="input-suffix"><input type="number" min="0.2" max="20" step="0.1" value={floor.wallHeight ?? floor.roof?.eavesHeight ?? floor.ceilingHeight ?? 2.8} disabled={!onHouseChange} onChange={(event) => changeWallHeight(Number(event.target.value))} /><span>m</span></span></label>
@@ -392,7 +392,7 @@ export function StructureEditor({
                   } else {
                     changeRoof({ style, pitchDegrees: Math.max(1, floor.roof?.pitchDegrees ?? DEFAULT_ROOF_DESIGN.pitchDegrees) });
                   }
-                }}>{ROOF_STYLES.map((style) => <option key={style} value={style}>{t(`roofStyle.${style}` as TranslationKey)}</option>)}</select></label>
+                }}>{ROOF_STYLES.map((style) => <option key={style} value={style}>{t(`roofStyle.${style}`)}</option>)}</select></label>
                 <div className="structure-number-grid">
                   <label className="field compact-field"><span>{t("structure.roofPitch")}</span><span className="input-suffix"><input type="number" min={floor.roof.style === "flat" ? 0 : 1} max="75" step="1" value={floor.roof.pitchDegrees} disabled={!onHouseChange || floor.roof.style === "flat"} onChange={(event) => changeRoof({ pitchDegrees: Number(event.target.value) })} /><span>°</span></span></label>
                   <label className="field compact-field"><span>{t("structure.ridgeAxis")}</span><select value={floor.roof.ridgeAxis} disabled={!onHouseChange || floor.roof.style === "flat"} onChange={(event) => changeRoof({ ridgeAxis: event.target.value as "x" | "y" })}><option value="x">{t("structure.ridgeAxisX")}</option><option value="y">{t("structure.ridgeAxisY")}</option></select></label>

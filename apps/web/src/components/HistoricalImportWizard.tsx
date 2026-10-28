@@ -28,7 +28,7 @@ import {
 } from "../historicalImport";
 import { CSV_MEDIA_TYPE, csvDocument } from "../csv";
 import { formatInTimeZone } from "../dateTime";
-import { useI18n, type TranslationKey } from "../i18n";
+import { useI18n } from "../i18n";
 
 interface HistoricalImportWizardProps {
   open: boolean;
@@ -353,10 +353,10 @@ export function HistoricalImportWizard({
         </header>
 
         <ol className="history-import-stepper" aria-label={t("historyImport.progress") }>
-          {[1, 2, 3, 4].map((item) => (
+          {([1, 2, 3, 4] as const).map((item) => (
             <li key={item} className={item < step ? "complete" : item === step ? "active" : ""} aria-current={item === step ? "step" : undefined}>
               <span>{item < step ? <Check size={13} aria-hidden="true" /> : item}</span>
-              <small>{t(`historyImport.step${item}Short` as TranslationKey)}</small>
+              <small>{t(`historyImport.step${item}Short`)}</small>
             </li>
           ))}
         </ol>

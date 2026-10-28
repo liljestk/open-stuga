@@ -13,7 +13,7 @@ import type {
   Sensor,
   UnitSystem,
 } from "@climate-twin/contracts";
-import { useI18n, type TranslationKey } from "../i18n";
+import { useI18n } from "../i18n";
 import { formatInTimeZone } from "../dateTime";
 import { useNow } from "../useNow";
 import type { LatestMeasurements } from "../measurements";
@@ -202,7 +202,7 @@ function PortfolioOverviewView({
 
         {showMonitoring && <div className={`portfolio-monitoring ${result.status}`}>
           <MonitoringIcon result={result} />
-          <span><strong>{t(`overview.monitoring.${result.status}` as TranslationKey)}</strong><small>{primaryBlocker ? blockerText(primaryBlocker, t) : monitoringConfirmed ? t("overview.blocker.none") : t("decision.pulse.unknown.body")}</small></span>
+          <span><strong>{t(`overview.monitoring.${result.status}`)}</strong><small>{primaryBlocker ? blockerText(primaryBlocker, t) : monitoringConfirmed ? t("overview.blocker.none") : t("decision.pulse.unknown.body")}</small></span>
         </div>}
 
         <dl className="portfolio-facts">

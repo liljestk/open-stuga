@@ -56,7 +56,7 @@ function markerLabel(
   const values = {
     device: device.name,
     floor: floorName,
-    kind: t(`connectedDevice.kind.${device.kind}` as TranslationKey),
+    kind: t(`connectedDevice.kind.${device.kind}`),
     state: t(stateKey(device, pending)),
   };
   return t(movable ? "twin.connectedDeviceMoveAria" : "twin.connectedDeviceAria", values);

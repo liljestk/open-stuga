@@ -251,7 +251,7 @@ export function HeatPumpInspector({
     </div>
     <p className={`heat-pump-evidence ${impact.kind} ${impact.compressorEvidence ? "reported" : "inferred"}`}>
       <span className="heat-pump-evidence-mark" aria-hidden="true" />
-      <span><strong>{t(`heatPump.influence.${impact.kind}` as TranslationKey)}</strong><small>{evidence}</small></span>
+      <span><strong>{t(`heatPump.influence.${impact.kind}`)}</strong><small>{evidence}</small></span>
     </p>
     <dl className="sensor-meta heat-pump-meta">
       <div><dt>{t("common.floor")}</dt><dd>{floor?.name ?? noData}</dd></div>

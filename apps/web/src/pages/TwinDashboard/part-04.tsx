@@ -3,7 +3,6 @@ import { isAirflowPlanElement, type ConfiguredOpeningState, type MeasurementSamp
 import "../../components/decisionLayer.css";
 import "../OperationsPages.css";
 import { round, type TimeRange } from "../../domain";
-import { type TranslationKey } from "../../i18n";
 import { definitionFor, measurementComparisonColor, measurementDomain, measurementValue, samplesAt } from "../../measurements";
 import { isSpatialSampleFresh } from "../../spatialFreshness";
 import type { OutdoorVisualizationState } from "../../components/OutdoorConditionsBadge";
@@ -35,7 +34,7 @@ export function useTwinDashboardPart04(context: ReturnType<typeof useTwinDashboa
       const elementIndex = targetFloor?.planElements?.findIndex((candidate) => candidate.id === elementId) ?? -1;
       const element = elementIndex >= 0 ? targetFloor?.planElements?.[elementIndex] : undefined;
       if (!element || !isAirflowPlanElement(element) || !openingStateCanChange(element)) return;
-      const openingName = element.label ?? `${t(`planElement.${element.kind}` as TranslationKey)} ${elementIndex + 1}`;
+      const openingName = element.label ?? `${t(`planElement.${element.kind}`)} ${elementIndex + 1}`;
       openingStateRequestsRef.current.add(requestKey);
       setPendingOpeningStateKeys((current) => new Set([...current, requestKey]));
       setOpeningStateError(null);
@@ -51,7 +50,7 @@ export function useTwinDashboardPart04(context: ReturnType<typeof useTwinDashboa
         setOpeningStateObservations((current) => mergeOpeningStateObservations(current, [observation]));
         setOpeningStateAnnouncement(t("opening.updated", {
           opening: openingName,
-          state: t(`opening.state.${nextState}` as TranslationKey),
+          state: t(`opening.state.${nextState}`),
         }));
       } catch {
         if (openingStateContextRef.current === requestContext) {
@@ -189,7 +188,7 @@ export function useTwinDashboardPart04(context: ReturnType<typeof useTwinDashboa
         sensorId: null,
         kind: observationKind,
         severity: observationSeverity,
-        note: observationNote.trim() || t(`observations.${observationKind === "note" ? "noteKind" : observationKind}` as TranslationKey),
+        note: observationNote.trim() || t(`observations.${observationKind === "note" ? "noteKind" : observationKind}`),
         source: observationSource,
         sourceDetail: observationSourceDetail.trim() || null,
         confidence: observationConfidence,

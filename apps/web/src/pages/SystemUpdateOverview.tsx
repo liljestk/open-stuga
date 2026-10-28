@@ -167,7 +167,7 @@ function WorkflowProgress({ workflow, streamState }: { workflow: SystemUpdateWor
       <div>
         <div className="unified-update-workflow__kicker">
           <span className="eyebrow">{t("updates.workflow.title")}</span>
-          {active && <span className={`updates-stream-state ${streamState}`}><span aria-hidden="true" />{t(disconnected ? "updates.connection.reconnecting" : `updates.stream.${streamState}` as TranslationKey)}</span>}
+          {active && <span className={`updates-stream-state ${streamState}`}><span aria-hidden="true" />{t(disconnected ? "updates.connection.reconnecting" : `updates.stream.${streamState}`)}</span>}
         </div>
         <h3 id="unified-update-workflow-title">{t(workflowPhaseKey(workflow.phase))}</h3>
         {workflow.detail && <small>{workflow.detail}</small>}

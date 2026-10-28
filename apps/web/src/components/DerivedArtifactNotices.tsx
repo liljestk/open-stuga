@@ -36,7 +36,7 @@ function stateCopy(
 ): TranslationKey {
   if (status.state === "failed" && status.artifact === null) return "derived.failedNoResult";
   if (status.state === "idle") return canRefresh ? "derived.idle" : "derived.idleReadOnly";
-  return `derived.${status.state}` as TranslationKey;
+  return `derived.${status.state}`;
 }
 
 // A Map rather than an object literal: the code is a server-stored string, and

@@ -1,5 +1,4 @@
 import { isAirflowPlanElement, type ConfiguredOpeningState, type Floor, type ManualObservation, type PlanElement } from "@climate-twin/contracts";
-import { type TranslationKey } from "../../i18n";
 import {
   type Point3D,
   type ProjectedPoint3D,
@@ -87,15 +86,15 @@ export function useBuildingScenePart03(context: ReturnType<typeof useBuildingSce
       );
       const openingPending = openingControlEnabled && pendingOpeningStateKeys.has(openingStateKey(floor.id, element.id));
       const nextOpeningState: ConfiguredOpeningState | null = openingState?.state === "open" ? "closed" : openingState ? "open" : null;
-      const openingName = `${element.label ?? t(`planElement.${element.kind}` as TranslationKey)} ${index + 1}`;
-      const openingStateLabel = openingState ? t(`opening.state.${openingState.state}` as TranslationKey) : null;
+      const openingName = `${element.label ?? t(`planElement.${element.kind}`)} ${index + 1}`;
+      const openingStateLabel = openingState ? t(`opening.state.${openingState.state}`) : null;
       const stateLabel = openingStateLabel ? ` ${t("opening.state")} ${openingStateLabel}.` : "";
       const geometryLabel = `${openingName}, ${floor.name}.${stateLabel} ${t("twin.elementWidth")} ${Number(geometry.width.toFixed(2))} ${t("twin.planUnit")}. ${t("twin.elementHeight")} ${geometry.height.toFixed(2)} m.`;
       const label = openingControlEnabled && openingState && nextOpeningState
         ? t("opening.toggleAria", {
           opening: `${openingName}, ${floor.name}`,
-          state: t(`opening.state.${openingState.state}` as TranslationKey),
-          action: t(`opening.state.${nextOpeningState}` as TranslationKey),
+          state: t(`opening.state.${openingState.state}`),
+          action: t(`opening.state.${nextOpeningState}`),
         })
         : geometryLabel;
       const verticalMidpoint = (a: ProjectedPoint3D, b: ProjectedPoint3D) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
@@ -258,6 +257,6 @@ export function useBuildingScenePart03(context: ReturnType<typeof useBuildingSce
         </g>
       );
     };
-  const observationName = (observation: ManualObservation) => t(`observations.${observation.kind === "note" ? "noteKind" : observation.kind}` as TranslationKey);
+  const observationName = (observation: ManualObservation) => t(`observations.${observation.kind === "note" ? "noteKind" : observation.kind}`);
   return Object.assign(context, { renderArchitecturalElement, observationName });
 }

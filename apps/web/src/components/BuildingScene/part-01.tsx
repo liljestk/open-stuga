@@ -6,7 +6,7 @@ import {
   useState,
   type CSSProperties,
 } from "react";
-import { useI18n, type TranslationKey } from "../../i18n";
+import { useI18n } from "../../i18n";
 import { measurementLabel, measurementValue } from "../../measurements";
 import {
   configuredSpatialMaxSampleAgeMs, isSpatialSampleFresh, type SpatialFreshnessOptions,
@@ -113,7 +113,7 @@ export function useBuildingScenePart01(context: { house: BuildingSceneProps["hou
   const airflowPaths = airflow?.paths ?? [];
   const activeGradientFlows = editing || airflowPaths.length ? [] : gradientFlows;
   const airflowSupport = airflow
-      ? t(`spatial.airflow.support.${airflow.evidence.support}` as TranslationKey)
+      ? t(`spatial.airflow.support.${airflow.evidence.support}`)
       : t("spatial.airflow.support.low");
   const airflowDriver = airflow?.evidence.windDriven
       ? t("spatial.airflow.driverBuoyancyWind")
@@ -156,10 +156,10 @@ export function useBuildingScenePart01(context: { house: BuildingSceneProps["hou
       ? formatOutdoorWindSpeed(outdoorContext.conditions.windSpeedMps, units, locale)
       : null;
   const outdoorWindDirection = outdoorContext?.windFromCardinal && outdoorContext.windFromDegrees !== null
-      ? `${t(`outdoor.cardinal.${outdoorContext.windFromCardinal}` as TranslationKey)} ${Math.round(outdoorContext.windFromDegrees)}°`
+      ? `${t(`outdoor.cardinal.${outdoorContext.windFromCardinal}`)} ${Math.round(outdoorContext.windFromDegrees)}°`
       : null;
   const outdoorWindwardSide = outdoorContext?.windwardEdge
-      ? t(`outdoor.edge.${outdoorContext.windwardEdge}` as TranslationKey)
+      ? t(`outdoor.edge.${outdoorContext.windwardEdge}`)
       : null;
   const outdoorShellLabel = [
       t("outdoor.shellLabel"),

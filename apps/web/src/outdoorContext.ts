@@ -15,7 +15,7 @@ export interface OutdoorBoundaryContext {
   stale: boolean;
   /** Meteorological bearing: the compass direction the wind comes from. */
   windFromDegrees: number | null;
-  windFromCardinal: string | null;
+  windFromCardinal: CardinalDirection | null;
   /** Wind-from bearing clockwise from the top of the floor plan. */
   planWindFromDegrees: number | null;
   sourceVector: Point | null;
@@ -32,7 +32,9 @@ export function normalizeDegrees(degrees: number): number {
 }
 
 /** Return the nearest eight-point compass direction for a bearing. */
-export function cardinalDirection(degrees: number): "N" | "NE" | "E" | "SE" | "S" | "SW" | "W" | "NW" {
+export type CardinalDirection = "N" | "NE" | "E" | "SE" | "S" | "SW" | "W" | "NW";
+
+export function cardinalDirection(degrees: number): CardinalDirection {
   const labels = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"] as const;
   return labels[Math.floor((normalizeDegrees(degrees) + 22.5) / 45) % labels.length]!;
 }

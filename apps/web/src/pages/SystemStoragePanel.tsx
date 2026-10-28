@@ -293,7 +293,7 @@ export function SystemStoragePanel() {
     {status.operation && <div className={`storage-operation ${status.operation.phase}`} role="status" aria-live="polite">
       {operationActive ? <LoaderCircle className="spin" size={17} aria-hidden="true" /> : status.operation.phase === "complete" ? <CheckCircle2 size={17} aria-hidden="true" /> : <CircleAlert size={17} aria-hidden="true" />}
       <span>
-        <strong>{t(`storage.phase.${status.operation.phase}` as TranslationKey)}</strong>
+        <strong>{t(`storage.phase.${status.operation.phase}`)}</strong>
         {status.operation.detail && <small>{status.operation.detail}</small>}
         {operationActive && <small>{t("storage.operationContinues")}</small>}
       </span>

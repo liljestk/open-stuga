@@ -11,7 +11,6 @@ import {
   TriangleAlert,
   X,
 } from "lucide-react";
-import { type TranslationKey } from "../../i18n";
 import { measurementLabel } from "../../measurements";
 import { PlacementPicker, deviceBindingKey, normalizedMeasurementEntityIds, rounded, tpLinkDeviceSummary } from "./support";
 import { useSensorManagementPagePart03 } from "./part-03";
@@ -172,12 +171,12 @@ export function useSensorManagementPagePart04(context: ReturnType<typeof useSens
         <header className="sensor-editor-header">
           <div>
             <span className="eyebrow">{t("sensors.guidedSetup")}</span>
-            <h2 ref={editorHeadingRef} id={`${formId}-editor-title`} tabIndex={-1}>{t(`sensors.step${addStep}` as TranslationKey)}</h2>
+            <h2 ref={editorHeadingRef} id={`${formId}-editor-title`} tabIndex={-1}>{t(`sensors.step${addStep}`)}</h2>
           </div>
           <button type="button" className="icon-button" onClick={cancelEditor} aria-label={t("sensors.cancelAdd")}><X size={18} /></button>
         </header>
         <ol className="sensor-stepper" aria-label={t("sensors.setupProgress") }>
-          {[1, 2, 3, 4].map((step) => <li key={step} className={step < addStep ? "complete" : step === addStep ? "active" : ""} aria-current={step === addStep ? "step" : undefined}><span>{step < addStep ? <Check size={13} aria-hidden="true" /> : step}</span><small>{t(`sensors.step${step}Short` as TranslationKey)}</small></li>)}
+          {([1, 2, 3, 4] as const).map((step) => <li key={step} className={step < addStep ? "complete" : step === addStep ? "active" : ""} aria-current={step === addStep ? "step" : undefined}><span>{step < addStep ? <Check size={13} aria-hidden="true" /> : step}</span><small>{t(`sensors.step${step}Short`)}</small></li>)}
         </ol>
         <form onSubmit={submitAdd} noValidate>
           {addStep === 1 && (

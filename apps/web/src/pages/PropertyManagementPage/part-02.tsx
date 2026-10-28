@@ -4,7 +4,6 @@ import type {
   GeoCoordinate,
   PropertyNote,
 } from "@climate-twin/contracts";
-import { type TranslationKey } from "../../i18n";
 import "../PropertyManagementPage.css";
 import { EQUIPMENT_DRAFT_MAP_ID, mapCoordinateInput, placementInput } from "./support";
 import type { MapCatalogEntry, MapItemKind } from "./support";
@@ -138,7 +137,7 @@ export function usePropertyManagementPagePart02(context: ReturnType<typeof usePr
   const sidebarAreas = useMemo(() => areas.filter((area) => !normalizedStructureQuery || [
       area.name,
       area.description,
-      t(`properties.areaKind.${area.kind}` as TranslationKey),
+      t(`properties.areaKind.${area.kind}`),
     ].some((value) => value?.toLocaleLowerCase().includes(normalizedStructureQuery))), [areas, normalizedStructureQuery, t]);
   const mapCatalogItems = useMemo<MapCatalogEntry[]>(() => {
       const entries: MapCatalogEntry[] = [
@@ -161,13 +160,13 @@ export function usePropertyManagementPagePart02(context: ReturnType<typeof usePr
             kind: "asset" as const,
             label: asset.name,
             detail,
-            searchText: `${asset.name} ${asset.description ?? ""} ${t(`properties.areaKind.${asset.kind}` as TranslationKey)} ${t("properties.fixedAssets")} ${detail}`,
+            searchText: `${asset.name} ${asset.description ?? ""} ${t(`properties.areaKind.${asset.kind}`)} ${t("properties.fixedAssets")} ${detail}`,
           };
         }),
         ...equipment.map((item) => {
           const tracking = trackingByEquipmentId.get(item.id);
           const detail = tracking?.position?.freshness
-            ? t(`properties.inventoryTracking.${tracking.position.freshness}` as TranslationKey)
+            ? t(`properties.inventoryTracking.${tracking.position.freshness}`)
             : equipmentLocationLabel(item);
           return {
             id: item.id,

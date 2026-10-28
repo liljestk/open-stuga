@@ -9,7 +9,6 @@ import type {
 } from "@climate-twin/contracts";
 import { api } from "../../api";
 import type { TimeRange } from "../../domain";
-import { type TranslationKey } from "../../i18n";
 import { isLegacyTpLinkContactSensor, tpLinkOpeningMatchesDevice } from "../../tpLinkDeviceClassification";
 import { deviceBindingKey, draftContext, draftForSensor, hasHomeAssistantBinding, initialDraft, roomCenter, rounded, validationErrors } from "./support";
 import type { AddStep, DraftErrors, DraftSource, SensorFilter } from "./support";
@@ -385,7 +384,7 @@ export function useSensorManagementPagePart02(context: ReturnType<typeof useSens
         kind: "success",
         message: t("sensors.contactSaved", {
           name: device.alias?.trim() || device.model,
-          opening: targetElement.label?.trim() || t(`planElement.${targetElement.kind}` as TranslationKey),
+          opening: targetElement.label?.trim() || t(`planElement.${targetElement.kind}`),
         }),
       });
       closeContactSetup();

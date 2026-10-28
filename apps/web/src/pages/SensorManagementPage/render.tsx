@@ -23,7 +23,6 @@ import {
   TriangleAlert,
   X,
 } from "lucide-react";
-import { type TranslationKey } from "../../i18n";
 import { formatInTimeZone } from "../../dateTime";
 import { measurementLabel } from "../../measurements";
 import { TrendChart } from "../../components/TrendChart";
@@ -201,7 +200,7 @@ export function renderSensorManagementPage(context: ReturnType<typeof useSensorM
                 <span>
                   <small>{t("sensors.contactCurrentAssignment")}</small>
                   <strong>{visibleDetailsContactOpening?.element.label?.trim() || t("sensors.contactNotAttached")}</strong>
-                  {visibleDetailsContactOpening && <span>{t(`planElement.${visibleDetailsContactOpening.element.kind}` as TranslationKey)} · {visibleDetailsContactOpening.floor.name}</span>}
+                  {visibleDetailsContactOpening && <span>{t(`planElement.${visibleDetailsContactOpening.element.kind}`)} · {visibleDetailsContactOpening.floor.name}</span>}
                 </span>
                 {visibleDetailsContactDevice && <strong className={`contact-state ${visibleDetailsContactDevice.contactOpen === null || visibleDetailsContactDevice.contactOpen === undefined ? "unknown" : visibleDetailsContactDevice.contactOpen ? "open" : "closed"}`}>
                   {visibleDetailsContactDevice.contactOpen === true
@@ -222,7 +221,7 @@ export function renderSensorManagementPage(context: ReturnType<typeof useSensorM
               <p>{visibleDetailsContactOpening
                 ? t("sensors.contactLegacyExplanation", {
                     opening: visibleDetailsContactOpening.element.label?.trim()
-                      || t(`planElement.${visibleDetailsContactOpening.element.kind}` as TranslationKey),
+                      || t(`planElement.${visibleDetailsContactOpening.element.kind}`),
                   })
                 : t("sensors.contactLegacyUnmatchedExplanation")}</p>
             </div>
@@ -258,7 +257,7 @@ export function renderSensorManagementPage(context: ReturnType<typeof useSensorM
                 <td>{state.measurementDefinitions.find((definition) => definition.id === sample.metric)
                   ? measurementLabel(state.measurementDefinitions.find((definition) => definition.id === sample.metric)!, locale)
                   : sample.metric}</td>
-                <td>{sample.value} {sample.canonicalUnit}</td><td>{t(`measurement.source.${sample.source}` as TranslationKey)}</td><td>{t(`measurement.quality.${sample.quality}` as TranslationKey)}</td>
+                <td>{sample.value} {sample.canonicalUnit}</td><td>{t(`measurement.source.${sample.source}`)}</td><td>{t(`measurement.quality.${sample.quality}`)}</td>
               </tr>)}</tbody>
             </table></div> : !detailsLoading && !detailsError ? <p className="sensor-details-empty">{t("sensors.noData")}</p> : null}
           </>}

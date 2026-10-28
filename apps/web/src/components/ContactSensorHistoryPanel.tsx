@@ -17,7 +17,7 @@ import type {
 } from "@climate-twin/contracts";
 import { api } from "../api";
 import { formatInTimeZone } from "../dateTime";
-import { useI18n, type TranslationKey } from "../i18n";
+import { useI18n } from "../i18n";
 import type { TpLinkOpeningTarget } from "../tpLinkDeviceClassification";
 
 type ContactHistoryRange = "6h" | "24h" | "7d";
@@ -292,7 +292,7 @@ export function ContactSensorHistoryPanel({
         <span>
           <small>{t("sensors.contactCurrentAssignment")}</small>
           <strong>{openingName}</strong>
-          <span>{t(`planElement.${opening?.element.kind ?? device.mappedOpening?.kind ?? "door"}` as TranslationKey)} · {floorName}</span>
+          <span>{t(`planElement.${opening?.element.kind ?? device.mappedOpening?.kind ?? "door"}`)} · {floorName}</span>
         </span>
         <strong className={`contact-state ${currentState}`}>
           {currentState === "open"

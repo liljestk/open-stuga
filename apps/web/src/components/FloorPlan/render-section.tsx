@@ -1,7 +1,6 @@
 import { Minus, Plus, RotateCcw } from "lucide-react";
 import { isAirflowPlanElement, wallLengthPlanUnits, type ConfiguredOpeningState } from "@climate-twin/contracts";
 import { clamp } from "../../domain";
-import { type TranslationKey } from "../../i18n";
 import { formatMeasurement, formatMeasurementDelta, measurementGradient, measurementValue, toDisplayValue } from "../../measurements";
 import { energyDeviceMapStats, isEnergyDeviceSensor } from "../../energyDeviceMap";
 import { isSpatialSampleFresh } from "../../spatialFreshness";
@@ -137,7 +136,7 @@ export function renderFloorPlanEditorSection(context: ReturnType<typeof useFloor
                 <ExperimentalSensorCoverage2D floor={floor} assessment={experimentalSensorCoverage} scale={renderScale} />
               )}
               {layoutEditing && <rect data-testid="floor-snap-grid" x="0" y="0" width={renderWidth} height={renderHeight} rx="20" fill={`url(#${fieldId}-grid-major)`} className="plan-grid" aria-hidden="true" />}
-              {floor.roof && <g className={`plan-roof-overlay ${floor.roof.style}`} role="img" aria-label={t("twin.roofOverlay", { style: t(`roofStyle.${floor.roof.style}` as TranslationKey) })}>
+              {floor.roof && <g className={`plan-roof-overlay ${floor.roof.style}`} role="img" aria-label={t("twin.roofOverlay", { style: t(`roofStyle.${floor.roof.style}`) })}>
                 <rect x={-floor.roof.overhang * renderScale} y={-floor.roof.overhang * renderScale} width={renderWidth + floor.roof.overhang * renderScale * 2} height={renderHeight + floor.roof.overhang * renderScale * 2} rx="5" className="plan-roof-eaves" />
                 {floor.roof.style !== "flat" && (floor.roof.ridgeAxis === "x"
                   ? <line x1="0" y1={renderHeight / 2} x2={renderWidth} y2={renderHeight / 2} className="plan-roof-ridge" />
@@ -252,7 +251,7 @@ export function renderFloorPlanEditorSection(context: ReturnType<typeof useFloor
                 <g className="outdoor-edge-labels" aria-hidden="true">
                   {edgeLabels.map((item) => (
                     <text key={item.edge} x={item.x} y={item.y} textAnchor="middle" dominantBaseline="middle" data-plan-edge={item.edge}>
-                      {t(`outdoor.cardinal.${item.cardinal}` as TranslationKey)} {Math.round(item.bearing)}°
+                      {t(`outdoor.cardinal.${item.cardinal}`)} {Math.round(item.bearing)}°
                     </text>
                   ))}
                 </g>
@@ -465,7 +464,7 @@ export function renderFloorPlanEditorSection(context: ReturnType<typeof useFloor
                   const interactive = planElementSelectionActive || openingControlEnabled;
                   const symbolWidth = Math.max(28, (element.width ?? defaultPlanElementWidth(floor, element.kind)) * renderScale);
                   const baseLabel = t("twin.elementAria", {
-                    element: t(`planElement.${element.kind}` as TranslationKey),
+                    element: t(`planElement.${element.kind}`),
                     number: index + 1,
                   });
                   const nextOpeningState: ConfiguredOpeningState | null = openingState?.state === "open" ? "closed" : openingState ? "open" : null;
@@ -473,10 +472,10 @@ export function renderFloorPlanEditorSection(context: ReturnType<typeof useFloor
                     ? openingControlEnabled && nextOpeningState
                       ? t("opening.toggleAria", {
                         opening: baseLabel,
-                        state: t(`opening.state.${openingState.state}` as TranslationKey),
-                        action: t(`opening.state.${nextOpeningState}` as TranslationKey),
+                        state: t(`opening.state.${openingState.state}`),
+                        action: t(`opening.state.${nextOpeningState}`),
                       })
-                      : `${baseLabel}, ${t(`opening.state.${openingState.state}` as TranslationKey)}`
+                      : `${baseLabel}, ${t(`opening.state.${openingState.state}`)}`
                     : baseLabel;
                   const glyphHeight = element.kind === "door"
                     ? symbolWidth

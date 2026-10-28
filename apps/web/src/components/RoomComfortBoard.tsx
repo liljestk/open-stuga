@@ -2,7 +2,7 @@ import { maximum as kernelMaximum, minimum as kernelMinimum } from "@climate-twi
 import { Activity, AlertTriangle, Bolt, ChevronDown, CloudOff, Droplets, Radio, Wind, X } from "lucide-react";
 import type { AlertEvent, MeasurementDefinition, MeasurementSample, Metric, Sensor, UnitSystem } from "@climate-twin/contracts";
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
-import { useI18n, type TranslationKey } from "../i18n";
+import { useI18n } from "../i18n";
 import {
   definitionFor,
   formatMeasurement,
@@ -354,7 +354,7 @@ export function RoomComfortBoard(props: Readonly<RoomComfortBoardProps>) {
           <div><dt>{t("decision.coverageLabel")}</dt><dd>{selectedRoom.freshSensorCount} {t("decision.freshOf", { total: selectedRoom.sensorCount })}</dd></div>
           <div><dt>{t("twin.quality")}</dt><dd>{selectedRoom.quality ? t(`measurement.quality.${selectedRoom.quality}`) : t("common.noData")}</dd></div>
           <div><dt>{t("twin.source")}</dt><dd>{selectedRoom.sources.length
-            ? selectedRoom.sources.map((source) => t(`measurement.source.${source}` as TranslationKey)).join(" · ")
+            ? selectedRoom.sources.map((source) => t(`measurement.source.${source}`)).join(" · ")
             : t("observations.source.unknown")}</dd></div>
           <div><dt>{t("setup.sourceLastUpdate")}</dt><dd>{selectedRoom.updatedAt
             ? relativeTime.format(-Math.max(0, Math.round((now - Date.parse(selectedRoom.updatedAt)) / 60_000)), "minute")

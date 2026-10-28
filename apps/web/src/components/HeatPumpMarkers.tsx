@@ -68,7 +68,7 @@ function markerLabel(
     state: markerState(t, state, pending, reading.fresh),
     metric: measurementLabel(definition, locale),
     value: reading.formatted,
-    influence: t(`heatPump.influence.${impact.kind}` as TranslationKey),
+    influence: t(`heatPump.influence.${impact.kind}`),
     evidence: impact.compressorEvidence && state.compressorFrequencyHz !== null
       ? t("heatPump.frequencyEvidence", { value: number.format(state.compressorFrequencyHz) })
       : t("heatPump.selectedModeEvidence"),

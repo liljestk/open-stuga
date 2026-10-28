@@ -199,7 +199,7 @@ export function usePropertyManagementPagePart04(context: ReturnType<typeof usePr
       { id: "map", key: "properties.map", icon: MapIcon },
       { id: "inventory", key: "properties.inventory", icon: Boxes },
       { id: "notes", key: "properties.notes", icon: NotebookPen },
-      ...(canManageAccess ? [{ id: "access" as const, key: "properties.access" as TranslationKey, icon: Users }] : []),
+      ...(canManageAccess ? [{ id: "access" as const, key: "properties.access" as const, icon: Users }] : []),
     ];
   const chooseTabFromKeyboard = (event: ReactKeyboardEvent<HTMLButtonElement>, index: number) => {
       let nextIndex = index;

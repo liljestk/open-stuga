@@ -24,7 +24,7 @@ import type {
 import { type HouseGeoreferencePatch } from "../../../api";
 import { createClientUuid } from "../../../clientUuid";
 import type { ClimateState } from "../../../domain";
-import { useI18n, type TranslationKey } from "../../../i18n";
+import { useI18n } from "../../../i18n";
 import { type PropertyTrafficLight } from "../../../propertyStatus";
 import "../../PropertyManagementPage.css";
 
@@ -249,10 +249,10 @@ export function PropertyStatusLights({ lights }: Readonly<{ lights: readonly Pro
   if (!lights.length) return <p className="property-status-empty">{t("properties.status.none")}</p>;
   return <section className="property-status-lights" aria-label={t("properties.status.title")}>
     {lights.map((light) => {
-      const label = t(`properties.status.${light.id}` as TranslationKey);
-      const level = t(`properties.status.level.${light.level}` as TranslationKey);
-      const reason = t(`properties.status.reason.${light.reason}` as TranslationKey);
-      const check = t(`properties.status.check.${light.id}` as TranslationKey);
+      const label = t(`properties.status.${light.id}`);
+      const level = t(`properties.status.level.${light.level}`);
+      const reason = t(`properties.status.reason.${light.reason}`);
+      const check = t(`properties.status.check.${light.id}`);
       return <article key={light.id} data-status={light.level} aria-label={`${label}: ${level}. ${reason} ${check}`}>
         <span className="property-status-signal" aria-hidden="true" />
         <span><strong>{label}</strong><small>{level} · {reason}</small><small className="property-status-check">{check}</small></span>

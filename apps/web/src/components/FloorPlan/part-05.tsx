@@ -1,5 +1,4 @@
 import { type CSSProperties } from "react";
-import { type TranslationKey } from "../../i18n";
 import { cardinalDirection, normalizeDegrees } from "../../outdoorContext";
 import {
   formatOutdoorHumidity,
@@ -19,7 +18,7 @@ export function useFloorPlanPart05(context: ReturnType<typeof useFloorPlanPart04
   const hasMapInformation = clouds.length > 0 || airflowPaths.length > 0 || activeGradientFlows.length > 0
       || hasOutdoorWindCue || Boolean(experimentalSensorCoverage) || Boolean(experimentalOutdoorInfluence) || spatialLayerSnapshots.length > 0;
   const airflowSupport = airflow
-      ? t(`spatial.airflow.support.${airflow.evidence.support}` as TranslationKey)
+      ? t(`spatial.airflow.support.${airflow.evidence.support}`)
       : t("spatial.airflow.support.low");
   const airflowDriver = airflow?.evidence.windDriven
       ? t("spatial.airflow.driverBuoyancyWind")
@@ -62,10 +61,10 @@ export function useFloorPlanPart05(context: ReturnType<typeof useFloorPlanPart04
       ? formatOutdoorWindSpeed(outdoorContext.conditions.windSpeedMps, units, locale)
       : null;
   const outdoorWindDirection = outdoorContext?.windFromCardinal && outdoorContext.windFromDegrees !== null
-      ? `${t(`outdoor.cardinal.${outdoorContext.windFromCardinal}` as TranslationKey)} ${Math.round(outdoorContext.windFromDegrees)}°`
+      ? `${t(`outdoor.cardinal.${outdoorContext.windFromCardinal}`)} ${Math.round(outdoorContext.windFromDegrees)}°`
       : null;
   const outdoorWindwardSide = outdoorContext?.windwardEdge
-      ? t(`outdoor.edge.${outdoorContext.windwardEdge}` as TranslationKey)
+      ? t(`outdoor.edge.${outdoorContext.windwardEdge}`)
       : null;
   const outdoorShellLabel = [
       t("outdoor.shellLabel"),
@@ -115,7 +114,7 @@ export function useFloorPlanPart05(context: ReturnType<typeof useFloorPlanPart04
           ? t("twin.roomSelected")
           : selectedPlanElement
             ? t(isWallAttachedPlanElement(selectedPlanElement) ? "twin.elementSelected" : "twin.fixtureSelected", {
-              element: t(`planElement.${selectedPlanElement.kind}` as TranslationKey),
+              element: t(`planElement.${selectedPlanElement.kind}`),
               degrees: selectedElementRotation,
             })
             : drawingWall
@@ -123,7 +122,7 @@ export function useFloorPlanPart05(context: ReturnType<typeof useFloorPlanPart04
               : drawingRoom
                 ? roomStart ? t("twin.roomEnd") : t("twin.roomStart")
                 : placingElement
-                  ? t(planElementKind === "door" || planElementKind === "window" || planElementKind === "fireEscape" ? "twin.openingPlacement" : "twin.elementPlacement", { element: t(`planElement.${planElementKind}` as TranslationKey) })
+                  ? t(planElementKind === "door" || planElementKind === "window" || planElementKind === "fireEscape" ? "twin.openingPlacement" : "twin.elementPlacement", { element: t(`planElement.${planElementKind}`) })
                   : `${t("twin.dragHint")} ${snapEnabled ? t("twin.snapOnHint") : t("twin.snapOffHint")}`);
   return Object.assign(context, { hasOutdoorWindCue, hasMapInformation, airflowSupport, airflowDriver, airflowDescription, airflowAria, outdoorTemperature, outdoorHumidity, outdoorTemperatureColor, outdoorHumidityColor, activeOutdoorColor, activeOutdoorStyle, outdoorTemperatureStyle, outdoorHumidityStyle, outdoorWindSpeed, outdoorWindDirection, outdoorWindwardSide, outdoorShellLabel, edgeLabels, elementPreviewPlacement, selectedElementWidthBounds, selectedElementHeightBounds, selectedElementRotation, selectedElementHasCardinalRotation, wallPreview, editorHint });
 }

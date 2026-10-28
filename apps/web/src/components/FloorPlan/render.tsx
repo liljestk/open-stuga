@@ -1,6 +1,5 @@
 import { BoxSelect, Grid3X3, ImagePlus, MapPinPlus, MousePointer2, PenLine, Plus, RotateCcw, RotateCw, Trash2 } from "lucide-react";
 import { isAirflowPlanElement, type PlanElementKind } from "@climate-twin/contracts";
-import { type TranslationKey } from "../../i18n";
 import { normalizeDegrees } from "../../outdoorContext";
 import { PlanElementDimensionFields } from "../PlanElementDimensionFields";
 import { PlanElementAirflowFields } from "../PlanElementAirflowFields";
@@ -38,7 +37,7 @@ export function renderFloorPlan(context: ReturnType<typeof useFloorPlanPart05>) 
                     <label className="grid-size-control">
                       <span>{t("twin.planElement")}</span>
                       <select value={planElementKind} disabled={viewMode !== "plan"} aria-label={t("twin.planElement")} onChange={(event) => setPlanElementKind(event.target.value as PlanElementKind)}>
-                        {PLAN_ELEMENT_KINDS.map((kind) => <option key={kind} value={kind}>{t(`planElement.${kind}` as TranslationKey)}</option>)}
+                        {PLAN_ELEMENT_KINDS.map((kind) => <option key={kind} value={kind}>{t(`planElement.${kind}`)}</option>)}
                       </select>
                     </label>
                     <button type="button" className={placingElement ? "tool-button active" : "tool-button"} aria-pressed={placingElement} disabled={viewMode !== "plan"} onClick={() => chooseEditorTool("element")}>
@@ -93,7 +92,7 @@ export function renderFloorPlan(context: ReturnType<typeof useFloorPlanPart05>) 
             )}
             {selectedPlanElement && (
               <div className="editor-properties" role="group" aria-label={t("twin.elementProperties")}>
-                <strong>{t(`planElement.${selectedPlanElement.kind}` as TranslationKey)}</strong>
+                <strong>{t(`planElement.${selectedPlanElement.kind}`)}</strong>
                 {selectedElementWidthBounds && selectedElementHeightBounds && <PlanElementDimensionFields
                   widthLabel={t("twin.elementWidth")}
                   heightLabel={t("twin.elementHeight")}

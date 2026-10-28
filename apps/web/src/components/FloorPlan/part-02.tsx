@@ -1,8 +1,8 @@
+import { isTranslationKey } from "../../i18n";
 import { useEffect } from "react";
 import { wallLengthPlanUnits, type Floor, type Point, type Room, type Wall } from "@climate-twin/contracts";
 import { clamp } from "../../domain";
 import { createClientUuid } from "../../clientUuid";
-import { type TranslationKey } from "../../i18n";
 import {
   isWallAttachedPlanElement,
 } from "../../planElementGeometry";
@@ -66,9 +66,8 @@ export function useFloorPlanPart02(context: ReturnType<typeof useFloorPlanPart01
       }
     }, [layoutEditing, selectingLayout, snapEnabled, gridSize, floor.width, floor.height]);
   const roomName = (kind: string | undefined, fallback: string) => {
-      const key = `room.${kind ?? ""}` as TranslationKey;
-      const translated = t(key);
-      return translated === key ? fallback : translated;
+      const key = `room.${kind ?? ""}`;
+      return isTranslationKey(key) ? t(key) : fallback;
     };
   const pointFromEvent = (clientX: number, clientY: number): Point => {
       const svg = svgRef.current!;

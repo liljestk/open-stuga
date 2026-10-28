@@ -1,3 +1,4 @@
+import type { CardinalDirection } from "../outdoorContext";
 import { Compass, Droplets, Eye, EyeOff, LoaderCircle, PauseCircle, Thermometer, TriangleAlert, Wind } from "lucide-react";
 import { useEffect, useId, useState, type CSSProperties } from "react";
 import type { UnitSystem } from "@climate-twin/contracts";
@@ -57,11 +58,11 @@ function stationDistance(value: number, units: UnitSystem, locale: string): stri
 }
 
 function edgeKey(edge: PlanEdge): TranslationKey {
-  return `outdoor.edge.${edge}` as TranslationKey;
+  return `outdoor.edge.${edge}`;
 }
 
-function cardinalKey(cardinal: string): TranslationKey {
-  return `outdoor.cardinal.${cardinal}` as TranslationKey;
+function cardinalKey(cardinal: CardinalDirection): TranslationKey {
+  return `outdoor.cardinal.${cardinal}`;
 }
 
 function observedTime(timestamp: string, locale: string, timeZone: string): string {
