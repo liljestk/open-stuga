@@ -1,3 +1,4 @@
+import { nullWhenTemporarilyUnavailable } from "../../energy-cost.js";
 import { ELECTRICITY_INVOICE_TOLERANCE_PERCENT, type AnalyticsBillEvidence, type AnalyticsDiagnostics, type AnalyticsForecastEvidence, type AnalyticsLatencyEvidence, type AnalyticsLatencyOperation, type House, type Sensor, withSignal } from "@climate-twin/contracts";
 import { median } from "@climate-twin/analytics-kernel";
 import type { ClimateDatabase } from "../../db.js";
@@ -76,7 +77,7 @@ export class AnalyticsDiagnosticsService {
     const sensorIds = new Set(sensors.map((sensor) => sensor.id));
     const [bills, projection] = await Promise.all([
       this.#bills(house, sensors, signal),
-      this.projections.get(house, sensors, signal).catch(() => null),
+      this.projections.get(house, sensors, signal).catch(nullWhenTemporarilyUnavailable(signal)),
     ]);
     const stored = this.database.dailyAnalyticsFindings(house.id, this.database.isRealDataMode() ? "live" : "demo")?.snapshot ?? null;
     return {

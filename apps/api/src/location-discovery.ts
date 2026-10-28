@@ -1,3 +1,4 @@
+import { HttpError } from "./http-error.js";
 import type { CoordinateDefaults, DiscoveredLocation } from "@climate-twin/contracts";
 import { SYSTEM_VERSION } from "./version.js";
 
@@ -130,7 +131,7 @@ export class LocationDiscoveryService {
   async defaultsForCoordinates(latitude: number, longitude: number): Promise<CoordinateDefaults> {
     if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90
       || !Number.isFinite(longitude) || longitude < -180 || longitude > 180) {
-      throw new Error("Coordinates are outside the valid WGS84 range");
+      throw new HttpError(422, "INVALID_COORDINATES", "Coordinates are outside the valid WGS84 range");
     }
     const parameters = new URLSearchParams({
       latitude: String(latitude),

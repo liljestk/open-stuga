@@ -114,3 +114,16 @@ export class SystemErrorLog {
     return `${[header, ...entries].map((entry) => JSON.stringify(entry)).join("\n")}\n`;
   }
 }
+
+/**
+ * Records the failure behind a user-facing error that does not name it, so a
+ * defect that looks like a user mistake still leaves a (redacted) trace.
+ */
+export function recordFailureCause(log: Pick<SystemErrorLog, "record">, source: string, error: unknown): void {
+  log.record({
+    level: "warning",
+    source,
+    code: error instanceof Error ? error.name : "UNEXPECTED_ERROR",
+    message: error instanceof Error ? error.message : String(error),
+  });
+}

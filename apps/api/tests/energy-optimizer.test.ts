@@ -41,6 +41,8 @@ function optimizer(prices: PropertyElectricityPricePoint[], sensors: Sensor[] = 
     electricityPriceHistory: async () => ({ records: prices }),
     measurementWindow,
     measurementCoverage: async () => ({ complete: true, records: [] }),
+    // Flexible-load profiles read bucketed power per device; these fixtures have none.
+    measurementHistoryBucketed: async () => ({ complete: true, records: [] }),
   });
   return { service: new EnergyOptimizer(database, reader), measurementWindow };
 }

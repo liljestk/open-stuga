@@ -90,6 +90,18 @@ function temporarilyUnavailable(error: unknown): boolean {
     || error instanceof IncompleteTelemetryHistoryError;
 }
 
+/**
+ * A catch handler for an optional read: null while the data is temporarily
+ * unavailable (rollups materializing, analytics at capacity, archive not
+ * ready); a cancellation or any other failure propagates.
+ */
+export function nullWhenTemporarilyUnavailable(signal?: AbortSignal): (error: unknown) => null {
+  return (error) => {
+    if (signal?.aborted || !temporarilyUnavailable(error)) throw error;
+    return null;
+  };
+}
+
 export class EnergyCostService {
   constructor(
     private readonly telemetryReader: HybridTelemetryReader,

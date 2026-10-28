@@ -1,3 +1,4 @@
+import { recordFailureCause, type SystemErrorLog } from "./system-error-log.js";
 import type express from "express";
 import type { AppConfig } from "./config.js";
 import type { ClimateDatabase } from "./db.js";
@@ -38,6 +39,7 @@ interface GreeRouteContext {
   stuguby: { assertHouseLocalAuthority(houseId: string): void };
   dataMode: { activate(): void };
   visibility(response: express.Response): { house(houseId: string): boolean };
+  systemErrorLog: Pick<SystemErrorLog, "record">;
   integrationStatusForHouse(houseId?: string): IntegrationStatus;
   recordSecurityAudit(
     principal: ReturnType<typeof requestPrincipal>,
@@ -236,7 +238,8 @@ export function registerGreeRoutes(context: GreeRouteContext): void {
       let binding: GreeBindingResult;
       try {
         binding = await context.gree.bind(mac);
-      } catch {
+      } catch (error) {
+        recordFailureCause(context.systemErrorLog, "gree", error);
         throw new HttpError(
           422,
           "GREE_BIND_FAILED",
@@ -261,7 +264,8 @@ export function registerGreeRoutes(context: GreeRouteContext): void {
     try {
       const devices = await context.gree.discoverCloud(username, password, houseId);
       response.json({ devices });
-    } catch {
+    } catch (error) {
+      recordFailureCause(context.systemErrorLog, "gree", error);
       throw new HttpError(
         422,
         "EWPE_DISCOVERY_FAILED",
@@ -289,7 +293,8 @@ export function registerGreeRoutes(context: GreeRouteContext): void {
       let binding: GreeBindingResult;
       try {
         binding = await context.gree.bindCloud(username, password, mac);
-      } catch {
+      } catch (error) {
+        recordFailureCause(context.systemErrorLog, "gree", error);
         throw new HttpError(
           422,
           "EWPE_BIND_FAILED",

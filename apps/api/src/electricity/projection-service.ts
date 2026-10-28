@@ -154,7 +154,7 @@ export class EnergyProjectionService {
       from: new Date(historyEnd - 30 * DAY_MS).toISOString(),
       to: new Date(historyEnd).toISOString(),
       ...withSignal(signal),
-    }).then((read) => read.summary).catch(() => null);
+    }).then((read) => read.summary);
     const pricePerKwh = summary && summary.costEur !== null && summary.pricedConsumptionKwh !== null
       && summary.pricedConsumptionKwh > 0 && summary.priceCoveragePercent >= MIN_PRICE_COVERAGE_PERCENT
       ? summary.costEur / summary.pricedConsumptionKwh
