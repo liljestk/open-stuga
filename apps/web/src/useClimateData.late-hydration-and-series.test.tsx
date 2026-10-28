@@ -360,14 +360,13 @@ describe("useClimateData", () => {
       });
     });
 
-    expect(mocks.measurementHistoryPage).toHaveBeenLastCalledWith(
-      sensor.id,
-      "temperature",
+    expect(mocks.measurementHistoryPage).toHaveBeenLastCalledWith(sensor.id, {
+      metric: "temperature",
       from,
       to,
-      50_000,
-      300,
-    );
+      limit: 50_000,
+      bucketSeconds: 300,
+    });
     expect(page.samples).toEqual([sample]);
     expect(result.current.state.measurementHistory[sensor.id]?.temperature).toEqual([sample]);
     expect(result.current.seriesStates[seriesStateKey(sensor.id, "temperature")]).toMatchObject({

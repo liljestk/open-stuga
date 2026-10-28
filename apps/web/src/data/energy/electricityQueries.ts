@@ -35,7 +35,7 @@ export function usePriceHistoryQuery(houseId: string, range: TimeRange, enabled:
     queryFn: async ({ signal }) => {
       const to = new Date();
       const from = new Date(to.getTime() - timeRangeHours(range) * 3_600_000);
-      const result = await api.houseElectricityPrice(houseId, from.toISOString(), to.toISOString(), signal);
+      const result = await api.houseElectricityPrice(houseId, { from: from.toISOString(), to: to.toISOString(), signal });
       return result.prices ?? (result.current ? [result.current] : []);
     },
     enabled: queryEnabled,

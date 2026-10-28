@@ -228,3 +228,18 @@ export type SystemUpdateLiveStatus = Pick<
 > & Partial<Pick<SystemUpdateStatus, "schema" | "revision" | "application" | "host" | "workflow">>;
 
 export type SystemUpdateOperationInput = SystemUpdateOperationRequest;
+
+/** The window of a time-range read; every range reader takes its scope id, then this. */
+export interface TimeRangeQuery {
+  from: string;
+  to: string;
+  limit?: number | undefined;
+  signal?: AbortSignal | undefined;
+}
+
+/** A measurement history page: one metric's window, optionally bucketed, continued from `cursor`. */
+export interface MeasurementHistoryQuery extends TimeRangeQuery {
+  metric: string;
+  bucketSeconds?: number | undefined;
+  cursor?: string | null | undefined;
+}

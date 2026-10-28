@@ -408,13 +408,12 @@ describe("DataAnalyticsPage", () => {
     await user.click(container.querySelector<HTMLButtonElement>(".analytics-page-heading > button")!);
     await waitFor(() => expect(screen.getAllByText("History service unavailable")).toHaveLength(1));
 
-    expect(api.outdoorTemperatureHistory).toHaveBeenCalledWith(
-      house.id,
-      expect.any(String),
-      expect.any(String),
-      100_000,
-      expect.any(AbortSignal),
-    );
+    expect(api.outdoorTemperatureHistory).toHaveBeenCalledWith(house.id, {
+      from: expect.any(String),
+      to: expect.any(String),
+      limit: 100_000,
+      signal: expect.any(AbortSignal),
+    });
 
     expect(screen.getByRole("button", { name: "1 year" })).not.toBeNull();
     await user.selectOptions(screen.getByRole("combobox", { name: "Resolution" }), "1h");

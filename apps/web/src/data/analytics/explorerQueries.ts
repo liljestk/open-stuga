@@ -47,9 +47,9 @@ export function useExplorerContextQuery(input: {
       const to = new Date();
       const from = new Date(to.getTime() - input.rangeHours * 3_600_000);
       const [outdoor, gaps, prices] = await Promise.allSettled([
-        api.outdoorTemperatureHistory(input.houseId, from.toISOString(), to.toISOString(), 100_000, signal),
+        api.outdoorTemperatureHistory(input.houseId, { from: from.toISOString(), to: to.toISOString(), limit: 100_000, signal }),
         api.sensorDataGaps(input.houseId, 500, signal),
-        api.houseElectricityPrice(input.houseId, from.toISOString(), new Date(to.getTime() + 48 * 3_600_000).toISOString(), signal),
+        api.houseElectricityPrice(input.houseId, { from: from.toISOString(), to: new Date(to.getTime() + 48 * 3_600_000).toISOString(), signal }),
       ]);
       return {
         outdoorHistory: outdoor.status === "fulfilled" ? outdoor.value.samples : previous?.outdoorHistory ?? [],

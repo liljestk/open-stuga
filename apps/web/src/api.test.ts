@@ -242,7 +242,7 @@ describe("measurement API client", () => {
       json: async () => ({ forecast: [] }),
     } as Response);
 
-    await expect(api.measurementForecast("sensor/office", "co2", 6)).resolves.toEqual([]);
+    await expect(api.measurementForecast("sensor/office", { metric: "co2", hours: 6 })).resolves.toEqual([]);
 
     expect(fetchMock).toHaveBeenCalledOnce();
     const [url] = fetchMock.mock.calls[0]!;

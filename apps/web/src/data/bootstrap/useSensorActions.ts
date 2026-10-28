@@ -86,24 +86,14 @@ export function useSensorActions(
       activeSeriesTelemetryBuffers.current.add(liveTelemetry);
 
       try {
-        const history = signal
-          ? await api.measurementHistoryPage(
-              sensorId,
-              metric,
-              requestedFrom,
-              requestedTo,
-              MAX_SERIES_SAMPLES,
-              window.bucketSeconds ?? undefined,
-              signal,
-            )
-          : await api.measurementHistoryPage(
-              sensorId,
-              metric,
-              requestedFrom,
-              requestedTo,
-              MAX_SERIES_SAMPLES,
-              window.bucketSeconds ?? undefined,
-            );
+        const history = await api.measurementHistoryPage(sensorId, {
+          metric,
+          from: requestedFrom,
+          to: requestedTo,
+          limit: MAX_SERIES_SAMPLES,
+          bucketSeconds: window.bucketSeconds ?? undefined,
+          signal,
+        });
         if (signal?.aborted) {
           throw signal.reason ?? new DOMException("Historical replay was cancelled", "AbortError");
         }

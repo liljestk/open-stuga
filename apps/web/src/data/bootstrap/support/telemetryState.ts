@@ -295,13 +295,10 @@ export async function canonicalSeries(
   // Counter deltas and held power need a predecessor at the left edge.
   const historyFrom = metric === "energy" || metric === "power"
     ? new Date(Date.parse(from) - 15 * 60_000).toISOString() : from;
-  const historyRequest = signal
-    ? api.measurementHistoryPage(sensorId, metric, historyFrom, to, seriesLimit(range), bucketSeconds, signal)
-    : api.measurementHistoryPage(sensorId, metric, historyFrom, to, seriesLimit(range), bucketSeconds);
   const [history, forecast] = await Promise.all([
-    historyRequest,
+    api.measurementHistoryPage(sensorId, { metric, from: historyFrom, to, limit: seriesLimit(range), bucketSeconds, signal }),
     forecastSupported
-      ? optionalForecast(api.measurementForecast(sensorId, metric, 12, signal))
+      ? optionalForecast(api.measurementForecast(sensorId, { metric, hours: 12, signal }))
       : Promise.resolve({ value: [], error: null }),
   ]);
   return { samples: history.samples, history, forecast };

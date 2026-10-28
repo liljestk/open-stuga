@@ -59,8 +59,8 @@ describe("electricity empty and denied states", () => {
     state.sensors = []; state.latestMeasurements = {}; state.measurementHistory = {};
     window.history.replaceState(null, "", "/electricity?metric=electricity_price");
     const now = Date.now();
-    vi.spyOn(api, "houseElectricityPrice").mockImplementation(async (_houseId, from) => {
-      if (from) throw denied();
+    vi.spyOn(api, "houseElectricityPrice").mockImplementation(async (_houseId, query) => {
+      if (query?.from) throw denied();
       return { current: { startAt: new Date(now - 60_000).toISOString(), endAt: new Date(now + 3_600_000).toISOString(),
         effectivePriceCentsPerKwh: 10, effectivePriceEurPerKwh: 0.1, fetchedAt: new Date(now).toISOString() } };
     });

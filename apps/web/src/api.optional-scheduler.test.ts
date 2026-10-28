@@ -41,7 +41,7 @@ describe("optional hydration scheduling", () => {
     ];
     let settled = Promise.allSettled(requests);
     try {
-      const metric = api.houseEnergySummary("home", "2026-09-01T00:00:00Z", "2026-09-02T00:00:00Z");
+      const metric = api.houseEnergySummary("home", { from: "2026-09-01T00:00:00Z", to: "2026-09-02T00:00:00Z" });
       requests.push(metric);
       settled = Promise.allSettled(requests);
       await vi.waitFor(() => expect([...pending.keys()].some((url) => url.includes("/energy-summary?"))).toBe(true), { timeout: 250 });

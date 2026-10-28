@@ -73,7 +73,7 @@ export function useTwinDashboardPart03(context: ReturnType<typeof useTwinDashboa
             }, controller.signal)
           )))),
           house.location
-            ? api.outdoorTemperatureHistory(houseId, from, to, 20_000, controller.signal)
+            ? api.outdoorTemperatureHistory(houseId, { from, to, limit: 20_000, signal: controller.signal })
               .then((page) => ({ page, failed: false as const }))
               .catch(() => ({ page: null, failed: true as const }))
             : Promise.resolve({ page: null, failed: false as const }),
@@ -118,7 +118,7 @@ export function useTwinDashboardPart03(context: ReturnType<typeof useTwinDashboa
       const controller = new AbortController();
       context.setReplayOutdoorLoading(true);
       context.setReplayOutdoorPartial(false);
-      void api.outdoorTemperatureHistory(houseId, from, to, 20_000, controller.signal)
+      void api.outdoorTemperatureHistory(houseId, { from, to, limit: 20_000, signal: controller.signal })
         .then((page) => {
           if (controller.signal.aborted) return;
           context.setReplayOutdoorSamples(page.samples);
@@ -329,10 +329,12 @@ export function useTwinDashboardPart03(context: ReturnType<typeof useTwinDashboa
       setReplayOpeningStateObservations([]);
       void api.openingStateHistory(
         houseId,
-        new Date(minimum).toISOString(),
-        new Date(maximum).toISOString(),
-        10_000,
-        controller.signal,
+        {
+          from: new Date(minimum).toISOString(),
+          to: new Date(maximum).toISOString(),
+          limit: 10_000,
+          signal: controller.signal,
+        },
       ).then((observations) => {
         if (!controller.signal.aborted) setReplayOpeningStateObservations(observations);
       }).catch(() => {

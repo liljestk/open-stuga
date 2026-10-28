@@ -85,7 +85,7 @@ describe("bootstrap HTTP scheduling", () => {
     expect(result.current.state.sensors).toEqual(sensors);
     // Non-active Home snapshots use the optional cap too; visible metrics
     // must reach the real HTTP scheduler while every optional call is slow.
-    await expect(api.houseEnergySummary(house.id, "2026-09-01T00:00:00Z", "2026-09-02T00:00:00Z"))
+    await expect(api.houseEnergySummary(house.id, { from: "2026-09-01T00:00:00Z", to: "2026-09-02T00:00:00Z" }))
       .resolves.toMatchObject({ consumptionKwh: 4 });
     expect(pendingOptional).toHaveLength(1);
     expect(requests).toContain(`/api/v1/sensors/snapshots?houseId=${house.id}`);

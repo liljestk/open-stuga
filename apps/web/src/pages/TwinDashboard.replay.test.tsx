@@ -598,7 +598,7 @@ describe("TwinDashboard replay timing", () => {
       },
     };
     const liveWeather = vi.spyOn(api, "houseWeather").mockRejectedValue(new Error("Live weather is not used by replay"));
-    const outdoorHistory = vi.spyOn(api, "outdoorTemperatureHistory").mockImplementation(async (_houseId, from, to) => ({
+    const outdoorHistory = vi.spyOn(api, "outdoorTemperatureHistory").mockImplementation(async (_houseId, { from, to }) => ({
       samples: Date.parse(from) <= Date.parse(weatherSample.timestamp) && Date.parse(to) >= Date.parse(weatherSample.timestamp)
         ? [weatherSample]
         : [],
@@ -614,13 +614,12 @@ describe("TwinDashboard replay timing", () => {
       fireEvent.change(within(historyWindow).getByLabelText("To"), { target: { value: "2024-02-11T00:00" } });
       fireEvent.click(within(historyWindow).getByRole("button", { name: "Load recording" }));
 
-      await waitFor(() => expect(outdoorHistory).toHaveBeenCalledWith(
-        house.id,
-        "2024-02-09T22:00:00.000Z",
-        "2024-02-10T22:00:00.000Z",
-        20_000,
-        expect.any(AbortSignal),
-      ));
+      await waitFor(() => expect(outdoorHistory).toHaveBeenCalledWith(house.id, {
+        from: "2024-02-09T22:00:00.000Z",
+        to: "2024-02-10T22:00:00.000Z",
+        limit: 20_000,
+        signal: expect.any(AbortSignal),
+      }));
       const expectedPairs = state.sensors
         .filter((sensor) => sensor.houseId === house.id && sensor.enabled)
         .flatMap((sensor) => state.measurementDefinitions.map((definition) => `${sensor.id}:${definition.id}`));
@@ -672,8 +671,8 @@ describe("TwinDashboard replay timing", () => {
     expect(historySignals[0]?.aborted).toBe(true);
     expect(historySignals[1]?.aborted).toBe(false);
     const customOutdoorSignals = outdoorHistory.mock.calls
-      .filter(([, from]) => from === "2024-02-09T22:00:00.000Z")
-      .map((call) => call[4] as AbortSignal);
+      .filter(([, query]) => query.from === "2024-02-09T22:00:00.000Z")
+      .map(([, query]) => query.signal as AbortSignal);
     expect(customOutdoorSignals).toHaveLength(2);
     expect(customOutdoorSignals[0]?.aborted).toBe(true);
     expect(customOutdoorSignals[1]?.aborted).toBe(false);

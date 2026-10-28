@@ -1,5 +1,6 @@
 import { type HomeElectricityPricePoint, type HomeEnergyCost, type HomeEnergyProjection, type HomeEnergySummary, type PropertyElectricityConfig, type PropertyElectricityConfigInput, type PropertyElectricityPricePoint, expectShape, isHomeEnergyProjection, withSignal, type EnergyOptimizationReport, type ElectricityInvoice, type ElectricityInvoiceInput, type ElectricityInvoiceReconciliation, type ElectricityTariffVersion, type PropertyElectricityTariff, ResponseShapeError, isElectricityInvoice, isElectricityInvoiceReconciliation, isPropertyElectricityTariff } from "@climate-twin/contracts";
 import { request } from "./support/request";
+import type { TimeRangeQuery } from "./support/response-types";
 
 export interface PropertyElectricityTariffResponse {
   tariff: PropertyElectricityTariff;
@@ -22,12 +23,12 @@ export const electricityApi = {
       current: PropertyElectricityPricePoint | null;
       prices: PropertyElectricityPricePoint[];
     }>(`/properties/${encodeURIComponent(propertyId)}/electricity`, withSignal(signal)),
-  houseElectricityPrice: (houseId: string, from?: string, to?: string, signal?: AbortSignal) => request<{
+  houseElectricityPrice: (houseId: string, { from, to, signal }: Partial<Omit<TimeRangeQuery, "limit">> = {}) => request<{
       current: HomeElectricityPricePoint | null;
       prices?: HomeElectricityPricePoint[];
     }>(`/houses/${encodeURIComponent(houseId)}/electricity-price${from || to ? `?${new URLSearchParams({ ...(from ? { from } : {}), ...(to ? { to } : {}) })}` : ""}`, withSignal(signal)),
-  houseEnergyCost: async (houseId: string, sensorId: string, from: string, to: string, signal?: AbortSignal) => (await request<{ cost: HomeEnergyCost }>(`/houses/${encodeURIComponent(houseId)}/energy-cost?${new URLSearchParams({ sensorId, from, to })}`, withSignal(signal))).cost,
-  houseEnergySummary: async (houseId: string, from: string, to: string, signal?: AbortSignal) => (await request<{ summary: HomeEnergySummary }>(`/houses/${encodeURIComponent(houseId)}/energy-summary?${new URLSearchParams({ from, to })}`, withSignal(signal))).summary,
+  houseEnergyCost: async (houseId: string, { sensorId, from, to, signal }: Omit<TimeRangeQuery, "limit"> & { sensorId: string }) => (await request<{ cost: HomeEnergyCost }>(`/houses/${encodeURIComponent(houseId)}/energy-cost?${new URLSearchParams({ sensorId, from, to })}`, withSignal(signal))).cost,
+  houseEnergySummary: async (houseId: string, { from, to, signal }: Omit<TimeRangeQuery, "limit">) => (await request<{ summary: HomeEnergySummary }>(`/houses/${encodeURIComponent(houseId)}/energy-summary?${new URLSearchParams({ from, to })}`, withSignal(signal))).summary,
   houseEnergyProjection: async (houseId: string, signal?: AbortSignal): Promise<HomeEnergyProjection | null> => {
       const endpoint = "/houses/{id}/energy-projection";
       const body = await request<{ projection?: unknown }>(`/houses/${encodeURIComponent(houseId)}/energy-projection`, withSignal(signal));

@@ -229,10 +229,12 @@ export function ContactSensorHistoryPanel({
     setError(null);
     void api.openingStateHistory(
       house.id,
-      new Date(fromMs).toISOString(),
-      new Date(rangeEnd).toISOString(),
-      HISTORY_LIMIT,
-      controller.signal,
+      {
+        from: new Date(fromMs).toISOString(),
+        to: new Date(rangeEnd).toISOString(),
+        limit: HISTORY_LIMIT,
+        signal: controller.signal,
+      },
     ).then((history) => {
       if (!controller.signal.aborted) setObservations(history);
     }).catch((reason: unknown) => {

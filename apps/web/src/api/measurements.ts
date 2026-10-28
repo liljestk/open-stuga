@@ -1,17 +1,11 @@
 import type { ApiReadSchedulingClass } from "./support/requestScheduler";
 import { type MeasurementForecastEvaluation, type MeasurementForecastPoint, type MeasurementSample, expectShape, isMeasurementForecastEvaluation, isMeasurementForecastPoints, withSignal } from "@climate-twin/contracts";
 import { requestV2 } from "./support/request";
-import type { HistoricalImportResult, MeasurementHistoryPage, SensorMeasurementPage } from "./support/response-types";
+import type { HistoricalImportResult, MeasurementHistoryPage, MeasurementHistoryQuery, SensorMeasurementPage } from "./support/response-types";
 
 const measurementHistoryPageRequest = async (
     sensorId: string,
-    metric: string,
-    from: string,
-    to: string,
-    limit = 500,
-    bucketSeconds?: number,
-    signal?: AbortSignal,
-    cursor?: string | null,
+    { metric, from, to, limit = 500, bucketSeconds, signal, cursor }: MeasurementHistoryQuery,
   ) => {
     const query = new URLSearchParams({ sensorId, metric, from, to, limit: String(limit) });
     if (bucketSeconds !== undefined) query.set("bucketSeconds", String(bucketSeconds));
@@ -36,8 +30,8 @@ export const measurementsApi = {
       `/measurements/snapshot?houseId=${encodeURIComponent(houseId)}`, { schedulingClass },
     )).snapshot,
   measurementHistoryPage: measurementHistoryPageRequest,
-  measurementHistory: async (sensorId: string, metric: string, from: string, to: string, limit = 500, signal?: AbortSignal) => (
-      await measurementHistoryPageRequest(sensorId, metric, from, to, limit, undefined, signal)
+  measurementHistory: async (sensorId: string, query: Omit<MeasurementHistoryQuery, "bucketSeconds" | "cursor">) => (
+      await measurementHistoryPageRequest(sensorId, query)
     ).samples,
   sensorMeasurementPage: (sensorId: string, cursor: string | null = null, limit = 100) => {
       const query = new URLSearchParams({ limit: String(limit) });
@@ -62,7 +56,7 @@ export const measurementsApi = {
       }
       return { submitted: samples.length, accepted, ignoredDuplicates };
     },
-  measurementForecast: async (sensorId: string, metric: string, hours = 12, signal?: AbortSignal) => (
+  measurementForecast: async (sensorId: string, { metric, hours = 12, signal }: { metric: string; hours?: number; signal?: AbortSignal | undefined }) => (
       await requestV2<{ forecast: MeasurementForecastPoint[] }>(
         `/measurements/forecast?sensorId=${encodeURIComponent(sensorId)}&metric=${encodeURIComponent(metric)}&hours=${hours}`,
         withSignal(signal),

@@ -27,11 +27,13 @@ describe("historical series retention", () => {
     try {
       for (const metric of ["power", "energy", "temperature"]) {
         await canonicalSeries("sensor-1", metric, "24h", from, to, false);
-        expect(request).toHaveBeenLastCalledWith(
-          "sensor-1", metric,
-          metric === "temperature" ? from : "2026-08-31T23:45:00.000Z",
-          to, 20_000, 60,
-        );
+        expect(request).toHaveBeenLastCalledWith("sensor-1", {
+          metric,
+          from: metric === "temperature" ? from : "2026-08-31T23:45:00.000Z",
+          to,
+          limit: 20_000,
+          bucketSeconds: 60,
+        });
       }
     } finally {
       request.mockRestore();

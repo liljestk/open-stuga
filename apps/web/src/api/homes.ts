@@ -1,6 +1,6 @@
 import { type House, type HouseLocation, type HousePatch, type HouseWeather, type OpeningStateObservation, type OpeningStateObservationInput, type OpeningStateSnapshot, type OutdoorTemperatureSample, withSignal, type CoordinateDefaults } from "@climate-twin/contracts";
 import { list, request, requestV2, updateHouseGeoreference } from "./support/request";
-import type { CreateHouseInput, OutdoorTemperatureHistoryPage, LocationSuggestion } from "./support/response-types";
+import type { CreateHouseInput, OutdoorTemperatureHistoryPage, LocationSuggestion, TimeRangeQuery } from "./support/response-types";
 
 /** Homes, their floors, location and weather, opening states, and location search. */
 export const homesApi = {
@@ -20,10 +20,7 @@ export const homesApi = {
     ),
   openingStateHistory: async (
       houseId: string,
-      from: string,
-      to: string,
-      limit = 10_000,
-      signal?: AbortSignal,
+      { from, to, limit = 10_000, signal }: TimeRangeQuery,
     ): Promise<OpeningStateObservation[]> => {
       const query = new URLSearchParams({ from, to, limit: String(limit) });
       const result = await request<{
@@ -48,10 +45,7 @@ export const homesApi = {
     },
   outdoorTemperatureHistory: async (
       houseId: string,
-      from: string,
-      to: string,
-      limit = 20_000,
-      signal?: AbortSignal,
+      { from, to, limit = 20_000, signal }: TimeRangeQuery,
     ): Promise<OutdoorTemperatureHistoryPage> => {
       const query = new URLSearchParams({ from, to, limit: String(limit) });
       const result = await requestV2<Partial<Omit<OutdoorTemperatureHistoryPage, "samples">> & {

@@ -105,13 +105,12 @@ describe("door and window sensor management", () => {
 
     await user.click(screen.getByRole("button", { name: "View data for Entry contact" }));
     const details = await screen.findByRole("region", { name: "Open and closed timeline" });
-    await waitFor(() => expect(openingHistory).toHaveBeenCalledWith(
-      house.id,
-      expect.any(String),
-      expect.any(String),
-      10_000,
-      expect.any(AbortSignal),
-    ));
+    await waitFor(() => expect(openingHistory).toHaveBeenCalledWith(house.id, {
+      from: expect.any(String),
+      to: expect.any(String),
+      limit: 10_000,
+      signal: expect.any(AbortSignal),
+    }));
 
     expect(screen.getByText("Openings").parentElement?.textContent).toBe("Openings2");
     expect(screen.getByText("Closings").parentElement?.textContent).toBe("Closings1");
