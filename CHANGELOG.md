@@ -2,6 +2,15 @@
 
 All notable Stugu releases are recorded here.
 
+## 0.52.7
+
+Power and energy charts on the Analytics page load in about half the time.
+
+- A chart's summary (mean, spread and extremes) used to need a second pass over the same stored power and energy states at finer buckets. Chart and summary now come from one pass with identical results. On a Raspberry Pi, a 30-day power chart for four plugs went from about 8.5 s to about 4 s of database time, measured with today's samples still read raw.
+- The count of readings outside the chosen quality filter no longer re-reads every raw sample since midnight UTC. Today's finished hours come from the hourly aggregate; only the last hour or two is read raw.
+- Opening a chart no longer writes to the archive when its stored states are up to date. It prepares them only when a day is missing or out of date, or when today's states have not been started yet.
+- Upgrade impact: application-only update; no schema, Compose or host-trust change. Includes the 0.52.2 changes it builds on.
+
 ## 0.52.2
 
 Electricity costs and analytics answer much faster, especially late in the day.
