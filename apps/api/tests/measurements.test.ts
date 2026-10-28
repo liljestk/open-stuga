@@ -760,7 +760,7 @@ describe("registry-driven measurements API", () => {
 
   it("serves truthful and complete version-specific OpenAPI documents", async () => {
     const v1 = await request(runtime.app).get("/api/v1/openapi.json").expect(200);
-    expect(v1.body.servers).toEqual([{ url: "/api/v1", description: "Legacy climate tuple API" }]);
+    expect(v1.body.servers).toEqual([{ url: "/api/v1", description: "Control-plane API" }]);
     expect(v1.body.paths).toHaveProperty("/houses");
     expect(v1.body.paths).not.toHaveProperty("/measurements");
     expect(v1.body.components.schemas.House.required).not.toContain("orientationDegrees");

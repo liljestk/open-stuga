@@ -1,5 +1,6 @@
 import { combinedOpenApiDocument } from "./openapi/document.js";
 
+// v2 holds the measurement registry, sparse measurements and analytics; everything else is the v1 control plane.
 const V2_PATHS = new Set([
   "/measurement-definitions",
   "/measurement-definitions/{id}",
@@ -31,8 +32,8 @@ function selectPaths(version: "v1" | "v2"): Record<string, unknown> {
 
 export const openApiV1Document = {
   ...combinedOpenApiDocument,
-  info: { ...combinedOpenApiDocument.info, version: "1.0.0", description: "Stugu v1 compatibility API for layouts, house-scoped FMI weather, and temperature/humidity tuples." },
-  servers: [{ url: "/api/v1", description: "Legacy climate tuple API" }],
+  info: { ...combinedOpenApiDocument.info, version: "1.0.0", description: "Stugu v1 control-plane API: properties, Homes, sensors, integrations, alerts, electricity, sharing and system operations, with the temperature/humidity tuple routes as its compatibility subset." },
+  servers: [{ url: "/api/v1", description: "Control-plane API" }],
   paths: selectPaths("v1"),
 };
 

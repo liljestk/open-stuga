@@ -27,7 +27,7 @@ export const combinedOpenApiDocument = {
       version: "2.0.0",
       description: "Local-first Stugu API for house layouts, environmental telemetry, forecasts, alerts, replay, and integrations.",
     },
-  servers: [{ url: "/api/v1", description: "Legacy climate tuple API" }, { url: "/api/v2", description: "Registry-driven measurements API" }],
+  servers: [{ url: "/api/v1", description: "Control-plane API" }, { url: "/api/v2", description: "Registry-driven measurements API" }],
   tags: [
       { name: "Telemetry" }, { name: "Digital twin" }, { name: "Alerts" },
       { name: "Context" }, { name: "Security" }, { name: "Weather" }, { name: "Physics" }, { name: "Integrations" }, { name: "Testing" }, { name: "Measurements" }, { name: "Stuguby", description: "Coordinator-led Property collaboration and explicit Home sharing. Homes are read-only by default. Credentials, integrations, account identities, and control commands are outside this protocol." },
