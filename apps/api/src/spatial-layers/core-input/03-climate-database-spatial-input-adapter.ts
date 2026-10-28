@@ -112,8 +112,8 @@ export class ClimateDatabaseSpatialInputAdapter implements SpatialCoreInputPort 
         openingProvenance = [leading.provenance, history.provenance];
       } else {
         openingStateObservations = [
-          ...this.core.listOpeningStateObservations(resolved.house.id, 10_000, windowStart),
-          ...this.core.listOpeningStateObservationHistory(resolved.house.id, windowStart, windowEnd, 10_000),
+          ...this.core.listOpeningStateObservations(resolved.house.id, { limit: 10_000, at: windowStart }),
+          ...this.core.listOpeningStateObservationHistory(resolved.house.id, { from: windowStart, to: windowEnd, limit: 10_000 }),
         ];
       }
       openingStateObservations = [...new Map(
@@ -211,7 +211,7 @@ export class ClimateDatabaseSpatialInputAdapter implements SpatialCoreInputPort 
       if (openingStateSource === "current-local") {
         openingStateObservations = this.core.listCurrentOpeningStateCandidates
           ? this.core.listCurrentOpeningStateCandidates(house.id, bucketAt, 10_000)
-          : this.core.listOpeningStateObservations(house.id, 10_000, bucketAt);
+          : this.core.listOpeningStateObservations(house.id, { limit: 10_000, at: bucketAt });
       } else if (openingStateSource === "archive-merged" && this.telemetry.openingStateSnapshot) {
         openingStateObservations = (await this.telemetry.openingStateSnapshot({
           houseId: house.id,
@@ -220,7 +220,7 @@ export class ClimateDatabaseSpatialInputAdapter implements SpatialCoreInputPort 
           ...withSignal(signal),
         })).records;
       } else {
-        openingStateObservations = this.core.listOpeningStateObservations(house.id, 10_000, bucketAt);
+        openingStateObservations = this.core.listOpeningStateObservations(house.id, { limit: 10_000, at: bucketAt });
       }
     }
     signal?.throwIfAborted();

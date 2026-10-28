@@ -280,8 +280,10 @@ describe("durable alert history and notification snapshots", () => {
         database,
         config,
         status,
-        new TelegramService(telegramFetch),
-        webhookFetch,
+        {
+          telegram: new TelegramService(telegramFetch),
+          fetchImpl: webhookFetch,
+        },
       );
       worker.start();
       await vi.waitFor(() => expect(database!.pendingNotificationCount()).toBe(0));
@@ -327,8 +329,10 @@ describe("durable alert history and notification snapshots", () => {
         database,
         rotatedConfig,
         status,
-        new TelegramService(telegramFetch),
-        webhookFetch,
+        {
+          telegram: new TelegramService(telegramFetch),
+          fetchImpl: webhookFetch,
+        },
       );
       worker.start();
       await vi.waitFor(() => expect(database!.pendingNotificationCount()).toBe(0));

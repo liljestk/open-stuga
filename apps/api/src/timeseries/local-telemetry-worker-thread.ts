@@ -34,23 +34,18 @@ port.on("message", (request: LocalTelemetryWorkerRequest) => {
     database = new ClimateDatabase(workerData.databasePath as string, false, { readOnly: true });
     const result = request.metric === "power-profile" ? localPowerProfile(database, request.query)
       : request.metric === "window"
-      ? database.measurementWindow([...request.query.sensorIds], [...request.query.metrics],
-        request.query.from, request.query.to, request.query.limit)
+      ? database.measurementWindow(request.query)
       : request.metric === "thermal"
         ? (request.query.metrics.length === 1 && request.query.metrics[0] === "temperature"
-          ? database.thermalTemperatureHistory(request.query.sensorId, request.query.from,
-            request.query.to, request.query.bucketMinutes, request.query.limitPerMetric)
-          : database.thermalClimateHistory(request.query.sensorId, request.query.from,
-            request.query.to, request.query.bucketMinutes, request.query.limitPerMetric)
+          ? database.thermalTemperatureHistory(request.query)
+          : database.thermalClimateHistory(request.query)
             .filter(sample => request.query.metrics.includes(sample.metric)))
       : request.metric === "sensor-page"
       ? database.sensorMeasurementPage(request.query.sensorId, request.query.before, request.query.limit)
       : request.metric === "export-counts" ? exportTableCounts(database, request.query.tables)
       : request.metric === "integrity" ? databaseIntegrity(database)
       : request.metric === "buckets"
-      ? database.measurementHistoryBucketed(request.query.sensorId, request.query.metric,
-        request.query.from, request.query.to, request.query.bucketSeconds, request.query.limit,
-        request.query.excludeSynthetic, request.query.toExclusive)
+      ? database.measurementHistoryBucketed(request.query)
       : request.metric === "energy" ? database.energyCostAggregate(request.query)
         : database.powerCostAggregate(request.query);
     database.close();

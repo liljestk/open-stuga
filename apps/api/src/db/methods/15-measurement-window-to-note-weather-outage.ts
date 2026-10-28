@@ -1,3 +1,5 @@
+import type { LocalBucketQuery } from "../../timeseries/local-telemetry-worker-thread.js";
+import type { MeasurementHistoryBucketedMultiQuery, MeasurementWindowQuery, ThermalHistoryWindowQuery } from "../../timeseries/types.js";
 import type {
   MeasurementSample,
   OutdoorTemperatureSample,
@@ -19,13 +21,7 @@ registerDatabaseMethods({
      * It deliberately returns the existing sparse metric contract rather than
      * manufacturing paired climate readings in the core repository.
      */
-  measurementWindow(
-      sensorIds: string[],
-      metrics: string[],
-      from: string,
-      to: string,
-      limit = 100_000,
-    ): MeasurementSample[] {
+  measurementWindow({ sensorIds, metrics, from, to, limit = 100_000 }: MeasurementWindowQuery): MeasurementSample[] {
       const visibleSensorIds = sensorIds.filter((id) => Boolean(this.getSensor(id)));
       if (visibleSensorIds.length === 0 || metrics.length === 0) return [];
       if (!Number.isInteger(limit) || limit < 1 || limit > 250_000) {
@@ -106,16 +102,9 @@ registerDatabaseMethods({
       }
       return records;
     },
-  measurementHistoryBucketed(
-      sensorId: string,
-      metric: string,
-      from: string,
-      to: string,
-      bucketSeconds: number,
-      limit = 20_000,
-      excludeSynthetic = false,
-      toExclusive = false,
-    ): MeasurementSample[] {
+  measurementHistoryBucketed({
+      sensorId, metric, from, to, bucketSeconds, limit = 20_000, excludeSynthetic = false, toExclusive = false,
+    }: LocalBucketQuery): MeasurementSample[] {
       if (!this.getSensor(sensorId)) return [];
       const sourceFilter = excludeSynthetic ? "AND source NOT IN ('mock', 'replay')" : "";
       // An exclusive upper bound lets chunked callers tile a long window into
@@ -162,10 +151,9 @@ registerDatabaseMethods({
         quality: row.sample_count > 1 ? "estimated" : row.quality,
       }));
     },
-  measurementHistoryBucketedMulti(
-      sensorIds: string[], metrics: string[], from: string, to: string,
-      bucketSeconds: number, limitPerSeries = 20_000,
-    ): MeasurementSample[] {
+  measurementHistoryBucketedMulti({
+      sensorIds, metrics, from, to, bucketSeconds, limitPerSeries = 20_000,
+    }: MeasurementHistoryBucketedMultiQuery): MeasurementSample[] {
       const uniqueSensorIds = [...new Set(sensorIds)].filter((id) => Boolean(this.getSensor(id)));
       const uniqueMetrics = [...new Set(metrics)];
       if (uniqueSensorIds.length === 0 || uniqueMetrics.length === 0) return [];
@@ -262,13 +250,9 @@ registerDatabaseMethods({
      * Aggregation happens in SQLite so dense 2-10 second telemetry never enters the
      * Node calibration loop or consumes the raw-row limit before covering 7 days.
      */
-  thermalTemperatureHistory(
-      sensorId: string,
-      from: string,
-      to: string,
-      bucketMinutes = 5,
-      limit = 5_000,
-    ): MeasurementSample[] {
+  thermalTemperatureHistory({
+      sensorId, from, to, bucketMinutes = 5, limitPerMetric: limit = 5_000,
+    }: ThermalHistoryWindowQuery): MeasurementSample[] {
       if (!this.getSensor(sensorId)) return [];
       if (!Number.isInteger(bucketMinutes) || bucketMinutes < 1 || bucketMinutes > 60) {
         throw new ClimateDataValidationError(400, "INVALID_BUCKET_SIZE", "Thermal bucket size must be 1 to 60 minutes");
@@ -325,13 +309,9 @@ registerDatabaseMethods({
      * Each metric receives its own limit so dense temperature telemetry cannot crowd
      * humidity out of the requested evidence window.
      */
-  thermalClimateHistory(
-      sensorId: string,
-      from: string,
-      to: string,
-      bucketMinutes = 5,
-      limitPerMetric = 5_000,
-    ): MeasurementSample[] {
+  thermalClimateHistory({
+      sensorId, from, to, bucketMinutes = 5, limitPerMetric = 5_000,
+    }: ThermalHistoryWindowQuery): MeasurementSample[] {
       if (!this.getSensor(sensorId)) return [];
       if (!Number.isInteger(bucketMinutes) || bucketMinutes < 1 || bucketMinutes > 60) {
         throw new ClimateDataValidationError(400, "INVALID_BUCKET_SIZE", "Climate bucket size must be 1 to 60 minutes");

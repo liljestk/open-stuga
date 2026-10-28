@@ -40,9 +40,7 @@ function openingCandidateCeiling(observation: OpeningStateObservation): string |
 registerDatabaseMethods({
   listOpeningStateObservationHistory(
       houseId: string,
-      from: string | number | Date,
-      to: string | number | Date,
-      limit = 10_000,
+      { from, to, limit = 10_000 }: { from: string | number | Date; to: string | number | Date; limit?: number },
     ): OpeningStateObservation[] {
       if (!this.getHouse(houseId)) return [];
       const fromMs = from instanceof Date ? from.getTime() : typeof from === "number" ? from : Date.parse(from);

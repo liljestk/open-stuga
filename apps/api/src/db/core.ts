@@ -135,8 +135,7 @@ export class ClimateDatabaseCore {
     }
   async measurementWindowAsync(query: MeasurementWindowQuery): Promise<MeasurementSample[]> {
       query.signal?.throwIfAborted();
-      if (this.#databasePath === ":memory:") return this.measurementWindow(
-        [...query.sensorIds], [...query.metrics], query.from, query.to, query.limit,
+      if (this.#databasePath === ":memory:") return this.measurementWindow(query
       );
       this.#telemetryWorker ??= new LocalTelemetryWorker(this.#databasePath);
       return this.#telemetryWorker.readWindow(query);
@@ -151,8 +150,8 @@ export class ClimateDatabaseCore {
       query.signal?.throwIfAborted();
       if (this.#databasePath === ":memory:") {
         return (query.metrics.length === 1 && query.metrics[0] === "temperature"
-          ? this.thermalTemperatureHistory(query.sensorId, query.from, query.to, query.bucketMinutes, query.limitPerMetric)
-          : this.thermalClimateHistory(query.sensorId, query.from, query.to, query.bucketMinutes, query.limitPerMetric))
+          ? this.thermalTemperatureHistory(query)
+          : this.thermalClimateHistory(query))
           .filter(sample => query.metrics.includes(sample.metric));
       }
       this.#telemetryWorker ??= new LocalTelemetryWorker(this.#databasePath);
@@ -160,14 +159,7 @@ export class ClimateDatabaseCore {
     }
   async measurementHistoryBucketedAsync(query: LocalBucketQuery): Promise<MeasurementSample[]> {
       query.signal?.throwIfAborted();
-      if (this.#databasePath === ":memory:") {
-        if (!query.toExclusive) {
-          return this.measurementHistoryBucketed(query.sensorId, query.metric, query.from, query.to,
-            query.bucketSeconds, query.limit, query.excludeSynthetic);
-        }
-        return this.measurementHistoryBucketed(query.sensorId, query.metric, query.from, query.to,
-          query.bucketSeconds, query.limit, query.excludeSynthetic, query.toExclusive);
-      }
+      if (this.#databasePath === ":memory:") return this.measurementHistoryBucketed(query);
       this.#telemetryWorker ??= new LocalTelemetryWorker(this.#databasePath);
       return this.#telemetryWorker.readBuckets(query);
     }

@@ -134,12 +134,14 @@ export async function loadHomeMonitoringHistory(input: {
   }
 
   return historyFromSamples(input.database.measurementHistoryBucketedMulti(
-    sensors.map((sensor) => sensor.id),
-    [...HISTORY_METRICS],
-    from,
-    input.evaluatedAt,
-    HISTORY_BUCKET_MINUTES * 60,
-    HISTORY_LIMIT_PER_METRIC,
+    {
+      sensorIds: sensors.map((sensor) => sensor.id),
+      metrics: [...HISTORY_METRICS],
+      from,
+      to: input.evaluatedAt,
+      bucketSeconds: HISTORY_BUCKET_MINUTES * 60,
+      limitPerSeries: HISTORY_LIMIT_PER_METRIC,
+    },
   ));
 }
 

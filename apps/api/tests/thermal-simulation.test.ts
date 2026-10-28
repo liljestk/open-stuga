@@ -375,9 +375,11 @@ describe("thermal simulation API and outdoor persistence", () => {
       quality: "good" as const,
     })));
     const buckets = runtime.database.thermalTemperatureHistory(
-      "sensor-01",
-      "2026-07-14T10:00:00.000Z",
-      "2026-07-14T10:10:00.000Z",
+      {
+        sensorId: "sensor-01",
+        from: "2026-07-14T10:00:00.000Z",
+        to: "2026-07-14T10:10:00.000Z",
+      },
     );
     expect(buckets).toHaveLength(2);
     expect(buckets.map((sample) => sample.timestamp)).toEqual([

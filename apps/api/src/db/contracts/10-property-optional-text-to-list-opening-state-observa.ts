@@ -27,7 +27,7 @@ declare module "../core.js" {
             houses: number;
         };
     migratePropertyInto(sourcePropertyId: string, targetPropertyId: string, houseLinks: Readonly<Record<string, StugubyHouseLink>>): PropertyMigrationResult;
-    listOpeningStateObservations(houseId: string, limit?: number, at?: string | number | Date): OpeningStateObservation[];
+    listOpeningStateObservations(houseId: string, options?: { limit?: number; at?: string | number | Date }): OpeningStateObservation[];
     listCurrentOpeningStateCandidates(houseId: string, at?: string | number | Date, limit?: number): OpeningStateObservation[];
   }
 
@@ -40,7 +40,7 @@ declare module "../core.js" {
             houses: number;
         };
     migratePropertyInto(sourcePropertyId: string, targetPropertyId: string, houseLinks: Readonly<Record<string, StugubyHouseLink>>): PropertyMigrationResult;
-    listOpeningStateObservations(houseId: string, limit?: number, at?: string | number | Date): OpeningStateObservation[];
+    listOpeningStateObservations(houseId: string, options?: { limit?: number; at?: string | number | Date }): OpeningStateObservation[];
     listCurrentOpeningStateCandidates(houseId: string, at?: string | number | Date, limit?: number): OpeningStateObservation[];
   }
 }

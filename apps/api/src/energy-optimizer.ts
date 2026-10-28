@@ -101,9 +101,11 @@ export class EnergyOptimizer {
     const reader = this.telemetryReader ?? new HybridTelemetryReader({ local: this.database });
     const costService = new EnergyCostService(
       reader,
-      () => now,
-      (sensorId) => this.database.getSensor(sensorId)?.energyMeterRole ?? "standalone",
-      databaseTariffContext(this.database),
+      {
+        now: () => now,
+        meterRole: (sensorId) => this.database.getSensor(sensorId)?.energyMeterRole ?? "standalone",
+        tariffFor: databaseTariffContext(this.database),
+      },
     );
     const [pricesWithHistory, powerProfile, costResults] = await Promise.all([
         reader.electricityPriceHistory({

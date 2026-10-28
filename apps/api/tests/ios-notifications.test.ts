@@ -110,10 +110,12 @@ describe("native iOS notifications", () => {
       runtime.database,
       config,
       new RuntimeStatus(config, new TelemetryBus(), runtime.database),
-      new TelegramService(),
-      fetch,
-      () => 0,
-      apns,
+      {
+        telegram: new TelegramService(),
+        fetchImpl: fetch,
+        telegramConfigurationGeneration: () => 0,
+        apns,
+      },
     );
     worker.start();
     await vi.waitFor(() => expect(runtime.database.pendingNotificationCount()).toBe(0));
@@ -157,10 +159,12 @@ describe("native iOS notifications", () => {
       runtime.database,
       config,
       new RuntimeStatus(config, new TelemetryBus(), runtime.database),
-      new TelegramService(),
-      fetch,
-      () => 0,
-      fencedApns,
+      {
+        telegram: new TelegramService(),
+        fetchImpl: fetch,
+        telegramConfigurationGeneration: () => 0,
+        apns: fencedApns,
+      },
     );
     fencedWorker.start();
     await vi.waitFor(() => expect(runtime.database.pendingNotificationCount()).toBe(0));
@@ -180,10 +184,12 @@ describe("native iOS notifications", () => {
       runtime.database,
       config,
       new RuntimeStatus(config, new TelemetryBus(), runtime.database),
-      new TelegramService(),
-      fetch,
-      () => 0,
-      inactiveApns,
+      {
+        telegram: new TelegramService(),
+        fetchImpl: fetch,
+        telegramConfigurationGeneration: () => 0,
+        apns: inactiveApns,
+      },
     );
     inactiveWorker.start();
     await vi.waitFor(() => expect(runtime.database.pendingNotificationCount()).toBe(0));

@@ -158,7 +158,7 @@ registerDatabaseMethods({
         );
       }
     },
-  listMaintenanceTasks(filters: string | {
+  listMaintenanceTasks(options: {
       propertyId?: string;
       houseId?: string;
       areaId?: string;
@@ -166,7 +166,6 @@ registerDatabaseMethods({
       limit?: number;
       offset?: number;
     } = {}): MaintenanceTask[] {
-      const options = typeof filters === "string" ? { houseId: filters } : filters;
       const clauses: string[] = [];
       const values: string[] = [];
       for (const [column, value] of [

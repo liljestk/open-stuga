@@ -326,7 +326,7 @@ registerDatabaseMethods({
         };
       });
     },
-  listOpeningStateObservations(houseId: string, limit = 5_000, at?: string | number | Date): OpeningStateObservation[] {
+  listOpeningStateObservations(houseId: string, { limit = 5_000, at }: { limit?: number; at?: string | number | Date } = {}): OpeningStateObservation[] {
       if (!this.getHouse(houseId)) return [];
       const boundedLimit = Math.min(10_000, Math.max(1, Math.trunc(limit)));
       if (at === undefined) {

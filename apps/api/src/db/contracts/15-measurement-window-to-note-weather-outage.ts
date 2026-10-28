@@ -1,3 +1,5 @@
+import type { LocalBucketQuery } from "../../timeseries/local-telemetry-worker-thread.js";
+import type { MeasurementHistoryBucketedMultiQuery, MeasurementWindowQuery, ThermalHistoryWindowQuery } from "../../timeseries/types.js";
 import type {
   MeasurementSample,
   OutdoorTemperatureSample,
@@ -11,7 +13,7 @@ import "../core.js";
 
 declare module "../core.js" {
   interface DatabaseInternals {
-    measurementWindow(sensorIds: string[], metrics: string[], from: string, to: string, limit?: number): MeasurementSample[];
+    measurementWindow(query: MeasurementWindowQuery): MeasurementSample[];
     measurementWindowPage(sensorIds: string[], metrics: string[], from: string, to: string, limit: number, before?: {
             timestamp: string;
             id: number;
@@ -23,8 +25,8 @@ declare module "../core.js" {
         } | null;
     };
     measurementCoverage(sensorIds: string[], metrics: string[]): MeasurementCoverageRecord[];
-    measurementHistoryBucketed(sensorId: string, metric: string, from: string, to: string, bucketSeconds: number, limit?: number, excludeSynthetic?: boolean, toExclusive?: boolean): MeasurementSample[];
-    measurementHistoryBucketedMulti(sensorIds: string[], metrics: string[], from: string, to: string, bucketSeconds: number, limitPerSeries?: number): MeasurementSample[];
+    measurementHistoryBucketed(query: LocalBucketQuery): MeasurementSample[];
+    measurementHistoryBucketedMulti(query: MeasurementHistoryBucketedMultiQuery): MeasurementSample[];
     sensorMeasurementPage(sensorId: string, before: {
             timestamp: string;
             id: number;
@@ -32,8 +34,8 @@ declare module "../core.js" {
             samples: MeasurementSample[];
             nextCursor: string | null;
         };
-    thermalTemperatureHistory(sensorId: string, from: string, to: string, bucketMinutes?: number, limit?: number): MeasurementSample[];
-    thermalClimateHistory(sensorId: string, from: string, to: string, bucketMinutes?: number, limitPerMetric?: number): MeasurementSample[];
+    thermalTemperatureHistory(query: ThermalHistoryWindowQuery): MeasurementSample[];
+    thermalClimateHistory(query: ThermalHistoryWindowQuery): MeasurementSample[];
     upsertOutdoorTemperatureSample(sample: OutdoorTemperatureSample, options?: { deferDerivedInvalidation?: boolean }): OutdoorTemperatureSample;
     upsertCurrentOutdoorTemperatureSample(sample: OutdoorTemperatureSample, options?: { deferDerivedInvalidation?: boolean }): OutdoorTemperatureSample;
     outdoorTemperatureHistory(houseId: string, locationKey: string, from: string, to: string, limit?: number): OutdoorTemperatureSample[];
@@ -44,7 +46,7 @@ declare module "../core.js" {
   }
 
   interface ClimateDatabaseCore {
-    measurementWindow(sensorIds: string[], metrics: string[], from: string, to: string, limit?: number): MeasurementSample[];
+    measurementWindow(query: MeasurementWindowQuery): MeasurementSample[];
     measurementWindowPage(sensorIds: string[], metrics: string[], from: string, to: string, limit: number, before?: {
             timestamp: string;
             id: number;
@@ -56,8 +58,8 @@ declare module "../core.js" {
         } | null;
     };
     measurementCoverage(sensorIds: string[], metrics: string[]): MeasurementCoverageRecord[];
-    measurementHistoryBucketed(sensorId: string, metric: string, from: string, to: string, bucketSeconds: number, limit?: number, excludeSynthetic?: boolean, toExclusive?: boolean): MeasurementSample[];
-    measurementHistoryBucketedMulti(sensorIds: string[], metrics: string[], from: string, to: string, bucketSeconds: number, limitPerSeries?: number): MeasurementSample[];
+    measurementHistoryBucketed(query: LocalBucketQuery): MeasurementSample[];
+    measurementHistoryBucketedMulti(query: MeasurementHistoryBucketedMultiQuery): MeasurementSample[];
     sensorMeasurementPage(sensorId: string, before: {
             timestamp: string;
             id: number;
@@ -65,8 +67,8 @@ declare module "../core.js" {
             samples: MeasurementSample[];
             nextCursor: string | null;
         };
-    thermalTemperatureHistory(sensorId: string, from: string, to: string, bucketMinutes?: number, limit?: number): MeasurementSample[];
-    thermalClimateHistory(sensorId: string, from: string, to: string, bucketMinutes?: number, limitPerMetric?: number): MeasurementSample[];
+    thermalTemperatureHistory(query: ThermalHistoryWindowQuery): MeasurementSample[];
+    thermalClimateHistory(query: ThermalHistoryWindowQuery): MeasurementSample[];
     upsertOutdoorTemperatureSample(sample: OutdoorTemperatureSample, options?: { deferDerivedInvalidation?: boolean }): OutdoorTemperatureSample;
     upsertCurrentOutdoorTemperatureSample(sample: OutdoorTemperatureSample, options?: { deferDerivedInvalidation?: boolean }): OutdoorTemperatureSample;
     outdoorTemperatureHistory(houseId: string, locationKey: string, from: string, to: string, limit?: number): OutdoorTemperatureSample[];

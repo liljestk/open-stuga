@@ -130,9 +130,10 @@ export function createTelemetryServices(context: CoreDataServices) {
   const setupDoctor = new SetupDoctor(context.database, config, status, context.dataOperations, telemetryArchive);
   const energyCost = new EnergyCostService(
       telemetryReader,
-      undefined,
-      (sensorId) => context.database.getSensor(sensorId)?.energyMeterRole ?? "standalone",
-      databaseTariffContext(context.database),
+      {
+        meterRole: (sensorId) => context.database.getSensor(sensorId)?.energyMeterRole ?? "standalone",
+        tariffFor: databaseTariffContext(context.database),
+      },
     );
   const energySummaries = new EnergySummaryCache(context.database, energyCost, analyticsWorkLimiter);
   const energyProjections = new EnergyProjectionCache(context.database, telemetryReader, energySummaries, analyticsWorkLimiter);

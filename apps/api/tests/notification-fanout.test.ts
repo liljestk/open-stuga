@@ -112,8 +112,10 @@ describe("durable webhook fan-out", () => {
         database,
         config,
         new RuntimeStatus(config, new TelemetryBus(), database),
-        new TelegramService(),
-        webhookFetch,
+        {
+          telegram: new TelegramService(),
+          fetchImpl: webhookFetch,
+        },
       );
       worker.start();
       await vi.waitFor(() => expect(database.pendingNotificationCount()).toBe(0));
@@ -166,8 +168,10 @@ describe("durable webhook fan-out", () => {
         database,
         config,
         status,
-        new TelegramService(),
-        webhookFetch,
+        {
+          telegram: new TelegramService(),
+          fetchImpl: webhookFetch,
+        },
       );
       worker.start();
       await vi.waitFor(() => expect(database.pendingNotificationCount()).toBe(0));

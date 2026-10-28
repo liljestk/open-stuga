@@ -1,3 +1,4 @@
+import type { LocalBucketQuery } from "./local-telemetry-worker-thread.js";
 import { withSignal } from "@climate-twin/contracts";
 import type {
   MeasurementSample,
@@ -26,6 +27,7 @@ import type {
   MeasurementBoundaryQuery,
   MeasurementSampleRecord,
   MeasurementWindowQuery,
+  ThermalHistoryWindowQuery,
   OpeningStateHistoryQuery,
   OpeningStateRecord,
   OpeningStateSnapshotQuery,
@@ -100,23 +102,10 @@ export interface LocalTelemetryReader {
     limit?: number,
     before?: { timestamp: string; source: string },
   ): MeasurementSample[];
-  measurementHistoryBucketed(
-    sensorId: string,
-    metric: string,
-    from: string,
-    to: string,
-    bucketSeconds: number,
-    limit?: number,
-    excludeSynthetic?: boolean,
-    toExclusive?: boolean,
-  ): MeasurementSample[];
-  thermalTemperatureHistory(
-    sensorId: string, from: string, to: string, bucketMinutes?: number, limit?: number,
-  ): MeasurementSample[];
-  thermalClimateHistory(
-    sensorId: string, from: string, to: string, bucketMinutes?: number, limitPerMetric?: number,
-  ): MeasurementSample[];
-  measurementWindow(sensorIds: string[], metrics: string[], from: string, to: string, limit?: number): MeasurementSample[];
+  measurementHistoryBucketed(query: LocalBucketQuery): MeasurementSample[];
+  thermalTemperatureHistory(query: ThermalHistoryWindowQuery): MeasurementSample[];
+  thermalClimateHistory(query: ThermalHistoryWindowQuery): MeasurementSample[];
+  measurementWindow(query: MeasurementWindowQuery): MeasurementSample[];
   measurementWindowPage(
     sensorIds: string[],
     metrics: string[],
@@ -136,12 +125,8 @@ export interface LocalTelemetryReader {
   listPropertyElectricityPrices(propertyId: string, from: string, to: string): PropertyElectricityPricePoint[];
   getPropertyElectricityTariff(propertyId: string): PropertyElectricityTariff | null;
   propertyElectricityTimeZone(propertyId: string): string;
-  listOpeningStateObservations(
-    houseId: string, limit?: number, at?: string | number | Date,
-  ): OpeningStateObservation[];
-  listOpeningStateObservationHistory(
-    houseId: string, from: string | number | Date, to: string | number | Date, limit?: number,
-  ): OpeningStateObservation[];
+  listOpeningStateObservations(houseId: string, options?: { limit?: number; at?: string | number | Date }): OpeningStateObservation[];
+  listOpeningStateObservationHistory(houseId: string, window: { from: string | number | Date; to: string | number | Date; limit?: number }): OpeningStateObservation[];
   energyCostAggregate(query: EnergyCostAggregateQuery): EnergyCostAggregateRecord;
   powerCostAggregate(query: PowerCostAggregateQuery): EnergyCostAggregateRecord;
   costAggregateAsync(metric: "energy" | "power", query: EnergyCostAggregateQuery): Promise<EnergyCostAggregateRecord>;
@@ -793,9 +778,11 @@ export class HybridTelemetryReader {
       limit,
       local: () => this.#local.listOpeningStateObservationHistory(
         query.houseId,
-        query.from,
-        query.to,
-        limit,
+        {
+          from: query.from,
+          to: query.to,
+          limit,
+        },
       ),
       signal: query.signal,
       archiveRead: async () => {
@@ -818,7 +805,7 @@ export class HybridTelemetryReader {
       from: "1970-01-01T00:00:00.000Z",
       to: query.at,
       limit,
-      local: () => this.#local.listOpeningStateObservations(query.houseId, limit, query.at),
+      local: () => this.#local.listOpeningStateObservations(query.houseId, { limit, at: query.at }),
       signal: query.signal,
       archiveRead: async () => {
         if (!this.#archive!.openingStateSnapshot) throw new Error("Opening-state archive snapshots are unavailable");

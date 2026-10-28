@@ -88,11 +88,13 @@ describe("APNs outbox failures", () => {
       runtime.database,
       config,
       new RuntimeStatus(config, new TelemetryBus(), runtime.database),
-      new TelegramService(),
-      fetch,
-      () => 0,
-      apns,
-      (failure) => failures.push(failure),
+      {
+        telegram: new TelegramService(),
+        fetchImpl: fetch,
+        telegramConfigurationGeneration: () => 0,
+        apns,
+        onDeliveryFailure: (failure) => failures.push(failure),
+      },
     );
     worker.start();
     await vi.waitFor(() => expect(runtime.database.pendingNotificationCount()).toBe(0));
@@ -116,11 +118,13 @@ describe("APNs outbox failures", () => {
       runtime.database,
       config,
       new RuntimeStatus(config, new TelemetryBus(), runtime.database),
-      new TelegramService(),
-      fetch,
-      () => 0,
-      apns,
-      (failure) => failures.push(failure),
+      {
+        telegram: new TelegramService(),
+        fetchImpl: fetch,
+        telegramConfigurationGeneration: () => 0,
+        apns,
+        onDeliveryFailure: (failure) => failures.push(failure),
+      },
     );
     worker.start();
     await vi.waitFor(() => expect(failures).toHaveLength(1));

@@ -141,10 +141,12 @@ describe("measurementWindowPage", () => {
     const from = "2026-08-01T00:00:00.000Z";
     const to = "2026-08-01T23:59:59.999Z";
     const oneShot = db.measurementWindow(
-      ["sensor-a", "sensor-b"],
-      ["temperature", "humidity"],
-      from,
-      to,
+      {
+        sensorIds: ["sensor-a", "sensor-b"],
+        metrics: ["temperature", "humidity"],
+        from,
+        to,
+      },
     );
     expect(oneShot).toHaveLength(6);
 

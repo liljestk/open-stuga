@@ -1,3 +1,5 @@
+import type { LocalBucketQuery } from "../../timeseries/local-telemetry-worker-thread.js";
+import type { MeasurementWindowQuery } from "../../timeseries/types.js";
 import {
   configuredPlanElementOpeningState,
   floorMetersPerPlanUnit,
@@ -38,7 +40,7 @@ export interface CoreClimateReader {
   isRealDataMode(): boolean;
   getHouse(id: string): House | null;
   listHouses(): House[];
-  listOpeningStateObservations(houseId: string, limit?: number, at?: string | number | Date): OpeningStateObservation[];
+  listOpeningStateObservations(houseId: string, options?: { limit?: number; at?: string | number | Date }): OpeningStateObservation[];
   listCurrentOpeningStateCandidates?(
     houseId: string,
     at?: string | number | Date,
@@ -46,9 +48,7 @@ export interface CoreClimateReader {
   ): OpeningStateObservation[];
   listOpeningStateObservationHistory(
     houseId: string,
-    from: string | number | Date,
-    to: string | number | Date,
-    limit?: number,
+    window: { from: string | number | Date; to: string | number | Date; limit?: number },
   ): OpeningStateObservation[];
   listProperties(limit?: number, offset?: number): Property[];
   getProperty(id: string): Property | null;
@@ -56,16 +56,8 @@ export interface CoreClimateReader {
   listSensors(houseId?: string): Sensor[];
   getSensor(id: string): Sensor | null;
   measurementHistory(sensorId: string, metric: string, from: string, to: string, limit?: number): MeasurementSample[];
-  measurementHistoryBucketed(
-    sensorId: string,
-    metric: string,
-    from: string,
-    to: string,
-    bucketSeconds: number,
-    limit?: number,
-    excludeSynthetic?: boolean,
-  ): MeasurementSample[];
-  measurementWindow(sensorIds: string[], metrics: string[], from: string, to: string, limit?: number): MeasurementSample[];
+  measurementHistoryBucketed(query: LocalBucketQuery): MeasurementSample[];
+  measurementWindow(query: MeasurementWindowQuery): MeasurementSample[];
   history(sensorIds: string[], from: string, to: string, limit?: number): Reading[];
   outdoorTemperatureHistory(houseId: string, locationKey: string, from: string, to: string, limit?: number): OutdoorTemperatureSample[];
 }

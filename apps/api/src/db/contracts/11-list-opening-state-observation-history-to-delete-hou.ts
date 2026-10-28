@@ -12,7 +12,7 @@ import "../core.js";
 
 declare module "../core.js" {
   interface DatabaseInternals {
-    listOpeningStateObservationHistory(houseId: string, from: string | number | Date, to: string | number | Date, limit?: number): OpeningStateObservation[];
+    listOpeningStateObservationHistory(houseId: string, window: { from: string | number | Date; to: string | number | Date; limit?: number }): OpeningStateObservation[];
     openingStateActivity(houseId: string, from: string | number | Date, to: string | number | Date): OpeningStateActivityRecord[];
     dailyAnalyticsFindings(houseId: string, dataMode: "live" | "demo"): StoredDailyAnalyticsFindings | null;
     saveDailyAnalyticsFindings(snapshot: DailyAnalyticsFindingsSnapshot): void;
@@ -36,7 +36,7 @@ declare module "../core.js" {
   }
 
   interface ClimateDatabaseCore {
-    listOpeningStateObservationHistory(houseId: string, from: string | number | Date, to: string | number | Date, limit?: number): OpeningStateObservation[];
+    listOpeningStateObservationHistory(houseId: string, window: { from: string | number | Date; to: string | number | Date; limit?: number }): OpeningStateObservation[];
     openingStateActivity(houseId: string, from: string | number | Date, to: string | number | Date): OpeningStateActivityRecord[];
     dailyAnalyticsFindings(houseId: string, dataMode: "live" | "demo"): StoredDailyAnalyticsFindings | null;
     saveDailyAnalyticsFindings(snapshot: DailyAnalyticsFindingsSnapshot): void;

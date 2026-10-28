@@ -19,7 +19,7 @@ declare module "../core.js" {
         changedFields: ObservationChangedField[],
       ): void;
     validateObservation(observation: StoredObservation, validateSensorRelation?: boolean): void;
-    listMaintenanceTasks(filters?: string | {
+    listMaintenanceTasks(filters?: {
             propertyId?: string;
             houseId?: string;
             areaId?: string;
@@ -39,7 +39,7 @@ declare module "../core.js" {
   interface ClimateDatabaseCore {
     updateObservation(id: string, patch: ManualObservationPatch, actor?: LocalObservationRevisionActor): ManualObservation | null;
     deleteObservation(id: string): boolean;
-    listMaintenanceTasks(filters?: string | {
+    listMaintenanceTasks(filters?: {
             propertyId?: string;
             houseId?: string;
             areaId?: string;

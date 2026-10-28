@@ -79,16 +79,17 @@ export function createIntegrationBridges(context: SpatialLayerServices) {
       context.database,
       config,
       status,
-      telegram,
-      fetch,
-      () => context.runtimeState.telegramDeliveryGeneration,
-      undefined,
-      (failure) => context.systemErrorLog.record({
-        level: failure.terminal ? "error" : "warning",
-        source: `notifications.${failure.channel}`,
-        code: failure.terminal ? "DELIVERY_DEAD_LETTERED" : "DELIVERY_FAILED",
-        message: failure.message,
-      }),
+      {
+        telegram,
+        fetchImpl: fetch,
+        telegramConfigurationGeneration: () => context.runtimeState.telegramDeliveryGeneration,
+        onDeliveryFailure: (failure) => context.systemErrorLog.record({
+          level: failure.terminal ? "error" : "warning",
+          source: `notifications.${failure.channel}`,
+          code: failure.terminal ? "DELIVERY_DEAD_LETTERED" : "DELIVERY_FAILED",
+          message: failure.message,
+        }),
+      },
     );
   context.hostSystem.setAlertSnapshotHandler((snapshot) => {
       if (enqueueHostSystemAlertNotifications(context.database, config, snapshot) > 0) {

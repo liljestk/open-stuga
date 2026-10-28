@@ -17,7 +17,7 @@ export function appleNotesSnapshot(database: ClimateDatabase, houseId: string): 
   const house = database.getHouse(houseId);
   if (!house) throw new HttpError(404, "NOT_FOUND", "House not found");
   const generatedAt = new Date().toISOString();
-  const maintenanceTasks = database.listMaintenanceTasks(houseId);
+  const maintenanceTasks = database.listMaintenanceTasks({ houseId });
   const title = `${notePlainLine(house.name)} maintenance — ${generatedAt.slice(0, 10)} — Stugu`;
   const lines = [
     title,

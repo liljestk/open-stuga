@@ -274,6 +274,16 @@ export interface MeasurementGapRecord {
 }
 
 /** Quality-weighted, bounded buckets used by thermal and moisture models. */
+/** Bucketed history for several sensors and metrics, capped per series. */
+export interface MeasurementHistoryBucketedMultiQuery {
+  sensorIds: readonly string[];
+  metrics: readonly string[];
+  from: string;
+  to: string;
+  bucketSeconds: number;
+  limitPerSeries?: number;
+}
+
 export interface ThermalMeasurementHistoryQuery extends QueryControl {
   sensorId: string;
   metrics: readonly string[];
@@ -282,6 +292,9 @@ export interface ThermalMeasurementHistoryQuery extends QueryControl {
   bucketMinutes?: number;
   limitPerMetric?: number;
 }
+
+/** One sensor's bucketed thermal history; the local reads take the metric from the method. */
+export type ThermalHistoryWindowQuery = Omit<ThermalMeasurementHistoryQuery, "metrics">;
 
 /** Bounded multi-sensor raw window used by shared and derived consumers. */
 export interface MeasurementWindowQuery extends QueryControl {

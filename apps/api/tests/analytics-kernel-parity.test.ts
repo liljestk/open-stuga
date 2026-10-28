@@ -285,8 +285,13 @@ describe("analytics kernel parity between raw aggregation and archive rollups", 
             range: { ...RANGE, timezone: "Europe/Helsinki" },
             resolution, aggregation, qualityFilter: { include }, requestId: label,
           }, Date.parse(GENERATED_AT));
-          const window = local.measurementWindow([scenario.sensorId], [scenario.metric], RANGE.start,
-            new Date(Date.parse(RANGE.end) - 1).toISOString(), 250_000);
+          const window = local.measurementWindow({
+          sensorIds: [scenario.sensorId],
+          metrics: [scenario.metric],
+          from: RANGE.start,
+          to: new Date(Date.parse(RANGE.end) - 1).toISOString(),
+          limit: 250_000,
+        });
           const boundaries = scenario.metric === "temperature" ? [] : local.measurementBoundarySamples({
             sensorId: scenario.sensorId, metric: scenario.metric, from: RANGE.start, to: RANGE.end,
             qualities: include, excludeSynthetic: true,

@@ -352,7 +352,7 @@ describe("Telegram and Apple Notes local automations", () => {
     const retry = await request(runtime!.app).post("/api/v1/integrations/apple-notes/capture")
       .set("Authorization", `Bearer ${token}`).send(command).expect(200);
     expect(retry.body).toMatchObject({ ok: true, deduplicated: true, task: { id: first.body.task.id }, receipt: first.body.receipt });
-    expect(runtime!.database.listMaintenanceTasks("house-main").filter((task) => task.id === first.body.task.id)).toHaveLength(1);
+    expect(runtime!.database.listMaintenanceTasks({ houseId: "house-main" }).filter((task) => task.id === first.body.task.id)).toHaveLength(1);
     expect(runtime!.database.listMaintenanceTaskRevisions(first.body.task.id)).toHaveLength(1);
     await request(runtime!.app).post("/api/v1/integrations/apple-notes/capture")
       .set("Authorization", `Bearer ${token}`).send({ ...command, title: "Different content" }).expect(409)

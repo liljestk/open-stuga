@@ -520,10 +520,10 @@ describe("registry-driven measurements API", () => {
       expect.objectContaining({ timestamp: "2026-07-14T10:01:00.000Z", value: 1200 }),
     ]);
     expect(bucketedRead).toHaveBeenCalledOnce();
-    expect(bucketedRead).toHaveBeenCalledWith(
-      "sensor-01", "co2", new Date(base).toISOString(), new Date(base + 120_000).toISOString(),
-      60, 2, true,
-    );
+    expect(bucketedRead).toHaveBeenCalledWith(expect.objectContaining({
+      sensorId: "sensor-01", metric: "co2", from: new Date(base).toISOString(), to: new Date(base + 120_000).toISOString(),
+      bucketSeconds: 60, limit: 2, excludeSynthetic: true,
+    }));
     expect(rawRead).not.toHaveBeenCalled();
 
     bucketedRead.mockClear();
@@ -548,12 +548,14 @@ describe("registry-driven measurements API", () => {
     // chunks end exclusively on the shared chunk edge.
     expect(rawRead).not.toHaveBeenCalled();
     expect(bucketedRead).toHaveBeenCalledTimes(2);
-    expect(bucketedRead).toHaveBeenNthCalledWith(
-      1, "sensor-01", "co2", new Date(base + 24 * 3_600_000).toISOString(), oversizedTo, 60, 20_001, true,
-    );
-    expect(bucketedRead).toHaveBeenNthCalledWith(
-      2, "sensor-01", "co2", new Date(base).toISOString(), new Date(base + 24 * 3_600_000).toISOString(), 60, 20_001, true, true,
-    );
+    expect(bucketedRead).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      sensorId: "sensor-01", metric: "co2", from: new Date(base + 24 * 3_600_000).toISOString(), to: oversizedTo,
+      bucketSeconds: 60, limit: 20_001, excludeSynthetic: true, toExclusive: false,
+    }));
+    expect(bucketedRead).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      sensorId: "sensor-01", metric: "co2", from: new Date(base).toISOString(), to: new Date(base + 24 * 3_600_000).toISOString(),
+      bucketSeconds: 60, limit: 20_001, excludeSynthetic: true, toExclusive: true,
+    }));
     await request(runtime.app).get("/api/v2/measurements/history").query({
       sensorId: "sensor-01", metric: "co2", bucketSeconds: 0,
     }).expect(400);
@@ -607,7 +609,7 @@ describe("registry-driven measurements API", () => {
     }]);
 
     expect(runtime.database.measurementHistoryBucketed(
-      "sensor-01", "co2", "2026-07-14T10:00:00.000Z", "2026-07-14T10:01:00.000Z", 60,
+      { sensorId: "sensor-01", metric: "co2", from: "2026-07-14T10:00:00.000Z", to: "2026-07-14T10:01:00.000Z", bucketSeconds: 60 },
     )).toEqual([expect.objectContaining({ value: 750, source: "home-assistant", quality: "estimated" })]);
     expect(runtime.database.historyBucketed(
       ["sensor-02"], "2026-07-14T10:00:00.000Z", "2026-07-14T10:01:00.000Z", 60,

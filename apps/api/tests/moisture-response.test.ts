@@ -304,17 +304,21 @@ describe("moisture response comparison", () => {
       }
 
       const climateHistory = runtime.database.thermalClimateHistory(
-        "moisture-api",
-        series.indoor[0]!.timestamp,
-        series.indoor.at(-1)!.timestamp,
+        {
+          sensorId: "moisture-api",
+          from: series.indoor[0]!.timestamp,
+          to: series.indoor.at(-1)!.timestamp,
+        },
       );
       expect(new Set(climateHistory.map((sample) => sample.metric))).toEqual(new Set(["temperature", "humidity"]));
       const boundedClimateHistory = runtime.database.thermalClimateHistory(
-        "moisture-api",
-        series.indoor[0]!.timestamp,
-        series.indoor.at(-1)!.timestamp,
-        5,
-        10,
+        {
+          sensorId: "moisture-api",
+          from: series.indoor[0]!.timestamp,
+          to: series.indoor.at(-1)!.timestamp,
+          bucketMinutes: 5,
+          limitPerMetric: 10,
+        },
       );
       expect(boundedClimateHistory.filter((sample) => sample.metric === "temperature")).toHaveLength(10);
       expect(boundedClimateHistory.filter((sample) => sample.metric === "humidity")).toHaveLength(10);

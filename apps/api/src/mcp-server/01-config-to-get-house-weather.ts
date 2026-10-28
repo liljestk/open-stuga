@@ -75,9 +75,10 @@ export const telemetryReader = new HybridTelemetryReader({
 
 export const energyCost = new EnergyCostService(
   telemetryReader,
-  undefined,
-  (sensorId) => database.getSensor(sensorId)?.energyMeterRole ?? "standalone",
-  databaseTariffContext(database),
+  {
+    meterRole: (sensorId) => database.getSensor(sensorId)?.energyMeterRole ?? "standalone",
+    tariffFor: databaseTariffContext(database),
+  },
 );
 
 export const energyOptimizer = new EnergyOptimizer(database, telemetryReader);

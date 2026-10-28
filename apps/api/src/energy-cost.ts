@@ -102,13 +102,26 @@ export function nullWhenTemporarilyUnavailable(signal?: AbortSignal): (error: un
   };
 }
 
+/** Clock, meter roles and tariffs; each defaults to a standalone meter with no tariff. */
+export interface EnergyCostServiceOptions {
+  now?: () => Date;
+  meterRole?: (sensorId: string) => EnergyMeterRole;
+  tariffFor?: (propertyId: string, houseId: string) => ElectricityTariffContext | null;
+}
+
 export class EnergyCostService {
+  private readonly now: () => Date;
+  private readonly meterRole: (sensorId: string) => EnergyMeterRole;
+  private readonly tariffFor: (propertyId: string, houseId: string) => ElectricityTariffContext | null;
+
   constructor(
     private readonly telemetryReader: HybridTelemetryReader,
-    private readonly now: () => Date = () => new Date(),
-    private readonly meterRole: (sensorId: string) => EnergyMeterRole = () => "standalone",
-    private readonly tariffFor: (propertyId: string, houseId: string) => ElectricityTariffContext | null = () => null,
-  ) {}
+    { now = () => new Date(), meterRole = () => "standalone", tariffFor = () => null }: EnergyCostServiceOptions = {},
+  ) {
+    this.now = now;
+    this.meterRole = meterRole;
+    this.tariffFor = tariffFor;
+  }
 
   #tariff(propertyId: string, houseId: string): ElectricityTariffContext | null {
     try {
