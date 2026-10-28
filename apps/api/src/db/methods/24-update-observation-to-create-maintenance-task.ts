@@ -1,3 +1,4 @@
+import { isOneOf, OBSERVATION_CONFIDENCES, OBSERVATION_SOURCES } from "@climate-twin/contracts";
 import { isSqliteFailure } from "../sqlite-failure.js";
 import { randomUUID } from "node:crypto";
 import type {
@@ -135,12 +136,10 @@ registerDatabaseMethods({
           );
         }
       }
-      if (![
-        "owner", "caretaker", "contractor", "sensor", "imported-document", "automated-analysis", "unknown",
-      ].includes(observation.source)) {
+      if (!isOneOf(observation.source, OBSERVATION_SOURCES)) {
         throw new ClimateDataValidationError(422, "INVALID_OBSERVATION_SOURCE", "Observation source is not supported");
       }
-      if (!["confirmed", "probable", "uncertain", "awaiting-inspection"].includes(observation.confidence)) {
+      if (!isOneOf(observation.confidence, OBSERVATION_CONFIDENCES)) {
         throw new ClimateDataValidationError(422, "INVALID_OBSERVATION_CONFIDENCE", "Observation confidence is not supported");
       }
       if (observation.status === "open") {

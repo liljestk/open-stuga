@@ -1,3 +1,4 @@
+import { isOneOf, MAINTENANCE_TASK_BASES, MAINTENANCE_TASK_PRIORITIES } from "@climate-twin/contracts";
 import { AlertTriangle, CalendarDays, Check, CheckCircle2, ChevronDown, Clock3, Edit3, History, LoaderCircle, Play, Plus, RotateCcw, Search, ShieldCheck, Wrench, X } from "lucide-react";
 import { useEffect, useId, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import type {
@@ -19,10 +20,8 @@ import { useI18n, type TranslationKey } from "../i18n";
 import { localObservationDate } from "../observationTime";
 import "./OperationsPages.css";
 
-const bases: MaintenanceTaskBasis[] = ["required", "scheduled", "condition-based", "predictive", "optional-improvement"];
-const priorities: MaintenanceTaskPriority[] = ["low", "normal", "high", "urgent"];
-type TaskFilter = "active" | "overdue" | "upcoming" | "in-progress" | "completed";
-const taskFilters: TaskFilter[] = ["active", "overdue", "upcoming", "in-progress", "completed"];
+const TASK_FILTERS = ["active", "overdue", "upcoming", "in-progress", "completed"] as const;
+type TaskFilter = (typeof TASK_FILTERS)[number];
 
 interface MaintenanceLocationState {
   filter: TaskFilter;
@@ -36,8 +35,8 @@ function maintenanceStateFromLocation(): MaintenanceLocationState {
   const requestedFilter = params.get("filter");
   const requestedBasis = params.get("basis");
   return {
-    filter: taskFilters.includes(requestedFilter as TaskFilter) ? requestedFilter as TaskFilter : "active",
-    basisFilter: bases.includes(requestedBasis as MaintenanceTaskBasis) ? requestedBasis as MaintenanceTaskBasis : "all",
+    filter: isOneOf(requestedFilter, TASK_FILTERS) ? requestedFilter : "active",
+    basisFilter: isOneOf(requestedBasis, MAINTENANCE_TASK_BASES) ? requestedBasis : "all",
     search: params.get("search")?.trim() ?? "",
   };
 }
@@ -185,8 +184,8 @@ function TaskEditor({ propertyId, houses, defaultHouseId, observations, areas, e
       <label className="field maintenance-title-field"><span>{t("maintenance.taskTitle")}</span><input autoFocus required value={title} disabled={pending} onChange={(event) => setTitle(event.target.value)} placeholder={t("maintenance.taskTitlePlaceholder")} /></label>
       <label className="field"><span>{t("maintenance.description")}</span><textarea rows={3} value={description} disabled={pending} onChange={(event) => setDescription(event.target.value)} placeholder={t("maintenance.descriptionPlaceholder")} /></label>
       <div className="maintenance-form-grid">
-        <label className="field"><span>{t("maintenance.basis")}</span><select value={basis} disabled={pending} onChange={(event) => { const next = event.target.value as MaintenanceTaskBasis; setBasis(next); if (next === "predictive") setDueBy(""); }}>{bases.map((item) => <option key={item} value={item}>{t(`maintenance.basis.${item}` as TranslationKey)}</option>)}</select></label>
-        <label className="field"><span>{t("maintenance.priority")}</span><select value={priority} disabled={pending} onChange={(event) => setPriority(event.target.value as MaintenanceTaskPriority)}>{priorities.map((item) => <option key={item} value={item}>{t(`maintenance.priority.${item}` as TranslationKey)}</option>)}</select></label>
+        <label className="field"><span>{t("maintenance.basis")}</span><select value={basis} disabled={pending} onChange={(event) => { const next = event.target.value as MaintenanceTaskBasis; setBasis(next); if (next === "predictive") setDueBy(""); }}>{MAINTENANCE_TASK_BASES.map((item) => <option key={item} value={item}>{t(`maintenance.basis.${item}` as TranslationKey)}</option>)}</select></label>
+        <label className="field"><span>{t("maintenance.priority")}</span><select value={priority} disabled={pending} onChange={(event) => setPriority(event.target.value as MaintenanceTaskPriority)}>{MAINTENANCE_TASK_PRIORITIES.map((item) => <option key={item} value={item}>{t(`maintenance.priority.${item}` as TranslationKey)}</option>)}</select></label>
         <label className="field"><span>{t("properties.houses")}</span><select value={houseId} disabled={pending} onChange={(event) => { setHouseId(event.target.value); setFloorId(""); setObservationIds([]); }}><option value="">{t("maintenance.wholeProperty")}</option>{task?.houseId && !houses.some((candidate) => candidate.id === task.houseId) && <option value={task.houseId}>{t("properties.inventoryUnknownHome")}</option>}{houses.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name}</option>)}</select></label>
         {selectedHouse && <label className="field"><span>{t("common.floor")}</span><select value={floorId} disabled={pending} onChange={(event) => setFloorId(event.target.value)}><option value="">{selectedHouse.name}</option>{selectedHouse.floors.map((floor) => <option key={floor.id} value={floor.id}>{floor.name}</option>)}</select></label>}
         {areas.length > 0 && <label className="field"><span>{t("properties.areas")}</span><select value={areaId} disabled={pending} onChange={(event) => { setAreaId(event.target.value); setEquipmentId(""); if (event.target.value) setFloorId(""); }}><option value="">{t("maintenance.wholeProperty")}</option>{areas.map((area) => <option key={area.id} value={area.id}>{area.name}</option>)}</select></label>}
@@ -433,7 +432,7 @@ export function MaintenancePage(props: Readonly<MaintenancePageProps>) {
 
     <section className="panel maintenance-workspace" aria-labelledby="maintenance-work-plan-title">
       <div className="maintenance-workspace-heading"><div><span className="eyebrow">{t("maintenance.workPlanEyebrow")}</span><h2 id="maintenance-work-plan-title">{t("maintenance.workPlan")}</h2></div><span>{t("maintenance.activeCount", { count: active.length })}</span></div>
-      <details className="maintenance-filter-disclosure" open={Boolean(search || basisFilter !== "all") || undefined}><summary><Search size={15} aria-hidden="true" /><span><strong>{t("maintenance.filters")}</strong><small>{t("maintenance.filtersHelp")}</small></span><ChevronDown className="disclosure-chevron" size={16} aria-hidden="true" /></summary><div className="operations-toolbar"><label className="field operations-search-field"><span>{t("maintenance.search")}</span><span className="operations-search"><Search size={16} aria-hidden="true" /><input type="search" value={search} onChange={(event) => updateSearch(event.target.value)} placeholder={t("maintenance.searchPlaceholder")} /></span></label><label className="field operations-filter"><span>{t("maintenance.basis")}</span><select value={basisFilter} onChange={(event) => selectBasisFilter(event.target.value as typeof basisFilter)}><option value="all">{t("maintenance.allBases")}</option>{bases.map((basis) => <option key={basis} value={basis}>{t(`maintenance.basis.${basis}` as TranslationKey)}</option>)}</select></label></div></details>
+      <details className="maintenance-filter-disclosure" open={Boolean(search || basisFilter !== "all") || undefined}><summary><Search size={15} aria-hidden="true" /><span><strong>{t("maintenance.filters")}</strong><small>{t("maintenance.filtersHelp")}</small></span><ChevronDown className="disclosure-chevron" size={16} aria-hidden="true" /></summary><div className="operations-toolbar"><label className="field operations-search-field"><span>{t("maintenance.search")}</span><span className="operations-search"><Search size={16} aria-hidden="true" /><input type="search" value={search} onChange={(event) => updateSearch(event.target.value)} placeholder={t("maintenance.searchPlaceholder")} /></span></label><label className="field operations-filter"><span>{t("maintenance.basis")}</span><select value={basisFilter} onChange={(event) => selectBasisFilter(event.target.value as typeof basisFilter)}><option value="all">{t("maintenance.allBases")}</option>{MAINTENANCE_TASK_BASES.map((basis) => <option key={basis} value={basis}>{t(`maintenance.basis.${basis}` as TranslationKey)}</option>)}</select></label></div></details>
       {visible.length === 0 ? <div className="operations-empty"><Wrench size={25} aria-hidden="true" /><strong>{t("maintenance.emptyTitle")}</strong><p>{t("maintenance.emptyDescription")}</p></div> : <div className="maintenance-groups">{group(t("maintenance.verificationNeeded"), verification, <ShieldCheck size={18} aria-hidden="true" />)}{group(t("maintenance.overdue"), overdue, <AlertTriangle size={18} aria-hidden="true" />)}{group(t("maintenance.pastPlanned"), pastPlanned, <Clock3 size={18} aria-hidden="true" />)}{group(t("maintenance.upcoming"), upcoming, <CalendarDays size={18} aria-hidden="true" />)}{group(t("maintenance.unscheduled"), unscheduled, <Clock3 size={18} aria-hidden="true" />)}</div>}
     </section>
     {history.length > 0 && <details className="panel maintenance-history"><summary><span><History size={17} aria-hidden="true" /><span><strong>{t("maintenance.history")}</strong><small>{t("maintenance.historyCount", { count: history.length })}</small></span></span><ChevronDown size={17} aria-hidden="true" /></summary><div>{history.map((task) => <TaskCard key={task.id} task={task} houses={houses} fallbackTimeZone={fallbackTimeZone} observations={observations} areas={areas} equipment={equipment} readOnly={readOnly} onEdit={() => openEditor(task.id)} onUpdate={props.onUpdateTask} onReload={props.onReloadTask} onLoadRevisions={props.onLoadTaskRevisions} />)}</div></details>}

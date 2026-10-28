@@ -1,3 +1,4 @@
+import { ANALYTICS_AGGREGATIONS, isOneOf, SCHEDULED_DATA_EXPORT_FREQUENCIES, SCHEDULED_DATA_EXPORT_PERIODS } from "@climate-twin/contracts";
 import { HttpError } from "./http-error.js";
 import { createHash, randomUUID } from "node:crypto";
 import {
@@ -36,11 +37,6 @@ const MAX_EXPORT_BYTES = 64 * 1024 * 1024;
 const MAX_EXPORT_SOURCE_POINTS = 250_000;
 const EXPORT_POLL_MS = 30_000;
 const PENDING_RUN_TIMEOUT_MS = 2 * 3_600_000;
-const FREQUENCIES: ScheduledDataExportFrequency[] = ["daily", "weekly", "monthly"];
-const PERIODS: ScheduledDataExportPeriod[] = ["24h", "7d", "30d", "90d"];
-const AGGREGATIONS: AnalyticsAggregation[] = [
-  "default", "mean", "sum", "delta", "last", "time_weighted_mean", "min", "max",
-];
 
 interface ScheduledExportRow {
   id: string;
@@ -616,14 +612,15 @@ export class ScheduledDataExportService {
     const name = typeof body.name === "string" ? body.name.trim() : "";
     if (!name || name.length > 120) throw new ScheduledDataExportError(400, "INVALID_SCHEDULED_EXPORT", "Name must contain 1 to 120 characters");
     if (typeof body.enabled !== "boolean") throw new ScheduledDataExportError(400, "INVALID_SCHEDULED_EXPORT", "enabled must be a boolean");
-    if (!FREQUENCIES.includes(body.frequency as ScheduledDataExportFrequency)) throw new ScheduledDataExportError(400, "INVALID_SCHEDULED_EXPORT", "frequency is not supported");
+    const frequency = body.frequency;
+    if (!isOneOf(frequency, SCHEDULED_DATA_EXPORT_FREQUENCIES)) throw new ScheduledDataExportError(400, "INVALID_SCHEDULED_EXPORT", "frequency is not supported");
     if (typeof body.timeLocal !== "string" || !/^(?:[01]\d|2[0-3]):[0-5]\d$/u.test(body.timeLocal)) throw new ScheduledDataExportError(400, "INVALID_SCHEDULED_EXPORT", "timeLocal must use HH:mm");
-    const frequency = body.frequency as ScheduledDataExportFrequency;
     const dayOfWeek = frequency === "weekly" ? Number(body.dayOfWeek) : null;
     const dayOfMonth = frequency === "monthly" ? Number(body.dayOfMonth) : null;
     if (frequency === "weekly" && (dayOfWeek === null || !Number.isSafeInteger(dayOfWeek) || dayOfWeek < 0 || dayOfWeek > 6)) throw new ScheduledDataExportError(400, "INVALID_SCHEDULED_EXPORT", "dayOfWeek must be from 0 to 6");
     if (frequency === "monthly" && (dayOfMonth === null || !Number.isSafeInteger(dayOfMonth) || dayOfMonth < 1 || dayOfMonth > 31)) throw new ScheduledDataExportError(400, "INVALID_SCHEDULED_EXPORT", "dayOfMonth must be from 1 to 31");
-    if (!PERIODS.includes(body.period as ScheduledDataExportPeriod)) throw new ScheduledDataExportError(400, "INVALID_SCHEDULED_EXPORT", "period is not supported");
+    const period = body.period;
+    if (!isOneOf(period, SCHEDULED_DATA_EXPORT_PERIODS)) throw new ScheduledDataExportError(400, "INVALID_SCHEDULED_EXPORT", "period is not supported");
     const sensorIds = Array.isArray(body.sensorIds) ? [...new Set(body.sensorIds)] : [];
     const measurementIds = Array.isArray(body.measurementIds) ? [...new Set(body.measurementIds)] : [];
     if (sensorIds.length < 1 || sensorIds.length > 50 || sensorIds.some((id) => typeof id !== "string")) throw new ScheduledDataExportError(400, "INVALID_SCHEDULED_EXPORT", "Select between 1 and 50 sensors");
@@ -634,12 +631,12 @@ export class ScheduledDataExportService {
     if (definitions.some((definition) => !definition?.enabled || definition.genericHistoryEnabled === false || definition.genericStatsEnabled === false)) throw new ScheduledDataExportError(422, "INVALID_SCHEDULED_EXPORT_SCOPE", "A selected measurement cannot be exported");
     const resolution = typeof body.resolution === "string" ? body.resolution : "";
     if (resolution !== "raw" && resolution !== "1h" && resolution !== "1d" && resolutionMilliseconds(resolution) === null) throw new ScheduledDataExportError(400, "INVALID_SCHEDULED_EXPORT", "resolution is not supported");
-    if (!AGGREGATIONS.includes(body.aggregation as AnalyticsAggregation)) throw new ScheduledDataExportError(400, "INVALID_SCHEDULED_EXPORT", "aggregation is not supported");
-    const aggregation = body.aggregation as AnalyticsAggregation;
+    const aggregation = body.aggregation;
+    if (!isOneOf(aggregation, ANALYTICS_AGGREGATIONS)) throw new ScheduledDataExportError(400, "INVALID_SCHEDULED_EXPORT", "aggregation is not supported");
     if (resolution === "raw" && aggregation !== "default" && aggregation !== "last") throw new ScheduledDataExportError(422, "INVALID_SCHEDULED_EXPORT", "Raw exports cannot use a bucket aggregation");
     if (resolution !== "raw" && definitions.some((definition) => !allowedAggregations(definition!).has(aggregation))) throw new ScheduledDataExportError(422, "INVALID_SCHEDULED_EXPORT", "The selected measurements do not share that aggregation");
     const bucketMs = resolutionMilliseconds(resolution);
-    if (bucketMs && Math.ceil(periodMilliseconds(body.period as ScheduledDataExportPeriod) / bucketMs) + 1 > 5_000) throw new ScheduledDataExportError(422, "SCHEDULED_EXPORT_TOO_LARGE", "Choose a coarser resolution or shorter export period");
+    if (bucketMs && Math.ceil(periodMilliseconds(period) / bucketMs) + 1 > 5_000) throw new ScheduledDataExportError(422, "SCHEDULED_EXPORT_TOO_LARGE", "Choose a coarser resolution or shorter export period");
     const retentionCount = Number(body.retentionCount);
     if (!Number.isSafeInteger(retentionCount) || retentionCount < 1 || retentionCount > 365) throw new ScheduledDataExportError(400, "INVALID_SCHEDULED_EXPORT", "retentionCount must be from 1 to 365");
     const base = {
@@ -649,7 +646,7 @@ export class ScheduledDataExportService {
       timeLocal: body.timeLocal,
       dayOfWeek,
       dayOfMonth,
-      period: body.period as ScheduledDataExportPeriod,
+      period,
       sensorIds: sensorIds as string[],
       measurementIds: measurementIds as string[],
       resolution: resolution as Exclude<AnalyticsResolution, "auto">,

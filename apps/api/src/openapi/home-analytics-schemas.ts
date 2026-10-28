@@ -1,10 +1,9 @@
+import { ANALYTICS_AGGREGATIONS } from "@climate-twin/contracts";
 const dateTime = { type: "string", format: "date-time" } as const;
 const nullableDateTime = { type: ["string", "null"], format: "date-time" } as const;
 const archiveState = { enum: ["not-configured", "not-ready", "merged", "failed"] } as const;
 const completeness = { enum: ["complete", "partial", "unavailable"] } as const;
-const analyticsAggregation = {
-  enum: ["default", "mean", "sum", "delta", "last", "time_weighted_mean", "min", "max"],
-} as const;
+const analyticsAggregation = { enum: ANALYTICS_AGGREGATIONS } as const;
 const resolvedAggregation = {
   enum: ["raw", "mean", "sum", "delta", "last", "time_weighted_mean", "min", "max"],
 } as const;

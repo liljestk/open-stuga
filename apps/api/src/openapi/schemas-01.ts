@@ -1,3 +1,4 @@
+import { ANALYTICS_AGGREGATIONS } from "@climate-twin/contracts";
 import { localAuthSchemas, spatialLayerSchemas } from "./support/index.js";
 
 const minuteAnalyticsResolution = {
@@ -97,7 +98,7 @@ export const schemasPart01 = {
               },
             },
             resolution: analyticsResolution,
-            aggregation: { enum: ["default", "mean", "sum", "delta", "last", "time_weighted_mean", "min", "max"] },
+            aggregation: { enum: ANALYTICS_AGGREGATIONS },
             qualityFilter: {
               type: "object", additionalProperties: false, required: ["include"],
               properties: { include: { type: "array", minItems: 1, maxItems: 3, uniqueItems: true, items: { enum: ["good", "estimated", "stale"] } } },

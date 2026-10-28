@@ -1,3 +1,4 @@
+import { ANALYTICS_AGGREGATIONS, isOneOf } from "@climate-twin/contracts";
 import type {
   AnalyticsAggregation,
   AnalyticsResolution,
@@ -12,9 +13,8 @@ export type QualityPreset = "good" | "reliable" | "all";
 export type AnalyticsTool = "performance" | "openings" | "sensors";
 
 export const ANALYTICS_RESOLUTIONS = ["auto", "raw", "1m", "5m", "15m", "30m", "1h", "1d"] as const satisfies readonly AnalyticsResolution[];
-const ANALYTICS_AGGREGATIONS: AnalyticsAggregation[] = ["default", "mean", "sum", "delta", "last", "time_weighted_mean", "min", "max"];
-const QUALITY_PRESETS: QualityPreset[] = ["good", "reliable", "all"];
-const ANALYTICS_TOOLS: AnalyticsTool[] = ["performance", "openings", "sensors"];
+const QUALITY_PRESETS = ["good", "reliable", "all"] as const satisfies readonly QualityPreset[];
+const ANALYTICS_TOOLS = ["performance", "openings", "sensors"] as const satisfies readonly AnalyticsTool[];
 const ANALYTICS_CHART_PARAMS = ["range", "resolution", "aggregation", "quality", "metric", "sensors", "weather"];
 const DEFAULT_ANALYTICS_STATE = {
   range: "24h",
@@ -43,7 +43,7 @@ export function analyticsToolsFromLocation(): AnalyticsTool[] {
   const params = new URLSearchParams(window.location.search);
   const requested = (params.get("tools") ?? "")
     .split(",")
-    .filter((tool): tool is AnalyticsTool => ANALYTICS_TOOLS.includes(tool as AnalyticsTool));
+    .filter((tool): tool is AnalyticsTool => isOneOf(tool, ANALYTICS_TOOLS));
   const tools = new Set<AnalyticsTool>(requested);
   const hasExplicitHash = ["#performance", "#openings", "#sensors", "#evidence"].includes(window.location.hash);
   if (window.location.hash === "#performance") tools.add("performance");
@@ -93,16 +93,12 @@ export function analyticsStateFromLocation(metricIds: readonly Metric[], sensorI
     ? requestedResolution as AnalyticsResolution
     : DEFAULT_ANALYTICS_STATE.resolution;
   return {
-    range: ANALYTICS_TIME_RANGES.includes(requestedRange as TimeRange)
-      ? requestedRange as TimeRange
-      : DEFAULT_ANALYTICS_STATE.range,
+    range: isOneOf(requestedRange, ANALYTICS_TIME_RANGES) ? requestedRange : DEFAULT_ANALYTICS_STATE.range,
     resolution,
-    aggregation: resolution !== "raw" && ANALYTICS_AGGREGATIONS.includes(requestedAggregation as AnalyticsAggregation)
-      ? requestedAggregation as AnalyticsAggregation
+    aggregation: resolution !== "raw" && isOneOf(requestedAggregation, ANALYTICS_AGGREGATIONS)
+      ? requestedAggregation
       : DEFAULT_ANALYTICS_STATE.aggregation,
-    qualityPreset: QUALITY_PRESETS.includes(requestedQuality as QualityPreset)
-      ? requestedQuality as QualityPreset
-      : DEFAULT_ANALYTICS_STATE.qualityPreset,
+    qualityPreset: isOneOf(requestedQuality, QUALITY_PRESETS) ? requestedQuality : DEFAULT_ANALYTICS_STATE.qualityPreset,
     metric: requestedMetric && metricIds.includes(requestedMetric) ? requestedMetric : defaultMetric,
     selectedSensorIds: requestedSensors === "none"
       ? []

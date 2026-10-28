@@ -1,7 +1,9 @@
 import type { AnalyticsAggregation, AnalyticsResolution } from "./measurement-analytics.js";
 
-export type ScheduledDataExportFrequency = "daily" | "weekly" | "monthly";
-export type ScheduledDataExportPeriod = "24h" | "7d" | "30d" | "90d";
+export const SCHEDULED_DATA_EXPORT_FREQUENCIES = ["daily", "weekly", "monthly"] as const;
+export type ScheduledDataExportFrequency = (typeof SCHEDULED_DATA_EXPORT_FREQUENCIES)[number];
+export const SCHEDULED_DATA_EXPORT_PERIODS = ["24h", "7d", "30d", "90d"] as const;
+export type ScheduledDataExportPeriod = (typeof SCHEDULED_DATA_EXPORT_PERIODS)[number];
 export type ScheduledDataExportRunStatus = "never" | "pending" | "complete" | "failed";
 
 export interface ScheduledDataExport {

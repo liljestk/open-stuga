@@ -1,3 +1,4 @@
+import { ANALYTICS_AGGREGATIONS } from "@climate-twin/contracts";
 import type {
   AnalyticsAggregation,
   AnalyticsSampleQuality,
@@ -240,10 +241,7 @@ export const derivedAnalyticsToolDefinitions = [
           items: { type: "string", minLength: 1, maxLength: 200 },
         },
         aggregation: {
-          enum: [
-            "default", "mean", "sum", "delta", "last",
-            "time_weighted_mean", "min", "max",
-          ],
+          enum: ANALYTICS_AGGREGATIONS,
           default: "default",
         },
         qualities: {

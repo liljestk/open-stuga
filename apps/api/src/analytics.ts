@@ -1,3 +1,4 @@
+import { ANALYTICS_AGGREGATIONS, isOneOf } from "@climate-twin/contracts";
 import { HttpError } from "./http-error.js";
 import {
   counterDelta,
@@ -159,8 +160,8 @@ export function parseAnalyticsQueryRequest(value: unknown, now = Date.now()): An
   }
 
   const resolution = analyticsResolution(body.resolution);
-  const aggregations: AnalyticsAggregation[] = ["default", "mean", "sum", "delta", "last", "time_weighted_mean", "min", "max"];
-  if (!aggregations.includes(body.aggregation as AnalyticsAggregation)) {
+  const aggregation = body.aggregation;
+  if (!isOneOf(aggregation, ANALYTICS_AGGREGATIONS)) {
     throw new AnalyticsQueryError(400, "INVALID_ANALYTICS_AGGREGATION", "aggregation is not supported");
   }
   if (resolution === "raw" && body.aggregation !== "default" && body.aggregation !== "last") {
@@ -202,7 +203,7 @@ export function parseAnalyticsQueryRequest(value: unknown, now = Date.now()): An
     measurementIds: stringList(body.measurementIds, "measurementIds", 8),
     range: { start, end, timezone: validTimezone(rangeBody.timezone) },
     resolution,
-    aggregation: body.aggregation as AnalyticsAggregation,
+    aggregation,
     ...(qualityFilter ? { qualityFilter } : {}),
     include: [...includes] as NonNullable<AnalyticsQueryRequest["include"]>,
     maxPointsPerSeries: maxPoints as number,
