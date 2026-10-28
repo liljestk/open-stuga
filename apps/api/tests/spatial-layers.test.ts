@@ -203,6 +203,29 @@ describe("failure-isolated engine host", () => {
     ]));
   });
 
+  it("describes a fresh scope from in-memory defaults and persists them only when inference runs", async () => {
+    const { runtime, core } = seededRuntime();
+    // Scopes that exist at start-up get their defaults then; a Home added later starts with none stored.
+    const existing = core.listHouses()[0]!;
+    const added = core.createHouse({
+      propertyId: existing.propertyId,
+      name: "Added after start-up",
+      timezone: existing.timezone,
+      floors: [{ id: "floor-added", name: "Ground", width: 8, height: 6, elevation: 0, walls: [], rooms: [] }],
+    });
+    const scope = { kind: "house" as const, id: added.id };
+
+    const overview = await runtime.host.describeScope(scope);
+    runtime.host.health(scope);
+    expect(overview.configuration).toMatchObject({ version: 0, createdBy: "system-default" });
+    expect(runtime.state.getCurrentConfiguration(runtime.host.partition, scope).version).toBe(0);
+    expect(runtime.state.listAssignments(runtime.host.partition, scope)).toEqual([]);
+
+    await runtime.host.inferScope(scope, "2035-01-01T12:00:00.000Z");
+    expect(runtime.state.getCurrentConfiguration(runtime.host.partition, scope).version).toBe(1);
+    expect(runtime.state.listAssignments(runtime.host.partition, scope).length).toBeGreaterThan(0);
+  });
+
   it("threads cancellation through current topology descriptions", async () => {
     const { runtime, core } = seededRuntime();
     const house = core.listHouses()[0]!;
