@@ -63,5 +63,10 @@ export default defineConfig({
     // Large jsdom suites can oversubscribe high-core local release hosts and
     // time out midway through user-event input, cascading into later tests.
     maxWorkers: 4,
+    coverage: {
+      // A floor just under the measured figures, so `npm run test:coverage`
+      // (and ci:local) fails when new code lands untested. Raise it as gaps close.
+      thresholds: { statements: 80, lines: 84, branches: 73, functions: 78 },
+    },
   },
 });
