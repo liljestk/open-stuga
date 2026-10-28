@@ -1,3 +1,4 @@
+import { decodeTelemetryEvent } from "./telemetry-events";
 import type {
   MeasurementSample,
   TelemetryEvent,
@@ -20,8 +21,8 @@ type ApiEventStreamListener = (message: MessageEvent<string>, reportReconnecting
 interface ApiEventStreamOptions {
   onState: (state: ApiEventStreamState) => void;
   onOpen?: (() => void) | undefined;
-  /** Handles unnamed messages (`onmessage`). */
-  onMessage: ApiEventStreamListener;
+  /** Handles unnamed messages (`onmessage`); Stugu streams name every event. */
+  onMessage?: ApiEventStreamListener;
   /** Handlers for named events, keyed by event type. */
   listeners: Record<string, ApiEventStreamListener>;
 }
@@ -53,7 +54,7 @@ function openApiEventStream(url: string, options: ApiEventStreamOptions): () => 
     }, STREAM_STABILITY_DELAY_MS);
   };
   source.onerror = () => reportReconnecting();
-  source.onmessage = (message) => onMessage(message, reportReconnecting);
+  if (onMessage) source.onmessage = (message) => onMessage(message, reportReconnecting);
   for (const [type, listener] of Object.entries(listeners)) {
     source.addEventListener(type, (message) => listener(message as MessageEvent<string>, reportReconnecting));
   }
@@ -101,9 +102,8 @@ export function subscribeToMeasurementEvents(
 ): () => void {
   const consume = (message: MessageEvent<string>) => {
     try {
-      const parsed = JSON.parse(message.data) as MeasurementSample | { data?: MeasurementSample };
-      const sample = "data" in parsed && parsed.data ? parsed.data : parsed as MeasurementSample;
-      if (sample && typeof sample.sensorId === "string" && typeof sample.metric === "string" && Number.isFinite(sample.value)) onSample(sample);
+      const event = decodeTelemetryEvent("measurement", JSON.parse(message.data));
+      if (event?.type === "measurement") onSample(event.data);
     } catch {
       // A malformed sample is ignored; the stream remains connected.
     }
@@ -111,7 +111,6 @@ export function subscribeToMeasurementEvents(
   return openApiEventStream(`${API_V2_BASE}/measurements/events`, {
     onState,
     onOpen,
-    onMessage: consume,
     listeners: { measurement: consume },
   });
 }
@@ -121,11 +120,10 @@ export function subscribeToEvents(
   onState: (state: "live" | "reconnecting") => void,
   onOpen?: () => void,
 ): () => void {
-  const consume = (message: MessageEvent<string>, forcedType?: TelemetryEvent["type"]) => {
+  const consume = (message: MessageEvent<string>, type: TelemetryEvent["type"]) => {
     try {
-      const parsed = JSON.parse(message.data) as TelemetryEvent | TelemetryEvent["data"];
-      if (parsed && typeof parsed === "object" && "type" in parsed && "data" in parsed) onEvent(parsed as TelemetryEvent);
-      else if (forcedType) onEvent({ type: forcedType, data: parsed as TelemetryEvent["data"] } as TelemetryEvent);
+      const event = decodeTelemetryEvent(type, JSON.parse(message.data));
+      if (event) onEvent(event);
     } catch {
       // A malformed event is ignored; the stream remains connected.
     }
@@ -134,7 +132,6 @@ export function subscribeToEvents(
   return openApiEventStream(`${API_BASE}/events`, {
     onState,
     onOpen,
-    onMessage: (message) => consume(message),
     listeners: Object.fromEntries(eventTypes.map((type): [string, ApiEventStreamListener] => [
       type,
       (message) => consume(message, type),

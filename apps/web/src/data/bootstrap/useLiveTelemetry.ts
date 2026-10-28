@@ -278,15 +278,15 @@ export function useLiveTelemetry(
         setState((current) => current.houses.some((house) => house.id === event.data.houseId)
           ? { ...current, latestOpeningStateObservation: event.data }
           : current);
-      } else if (event.type === "reading" && "temperature" in event.data && "humidity" in event.data) {
+      } else if (event.type === "reading") {
         queueLiveReading(event.data);
-      } else if (event.type === "alert" && "ruleId" in event.data) {
+      } else if (event.type === "alert") {
         const alert = event.data;
         globalFieldVersions.current.alerts += 1;
         setState((current) => ({ ...current, alerts: [alert, ...current.alerts.filter((item) => item.id !== alert.id)] }));
-      } else if (event.type === "integration" && "homeAssistant" in event.data) {
-        applyLiveIntegration(event.data as ClimateState["integration"]);
-      } else if (event.type === "weather" && event.data.type === "weather.snapshot") {
+      } else if (event.type === "integration") {
+        applyLiveIntegration(event.data);
+      } else if (event.type === "weather") {
         publishHouseWeatherUpdate(event.data);
       }
     }, [applyLiveIntegration, queueLiveReading, scheduleMutationRefresh]);
