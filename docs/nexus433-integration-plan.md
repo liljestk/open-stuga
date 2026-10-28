@@ -90,6 +90,17 @@ greater than 10 °C or 25 humidity points within 120 seconds is quarantined
 until a second packet agrees within 1 °C and 3 humidity points within 180
 seconds. Receipt time is authoritative because Nexus packets have no clock.
 
+Frames are therefore not queued or replayed. The broker keeps no persistence
+and the API subscribes with a clean session at QoS 0, so a frame published
+while the API is stopped, restarting, or reconnecting to the broker is lost,
+and the bound Sensor's history has a gap as long as the outage. A persistent
+session would not recover those frames correctly: without a source clock they
+would be stamped with the reconnect time, and the ten-second acceptance
+interval would keep only the first frame of each sender's backlog. Replay would
+need the decoder to stamp each frame with its decode time and the parser to
+accept that bounded source time. Sensor-gap recovery handles only Home
+Assistant and direct TP-Link gaps, so it does not backfill Nexus frames either.
+
 An accepted packet commits its legacy Reading, paired temperature/humidity
 measurement samples, and alert queue work in one SQLite transaction. SSE is
 published only after commit. Numeric battery percentage remains `null` because

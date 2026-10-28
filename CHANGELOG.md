@@ -19,6 +19,11 @@ Electricity costs and analytics answer much faster, especially late in the day.
 - Repeated Analytics and export previews within the same minute reuse the server's cached answer.
 - Upgrade impact: application-only update. The TimescaleDB archive gains two nullable columns (`sealed_until` on the ordered-state tables, schema migration 9), applied automatically when the API starts. Today's states are built in the background, so the first visit after an update or after midnight UTC still reads today raw until they are ready. Nothing waits for them.
 
+## 0.52.1
+
+- Document that 433 MHz (Nexus433) readings sent while the API is stopped, restarting or reconnecting to its private MQTT broker are not queued or replayed. Nexus packets carry no clock, so a replayed reading would get the wrong time; the Sensor shows a gap as long as the outage instead. The Nexus433 guide explains why a persistent MQTT session would not fix this, and the architecture's recommended failure behaviour now says the same.
+- Upgrade impact: none. Only documentation changes; the API, web app, database, configuration, Compose and host trust are unchanged.
+
 ## 0.52.0
 
 A code-health release: most of the work restructures the API and web app, with a few fixes and stricter behaviour you may notice.

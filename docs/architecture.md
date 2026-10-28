@@ -692,6 +692,10 @@ Recommended failure behaviour:
 7. Supervise each Tuya LAN worker independently, serialize its bounded command
    queue, preserve the last confirmed state on failure, and recover a changed
    address only after the same device key and profile authenticate.
+8. Drop, rather than replay, Nexus433 frames published while the API is not
+   subscribed. They carry no source clock, so a replayed frame would get the
+   wrong time; the Sensor keeps an honest gap instead (see
+   [Nexus433 integration](nexus433-integration-plan.md)).
 
 The production weather monitor runs only with background services enabled. It
 refreshes located homes in non-overlapping cycles with concurrency two, startup
