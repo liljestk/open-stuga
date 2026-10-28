@@ -58,6 +58,8 @@ export function createExternalFeedServices(context: IntegrationBridges) {
   const removeWeatherTelemetryBridge = weatherEvents.subscribe((event) => {
       context.bus.publish({ type: "weather", data: event });
     });
+  context.disposers.releaseOnClose(removeWeatherProjector);
+  context.disposers.releaseOnClose(removeWeatherTelemetryBridge);
   const weatherMonitor = new WeatherMonitor({
       houses: context.database,
       weather,
@@ -93,7 +95,7 @@ export function createExternalFeedServices(context: IntegrationBridges) {
         );
       },
     });
-  return Object.assign(context, { electricityPrices, locationDiscovery, weatherProvider, weatherRecovery, weather, weatherEvents, removeWeatherProjector, removeWeatherTelemetryBridge, weatherMonitor });
+  return Object.assign(context, { electricityPrices, locationDiscovery, weatherProvider, weatherRecovery, weather, weatherEvents, weatherMonitor });
 }
 
 export type ExternalFeedServices = ReturnType<typeof createExternalFeedServices>;

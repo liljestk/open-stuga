@@ -1,3 +1,4 @@
+import { RuntimeDisposers } from "./runtime-disposers.js";
 import { reportBackgroundFailure } from "../system-error-log.js";
 import type {
   TrackingFeatureFlags,
@@ -222,7 +223,7 @@ export function createCoreDataServices(context: ApiConfigContext) {
     telegramDeliveryGeneration: 0,
     telegramConfigurationGeneration: 0,
   };
-  const extended = Object.assign(context, { runtimeState, database, systemErrorLog, trackingFlags, trackingStore, tracking, systemUpdates, systemStorage, hostDatabaseMetrics, hostSystem, cloudflareSetup, dataOperations, energyOptimizer, integrationMetadata, localAuth, recordSecurityAudit, cloudflareAccess, authAbuseLimiter, trackingObserverAbuseLimiter, dataMode, bus, stuguby, assertSensorHouseMoveAllowed });
+  const extended = Object.assign(context, { disposers: new RuntimeDisposers(), runtimeState, database, systemErrorLog, trackingFlags, trackingStore, tracking, systemUpdates, systemStorage, hostDatabaseMetrics, hostSystem, cloudflareSetup, dataOperations, energyOptimizer, integrationMetadata, localAuth, recordSecurityAudit, cloudflareAccess, authAbuseLimiter, trackingObserverAbuseLimiter, dataMode, bus, stuguby, assertSensorHouseMoveAllowed });
   return extended;
 }
 

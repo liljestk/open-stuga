@@ -92,8 +92,8 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
   registerMeasurementIngestRoutes(context);
   registerMeasurementHistoryRoutes(context);
   registerPropertyRoutes(context);
-  const stopElectricity = registerElectricityRoutes(context);
-  const stopEnergyOptimization = registerEnergyOptimizationRoute(context);
+  context.disposers.stopOnShutdown(registerElectricityRoutes(context));
+  context.disposers.stopOnShutdown(registerEnergyOptimizationRoute(context));
   registerPropertyAreaRoutes(context);
   registerAreaEquipmentRoutes(context);
   registerPropertyNoteRoutes(context);
@@ -111,11 +111,12 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
   registerMaintenanceTaskRoutes(context);
   registerGreeRoutes(context);
   registerTuyaRoutes(context);
-  const removeAnalyticsCacheWake = registerAnalyticsRoutes(context);
+  context.disposers.releaseOnClose(registerAnalyticsRoutes(context));
   registerStaticParameterRoutes(context);
   registerAssetRoutes(context);
   registerIntegrationStatusRoutes(context);
   const integrationDiscoveryJobs = registerIntegrationDiscoveryRoutes(context);
+  context.disposers.stopOnShutdown(() => integrationDiscoveryJobs.stop());
   registerTelegramRoutes(context);
   registerAppleNotesRoutes(context);
   registerHomeAssistantRoutes(context);
@@ -126,25 +127,8 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
   registerSpatialLayerApiRoutes(context);
   registerApiErrorHandling(context);
 
+  context.disposers.stopOnShutdown(async () => { await localMcpRuntime.stop().catch(() => undefined); });
   const runtimeReady = startTelemetryArchive(context);
   startBackgroundServices(context);
-  const runtime = buildApiRuntime(context, {
-    runtimeReady,
-    ...createApiShutdown(context, { integrationDiscoveryJobs, removeAnalyticsCacheWake }),
-  });
-  const stopLocalMcp = async (): Promise<void> => {
-    stopEnergyOptimization();
-    stopElectricity();
-    await localMcpRuntime.stop().catch(() => undefined);
-  };
-  return {
-    ...runtime,
-    beginShutdown: async () => {
-      await Promise.all([runtime.beginShutdown(), stopLocalMcp()]);
-    },
-    close: async () => {
-      await stopLocalMcp();
-      await runtime.close();
-    },
-  };
+  return buildApiRuntime(context, { runtimeReady, ...createApiShutdown(context) });
 }

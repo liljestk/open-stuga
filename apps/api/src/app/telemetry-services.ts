@@ -198,8 +198,8 @@ export function createTelemetryServices(context: CoreDataServices) {
         "Resources with real telemetry cannot be moved or deleted until immutable historical ownership context is available; disable the resource instead",
       );
     };
-  const removeSnapshotMeasurementWake = withTelemetry.bus.subscribeMeasurements(invalidateSnapshotCaches);
-  return Object.assign(withTelemetry, { invalidateSnapshotCaches, cachedLatestMeasurements, cachedLatestReadings, requireArchivedBeforeCascade, requireImmutableTelemetryLineage, removeSnapshotMeasurementWake });
+  withTelemetry.disposers.releaseOnClose(withTelemetry.bus.subscribeMeasurements(invalidateSnapshotCaches));
+  return Object.assign(withTelemetry, { invalidateSnapshotCaches, cachedLatestMeasurements, cachedLatestReadings, requireArchivedBeforeCascade, requireImmutableTelemetryLineage });
 }
 
 export type TelemetryServices = ReturnType<typeof createTelemetryServices>;

@@ -28,6 +28,9 @@ export function createRuntimeCoordination(context: ExternalFeedServices) {
   const removeNotificationWake = context.bus.subscribe((event) => {
       if (event.type === "alert" && event.data.resolvedAt === null) context.notificationOutbox.wake();
     });
+  context.disposers.releaseOnClose(removeSnapshotMutationWake);
+  context.disposers.releaseOnClose(removeSpatialLayerWake);
+  context.disposers.releaseOnClose(removeNotificationWake);
   context.notificationOutbox.start();
   // Keep the production build independent of the contracts package's TypeScript source export.
     const prefix = "/api/v1" as const;
@@ -214,7 +217,7 @@ export function createRuntimeCoordination(context: ExternalFeedServices) {
       if (request.method === "OPTIONS") { response.status(204).end(); return; }
       next();
     });
-  const extended = Object.assign(context, { app, removeSnapshotMutationWake, removeSpatialLayerWake, removeNotificationWake, prefix, v2Prefix, activeEventStreams, activeEventStreamsByUser, homeAssistantConfigurationGenerations, tpLinkConfigurationGenerations, synchronizeCloudflareAccess, integrationStatusForHouse, assertTpLinkConnectionScope, acquireEventStream, rejectEventStreamDuringShutdown, registerEventStream });
+  const extended = Object.assign(context, { app, prefix, v2Prefix, activeEventStreams, activeEventStreamsByUser, homeAssistantConfigurationGenerations, tpLinkConfigurationGenerations, synchronizeCloudflareAccess, integrationStatusForHouse, assertTpLinkConnectionScope, acquireEventStream, rejectEventStreamDuringShutdown, registerEventStream });
   return extended;
 }
 

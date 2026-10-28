@@ -1,14 +1,7 @@
 import { reportBackgroundFailure } from "../system-error-log.js";
 import { startArchiveMaintenance } from "../timeseries/archive-maintenance.js";
-import type { IntegrationDiscoveryJobs } from "../integration-discovery-jobs.js";
 import type { ApiRuntime } from "./support/index.js";
 import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
-
-/** Handles owned by route modules that shutdown must release. */
-export interface RouteLifecycleHandles {
-  integrationDiscoveryJobs: IntegrationDiscoveryJobs;
-  removeAnalyticsCacheWake: () => void;
-}
 
 /**
  * Starts TimescaleDB archive maintenance when background work is enabled.
@@ -31,93 +24,83 @@ export function startTelemetryArchive(context: ApiRouteRegistrationContext): Pro
   return ready;
 }
 
-/** Starts every background service when the runtime was created with startBackground. */
-export function startBackgroundServices(context: ApiRouteRegistrationContext): void {
-  if (!context.options.startBackground) return;
-  context.tracking.start();
-  context.systemUpdates.start();
-  context.hostSystem.start();
-  context.stuguby?.start();
-  context.cloudflareAccess?.start();
-  context.alertEngine.start();
-  context.mock.start();
-  context.homeAssistant.start();
-  context.tpLink.start();
-  context.gree.start();
-  context.tuya.start();
-  context.nexus433.start();
-  context.tapoHistory.start();
-  if (context.config.sensorGapRecoveryEnabled) context.sensorGapRecovery?.start();
-  context.electricityPrices.start();
-  context.weatherMonitor.start();
-  if (context.config.dailyAnalyticsFindingsEnabled) context.dailyAnalyticsFindings.start();
-  context.derivedAnalytics.start();
-  context.scheduledDataExports.start();
-  context.notifySpatial((runtime) => runtime.start());
+interface BackgroundService {
+  /** Absent for work started elsewhere or only stopped here. */
+  start?: () => void;
+  stop: () => void | Promise<void>;
 }
 
-/**
- * beginShutdown stops background work and closes live streams; close also
- * removes the internal wakes and closes the database. Both are idempotent.
- */
-export function createApiShutdown(
-  context: ApiRouteRegistrationContext,
-  handles: RouteLifecycleHandles,
-): Pick<ApiRuntime, "beginShutdown" | "close"> {
-  const beginShutdown = (): Promise<void> => {
-    if (context.runtimeState.shutdownPromise) return context.runtimeState.shutdownPromise;
-    context.runtimeState.shutdownStarted = true;
-    context.tracking.stop();
-    context.alertEngine.stop();
-    context.systemUpdates.stop();
-    context.hostSystem.stop();
-    context.mock.stop();
-    context.replay.stop();
-    const stoppingStuguby = context.stuguby?.stop() ?? Promise.resolve();
-    const stoppingSensorGapRecovery = context.sensorGapRecovery?.stop() ?? Promise.resolve();
-    const stoppingTapoHistory = context.tapoHistory.stop();
-    context.homeAssistant.stop();
-    context.tpLink.stop();
-    context.gree.stop();
-    context.tuya.stop();
-    const stoppingNexus433 = context.nexus433.stop();
-    handles.integrationDiscoveryJobs.stop();
-    context.electricityPrices.stop();
-    context.weatherMonitor.stop();
-    const stoppingDailyAnalyticsFindings = context.dailyAnalyticsFindings.stop();
-    const stoppingDerivedAnalytics = context.derivedAnalytics.stop();
-    context.scheduledDataExports.stop();
-    for (const closeStream of [...context.activeEventStreams]) closeStream(true);
-    context.runtimeState.shutdownPromise = Promise.all([
-      context.notificationOutbox.stop(),
-      stoppingStuguby,
-      context.cloudflareAccess?.stop() ?? Promise.resolve(),
-      context.cloudflareSetup.stop(),
-      stoppingSensorGapRecovery,
-      stoppingTapoHistory,
-      stoppingNexus433,
-      context.weatherRecovery.stop(),
-      stoppingDailyAnalyticsFindings,
-      stoppingDerivedAnalytics,
-      context.spatialLayers?.stop() ?? Promise.resolve(),
-      Promise.all([
+/** Every background service once, with how it starts and how it stops. */
+function backgroundServices(context: ApiRouteRegistrationContext): BackgroundService[] {
+  const { config } = context;
+  return [
+    { start: () => context.tracking.start(), stop: () => context.tracking.stop() },
+    { start: () => context.alertEngine.start(), stop: () => context.alertEngine.stop() },
+    { start: () => context.systemUpdates.start(), stop: () => context.systemUpdates.stop() },
+    { start: () => context.hostSystem.start(), stop: () => context.hostSystem.stop() },
+    { start: () => context.mock.start(), stop: () => context.mock.stop() },
+    { stop: () => { context.replay.stop(); } },
+    { start: () => context.stuguby?.start(), stop: () => context.stuguby?.stop() },
+    {
+      start: () => { if (config.sensorGapRecoveryEnabled) context.sensorGapRecovery?.start(); },
+      stop: () => context.sensorGapRecovery?.stop(),
+    },
+    { start: () => context.tapoHistory.start(), stop: () => context.tapoHistory.stop() },
+    { start: () => context.homeAssistant.start(), stop: () => context.homeAssistant.stop() },
+    { start: () => context.tpLink.start(), stop: () => context.tpLink.stop() },
+    { start: () => context.gree.start(), stop: () => context.gree.stop() },
+    { start: () => context.tuya.start(), stop: () => context.tuya.stop() },
+    { start: () => context.nexus433.start(), stop: () => context.nexus433.stop() },
+    { start: () => context.electricityPrices.start(), stop: () => context.electricityPrices.stop() },
+    { start: () => context.weatherMonitor.start(), stop: () => context.weatherMonitor.stop() },
+    {
+      start: () => { if (config.dailyAnalyticsFindingsEnabled) context.dailyAnalyticsFindings.start(); },
+      stop: () => context.dailyAnalyticsFindings.stop(),
+    },
+    { start: () => context.derivedAnalytics.start(), stop: () => context.derivedAnalytics.stop() },
+    { start: () => context.scheduledDataExports.start(), stop: () => context.scheduledDataExports.stop() },
+    // The outbox starts with the runtime coordination, setup and recovery on demand.
+    { stop: () => context.notificationOutbox.stop() },
+    { start: () => context.cloudflareAccess?.start(), stop: () => context.cloudflareAccess?.stop() },
+    { stop: () => context.cloudflareSetup.stop() },
+    { stop: () => context.weatherRecovery.stop() },
+    { start: () => context.notifySpatial((runtime) => runtime.start()), stop: () => context.spatialLayers?.stop() },
+    {
+      stop: () => Promise.all([
         context.telemetryRetention?.stop() ?? Promise.resolve(),
         context.telemetryOrderedRollups?.stop() ?? Promise.resolve(),
       ]).then(() => context.telemetryArchive?.stop()),
-    ]).then(() => undefined);
-    return context.runtimeState.shutdownPromise;
+    },
+  ];
+}
+
+/** Registers every background service's stop, and starts them when the runtime runs background work. */
+export function startBackgroundServices(context: ApiRouteRegistrationContext): void {
+  for (const service of backgroundServices(context)) {
+    context.disposers.stopOnShutdown(service.stop);
+    if (context.options.startBackground) service.start?.();
+  }
+}
+
+/**
+ * beginShutdown stops everything registered with the runtime's disposers and
+ * closes live streams; close also releases the internal wakes and closes the
+ * database. Both are idempotent.
+ */
+export function createApiShutdown(context: ApiRouteRegistrationContext): Pick<ApiRuntime, "beginShutdown" | "close"> {
+  const beginShutdown = (): Promise<void> => {
+    if (context.runtimeState.shutdownPromise) return context.runtimeState.shutdownPromise;
+    context.runtimeState.shutdownStarted = true;
+    const stopping = context.disposers.stopAll();
+    for (const closeStream of [...context.activeEventStreams]) closeStream(true);
+    context.runtimeState.shutdownPromise = stopping;
+    return stopping;
   };
   const close = (): Promise<void> => {
     if (context.runtimeState.closePromise) return context.runtimeState.closePromise;
     if (context.runtimeState.closed) return Promise.resolve();
     context.runtimeState.closed = true;
-    context.removeSnapshotMutationWake();
-    context.removeSnapshotMeasurementWake();
-    context.removeNotificationWake();
-    context.removeSpatialLayerWake();
-    handles.removeAnalyticsCacheWake();
-    context.removeWeatherTelemetryBridge();
-    context.removeWeatherProjector();
+    context.disposers.releaseAll();
     context.runtimeState.closePromise = beginShutdown().then(() => { context.database.close(); });
     return context.runtimeState.closePromise;
   };
