@@ -4,7 +4,7 @@ import type {
   BugReportRelayInput,
   BugReportRelaySettings,
 } from "@climate-twin/contracts";
-import { request } from "./support";
+import { request } from "./support/request";
 
 export const bugReportApi = {
   reportBug: (input: BugReportInput): Promise<BugReportReceipt> => request("/bug-reports", {

@@ -1,23 +1,11 @@
-import { SYSTEM_UPDATE_WORKFLOW_PHASES } from "@climate-twin/contracts";
-import type {
-  AppSession,
-  House,
-  TenantMemberSummary,
-  TrackingEvent,
-} from "@climate-twin/contracts";
-import { ResponseShapeError } from "@climate-twin/contracts";
-import {
-  type SpatialLayerConfigurationResponse,
-  type SpatialTopology,
-} from "../../spatialLayers";
-import { publishAuthEpoch } from "../../authEpoch";
+import { type House, ResponseShapeError } from "@climate-twin/contracts";
+import type { SpatialLayerConfigurationResponse, SpatialTopology } from "../../spatialLayers";
 import { recordApiError } from "../../bugReportDiagnostics";
 import { API_RUNTIME_VERSION_HEADER, assertApiRuntimeVersion } from "../../apiRuntimeVersion";
-import type { HouseGeoreferencePatch } from "./part-01";
-import { API_BASE, API_REQUEST_TIMEOUT_MS, API_V2_BASE, COLLECTION_PAGE_SIZE, SAFE_HTTP_METHODS, apiClientState, apiRequestGeneration, assertSafeApiPath, authorizationChange, notifyAuthorizationChange, trackApiRequestController } from "./part-02";
 import { ApiRequestError } from "./request-error";
 import { acquireApiRequestSlot, type ApiRequestInit } from "./requestScheduler";
-import type { SystemUpdateLiveStatus } from "./part-02";
+import { API_BASE, API_REQUEST_TIMEOUT_MS, API_V2_BASE, COLLECTION_PAGE_SIZE, SAFE_HTTP_METHODS, apiClientState, apiRequestGeneration, assertSafeApiPath, notifyAuthorizationChange, trackApiRequestController } from "./client-state";
+import type { HouseGeoreferencePatch } from "./response-types";
 
 export async function requestFrom<T>(
   base: string,
@@ -184,139 +172,10 @@ export function spatialConfigurationResponse(value: unknown): SpatialLayerConfig
   };
 }
 
-export function memberSummary(value: TenantMemberSummary): TenantMemberSummary {
-  return { ...value, email: value.email.trim().toLowerCase(), grants: Array.isArray(value.grants) ? value.grants : [] };
-}
-
-export function rememberSession(session: AppSession & { systemVersion?: unknown }): AppSession {
-  assertApiRuntimeVersion(typeof session.systemVersion === "string" ? session.systemVersion : null, true);
-  apiClientState.csrfToken = session.authenticated && typeof session.csrfToken === "string" && session.csrfToken
-    ? session.csrfToken
-    : null;
-  return { ...session, availableTenants: [session.tenant] };
-}
-
-export async function completeAuthentication(promise: Promise<AppSession>): Promise<AppSession> {
-  const session = rememberSession(await promise);
-  publishAuthEpoch();
-  return session;
-}
-
 export async function updateHouseGeoreference(houseId: string, patch: HouseGeoreferencePatch): Promise<House> {
   const response = await request<{ house: House }>(`/houses/${encodeURIComponent(houseId)}`, {
     method: "PATCH",
     body: JSON.stringify(patch),
   });
   return response.house;
-}
-
-const systemUpdateWorkflowPhases: ReadonlySet<string> = new Set(SYSTEM_UPDATE_WORKFLOW_PHASES);
-
-export function subscribeToSystemUpdateEvents(
-  onStatus: (status: SystemUpdateLiveStatus) => void,
-  onState: (state: "live" | "reconnecting") => void,
-): () => void {
-  const source = new EventSource(`${API_BASE}/system/updates/events`, { withCredentials: true });
-  const consume = (message: MessageEvent<string>) => {
-    try {
-      const status = JSON.parse(message.data) as SystemUpdateLiveStatus;
-      if (
-        !status
-        || typeof status !== "object"
-        || typeof status.currentVersion !== "string"
-        || (status.latestVersion !== null && typeof status.latestVersion !== "string")
-        || typeof status.updateAvailable !== "boolean"
-        || !status.capability
-        || typeof status.capability !== "object"
-        || (status.schema !== undefined && status.schema !== "stugu-system-updates/v2")
-        || (status.revision !== undefined && (!Number.isSafeInteger(status.revision) || status.revision < 0))
-        || (status.operation !== null && typeof status.operation !== "object")
-        || (status.application !== undefined && (status.application === null || typeof status.application !== "object"))
-        || (status.host !== undefined && status.host !== null && typeof status.host !== "object")
-        || (status.workflow !== undefined && status.workflow !== null && typeof status.workflow !== "object")
-      ) return;
-      if (status.workflow && (
-        typeof status.workflow.id !== "string"
-        || !Number.isSafeInteger(status.workflow.revision)
-        || typeof status.workflow.phase !== "string"
-        || !systemUpdateWorkflowPhases.has(status.workflow.phase)
-        || !status.workflow.targets
-        || typeof status.workflow.targets !== "object"
-      )) return;
-      const ready = status.host?.readyToRestart;
-      if (ready && (
-        typeof ready.operationId !== "string"
-        || typeof ready.targetVersion !== "string"
-        || !Number.isSafeInteger(ready.targetGeneration)
-        || ready.targetGeneration < 0
-        || typeof ready.targetDigest !== "string"
-      )) return;
-      onStatus(status);
-    } catch {
-      // Keep the last validated update state while the server reconnects.
-    }
-  };
-  source.onopen = () => onState("live");
-  source.onerror = () => onState("reconnecting");
-  source.onmessage = consume;
-  source.addEventListener("system-update", (message) => consume(message as MessageEvent<string>));
-  source.addEventListener("authorization", (message) => {
-    source.close();
-    onState("reconnecting");
-    notifyAuthorizationChange(authorizationChange(message as MessageEvent<string>));
-  });
-  return () => source.close();
-}
-
-export const TRACKING_EVENT_TYPES: readonly TrackingEvent["type"][] = [
-  "equipment.position.updated",
-  "equipment.zone.changed",
-  "equipment.movement.started",
-  "equipment.movement.stopped",
-  "equipment.property.exited",
-  "equipment.property.entered",
-  "endpoint.battery.low",
-  "endpoint.not_seen",
-  "gateway.online",
-  "gateway.offline",
-  "member.location.updated",
-  "member.location.stopped",
-];
-
-export function subscribeToTrackingEvents(
-  propertyId: string,
-  onRefresh: (event: TrackingEvent | null) => void,
-  onState: (state: "live" | "reconnecting") => void,
-): () => void {
-  const source = new EventSource(
-    `${API_BASE}/properties/${encodeURIComponent(propertyId)}/tracking-stream`,
-    { withCredentials: true },
-  );
-  const consume = (message: MessageEvent<string>) => {
-    try {
-      const event = JSON.parse(message.data) as TrackingEvent;
-      if (
-        !event
-        || event.propertyId !== propertyId
-        || !TRACKING_EVENT_TYPES.includes(event.type)
-        || !Number.isSafeInteger(event.sequence)
-      ) return;
-      onRefresh(event);
-    } catch {
-      // Preserve the last complete map snapshot when an event is malformed.
-    }
-  };
-  source.onopen = () => onState("live");
-  source.onerror = () => onState("reconnecting");
-  TRACKING_EVENT_TYPES.forEach((type) => {
-    source.addEventListener(type, (message) => consume(message as MessageEvent<string>));
-  });
-  source.addEventListener("ready", () => onState("live"));
-  source.addEventListener("snapshot-required", () => onRefresh(null));
-  source.addEventListener("authorization", (message) => {
-    source.close();
-    onState("reconnecting");
-    notifyAuthorizationChange(authorizationChange(message as MessageEvent<string>));
-  });
-  return () => source.close();
 }

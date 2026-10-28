@@ -1,17 +1,5 @@
-import type {
-  House,
-  HouseLocation,
-  HouseMapPlacement,
-  MeasurementSample,
-  OutdoorTemperatureSample,
-  Sensor,
-} from "@climate-twin/contracts";
-import type {
-  StugubyInvitation,
-  StugubyMember,
-  StugubyNodeIdentity,
-  StugubySummary,
-} from "@climate-twin/stuguby-protocol";
+import type { House, HouseLocation, HouseMapPlacement, MeasurementSample, OutdoorTemperatureSample, Sensor, StugubyAuthorityTransfer, StugubyHomeProjection, StugubyPropertyAdoption, SystemUpdateOperationRequest, SystemUpdateStatus } from "@climate-twin/contracts";
+import type { StugubyInvitation, StugubyMember, StugubyNodeIdentity, StugubySummary, StugubyDeletionReceipt, StugubyPropertyConflict, StugubyRemoteResource, StugubyShareGrant, StugubySharedProperty } from "@climate-twin/stuguby-protocol";
 
 /** Independent, nullable updates for a house's real-world placement. */
 export interface HouseGeoreferencePatch {
@@ -176,3 +164,67 @@ export interface StugubyLocalPublicationCatalog {
   house: { localHouseId: string; publicationId: string; name: string };
   sensors: Array<{ localSensorId: string; sensorPublicationId: string; name: string; metricIds: string[] }>;
 }
+
+export interface StugubyDetailResponse {
+  stuguby: StugubySummary;
+  members: StugubyLocalMember[];
+  invitations: StugubyLocalInvitation[];
+  grants: StugubyShareGrant[];
+  sharedProperty: StugubySharedProperty | null;
+  propertyAdoption: StugubyPropertyAdoption | null;
+  propertyConflicts: StugubyPropertyConflict[];
+  propertyCommandCounts: { pending: number; conflicts: number };
+  homeCommandCounts: { pending: number; conflicts: number };
+  homeProjections: StugubyHomeProjection[];
+  authorityTransfers: StugubyAuthorityTransfer[];
+  remoteResources: StugubyRemoteResource[];
+  deletionReceipts: StugubyDeletionReceipt[];
+  audit: Array<{
+    id: number;
+    eventType: string;
+    actorNodeId: string | null;
+    subjectId: string | null;
+    details: Record<string, unknown>;
+    createdAt: string;
+  }>;
+}
+
+export interface StugubyRemoteTelemetrySample {
+  authorityNodeId: string;
+  publicationId: string;
+  sensorPublicationId: string;
+  metricId: string;
+  timestamp: string;
+  value: number;
+  quality: string;
+  correctionOf: string | null;
+}
+
+export type SystemUpdateBlockReason =
+  | "agent-offline"
+  | "agent-not-connected"
+  | "agent-upgrade-required"
+  | "host-updater-offline"
+  | "host-updater-upgrade-required"
+  | "platform-managed-externally"
+  | "factory-transition-required"
+  | "appliance-upgrade-required"
+  | "cli-transition-required"
+  | "hardware-unqualified"
+  | "mutation-busy"
+  | "recovery-required"
+  | "backup-unavailable"
+  | "off-device-backup-required"
+  | "metadata-unavailable"
+  | "feed-trust-stale"
+  | "trust-verification-failed"
+  | "verification-failed"
+  | "status-stale"
+  | "not-configured";
+
+export type SystemUpdateLiveStatus = Pick<
+  SystemUpdateStatus,
+  "currentVersion" | "latestVersion" | "updateAvailable" | "capability" | "operation"
+> & Partial<Pick<SystemUpdateStatus, "schema" | "revision" | "application" | "host" | "workflow">>;
+
+export type SystemUpdateOperationInput = SystemUpdateOperationRequest;

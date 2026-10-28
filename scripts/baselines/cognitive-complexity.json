@@ -115,7 +115,7 @@
     "apps/web/src/App/render.tsx": [157],
     "apps/web/src/airflowSimulation/01-climate-sample-matrix-to-line-of-sight-penalty.ts": [20, 19],
     "apps/web/src/airflowSimulation/02-interpolate-scalars-to-choose-seeds.ts": [73, 34, 31],
-    "apps/web/src/api/support/part-03.ts": [31, 20],
+    "apps/web/src/api/support/request.ts": [31, 20],
     "apps/web/src/components/AppShell.tsx": [75],
     "apps/web/src/components/BuildingScene/part-01.tsx": [27],
     "apps/web/src/components/BuildingScene/part-03.tsx": [95],

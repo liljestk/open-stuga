@@ -8,7 +8,7 @@ import type {
   Nexus433Status,
   Sensor,
 } from "@climate-twin/contracts";
-import { request } from "./support/index";
+import { request } from "./support/request";
 
 export const nexus433Api = {
   nexus433Status: (houseId: string, signal?: AbortSignal) => request<Nexus433Status>(

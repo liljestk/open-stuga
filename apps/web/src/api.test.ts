@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   api,
+  apiFamilies,
   cancelPendingApiRequests,
   COLLECTION_PAGE_SIZE,
   subscribeToApiAuthorizationChanges,
@@ -18,6 +19,14 @@ import "./apiTestSupport.js";
 
 afterEach(() => {
   vi.unstubAllGlobals();
+});
+
+describe("API client facade", () => {
+  it("defines each client method in exactly one endpoint family", () => {
+    const families = Object.values(apiFamilies);
+    const methods = families.reduce((count, family) => count + Object.keys(family).length, 0);
+    expect(Object.keys(api)).toHaveLength(methods);
+  });
 });
 
 describe("local session API client", () => {

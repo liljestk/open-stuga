@@ -1,13 +1,119 @@
+import { SYSTEM_UPDATE_WORKFLOW_PHASES, type TrackingEvent, type MeasurementSample, type TelemetryEvent } from "@climate-twin/contracts";
+import { parseSpatialLayerSnapshotEvent, type SpatialLayerSnapshotEvent } from "../../spatialLayers";
 import { decodeTelemetryEvent } from "./telemetry-events";
-import type {
-  MeasurementSample,
-  TelemetryEvent,
-} from "@climate-twin/contracts";
-import {
-  parseSpatialLayerSnapshotEvent,
-  type SpatialLayerSnapshotEvent,
-} from "../../spatialLayers";
-import { API_BASE, API_V2_BASE, STREAM_STABILITY_DELAY_MS, authorizationChange, notifyAuthorizationChange } from "./part-02";
+import type { SystemUpdateLiveStatus } from "./response-types";
+import { API_BASE, API_V2_BASE, STREAM_STABILITY_DELAY_MS, authorizationChange, notifyAuthorizationChange } from "./client-state";
+
+const systemUpdateWorkflowPhases: ReadonlySet<string> = new Set(SYSTEM_UPDATE_WORKFLOW_PHASES);
+
+export function subscribeToSystemUpdateEvents(
+  onStatus: (status: SystemUpdateLiveStatus) => void,
+  onState: (state: "live" | "reconnecting") => void,
+): () => void {
+  const source = new EventSource(`${API_BASE}/system/updates/events`, { withCredentials: true });
+  const consume = (message: MessageEvent<string>) => {
+    try {
+      const status = JSON.parse(message.data) as SystemUpdateLiveStatus;
+      if (
+        !status
+        || typeof status !== "object"
+        || typeof status.currentVersion !== "string"
+        || (status.latestVersion !== null && typeof status.latestVersion !== "string")
+        || typeof status.updateAvailable !== "boolean"
+        || !status.capability
+        || typeof status.capability !== "object"
+        || (status.schema !== undefined && status.schema !== "stugu-system-updates/v2")
+        || (status.revision !== undefined && (!Number.isSafeInteger(status.revision) || status.revision < 0))
+        || (status.operation !== null && typeof status.operation !== "object")
+        || (status.application !== undefined && (status.application === null || typeof status.application !== "object"))
+        || (status.host !== undefined && status.host !== null && typeof status.host !== "object")
+        || (status.workflow !== undefined && status.workflow !== null && typeof status.workflow !== "object")
+      ) return;
+      if (status.workflow && (
+        typeof status.workflow.id !== "string"
+        || !Number.isSafeInteger(status.workflow.revision)
+        || typeof status.workflow.phase !== "string"
+        || !systemUpdateWorkflowPhases.has(status.workflow.phase)
+        || !status.workflow.targets
+        || typeof status.workflow.targets !== "object"
+      )) return;
+      const ready = status.host?.readyToRestart;
+      if (ready && (
+        typeof ready.operationId !== "string"
+        || typeof ready.targetVersion !== "string"
+        || !Number.isSafeInteger(ready.targetGeneration)
+        || ready.targetGeneration < 0
+        || typeof ready.targetDigest !== "string"
+      )) return;
+      onStatus(status);
+    } catch {
+      // Keep the last validated update state while the server reconnects.
+    }
+  };
+  source.onopen = () => onState("live");
+  source.onerror = () => onState("reconnecting");
+  source.onmessage = consume;
+  source.addEventListener("system-update", (message) => consume(message as MessageEvent<string>));
+  source.addEventListener("authorization", (message) => {
+    source.close();
+    onState("reconnecting");
+    notifyAuthorizationChange(authorizationChange(message as MessageEvent<string>));
+  });
+  return () => source.close();
+}
+
+export const TRACKING_EVENT_TYPES: readonly TrackingEvent["type"][] = [
+  "equipment.position.updated",
+  "equipment.zone.changed",
+  "equipment.movement.started",
+  "equipment.movement.stopped",
+  "equipment.property.exited",
+  "equipment.property.entered",
+  "endpoint.battery.low",
+  "endpoint.not_seen",
+  "gateway.online",
+  "gateway.offline",
+  "member.location.updated",
+  "member.location.stopped",
+];
+
+export function subscribeToTrackingEvents(
+  propertyId: string,
+  onRefresh: (event: TrackingEvent | null) => void,
+  onState: (state: "live" | "reconnecting") => void,
+): () => void {
+  const source = new EventSource(
+    `${API_BASE}/properties/${encodeURIComponent(propertyId)}/tracking-stream`,
+    { withCredentials: true },
+  );
+  const consume = (message: MessageEvent<string>) => {
+    try {
+      const event = JSON.parse(message.data) as TrackingEvent;
+      if (
+        !event
+        || event.propertyId !== propertyId
+        || !TRACKING_EVENT_TYPES.includes(event.type)
+        || !Number.isSafeInteger(event.sequence)
+      ) return;
+      onRefresh(event);
+    } catch {
+      // Preserve the last complete map snapshot when an event is malformed.
+    }
+  };
+  source.onopen = () => onState("live");
+  source.onerror = () => onState("reconnecting");
+  TRACKING_EVENT_TYPES.forEach((type) => {
+    source.addEventListener(type, (message) => consume(message as MessageEvent<string>));
+  });
+  source.addEventListener("ready", () => onState("live"));
+  source.addEventListener("snapshot-required", () => onRefresh(null));
+  source.addEventListener("authorization", (message) => {
+    source.close();
+    onState("reconnecting");
+    notifyAuthorizationChange(authorizationChange(message as MessageEvent<string>));
+  });
+  return () => source.close();
+}
 
 type ApiEventStreamState = "live" | "reconnecting";
 

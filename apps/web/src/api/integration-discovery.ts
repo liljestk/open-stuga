@@ -4,11 +4,8 @@ import type {
   IntegrationDiscoveryResult,
 } from "@climate-twin/contracts";
 
-import {
-  API_BASE,
-  INTEGRATION_DISCOVERY_REQUEST_TIMEOUT_MS,
-  request,
-} from "./support";
+import { API_BASE, INTEGRATION_DISCOVERY_REQUEST_TIMEOUT_MS } from "./support/client-state";
+import { request } from "./support/request";
 
 interface DiscoveryJobEnvelope {
   job: IntegrationDiscoveryJob;
