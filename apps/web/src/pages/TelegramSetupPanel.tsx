@@ -1,3 +1,4 @@
+import { errorText } from "../errorText";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
   Check,
@@ -13,7 +14,7 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import type { IntegrationStatus, TelegramDiscoveryResult } from "@climate-twin/contracts";
-import { api, errorMessage } from "../api";
+import { api } from "../api";
 import { confirmAction } from "../components/ConfirmationProvider";
 import { formatInTimeZone } from "../dateTime";
 import { useI18n } from "../i18n";
@@ -92,7 +93,7 @@ export function TelegramSetupPanel({
       if (telegramDiscoveryGeneration.current !== generation || controller.signal.aborted) return;
       setTelegramDiscovery(null);
       setSelectedChatId("");
-      setTelegramFeedback({ kind: "error", message: errorMessage(error, t("automations.telegram.discoverFailed")) });
+      setTelegramFeedback({ kind: "error", message: errorText(error, t, t("automations.telegram.discoverFailed")) });
     } finally {
       if (telegramDiscoveryGeneration.current === generation) setDiscoveringTelegram(false);
     }
@@ -113,7 +114,7 @@ export function TelegramSetupPanel({
       setTelegramEditing(false);
       setTelegramFeedback({ kind: "success", message: t("automations.telegram.saved") });
     } catch (error) {
-      setTelegramFeedback({ kind: "error", message: errorMessage(error, t("automations.telegram.saveFailed")) });
+      setTelegramFeedback({ kind: "error", message: errorText(error, t, t("automations.telegram.saveFailed")) });
     } finally {
       setSavingTelegram(false);
     }
@@ -134,7 +135,7 @@ export function TelegramSetupPanel({
       }
       setTelegramFeedback({ kind: result.ok ? "success" : "error", message: t(result.ok ? "automations.telegram.testPassed" : "automations.telegram.testFailed") });
     } catch (error) {
-      setTelegramFeedback({ kind: "error", message: errorMessage(error, t("automations.telegram.testFailed")) });
+      setTelegramFeedback({ kind: "error", message: errorText(error, t, t("automations.telegram.testFailed")) });
     } finally {
       setTestingTelegram(false);
     }
@@ -155,7 +156,7 @@ export function TelegramSetupPanel({
       setTelegramEditing(true);
       setTelegramFeedback({ kind: "success", message: t("automations.telegram.disconnected") });
     } catch (error) {
-      setTelegramFeedback({ kind: "error", message: errorMessage(error, t("automations.telegram.disconnectFailed")) });
+      setTelegramFeedback({ kind: "error", message: errorText(error, t, t("automations.telegram.disconnectFailed")) });
     } finally {
       setDisconnectingTelegram(false);
     }

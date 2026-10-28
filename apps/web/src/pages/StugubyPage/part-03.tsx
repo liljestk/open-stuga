@@ -1,3 +1,4 @@
+import { UserFacingError } from "../../api/support/request-error";
 import { type FormEvent } from "react";
 import {
   STUGBY_DATASETS,
@@ -56,13 +57,13 @@ export function useStugubyPagePart03(context: ReturnType<typeof useStugubyPagePa
       void withBusy("property", async () => {
         const latitudeText = propertyLatitude.trim();
         const longitudeText = propertyLongitude.trim();
-        if (Boolean(latitudeText) !== Boolean(longitudeText)) throw new Error(t("stuguby.coordinatesTogether"));
+        if (Boolean(latitudeText) !== Boolean(longitudeText)) throw new UserFacingError(t("stuguby.coordinatesTogether"));
         const hasLocation = Boolean(latitudeText && longitudeText);
         const latitude = hasLocation ? Number(latitudeText) : 0;
         const longitude = hasLocation ? Number(longitudeText) : 0;
         if (hasLocation && (!Number.isFinite(latitude) || !Number.isFinite(longitude)
           || latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180)) {
-          throw new Error(t("stuguby.invalidCoordinates"));
+          throw new UserFacingError(t("stuguby.invalidCoordinates"));
         }
         const property: Pick<StugubySharedProperty, "name" | "description" | "location" | "areas" | "equipment" | "notes" | "maintenance" | "editPolicy" | "designatedSuccessorNodeId"> = {
           name: propertyName,

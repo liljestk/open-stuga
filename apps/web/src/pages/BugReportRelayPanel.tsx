@@ -1,3 +1,4 @@
+import { errorText } from "../errorText";
 import { useEffect, useState, type FormEvent } from "react";
 import { Bug, CheckCircle2, CircleAlert, KeyRound, LoaderCircle, ShieldCheck, Trash2 } from "lucide-react";
 import {
@@ -5,7 +6,7 @@ import {
   BUG_REPORT_RELAY_URL_MAX_LENGTH,
   type BugReportRelaySettings,
 } from "@climate-twin/contracts";
-import { api, ApiRequestError, errorMessage } from "../api";
+import { api, ApiRequestError } from "../api";
 import { confirmAction } from "../components/ConfirmationProvider";
 import { formatInTimeZone } from "../dateTime";
 import { useI18n } from "../i18n";
@@ -37,7 +38,7 @@ export function BugReportRelayPanel() {
         if (!active) return;
         // Members never administer the relay; the panel stays hidden instead of showing a denial.
         if (error instanceof ApiRequestError && (error.status === 403 || error.status === 404)) setUnavailable(true);
-        else setFeedback({ kind: "error", message: errorMessage(error, t("bugReport.relay.loadFailed")) });
+        else setFeedback({ kind: "error", message: errorText(error, t, t("bugReport.relay.loadFailed")) });
       }
     })();
     return () => { active = false; };
@@ -57,7 +58,7 @@ export function BugReportRelayPanel() {
       setEditing(false);
       setFeedback({ kind: "success", message: t("bugReport.relay.saved") });
     } catch (error) {
-      setFeedback({ kind: "error", message: errorMessage(error, t("bugReport.relay.saveFailed")) });
+      setFeedback({ kind: "error", message: errorText(error, t, t("bugReport.relay.saveFailed")) });
     } finally {
       setSaving(false);
     }
@@ -76,7 +77,7 @@ export function BugReportRelayPanel() {
       setEditing(false);
       setFeedback({ kind: "success", message: t("bugReport.relay.removed") });
     } catch (error) {
-      setFeedback({ kind: "error", message: errorMessage(error, t("bugReport.relay.removeFailed")) });
+      setFeedback({ kind: "error", message: errorText(error, t, t("bugReport.relay.removeFailed")) });
     } finally {
       setRemoving(false);
     }

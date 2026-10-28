@@ -1,3 +1,4 @@
+import { UserFacingError } from "../../../api/support/request-error";
 import { useEffect, useState } from "react";
 import type { House, Property } from "@climate-twin/contracts";
 import {
@@ -127,8 +128,8 @@ export function localDateTimeInput(value: string | null): string {
 
 export function parseArray(value: string, label: string, invalidJson: string, notArray: string): unknown[] {
   let parsed: unknown;
-  try { parsed = JSON.parse(value); } catch { throw new Error(invalidJson.replace("{label}", label)); }
-  if (!Array.isArray(parsed)) throw new Error(notArray.replace("{label}", label));
+  try { parsed = JSON.parse(value); } catch { throw new UserFacingError(invalidJson.replace("{label}", label)); }
+  if (!Array.isArray(parsed)) throw new UserFacingError(notArray.replace("{label}", label));
   return parsed;
 }
 

@@ -10,6 +10,7 @@ import { enDataExport } from "./en/data-export";
 import { enBugReports } from "./en/bug-reports";
 import { enElectricityTariffs } from "./en/electricity-tariffs";
 import { enAnalyticsQuality } from "./en/analytics-quality";
+import { enRequestErrors } from "./en/request-errors";
 
 export const en = {
   ...enPart1,
@@ -24,6 +25,7 @@ export const en = {
   ...enBugReports,
   ...enElectricityTariffs,
   ...enAnalyticsQuality,
+  ...enRequestErrors,
 } as const;
 
 export type TranslationKey = keyof typeof en;

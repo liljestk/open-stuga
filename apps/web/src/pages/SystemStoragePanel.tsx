@@ -1,3 +1,4 @@
+import { errorText } from "../errorText";
 import type { SystemStorageLocation, SystemStorageLocationKind, SystemStorageSettings, SystemStorageStatus } from "@climate-twin/contracts";
 import {
   ArchiveRestore,
@@ -13,7 +14,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { api, ApiRequestError } from "../api";
+import { api } from "../api";
 import { confirmAction } from "../components/ConfirmationProvider";
 import { useI18n, type TranslationKey } from "../i18n";
 import "./SystemStoragePanel.css";
@@ -21,10 +22,6 @@ import "./SystemStoragePanel.css";
 const activePhases = new Set([
   "queued", "validating", "backing-up", "quiescing", "copying", "applying", "verifying", "rolling-back",
 ]);
-
-function errorMessage(error: unknown, fallback: string): string {
-  return error instanceof ApiRequestError || error instanceof Error ? error.message : fallback;
-}
 
 function cloneSettings(settings: SystemStorageSettings): SystemStorageSettings {
   return { timeseries: { ...settings.timeseries }, backups: { ...settings.backups } };
@@ -218,7 +215,7 @@ export function SystemStoragePanel() {
       });
       setError(null);
     } catch (loadError) {
-      if (!quiet) setError(errorMessage(loadError, t("storage.error")));
+      if (!quiet) setError(errorText(loadError, t, t("storage.error")));
     } finally {
       if (!quiet) setBusy(null);
     }
@@ -252,7 +249,7 @@ export function SystemStoragePanel() {
       setStatus(next);
       setDraft(cloneSettings(next.operation && activePhases.has(next.operation.phase) ? next.operation.target : next.settings));
     } catch (saveError) {
-      setError(errorMessage(saveError, t("storage.error")));
+      setError(errorText(saveError, t, t("storage.error")));
     } finally {
       setBusy(null);
     }

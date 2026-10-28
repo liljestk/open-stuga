@@ -1,10 +1,11 @@
+import { errorText } from "../../errorText";
 import { useEffect, useMemo } from "react";
 import { floorMetersPerPlanUnit } from "@climate-twin/contracts";
 import type {
   HouseLocation,
   HouseMapPlacement,
 } from "@climate-twin/contracts";
-import { api, errorMessage } from "../../api";
+import { api } from "../../api";
 import type { HouseLocationMapItem } from "../../components/HouseLocationMap";
 import { confirmAction } from "../../components/ConfirmationProvider";
 import { floorPlanSize, footprintFloorFor, mapLocation, placementForm, setupSectionFromPath, validTimeZone, writeSetupSection } from "./support";
@@ -216,7 +217,7 @@ export function useIntegrationsPagePart02(context: ReturnType<typeof useIntegrat
         onIntegrationChange(result.integration);
         setAssignmentFeedback({ kind: "success", message: t("setup.connectionDisconnected") });
       } catch (error) {
-        setAssignmentFeedback({ kind: "error", message: errorMessage(error, t("setup.connectionDisconnectFailed")) });
+        setAssignmentFeedback({ kind: "error", message: errorText(error, t, t("setup.connectionDisconnectFailed")) });
       } finally {
         setBusyAssignment((current) => current === assignmentKey ? null : current);
       }

@@ -1,6 +1,8 @@
+import { UserFacingError } from "../../api/support/request-error";
+import { errorText } from "../../errorText";
 import { useEffect,useRef,type FormEvent } from "react";
 import type { IntegrationDiscoveryResult, IntegrationStatus, TpLinkConnectionStatus, TpLinkDiscoveredSource } from "@climate-twin/contracts";
-import { api, errorMessage } from "../../api";
+import { api } from "../../api";
 import { confirmAction } from "../../components/ConfirmationProvider";
 import { type TranslationKey } from "../../i18n";
 import { forgetIntegrationDiscovery, rememberIntegrationDiscovery, rememberedIntegrationDiscovery, validTimeZone } from "./support";
@@ -284,7 +286,7 @@ export function useIntegrationsPagePart04(context: ReturnType<typeof useIntegrat
         confirmedIntegration = await api.integrations();
         confirmedConnection = savedConnection(confirmedIntegration);
       }
-      if (configured.connectionId && !confirmedConnection) throw new Error(t("setup.tpLinkSaveVerificationError"));
+      if (configured.connectionId && !confirmedConnection) throw new UserFacingError(t("setup.tpLinkSaveVerificationError"));
       return { confirmedIntegration, confirmedConnection };
     };
   // Drops the saved source from the discovery list and returns the next host to offer.
@@ -388,7 +390,7 @@ export function useIntegrationsPagePart04(context: ReturnType<typeof useIntegrat
         });
       } catch (error) {
         if (activeSetupHouseId.current === requestViewHouseId) {
-          setTpLinkFeedback({ kind: "error", message: errorMessage(error, t("setup.credentialsError")) });
+          setTpLinkFeedback({ kind: "error", message: errorText(error, t, t("setup.credentialsError")) });
         }
       } finally {
         if (activeSetupHouseId.current === requestViewHouseId) setSavingTpLink(false);

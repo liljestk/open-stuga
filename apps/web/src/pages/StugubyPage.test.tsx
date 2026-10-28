@@ -617,7 +617,7 @@ describe("StugubyPage", () => {
     await screen.findByRole("button", { name: "Start sharing" });
     await user.click(screen.getByText("Customize what is shared"));
     await user.click(screen.getByRole("checkbox", { name: /^Raw telemetry home\.telemetry/ }));
-    await screen.findByText("Catalog unavailable");
+    await screen.findByText("The sensor scope could not be loaded.");
 
     expect(screen.getByRole<HTMLButtonElement>("button", { name: "Start sharing" }).disabled).toBe(true);
     expect(screen.queryByRole("checkbox", { name: "All sensors in this Home" })).toBeNull();

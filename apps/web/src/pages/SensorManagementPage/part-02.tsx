@@ -1,3 +1,5 @@
+import { UserFacingError } from "../../api/support/request-error";
+import { errorText } from "../../errorText";
 import {
   useEffect,
 } from "react";
@@ -5,7 +7,7 @@ import type {
   Sensor,
   TpLinkDiscoveredDevice,
 } from "@climate-twin/contracts";
-import { api, errorMessage } from "../../api";
+import { api } from "../../api";
 import type { TimeRange } from "../../domain";
 import { type TranslationKey } from "../../i18n";
 import { isLegacyTpLinkContactSensor, tpLinkOpeningMatchesDevice } from "../../tpLinkDeviceClassification";
@@ -138,7 +140,7 @@ export function useSensorManagementPagePart02(context: ReturnType<typeof useSens
         setDetailCursor(page.nextCursor);
       } catch (error) {
         if (detailsRequestGeneration.current !== generation) return;
-        setDetailsError(errorMessage(error, t("sensors.detailsError")));
+        setDetailsError(errorText(error, t, t("sensors.detailsError")));
       } finally {
         if (detailsRequestGeneration.current === generation) setDetailsLoading(false);
       }
@@ -334,12 +336,12 @@ export function useSensorManagementPagePart02(context: ReturnType<typeof useSens
       const targetElement = targetFloor?.planElements?.find((element) => element.id === elementId);
       if (!device || !targetFloor || !targetElement
         || (targetElement.kind !== "door" && targetElement.kind !== "window")) {
-        throw new Error(t("sensors.contactInvalidOpening"));
+        throw new UserFacingError(t("sensors.contactInvalidOpening"));
       }
       if ((targetElement.kind === "door" && targetElement.variant === "open-passage")
         || (targetElement.kind === "window" && targetElement.variant === "fixed")
         || (targetElement.stateBinding && !tpLinkOpeningMatchesDevice(targetElement.stateBinding, device))) {
-        throw new Error(t("sensors.contactOpeningUnavailable"));
+        throw new UserFacingError(t("sensors.contactOpeningUnavailable"));
       }
       const floors = house.floors.map((floor) => ({
         ...floor,
@@ -486,7 +488,7 @@ export function useSensorManagementPagePart02(context: ReturnType<typeof useSens
     };
   const buildPlacement = () => {
       const { floor } = draftContext(draft, houses);
-      if (!floor) throw new Error(t("sensors.validationFloor"));
+      if (!floor) throw new UserFacingError(t("sensors.validationFloor"));
       return {
         x: rounded(Number(draft.x)),
         y: rounded(Number(draft.y)),

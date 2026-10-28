@@ -1,8 +1,9 @@
+import { errorText } from "../../errorText";
 import {
   type FormEvent,
 } from "react";
 import type { Sensor, SensorPatch } from "@climate-twin/contracts";
-import { type CreateSensorInput, errorMessage } from "../../api";
+import { type CreateSensorInput } from "../../api";
 import { confirmAction } from "../../components/ConfirmationProvider";
 import { UNPLACED_TAG, hasRealBinding, normalizedMeasurementEntityIds, roomCenter, rounded, sameMeasurementEntityIds, sensorMeasurementEntityIds, stableRoomId, validationErrors } from "./support";
 import type { AddStep, DraftErrors, SensorDraft } from "./support";
@@ -70,7 +71,7 @@ export function useSensorManagementPagePart03(context: ReturnType<typeof useSens
         restoreEditorFocus();
         if (saved.houseId !== house.id) onHouse(saved.houseId);
       } catch (error) {
-        setEditorFeedback({ kind: "error", message: errorMessage(error, t("sensors.addError")) });
+        setEditorFeedback({ kind: "error", message: errorText(error, t, t("sensors.addError")) });
       } finally {
         setSubmitting(false);
       }
@@ -122,7 +123,7 @@ export function useSensorManagementPagePart03(context: ReturnType<typeof useSens
         restoreEditorFocus();
         if (saved.houseId !== house.id) onHouse(saved.houseId);
       } catch (error) {
-        setEditorFeedback({ kind: "error", message: errorMessage(error, t("sensors.updateError")) });
+        setEditorFeedback({ kind: "error", message: errorText(error, t, t("sensors.updateError")) });
       } finally {
         setSubmitting(false);
       }
@@ -139,7 +140,7 @@ export function useSensorManagementPagePart03(context: ReturnType<typeof useSens
         });
         if (editingSensorId === sensor.id) setDraft((current) => ({ ...current, enabled: saved.enabled }));
       } catch (error) {
-        setPageFeedback({ kind: "error", message: errorMessage(error, archived ? t("sensors.archiveError") : t("sensors.restoreError")) });
+        setPageFeedback({ kind: "error", message: errorText(error, t, archived ? t("sensors.archiveError") : t("sensors.restoreError")) });
       } finally {
         setRowBusyId(null);
       }
@@ -154,7 +155,7 @@ export function useSensorManagementPagePart03(context: ReturnType<typeof useSens
         setPageFeedback({ kind: "success", message: t("sensors.deletedFeedback", { name: sensor.name }) });
         if (editingSensorId === sensor.id) cancelEditor();
       } catch (error) {
-        setPageFeedback({ kind: "error", message: errorMessage(error, t("sensors.deleteError")) });
+        setPageFeedback({ kind: "error", message: errorText(error, t, t("sensors.deleteError")) });
       } finally {
         setRowBusyId(null);
       }
@@ -183,7 +184,7 @@ export function useSensorManagementPagePart03(context: ReturnType<typeof useSens
       try {
         await onRefreshDevices();
       } catch (error) {
-        setRefreshError(errorMessage(error, t("sensors.discoveryError")));
+        setRefreshError(errorText(error, t, t("sensors.discoveryError")));
       } finally {
         setRefreshing(false);
       }

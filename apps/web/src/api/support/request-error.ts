@@ -21,3 +21,11 @@ export function apiErrorStatus(error: unknown): number | null {
   return error instanceof ApiRequestError && Number.isInteger(error.status)
     && error.status >= 100 && error.status <= 599 ? error.status : null;
 }
+
+/** A failure the UI raised itself, whose message is already in the viewer's language. */
+export class UserFacingError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "UserFacingError";
+  }
+}

@@ -9,12 +9,18 @@ import {
 import type {
   GeoCoordinate,
 } from "@climate-twin/contracts";
-import { api, ApiRequestError, subscribeToTrackingEvents } from "../../api";
+import { api, apiErrorStatus, subscribeToTrackingEvents } from "../../api";
 import { type TranslationKey } from "../../i18n";
 import "../PropertyManagementPage.css";
 import { NEW_FIXED_ASSET_ID, TRACKED_ASSETS_REFRESH_MS, areaDraft, coordinateText, emptyAreaDraft } from "./support";
 import type { WorkspaceTab } from "./support";
 import { usePropertyManagementPagePart03 } from "./part-03";
+/** Tracking answers 403 when the viewer may not see it and 404 when it is turned off. */
+function trackingUnavailable(error: unknown): boolean {
+  const status = apiErrorStatus(error);
+  return status === 403 || status === 404;
+}
+
 export function usePropertyManagementPagePart04(context: ReturnType<typeof usePropertyManagementPagePart03>) {
   const { t, canManageAccess, tab, setTab, property, readOnly, mapLoaded, setMapLoaded, equipment, setSelectedAreaId, selectedArea, setIsNewArea, setIsNewFixedAsset, drawing, setDrawing, setAreaForm, setRedoVertices, setCoordinateInput, setCoordinateError, setAreaDestinationPropertyId, setEquipmentDestination, setFeedback, setEditingEquipmentId, setEquipmentName, setEquipmentKind, setEquipmentManufacturer, setEquipmentModel, setEquipmentSerialNumber, setEquipmentStatus, setEquipmentNotes, setEquipmentLatitude, setEquipmentLongitude, mapItemSelection, setMapItemSelection, mapLayers, setTrackedEquipment, setTrackingCapabilities, setTrackingSnapshot, setTrackingEndpoints, setTrackingConnection, setMaintenanceTitle, setMaintenanceEquipmentId, placementLatitude, placementLongitude, placementWidth, placementOrientation, setPlacementEditing, placementAssetId, setPlacementAssetId, assetPlacementEditing, setAssetPlacementEditing, setAssetDraftLocation, setAssetLatitudeInput, setAssetLongitudeInput, trackingEnabled, liveMapEnabled, sharedMembers, inventoryEquipmentVersion, placementHouse, mapHouses } = context;
   const visibleMapHouses = useMemo(() => mapLayers.home
@@ -57,11 +63,11 @@ export function usePropertyManagementPagePart04(context: ReturnType<typeof usePr
             setTrackingEndpoints([]);
           }
         })
-        .catch(() => {
-          if (current) {
-            setTrackingCapabilities(null);
-            setTrackingConnection("off");
-          }
+        .catch((error: unknown) => {
+          // A denied or disabled tracker is off; a transient failure keeps the last capabilities.
+          if (!current || !trackingUnavailable(error)) return;
+          setTrackingCapabilities(null);
+          setTrackingConnection("off");
         });
       return () => { current = false; };
     }, [property?.id]);
@@ -78,7 +84,7 @@ export function usePropertyManagementPagePart04(context: ReturnType<typeof usePr
             if (current) setTrackedEquipment(assets);
           })
           .catch((error: unknown) => {
-            if (error instanceof ApiRequestError && (error.status === 403 || error.status === 404)) {
+            if (trackingUnavailable(error)) {
               pollingEnabled = false;
               if (current) setTrackedEquipment([]);
               return;
@@ -105,7 +111,7 @@ export function usePropertyManagementPagePart04(context: ReturnType<typeof usePr
       let current = true;
       void api.trackingEndpoints(property.id)
         .then((tags) => { if (current) setTrackingEndpoints(tags); })
-        .catch(() => { if (current) setTrackingEndpoints([]); });
+        .catch((error: unknown) => { if (current && trackingUnavailable(error)) setTrackingEndpoints([]); });
       return () => { current = false; };
     }, [canManageAccess, property?.id, tab, trackingEnabled]);
   useEffect(() => {
@@ -131,7 +137,7 @@ export function usePropertyManagementPagePart04(context: ReturnType<typeof usePr
           })
           .catch((error: unknown) => {
             if (!current) return;
-            if (error instanceof ApiRequestError && (error.status === 403 || error.status === 404)) {
+            if (trackingUnavailable(error)) {
               setTrackingConnection("off");
               setTrackingSnapshot(null);
             } else {

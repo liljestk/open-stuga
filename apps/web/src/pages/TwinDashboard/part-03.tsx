@@ -1,3 +1,4 @@
+import { errorText } from "../../errorText";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { isAirflowPlanElement, type OpeningStateObservation } from "@climate-twin/contracts";
 import "../../components/decisionLayer.css";
@@ -8,7 +9,7 @@ import type { OutdoorVisualizationState } from "../../components/OutdoorConditio
 import {
   type ClimateSampleMatrix,
 } from "../../airflowSimulation";
-import { api, errorMessage } from "../../api";
+import { api } from "../../api";
 import {
   assessSensorCoverage,
 } from "../../experimentalSpatialLayers";
@@ -97,7 +98,7 @@ export function useTwinDashboardPart03(context: ReturnType<typeof useTwinDashboa
         context.setReplayOutdoorLoading(false);
         controller.abort();
         setReplayLoadState("error");
-        setReplayLoadError(errorMessage(error, t("replay.loadFailed")));
+        setReplayLoadError(errorText(error, t, t("replay.loadFailed")));
       } finally {
         if (context.replayWindowControllerRef.current === controller) {
           context.replayWindowControllerRef.current = null;

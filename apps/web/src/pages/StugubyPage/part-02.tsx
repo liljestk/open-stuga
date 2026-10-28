@@ -1,3 +1,5 @@
+import { UserFacingError } from "../../api/support/request-error";
+import { errorText } from "../../errorText";
 import { useCallback, useEffect, useMemo, type FormEvent } from "react";
 import {
   STUGBY_DATASETS,
@@ -5,7 +7,7 @@ import {
   type StugubyDatasetGrant,
   type StugubyShareGrant,
 } from "@climate-twin/stuguby-protocol";
-import { api, errorMessage } from "../../api";
+import { api } from "../../api";
 import { confirmAction } from "../../components/ConfirmationProvider";
 import "../StugubyPage.css";
 import { activeGrant, editableHomeDatasets, idlePublicationCatalog } from "./support";
@@ -30,7 +32,7 @@ export function useStugubyPagePart02(context: ReturnType<typeof useStugubyPagePa
           setDetailLoading(false);
         }
       } catch (nextError) {
-        setError(errorMessage(nextError, t("stuguby.operationFailed")));
+        setError(errorText(nextError, t, t("stuguby.operationFailed")));
         if (!index) {
           detailRequest.current += 1;
           setDetail(null);
@@ -105,7 +107,7 @@ export function useStugubyPagePart02(context: ReturnType<typeof useStugubyPagePa
             stugubyId,
             houseId,
             data: null,
-            error: errorMessage(nextError, t("stuguby.sensorCatalogError")),
+            error: errorText(nextError, t, t("stuguby.sensorCatalogError")),
           });
         });
       return () => { active = false; };
@@ -114,7 +116,7 @@ export function useStugubyPagePart02(context: ReturnType<typeof useStugubyPagePa
       setBusy(key);
       setError(null);
       setNotice(null);
-      try { await operation(); } catch (nextError) { setError(errorMessage(nextError, t("stuguby.operationFailed"))); }
+      try { await operation(); } catch (nextError) { setError(errorText(nextError, t, t("stuguby.operationFailed"))); }
       finally { setBusy(null); }
     };
   const createStuguby = (event: FormEvent) => {
@@ -244,7 +246,7 @@ export function useStugubyPagePart02(context: ReturnType<typeof useStugubyPagePa
         };
         const expiresAt = grantExpiresAt ? new Date(grantExpiresAt).toISOString() : null;
         const existing = editingGrantId ? selectedDetail.grants.find((grant) => grant.id === editingGrantId) : null;
-        if (editingGrantId && !existing) throw new Error(t("stuguby.grantScopeChanged"));
+        if (editingGrantId && !existing) throw new UserFacingError(t("stuguby.grantScopeChanged"));
         if (!isActiveScope(operationScope)) return;
         if (existing) await api.updateStugubyGrant(selectedDetail.stuguby.id, existing.id, { baseRevision: existing.revision, audience, datasets, housePolicy, expiresAt });
         else await api.createStugubyGrant(selectedDetail.stuguby.id, { localHouseId: grantHouseId, audience, datasets, housePolicy, expiresAt });

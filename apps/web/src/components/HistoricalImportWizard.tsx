@@ -1,4 +1,4 @@
-import { errorMessage } from "../api";
+import { errorText } from "../errorText";
 import { useEffect, useId, useMemo, useRef, useState, type DragEvent, type KeyboardEvent } from "react";
 import {
   ArrowLeft,
@@ -111,7 +111,7 @@ export function HistoricalImportWizard({
       if (previewBuildGenerationRef.current === generation && !controller.signal.aborted) setPreview(nextPreview);
     }).catch((previewError) => {
       if (previewBuildGenerationRef.current === generation && !controller.signal.aborted) {
-        setError(errorMessage(previewError, t("historyImport.fileError")));
+        setError(errorText(previewError, t, t("historyImport.fileError")));
       }
     }).finally(() => {
       if (previewBuildGenerationRef.current === generation && !controller.signal.aborted) setPreviewing(false);
@@ -238,7 +238,7 @@ export function HistoricalImportWizard({
       setStep(2);
     } catch (loadError) {
       if (fileReadGenerationRef.current !== generation) return;
-      setError(errorMessage(loadError, t("historyImport.fileError")));
+      setError(errorText(loadError, t, t("historyImport.fileError")));
     } finally {
       if (fileReadGenerationRef.current === generation) setReadingFile(false);
     }
@@ -284,7 +284,7 @@ export function HistoricalImportWizard({
       const imported = await onImport(preview.samples, (completed, total) => setProgress({ completed, total }));
       setResult(imported);
     } catch (importError) {
-      setError(errorMessage(importError, t("historyImport.importError")));
+      setError(errorText(importError, t, t("historyImport.importError")));
     } finally {
       setImporting(false);
     }

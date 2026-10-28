@@ -178,7 +178,7 @@ describe("sensor onboarding and management", () => {
     }));
   });
 
-  it("keeps failed edits open, exposes the server error, and retries discovery", async () => {
+  it("keeps failed edits open, explains the failure in the UI language, and retries discovery", async () => {
     const user = userEvent.setup();
     const onUpdateSensor = vi.fn().mockRejectedValue(new Error("Sensor service is unavailable"));
     const onRefreshDevices = vi.fn()
@@ -193,21 +193,21 @@ describe("sensor onboarding and management", () => {
     await user.type(name, "Kitchen north");
     await user.click(screen.getByRole("button", { name: "Save changes" }));
 
-    expect(await screen.findByText("Sensor service is unavailable")).not.toBeNull();
+    expect(await screen.findByText("The sensor could not be updated. Your draft is still here.")).not.toBeNull();
     expect(screen.getByRole("heading", { name: "Edit Kitchen" })).not.toBeNull();
     expect((screen.getByRole("textbox", { name: "Sensor name" }) as HTMLInputElement).value).toBe("Kitchen north");
 
     await user.click(screen.getByText("Manage sensors & connections"));
     await user.click(screen.getByRole("button", { name: "Refresh devices" }));
-    expect(await screen.findByText("Hub discovery timed out")).not.toBeNull();
+    expect(await screen.findByText("Could not refresh TP-Link devices.")).not.toBeNull();
     expect(onRefreshDevices).toHaveBeenCalledTimes(1);
 
     await user.click(screen.getByRole("button", { name: "Refresh devices" }));
     await waitFor(() => {
       expect(onRefreshDevices).toHaveBeenCalledTimes(2);
-      expect(screen.queryByText("Hub discovery timed out")).toBeNull();
+      expect(screen.queryByText("Could not refresh TP-Link devices.")).toBeNull();
     });
-    expect(screen.getByText("Sensor service is unavailable")).not.toBeNull();
+    expect(screen.getByText("The sensor could not be updated. Your draft is still here.")).not.toBeNull();
   });
 
   it("uses exclusive urgency buckets as direct inventory filters", async () => {

@@ -698,7 +698,7 @@ describe("TwinDashboard replay timing", () => {
     fireEvent.change(within(historyWindow).getByLabelText("To"), { target: { value: "2024-02-11T00:00" } });
     fireEvent.click(within(historyWindow).getByRole("button", { name: "Load recording" }));
 
-    expect(await screen.findByText("Recording unavailable")).not.toBeNull();
+    expect(await screen.findByText("The recorded window could not be loaded.")).not.toBeNull();
     expect(screen.queryByText("Loading outdoor conditions…")).toBeNull();
     expect(view.container.querySelector(".outdoor-context-card .spin")).toBeNull();
 

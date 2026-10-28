@@ -1,7 +1,8 @@
+import { errorText } from "../errorText";
 import type { CloudflareSetupOperation, CloudflareSetupPhase, CloudflareSetupStatusResponse } from "@climate-twin/contracts";
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type FormEvent } from "react";
 import { CircleHelp, ExternalLink, LoaderCircle, ShieldCheck } from "lucide-react";
-import { api, errorMessage } from "../api";
+import { api } from "../api";
 import { useI18n, type TranslationKey } from "../i18n";
 
 interface CloudflareSetupPanelProps {
@@ -86,7 +87,7 @@ export function CloudflareSetupPanel({
         hydrated.current = true;
       }
     } catch (error) {
-      setLoadError(errorMessage(error, t("cloudflareSetup.loadFailed")));
+      setLoadError(errorText(error, t, t("cloudflareSetup.loadFailed")));
     }
   }, [initialHostname, t]);
 
@@ -154,7 +155,7 @@ export function CloudflareSetupPanel({
       popup?.close();
       setOauthClientToken("");
       setRuntimeToken("");
-      setSubmitError(errorMessage(error, t("cloudflareSetup.startFailed")));
+      setSubmitError(errorText(error, t, t("cloudflareSetup.startFailed")));
       await refresh();
     } finally {
       setSubmitting(false);

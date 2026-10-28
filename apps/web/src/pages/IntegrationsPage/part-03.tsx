@@ -1,4 +1,5 @@
-import { api, type TpLinkHistoryExportJob, errorMessage } from "../../api";
+import { errorText } from "../../errorText";
+import { api, type TpLinkHistoryExportJob } from "../../api";
 import { confirmAction } from "../../components/ConfirmationProvider";
 
 import { useIntegrationsPagePart02 } from "./part-02";
@@ -22,7 +23,7 @@ export function useIntegrationsPagePart03(context: ReturnType<typeof useIntegrat
             : t("setup.connectionDisconnected"),
         });
       } catch (error) {
-        setAssignmentFeedback({ kind: "error", message: errorMessage(error, t("setup.connectionDisconnectFailed")) });
+        setAssignmentFeedback({ kind: "error", message: errorText(error, t, t("setup.connectionDisconnectFailed")) });
       } finally {
         setBusyAssignment((current) => current === assignmentKey ? null : current);
       }
@@ -47,7 +48,7 @@ export function useIntegrationsPagePart03(context: ReturnType<typeof useIntegrat
         });
         setAssignmentFeedback({ kind: "success", message: t("setup.connectionMoved", { home: targetHome }) });
       } catch (error) {
-        setAssignmentFeedback({ kind: "error", message: errorMessage(error, t("setup.connectionMoveFailed")) });
+        setAssignmentFeedback({ kind: "error", message: errorText(error, t, t("setup.connectionMoveFailed")) });
       } finally {
         setBusyAssignment((current) => current === assignmentKey ? null : current);
       }
@@ -77,7 +78,7 @@ export function useIntegrationsPagePart03(context: ReturnType<typeof useIntegrat
             : t("setup.connectionMoved", { home: targetHome }),
         });
       } catch (error) {
-        setAssignmentFeedback({ kind: "error", message: errorMessage(error, t("setup.connectionMoveFailed")) });
+        setAssignmentFeedback({ kind: "error", message: errorText(error, t, t("setup.connectionMoveFailed")) });
       } finally {
         setBusyAssignment((current) => current === assignmentKey ? null : current);
       }
@@ -188,7 +189,7 @@ export function useIntegrationsPagePart03(context: ReturnType<typeof useIntegrat
         if (result.enabled && context.canManageIntegrations) void loadTpLinkCanaryTargets();
       } catch (error) {
         if (historyExportRequestGeneration.current !== generation) return;
-        setTpLinkExportJobsError(errorMessage(error, t("setup.tpLinkHistoryLoadFailed")));
+        setTpLinkExportJobsError(errorText(error, t, t("setup.tpLinkHistoryLoadFailed")));
       } finally {
         if (historyExportRequestGeneration.current === generation) setTpLinkExportJobsLoading(false);
       }
@@ -210,7 +211,7 @@ export function useIntegrationsPagePart03(context: ReturnType<typeof useIntegrat
         });
         await loadTpLinkExportJobs();
       } catch (error) {
-        setTpLinkExportJobsError(errorMessage(error, t("setup.tpLinkHistoryCanaryQueueFailed")));
+        setTpLinkExportJobsError(errorText(error, t, t("setup.tpLinkHistoryCanaryQueueFailed")));
       } finally {
         setTpLinkCanaryRunning(false);
       }
@@ -223,7 +224,7 @@ export function useIntegrationsPagePart03(context: ReturnType<typeof useIntegrat
         await api.retryTpLinkHistoryExportJob(job.id);
         await loadTpLinkExportJobs();
       } catch (error) {
-        setTpLinkExportJobsError(errorMessage(error, t("setup.tpLinkHistoryRetryFailed")));
+        setTpLinkExportJobsError(errorText(error, t, t("setup.tpLinkHistoryRetryFailed")));
       } finally {
         setBusyTpLinkExportJobId((current) => current === job.id ? null : current);
       }
@@ -237,7 +238,7 @@ export function useIntegrationsPagePart03(context: ReturnType<typeof useIntegrat
         await api.cancelTpLinkHistoryExportJob(job.id);
         await loadTpLinkExportJobs();
       } catch (error) {
-        setTpLinkExportJobsError(errorMessage(error, t("setup.tpLinkHistoryCancelFailed")));
+        setTpLinkExportJobsError(errorText(error, t, t("setup.tpLinkHistoryCancelFailed")));
       } finally {
         setBusyTpLinkExportJobId((current) => current === job.id ? null : current);
       }

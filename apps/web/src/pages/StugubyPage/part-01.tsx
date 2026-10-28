@@ -1,3 +1,4 @@
+import { errorText } from "../../errorText";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   type StugubyMember,
@@ -5,7 +6,7 @@ import {
   type StugubyShareGrant,
   type StugubySharedProperty,
 } from "@climate-twin/stuguby-protocol";
-import { api, type StugubyDetailResponse, type StugubyInvitationCreated, type StugubyListResponse, type StugubyRemoteTelemetrySample, errorMessage } from "../../api";
+import { api, type StugubyDetailResponse, type StugubyInvitationCreated, type StugubyListResponse, type StugubyRemoteTelemetrySample } from "../../api";
 import { useI18n } from "../../i18n";
 import "../StugubyPage.css";
 import { activeGrant, idlePublicationCatalog, initialDatasetDraft, memberStateLabelKeys, roleLabelKeys, suggestedCoordinatorOrigin } from "./support";
@@ -160,7 +161,7 @@ export function useStugubyPagePart01(context: { houses: Readonly<StugubyPageProp
         } catch (nextError) {
           if (request === detailRequest.current && selectedIdRef.current === id) {
             setTelemetrySamples([]);
-            setTelemetryError(errorMessage(nextError, t("stuguby.telemetryLoadError")));
+            setTelemetryError(errorText(nextError, t, t("stuguby.telemetryLoadError")));
           }
         }
         return loaded;

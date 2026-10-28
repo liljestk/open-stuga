@@ -1,3 +1,4 @@
+import { errorText } from "../errorText";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
   Check,
@@ -17,7 +18,7 @@ import type {
   House,
   IntegrationStatus,
 } from "@climate-twin/contracts";
-import { API_BASE, api, type AppleNotesSetupMetadata, errorMessage } from "../api";
+import { API_BASE, api, type AppleNotesSetupMetadata } from "../api";
 import { confirmAction } from "../components/ConfirmationProvider";
 import { useI18n } from "../i18n";
 import "./AutomationSetupPanel.css";
@@ -122,7 +123,7 @@ export function AutomationSetupPanel({ integration, house, houses, onHouse, onIn
       setNotesFeedback({ kind: "success", message: t("automations.notes.grantCreated") });
     } catch (error) {
       if (activeHouseId.current !== requestedHouseId || createGrantGeneration.current !== generation) return;
-      setNotesFeedback({ kind: "error", message: errorMessage(error, t("automations.notes.grantFailed")) });
+      setNotesFeedback({ kind: "error", message: errorText(error, t, t("automations.notes.grantFailed")) });
     } finally {
       if (activeHouseId.current === requestedHouseId && createGrantGeneration.current === generation) setCreatingGrant(false);
     }
@@ -148,7 +149,7 @@ export function AutomationSetupPanel({ integration, house, houses, onHouse, onIn
       setNotesFeedback({ kind: "success", message: t("automations.notes.grantRevoked") });
     } catch (error) {
       if (activeHouseId.current !== requestedHouseId || revokeGrantGeneration.current !== generation) return;
-      setNotesFeedback({ kind: "error", message: errorMessage(error, t("automations.notes.revokeFailed")) });
+      setNotesFeedback({ kind: "error", message: errorText(error, t, t("automations.notes.revokeFailed")) });
     } finally {
       if (activeHouseId.current === requestedHouseId && revokeGrantGeneration.current === generation) setRevokingGrantId(null);
     }

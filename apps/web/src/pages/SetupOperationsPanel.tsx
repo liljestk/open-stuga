@@ -1,7 +1,8 @@
+import { errorText } from "../errorText";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Archive, CheckCircle2, Database, Download, RefreshCw, ShieldAlert, Stethoscope, TriangleAlert } from "lucide-react";
 import type { BackupOperationStatus, DataExportPreview, DataExportPrivacyLevel, House, Sensor, SetupDoctorReport } from "@climate-twin/contracts";
-import { api, errorMessage } from "../api";
+import { api } from "../api";
 import { formatInTimeZone } from "../dateTime";
 import { useI18n } from "../i18n";
 import { NasExportSetupPanel } from "./NasExportSetupPanel";
@@ -41,9 +42,9 @@ export function SystemOperationsPanel() {
     setDoctor((current) => ({ ...current, loading: true, error: null }));
     setBackup((current) => ({ ...current, loading: true, error: null }));
     void api.setupDoctor().then((value) => setDoctor({ value, loading: false, error: null }))
-      .catch((error: unknown) => setDoctor({ value: null, loading: false, error: errorMessage(error, t("setup.operations.operationFailed")) }));
+      .catch((error: unknown) => setDoctor({ value: null, loading: false, error: errorText(error, t, t("setup.operations.operationFailed")) }));
     void api.backupStatus().then((value) => setBackup({ value, loading: false, error: null }))
-      .catch((error: unknown) => setBackup({ value: null, loading: false, error: errorMessage(error, t("setup.operations.operationFailed")) }));
+      .catch((error: unknown) => setBackup({ value: null, loading: false, error: errorText(error, t, t("setup.operations.operationFailed")) }));
   }, [t]);
 
   useEffect(refresh, [refresh]);
@@ -53,7 +54,7 @@ export function SystemOperationsPanel() {
     void api.dataExportPreview(privacy, telemetry).then((value) => {
       if (active) setPreview({ value, loading: false, error: null });
     }).catch((error: unknown) => {
-      if (active) setPreview({ value: null, loading: false, error: errorMessage(error, t("setup.operations.operationFailed")) });
+      if (active) setPreview({ value: null, loading: false, error: errorText(error, t, t("setup.operations.operationFailed")) });
     });
     return () => { active = false; };
   }, [privacy, t, telemetry]);
@@ -64,7 +65,7 @@ export function SystemOperationsPanel() {
       const value = await api.requestBackup();
       setBackup({ value, loading: false, error: null });
     } catch (error) {
-      setBackup({ value: backup.value, loading: false, error: errorMessage(error, t("setup.operations.operationFailed")) });
+      setBackup({ value: backup.value, loading: false, error: errorText(error, t, t("setup.operations.operationFailed")) });
     } finally {
       setRequestingBackup(false);
     }
@@ -141,7 +142,7 @@ function BulkMappingAssistant({ house }: Readonly<{ house: House }>) {
         energy: sensor.measurementEntityIds?.energy ?? "",
       }])));
     }).catch((error: unknown) => {
-      if (active) setFeedback({ kind: "error", text: errorMessage(error, t("setup.operations.operationFailed")) });
+      if (active) setFeedback({ kind: "error", text: errorText(error, t, t("setup.operations.operationFailed")) });
     });
     return () => { active = false; };
   }, [house.id, t]);
@@ -161,7 +162,7 @@ function BulkMappingAssistant({ house }: Readonly<{ house: House }>) {
       setSensors(result.sensors);
       setFeedback({ kind: "success", text: t("setup.operations.savedMappings", { count: result.sensors.length }) });
     } catch (error) {
-      setFeedback({ kind: "error", text: errorMessage(error, t("setup.operations.operationFailed")) });
+      setFeedback({ kind: "error", text: errorText(error, t, t("setup.operations.operationFailed")) });
     } finally {
       setBusy(false);
     }
