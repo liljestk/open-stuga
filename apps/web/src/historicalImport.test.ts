@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { MeasurementDefinition, Sensor } from "@climate-twin/contracts";
+import { strToU8, zipSync } from "fflate";
 import {
   buildHistoricalImport,
   buildHistoricalImportAsync,
@@ -10,6 +11,16 @@ import {
   validateImportSheet,
   validateXlsxArchive,
 } from "./historicalImport";
+
+/** Rewrites every header's uncompressed size, as a hostile archive would. */
+function declareUncompressedSize(archive: Uint8Array, size: number): void {
+  const view = new DataView(archive.buffer, archive.byteOffset, archive.byteLength);
+  for (let offset = 0; offset + 4 <= archive.byteLength; offset += 1) {
+    const signature = view.getUint32(offset, true);
+    if (signature === 0x04034b50) view.setUint32(offset + 22, size, true);
+    if (signature === 0x02014b50) view.setUint32(offset + 24, size, true);
+  }
+}
 
 function storedZip(entries: Array<{ name: string; text: string; declaredSize?: number }>): ArrayBuffer {
   const encoder = new TextEncoder();
@@ -213,6 +224,27 @@ describe("historical spreadsheet import", () => {
     }]);
 
     await expect(validateXlsxArchive(archive)).rejects.toThrow(/too much data/i);
+  });
+
+  it("stops inflating a deflated worksheet once it outgrows its declared size", async () => {
+    const xml = `<worksheet><sheetData>${" ".repeat(8 * 1024 * 1024)}</sheetData></worksheet>`;
+    const archive = zipSync({ "xl/worksheets/sheet1.xml": [strToU8(xml), { level: 9 }] });
+    declareUncompressedSize(archive, 1_024);
+
+    await expect(validateXlsxArchive(archive.slice().buffer)).rejects.toThrow(/too much data/i);
+  });
+
+  it("accepts a deflated workbook whose sizes match what it declares", async () => {
+    const archive = zipSync({
+      "[Content_Types].xml": [strToU8("<Types/>"), { level: 6 }],
+      "xl/worksheets/sheet1.xml": [strToU8('<worksheet><dimension ref="A1:B2"/><sheetData/></worksheet>'), { level: 6 }],
+    });
+
+    await expect(validateXlsxArchive(archive.slice().buffer)).resolves.toBeUndefined();
+  });
+
+  it("treats bytes that are not a ZIP archive as an unsafe workbook", async () => {
+    await expect(validateXlsxArchive(strToU8("not a workbook").slice().buffer)).rejects.toThrow(/could not be safely read/i);
   });
 
   it("yields between preview chunks and aborts before processing the remaining rows", async () => {

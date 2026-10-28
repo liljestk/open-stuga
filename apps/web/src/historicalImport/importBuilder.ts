@@ -1,6 +1,14 @@
-import type { MeasurementDefinition, MeasurementSample, Sensor } from "@climate-twin/contracts";
-import { HistoricalImportMapping, HistoricalImportPreview, ImportCell, ImportIssue, ImportSheet, InputUnit, MAX_RETAINED_ISSUES, isBlank, validateImportSheet } from "./01-import-cell-to-read-zip-entry";
-import { HistoricalImportBuilder, convertValue, createImportLookups, numberValue, parseImportTimestamp, resolveMetric, resolveSensor, unitFromCell } from "./02-validate-xlsx-archive-to-historical-import-builder";
+import type { MeasurementDefinition, Sensor, MeasurementSample } from "@climate-twin/contracts";
+import { type HistoricalImportMapping, type HistoricalImportPreview, type ImportCell, type ImportIssue, type ImportSheet, type InputUnit, MAX_RETAINED_ISSUES, isBlank, validateImportSheet } from "./importModel";
+import { convertValue, createImportLookups, numberValue, resolveMetric, resolveSensor, unitFromCell } from "./importValues";
+import { parseImportTimestamp } from "./importTimestamps";
+
+export interface HistoricalImportBuilder {
+  firstDataRow: number;
+  lastDataRow: number;
+  processRows: (start: number, end: number) => void;
+  finish: () => HistoricalImportPreview;
+}
 
 export function createHistoricalImportBuilder(
   sheet: ImportSheet,
