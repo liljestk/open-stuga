@@ -18,7 +18,7 @@ describe("API response contract validation", () => {
 
     const failure = api.properties();
     await expect(failure).rejects.toBeInstanceOf(ResponseShapeError);
-    await expect(failure).rejects.toThrow("Unexpected response shape from properties (expected an array)");
+    await expect(failure).rejects.toThrow("Unexpected response shape from /properties (expected an array)");
   });
 
   it("rejects malformed collection items instead of treating them as resources", async () => {
@@ -31,6 +31,6 @@ describe("API response contract validation", () => {
 
     const failure = api.properties();
     await expect(failure).rejects.toBeInstanceOf(ResponseShapeError);
-    await expect(failure).rejects.toThrow("Unexpected response shape from properties (contains a non-object item)");
+    await expect(failure).rejects.toThrow("Unexpected response shape from /properties (expected a Property)");
   });
 });

@@ -6,13 +6,11 @@ import { ApiRequestError } from "./request-error";
 import { acquireApiRequestSlot, type ApiRequestInit } from "./requestScheduler";
 import { API_BASE, API_REQUEST_TIMEOUT_MS, API_V2_BASE, COLLECTION_PAGE_SIZE, SAFE_HTTP_METHODS, apiClientState, apiRequestGeneration, assertSafeApiPath, notifyAuthorizationChange, trackApiRequestController } from "./client-state";
 import type { HouseGeoreferencePatch } from "./response-types";
+import { houseShape } from "./entity-shapes";
+import { arrayOf, fields, type ResponseShape } from "./response-shapes";
 
-export async function requestFrom<T>(
-  base: string,
-  path: string,
-  options?: ApiRequestInit,
-  timeoutMs = API_REQUEST_TIMEOUT_MS,
-): Promise<T> {
+/** One API request: the parsed JSON body, or undefined for 204. Callers name the body's shape through request/requestV2. */
+export async function requestFrom(base: string, path: string, options?: ApiRequestInit): Promise<unknown> {
   assertSafeApiPath(path);
   const requestGeneration = apiRequestGeneration;
   const controller = new AbortController();
@@ -25,7 +23,7 @@ export async function requestFrom<T>(
   let releaseRequestSlot: (() => void) | null = null;
 
   try {
-    const { schedulingClass: requestedSchedulingClass, ...requestOptions } = options ?? {};
+    const { schedulingClass: requestedSchedulingClass, timeoutMs = API_REQUEST_TIMEOUT_MS, ...requestOptions } = options ?? {};
     const method = (requestOptions.method ?? "GET").toUpperCase();
     const schedulingClass = requestedSchedulingClass
       ?? (!SAFE_HTTP_METHODS.has(method) || path === "/session" ? "interactive" : "background");
@@ -75,9 +73,9 @@ export async function requestFrom<T>(
     }
     if (response.status === 204) {
       assertCurrentGeneration();
-      return undefined as T;
+      return undefined;
     }
-    const payload = await response.json() as T;
+    const payload: unknown = await response.json();
     assertCurrentGeneration();
     return payload;
   } finally {
@@ -88,22 +86,17 @@ export async function requestFrom<T>(
   }
 }
 
-export const request = <T,>(path: string, options?: ApiRequestInit, timeoutMs?: number) => requestFrom<T>(API_BASE, path, options, timeoutMs);
+/** The endpoint a shape error names: the path without its query. */
+const endpointOf = (path: string) => path.split("?")[0]!;
 
-export const requestV2 = <T,>(path: string, options?: ApiRequestInit, timeoutMs?: number) => requestFrom<T>(API_V2_BASE, path, options, timeoutMs);
-
-function objectList<T extends object>(value: unknown, label: string): T[] {
-  if (!Array.isArray(value)) throw new ResponseShapeError(label, "expected an array");
-  if (value.some((item) => item === null || typeof item !== "object" || Array.isArray(item))) {
-    throw new ResponseShapeError(label, "contains a non-object item");
-  }
-  return value as T[];
+/** A v1 request whose body `shape` accepts; any other body is a ResponseShapeError. */
+export async function request<T>(path: string, shape: ResponseShape<T>, options?: ApiRequestInit): Promise<T> {
+  return shape(await requestFrom(API_BASE, path, options), endpointOf(path));
 }
 
-/** The array an endpoint documents under `key`; any other body is a ResponseShapeError. */
-export function list<T extends object>(value: unknown, key: string): T[] {
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new ResponseShapeError(key, "expected an object");
-  return objectList<T>((value as Record<string, unknown>)[key], key);
+/** A v2 request whose body `shape` accepts; any other body is a ResponseShapeError. */
+export async function requestV2<T>(path: string, shape: ResponseShape<T>, options?: ApiRequestInit): Promise<T> {
+  return shape(await requestFrom(API_V2_BASE, path, options), endpointOf(path));
 }
 
 export function collectionPagePath(path: string, offset: number): string {
@@ -111,15 +104,21 @@ export function collectionPagePath(path: string, offset: number): string {
   return `${path}${path.includes("?") ? "&" : "?"}limit=${COLLECTION_PAGE_SIZE}&offset=${offset}`;
 }
 
-export async function completeCollection<T extends { id: string }>(path: string, key: string, options?: Pick<ApiRequestInit, "schedulingClass">): Promise<T[]> {
+/** A paged collection: its items sit under `key` and each is parsed by `item`. */
+export interface CollectionEnvelope<T extends { id: string }> extends Pick<ApiRequestInit, "schedulingClass"> {
+  key: string;
+  item: ResponseShape<T>;
+}
+
+export async function completeCollection<T extends { id: string }>(path: string, { key, item, ...options }: CollectionEnvelope<T>): Promise<T[]> {
   const result: T[] = [];
   const seenIds = new Set<string>();
   let offset = 0;
   while (true) {
-    const page = list<T>(await request<unknown>(collectionPagePath(path, offset), options), key);
+    const page = (await request(collectionPagePath(path, offset), fields({ [key]: arrayOf(item) }), options))[key]!;
     let added = 0;
     for (const item of page) {
-      if (typeof item.id !== "string" || !item.id) {
+      if (!item.id) {
         throw new ResponseShapeError(path, "collection item has no id");
       }
       if (seenIds.has(item.id)) continue;
@@ -173,7 +172,7 @@ export function spatialConfigurationResponse(value: unknown): SpatialLayerConfig
 }
 
 export async function updateHouseGeoreference(houseId: string, patch: HouseGeoreferencePatch): Promise<House> {
-  const response = await request<{ house: House }>(`/houses/${encodeURIComponent(houseId)}`, {
+  const response = await request(`/houses/${encodeURIComponent(houseId)}`, fields({ house: houseShape }), {
     method: "PATCH",
     body: JSON.stringify(patch),
   });

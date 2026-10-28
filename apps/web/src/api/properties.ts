@@ -1,41 +1,43 @@
-import type { Property, PropertyArea, PropertyAreaInput, PropertyAreaPatch, PropertyCreateInput, PropertyInventorySnapshot, PropertyPatch, PropertyNote, PropertyNoteInput, PropertyNotePatch } from "@climate-twin/contracts";
+import type { PropertyAreaInput, PropertyAreaPatch, PropertyCreateInput, PropertyPatch, PropertyNoteInput, PropertyNotePatch } from "@climate-twin/contracts";
 import { completeCollection, request } from "./support/request";
+import { propertyAreaShape, propertyInventorySnapshotShape, propertyNoteShape, propertyShape } from "./support/entity-shapes";
+import { noContent, fields } from "./support/response-shapes";
 
 /** Properties, their areas, inventory and notes. */
 export const propertiesApi = {
-  properties: () => completeCollection<Property>("/properties", "properties"),
-  createProperty: async (input: PropertyCreateInput) => (await request<{ property: Property }>("/properties", {
+  properties: () => completeCollection("/properties", { key: "properties", item: propertyShape }),
+  createProperty: async (input: PropertyCreateInput) => (await request("/properties", fields({ property: propertyShape }), {
       method: "POST",
       body: JSON.stringify(input),
     })).property,
-  updateProperty: async (id: string, patch: PropertyPatch) => (await request<{ property: Property }>(`/properties/${encodeURIComponent(id)}`, {
+  updateProperty: async (id: string, patch: PropertyPatch) => (await request(`/properties/${encodeURIComponent(id)}`, fields({ property: propertyShape }), {
       method: "PATCH",
       body: JSON.stringify(patch),
     })).property,
-  deleteProperty: (id: string) => request<void>(`/properties/${encodeURIComponent(id)}`, { method: "DELETE" }),
-  propertyAreas: (propertyId?: string) => completeCollection<PropertyArea>(propertyId
+  deleteProperty: (id: string) => request(`/properties/${encodeURIComponent(id)}`, noContent, { method: "DELETE" }),
+  propertyAreas: (propertyId?: string) => completeCollection(propertyId
       ? `/property-areas?propertyId=${encodeURIComponent(propertyId)}`
-      : "/property-areas", "areas"),
-  createPropertyArea: async (input: PropertyAreaInput) => (await request<{ area: PropertyArea }>("/property-areas", {
+      : "/property-areas", { key: "areas", item: propertyAreaShape }),
+  createPropertyArea: async (input: PropertyAreaInput) => (await request("/property-areas", fields({ area: propertyAreaShape }), {
       method: "POST",
       body: JSON.stringify(input),
     })).area,
-  updatePropertyArea: async (id: string, patch: PropertyAreaPatch) => (await request<{ area: PropertyArea }>(`/property-areas/${encodeURIComponent(id)}`, {
+  updatePropertyArea: async (id: string, patch: PropertyAreaPatch) => (await request(`/property-areas/${encodeURIComponent(id)}`, fields({ area: propertyAreaShape }), {
       method: "PATCH",
       body: JSON.stringify(patch),
     })).area,
-  deletePropertyArea: (id: string) => request<void>(`/property-areas/${encodeURIComponent(id)}`, { method: "DELETE" }),
-  propertyInventory: async (propertyId: string) => (await request<{ inventory: PropertyInventorySnapshot }>(`/properties/${encodeURIComponent(propertyId)}/inventory`)).inventory,
-  propertyNotes: (propertyId?: string) => completeCollection<PropertyNote>(propertyId
+  deletePropertyArea: (id: string) => request(`/property-areas/${encodeURIComponent(id)}`, noContent, { method: "DELETE" }),
+  propertyInventory: async (propertyId: string) => (await request(`/properties/${encodeURIComponent(propertyId)}/inventory`, fields({ inventory: propertyInventorySnapshotShape }))).inventory,
+  propertyNotes: (propertyId?: string) => completeCollection(propertyId
       ? `/property-notes?propertyId=${encodeURIComponent(propertyId)}`
-      : "/property-notes", "notes"),
-  createPropertyNote: async (input: PropertyNoteInput) => (await request<{ note: PropertyNote }>("/property-notes", {
+      : "/property-notes", { key: "notes", item: propertyNoteShape }),
+  createPropertyNote: async (input: PropertyNoteInput) => (await request("/property-notes", fields({ note: propertyNoteShape }), {
       method: "POST",
       body: JSON.stringify(input),
     })).note,
-  updatePropertyNote: async (id: string, patch: PropertyNotePatch) => (await request<{ note: PropertyNote }>(`/property-notes/${encodeURIComponent(id)}`, {
+  updatePropertyNote: async (id: string, patch: PropertyNotePatch) => (await request(`/property-notes/${encodeURIComponent(id)}`, fields({ note: propertyNoteShape }), {
       method: "PATCH",
       body: JSON.stringify(patch),
     })).note,
-  deletePropertyNote: (id: string) => request<void>(`/property-notes/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  deletePropertyNote: (id: string) => request(`/property-notes/${encodeURIComponent(id)}`, noContent, { method: "DELETE" }),
 };

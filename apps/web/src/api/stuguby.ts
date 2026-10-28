@@ -1,74 +1,61 @@
-import type { StugubyPropertyAdoption } from "@climate-twin/contracts";
-import type { StugubyDatasetGrant, StugubyGrantAudience, StugubyMember, StugubyMemberState, StugubyRole, StugubyShareGrant, StugubySharedProperty, StugubySummary } from "@climate-twin/stuguby-protocol";
+import type { StugubyDatasetGrant, StugubyGrantAudience, StugubyMemberState, StugubyRole, StugubyShareGrant, StugubySharedProperty } from "@climate-twin/stuguby-protocol";
 import { request } from "./support/request";
-import type { StugubyDetailResponse, StugubyInvitationCreated, StugubyListResponse, StugubyLocalMember, StugubyLocalPublicationCatalog, StugubyRemoteTelemetrySample } from "./support/response-types";
+import { stugubyDetailResponseShape, stugubyInvitationCreatedShape, stugubyListResponseShape, stugubyLocalMemberShape, stugubyLocalPublicationCatalogShape, stugubyMemberShape, stugubyPropertyAdoptionShape, stugubyRemoteTelemetrySampleShape, stugubyShareGrantShape, stugubySharedPropertyShape, stugubySummaryShape } from "./support/entity-shapes";
+import { noContent, string, boolean, literal, arrayOf, fields } from "./support/response-shapes";
 
 /** Stuguby federation: coordinators, members, invitations, shared Properties, grants and remote telemetry. */
 export const stugubyApi = {
-  stugubys: () => request<StugubyListResponse>("/stugbys"),
-  configureStugubyCoordinator: (publicOrigin: string) => request<{ publicOrigin: string }>("/stugbys/configuration", {
+  stugubys: () => request("/stugbys", stugubyListResponseShape),
+  configureStugubyCoordinator: (publicOrigin: string) => request("/stugbys/configuration", fields({ publicOrigin: string }), {
       method: "PUT",
       body: JSON.stringify({ publicOrigin }),
     }),
-  stuguby: (id: string) => request<StugubyDetailResponse>(`/stugbys/${encodeURIComponent(id)}`),
-  deleteStuguby: (id: string) => request<void>(`/stugbys/${encodeURIComponent(id)}`, { method: "DELETE" }),
-  createStuguby: (input: { name: string; description?: string | null }) => request<StugubySummary>("/stugbys", {
+  stuguby: (id: string) => request(`/stugbys/${encodeURIComponent(id)}`, stugubyDetailResponseShape),
+  deleteStuguby: (id: string) => request(`/stugbys/${encodeURIComponent(id)}`, noContent, { method: "DELETE" }),
+  createStuguby: (input: { name: string; description?: string | null }) => request("/stugbys", stugubySummaryShape, {
       method: "POST",
       body: JSON.stringify(input),
     }),
-  joinStuguby: (input: { coordinatorUrl: string; invitationId: string; joinSecret: string }) => request<StugubySummary>("/stugbys/join", {
+  joinStuguby: (input: { coordinatorUrl: string; invitationId: string; joinSecret: string }) => request("/stugbys/join", stugubySummaryShape, {
       method: "POST",
       body: JSON.stringify(input),
     }),
-  createStugubyInvitation: (id: string, input: { role: Exclude<StugubyRole, "steward">; localLabel: string; expiresAt?: string }) => request<StugubyInvitationCreated>(
-      `/stugbys/${encodeURIComponent(id)}/invitations`,
+  createStugubyInvitation: (id: string, input: { role: Exclude<StugubyRole, "steward">; localLabel: string; expiresAt?: string }) => request(
+      `/stugbys/${encodeURIComponent(id)}/invitations`, stugubyInvitationCreatedShape,
       { method: "POST", body: JSON.stringify(input) },
     ),
-  revokeStugubyInvitation: (id: string, invitationId: string) => request<void>(
-      `/stugbys/${encodeURIComponent(id)}/invitations/${encodeURIComponent(invitationId)}`,
+  revokeStugubyInvitation: (id: string, invitationId: string) => request(
+      `/stugbys/${encodeURIComponent(id)}/invitations/${encodeURIComponent(invitationId)}`, noContent,
       { method: "DELETE" },
     ),
-  updateStugubyMember: (id: string, nodeId: string, input: { role: StugubyRole; state: StugubyMemberState }) => request<StugubyMember>(
-      `/stugbys/${encodeURIComponent(id)}/members/${encodeURIComponent(nodeId)}`,
+  updateStugubyMember: (id: string, nodeId: string, input: { role: StugubyRole; state: StugubyMemberState }) => request(
+      `/stugbys/${encodeURIComponent(id)}/members/${encodeURIComponent(nodeId)}`, stugubyMemberShape,
       { method: "PATCH", body: JSON.stringify(input) },
     ),
-  updateStugubyMemberLabel: (id: string, nodeId: string, localLabel: string | null) => request<StugubyLocalMember>(
-      `/stugbys/${encodeURIComponent(id)}/members/${encodeURIComponent(nodeId)}/label`,
+  updateStugubyMemberLabel: (id: string, nodeId: string, localLabel: string | null) => request(
+      `/stugbys/${encodeURIComponent(id)}/members/${encodeURIComponent(nodeId)}/label`, stugubyLocalMemberShape,
       { method: "PATCH", body: JSON.stringify({ localLabel }) },
     ),
   updateStugubyProperty: (id: string, baseRevision: number, property: Pick<StugubySharedProperty,
       "name" | "description" | "location" | "areas" | "equipment" | "notes" | "maintenance" | "editPolicy" | "designatedSuccessorNodeId"
-    >) => request<StugubySharedProperty>(`/stugbys/${encodeURIComponent(id)}/property`, {
+    >) => request(`/stugbys/${encodeURIComponent(id)}/property`, stugubySharedPropertyShape, {
       method: "PUT",
       body: JSON.stringify({ baseRevision, property }),
     }),
-  adoptStugubyProperty: (id: string, localPropertyId?: string) => request<StugubyPropertyAdoption>(
-      `/stugbys/${encodeURIComponent(id)}/property/adopt`,
+  adoptStugubyProperty: (id: string, localPropertyId?: string) => request(
+      `/stugbys/${encodeURIComponent(id)}/property/adopt`, stugubyPropertyAdoptionShape,
       { method: "POST", body: JSON.stringify(localPropertyId ? { localPropertyId } : {}) },
     ),
-  migratePropertyToStuguby: (id: string, sourcePropertyId: string) => request<{
-      adoption: StugubyPropertyAdoption;
-      migrationSnapshotId: string;
-      moved: {
-        sourcePropertyId: string;
-        targetPropertyId: string;
-        houseIds: string[];
-        areaIds: string[];
-        equipmentIds: string[];
-        noteIds: string[];
-        maintenanceTaskIds: string[];
-      };
-      createdGrants: StugubyShareGrant[];
-    }>(`/stugbys/${encodeURIComponent(id)}/property/migrate`, {
+  migratePropertyToStuguby: (id: string, sourcePropertyId: string) => request(`/stugbys/${encodeURIComponent(id)}/property/migrate`, fields({ adoption: stugubyPropertyAdoptionShape, migrationSnapshotId: string, moved: fields({ sourcePropertyId: string, targetPropertyId: string, houseIds: arrayOf(string), areaIds: arrayOf(string), equipmentIds: arrayOf(string), noteIds: arrayOf(string), maintenanceTaskIds: arrayOf(string) }), createdGrants: arrayOf(stugubyShareGrantShape) }), {
       method: "POST",
       body: JSON.stringify({ sourcePropertyId, confirmation: "MIGRATE" }),
     }),
-  disconnectStugubyProperty: (id: string) => request<StugubyPropertyAdoption>(
-      `/stugbys/${encodeURIComponent(id)}/property/disconnect`,
+  disconnectStugubyProperty: (id: string) => request(
+      `/stugbys/${encodeURIComponent(id)}/property/disconnect`, stugubyPropertyAdoptionShape,
       { method: "POST", body: JSON.stringify({ confirmation: "DISCONNECT" }) },
     ),
-  resolveStugubyPropertyConflict: (id: string, commandId: string) => request<void>(
-      `/stugbys/${encodeURIComponent(id)}/property-conflicts/${encodeURIComponent(commandId)}/resolve`,
+  resolveStugubyPropertyConflict: (id: string, commandId: string) => request(
+      `/stugbys/${encodeURIComponent(id)}/property-conflicts/${encodeURIComponent(commandId)}/resolve`, noContent,
       { method: "POST" },
     ),
   createStugubyGrant: (id: string, input: {
@@ -77,12 +64,12 @@ export const stugubyApi = {
       datasets: StugubyDatasetGrant[];
       housePolicy: StugubyShareGrant["housePolicy"];
       expiresAt?: string | null;
-    }) => request<StugubyShareGrant>(`/stugbys/${encodeURIComponent(id)}/grants`, {
+    }) => request(`/stugbys/${encodeURIComponent(id)}/grants`, stugubyShareGrantShape, {
       method: "POST",
       body: JSON.stringify(input),
     }),
-  stugubyPublications: (id: string, houseId: string) => request<StugubyLocalPublicationCatalog>(
-      `/stugbys/${encodeURIComponent(id)}/publications/${encodeURIComponent(houseId)}`,
+  stugubyPublications: (id: string, houseId: string) => request(
+      `/stugbys/${encodeURIComponent(id)}/publications/${encodeURIComponent(houseId)}`, stugubyLocalPublicationCatalogShape,
     ),
   updateStugubyGrant: (id: string, grantId: string, input: {
       baseRevision: number;
@@ -90,24 +77,24 @@ export const stugubyApi = {
       datasets: StugubyDatasetGrant[];
       housePolicy: StugubyShareGrant["housePolicy"];
       expiresAt: string | null;
-    }) => request<StugubyShareGrant>(`/stugbys/${encodeURIComponent(id)}/grants/${encodeURIComponent(grantId)}`, {
+    }) => request(`/stugbys/${encodeURIComponent(id)}/grants/${encodeURIComponent(grantId)}`, stugubyShareGrantShape, {
       method: "PUT",
       body: JSON.stringify(input),
     }),
-  revokeStugubyGrant: (id: string, grantId: string) => request<StugubyShareGrant>(
-      `/stugbys/${encodeURIComponent(id)}/grants/${encodeURIComponent(grantId)}`,
+  revokeStugubyGrant: (id: string, grantId: string) => request(
+      `/stugbys/${encodeURIComponent(id)}/grants/${encodeURIComponent(grantId)}`, stugubyShareGrantShape,
       { method: "DELETE" },
     ),
-  removeInvalidStugubyGrant: (id: string, grantId: string) => request<{ removed: true; grantId: string }>(
-      `/stugbys/${encodeURIComponent(id)}/grants/${encodeURIComponent(grantId)}/invalid`,
+  removeInvalidStugubyGrant: (id: string, grantId: string) => request(
+      `/stugbys/${encodeURIComponent(id)}/grants/${encodeURIComponent(grantId)}/invalid`, fields({ removed: literal(true), grantId: string }),
       { method: "DELETE" },
     ),
-  republishStugubyGrant: (id: string, grantId: string) => request<{ queued: boolean }>(
-      `/stugbys/${encodeURIComponent(id)}/grants/${encodeURIComponent(grantId)}/republish`,
+  republishStugubyGrant: (id: string, grantId: string) => request(
+      `/stugbys/${encodeURIComponent(id)}/grants/${encodeURIComponent(grantId)}/republish`, fields({ queued: boolean }),
       { method: "POST" },
     ),
-  syncStuguby: (id: string) => request<StugubySummary>(`/stugbys/${encodeURIComponent(id)}/sync`, { method: "POST" }),
-  stugubyTelemetry: (id: string, limit = 250) => request<{ samples: StugubyRemoteTelemetrySample[] }>(
-      `/stugbys/${encodeURIComponent(id)}/telemetry?limit=${encodeURIComponent(String(limit))}`,
+  syncStuguby: (id: string) => request(`/stugbys/${encodeURIComponent(id)}/sync`, stugubySummaryShape, { method: "POST" }),
+  stugubyTelemetry: (id: string, limit = 250) => request(
+      `/stugbys/${encodeURIComponent(id)}/telemetry?limit=${encodeURIComponent(String(limit))}`, fields({ samples: arrayOf(stugubyRemoteTelemetrySampleShape) }),
     ),
 };

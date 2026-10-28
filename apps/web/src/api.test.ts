@@ -21,6 +21,19 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+/** A Property as the API documents it. */
+function propertyFixture(id: string, name: string) {
+  return {
+    id,
+    name,
+    description: null,
+    defaultHouseId: null,
+    location: null,
+    createdAt: "2026-07-16T08:00:00.000Z",
+    updatedAt: "2026-07-16T08:00:00.000Z",
+  };
+}
+
 describe("API client facade", () => {
   it("defines each client method in exactly one endpoint family", () => {
     const families = Object.values(apiFamilies);
@@ -111,7 +124,7 @@ describe("local session API client", () => {
         grants: [],
         csrfToken: "csrf-memory-only",
       }) } as Response)
-      .mockResolvedValueOnce({ ok: true, status: 201, json: async () => ({ id: "property-1", name: "Pine" }) } as Response)
+      .mockResolvedValueOnce({ ok: true, status: 201, json: async () => ({ property: propertyFixture("property-1", "Pine") }) } as Response)
       .mockResolvedValueOnce({ ok: true, status: 204, json: async () => undefined } as Response);
 
     await api.session();
@@ -204,7 +217,7 @@ describe("local session API client", () => {
         csrfToken: "rejected-csrf",
       }) } as Response)
       .mockResolvedValueOnce({ ok: false, status: 403, json: async () => ({ error: { code: "CSRF_TOKEN_INVALID", message: "Refresh session" } }) } as Response)
-      .mockResolvedValueOnce({ ok: true, status: 201, json: async () => ({ id: "property-2", name: "Lake" }) } as Response);
+      .mockResolvedValueOnce({ ok: true, status: 201, json: async () => ({ property: propertyFixture("property-2", "Lake") }) } as Response);
 
     await api.session();
     await expect(api.createProperty({ name: "Pine" })).rejects.toMatchObject({ status: 403, code: "CSRF_TOKEN_INVALID" });
@@ -255,25 +268,33 @@ describe("equipment tracking API client", () => {
   it("uses endpoint enrollment, equipment binding, and live-map endpoints", async () => {
     const endpoint = {
       id: "endpoint/main",
+      tenantId: "local",
       propertyId: "property/main",
+      observerScopeId: null,
+      telemetry: {},
       displayName: "Garden beacon",
       profileId: "org.bluetooth.ibeacon",
       claimStatus: "CLAIMED",
     };
     const binding = {
       id: "binding/main",
+      propertyId: "property/main",
       equipmentId: "equipment/main",
       endpointId: endpoint.id,
+      observerId: null,
       validFrom: "2026-07-26T08:00:00.000Z",
       validTo: null,
       boundBy: "owner",
     };
-    const capabilities = { flags: { "tracking.enabled": true } };
+    const capabilities = { flags: { "tracking.enabled": true }, observerTypes: [] };
     const snapshot = {
       propertyId: "property/main",
       dataMode: "live",
       generatedAt: "2026-07-26T08:01:00.000Z",
       sequence: 1,
+      settings: {},
+      zones: [],
+      gateways: [],
       equipment: [],
       members: [],
     };
@@ -319,14 +340,7 @@ describe("equipment tracking API client", () => {
 
 describe("paged property collections", () => {
   it("loads every server page instead of silently truncating at 500 resources", async () => {
-    const property = (index: number) => ({
-      id: `property-${index}`,
-      name: `Property ${index}`,
-      description: null,
-      location: null,
-      createdAt: "2026-07-16T08:00:00.000Z",
-      updatedAt: "2026-07-16T08:00:00.000Z",
-    });
+    const property = (index: number) => propertyFixture(`property-${index}`, `Property ${index}`);
     const firstPage = Array.from({ length: COLLECTION_PAGE_SIZE }, (_, index) => property(index));
     const secondPage = [property(COLLECTION_PAGE_SIZE), property(COLLECTION_PAGE_SIZE + 1)];
     const fetchMock = vi.mocked(fetch);
@@ -411,7 +425,9 @@ describe("daily analytics findings API client", () => {
 
 describe("unified system update API client", () => {
   it("posts an exact revision-bound host activation to the canonical endpoint", async () => {
-    const result = { revision: 13 };
+    const result = {
+      revision: 13, latestRelease: null, releases: [], settings: {}, capability: {}, operation: null, application: {}, host: {}, workflow: null,
+    };
     const fetchMock = vi.mocked(fetch);
     fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => result } as Response);
     const input = {
@@ -495,7 +511,7 @@ describe("maintenance task API client", () => {
   });
 
   it("loads one maintenance task through its scoped item endpoint", async () => {
-    const task = { id: "task/main", title: "Inspect pump" };
+    const task = { id: "task/main", propertyId: "property/main", houseId: null, floorId: null, observationIds: [], title: "Inspect pump" };
     const fetchMock = vi.mocked(fetch);
     fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => task } as Response);
 

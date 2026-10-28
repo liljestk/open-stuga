@@ -1,65 +1,64 @@
-import { type CloudflareSetupStartInput, type CloudflareSetupStartResult, type CloudflareSetupStatusResponse, type HostSystemHealth, type LocalMcpRuntimeStartResult, type LocalMcpRuntimeStatus, type SystemStorageSettings, type SystemStorageStatus, type SystemUpdateSettings, type SystemUpdateStatus, withSignal, type BackupOperationStatus, type DataExportPreview, type DataExportPrivacyLevel, type MockScenario, type ScheduledDataExport, type ScheduledDataExportInput, type ScheduledDataExportUpdate, type SetupDoctorReport } from "@climate-twin/contracts";
-import { request, list } from "./support/request";
+import { type CloudflareSetupStartInput, type SystemStorageSettings, type SystemUpdateSettings, withSignal, type DataExportPrivacyLevel, type MockScenario, type ScheduledDataExportInput, type ScheduledDataExportUpdate } from "@climate-twin/contracts";
+import { request } from "./support/request";
 import type { SystemUpdateOperationInput } from "./support/response-types";
 import { API_BASE } from "./support/client-state";
 import type { ApiReadSchedulingClass } from "./support/requestScheduler";
+import { backupOperationStatusShape, cloudflareSetupStartResultShape, cloudflareSetupStatusResponseShape, dataExportPreviewShape, hostSystemHealthShape, localMcpRuntimeStartResultShape, localMcpRuntimeStatusShape, mockScenarioShape, scheduledDataExportShape, setupDoctorReportShape, systemStorageStatusShape, systemUpdateStatusShape } from "./support/entity-shapes";
+import { noContent, boolean, arrayOf, fields } from "./support/response-shapes";
 
 /** Host health, updates, storage, the local MCP runtime, Cloudflare set-up, backups, exports and the setup doctor. */
 export const systemApi = {
-  hostSystemHealth: () => request<HostSystemHealth>("/system/health"),
-  localMcpRuntimeStatus: () => request<LocalMcpRuntimeStatus>("/system/mcp-runtime"),
-  startLocalMcpRuntime: () => request<LocalMcpRuntimeStartResult>("/system/mcp-runtime/start", { method: "POST" }),
-  stopLocalMcpRuntime: () => request<LocalMcpRuntimeStatus>("/system/mcp-runtime/stop", { method: "POST" }),
-  systemUpdateStatus: () => request<SystemUpdateStatus>("/system/updates"),
-  checkSystemUpdates: () => request<SystemUpdateStatus>("/system/updates/check", { method: "POST" }),
-  updateSystemUpdateSettings: (settings: SystemUpdateSettings) => request<SystemUpdateStatus>("/system/updates/settings", {
+  hostSystemHealth: () => request("/system/health", hostSystemHealthShape),
+  localMcpRuntimeStatus: () => request("/system/mcp-runtime", localMcpRuntimeStatusShape),
+  startLocalMcpRuntime: () => request("/system/mcp-runtime/start", localMcpRuntimeStartResultShape, { method: "POST" }),
+  stopLocalMcpRuntime: () => request("/system/mcp-runtime/stop", localMcpRuntimeStatusShape, { method: "POST" }),
+  systemUpdateStatus: () => request("/system/updates", systemUpdateStatusShape),
+  checkSystemUpdates: () => request("/system/updates/check", systemUpdateStatusShape, { method: "POST" }),
+  updateSystemUpdateSettings: (settings: SystemUpdateSettings) => request("/system/updates/settings", systemUpdateStatusShape, {
       method: "PATCH",
       body: JSON.stringify(settings),
     }),
-  installLatestSystemUpdate: () => request<SystemUpdateStatus>("/system/updates/install", { method: "POST" }),
-  operateSystemUpdate: (input: SystemUpdateOperationInput) => request<SystemUpdateStatus>("/system/updates/operations", {
+  installLatestSystemUpdate: () => request("/system/updates/install", systemUpdateStatusShape, { method: "POST" }),
+  operateSystemUpdate: (input: SystemUpdateOperationInput) => request("/system/updates/operations", systemUpdateStatusShape, {
       method: "POST",
       body: JSON.stringify(input),
     }),
-  systemStorageStatus: (signal?: AbortSignal) => request<SystemStorageStatus>(
-      "/system/storage",
+  systemStorageStatus: (signal?: AbortSignal) => request(
+      "/system/storage", systemStorageStatusShape,
       withSignal(signal),
     ),
   updateSystemStorage: (input: {
     settings: SystemStorageSettings;
     expectedRevision: string;
     confirmation: "APPLY_STORAGE" | "MOVE_STORAGE";
-  }) => request<SystemStorageStatus>("/system/storage", {
+  }) => request("/system/storage", systemStorageStatusShape, {
       method: "PUT",
       body: JSON.stringify(input),
     }),
-  cloudflareSetupStatus: () => request<CloudflareSetupStatusResponse>("/cloudflare/setup"),
-  startCloudflareSetup: (input: CloudflareSetupStartInput) => request<CloudflareSetupStartResult>("/cloudflare/setup/start", {
+  cloudflareSetupStatus: () => request("/cloudflare/setup", cloudflareSetupStatusResponseShape),
+  startCloudflareSetup: (input: CloudflareSetupStartInput) => request("/cloudflare/setup/start", cloudflareSetupStartResultShape, {
       method: "POST",
       body: JSON.stringify(input),
     }),
-  setupDoctor: async () => (await request<{ report: SetupDoctorReport }>("/setup/doctor")).report,
-  dataExportPreview: async (privacyLevel: DataExportPrivacyLevel, includeTelemetry: boolean) => (await request<{ preview: DataExportPreview }>(`/data-export/preview?privacyLevel=${encodeURIComponent(privacyLevel)}&includeTelemetry=${includeTelemetry}`)).preview,
+  setupDoctor: async () => (await request("/setup/doctor", fields({ report: setupDoctorReportShape }))).report,
+  dataExportPreview: async (privacyLevel: DataExportPrivacyLevel, includeTelemetry: boolean) => (await request(`/data-export/preview?privacyLevel=${encodeURIComponent(privacyLevel)}&includeTelemetry=${includeTelemetry}`, fields({ preview: dataExportPreviewShape }))).preview,
   dataExportUrl: (privacyLevel: DataExportPrivacyLevel, includeTelemetry: boolean) => `${API_BASE}/data-export?privacyLevel=${encodeURIComponent(privacyLevel)}&includeTelemetry=${includeTelemetry}`,
-  scheduledDataExports: async (houseId: string, signal?: AbortSignal) => list<ScheduledDataExport>(
-      await request<unknown>(`/houses/${encodeURIComponent(houseId)}/scheduled-data-exports`, withSignal(signal)),
-      "exports",
-    ),
-  createScheduledDataExport: async (houseId: string, input: ScheduledDataExportInput) => (await request<{ export: ScheduledDataExport }>(`/houses/${encodeURIComponent(houseId)}/scheduled-data-exports`, {
+  scheduledDataExports: async (houseId: string, signal?: AbortSignal) => (await request(`/houses/${encodeURIComponent(houseId)}/scheduled-data-exports`, fields({ exports: arrayOf(scheduledDataExportShape) }), withSignal(signal))).exports,
+  createScheduledDataExport: async (houseId: string, input: ScheduledDataExportInput) => (await request(`/houses/${encodeURIComponent(houseId)}/scheduled-data-exports`, fields({ export: scheduledDataExportShape }), {
         method: "POST",
         body: JSON.stringify(input),
       })).export,
-  updateScheduledDataExport: async (houseId: string, id: string, input: ScheduledDataExportUpdate) => (await request<{ export: ScheduledDataExport }>(`/houses/${encodeURIComponent(houseId)}/scheduled-data-exports/${encodeURIComponent(id)}`, {
+  updateScheduledDataExport: async (houseId: string, id: string, input: ScheduledDataExportUpdate) => (await request(`/houses/${encodeURIComponent(houseId)}/scheduled-data-exports/${encodeURIComponent(id)}`, fields({ export: scheduledDataExportShape }), {
         method: "PUT",
         body: JSON.stringify(input),
       })).export,
-  deleteScheduledDataExport: (houseId: string, id: string) => request<void>(
-      `/houses/${encodeURIComponent(houseId)}/scheduled-data-exports/${encodeURIComponent(id)}`,
+  deleteScheduledDataExport: (houseId: string, id: string) => request(
+      `/houses/${encodeURIComponent(houseId)}/scheduled-data-exports/${encodeURIComponent(id)}`, noContent,
       { method: "DELETE" },
     ),
-  runScheduledDataExport: async (houseId: string, id: string) => (await request<{ export: ScheduledDataExport }>(`/houses/${encodeURIComponent(houseId)}/scheduled-data-exports/${encodeURIComponent(id)}/run`, { method: "POST" })).export,
-  backupStatus: async () => (await request<{ backup: BackupOperationStatus }>("/backups/status")).backup,
-  requestBackup: async () => (await request<{ backup: BackupOperationStatus }>("/backups", { method: "POST" })).backup,
-  scenarios: async (schedulingClass: ApiReadSchedulingClass = "background") => list<MockScenario>(await request<unknown>("/mock/scenarios", { schedulingClass }), "scenarios"),
-  runScenario: (scenarioId: MockScenario["id"]) => request<{ ok: boolean }>("/mock/scenario", { method: "POST", body: JSON.stringify({ scenarioId }) }),
+  runScheduledDataExport: async (houseId: string, id: string) => (await request(`/houses/${encodeURIComponent(houseId)}/scheduled-data-exports/${encodeURIComponent(id)}/run`, fields({ export: scheduledDataExportShape }), { method: "POST" })).export,
+  backupStatus: async () => (await request("/backups/status", fields({ backup: backupOperationStatusShape }))).backup,
+  requestBackup: async () => (await request("/backups", fields({ backup: backupOperationStatusShape }), { method: "POST" })).backup,
+  scenarios: async (schedulingClass: ApiReadSchedulingClass = "background") => (await request("/mock/scenarios", fields({ scenarios: arrayOf(mockScenarioShape) }), { schedulingClass })).scenarios,
+  runScenario: (scenarioId: MockScenario["id"]) => request("/mock/scenario", fields({ ok: boolean }), { method: "POST", body: JSON.stringify({ scenarioId }) }),
 };

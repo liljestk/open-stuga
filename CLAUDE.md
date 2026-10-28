@@ -130,12 +130,15 @@ command themselves before reporting work as done.
    multi-key list fallbacks such as `body.items ?? body.sensors ?? body`. Gate:
    OpenAPI parity requires the single documented body; the client side is
    review-enforced.
-5. **Validate API responses at the boundary.** The `apps/web/src/api` function
-   that fetches a new endpoint checks the body's shape with a `parse…`/`is…`
-   guard and throws on a mismatch. Share the guard from
-   `@climate-twin/contracts` when the API needs it too. Hooks and components
-   receive typed data and never cast a response with `as`. Gate: none yet;
-   review-enforced.
+5. **Validate API responses at the boundary.** `request`/`requestV2` in
+   `apps/web/src/api/support/request.ts` take the `ResponseShape` the body must
+   match and throw a `ResponseShapeError` otherwise. Build shapes from the
+   combinators in `response-shapes.ts` (`fields`, `arrayOf`, `nullable`,
+   `optional`, `guarded` for a contracts `is…` guard) and the entity
+   descriptors in `entity-shapes.ts`; add a descriptor there for a new entity.
+   Share a guard from `@climate-twin/contracts` when the API needs it too.
+   Hooks and components receive typed data and never cast a response with
+   `as`. Gate: the typecheck (a request without a shape does not compile).
 6. **Use an options object instead of more than three positional parameters.**
    Write `createReport(store, { houseId, from, to, signal })`, not
    `createReport(store, houseId, from, to, signal)`. Gate: none yet;

@@ -8,7 +8,7 @@ afterEach(() => {
 
 describe("thermal simulation API client", () => {
   it("encodes the calibration window and optional weather scenario", async () => {
-    const simulation = { sensorId: "sensor/office", points: [] };
+    const simulation = { houseId: "house/main", sensorId: "sensor/office", calibration: {}, points: [] };
     const fetchMock = vi.mocked(fetch);
     fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => ({ simulation }) } as Response);
 
@@ -25,7 +25,7 @@ describe("thermal simulation API client", () => {
   });
 
   it("encodes the whole-home thermal isolation window", async () => {
-    const isolation = { houseId: "house/main", entries: [] };
+    const isolation = { houseId: "house/main", entries: [], insights: [], methodology: {} };
     const fetchMock = vi.mocked(fetch);
     fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => ({ isolation }) } as Response);
 

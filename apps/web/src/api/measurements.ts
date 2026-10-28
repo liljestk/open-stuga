@@ -1,7 +1,9 @@
 import type { ApiReadSchedulingClass } from "./support/requestScheduler";
 import { type MeasurementForecastEvaluation, type MeasurementForecastPoint, type MeasurementSample, expectShape, isMeasurementForecastEvaluation, isMeasurementForecastPoints, withSignal } from "@climate-twin/contracts";
 import { requestV2 } from "./support/request";
-import type { HistoricalImportResult, MeasurementHistoryPage, MeasurementHistoryQuery, SensorMeasurementPage } from "./support/response-types";
+import type { HistoricalImportResult, MeasurementHistoryQuery } from "./support/response-types";
+import { measurementForecastPointShape, measurementHistoryPageShape, measurementSampleShape, sensorMeasurementPageShape } from "./support/entity-shapes";
+import { anyBody, string, number, arrayOf, recordOf, fields } from "./support/response-shapes";
 
 const measurementHistoryPageRequest = async (
     sensorId: string,
@@ -10,24 +12,13 @@ const measurementHistoryPageRequest = async (
     const query = new URLSearchParams({ sensorId, metric, from, to, limit: String(limit) });
     if (bucketSeconds !== undefined) query.set("bucketSeconds", String(bucketSeconds));
     if (cursor) query.set("cursor", cursor);
-    const result = await requestV2<Partial<Omit<MeasurementHistoryPage, "samples">> & { samples: MeasurementSample[] }>(
-      `/measurements/history?${query.toString()}`,
-      withSignal(signal),
-    );
-    return {
-      samples: result.samples,
-      from: result.from ?? from,
-      to: result.to ?? to,
-      bucketSeconds: result.bucketSeconds ?? null,
-      truncated: result.truncated ?? result.samples.length >= limit,
-      nextCursor: result.nextCursor ?? null,
-    } satisfies MeasurementHistoryPage;
+    return requestV2(`/measurements/history?${query.toString()}`, measurementHistoryPageShape, withSignal(signal));
   };
 
 /** Measurement snapshots, history pages, historical imports and forecasts. */
 export const measurementsApi = {
-  measurementSnapshot: async (houseId: string, schedulingClass: ApiReadSchedulingClass = "background") => (await requestV2<{ snapshot: { sensorId: string; measurements: Record<string, MeasurementSample> }[] }>(
-      `/measurements/snapshot?houseId=${encodeURIComponent(houseId)}`, { schedulingClass },
+  measurementSnapshot: async (houseId: string, schedulingClass: ApiReadSchedulingClass = "background") => (await requestV2(
+      `/measurements/snapshot?houseId=${encodeURIComponent(houseId)}`, fields({ snapshot: arrayOf(fields({ sensorId: string, measurements: recordOf(measurementSampleShape) })) }), { schedulingClass },
     )).snapshot,
   measurementHistoryPage: measurementHistoryPageRequest,
   measurementHistory: async (sensorId: string, query: Omit<MeasurementHistoryQuery, "bucketSeconds" | "cursor">) => (
@@ -36,7 +27,7 @@ export const measurementsApi = {
   sensorMeasurementPage: (sensorId: string, cursor: string | null = null, limit = 100) => {
       const query = new URLSearchParams({ limit: String(limit) });
       if (cursor) query.set("cursor", cursor);
-      return requestV2<SensorMeasurementPage>(`/sensors/${encodeURIComponent(sensorId)}/measurements?${query}`);
+      return requestV2(`/sensors/${encodeURIComponent(sensorId)}/measurements?${query}`, sensorMeasurementPageShape);
     },
   importHistoricalMeasurements: async (
       samples: MeasurementSample[],
@@ -46,7 +37,7 @@ export const measurementsApi = {
       let ignoredDuplicates = 0;
       for (let offset = 0; offset < samples.length; offset += 1_000) {
         const batch = samples.slice(offset, offset + 1_000);
-        const result = await requestV2<{ accepted: number; ignoredDuplicates: number }>("/measurements/import", {
+        const result = await requestV2("/measurements/import", fields({ accepted: number, ignoredDuplicates: number }), {
           method: "POST",
           body: JSON.stringify({ samples: batch }),
         });
@@ -57,8 +48,8 @@ export const measurementsApi = {
       return { submitted: samples.length, accepted, ignoredDuplicates };
     },
   measurementForecast: async (sensorId: string, { metric, hours = 12, signal }: { metric: string; hours?: number; signal?: AbortSignal | undefined }) => (
-      await requestV2<{ forecast: MeasurementForecastPoint[] }>(
-        `/measurements/forecast?sensorId=${encodeURIComponent(sensorId)}&metric=${encodeURIComponent(metric)}&hours=${hours}`,
+      await requestV2(
+        `/measurements/forecast?sensorId=${encodeURIComponent(sensorId)}&metric=${encodeURIComponent(metric)}&hours=${hours}`, fields({ forecast: arrayOf(measurementForecastPointShape) }),
         withSignal(signal),
       )
     ).forecast,
@@ -67,8 +58,8 @@ export const measurementsApi = {
       { sensorId, metric, hours = 12, signal }: { sensorId: string; metric: string; hours?: number; signal?: AbortSignal },
     ): Promise<{ forecast: MeasurementForecastPoint[]; evaluation?: MeasurementForecastEvaluation }> => {
       const endpoint = "/measurements/forecast";
-      const body = await requestV2<unknown>(
-        `${endpoint}?sensorId=${encodeURIComponent(sensorId)}&metric=${encodeURIComponent(metric)}&hours=${hours}`,
+      const body = await requestV2(
+        `${endpoint}?sensorId=${encodeURIComponent(sensorId)}&metric=${encodeURIComponent(metric)}&hours=${hours}`, anyBody,
         signal ? { signal } : undefined,
       );
       const record = typeof body === "object" && body !== null ? body as Record<string, unknown> : {};

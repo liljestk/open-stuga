@@ -1,40 +1,21 @@
-import { type ConnectedDeviceCommand, type ConnectedDevicePlacementPatch, type ConnectedDeviceState, type HeatPumpPlacementPatch, type HeatPumpState, withSignal } from "@climate-twin/contracts";
-import { list, request } from "./support/request";
+import { type ConnectedDeviceCommand, type ConnectedDevicePlacementPatch, type HeatPumpPlacementPatch, withSignal } from "@climate-twin/contracts";
+import { request } from "./support/request";
+import { connectedDeviceStateShape, heatPumpStateShape } from "./support/entity-shapes";
+import { string, boolean, nullable, arrayOf, fields } from "./support/response-shapes";
 
 /** Connected devices and heat pumps: state, commands, placement and history. */
 export const devicesApi = {
-  connectedDevices: async (houseId?: string, signal?: AbortSignal) => list<ConnectedDeviceState>(
-      await request<unknown>(
-        `/connected-devices${houseId ? `?houseId=${encodeURIComponent(houseId)}` : ""}`,
-        withSignal(signal),
-      ),
-      "devices",
-    ),
-  commandConnectedDevice: (connectionId: string, command: ConnectedDeviceCommand) => request<{
-    ok: boolean;
-    deduplicated: boolean;
-    state: ConnectedDeviceState;
-  }>(`/connected-devices/${encodeURIComponent(connectionId)}/commands`, {
+  connectedDevices: async (houseId?: string, signal?: AbortSignal) => (await request(`/connected-devices${houseId ? `?houseId=${encodeURIComponent(houseId)}` : ""}`, fields({ devices: arrayOf(connectedDeviceStateShape) }), withSignal(signal))).devices,
+  commandConnectedDevice: (connectionId: string, command: ConnectedDeviceCommand) => request(`/connected-devices/${encodeURIComponent(connectionId)}/commands`, fields({ ok: boolean, deduplicated: boolean, state: connectedDeviceStateShape }), {
     method: "POST",
     body: JSON.stringify(command),
   }),
-  placeConnectedDevice: (connectionId: string, placement: ConnectedDevicePlacementPatch) => request<{
-    state: ConnectedDeviceState | null;
-    energySensorId: string | null;
-  }>(`/connected-devices/${encodeURIComponent(connectionId)}/placement`, {
+  placeConnectedDevice: (connectionId: string, placement: ConnectedDevicePlacementPatch) => request(`/connected-devices/${encodeURIComponent(connectionId)}/placement`, fields({ state: nullable(connectedDeviceStateShape), energySensorId: nullable(string) }), {
     method: "PATCH",
     body: JSON.stringify(placement),
   }),
-  heatPumpStates: async (houseId?: string, signal?: AbortSignal) => list<HeatPumpState>(
-      await request<unknown>(
-        `/heat-pumps${houseId ? `?houseId=${encodeURIComponent(houseId)}` : ""}`,
-        withSignal(signal),
-      ),
-      "states",
-    ),
-  placeHeatPump: (connectionId: string, placement: HeatPumpPlacementPatch) => request<{
-    state: HeatPumpState | null;
-  }>(`/heat-pumps/${encodeURIComponent(connectionId)}/placement`, {
+  heatPumpStates: async (houseId?: string, signal?: AbortSignal) => (await request(`/heat-pumps${houseId ? `?houseId=${encodeURIComponent(houseId)}` : ""}`, fields({ states: arrayOf(heatPumpStateShape) }), withSignal(signal))).states,
+  placeHeatPump: (connectionId: string, placement: HeatPumpPlacementPatch) => request(`/heat-pumps/${encodeURIComponent(connectionId)}/placement`, fields({ state: nullable(heatPumpStateShape) }), {
     method: "PATCH",
     body: JSON.stringify(placement),
   }),
@@ -47,9 +28,6 @@ export const devicesApi = {
     if (options.to) query.set("to", options.to);
     if (options.limit) query.set("limit", String(options.limit));
     const suffix = query.size ? `?${query.toString()}` : "";
-    return list<HeatPumpState>(
-      await request<unknown>(`/heat-pumps/${encodeURIComponent(connectionId)}/history${suffix}`),
-      "states",
-    );
+    return (await request(`/heat-pumps/${encodeURIComponent(connectionId)}/history${suffix}`, fields({ states: arrayOf(heatPumpStateShape) }))).states;
   },
 };

@@ -62,7 +62,7 @@ describe("bootstrap HTTP scheduling", () => {
       case "/api/v1/session": return Promise.resolve(response({ ...demo.session, systemVersion: SYSTEM_VERSION }));
       case "/api/v1/properties": return Promise.resolve(response({ properties: demo.properties }));
       case "/api/v1/houses": return Promise.resolve(response({ houses: [house, otherHouse] }));
-      case `/api/v1/houses/${house.id}/energy-summary`: return Promise.resolve(response({ summary: { consumptionKwh: 4 } }));
+      case `/api/v1/houses/${house.id}/energy-summary`: return Promise.resolve(response({ summary: { houseId: house.id, consumptionKwh: 4, costBreakdown: null, contributions: [] } }));
       case "/api/v1/sensors": return Promise.resolve(response({ sensors }));
       case "/api/v1/sensors/snapshots": return Promise.resolve(response({ sensors: emptySnapshot ? [] : sensors.map((sensor) => ({
         ...sensor, reading: demo.readings[sensor.id] ?? null,
