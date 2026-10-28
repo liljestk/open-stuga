@@ -94,6 +94,25 @@ shown once.
 
 ## Topology and authority
 
+```mermaid
+flowchart LR
+    subgraph clientA["Client Stugu A"]
+        homeA["Home A<br/>authoritative here"]
+    end
+    subgraph host["Host Stugu (coordinator)"]
+        roster["Membership roster,<br/>common Property"]
+        relay["Durable event relay,<br/>per-recipient cursors"]
+    end
+    subgraph clientB["Client Stugu B"]
+        replica["Read-only copy of Home A<br/>per grant"]
+    end
+    clientA -->|"signed events over HTTPS"| relay
+    relay -->|"SSE 'available' notice"| clientB
+    clientB -->|"signed cursor pull"| relay
+    clientA -->|"Property commands,<br/>queued while offline"| roster
+    edge["Cloudflare Tunnel + Access<br/>or another HTTPS entry"] -.->|"only the Host<br/>needs to be reachable"| host
+```
+
 Every Stuguby has one Host (the protocol's coordinator node) and any number of
 Clients (participant nodes). The Host is an event relay and the authority for
 membership and the common Property. A Home dataset event always retains the

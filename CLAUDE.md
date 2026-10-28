@@ -15,7 +15,8 @@ original `climate-twin` identifier.
   `secrets/cloudflare/`), and the standalone bug-report relay Worker in
   `apps/bug-report-relay` that holds a GitHub App key. Neither is part of
   shipping the app, and neither should be deployed as part of ordinary work.
-- Hosted GitHub Actions CI is **paused** while the repo is private.
+- Hosted GitHub Actions CI is **paused**: its workflows run only when
+  dispatched manually.
   `npm run verify:local -- --full` runs the authoritative local CI once and
   produces the reusable receipt (see `docs/local-ci.md`).
 - For Raspberry Pi updater diagnosis and recovery—including an **unsupported

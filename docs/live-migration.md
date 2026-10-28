@@ -145,6 +145,32 @@ npm run migrate -- cutover `
   --identity-file "$HOME/.ssh/stuga_appliance"
 ```
 
+```mermaid
+sequenceDiagram
+    participant src as Source Compose install
+    participant ctl as Migration controller
+    participant tgt as Target appliance
+
+    ctl->>tgt: check reachability, receiver version, free space
+    ctl->>src: stop ingress and writers
+    ctl->>src: final verified backup, TimescaleDB still online
+    ctl->>tgt: send only the chunk hashes it lacks
+    tgt->>tgt: reassemble and verify the backup
+    tgt->>tgt: safety backup, restore into a candidate database
+    tgt->>tgt: switch database and files, keep the prior state
+    tgt->>tgt: restart, wait for archive and policy health
+    alt target healthy
+        tgt-->>ctl: committed receipt
+        Note over src: stays stopped
+    else apply or health check failed
+        tgt->>tgt: restore prior database, files, settings
+        tgt-->>ctl: rolled-back receipt
+        ctl->>src: restart the original writers
+    else target unreachable at the ambiguous moment
+        Note over src,tgt: source stays stopped to prevent split-brain
+    end
+```
+
 The controller performs these guarded steps:
 
 1. proves target reachability, receiver version, and free space;
