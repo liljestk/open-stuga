@@ -2,6 +2,23 @@
 
 All notable Stugu releases are recorded here.
 
+## 0.52.10
+
+Fixes found in a review of every page and tab.
+
+- Charts show their full range as soon as the history arrives. They used to wait for the forecast as well, which is computed on request and can take tens of seconds. Until then a sensor's detail chart drew only its newest log page, about five hours of a 24-hour range, and said its history began there. The forecast is now added when it arrives, and the chart no longer reports where the history begins while the range is still loading.
+- The Sensors page now treats a reading as current for 15 minutes, the same window Home, Overview and the floor plan use (`VITE_SPATIAL_MAX_SAMPLE_AGE_MS` still overrides it). Before, a sensor reporting every 10–15 minutes kept switching between Live and Waiting, and Sensors could show none live while Home counted most of them. A sensor that has reported before but not recently now says "Not reporting" instead of "Waiting for data".
+- Layout fixes:
+  - Set up → Sensor mapping and the property's Tariff and Bill check cards have inner padding.
+  - Property → Map layer names and the search and type filters no longer get cut off.
+  - On phones, "View data for …" buttons with long sensor names wrap instead of running past the card.
+- "1 item shown" and "1 home with a location" replace "1 items" and "1 homes".
+- On the floor plan:
+  - A room's name moves above a sensor marker that would cover it.
+  - The zoom control moves to the top-left corner, off the west compass label.
+  - On tablets, the layer notes wrap above the temperature legend instead of covering it.
+- Upgrade impact: application-only update; no API, schema, Compose, configuration or host-trust change.
+
 ## 0.52.5
 
 - Long chart ranges load much faster. The dashboard, sensor details and electricity charts, replay, per-sensor forecasts and the optimizer's flexible-load profiles now read their history buckets from the TimescaleDB continuous aggregates. Raw samples are read only for the partial periods at the range edges and for the newest period the aggregate has not finished. On a Raspberry Pi, the history of a power plug reporting every 2 seconds took 2.0 s for 30 days and 6.2 s for a year; it now takes 0.13 s and 0.32 s. A 14-day forecast history went from 0.20 s to 0.03 s.

@@ -596,4 +596,32 @@ describe("sensor onboarding and management", () => {
     expect(screen.getByRole("button", { name: "View data for Living room · Archived" })).not.toBeNull();
     expect(screen.queryByRole("button", { name: "View data for Living room" })).toBeNull();
   });
+
+  it("keeps a sensor live for the Home freshness window and names one that stopped reporting", () => {
+    const base = createDemoState();
+    const live = base.sensors.find((sensor) => sensor.id === "sensor-living")!;
+    const silent = { ...live, id: "sensor-living-silent", name: "Silent room" };
+    const at = (minutesAgo: number) => new Date(Date.now() - minutesAgo * 60_000).toISOString();
+    const withTimestamp = (sensorId: string, timestamp: string) => ({
+      reading: { ...base.readings[live.id]!, sensorId, timestamp },
+      measurements: Object.fromEntries(Object.entries(base.latestMeasurements[live.id] ?? {})
+        .map(([metric, sample]) => [metric, { ...sample, sensorId, timestamp }])),
+    });
+    const recent = withTimestamp(live.id, at(12));
+    const old = withTimestamp(silent.id, at(3 * 24 * 60));
+    renderPage({
+      state: {
+        ...base,
+        sensors: [...base.sensors, silent],
+        readings: { ...base.readings, [live.id]: recent.reading, [silent.id]: old.reading },
+        latestMeasurements: { ...base.latestMeasurements, [live.id]: recent.measurements, [silent.id]: old.measurements },
+      },
+    });
+
+    const liveRow = screen.getByText("Living room", { selector: "strong" }).closest("li")!;
+    expect(within(liveRow).getByText("Live")).not.toBeNull();
+    const silentRow = screen.getByText("Silent room", { selector: "strong" }).closest("li")!;
+    expect(within(silentRow).getByText("Not reporting")).not.toBeNull();
+    expect(within(silentRow).queryByText("Waiting for data")).toBeNull();
+  });
 });

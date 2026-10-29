@@ -39,6 +39,7 @@ import { api } from "../../api";
 import { EquipmentQrLabel } from "./EquipmentQrLabel";
 import { StugubyMark } from "../../components/StugubyMark";
 import { formatInTimeZone } from "../../dateTime";
+import { countKey } from "../../i18n";
 import { type PropertyTrafficLight } from "./propertyStatus";
 import "../PropertyManagementPage.css";
 import { AccessPanel, EQUIPMENT_DOCUMENT_ACCEPT, EQUIPMENT_DRAFT_MAP_ID, EQUIPMENT_PHOTO_ACCEPT, MAP_ITEM_BATCH_SIZE, NEW_FIXED_ASSET_ID, PropertyAreaMap, PropertyStatusLights, areaDraft, areaKinds, attachmentSize, isForeignSharedHouse, targetLabel } from "./support";
@@ -171,7 +172,7 @@ export function renderPropertyManagementPage(context: ReturnType<typeof usePrope
                 <label><input type="checkbox" checked={mapLayers.equipment} onChange={(event) => changeMapLayer("equipment", event.target.checked)} /><Boxes size={13} aria-hidden="true" /><span>{t("properties.mapEquipment")}</span><small>{equipment.length}</small></label>
                 <label><input type="checkbox" checked={mapLayers.person} onChange={(event) => changeMapLayer("person", event.target.checked)} /><UserRound size={13} aria-hidden="true" /><span>{t("properties.mapPeople")}</span><small>{sharedMembers.length}</small></label>
               </fieldset>
-              <p className="property-map-result-count" aria-live="polite">{t("properties.inventoryShowing", { count: matchingMapCatalogItems.length })}</p>
+              <p className="property-map-result-count" aria-live="polite">{t(countKey(matchingMapCatalogItems.length, "properties.inventoryShowingOne", "properties.inventoryShowing"), { count: matchingMapCatalogItems.length })}</p>
               {visibleMapCatalogItems.length > 0 ? <ul className="property-placement-house-list property-map-item-list" aria-label={t("properties.mapItems")}>
                 {visibleMapCatalogItems.map((entry) => {
                   const selected = mapItemSelection?.kind === entry.kind && mapItemSelection.id === entry.id;
@@ -269,7 +270,7 @@ export function renderPropertyManagementPage(context: ReturnType<typeof usePrope
                 <label className="field"><span>{t("properties.inventoryStatusFilter")}</span><select value={inventoryStatus} onChange={(event) => changeInventoryStatus(event.target.value as "all" | AreaEquipmentStatus)}><option value="all">{t("properties.inventoryAllStatuses")}</option><option value="active">{t("properties.equipmentStatus.active")}</option><option value="out-of-service">{t("properties.equipmentStatus.out-of-service")}</option><option value="retired">{t("properties.equipmentStatus.retired")}</option></select></label>
                 <label className="field"><span>{t("properties.inventoryLocationFilter")}</span><select value={inventoryLocation} onChange={(event) => changeInventoryLocation(event.target.value as InventoryLocationFilter)}><option value="all">{t("properties.inventoryAllLocations")}</option><option value="pinned">{t("properties.inventoryPinnedLocation")}</option><option value="unassigned">{t("properties.inventoryUnassigned")}</option>{houses.length > 0 && <optgroup label={t("properties.houses")}>{houses.map((house) => <option key={house.id} value={`house:${house.id}`}>{house.name}</option>)}</optgroup>}{areas.length > 0 && <optgroup label={t("properties.areas")}>{areas.map((area) => <option key={area.id} value={`area:${area.id}`}>{area.name}</option>)}</optgroup>}</select></label>
               </div>
-              <p className="inventory-result-count" aria-live="polite">{t("properties.inventoryShowing", { count: visibleInventory.length })}</p>
+              <p className="inventory-result-count" aria-live="polite">{t(countKey(visibleInventory.length, "properties.inventoryShowingOne", "properties.inventoryShowing"), { count: visibleInventory.length })}</p>
               {visibleInventory.length > 0 ? <div className="inventory-list">
                 {visibleInventory.map((item) => {
                   const tracked = trackingByEquipmentId.get(item.id);

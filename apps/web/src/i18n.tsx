@@ -130,6 +130,11 @@ export function I18nProvider({ children, catalogLoader = requestCatalog }: Reado
         {catalogPending && <div className="bootstrap-screen" role="status" aria-busy="true"><strong>Stugu</strong></div>}
     </I18nContext.Provider>;
 }
+/** The catalog's singular key for a count of one, its plural key for any other count. */
+export function countKey<Key extends TranslationKey>(count: number, one: Key, other: Key): Key {
+  return count === 1 ? one : other;
+}
+
 /** True when `key` names a catalog entry, for keys built from data the compiler cannot see. */
 export function isTranslationKey(key: string): key is TranslationKey {
   return Object.hasOwn(en, key);

@@ -132,6 +132,7 @@ export const enPart5 = {
   "sensors.total": "Total sensors",
   "sensors.live": "Live",
   "sensors.waiting": "Waiting for data",
+  "sensors.notReporting": "Not reporting",
   "sensors.unplaced": "Unplaced",
   "sensors.advancedEdit": "Advanced placement and connection",
   "sensors.archived": "Archived",

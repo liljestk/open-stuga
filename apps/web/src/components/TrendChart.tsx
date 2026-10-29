@@ -17,7 +17,7 @@ interface TrendChartProps {
   range: TimeRange;
   onRange: (range: TimeRange) => void;
   timeZone?: string;
-  loadState?: SeriesLoadState;
+  loadState?: SeriesLoadState | undefined;
   heading?: string | undefined;
 }
 
@@ -155,8 +155,7 @@ export function TrendChart({ sensor, history, forecast, definition, units, range
   const dataRows = dataOpen ? [...all].sort((left, right) => left.timestamp - right.timestamp) : [];
   const observedStart = series.observed.length ? (minimum(series.observed.map((point) => point.timestamp)) ?? Number.POSITIVE_INFINITY) : null;
   const coverageStart = loadState?.loadedFrom ? Date.parse(loadState.loadedFrom) : observedStart;
-  const coverageIsPartial = loadState?.partial === true
-    || (coverageStart !== null && Number.isFinite(coverageStart) && coverageStart > requestedStart + rangeHours * 36_000);
+  const coverageIsPartial = isCoveragePartial(loadState, coverageStart, requestedStart + rangeHours * 36_000);
 
   return (
     <section className="panel chart-panel">
@@ -217,6 +216,17 @@ export function TrendChart({ sensor, history, forecast, definition, units, range
       {!definition.forecastSupported && <p className="chart-capability-note">{t("chart.forecastUnsupported", { metric: metricLabel })}</p>}
     </section>
   );
+}
+
+/**
+ * Whether the drawn history starts noticeably after the requested window.
+ * While the range is still loading the chart only holds what it already had,
+ * so its first sample says nothing about where the stored history begins.
+ */
+function isCoveragePartial(loadState: SeriesLoadState | undefined, coverageStart: number | null, partialAfter: number): boolean {
+  if (loadState?.status === "loading") return false;
+  if (loadState?.partial === true) return true;
+  return coverageStart !== null && Number.isFinite(coverageStart) && coverageStart > partialAfter;
 }
 
 function ChartHeader({ sensor, heading, range, onRange }: { sensor: Sensor; heading?: string | undefined; range: TimeRange; onRange: (range: TimeRange) => void }) {

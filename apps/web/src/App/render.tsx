@@ -513,6 +513,7 @@ export function renderApp(context: ReturnType<typeof useAppPart03>) {
             canManageIntegrations={canManagePeople}
             units={units}
             onLoadSeries={loadSeriesInBackground}
+            seriesStates={climate.seriesStates}
             onRequestedDeviceHandled={() => setRequestedSensorDevice(null)}
             onHouse={chooseHouse}
             onUpdateHouse={climate.updateHouse}

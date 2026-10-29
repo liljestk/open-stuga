@@ -72,6 +72,7 @@
   .map-layer-legends { right: 9px; bottom: 76px; max-width: min(290px, calc(100% - 18px)); }
   .map-layer-legends .flow-legend { max-width: 100%; }
   .heat-legend { left: 9px; bottom: 8px; max-width: calc(100% - 70px); }
+  .map-information-content { left: 9px; right: 9px; bottom: 8px; }
   .plan-stage > .map-information-toggle { right: 9px; bottom: 8px; }
   .plan-zoom-controls { left: 8px; }
   .building-legend .map-information-toggle { align-self: flex-end; }

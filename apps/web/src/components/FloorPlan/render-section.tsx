@@ -21,6 +21,7 @@ import {
 } from "../../planElementGeometry";
 import { fireplaceChimneyDimensions } from "../../architecturalGeometry";
 import { MapInformationToggle } from "../MapInformationToggle";
+import { roomLabelPoint } from "./roomLabelPlacement";
 import { effectiveOpeningState, openingStateCanChange, openingStateKey } from "../../openingState";
 import { OUTDOOR_SHELL_CHIP_GAP, OUTDOOR_SHELL_CHIP_HEIGHT, OUTDOOR_SHELL_CHIP_RIGHT_INSET, OUTDOOR_SHELL_CHIP_WIDTH, OUTDOOR_SHELL_OFFSET, PlanElementGlyph, roomRectanglePoints, smoothAirflowPath } from "./support";
 import type { FloorPlanProps } from "./support";
@@ -36,6 +37,9 @@ export function renderFloorPlanEditorSection(context: ReturnType<typeof useFloor
     onHeatPumpMove: FloorPlanProps["onHeatPumpMove"];
   };
   const { floor, house, sensors, samples, observations, definition, units, viewMode, selectedSensorId, editing, observationPlacement, outdoor, mapAnimationsEnabled, outdoorExtrasVisible, spatialLayerSnapshots, spatialLayerTopology, experimentalAirflowEnabled, experimentalSensorCoverage, experimentalOutdoorInfluence, pendingOpeningStateKeys, onOpeningStateChange, sensorMeasurements, climateSensorMarkersVisible, energyDevicesVisible, connectedDevices, connectedDevicesVisible, pendingConnectedDeviceIds, heatPumps, heatPumpInfluenceVisible, pendingHeatPumpIds, selectedHeatPumpId, onConnectedDevicePowerChange, onConnectedDeviceMove, onHeatPumpSelect, onHeatPumpMove, locale, t, houseOpeningStateObservations, metricLabel, svgRef, dragging, draggingElement, draggingRoomVertex, roomVertexRefs, planElementRefs, mapHelpId, mapInformationId, fieldId, roomStart, selectedWallId, selectedRoomId, selectedPlanElementId, planElementKind, keyboardPoint, reducedMotion, mapInformationExpanded, setMapInformationExpanded, planZoom, effectivePlanZoom, changePlanZoom, stepPlanZoom, planViewBox, renderScale, metresPerPlanUnit, renderWidth, renderHeight, renderedGridSize, resolvedReferenceTimeMs, spatialFreshness, clouds, transform, layoutEditing, placingElement, selectingLayout, keyboardPlacementActive, wallSelectionActive, roomSelectionActive, planElementSelectionActive, showMonitoringOverlays, planElements, chimneyPenetrations, selectedRoom, pointFromEvent, addRoomVertex, mapPointerDown, mapPointerMove, mapKeyDown, wallPointerDown, wallKeyDown, roomPointerDown, roomKeyDown, roomVertexPointerDown, roomEdgeKeyDown, moveRoomVertex, roomVertexKeyDown, planElementPointerDown, planElementPointerMove, planElementKeyDown, startSensorDrag, moveSensor, sensorKeyDown, legendMin, legendMax, outdoorContext, airflowPaths, activeGradientFlows, hasOutdoorWindCue, hasMapInformation, airflowDescription, airflowAria, outdoorTemperature, outdoorHumidity, outdoorTemperatureColor, outdoorHumidityColor, activeOutdoorColor, activeOutdoorStyle, outdoorTemperatureStyle, outdoorHumidityStyle, outdoorWindDirection, outdoorShellLabel, edgeLabels, elementPreviewPlacement, wallPreview } = extended;
+  const sensorMarkerPoints = sensors
+    .filter((sensor) => sensor.enabled && Number.isFinite(sensor.x) && Number.isFinite(sensor.y))
+    .map((sensor) => ({ x: sensor.x * renderScale, y: sensor.y * renderScale }));
   const windLabel = outdoorWindDirection ? t("outdoor.windFromAria", { value: outdoorWindDirection }) : null;
   return (<div className="outdoor-map-layout floor-plan-layout">
         {showMonitoringOverlays && outdoor && <OutdoorConditionsBadge outdoor={outdoor} units={units} showCompass />}
@@ -159,6 +163,12 @@ export function renderFloorPlanEditorSection(context: ReturnType<typeof useFloor
                   const centerX = room.points.reduce((sum, point) => sum + point.x, 0) / room.points.length * renderScale;
                   const centerY = room.points.reduce((sum, point) => sum + point.y, 0) / room.points.length * renderScale;
                   const renderedPoints = room.points.map((point) => `${point.x * renderScale},${point.y * renderScale}`).join(" ");
+                  const label = roomLabelPoint({
+                    name: room.name,
+                    center: { x: centerX, y: centerY },
+                    roomTop: Math.min(...room.points.map((point) => point.y)) * renderScale,
+                    markers: sensorMarkerPoints,
+                  });
                   return (
                     <g
                       key={room.id}
@@ -171,7 +181,7 @@ export function renderFloorPlanEditorSection(context: ReturnType<typeof useFloor
                       onKeyDown={roomSelectionActive ? (event) => roomKeyDown(event, room.id) : undefined}
                     >
                       {layoutEditing && <polygon points={renderedPoints} className="room-zone-area" />}
-                      <text x={centerX} y={centerY} textAnchor="middle">{room.name}</text>
+                      <text x={label.x} y={label.y} textAnchor="middle">{room.name}</text>
                     </g>
                   );
                 })}

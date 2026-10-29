@@ -136,7 +136,7 @@
     "apps/web/src/components/PropertyAreaMap/PropertyAreaMapView.tsx": [40, 21, 18, 18, 16],
     "apps/web/src/components/SensorAnalyticsChart.tsx": [113, 19],
     "apps/web/src/components/SpatialLayerLab.tsx": [16],
-    "apps/web/src/components/TrendChart.tsx": [17],
+    "apps/web/src/components/TrendChart.tsx": [16],
     "apps/web/src/data/analytics/useThermalIsolation.ts": [19],
     "apps/web/src/data/bootstrap/useOperationsActions.ts": [16],
     "apps/web/src/data/bootstrap/useSensorActions.ts": [16],

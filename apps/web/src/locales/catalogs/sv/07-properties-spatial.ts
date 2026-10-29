@@ -76,6 +76,7 @@ export const svPart7 = {
   "properties.inventoryAreaFilter": "Område",
   "properties.inventoryAllAreas": "Alla områden",
   "properties.inventoryShowing": "{count} objekt visas",
+  "properties.inventoryShowingOne": "{count} objekt visas",
   "properties.inventoryEmpty": "Inga inventarieobjekt ännu",
   "properties.inventoryEmptyHelp": "Registrera utrustning en gång så att underhåll och eventuell platsspårning använder samma objekt.",
   "properties.inventoryNoMatches": "Inga objekt matchar filtren",

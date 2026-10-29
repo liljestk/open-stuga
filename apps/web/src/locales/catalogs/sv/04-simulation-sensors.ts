@@ -372,6 +372,7 @@ export const svPart4 = {
   "sensors.total": "Sensorer totalt",
   "sensors.live": "Live",
   "sensors.waiting": "Väntar på data",
+  "sensors.notReporting": "Rapporterar inte",
   "sensors.unplaced": "Ej placerade",
   "sensors.advancedEdit": "Avancerad placering och anslutning",
   "sensors.archived": "Arkiverade",

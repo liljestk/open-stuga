@@ -286,6 +286,7 @@ export const svPart5 = {
   "weather.title": "Utomhusförhållanden",
   "weather.description": "Ordna närliggande hem i kartskala och välj väderreferensen som används för {house}:s FMI-observationer, prognoser och aktiva varningar.",
   "weather.configuredHouses": "{count} hem med angiven plats",
+  "weather.configuredHousesOne": "{count} hem med angiven plats",
   "weather.locationSet": "Plats angiven",
   "weather.locationMissing": "Plats saknas",
   "weather.houseLocation": "Hemmets läge",
