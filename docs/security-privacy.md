@@ -252,7 +252,19 @@ production rollout.
   a digest, and revoked on stop or process exit. It rejects browser-origin
   requests, but the bearer still requires TLS or a trusted VPN in transit.
   SQLite query-only enforcement and the fail-closed tool registry prevent
-  mutations. Provider lookup and LAN-discovery tools still make explicit
+  mutations.
+- Assistant connections (Claude, ChatGPT, local MCP apps) use Stugu's own
+  OAuth 2.1 server. Only an Owner or Admin can approve one, on a page that
+  names the assistant from its registered callback address. Registration
+  accepts only the assistants' own callbacks and loopback addresses. Codes
+  are single-use, expire after two minutes and require a PKCE S256 verifier.
+  Access tokens last one hour and are bound to the exact MCP URL. Refresh
+  tokens rotate, and reusing a spent one revokes the connection. Tokens and
+  client secrets are stored only as SHA-256 digests. A connection stops
+  working when its approver is removed or loses the Owner/Admin role.
+  Approvals and revocations are written to the security audit log. Connected
+  assistants receive only the 20-tool conversation profile, and what they
+  read leaves the installation under the assistant provider's terms. Provider lookup and LAN-discovery tools still make explicit
   outbound or local-network requests.
 
 ## Data minimisation

@@ -50,4 +50,6 @@ export type { BugReportDiagnostics, BugReportErrorSource, BugReportInput, BugRep
 export type { SystemStorageLocationKind, SystemStorageLocation, SystemStorageSettings, SystemStorageOperationPhase, SystemStorageOperation, SystemStorageStatus } from "./system-storage.js";
 export type { CloudflareSetupMode, CloudflareSetupPhase, CloudflareSetupOperation, CloudflareSetupStatus, CloudflareSetupStatusResponse, CloudflareSetupStartInput, CloudflareSetupStartResult } from "./cloudflare-setup.js";
 export type { LocalMcpRuntimeState, LocalMcpRuntimeErrorCode, LocalMcpRuntimeStatus, LocalMcpRuntimeStartResult } from "./local-mcp-runtime.js";
+export { ASSISTANT_CONNECTOR_CONSENT_PATH, ASSISTANT_CONNECTOR_RESOURCE_PATH, ASSISTANT_CONNECTOR_SCOPE, ASSISTANT_KINDS, isAssistantKind } from "./assistant-connector.js";
+export type { AssistantAuthorizationDecision, AssistantAuthorizationInput, AssistantAuthorizationPreview, AssistantAuthorizationRedirect, AssistantConnection, AssistantConnectionsResponse, AssistantKind } from "./assistant-connector.js";
 export type { StugubyAuthorityTransfer, StugubyHomeProjection, StugubyPropertyAdoption } from "./stuguby-local.js";

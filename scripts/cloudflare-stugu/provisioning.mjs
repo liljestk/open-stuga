@@ -6,7 +6,7 @@ import { pathToFileURL } from "node:url";
 
 import { CloudflareApiError, UsageError, cloudflareClient, ensureApplication, ensureApplicationPolicy, ensureGroup, ensureOtp, findAccount, findZone, readToken, validateOptions, validateToken } from "./configuration-client.mjs";
 
-import { ensureDns, ensureTunnel, readExistingDeployment, renderRuntimeEnvironment, stugubyProtocolApplicationSpec, stugubyProtocolPolicySpec, writeProtected } from "./tunnel-runtime.mjs";
+import { assistantConnectorApplicationSpec, assistantConnectorPolicySpec, ensureDns, ensureTunnel, readExistingDeployment, renderRuntimeEnvironment, stugubyProtocolApplicationSpec, stugubyProtocolPolicySpec, writeProtected } from "./tunnel-runtime.mjs";
 
 export async function provision(options, dependencies = {}) {
   validateOptions(options);
@@ -96,6 +96,10 @@ export async function provision(options, dependencies = {}) {
     );
   }
 
+  logger.log("Configuring the OAuth-authenticated assistant connector paths...");
+  const assistantApplication = await ensureApplication(api, accountId, assistantConnectorApplicationSpec(hostname));
+  await ensureApplicationPolicy(api, accountId, assistantApplication.id, assistantConnectorPolicySpec(hostname));
+
   logger.log("Configuring named Tunnel and proxied DNS record…");
   const tunnel = await ensureTunnel(api, accountId, tunnelName, hostname);
   await ensureDns(api, zoneId, hostname, tunnel.id);
@@ -126,6 +130,7 @@ export async function provision(options, dependencies = {}) {
     accessApplicationId: application.id,
     invitationHandoffApplicationId: handoff.id,
     stugubyProtocolApplicationId: protocolApplication?.id ?? null,
+    assistantConnectorApplicationId: assistantApplication.id,
     accessGroupId: group.id,
     identityProviderId: otp.id,
     oauthClientId: options.oauthClientId ?? previous?.oauthClientId ?? null,

@@ -51,6 +51,7 @@ const stoppedStatus = (): LocalMcpRuntimeStatus => ({
   toolCount: null,
   serverVersion: null,
   errorCode: null,
+  accessTokenIssued: false,
 });
 
 describe("network MCP runtime", () => {
@@ -77,6 +78,7 @@ describe("network MCP runtime", () => {
       toolCount: 61, serverVersion: "0.30.0", startedAt: "2026-08-02T12:00:00.000Z",
     });
     expect(started.accessToken).toMatch(/^stugu_mcp_[A-Za-z0-9_-]{43}$/u);
+    expect(started.accessTokenIssued).toBe(true);
     expect(runtime.authorize(`Bearer ${started.accessToken}`)).toBe(true);
     expect(runtime.authorize("Bearer stugu_mcp_invalid")).toBe(false);
 
@@ -91,6 +93,32 @@ describe("network MCP runtime", () => {
     expect(await runtime.stop()).toEqual(stoppedStatus());
     expect(runtime.authorize(`Bearer ${started.accessToken}`)).toBe(false);
     expect(child.sent).toContainEqual({ type: "shutdown" });
+  });
+
+  it("starts for an assistant connection without issuing a manual token, and issues one later on request", async () => {
+    const child = new FakeChild();
+    const launch = vi.fn(() => {
+      queueMicrotask(() => child.emit("message", {
+        type: "ready", port: 40123, toolCount: 61, serverVersion: "0.30.0",
+      }));
+      return child as unknown as ChildProcess;
+    });
+    const runtime = new LocalMcpRuntimeService({ serverPath: "mcp-http-server.js", pathExists: () => true, launch, shutdownTimeoutMs: 100 });
+
+    await runtime.ensureRunning();
+    await runtime.ensureRunning();
+    expect(launch).toHaveBeenCalledOnce();
+    expect(runtime.status()).toMatchObject({ state: "running", accessTokenIssued: false });
+    // The child's own bearer is internal; it never authorizes a client.
+    const [, , internalTokenHash] = launch.mock.calls[0] as unknown as [string, string, string];
+    expect(internalTokenHash).toMatch(/^[a-f0-9]{64}$/u);
+    expect(runtime.authorize(`Bearer ${internalTokenHash}`)).toBe(false);
+
+    const issued = await runtime.start();
+    expect(issued.accessToken).toMatch(/^stugu_mcp_/u);
+    expect(issued.accessTokenIssued).toBe(true);
+    expect(launch).toHaveBeenCalledOnce();
+    await runtime.stop();
   });
 
   it("fails closed when the compiled HTTP entry point is missing", async () => {
@@ -148,10 +176,15 @@ describe("network MCP runtime", () => {
         return child;
       },
     });
+    const assistantToken = `stugu_at_${"a".repeat(43)}`;
     const app = express();
-    registerLocalMcpTransportRoute({ app, prefix: "/api/v1" }, runtime);
+    registerLocalMcpTransportRoute({ app, prefix: "/api/v1" }, runtime, {
+      origin: () => "http://127.0.0.1",
+      verifyAccessToken: (token) => token === assistantToken ? { grantId: "grant" } : null,
+    });
     const listener = app.listen(0, "127.0.0.1");
     const client = new Client({ name: "stugu-network-test", version: "1.0.0" });
+    const assistant = new Client({ name: "stugu-assistant-test", version: "1.0.0" });
     try {
       await once(listener, "listening");
       const started = await runtime.start();
@@ -163,7 +196,18 @@ describe("network MCP runtime", () => {
       expect((await client.listTools()).tools).toHaveLength(61);
       expect((await client.callTool({ name: "list_properties", arguments: {} })).structuredContent)
         .toMatchObject({ result: expect.any(Array) });
+
+      // An assistant connection reaches the focused conversation profile through the same child.
+      await assistant.connect(new StreamableHTTPClientTransport(
+        new URL(`http://127.0.0.1:${(listener.address() as AddressInfo).port}/api/v1/mcp`),
+        { requestInit: { headers: { authorization: `Bearer ${assistantToken}` } } },
+      ));
+      const assistantTools = (await assistant.listTools()).tools.map((tool) => tool.name);
+      expect(assistantTools).toHaveLength(20);
+      expect(assistantTools).toContain("get_measurement_snapshot");
+      expect(assistantTools).not.toContain("test_home_assistant_connection");
     } finally {
+      await assistant.close().catch(() => undefined);
       await client.close().catch(() => undefined);
       await runtime.stop().catch(() => undefined);
       await new Promise<void>((resolve) => listener.close(() => resolve()));

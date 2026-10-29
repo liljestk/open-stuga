@@ -341,7 +341,10 @@ npm run migrate -- cutover --target stugu@stugu.local --identity-file "$HOME/.ss
   }
   ```
 
-  A smaller tool set tuned for ChatGPT and voice answers runs with
+  To ask **Claude or ChatGPT** about your Homes, paste
+  `https://<your Stugu>/api/v1/mcp` into the assistant and approve the
+  connection in Stugu. → [Claude and ChatGPT](docs/assistants.md). A smaller
+  tool set tuned for ChatGPT and voice answers also runs with
   `npm run mcp:chatgpt`. → [ChatGPT and voice](docs/chatgpt.md)
 
 Both MCP servers advertise read-only tools only: they cannot create, change,

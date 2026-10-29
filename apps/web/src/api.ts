@@ -1,4 +1,5 @@
 import { alertsApi } from "./api/alerts";
+import { assistantConnectorApi } from "./api/assistant-connector";
 import { analyticsApi } from "./api/analytics";
 import { bugReportApi } from "./api/bug-reports";
 import { devicesApi } from "./api/devices";
@@ -38,6 +39,7 @@ export const apiFamilies = {
   spatialLayersApi,
   nexus433Api,
   bugReportApi,
+  assistantConnectorApi,
 };
 
 export const api = {
@@ -58,4 +60,5 @@ export const api = {
   ...spatialLayersApi,
   ...nexus433Api,
   ...bugReportApi,
+  ...assistantConnectorApi,
 };

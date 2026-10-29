@@ -15,6 +15,9 @@ interface ReadyMessage {
   serverVersion: string;
 }
 
+/** Which tool set a proxied request reaches: the full local inspection surface, or the focused assistant conversation profile. */
+export type LocalMcpUpstreamProfile = "local" | "assistant";
+
 export interface LocalMcpRuntimeOptions {
   serverPath?: string;
   workingDirectory?: string;
@@ -36,6 +39,7 @@ export class LocalMcpRuntimeError extends HttpError {
 
 const projectRoot = fileURLToPath(new URL("../../../", import.meta.url));
 const endpointPath = "/api/v1/mcp" as const;
+const upstreamPaths: Record<LocalMcpUpstreamProfile, string> = { local: "/mcp", assistant: "/assistant" };
 
 function inheritedEnvironment(accessTokenHash: string): NodeJS.ProcessEnv {
   return { ...process.env, STUGU_MCP_ACCESS_TOKEN_SHA256: accessTokenHash };
@@ -67,6 +71,14 @@ function tokenDigest(token: string): Buffer {
   return createHash("sha256").update(token).digest();
 }
 
+/**
+ * Runs the network MCP child process and proxies authenticated requests to it.
+ *
+ * The child trusts only an internal bearer generated for each launch; the API
+ * authenticates clients first (the manual token an Owner/Admin starts from the
+ * web app, or an assistant connection's OAuth token) and then substitutes it.
+ * Assistant connections start the child on demand without issuing a manual token.
+ */
 export class LocalMcpRuntimeService {
   readonly #serverPath: string;
   readonly #workingDirectory: string;
@@ -77,9 +89,10 @@ export class LocalMcpRuntimeService {
   readonly #shutdownTimeoutMs: number;
   #child: ChildProcess | null = null;
   #upstreamPort: number | null = null;
-  #tokenHash: Buffer | null = null;
+  #upstreamToken: string | null = null;
+  #manualTokenHash: Buffer | null = null;
   #operations: Promise<void> = Promise.resolve();
-  #status: LocalMcpRuntimeStatus = {
+  #status: Omit<LocalMcpRuntimeStatus, "accessTokenIssued"> = {
     state: "stopped",
     endpointPath,
     pid: null,
@@ -100,68 +113,30 @@ export class LocalMcpRuntimeService {
   }
 
   status(): LocalMcpRuntimeStatus {
-    return { ...this.#status };
+    return { ...this.#status, accessTokenIssued: this.#manualTokenHash !== null };
   }
 
+  /** Runs the server if needed and issues the manual bearer token, which is returned only by the request that creates it. */
   start(): Promise<LocalMcpRuntimeStartResult> {
     return this.#enqueue(async () => {
-      if (this.#status.state === "running") return { ...this.status(), accessToken: null };
-      if (!this.#pathExists(this.#serverPath)) {
-        this.#setError("build_missing");
-        throw new LocalMcpRuntimeError(
-          409,
-          "MCP_BUILD_MISSING",
-          "The compiled network MCP server is unavailable. Build Stugu and try again.",
-        );
-      }
-
-      this.#status = {
-        state: "starting",
-        endpointPath,
-        pid: null,
-        startedAt: null,
-        toolCount: null,
-        serverVersion: null,
-        errorCode: null,
-      };
-
-      let child: ChildProcess | null = null;
+      await this.#launchIfStopped();
+      if (this.#manualTokenHash !== null) return { ...this.status(), accessToken: null };
       const accessToken = `stugu_mcp_${randomBytes(32).toString("base64url")}`;
-      this.#tokenHash = tokenDigest(accessToken);
-      try {
-        child = this.#launch(this.#serverPath, this.#workingDirectory, this.#tokenHash.toString("hex"));
-        this.#child = child;
-        child.once("exit", () => this.#handleChildExit(child!));
-        const ready = await this.#waitUntilReady(child);
-        if (this.#child !== child) throw new Error("MCP process exited during startup");
-        this.#upstreamPort = ready.port;
-        this.#status = {
-          state: "running",
-          endpointPath,
-          pid: child.pid ?? null,
-          startedAt: this.#now().toISOString(),
-          toolCount: ready.toolCount,
-          serverVersion: ready.serverVersion,
-          errorCode: null,
-        };
-        return { ...this.status(), accessToken };
-      } catch {
-        if (this.#child === child) this.#child = null;
-        this.#upstreamPort = null;
-        this.#tokenHash = null;
-        child?.kill();
-        this.#setError("start_failed");
-        throw new LocalMcpRuntimeError(
-          503,
-          "MCP_START_FAILED",
-          "The network MCP server could not start. Check the Stugu server logs and try again.",
-        );
-      }
+      this.#manualTokenHash = tokenDigest(accessToken);
+      return { ...this.status(), accessToken };
     });
   }
 
+  /** Starts the server for an assistant connection without issuing a manual token. */
+  ensureRunning(): Promise<void> {
+    if (this.#status.state === "running") return Promise.resolve();
+    return this.#enqueue(() => this.#launchIfStopped());
+  }
+
+  /** Revokes the manual token and stops the server. An assistant's next request starts it again. */
   stop(): Promise<LocalMcpRuntimeStatus> {
     return this.#enqueue(async () => {
+      this.#manualTokenHash = null;
       const child = this.#child;
       if (!child) {
         this.#setStopped();
@@ -170,7 +145,7 @@ export class LocalMcpRuntimeService {
 
       this.#status = { ...this.#status, state: "stopping", errorCode: null };
       this.#upstreamPort = null;
-      this.#tokenHash = null;
+      this.#upstreamToken = null;
       try {
         await this.#requestChildShutdown(child);
         if (this.#child === child) this.#child = null;
@@ -187,25 +162,26 @@ export class LocalMcpRuntimeService {
     });
   }
 
+  /** Whether the header carries the live manual bearer token. */
   authorize(authorization: string | undefined): boolean {
-    if (!this.#tokenHash || !authorization?.startsWith("Bearer ")) return false;
+    if (!this.#manualTokenHash || !authorization?.startsWith("Bearer ")) return false;
     const token = authorization.slice(7);
     if (!/^stugu_mcp_[A-Za-z0-9_-]{43}$/u.test(token)) return false;
-    return timingSafeEqual(this.#tokenHash, tokenDigest(token));
+    return timingSafeEqual(this.#manualTokenHash, tokenDigest(token));
   }
 
-  proxy(request: Request, response: Response): Promise<void> {
+  proxy(request: Request, response: Response, profile: LocalMcpUpstreamProfile = "local"): Promise<void> {
     const port = this.#upstreamPort;
-    if (this.#status.state !== "running" || port === null) {
+    const upstreamToken = this.#upstreamToken;
+    if (this.#status.state !== "running" || port === null || upstreamToken === null) {
       return Promise.reject(new LocalMcpRuntimeError(503, "MCP_NOT_RUNNING", "The network MCP server is not running"));
     }
 
     const hasBody = !["GET", "HEAD"].includes(request.method);
     const body = hasBody ? Buffer.from(JSON.stringify(request.body ?? null), "utf8") : null;
-    const authorization = request.header("authorization");
     const headers: OutgoingHttpHeaders = {
       accept: request.header("accept") ?? "application/json, text/event-stream",
-      ...(authorization ? { authorization } : {}),
+      authorization: `Bearer ${upstreamToken}`,
       ...(body ? { "content-type": "application/json", "content-length": body.byteLength } : {}),
     };
     for (const name of ["mcp-protocol-version", "mcp-session-id", "last-event-id"] as const) {
@@ -214,7 +190,7 @@ export class LocalMcpRuntimeService {
     }
 
     return new Promise<void>((resolve, reject) => {
-      const upstream = httpRequest({ host: "127.0.0.1", port, path: "/mcp", method: request.method, headers }, (upstreamResponse) => {
+      const upstream = httpRequest({ host: "127.0.0.1", port, path: upstreamPaths[profile], method: request.method, headers }, (upstreamResponse) => {
         response.status(upstreamResponse.statusCode ?? 502);
         for (const name of ["content-type", "cache-control", "mcp-protocol-version", "mcp-session-id"] as const) {
           const value = upstreamResponse.headers[name];
@@ -230,6 +206,60 @@ export class LocalMcpRuntimeService {
       if (body) upstream.write(body);
       upstream.end();
     });
+  }
+
+  async #launchIfStopped(): Promise<void> {
+    if (this.#status.state === "running") return;
+    if (!this.#pathExists(this.#serverPath)) {
+      this.#setError("build_missing");
+      throw new LocalMcpRuntimeError(
+        409,
+        "MCP_BUILD_MISSING",
+        "The compiled network MCP server is unavailable. Build Stugu and try again.",
+      );
+    }
+
+    this.#status = {
+      state: "starting",
+      endpointPath,
+      pid: null,
+      startedAt: null,
+      toolCount: null,
+      serverVersion: null,
+      errorCode: null,
+    };
+
+    let child: ChildProcess | null = null;
+    const upstreamToken = randomBytes(32).toString("base64url");
+    try {
+      child = this.#launch(this.#serverPath, this.#workingDirectory, tokenDigest(upstreamToken).toString("hex"));
+      this.#child = child;
+      child.once("exit", () => this.#handleChildExit(child!));
+      const ready = await this.#waitUntilReady(child);
+      if (this.#child !== child) throw new Error("MCP process exited during startup");
+      this.#upstreamPort = ready.port;
+      this.#upstreamToken = upstreamToken;
+      this.#status = {
+        state: "running",
+        endpointPath,
+        pid: child.pid ?? null,
+        startedAt: this.#now().toISOString(),
+        toolCount: ready.toolCount,
+        serverVersion: ready.serverVersion,
+        errorCode: null,
+      };
+    } catch {
+      if (this.#child === child) this.#child = null;
+      this.#upstreamPort = null;
+      this.#upstreamToken = null;
+      child?.kill();
+      this.#setError("start_failed");
+      throw new LocalMcpRuntimeError(
+        503,
+        "MCP_START_FAILED",
+        "The network MCP server could not start. Check the Stugu server logs and try again.",
+      );
+    }
   }
 
   #waitUntilReady(child: ChildProcess): Promise<ReadyMessage> {
@@ -291,7 +321,8 @@ export class LocalMcpRuntimeService {
     if (this.#child !== child) return;
     this.#child = null;
     this.#upstreamPort = null;
-    this.#tokenHash = null;
+    this.#upstreamToken = null;
+    this.#manualTokenHash = null;
     if (this.#status.state === "stopping" || this.#status.state === "stopped") return;
     this.#setError("unexpected_exit");
   }
