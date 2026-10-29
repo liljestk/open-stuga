@@ -1,7 +1,7 @@
 {
   "rule": "sonarjs/cognitive-complexity (S3776)",
   "threshold": 15,
-  "functions": 291,
+  "functions": 290,
   "files": {
     "apps/api/src/analytics/calendar-comparison/model.ts": [34, 22, 19],
     "apps/api/src/analytics/forecast/backtest.ts": [21],
@@ -155,7 +155,6 @@
     "apps/web/src/pages/DataAnalyticsPage/MoistureResponsePanel.tsx": [17],
     "apps/web/src/pages/DataAnalyticsPage/OpeningAnalyticsPanel.tsx": [28],
     "apps/web/src/pages/DataAnalyticsPage/ThermalIsolationPanel.tsx": [16],
-    "apps/web/src/pages/DeveloperPage.tsx": [57],
     "apps/web/src/pages/ElectricityHistory.tsx": [59],
     "apps/web/src/pages/EnergyPage.tsx": [57, 18],
     "apps/web/src/pages/HostSystemPanel.tsx": [72, 26],

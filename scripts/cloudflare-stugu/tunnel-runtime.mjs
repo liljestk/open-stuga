@@ -97,6 +97,39 @@ export function stugubyProtocolPolicySpec(hostname) {
   };
 }
 
+/**
+ * The machine paths an assistant connection (Claude, ChatGPT) calls from its own
+ * servers: OAuth discovery, registration, token exchange and revocation, and the
+ * MCP endpoint itself. Each authenticates the client in Stugu; the consent page
+ * and every other path stay behind the human Access application.
+ */
+export function assistantConnectorApplicationSpec(hostname) {
+  const destinations = [
+    `${hostname}/api/v1/mcp`,
+    `${hostname}/api/v1/oauth/*`,
+    `${hostname}/.well-known/oauth-authorization-server`,
+    `${hostname}/.well-known/oauth-protected-resource/api/v1/mcp`,
+  ];
+  return {
+    name: `Stugu (${hostname}) assistant connector`,
+    type: "self_hosted",
+    domain: destinations[0],
+    destinations: destinations.map((uri) => ({ type: "public", uri })),
+    app_launcher_visible: false,
+  };
+}
+
+export function assistantConnectorPolicySpec(hostname) {
+  return {
+    name: `Stugu (${hostname}) OAuth-authenticated assistants`,
+    decision: "bypass",
+    precedence: 1,
+    include: [{ everyone: {} }],
+    exclude: [],
+    require: [],
+  };
+}
+
 export function readExistingDeployment(deploymentPath, options) {
   if (!existsSync(deploymentPath)) return null;
   let previous;

@@ -582,6 +582,20 @@ added.
 Stugu is the MCP server. Codex, another service, or software running on an RPi
 is the MCP client.
 
+### Claude, ChatGPT and other OAuth MCP clients
+
+`/api/v1/mcp` is also an OAuth 2.1 protected resource. An unauthenticated
+request receives `401` with
+`WWW-Authenticate: Bearer resource_metadata="<origin>/.well-known/oauth-protected-resource/api/v1/mcp"`,
+and an OAuth-capable MCP client discovers Stugu's authorization server from
+there. It registers itself (`POST /api/v1/oauth/register`), sends the person
+to `/connect/assistant` for an Owner/Admin approval, and exchanges the code
+with PKCE at `POST /api/v1/oauth/token`. Its tokens open the focused 22-tool
+conversation profile, not the full inspection set, and start the network
+server on demand. Registration accepts only Claude's and ChatGPT's callback
+addresses and loopback addresses. See [Claude and ChatGPT](assistants.md) for
+set-up, revocation and the internet-facing paths.
+
 ### Network Streamable HTTP server
 
 An Owner or Admin can open **Advanced → API & MCP** in Stugu and select
@@ -596,7 +610,10 @@ Authorization: Bearer stugu_mcp_...
 The endpoint is `/api/v1/mcp` on the existing Stugu Web address, including the
 normal Compose/RPi published port; no second external port is needed. It accepts
 MCP Streamable HTTP `POST` requests and is available only while the Web-started
-runtime is running. Stopping it or restarting the API revokes the token. Use TLS
+runtime is running. Stopping it or restarting the API revokes the token. If an
+assistant connection started the server, **Create access token** issues one.
+Stopping the server does not disconnect assistants; their next request starts
+it again. Use TLS
 or a trusted VPN before sending the bearer across a network. Browser cookies do
 not authorize this machine endpoint, and requests carrying a browser `Origin`
 header are rejected.

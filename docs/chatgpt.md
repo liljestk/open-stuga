@@ -5,8 +5,13 @@ conversations. It exposes current and historical measurements, openings,
 electricity use and its 30-day projection, heat-pump state, weather, alerts,
 and temperature-corrected indoor/outdoor moisture response. It cannot change the Home or control equipment.
 
-The recommended private connection is OpenAI's
-[Secure MCP Tunnel](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels).
+The simplest connection is the OAuth connector: paste
+`https://<your Stugu>/api/v1/mcp` into ChatGPT and approve the connection in
+Stugu. It needs Stugu's public HTTPS address, for example through the
+Cloudflare Tunnel. See [Claude and ChatGPT](assistants.md).
+
+When Stugu has no public address, use OpenAI's
+[Secure MCP Tunnel](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels) instead.
 It runs beside Stugu and makes an outbound HTTPS connection; Stugu does not
 need a public port. A tunnel is for private and developer-mode use, not public
 plugin submission.

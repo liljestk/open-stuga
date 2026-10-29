@@ -1,0 +1,24 @@
+.assistant-consent .assistant-consent-card { width: min(100%, 580px); }
+
+.assistant-consent-card > :is(.assistant-consent-facts, .assistant-consent-scope, .assistant-consent-privacy, .assistant-consent-actions) { grid-column: 1 / -1; }
+
+.assistant-consent-facts { display: grid; gap: 8px; margin: 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-soft); }
+
+.assistant-consent-facts > div { display: grid; grid-template-columns: minmax(0, 9rem) minmax(0, 1fr); gap: 10px; }
+
+.assistant-consent-facts dt { color: var(--muted); }
+
+.assistant-consent-facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; font-weight: 600; }
+
+.assistant-consent-scope { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+
+.assistant-consent-scope h2 { display: flex; align-items: center; gap: 6px; margin: 0 0 4px; font-size: 14px; }
+
+.assistant-consent-privacy { font-size: 13px; }
+
+.assistant-consent-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+
+@media (max-width: 560px) {
+  .assistant-consent-facts > div, .assistant-consent-scope { grid-template-columns: 1fr; }
+  .assistant-consent-actions > button { flex: 1 1 100%; }
+}
