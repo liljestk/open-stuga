@@ -1,12 +1,13 @@
 import { errorText } from "../errorText";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Archive, CheckCircle2, Database, Download, RefreshCw, ShieldAlert, Stethoscope, TriangleAlert } from "lucide-react";
+import { Archive, CheckCircle2, Database, Download, ShieldAlert, Stethoscope, TriangleAlert } from "lucide-react";
 import type { BackupOperationStatus, DataExportPreview, DataExportPrivacyLevel, House, Sensor, SetupDoctorReport } from "@climate-twin/contracts";
 import { api } from "../api";
 import { formatInTimeZone } from "../dateTime";
 import { useI18n } from "../i18n";
 import { NasExportSetupPanel } from "./NasExportSetupPanel";
 import "./SetupOperationsPanel.css";
+import { RefreshButton } from "../components/RefreshButton";
 
 type LoadState<T> = { value: T | null; loading: boolean; error: string | null };
 type Feedback = { kind: "success" | "error"; text: string };
@@ -75,7 +76,7 @@ export function SystemOperationsPanel() {
     <section className="panel setup-doctor-panel" aria-labelledby="setup-doctor-heading">
       <div className="panel-header">
         <div><span className="eyebrow"><Stethoscope size={14} aria-hidden="true" /> {t("setup.operations.doctorEyebrow")}</span><h2 id="setup-doctor-heading">{t("setup.operations.doctorTitle")}</h2></div>
-        <button type="button" className="secondary-button" onClick={refresh} disabled={doctor.loading}><RefreshCw size={15} className={doctor.loading ? "spin" : ""} aria-hidden="true" /> {t("setup.operations.recheck")}</button>
+        <RefreshButton onClick={refresh} busy={doctor.loading} label={t("setup.operations.recheck")} busyLabel={t("common.checking")} />
       </div>
       {doctor.error && <p className="error-message" role="alert">{doctor.error}</p>}
       {doctor.value && <>

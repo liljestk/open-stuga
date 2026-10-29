@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ChartLine, ChevronDown, CloudSun, Database, DoorOpen, Download, Droplets, FileJson, FileSpreadsheet, Gauge, RefreshCw, ShieldCheck, Table2, TriangleAlert } from "lucide-react";
+import { ChartLine, ChevronDown, CloudSun, Database, DoorOpen, Download, Droplets, FileJson, FileSpreadsheet, Gauge, ShieldCheck, Table2, TriangleAlert } from "lucide-react";
 import type {
   AnalyticsAggregation,
   AnalyticsResolution,
@@ -47,6 +47,7 @@ import {
 } from "./DataAnalyticsPage/explorerState";
 import { analyticsCsv, downloadText } from "./DataAnalyticsPage/analyticsExport";
 import { useExplorerAnalyticsQuery, useExplorerContextQuery, useExplorerForecastsQuery } from "../data/analytics/explorerQueries";
+import { RefreshButton } from "../components/RefreshButton";
 
 interface DataAnalyticsPageProps {
   state: ClimateState;
@@ -399,7 +400,7 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
     <>
       <header className="page-heading analytics-page-heading">
         <div><span className="eyebrow"><ChartLine size={14} aria-hidden="true" />{t("analytics.eyebrow")}</span><h1>{t("analytics.title")}</h1><p>{t("analytics.description")}</p></div>
-        <button type="button" className="secondary-button" onClick={refresh} disabled={loading || analyticsLoading}><RefreshCw className={loading || analyticsLoading ? "spin" : ""} size={15} aria-hidden="true" />{t("common.refresh")}</button>
+        <RefreshButton onClick={refresh} busy={loading || analyticsLoading} />
       </header>
 
       <DailyAnalyticsFindings

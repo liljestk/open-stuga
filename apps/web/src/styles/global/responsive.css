@@ -267,6 +267,13 @@
   .flow-particle, .building-flow-particle, .vertical-flow-particle { display: none; }
   .building-volume-cloud { transition: none; }
   .outdoor-context-card .spin { animation: none !important; }
+  /* The rule above stops every animation after one frame, which froze each
+     busy spinner. A slow fade shows that work is under way without motion. */
+  .spin { animation: busy-fade 1.4s ease-in-out infinite !important; }
+}
+
+@keyframes busy-fade {
+  50% { opacity: .3; }
 }
 
 

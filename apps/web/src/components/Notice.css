@@ -1,0 +1,11 @@
+.notice { display: flex; align-items: flex-start; gap: 10px; margin: 0; padding: 12px 12px 12px 18px; border-bottom: 1px solid var(--line); color: var(--ink); background: var(--blue-soft); }
+.notice > svg { flex: none; margin-top: 2px; }
+.notice.warning { color: var(--yellow); background: var(--yellow-soft); }
+.notice.progress { color: var(--muted); background: var(--panel); }
+.notice-copy { min-width: 0; flex: 1; display: grid; gap: 3px; }
+.notice-copy > strong { color: inherit; font-size: 14px; font-weight: 700; }
+.notice-body { display: grid; gap: 2px; color: inherit; font-size: 13px; line-height: 1.45; }
+.notice-body p { margin: 0; }
+.notice-dismiss { flex: none; width: 32px; height: 32px; display: grid; place-items: center; margin: -6px 0; padding: 0; border: 0; border-radius: 8px; color: inherit; background: transparent; cursor: pointer; }
+.notice-dismiss:hover { background: color-mix(in srgb, currentColor 12%, transparent); }
+.notice-dismiss:focus-visible { outline: 2px solid var(--action); outline-offset: 1px; }

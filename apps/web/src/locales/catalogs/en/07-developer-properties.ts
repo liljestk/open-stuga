@@ -37,6 +37,7 @@ export const enPart7 = {
   "outdoor.selectHouse": "Weather location",
   "outdoor.refresh": "Refresh",
   "outdoor.refreshing": "Refreshing…",
+  "outdoor.lastTried": "Last tried at {time}.",
   "outdoor.current": "Current conditions",
   "outdoor.observed": "Observed",
   "outdoor.modelled": "Modelled",

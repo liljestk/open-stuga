@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Activity, CloudSun, DoorOpen, RefreshCw, Sparkles, Zap, type LucideIcon } from "lucide-react";
+import { Activity, CloudSun, DoorOpen, Sparkles, Zap, type LucideIcon } from "lucide-react";
 import type {
   AnalyticsFinding,
   DailyAnalyticsFindingsResponse,
@@ -11,6 +11,8 @@ import { api } from "../../api";
 import { formatInTimeZone } from "../../dateTime";
 import { useI18n } from "../../i18n";
 import { definitionFor, displayUnit, toDisplayValue } from "../../measurements";
+import { RefreshButton } from "../../components/RefreshButton";
+import { Notice } from "../../components/Notice";
 
 const PRIMARY_FINDING_COUNT = 4;
 
@@ -191,21 +193,19 @@ export function DailyAnalyticsFindings(props: Readonly<DailyAnalyticsFindingsPro
 
     {error && <div className="inline-error daily-findings-error" role="alert">
       <span><strong>{t("analytics.findingsLoadFailed")}</strong><small>{error}</small></span>
-      <button type="button" className="secondary-button" onClick={() => setRetryRevision((value) => value + 1)} disabled={loading}>
-        <RefreshCw size={14} className={loading ? "spin" : ""} aria-hidden="true" />{t("common.refresh")}
-      </button>
+      <RefreshButton onClick={() => setRetryRevision((value) => value + 1)} busy={loading} />
     </div>}
     {!error && loading && !response && <output className="daily-findings-state" aria-live="polite"><span className="spinner" aria-hidden="true" />{t("analytics.findingsLoading")}</output>}
     {!error && response?.status.state === "pending" && !snapshot && <div className="daily-findings-state" role="status" aria-live="polite" aria-atomic="true">
       <strong>{t("analytics.findingsPendingTitle")}</strong><span>{t("analytics.findingsPendingBody")}</span>
     </div>}
-    {response?.status.state === "failed" && <div className="inline-warning" role="status">
-      <strong>{t("analytics.findingsRunFailed")}</strong><span>{t("analytics.findingsRunFailedHelp")}</span>
-    </div>}
-    {staleAlgorithm && <div className="inline-warning" role="status" aria-live="polite">
-      <strong>{t("analytics.findingsUpdatingTitle")}</strong>
-      <span>{t("analytics.findingsUpdatingBody")}</span>
-    </div>}
+    {response?.status.state === "failed" && <Notice
+      tone="warning"
+      title={t("analytics.findingsRunFailed")}
+      dismissKey={`daily-findings:${props.house.id}`}
+      fingerprint={`failed:${snapshot?.evaluatedThrough ?? ""}`}
+    >{t("analytics.findingsRunFailedHelp")}</Notice>}
+    {staleAlgorithm && <Notice tone="progress" title={t("analytics.findingsUpdatingTitle")}>{t("analytics.findingsUpdatingBody")}</Notice>}
 
     {snapshot && <>
       <div className="daily-findings-meta">

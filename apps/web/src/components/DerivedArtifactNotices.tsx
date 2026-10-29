@@ -1,7 +1,8 @@
-import { CircleDashed, Clock3, Info, TriangleAlert } from "lucide-react";
+import { Clock3 } from "lucide-react";
 import type { DurableDerivedAnalyticsResponse } from "@climate-twin/contracts";
 import { useI18n, type TranslationKey } from "../i18n";
 import { useNow } from "../useNow";
+import { Notice, type NoticeTone } from "./Notice";
 
 interface DerivedArtifactNoticesProps {
   status: DurableDerivedAnalyticsResponse<unknown> | null;
@@ -30,15 +31,6 @@ function artifactTime(generatedAt: string, locale: string, now: number): {
   };
 }
 
-function stateCopy(
-  status: DurableDerivedAnalyticsResponse<unknown>,
-  canRefresh: boolean,
-): TranslationKey {
-  if (status.state === "failed" && status.artifact === null) return "derived.failedNoResult";
-  if (status.state === "idle") return canRefresh ? "derived.idle" : "derived.idleReadOnly";
-  return `derived.${status.state}`;
-}
-
 // A Map rather than an object literal: the code is a server-stored string, and
 // an object lookup would also find Object.prototype members ("constructor").
 const FAILURE_REASON_KEYS: ReadonlyMap<string, TranslationKey> = new Map<string, TranslationKey>([
@@ -50,11 +42,43 @@ const FAILURE_REASON_KEYS: ReadonlyMap<string, TranslationKey> = new Map<string,
 ]);
 
 function failureReasonKey(
-  status: DurableDerivedAnalyticsResponse<unknown> | null,
+  status: DurableDerivedAnalyticsResponse<unknown>,
 ): TranslationKey | null {
-  if (status?.state !== "failed") return null;
+  if (status.state !== "failed") return null;
   const code = status.job?.errorCode;
   return code ? FAILURE_REASON_KEYS.get(code) ?? null : null;
+}
+
+interface DerivedNoticeCopy {
+  tone: NoticeTone;
+  title: TranslationKey;
+  body: TranslationKey[];
+}
+
+/**
+ * One notice per state. A failed refresh with a saved result used to show
+ * "the update failed", the failure reason and "newer evidence is prepared"
+ * as three separate warnings, the last one untrue once the job had failed.
+ */
+export function derivedNoticeCopy(
+  status: DurableDerivedAnalyticsResponse<unknown>,
+  hasResult: boolean,
+  canRefresh: boolean,
+): DerivedNoticeCopy | null {
+  if (status.state === "idle") return { tone: "info", title: "derived.idleTitle", body: [canRefresh ? "derived.idle" : "derived.idleReadOnly"] };
+  if (status.state === "queued" || status.state === "refreshing") {
+    return { tone: "progress", title: `derived.${status.state}`, body: [hasResult ? "derived.keepsResult" : "derived.firstResult"] };
+  }
+  if (status.state === "failed") return failedNoticeCopy(status, hasResult);
+  return status.stale && hasResult ? { tone: "info", title: "derived.staleTitle", body: ["derived.stale"] } : null;
+}
+
+function failedNoticeCopy(status: DurableDerivedAnalyticsResponse<unknown>, hasResult: boolean): DerivedNoticeCopy {
+  const reason = failureReasonKey(status);
+  const body: TranslationKey[] = reason ? [reason] : [];
+  if (hasResult) body.push("derived.failedKeepsResult");
+  if (status.job?.nextAttemptAt) body.push("derived.retriesAutomatically");
+  return { tone: "warning", title: hasResult ? "derived.failed" : "derived.failedNoResult", body };
 }
 
 export function DerivedArtifactNotices({
@@ -65,24 +89,19 @@ export function DerivedArtifactNotices({
   const { locale, t } = useI18n();
   const now = useNow();
   const generated = status?.artifact ? artifactTime(status.artifact.generatedAt, locale, now) : null;
-  const StateIcon = status?.state === "failed"
-    ? TriangleAlert
-    : status?.state === "idle"
-      ? Info
-      : CircleDashed;
-
-  const reasonKey = failureReasonKey(status);
+  const copy = status ? derivedNoticeCopy(status, hasResult, canRefresh) : null;
 
   return <>
-    {status && status.state !== "ready" && <p className="home-performance-notice" role="status">
-      <StateIcon size={15} aria-hidden="true" />{t(stateCopy(status, canRefresh))}
-    </p>}
-    {reasonKey && <p className="home-performance-notice" role="status">
-      <Info size={15} aria-hidden="true" />{t(reasonKey)}
-    </p>}
-    {status?.stale && hasResult && <p className="home-performance-notice" role="status">
-      <TriangleAlert size={15} aria-hidden="true" />{t("derived.stale")}
-    </p>}
+    {status && copy && <Notice
+      tone={copy.tone}
+      title={t(copy.title)}
+      {...(copy.tone === "progress" ? {} : {
+        dismissKey: `derived:${status.kind}:${status.houseId}:${status.dataMode}`,
+        fingerprint: [status.state, status.job?.errorCode ?? "", status.artifact?.id ?? "", status.stale].join(":"),
+      })}
+    >
+      {copy.body.map((key) => <p key={key}>{t(key)}</p>)}
+    </Notice>}
     {status?.artifact && generated && <small className="derived-artifact-age">
       <Clock3 size={14} aria-hidden="true" />
       <span>{t("derived.generatedAt")} <time

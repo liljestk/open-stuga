@@ -256,7 +256,7 @@ export function HostSystemPanel() {
       </div>
       <div className="host-system-header-actions">
         <StateBadge state={health.state} />
-        <button type="button" className="icon-button" disabled={loading} onClick={() => void load()} aria-label={t("systemHealth.refresh")} title={t("systemHealth.refresh")}>
+        <button type="button" className="icon-button" disabled={loading} aria-busy={loading} onClick={() => void load()} aria-label={t("systemHealth.refresh")} title={t("systemHealth.refresh")}>
           <RefreshCw className={loading ? "spin" : ""} size={17} aria-hidden="true" />
         </button>
       </div>
