@@ -2,6 +2,11 @@
 
 All notable Stugu releases are recorded here.
 
+## 0.52.16
+
+- Set up → Connections: the note telling a Member that only an Owner or Admin can change TP-Link or Home Assistant credentials now has the same inner spacing as the other text in the "Enter an address manually" section. It sat against the section's border before.
+- Upgrade impact: application-only update; one web style changes. No API, schema, Compose, configuration or host-trust change.
+
 ## 0.52.15
 
 Power and energy charts on the Analytics page load in about half the time.
