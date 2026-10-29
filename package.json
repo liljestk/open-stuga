@@ -1,6 +1,6 @@
 {
   "name": "climate-twin",
-  "version": "0.52.5",
+  "version": "0.52.12",
   "private": true,
   "license": "MIT",
   "description": "A local-first digital twin for extensible whole-home environmental telemetry.",
@@ -28,7 +28,7 @@
     "ci:local": "node scripts/local-ci.mjs",
     "test": "npm run build:packages && npm run test --workspaces --if-present && npm run test:tooling",
     "test:tooling": "npm run test:lean-tooling && npm run test:code-quality && npm run test:setup && npm run test:native-readiness && npm run test:data-safety && npm run test:r2-backup && npm run test:live-migration && npm run test:cloudflare && npm run test:rpi-ota && npm run test:host-updater && npm run test:update-agent && npm run test:nexus433-runtime",
-    "test:lean-tooling": "node --test scripts/tests/lean-tooling.test.mjs scripts/tests/visual-evidence.test.mjs scripts/tests/api-healthcheck.test.mjs scripts/tests/cognitive-complexity.test.mjs",
+    "test:lean-tooling": "node --test scripts/tests/lean-tooling.test.mjs scripts/tests/rpi-doctor-archive.test.mjs scripts/tests/visual-evidence.test.mjs scripts/tests/api-healthcheck.test.mjs scripts/tests/cognitive-complexity.test.mjs",
     "test:code-quality": "node --test scripts/tests/code-quality-gates.test.mjs",
     "test:setup": "node --test scripts/tests/setup.test.mjs scripts/tests/setup.part-02.test.mjs scripts/tests/cloudflare-oauth.test.mjs scripts/tests/local-ci.test.mjs",
     "test:native-readiness": "node --test apps/ios/Tests/native-readiness.test.mjs",
