@@ -8,4 +8,4 @@
 .notice-body p { margin: 0; }
 .notice-dismiss { flex: none; width: 32px; height: 32px; display: grid; place-items: center; margin: -6px 0; padding: 0; border: 0; border-radius: 8px; color: inherit; background: transparent; cursor: pointer; }
 .notice-dismiss:hover { background: color-mix(in srgb, currentColor 12%, transparent); }
-.notice-dismiss:focus-visible { outline: 2px solid var(--action); outline-offset: 1px; }
+.notice-dismiss:focus-visible { outline: 3px solid var(--action); outline-offset: 3px; }
