@@ -52,7 +52,7 @@ export function registerElectricityRoutes(context: ElectricityRouteContext): () 
   };
   registerElectricityTariffRoutes(context, {
     visibleProperty,
-    houseSensorIds: (houseId, response) => visibleEnergySensors(houseId, response).map((sensor) => sensor.id),
+    houseSensors: visibleEnergySensors,
     invalidateSummaries: () => energySummaryCache.clear(),
   });
 
