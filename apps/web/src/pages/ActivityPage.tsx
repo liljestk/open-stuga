@@ -1,5 +1,5 @@
 import { CheckCircle2, Edit3, Eye, Map, Plus, Search, Wrench, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { House, ManualObservation, ManualObservationInput, ManualObservationPatch, ObservationRevision } from "@climate-twin/contracts";
 import type { ClimateState } from "../domain";
 import { useI18n } from "../i18n";
@@ -7,12 +7,12 @@ import { formatInTimeZone } from "../dateTime";
 import { useHouseWeather } from "../useHouseWeather";
 import { HomeActivityTimeline, ObservationLifecycle, ObservationRevisionHistory } from "../components/HomeActivityTimeline";
 import { ObservationComposer } from "./ActivityPage/ObservationComposer";
+import { Tabs } from "../components/Tabs";
 import "./OperationsPages.css";
 
 type ObservationFilter = "all" | "open" | "resolved" | "critical";
 type ActivityTab = "timeline" | "observations";
 
-const activityTabs: ActivityTab[] = ["timeline", "observations"];
 const observationFilters: ObservationFilter[] = ["all", "open", "resolved", "critical"];
 
 interface ActivityLocationState {
@@ -77,7 +77,6 @@ export function ActivityPage(props: Readonly<ActivityPageProps>) {
   const [search, setSearch] = useState(initialLocationState.search);
   const [announcement, setAnnouncement] = useState("");
   const composerButtonRef = useRef<HTMLButtonElement>(null);
-  const tabRefs = useRef<Record<ActivityTab, HTMLButtonElement | null>>({ timeline: null, observations: null });
   const weather = useHouseWeather(props.house);
   const readOnly = props.readOnly ?? false;
   useEffect(() => {
@@ -149,20 +148,6 @@ export function ActivityPage(props: Readonly<ActivityPageProps>) {
     writeActivityState({ tab, statusFilter, search: next }, "replace");
   };
 
-  const handleTabKeyDown = (event: KeyboardEvent<HTMLButtonElement>, current: ActivityTab) => {
-    if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
-    event.preventDefault();
-    const currentIndex = activityTabs.indexOf(current);
-    const nextIndex = event.key === "Home"
-      ? 0
-      : event.key === "End"
-        ? activityTabs.length - 1
-        : (currentIndex + (["ArrowRight", "ArrowDown"].includes(event.key) ? 1 : -1) + activityTabs.length) % activityTabs.length;
-    const next = activityTabs[nextIndex]!;
-    activateTab(next);
-    tabRefs.current[next]?.focus();
-  };
-
   return (
     <div className="page-stack operations-page activity-page">
       <header className="page-heading operations-heading">
@@ -172,10 +157,15 @@ export function ActivityPage(props: Readonly<ActivityPageProps>) {
 
       {!readOnly && composerOpen && <ObservationComposer id="activity-observation-composer" house={props.house} floorId={props.house.floors[0]?.id ?? ""} onCreate={props.onCreateObservation} onSaved={closeComposer} onCancel={closeComposer} />}
 
-      <div className="operations-tabs" role="tablist" aria-label={t("activity.views") }>
-        <button ref={(node) => { tabRefs.current.timeline = node; }} type="button" role="tab" aria-selected={tab === "timeline"} aria-controls="activity-timeline-panel" id="activity-timeline-tab" tabIndex={tab === "timeline" ? 0 : -1} onClick={() => activateTab("timeline")} onKeyDown={(event) => handleTabKeyDown(event, "timeline")}>{t("activity.timelineTab")}</button>
-        <button ref={(node) => { tabRefs.current.observations = node; }} type="button" role="tab" aria-selected={tab === "observations"} aria-controls="activity-observations-panel" id="activity-observations-tab" tabIndex={tab === "observations" ? 0 : -1} onClick={() => activateTab("observations")} onKeyDown={(event) => handleTabKeyDown(event, "observations")}>{t("activity.observationsTab")}<span>{observations.length}</span></button>
-      </div>
+      <Tabs<ActivityTab>
+        className="operations-tabs"
+        label={t("activity.views")}
+        items={[{ id: "timeline", label: t("activity.timelineTab") }, { id: "observations", label: t("activity.observationsTab"), count: observations.length }]}
+        selected={tab}
+        onSelect={activateTab}
+        tabId={(id) => `activity-${id}-tab`}
+        panelId={(id) => `activity-${id}-panel`}
+      />
       <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">{announcement}</p>
 
       <div role="tabpanel" id="activity-timeline-panel" aria-labelledby="activity-timeline-tab" hidden={tab !== "timeline"}>

@@ -19,7 +19,7 @@
 
 .bug-report-relay-heading h2 {
   margin: 3px 0 0;
-  font: 700 18px/1.2 "Manrope", sans-serif;
+  font: 700 var(--text-lg)/1.2 var(--font-sans);
   letter-spacing: -.02em;
 }
 
@@ -35,10 +35,10 @@
   align-items: center;
   gap: 6px;
   padding: 6px 10px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   font-weight: 700;
   white-space: nowrap;
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .bug-report-relay-state.ready {
@@ -60,10 +60,8 @@
 
 .bug-report-relay-current dt {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
   font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: .04em;
 }
 
 .bug-report-relay-current dd {

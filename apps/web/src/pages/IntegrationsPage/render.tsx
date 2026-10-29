@@ -34,8 +34,10 @@ import { GreeSetupPanel } from "./GreeSetupPanel";
 import { TuyaSetupPanel } from "./TuyaSetupPanel";
 import { Nexus433SetupPanel } from "./Nexus433SetupPanel";
 import { SetupProviderGrid } from "./SetupProviderGrid";
+import { Tabs } from "../../components/Tabs";
+import { CardHeader } from "../../components/CardHeader";
 export function renderIntegrationsPage(context: ReturnType<typeof useIntegrationsPagePart06>) {
-  const { houses, connectionHouses, tpLinkDevicesError, canManageIntegrations, onIntegrationChange, onOpenSensors, onOpenLayout, locale, t, house, integration, activeSection, testing, result, testingDirect, directResult, discovering, discovery, discoveryOutcome, connectionSetupOpen, setConnectionSetupOpen, tpLinkSettingsOpen, setTpLinkSettingsOpen, tpLinkHost, tpLinkUsername, tpLinkPassword, reuseSavedTpLinkAccount, setReuseSavedTpLinkAccount, showTpLinkPassword, setShowTpLinkPassword, savingTpLink, tpLinkFeedback, setTpLinkFeedback, refreshingTpLinkInventory, tpLinkInventoryRefreshFailed, tpLinkExportEnabled, tpLinkExportJobs, tpLinkExportAutomation, tpLinkExportJobsLoading, tpLinkExportJobsError, busyTpLinkExportJobId, tpLinkCanaryTargets, tpLinkCanarySensorId, setTpLinkCanarySensorId, tpLinkCanaryMetric, setTpLinkCanaryMetric, tpLinkCanaryRunning, tpLinkChildDiscovery, haUrl, haToken, showHaToken, setShowHaToken, savingHomeAssistant, homeAssistantFeedback, busyAssignment, assignmentHouseDrafts, setAssignmentHouseDrafts, assignmentFeedback, latitude, setLatitude, longitude, setLongitude, locationLabel, setLocationLabel, timezone, setTimezone, savingLocation, locationFeedback, setLocationFeedback, localDateTime, homeAssistantAssignments, tpLinkAssignments, changeTpLinkDraft, changeHomeAssistantDraft, coordinateValidationVisible, timezoneValidationVisible, draftMapLocation, selectSetupHouse, disconnectHomeAssistantAssignment, disconnectTpLinkAssignment, moveHomeAssistantAssignment, moveTpLinkAssignment, testConnection, testDirectConnection, refreshTpLinkInventory, loadTpLinkExportJobs, runTpLinkCanary, retryTpLinkExportJob, cancelTpLinkExportJob, scanIntegrations, settleTpLinkChildren, saveTpLink, saveHomeAssistant, saveLocation, removeLocation, usePlacementForWeather, savePlacementForWeather, applyDiscoveredDefaults, discoveredCount, sensorSourceConfigured, sensorSourceConnected, tpLinkReadyDevices, assignmentCount, connectedSourceLabel, tpLinkHealthState, tpLinkHealthLabel, tpLinkStatusTitle, connectionWorkspaceActive, steps, completeCount, nextStepIndex, nextStep, selectedDiscoveredTpLink, selectedDiscoveredHomeAssistant, primarySetupSections, advancedSetupSections, activeSectionLabel, sectionHeading, sectionDescription, activateSection, handleSectionKeyDown, runRecommendedAction, recommendedActionLabel } = context;
+  const { houses, connectionHouses, tpLinkDevicesError, canManageIntegrations, onIntegrationChange, onOpenSensors, onOpenLayout, locale, t, house, integration, activeSection, testing, result, testingDirect, directResult, discovering, discovery, discoveryOutcome, connectionSetupOpen, setConnectionSetupOpen, tpLinkSettingsOpen, setTpLinkSettingsOpen, tpLinkHost, tpLinkUsername, tpLinkPassword, reuseSavedTpLinkAccount, setReuseSavedTpLinkAccount, showTpLinkPassword, setShowTpLinkPassword, savingTpLink, tpLinkFeedback, setTpLinkFeedback, refreshingTpLinkInventory, tpLinkInventoryRefreshFailed, tpLinkExportEnabled, tpLinkExportJobs, tpLinkExportAutomation, tpLinkExportJobsLoading, tpLinkExportJobsError, busyTpLinkExportJobId, tpLinkCanaryTargets, tpLinkCanarySensorId, setTpLinkCanarySensorId, tpLinkCanaryMetric, setTpLinkCanaryMetric, tpLinkCanaryRunning, tpLinkChildDiscovery, haUrl, haToken, showHaToken, setShowHaToken, savingHomeAssistant, homeAssistantFeedback, busyAssignment, assignmentHouseDrafts, setAssignmentHouseDrafts, assignmentFeedback, latitude, setLatitude, longitude, setLongitude, locationLabel, setLocationLabel, timezone, setTimezone, savingLocation, locationFeedback, setLocationFeedback, localDateTime, homeAssistantAssignments, tpLinkAssignments, changeTpLinkDraft, changeHomeAssistantDraft, coordinateValidationVisible, timezoneValidationVisible, draftMapLocation, selectSetupHouse, disconnectHomeAssistantAssignment, disconnectTpLinkAssignment, moveHomeAssistantAssignment, moveTpLinkAssignment, testConnection, testDirectConnection, refreshTpLinkInventory, loadTpLinkExportJobs, runTpLinkCanary, retryTpLinkExportJob, cancelTpLinkExportJob, scanIntegrations, settleTpLinkChildren, saveTpLink, saveHomeAssistant, saveLocation, removeLocation, usePlacementForWeather, savePlacementForWeather, applyDiscoveredDefaults, discoveredCount, sensorSourceConfigured, sensorSourceConnected, tpLinkReadyDevices, assignmentCount, connectedSourceLabel, tpLinkHealthState, tpLinkHealthLabel, tpLinkStatusTitle, connectionWorkspaceActive, steps, completeCount, nextStepIndex, nextStep, selectedDiscoveredTpLink, selectedDiscoveredHomeAssistant, primarySetupSections, advancedSetupSections, activeSectionLabel, sectionHeading, sectionDescription, activateSection, runRecommendedAction, recommendedActionLabel } = context;
   const editingTpLinkConnection = tpLinkAssignments.find((connection) => connection.id === context.tpLinkEditingConnectionId.current);
   const inheritedPropertyWeather = house.location?.source === "property-location" && house.location.userOverridden !== true;
   const editingTpLinkSourceName = editingTpLinkConnection?.sourceAlias ?? editingTpLinkConnection?.sourceModel
@@ -74,23 +76,15 @@ export function renderIntegrationsPage(context: ReturnType<typeof useIntegration
           {!connectionWorkspaceActive && <span className={`integration-pill ${sensorSourceConnected ? "connected" : ""}`}><span aria-hidden="true" />{connectedSourceLabel}</span>}
         </header>
         <div className="setup-workspace-navigation">
-        <div className="setup-workspace-tabs" role="tablist" aria-label={t("setup.workspaceNavigation")}>
-          {primarySetupSections.map((section) => (
-            <button
-              key={section.id}
-              id={`setup-tab-${section.id}`}
-              type="button"
-              role="tab"
-              aria-selected={activeSection === section.id}
-              aria-controls={`setup-panel-${section.id}`}
-              tabIndex={activeSection === section.id ? 0 : -1}
-              onClick={() => activateSection(section.id)}
-              onKeyDown={(event) => handleSectionKeyDown(event, section.id)}
-            >
-              <strong>{section.label}</strong><small>{section.detail}</small>
-            </button>
-          ))}
-        </div>
+        <Tabs
+          className="setup-workspace-tabs"
+          label={t("setup.workspaceNavigation")}
+          items={primarySetupSections.map((section) => ({ id: section.id, label: section.label, detail: section.detail }))}
+          selected={activeSection}
+          onSelect={activateSection}
+          tabId={(section) => `setup-tab-${section}`}
+          panelId={(section) => `setup-panel-${section}`}
+        />
         <details className="setup-advanced-navigation" open={advancedSetupSections.some((section) => section.id === activeSection) || undefined}>
           <summary>{t("setup.advancedSetup")}</summary>
           <div>
@@ -486,7 +480,7 @@ export function renderIntegrationsPage(context: ReturnType<typeof useIntegration
           aria-labelledby="setup-tab-layout"
         >
           <section className="panel setup-layout-card">
-            <div className="panel-header"><div><span className="eyebrow">{house.name}</span><h2>{t("setup.layoutTitle")}</h2></div><Building2 size={22} aria-hidden="true" /></div>
+            <CardHeader title={t("setup.layoutTitle")} eyebrow={house.name} aside={<Building2 size={22} aria-hidden="true" />} />
             <p>{t("setup.layoutDescription")}</p>
             <div className="setup-config-summary">
               <div><span>{t("common.floor")}</span><strong>{house.floors.length}</strong><small>{t("setup.workspaceLayoutDetail", { count: house.floors.length })}</small></div>

@@ -26,6 +26,7 @@ import { useI18n } from "../../../i18n";
 import "../../PropertyManagementPage.css";
 import { MAX_GUEST_ACCESS_GRANTS, guestActivationUrl, normalizeGuestGrants } from "./part-01";
 import type { Feedback } from "./part-01";
+import { CardHeader } from "../../../components/CardHeader";
 
 export function toggledGuestGrants(
   grants: readonly GuestAccessGrant[],
@@ -208,7 +209,7 @@ export function AccessPanel({ state, properties, canRemoveGuests, workspaceMode 
   if (loading) return <output className="property-loading"><LoaderCircle className="spin" size={18} />{t("common.loading")}</output>;
   return <div className="property-access-grid">
     <section className="panel guest-list-panel">
-      <div className="panel-header"><div><span className="eyebrow">{t("properties.guests")}</span><h2>{t("properties.guestAccounts")}</h2></div><Users size={20} /></div>
+      <CardHeader title={t("properties.guestAccounts")} eyebrow={t("properties.guests")} aside={<Users size={20} />} />
       {workspaceMode && <details className="guest-invite-disclosure"><summary><Plus size={15} aria-hidden="true" /><span>{t("properties.addGuest")}</span></summary><form className="guest-invite-form" onSubmit={(event) => void invite(event)}><label className="field"><span>{t("properties.guestEmail")}</span><input type="email" required value={inviteEmail} onChange={(event) => setInviteEmail(event.target.value)} placeholder={t("properties.guestEmail")} /></label><button className="primary-button" type="submit" disabled={pending || !inviteEmail.trim()}><Plus size={15} />{pending ? t("auth.working") : t("properties.inviteGuest")}</button></form></details>}
       {workspaceMode && activation && <section className="guest-activation-card" aria-labelledby="guest-activation-title" aria-live="polite">
         <div><span><KeyRound size={15} aria-hidden="true" /></span><div><h3 id="guest-activation-title">{t("properties.activationReady")}</h3><p>{t("properties.activationReadyHelp", { email: activation.email })}</p></div><button type="button" className="icon-button small" onClick={() => setActivation(null)} aria-label={t("properties.dismissActivation")}><X size={15} aria-hidden="true" /></button></div>
@@ -220,7 +221,7 @@ export function AccessPanel({ state, properties, canRemoveGuests, workspaceMode 
       {guests.length === 0 ? <p className="property-empty-copy">{t("properties.noGuests")}</p> : <div className="guest-list">{guests.map((guest) => <button key={guest.email} type="button" disabled={pending} aria-pressed={selectedEmail === guest.email} className={selectedEmail === guest.email ? "active" : ""} onClick={() => setSelectedEmail(guest.email)}><KeyRound size={15} aria-hidden="true" /><span><strong>{guest.email}</strong><small>{guest.joinedAt ? t("properties.activeGuest") : t("properties.invitedGuest")}</small></span></button>)}</div>}
     </section>
     <section className="panel guest-access-panel">
-      <div className="panel-header"><div><span className="eyebrow">{selected?.email ?? t("properties.selectGuest")}</span><h2>{t("properties.visibleResources")}</h2></div><ShieldCheck size={20} /></div>
+      <CardHeader title={t("properties.visibleResources")} eyebrow={selected?.email ?? t("properties.selectGuest")} aside={<ShieldCheck size={20} />} />
       {!selected ? <p className="property-empty-copy">{t("properties.selectGuestHelp")}</p> : <>
         <p className="property-help">{t("properties.accessHelp")}</p>
         <p className="property-help">{t("properties.accessGrantCount", { count: draftGrants.length, max: MAX_GUEST_ACCESS_GRANTS })}</p>

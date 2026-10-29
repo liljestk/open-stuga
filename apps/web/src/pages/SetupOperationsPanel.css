@@ -8,7 +8,7 @@
 .setup-doctor-panel .panel-header { flex-wrap: wrap; }
 .setup-operations-grid .bulk-mapping-panel { min-width: 0; max-width: 100%; grid-column: 1 / -1; }
 .setup-operations-grid .nas-export-setup-panel { min-width: 0; max-width: 100%; grid-column: 1 / -1; scroll-margin-top: 18px; }
-.nas-setup-state { display: inline-flex; align-items: center; gap: 5px; padding: 6px 9px; border-radius: 999px; color: var(--red); background: color-mix(in srgb, var(--red) 12%, transparent); font-size: .78rem; font-weight: 700; }
+.nas-setup-state { display: inline-flex; align-items: center; gap: 5px; padding: 6px 9px; border-radius: var(--radius-pill); color: var(--red); background: color-mix(in srgb, var(--red) 12%, transparent); font-size: var(--text-xs); font-weight: 700; }
 .nas-setup-state.connected { color: var(--positive); background: color-mix(in srgb, var(--positive) 12%, transparent); }
 .nas-setup-shared { color: var(--muted); }
 .nas-setup-warning, .nas-setup-operation { display: flex; align-items: center; gap: 7px; padding: 10px; border-radius: var(--radius); background: var(--panel-soft); }
@@ -26,14 +26,14 @@
 .setup-doctor-list { list-style: none; padding: 0; display: grid; gap: 7px; max-height: 360px; overflow: auto; }
 .setup-doctor-list li { display: grid; grid-template-columns: auto 1fr; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--line); }
 .setup-doctor-list span { display: grid; gap: 2px; }
-.setup-doctor-list small, .setup-doctor-list em { font-size: .82rem; }
+.setup-doctor-list small, .setup-doctor-list em { font-size: var(--text-sm); }
 .setup-doctor-list em { font-style: normal; color: var(--yellow); }
-.setup-doctor-action { width: fit-content; color: var(--action); font-size: .82rem; font-weight: 700; text-decoration: underline; text-underline-offset: 2px; }
+.setup-doctor-action { width: fit-content; color: var(--action); font-size: var(--text-sm); font-weight: 700; text-decoration: underline; text-underline-offset: 2px; }
 .data-operation-controls { display: flex; gap: 14px; align-items: end; flex-wrap: wrap; }
 .export-preview { display: grid; gap: 3px; margin: 12px 0; }
 .backup-status { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .backup-status div { display: grid; gap: 3px; }
-.backup-status dt { font-size: .78rem; color: var(--muted); }
+.backup-status dt { font-size: var(--text-xs); color: var(--muted); }
 .backup-status dd { margin: 0; font-weight: 650; text-transform: capitalize; }
 .bulk-mapping-scroll { min-width: 0; max-width: 100%; overflow-x: auto; overflow-y: hidden; margin: 12px 0; }
 .bulk-mapping-panel table { width: 100%; border-collapse: collapse; min-width: 900px; }
