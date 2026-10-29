@@ -2,6 +2,11 @@
 
 All notable Stugu releases are recorded here.
 
+## 0.56.1
+
+- The README and Getting started screenshots show the Kaamos look: the night-blue navigation, snow and night pages, the lantern on the current page, and Atkinson Hyperlegible Next. All twelve images (Home, the 2D plan, the 3D building, Data & analytics, Electricity and the phone Home page, each in light and dark) were captured again from the same synthetic sample home, at the same sizes and file names.
+- Upgrade impact: none. Only documentation changes; the API, web app, database, configuration, Compose and host trust are unchanged.
+
 ## 0.54.0
 
 A new look: Kaamos, the polar night.
