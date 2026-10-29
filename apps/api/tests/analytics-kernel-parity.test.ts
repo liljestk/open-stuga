@@ -261,11 +261,13 @@ describe("analytics kernel parity between raw aggregation and archive rollups", 
   async function archiveRollup(query: MeasurementAnalyticsRollupQuery) {
     for (let attempt = 0; attempt < 20; attempt += 1) {
       try {
-        return await store.measurementAnalyticsRollup(query);
+        const result = await store.measurementAnalyticsRollup(query);
+        // A summary whose own stored variant is still materializing comes back null.
+        if (!query.summary || result.summary !== null) return result;
       } catch (error) {
         if (!(error instanceof RollupsMaterializingError)) throw error;
-        while ((await store.rebuildNextMeasurementOrderedRollup({ timeoutMs: 15_000 })).processed) { /* drain */ }
       }
+      while ((await store.rebuildNextMeasurementOrderedRollup({ timeoutMs: 15_000 })).processed) { /* drain */ }
     }
     throw new Error("ordered rollups did not finish materializing");
   }
@@ -304,14 +306,14 @@ describe("analytics kernel parity between raw aggregation and archive rollups", 
             entities, archiveState: "merged", generatedAt: GENERATED_AT,
           });
           const plan = planAnalyticsRollup({ request, definitions: [definition], entities })!;
-          const rollup = await archiveRollup({ ...plan, excludeSynthetic: true });
-          // The executor's second read: time-weighted summaries come from base buckets.
-          const summaryPlan = planSummaryRollup(plan);
-          const summaryRollup = summaryPlan
-            ? { resolution: summaryPlan.resolution, result: await archiveRollup({ ...summaryPlan, excludeSynthetic: true }) }
-            : null;
+          // As the executor does: time-weighted summaries come from base
+          // buckets read with the display buckets.
+          const summary = planSummaryRollup(plan);
+          const rollup = await archiveRollup({ ...plan, ...(summary ? { summary } : {}), excludeSynthetic: true });
+          expect(rollup.summary === undefined, label).toBe(summary === null);
           const fromArchive = buildAnalyticsResponseFromRollup({
-            request, definitions: [definition], entities, plan, rollup, summaryRollup, archiveState: "merged", generatedAt: GENERATED_AT,
+            request, definitions: [definition], entities, plan, rollup, summaryRollup: rollup.summary ?? null,
+            archiveState: "merged", generatedAt: GENERATED_AT,
           });
           expect(fromKernel.series[0]!.summary.count, label).toBeGreaterThan(0);
           expect(differences(normalised(fromKernel), normalised(fromArchive), scenario.ignored ?? (() => false)).slice(0, 8), label)

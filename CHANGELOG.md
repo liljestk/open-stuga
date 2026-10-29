@@ -2,6 +2,15 @@
 
 All notable Stugu releases are recorded here.
 
+## 0.52.15
+
+Power and energy charts on the Analytics page load in about half the time.
+
+- A chart's summary (mean, spread and extremes) used to need a second pass over the same stored power and energy states at finer buckets. Chart and summary now come from one pass with identical results. On a Raspberry Pi, a 30-day power chart for four plugs went from about 8.5 s to about 4 s of database time, measured with today's samples still read raw.
+- The count of readings outside the chosen quality filter no longer re-reads every raw sample since midnight UTC. Today's finished hours come from the hourly aggregate; only the last hour or two is read raw.
+- Opening a chart no longer writes to the archive when its stored states are up to date. It prepares them only when a day is missing or out of date, or when today's states have not been started yet.
+- Upgrade impact: application-only update; no schema, Compose or host-trust change beyond those of 0.52.7, which it builds on.
+
 ## 0.52.14
 
 - Saving something in Stugu no longer makes every open browser reload the whole workspace. Before, each save (renaming a sensor, dragging it, adding a note, acknowledging an alert) reopened both live connections in every open tab and queued about 18 reads, which delayed the page you were looking at. Other tabs now reload only what changed: renaming a sensor reloads the sensor list and refreshes monitoring and analytics, and a new note reloads the notes. Adding or deleting a Home or property, membership and Stuguby changes still reload everything, as do changes a Guest is not allowed to see in detail.

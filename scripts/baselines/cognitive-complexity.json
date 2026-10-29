@@ -1,7 +1,7 @@
 {
   "rule": "sonarjs/cognitive-complexity (S3776)",
   "threshold": 15,
-  "functions": 293,
+  "functions": 291,
   "files": {
     "apps/api/src/analytics/calendar-comparison/model.ts": [34, 22, 19],
     "apps/api/src/analytics/forecast/backtest.ts": [21],
@@ -15,7 +15,6 @@
     "apps/api/src/analytics/home-performance/model.ts": [28],
     "apps/api/src/analytics/house-parameters.ts": [19],
     "apps/api/src/analytics/query/analytics-query.ts": [74, 18],
-    "apps/api/src/analytics/query/execute.ts": [19],
     "apps/api/src/analytics/query/rollup-plan.ts": [23],
     "apps/api/src/analytics/relaxation-fit.ts": [35, 17],
     "apps/api/src/analytics/temporal/opening-intervals.ts": [25],
@@ -96,7 +95,6 @@
     "apps/api/src/timeseries/local-telemetry-worker-thread.ts": [42],
     "apps/api/src/timeseries/read-energy-cost.ts": [20],
     "apps/api/src/timeseries/read-facade.ts": [32, 23, 18, 16],
-    "apps/api/src/timeseries/store/methods/analytics-rollup.ts": [26],
     "apps/api/src/timeseries/store/methods/schema-setup.ts": [37, 31, 30],
     "apps/api/src/tp-link/core.ts": [23, 18, 16],
     "apps/api/src/tp-link/support/01-tp-link-local-climate-history-capability-revision-to.ts": [17],

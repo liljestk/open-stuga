@@ -41,30 +41,22 @@ export async function executeAnalyticsQuery(
     entities,
   });
   if (rollupPlan) {
+    // Summary base buckets are read with the display buckets, so ordered
+    // series share one pass over their stored states.
+    const summary = planSummaryRollup(rollupPlan);
     const rollup = await input.telemetryReader.measurementAnalyticsRollup({
       ...rollupPlan,
+      ...(summary ? { summary } : {}),
       ...withSignal(input.signal),
     });
     if (rollup) {
-      const summaryPlan = planSummaryRollup(rollupPlan);
-      // Summaries are supporting statistics: a base read that is still
-      // materializing or fails leaves them on the displayed points.
-      const summaryRead = summaryPlan
-        ? await input.telemetryReader.measurementAnalyticsRollup({
-          ...summaryPlan,
-          ...withSignal(input.signal),
-        }).catch((error: unknown) => {
-          if (input.signal?.aborted) throw error;
-          return null;
-        })
-        : null;
       return buildAnalyticsResponseFromRollup({
         request: input.request,
         definitions: [...input.definitions],
         entities,
         plan: rollupPlan,
         rollup: rollup.result,
-        summaryRollup: summaryPlan && summaryRead ? { resolution: summaryPlan.resolution, result: summaryRead.result } : null,
+        summaryRollup: rollup.result.summary ?? null,
         ...(input.expectedIntervalSeconds ? { expectedIntervalSeconds: input.expectedIntervalSeconds } : {}),
         archiveState: rollup.archiveState,
         generatedAt: input.generatedAt,
