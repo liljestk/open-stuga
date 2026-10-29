@@ -2,6 +2,11 @@
 
 All notable Stugu releases are recorded here.
 
+## 0.52.10
+
+- Set up → Connections: the note telling a Member that only an Owner or Admin can change TP-Link or Home Assistant credentials now has the same inner spacing as the other text in the "Enter an address manually" section. It sat against the section's border before.
+- Upgrade impact: application-only update; one web style changes. No API, schema, Compose, configuration or host-trust change.
+
 ## 0.52.5
 
 - Long chart ranges load much faster. The dashboard, sensor details and electricity charts, replay, per-sensor forecasts and the optimizer's flexible-load profiles now read their history buckets from the TimescaleDB continuous aggregates. Raw samples are read only for the partial periods at the range edges and for the newest period the aggregate has not finished. On a Raspberry Pi, the history of a power plug reporting every 2 seconds took 2.0 s for 30 days and 6.2 s for a year; it now takes 0.13 s and 0.32 s. A 14-day forecast history went from 0.20 s to 0.03 s.
