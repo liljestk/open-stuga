@@ -2,7 +2,7 @@
 
 All notable Stugu releases are recorded here.
 
-## 0.52.10
+## 0.52.11
 
 Fixes found in a review of every page and tab.
 
