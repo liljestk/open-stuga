@@ -15,7 +15,7 @@ Fixes found in a review of every page and tab.
 - "1 item shown" and "1 home with a location" replace "1 items" and "1 homes".
 - On the floor plan:
   - A room's name moves above a sensor marker that would cover it.
-  - The zoom control moves to the top-left corner, off the west compass label.
+  - The zoom control no longer covers the west compass label. On tablets and desktops it moves to the top-left corner.
   - On tablets, the layer notes wrap above the temperature legend instead of covering it.
 - Upgrade impact: application-only update; no API, schema, Compose, configuration or host-trust change.
 
