@@ -1,22 +1,27 @@
 import SwiftUI
 
+// The mark keeps the same colours in both appearances (DESIGN.md §3).
 struct StuguMark: View {
+    private static let tile = StuguTheme.fixed(0x22303D)
+    private static let house = StuguTheme.fixed(0xE9EFF3)
+    private static let door = StuguTheme.fixed(0x141E28)
+
     var body: some View {
         GeometryReader { proxy in
             let size = min(proxy.size.width, proxy.size.height)
             ZStack {
                 RoundedRectangle(cornerRadius: size * 0.075, style: .continuous)
-                    .fill(StuguTheme.brand)
+                    .fill(Self.tile)
                 CottageShape()
-                    .fill(Color(red: 0.984, green: 0.976, blue: 0.957))
+                    .fill(Self.house)
                 Circle()
-                    .fill(StuguTheme.action)
+                    .fill(StuguTheme.lantern)
                     .frame(width: size * 0.2, height: size * 0.2)
                     .offset(y: -size * 0.0375)
                 Rectangle()
-                    .fill(Color(red: 0.106, green: 0.114, blue: 0.102))
+                    .fill(Self.door)
                     .frame(width: size * 0.15, height: size * 0.225)
-                    .offset(y: size * 0.2625)
+                    .offset(y: size * 0.2375)
             }
             .frame(width: size, height: size)
             .position(x: proxy.size.width / 2, y: proxy.size.height / 2)

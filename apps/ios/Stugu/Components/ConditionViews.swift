@@ -140,9 +140,9 @@ struct ContactSensorCard: View {
         .padding(14)
         .frame(maxWidth: .infinity, minHeight: 166, alignment: .topLeading)
         .background(StuguTheme.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: StuguTheme.Radius.card, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
+            RoundedRectangle(cornerRadius: StuguTheme.Radius.card, style: .continuous)
                 .stroke(StuguTheme.line, lineWidth: 1)
         }
         .accessibilityElement(children: .combine)
@@ -254,9 +254,9 @@ struct SensorConditionCard: View {
         .padding(14)
         .frame(maxWidth: .infinity, minHeight: 166, alignment: .topLeading)
         .background(StuguTheme.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: StuguTheme.Radius.card, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
+            RoundedRectangle(cornerRadius: StuguTheme.Radius.card, style: .continuous)
                 .stroke(StuguTheme.line, lineWidth: 1)
         }
         .accessibilityElement(children: .combine)

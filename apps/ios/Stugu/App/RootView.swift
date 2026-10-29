@@ -79,9 +79,9 @@ private struct ServerSetupView: View {
                             .onSubmit { connect() }
                             .padding(12)
                             .background(StuguTheme.surfaceRaised)
-                            .clipShape(RoundedRectangle(cornerRadius: 5))
+                            .clipShape(RoundedRectangle(cornerRadius: StuguTheme.Radius.control))
                             .overlay {
-                                RoundedRectangle(cornerRadius: 5)
+                                RoundedRectangle(cornerRadius: StuguTheme.Radius.control)
                                     .stroke(StuguTheme.strongLine, lineWidth: 1)
                             }
                         Text("Use private HTTPS when available. Plain HTTP is accepted only for local addresses such as stugu.local or a private LAN IP.")
@@ -200,7 +200,7 @@ private struct SignInView: View {
                     .foregroundStyle(StuguTheme.warning)
                     .padding(12)
                     .background(StuguTheme.warningSurface)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .clipShape(RoundedRectangle(cornerRadius: StuguTheme.Radius.card))
                 }
 
                 StuguCard {
@@ -317,9 +317,9 @@ private extension View {
     func stuguTextField() -> some View {
         padding(12)
             .background(StuguTheme.surfaceRaised)
-            .clipShape(RoundedRectangle(cornerRadius: 5))
+            .clipShape(RoundedRectangle(cornerRadius: StuguTheme.Radius.control))
             .overlay {
-                RoundedRectangle(cornerRadius: 5)
+                RoundedRectangle(cornerRadius: StuguTheme.Radius.control)
                     .stroke(StuguTheme.strongLine, lineWidth: 1)
             }
     }

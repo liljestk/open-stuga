@@ -80,9 +80,9 @@ struct SensorDetailView: View {
                 .padding(.horizontal, 10)
                 .frame(minHeight: 44)
                 .background(StuguTheme.surface)
-                .clipShape(RoundedRectangle(cornerRadius: 5))
+                .clipShape(RoundedRectangle(cornerRadius: StuguTheme.Radius.control))
                 .overlay {
-                    RoundedRectangle(cornerRadius: 5)
+                    RoundedRectangle(cornerRadius: StuguTheme.Radius.control)
                         .stroke(StuguTheme.strongLine, lineWidth: 1)
                 }
             }

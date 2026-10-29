@@ -603,6 +603,8 @@ Automation cannot approve wording, focus order, chart comprehension, or whether 
 - Brand/product language lives in [`i18n.tsx`](apps/web/src/i18n.tsx).
 - Data ramps live in [`measurements.ts`](apps/web/src/measurements.ts).
 - The shell and lockup live in [`AppShell.tsx`](apps/web/src/components/AppShell.tsx).
+- The iOS companion mirrors the colour and radius tokens in
+  [`StuguTheme.swift`](apps/ios/Stugu/Design/StuguTheme.swift); change both together.
 - `--pine*` variables are temporary compatibility aliases for the semantic `--action*` tokens. Do not use the legacy name in new components.
 - Referencing an undeclared design token is a build failure. Components use
   semantic tokens (`--bg`, `--panel-soft`, `--line-strong`, `--red`, and

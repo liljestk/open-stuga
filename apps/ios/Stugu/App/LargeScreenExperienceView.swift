@@ -251,7 +251,7 @@ struct LargeScreenExperienceView: View {
             ProgressView("Opening full Stugu…")
                 .padding(18)
                 .background(.regularMaterial)
-                .clipShape(RoundedRectangle(cornerRadius: 10))
+                .clipShape(RoundedRectangle(cornerRadius: StuguTheme.Radius.card))
                 .accessibilityLabel("Opening full Stugu")
         }
     }

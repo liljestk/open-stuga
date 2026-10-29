@@ -17,7 +17,7 @@ struct EquipmentScannerSheet: View {
                         onCode: finish,
                         onFailure: { cameraMessage = $0 }
                     )
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    RoundedRectangle(cornerRadius: StuguTheme.Radius.large, style: .continuous)
                         .stroke(.white, style: StrokeStyle(lineWidth: 3, dash: [12]))
                         .frame(width: 250, height: 250)
                         .accessibilityHidden(true)
@@ -31,7 +31,7 @@ struct EquipmentScannerSheet: View {
                         .background(.regularMaterial)
                     }
                 }
-                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: StuguTheme.Radius.large, style: .continuous))
                 .frame(maxHeight: 430)
 
                 VStack(alignment: .leading, spacing: 8) {
@@ -48,9 +48,9 @@ struct EquipmentScannerSheet: View {
                     }
                     .padding(12)
                     .background(StuguTheme.surface)
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: StuguTheme.Radius.card, style: .continuous))
                     .overlay {
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        RoundedRectangle(cornerRadius: StuguTheme.Radius.card, style: .continuous)
                             .stroke(StuguTheme.line)
                     }
                 }
