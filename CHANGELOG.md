@@ -2,10 +2,16 @@
 
 All notable Stugu releases are recorded here.
 
-## 0.52.10
+## 0.52.13
 
 - Set up → Connections: the note telling a Member that only an Owner or Admin can change TP-Link or Home Assistant credentials now has the same inner spacing as the other text in the "Enter an address manually" section. It sat against the section's border before.
 - Upgrade impact: application-only update; one web style changes. No API, schema, Compose, configuration or host-trust change.
+
+## 0.52.12
+
+- `npm run rpi:doctor` no longer reports `ARCHIVE_DATABASE: Archive syncing, caught up false` on a healthy, streaming Raspberry Pi. The API marks the TimescaleDB archive as not caught up for about a second after every new sample, until its next live flush. A production Pi was in that state for about half of its health reads, so two of three doctor runs said "attention" and `release:verify` refused the receipt even though there was no backlog. When the first read is not caught up, the doctor now re-reads the archive status up to four more times over about three seconds. It passes if any of those reads finds the archive caught up, or sees its last successful sync move forward. If the archive is still behind on every read (a stall, or a queue that keeps growing), the check warns as before, now with the queue length at the first and last read.
+- The API, its `caughtUp` flag, the setup doctor in the web app, and the live-migration readiness checks are unchanged.
+- Upgrade impact: no appliance update needed. Only the operator's `rpi:doctor` tooling changes. It works against any installed release, including 0.52.0, and a default doctor run takes up to three seconds longer when the archive is busy.
 
 ## 0.52.5
 
