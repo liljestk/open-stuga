@@ -5,6 +5,7 @@ import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { validateDoctorReceipt } from "./tooling/receipt-contracts.mjs";
+import { describeArchiveLag, observeArchiveLag } from "./tooling/rpi-doctor-archive.mjs";
 import { targetSelectorSha256, validateSshTarget } from "./tooling/ssh-target.mjs";
 import {
   ToolFailure,
@@ -288,15 +289,16 @@ export function diagnoseEvidence(evidence) {
   ));
 
   const archive = health.telemetryArchive ?? {};
+  const archiveLag = observeArchiveLag(health);
   const archiveFailed = archive.required === true
     && (!archive.timescaleAvailable || ["degraded", "stopped"].includes(archive.phase));
   const archiveWarning = archive.enabled === true
-    && (!archive.timescaleAvailable || archive.caughtUp === false || archive.schemaWarningCount > 0);
+    && (!archive.timescaleAvailable || archiveLag.sustainedLag || archive.schemaWarningCount > 0);
   const databaseAvailable = evidence.database?.available === true;
   checks.push(check(
     "ARCHIVE_DATABASE",
     archiveFailed ? "fail" : !databaseAvailable || archiveWarning ? "warning" : "pass",
-    `Archive ${archive.phase ?? "unknown"}, caught up ${archive.caughtUp ?? "unknown"}; bounded database status ${databaseAvailable ? "available" : "unavailable"}.${failedProbes("databaseLookup", "databaseQuery")}`,
+    `${describeArchiveLag(archive, archiveLag)}; bounded database status ${databaseAvailable ? "available" : "unavailable"}.${failedProbes("databaseLookup", "databaseQuery")}`,
   ));
 
   const queues = evidence.database?.queues ?? {};
@@ -427,6 +429,8 @@ export function diagnoseEvidence(evidence) {
         caughtUp: archive.caughtUp ?? null,
         queuedSamples: number(archive.queuedSamples),
         dirtyRows: number(archive.dirtyRows),
+        followUpReads: archiveLag.followUpReads,
+        sustainedLag: archiveLag.sustainedLag,
       },
       queues: databaseAvailable ? queues : null,
       databaseStorage: databaseStorageSummary(evidence.database?.storage),
