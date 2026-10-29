@@ -1,6 +1,7 @@
 import type { MeasurementSample, TelemetryEvent } from "@climate-twin/contracts";
 import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
+import { createDemoState } from "../../domain";
 import {
   LiveEventCoordinator,
   invalidateForMeasurement,
@@ -35,8 +36,10 @@ describe("LiveEventCoordinator", () => {
     ).toBe(false);
   });
 
-  it("maps topology mutations to every affected derived query family", async () => {
+  it("maps a sensor rename to the monitoring and analytics families only", async () => {
     const client = clientWithQueries();
+    client.setQueryData(["house", "home-1", "energy-summary", "today", 86_400_000], {});
+    client.setQueryData(["property", "property-1", "electricity", "tariff"], {});
     invalidateForTelemetry(client, {
       type: "mutation",
       data: {
@@ -52,10 +55,88 @@ describe("LiveEventCoordinator", () => {
       ["house", "home-1", "analytics", "home-performance", "live"],
       ["analytics", "opening-activity", "home-1", "request"],
       ["analytics", "calendar-comparison", "home-1", "request"],
-      ["connected-devices", "home-1"],
     ]) {
       expect(client.getQueryState(key)?.isInvalidated).toBe(true);
     }
+    for (const key of [
+      ["connected-devices", "home-1"],
+      ["house", "home-1", "energy-summary", "today", 86_400_000],
+      ["property", "property-1", "electricity", "tariff"],
+    ]) {
+      expect(client.getQueryState(key)?.isInvalidated).toBe(false);
+    }
+  });
+
+  it("scopes Home layout and electricity mutations to the Home or Property they name", async () => {
+    const client = clientWithQueries();
+    client.setQueryData(["house", "home-1", "energy-summary", "today", 86_400_000], {});
+    client.setQueryData(["property", "property-1", "electricity", "tariff"], {});
+    client.setQueryData(["property", "property-2", "electricity", "tariff"], {});
+    const mutation = (method: string, resource: string): TelemetryEvent => ({
+      type: "mutation",
+      data: { method, resource, occurredAt: "2027-01-15T08:00:00Z" },
+    });
+
+    invalidateForTelemetry(client, mutation("PUT", "/houses/home-1/layout"));
+    invalidateForTelemetry(client, mutation("PUT", "/properties/property-1/electricity/tariff"));
+    await Promise.resolve();
+
+    expect(client.getQueryState(["house", "home-1", "monitoring", "live"])?.isInvalidated).toBe(true);
+    expect(client.getQueryState(["house", "home-2", "monitoring", "live"])?.isInvalidated).toBe(false);
+    expect(client.getQueryState(["analytics", "opening-activity", "home-2", "request"])?.isInvalidated).toBe(false);
+    expect(client.getQueryState(["property", "property-1", "electricity", "tariff"])?.isInvalidated).toBe(true);
+    expect(client.getQueryState(["property", "property-2", "electricity", "tariff"])?.isInvalidated).toBe(false);
+    expect(client.getQueryState(["house", "home-1", "energy-summary", "today", 86_400_000])?.isInvalidated).toBe(true);
+    expect(client.getQueryState(["connected-devices", "home-1"])?.isInvalidated).toBe(false);
+  });
+
+  it("leaves queries alone for mutations that only page-owned data reflects", async () => {
+    const client = clientWithQueries();
+    const invalidate = vi.spyOn(client, "invalidateQueries");
+    invalidateForTelemetry(client, {
+      type: "mutation",
+      data: { method: "PATCH", resource: "/action-runs/run-1", occurredAt: "2027-01-15T08:00:00Z" },
+    });
+    invalidateForTelemetry(client, {
+      type: "mutation",
+      data: { method: "PATCH", resource: "/property-notes/note-1", occurredAt: "2027-01-15T08:00:00Z" },
+    });
+    await Promise.resolve();
+
+    expect(invalidate).not.toHaveBeenCalled();
+  });
+
+  it("ignores integration status republished with only new poll timestamps", async () => {
+    let onTelemetry: ((event: TelemetryEvent) => void) | undefined;
+    const client = clientWithQueries();
+    const invalidate = vi.spyOn(client, "invalidateQueries");
+    const handlers = { onTelemetry: vi.fn(), onMeasurement: vi.fn(), onConnection: vi.fn(), onOpen: vi.fn() };
+    const stop = new LiveEventCoordinator(client, {
+      legacy: vi.fn((next) => {
+        onTelemetry = next;
+        return vi.fn();
+      }),
+      measurements: vi.fn(() => vi.fn()),
+    }).start(handlers);
+    const integration = createDemoState().integration;
+    const polled = (lastPollAt: string): TelemetryEvent => ({
+      type: "integration",
+      data: { ...integration, tpLink: { ...integration.tpLink, lastPollAt } },
+    });
+
+    onTelemetry?.(polled("2027-01-15T08:00:00Z"));
+    expect(invalidate).toHaveBeenCalledOnce();
+    onTelemetry?.(polled("2027-01-15T08:01:00Z"));
+    onTelemetry?.(polled("2027-01-15T08:02:00Z"));
+    expect(invalidate).toHaveBeenCalledOnce();
+    // Poll-only events still reach the store, which tracks TP-Link discovery.
+    expect(handlers.onTelemetry).toHaveBeenCalledTimes(3);
+    onTelemetry?.({
+      type: "integration",
+      data: { ...integration, tpLink: { ...integration.tpLink, connected: !integration.tpLink.connected } },
+    });
+    expect(invalidate).toHaveBeenCalledTimes(2);
+    stop();
   });
 
   it("invalidates only the affected Home detail for a scoped opening event", async () => {

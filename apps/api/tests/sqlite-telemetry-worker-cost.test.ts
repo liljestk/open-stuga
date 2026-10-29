@@ -15,15 +15,16 @@ function fixture(count: number) {
   const path = join(directory, "fixture.sqlite");
   const database = new ClimateDatabase(path);
   database.db.exec("DELETE FROM measurement_samples; DELETE FROM electricity_price_points;");
-  const insert = database.db.prepare(`INSERT INTO measurement_samples
-    (sensor_id,metric,value,canonical_unit,timestamp,source,quality)
-    VALUES ('sensor-01',?,?,?,?,'api','good')`);
   database.transaction(() => {
-    for (let index = 0; index <= count; index += 1) {
-      const timestamp = new Date(Date.parse(from) + index * 86_400_000 / count).toISOString();
-      insert.run("energy", index * 24 / count, "kWh", timestamp);
-      insert.run("power", 1000, "W", timestamp);
-    }
+    // One statement: row-by-row inserts of the 86,400-step day took most of
+    // the test's 30 s budget on slower Windows disks.
+    database.db.prepare(`WITH RECURSIVE step(i) AS (SELECT 0 UNION ALL SELECT i + 1 FROM step WHERE i < :count)
+      INSERT INTO measurement_samples (sensor_id,metric,value,canonical_unit,timestamp,source,quality)
+      SELECT 'sensor-01', metric.name,
+        CASE metric.name WHEN 'energy' THEN i * 24.0 / :count ELSE 1000 END,
+        CASE metric.name WHEN 'energy' THEN 'kWh' ELSE 'W' END,
+        strftime('%Y-%m-%dT%H:%M:%fZ', :from, '+' || (i * 86400.0 / :count) || ' seconds'), 'api', 'good'
+      FROM step CROSS JOIN (SELECT 'energy' AS name UNION ALL SELECT 'power') AS metric`).run({ count, from });
     database.db.prepare(`INSERT INTO electricity_price_points
       (property_id,start_at,end_at,raw_price_cents_per_kwh,margin_cents_per_kwh,fetched_at)
       VALUES ('property-main',?,?,10,0,?)`).run(from, query.to, from);
