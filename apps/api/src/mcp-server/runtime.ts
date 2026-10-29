@@ -4,6 +4,10 @@ import { ClimateDatabase, ensureSqliteSpillDirectory } from "../db.js";
 import { databaseTariffContext } from "../electricity/tariff-context.js";
 import { EnergyCostService } from "../electricity/energy-cost.js";
 import { EnergyOptimizer } from "../electricity/optimizer.js";
+import { EnergyProjectionCache } from "../electricity/projection-cache.js";
+import { EnergySummaryCache } from "../electricity/summary-cache.js";
+import { AnalyticsWorkLimiter } from "../analytics/work-limiter.js";
+import { HeatPumpStateStore } from "../heat-pump-state.js";
 import { TelemetryBus } from "../events.js";
 import { HomeAssistantBridge } from "../home-assistant.js";
 import { LocationDiscoveryService } from "../location-discovery.js";
@@ -38,6 +42,11 @@ export interface McpRuntime {
   telemetryReader: HybridTelemetryReader;
   energyCost: EnergyCostService;
   energyOptimizer: EnergyOptimizer;
+  /** Bounds this process's concurrent analytics reads, as the API's limiter does. */
+  analyticsWorkLimiter: AnalyticsWorkLimiter;
+  energySummaries: EnergySummaryCache;
+  energyProjections: EnergyProjectionCache;
+  heatPumpStates: HeatPumpStateStore;
   setupDoctor: SetupDoctor;
   alertEngine: AlertEngine;
   telemetry: TelemetryService;
@@ -86,6 +95,13 @@ export function createMcpRuntime(config: AppConfig = loadConfig()): McpRuntime {
     },
   );
   const energyOptimizer = new EnergyOptimizer(database, telemetryReader);
+  const analyticsWorkLimiter = new AnalyticsWorkLimiter({
+    maxConcurrent: Math.max(1, Math.min(2, config.timeseriesPoolMax)),
+    maxQueued: 32,
+  });
+  const energySummaries = new EnergySummaryCache(database, energyCost, analyticsWorkLimiter);
+  const energyProjections = new EnergyProjectionCache(database, telemetryReader, energySummaries, analyticsWorkLimiter);
+  const heatPumpStates = new HeatPumpStateStore(database);
   const setupDoctor = new SetupDoctor(database, config, status, dataOperations, null);
   const alertEngine = new AlertEngine(database, bus, config, status);
   const telemetry = new TelemetryService(database, bus, alertEngine, dataMode);
@@ -111,7 +127,8 @@ export function createMcpRuntime(config: AppConfig = loadConfig()): McpRuntime {
   });
   return {
     config, database, locationDiscovery, bus, stugubyStore, dataMode, status, dataOperations, timeseries,
-    telemetryReader, energyCost, energyOptimizer, setupDoctor, alertEngine, telemetry, measurements, mock,
+    telemetryReader, energyCost, energyOptimizer, analyticsWorkLimiter, energySummaries, energyProjections,
+    heatPumpStates, setupDoctor, alertEngine, telemetry, measurements, mock,
     replay, homeAssistant, tpLink, weather, operations: new McpOperationTracker(),
   };
 }

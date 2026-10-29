@@ -2,6 +2,20 @@
 
 All notable Stugu releases are recorded here.
 
+## 0.56.0
+
+The MCP servers can now read heat pumps, electricity contracts and the charts' analytics, and two forecast tools that failed are fixed.
+
+- `forecast_measurement` and `forecast_sensor` no longer fail with "attempt to write a readonly database". The MCP process opens the workspace read-only, but a forecast tried to store its model evaluation unless the web app had recently stored one. The MCP process now computes the evaluation without storing it.
+- `get_home_monitoring` now sees the latest stored weather, so its insights take outdoor conditions and weather warnings into account. It used to evaluate every Home as if no weather were available.
+- New read-only tools in the local MCP profile (61 → 69 tools):
+  - `list_heat_pump_states` and `query_heat_pump_history`: power, mode, target and room temperature, fan and availability for each configured heat pump, with history merged from the telemetry archive. Connection credentials are never included.
+  - `get_house_energy_projection`: the Energy page's 30-day electricity use and cost projection.
+  - `get_property_electricity_tariff`, `list_electricity_invoices` and `get_electricity_invoice_reconciliation`: the electricity contract, recorded invoices, and how each invoice compares with Stugu's own calculation.
+  - `query_analytics` and `get_measurement_coverage`: the same bucketed series, summaries and quality as the Analytics charts over up to ten years, and how far back each sensor's data goes. The MCP process measures each sensor's reporting interval for these queries without storing it.
+- The ChatGPT profile adds `list_heat_pump_states` and `get_house_energy_projection` (20 → 22 tools), and the `stugu-home` plugin's guidance explains when to use them.
+- Upgrade impact: application-only update; no schema, Compose, configuration or host-trust change. MCP clients see eight new local tools or two new ChatGPT tools after reconnecting. The heat-pump history endpoint and the analytics query and coverage endpoints share their reading code with the MCP tools; their responses are unchanged.
+
 ## 0.52.16
 
 - Set up → Connections: the note telling a Member that only an Owner or Admin can change TP-Link or Home Assistant credentials now has the same inner spacing as the other text in the "Enter an address manually" section. It sat against the section's border before.

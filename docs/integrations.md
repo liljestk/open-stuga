@@ -653,9 +653,11 @@ An MCP client's executable can similarly be `docker` with arguments `compose`,
 `exec`, `-T`, `api`, `node`, `apps/api/dist/mcp-server.js` and the repository as
 its working directory.
 
-Both MCP transports expose the same 61 inspection tools. Each MCP process opens
+Both MCP transports expose the same 69 inspection tools. Each MCP process opens
 the existing SQLite database in read-only/query-only mode and uses the
-configured TimeDB for telemetry history. The fail-closed allowlist has no
+configured TimeDB for telemetry history. Caches the API keeps in SQLite, such as
+forecast evaluations and sensor reporting intervals, are recomputed in memory
+instead of written. The fail-closed allowlist has no
 create, update, delete, import, migration, sharing, synchronization, or control
 tools. Start the API once after an upgrade so the database schema is current.
 Raw credentials, binary asset downloads, SSE streams, invitation secrets,
@@ -670,6 +672,9 @@ excluded.
 | <code>get_property</code> | One selected Property with description, location, and Stuguby metadata |
 | <code>get_property_electricity</code> | Redacted electricity configuration, current price, and bounded price history |
 | <code>get_property_energy_optimization</code> | Advisory price/load optimization report; never controls equipment |
+| <code>get_property_electricity_tariff</code> | Versioned electricity contract: spot or fixed energy price, margins, network, tax, and monthly fees |
+| <code>list_electricity_invoices</code> | Recorded electricity invoices with period, totals, consumption, and cost components |
+| <code>get_electricity_invoice_reconciliation</code> | One invoice compared with Stugu's calculated consumption and cost for the same Home-local period |
 | <code>list_property_areas</code> | Privacy-safe mapped-area summaries without coordinates or free-form descriptions |
 | <code>list_area_equipment</code> | Equipment summaries without serial numbers or free-form notes |
 | <code>list_property_notes</code> | Property, Home, area, and equipment notes with optional resource filters |
@@ -685,15 +690,18 @@ excluded.
 | --- | --- |
 | <code>search_locations</code> | Search Open-Meteo place and timezone suggestions on explicit request |
 | <code>resolve_coordinate_defaults</code> | Resolve an IANA timezone for explicit WGS84 coordinates |
-| <code>get_house_weather</code> | Fetch provider-neutral conditions, forecasts, and warning coverage without storing them |
+| <code>get_house_weather</code> | Latest stored provider-neutral conditions, forecasts, and warning coverage from the API's background refresh |
 | <code>get_house_opening_states</code> | Effective door, window, and vent state with optional bounded history |
 | <code>get_opening_activity</code> | Bounded opening activity, duration, and coverage for one Home |
 | <code>get_home_performance</code> | Authoritative 30-day climate and energy performance for one Home |
-| <code>get_home_monitoring</code> | Monitoring freshness, coverage, integration state, and insights |
+| <code>get_home_monitoring</code> | Monitoring freshness, coverage, integration state, and insights, using the stored weather snapshot |
 | <code>compare_calendar_periods</code> | Home-local period comparison with server-owned timezone boundaries |
 | <code>get_house_electricity_price</code> | Current effective Home electricity price and optional Property price history |
 | <code>get_house_energy_cost</code> | Energy consumption, price coverage, and cost for one energy sensor |
 | <code>get_house_energy_summary</code> | Whole-Home electricity consumption and coverage for a selected range |
+| <code>get_house_energy_projection</code> | Next-30-day electricity use and cost projection with range and confidence, from recent use, the weather forecast, and the tariff |
+| <code>list_heat_pump_states</code> | Latest stored state of each configured heat pump: power, mode, setpoint, room temperature, fan, and availability |
+| <code>query_heat_pump_history</code> | One heat pump's recorded states, newest first, merged with the telemetry archive |
 | <code>query_outdoor_temperature_history</code> | Bounded permanent observed outdoor-temperature history |
 | <code>get_home_moisture_response</code> | Temperature-corrected indoor/outdoor moisture response and confidence; association, not causation |
 | <code>run_thermal_simulation</code> | Fit and run the experimental first-order room thermal model |
@@ -708,6 +716,8 @@ excluded.
 | <code>get_measurement_snapshot</code> | Latest independently timestamped sample for every metric and sensor |
 | <code>query_measurement_history</code> | Bounded history for any registered sensor metric |
 | <code>summarize_home_measurements</code> | Coverage-aware sensor and equal-weight whole-Home means over an exact range |
+| <code>query_analytics</code> | The charts' bucketed analytics query: minute, hourly, or daily series with summaries, quality, and provenance over up to ten years |
+| <code>get_measurement_coverage</code> | Earliest and latest stored sample per sensor and measurement, including archived history |
 | <code>forecast_measurement</code> | Forecast a metric whose definition enables forecasting |
 | <code>get_sensor_snapshot</code> | One sensor, its placement, and latest v1 reading |
 | <code>query_history</code> | Bounded durable v1 sensor history |
@@ -766,9 +776,9 @@ excluded.
 Every tool returns the same result in structured content and as JSON text.
 Every advertised tool carries <code>readOnlyHint=true</code>,
 <code>destructiveHint=false</code>, and <code>idempotentHint=true</code>.
-Location search, coordinate defaults, weather, and LAN discovery additionally
-carry <code>openWorldHint=true</code> because they contact a provider or local
-network when explicitly called.
+Location search, coordinate defaults, and LAN discovery additionally carry
+<code>openWorldHint=true</code> because they contact a provider or local network
+when explicitly called.
 
 For stdio, the ability to launch the process is the authorization boundary. For
 Streamable HTTP, the dedicated bearer token is the authorization boundary;
@@ -777,7 +787,7 @@ Guest grants do not constrain MCP inspection results. Credentials cannot be conf
 connection and replay status are process-local: the MCP process cannot inspect
 a separately running API process's WebSocket, TP-Link poller, or event bus.
 
-The `chatgpt-mcp-server` entry point selects a focused 20-tool subset with
+The `chatgpt-mcp-server` entry point selects a focused 22-tool subset with
 user-facing titles, voice-friendly instructions, Home-timezone guidance, and
 explicit moisture-causality limits. See [ChatGPT and voice](chatgpt.md) for the
 private Secure MCP Tunnel and Developer mode setup.

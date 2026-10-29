@@ -4,7 +4,7 @@ import type { AppConfig } from "../config.js";
 import type { ClimateDatabase } from "../db.js";
 import { GreeBridge } from "../gree.js";
 import type { GreeBindingResult } from "../gree-protocol.js";
-import type { HeatPumpStateStore } from "../heat-pump-state.js";
+import { readHeatPumpStateHistory, type HeatPumpStateStore } from "../heat-pump-state.js";
 import type { IntegrationStatus } from "@climate-twin/contracts";
 import {
   updateIntegrationSecrets,
@@ -12,7 +12,6 @@ import {
 } from "../integration-secrets.js";
 import type { RuntimeStatus } from "../runtime-status.js";
 import type { TelemetryArchiveWorker } from "../timeseries/archive-worker.js";
-import { isLocalTelemetryHistoryComplete } from "../timeseries/read-support.js";
 import type { TimeseriesStore } from "../timeseries/store.js";
 import { HttpError } from "../http-error.js";
 import { bodyObject, rejectUnknownFields, requiredString } from "../request-fields.js";
@@ -361,51 +360,23 @@ export function registerGreeRoutes(context: GreeRouteContext): void {
     const to = queryDate(request.query.to, "to");
     if (from && to && from > to) throw new HttpError(400, "INVALID_RANGE", "from must not be after to");
     const limit = safeInteger(request.query.limit, 250, 1, 1_000);
-    const archiveFrom = from ?? "1970-01-01T00:00:00.000Z";
-    const archiveTo = to ?? new Date(Date.now() + 86_400_000).toISOString();
-    const localHistoryComplete = isLocalTelemetryHistoryComplete({
-      timeseriesEnabled: Boolean(context.config.timeseriesEnabled),
-      retentionDays: context.config.retentionDays,
-      ...(from === undefined ? {} : { from }),
-    });
-    const local = context.heatPumpStates.history(id, {
+    const history = await readHeatPumpStateHistory({
+      store: context.heatPumpStates,
+      timeseries: context.timeseries,
+      retention: { timeseriesEnabled: Boolean(context.config.timeseriesEnabled), retentionDays: context.config.retentionDays },
+      connectionId: id,
       ...(from ? { from } : {}),
       ...(to ? { to } : {}),
       limit,
+      onArchiveFailure: () => void context.telemetryArchive?.reconcileNow().catch(() => undefined),
     });
-    let archived: typeof local = [];
-    if (context.timeseries) {
-      try {
-        archived = await context.timeseries.heatPumpStateHistory({
-          connectionId: id,
-          from: archiveFrom,
-          to: archiveTo,
-          limit,
-        });
-      } catch {
-        void context.telemetryArchive?.reconcileNow().catch(() => undefined);
-        if (!localHistoryComplete) {
-          throw new HttpError(
-            503,
-            "TELEMETRY_ARCHIVE_REQUIRED",
-            "Complete heat-pump history is temporarily unavailable",
-          );
-        }
-      }
-    } else if (!localHistoryComplete) {
+    if (!history.complete) {
       throw new HttpError(
         503,
         "TELEMETRY_ARCHIVE_REQUIRED",
         "Complete heat-pump history is temporarily unavailable",
       );
     }
-    const merged = new Map<string, (typeof local)[number]>();
-    for (const state of [...archived, ...local]) {
-      merged.set(JSON.stringify([state.connectionId, state.observedAt]), state);
-    }
-    const states = [...merged.values()]
-      .sort((left, right) => right.observedAt.localeCompare(left.observedAt))
-      .slice(0, limit);
-    response.json({ states });
+    response.json({ states: history.states });
   });
 }

@@ -160,7 +160,7 @@ describe("network MCP runtime", () => {
         { requestInit: { headers: { authorization: `Bearer ${started.accessToken}` } } },
       );
       await client.connect(transport);
-      expect((await client.listTools()).tools).toHaveLength(61);
+      expect((await client.listTools()).tools).toHaveLength(69);
       expect((await client.callTool({ name: "list_properties", arguments: {} })).structuredContent)
         .toMatchObject({ result: expect.any(Array) });
     } finally {

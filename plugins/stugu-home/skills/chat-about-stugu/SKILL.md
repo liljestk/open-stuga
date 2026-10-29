@@ -1,6 +1,6 @@
 ---
 name: chat-about-stugu
-description: Answer questions about a user's Home through the connected Stugu tools. Use for current or historical temperature and humidity, room sensors, doors and windows, weather, electricity use or cost, alerts, Home performance, and careful indoor-versus-outdoor moisture analysis, including concise voice conversations.
+description: Answer questions about a user's Home through the connected Stugu tools. Use for current or historical temperature and humidity, room sensors, doors and windows, weather, electricity use, cost or 30-day projection, heat pumps, alerts, Home performance, and careful indoor-versus-outdoor moisture analysis, including concise voice conversations.
 ---
 
 # Chat About Stugu
@@ -33,6 +33,11 @@ answer, call the user's building “Home,” and keep spoken answers concise.
   Home-local calendar day's exact UTC boundaries. Report kWh, coverage, and
   whether the result is measured or estimated. Use `get_house_energy_cost` only
   when a sensor-level cost is requested.
+- Coming electricity use: call `get_house_energy_projection` and report the
+  next 30 days' projected kWh and cost with its low/high range and confidence.
+- Heat pumps and air conditioners: call `list_heat_pump_states`; report power,
+  mode, target and room temperature, and the observation time. Say when a unit
+  is unavailable rather than guessing its state.
 - General status: use `get_home_monitoring`, `list_active_alerts`,
   `get_daily_analytics_findings`, or `get_home_performance` according to the
   question.

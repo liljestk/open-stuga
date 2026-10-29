@@ -1,11 +1,12 @@
 import { withResponseSignal } from "../../app/response-signal.js";
 import type express from "express";
-import type { AnalyticsEntityScope, DataMode, Sensor } from "@climate-twin/contracts";
+import { parseAnalyticsCoverageRequest, parseAnalyticsQueryRequest } from "./analytics-query.js";
 import {
-  AnalyticsQueryError,
-  parseAnalyticsCoverageRequest,
-  parseAnalyticsQueryRequest,
-} from "./analytics-query.js";
+  analyticsCoverageResponse,
+  analyticsQueryDefinitions,
+  requireAnalyticsCoverageMeasurements,
+  resolveAnalyticsScopeSensors,
+} from "./scope.js";
 import type { ClimateDatabase } from "../../db.js";
 import {
   type HybridTelemetryReader,
@@ -14,7 +15,6 @@ import type { AnalyticsWorkLimiter } from "../work-limiter.js";
 import { AnalyticsQueryCache } from "./cache.js";
 import { queryLatencyOperation } from "../diagnostics/latency.js";
 import { executeAnalyticsQuery } from "./execute.js";
-import { compareCodeUnits } from "../../text-order.js";
 
 export interface AnalyticsQueryRouteContext {
   app: express.Express;
@@ -28,51 +28,13 @@ export interface AnalyticsQueryRouteContext {
   };
 }
 
-/** Resolve the requested house sensors exactly as this caller may see them. */
-function resolveScopeSensors(
-  context: AnalyticsQueryRouteContext,
-  response: express.Response,
-  request: { dataMode: DataMode; scope: AnalyticsEntityScope },
-): Sensor[] {
-  const activeDataMode = context.database.isRealDataMode() ? "live" : "demo";
-  if (request.dataMode !== activeDataMode) {
-    throw new AnalyticsQueryError(
-      409,
-      "ANALYTICS_DATA_MODE_MISMATCH",
-      `This local database is in ${activeDataMode} mode; cross-mode analytics queries are not allowed`,
-    );
-  }
-  const house = context.database.getHouse(request.scope.id);
-  if (!house || !context.visibility(response).house(house.id)) {
-    throw new AnalyticsQueryError(404, "ANALYTICS_SCOPE_NOT_FOUND", "Analytics house scope was not found");
-  }
-  const accessibleSensors = context.database.listSensors(house.id)
-    .filter((sensor) => context.visibility(response).sensor(sensor.id));
-  const byId = new Map(accessibleSensors.map((sensor) => [sensor.id, sensor]));
-  const requestedSensorIds = request.scope.entityIds
-    ?? accessibleSensors.filter((sensor) => sensor.enabled).map((sensor) => sensor.id);
-  return requestedSensorIds.map((sensorId) => {
-    const sensor = byId.get(sensorId);
-    if (!sensor) {
-      throw new AnalyticsQueryError(404, "ANALYTICS_ENTITY_NOT_FOUND", `Sensor ${sensorId} is not available in the requested house`);
-    }
-    return sensor;
-  });
-}
-
 export function registerAnalyticsQueryRoutes(context: AnalyticsQueryRouteContext): () => void {
   const queryCache = new AnalyticsQueryCache(context.database);
   const removeStats = context.analyticsWorkLimiter.registerCache("analytics-query", () => queryCache.stats());
   context.app.post(`${context.v2Prefix}/analytics/coverage`, async (request, response) => {
     const coverageRequest = parseAnalyticsCoverageRequest(request.body);
-    const sensors = resolveScopeSensors(context, response, coverageRequest);
-    for (const metric of coverageRequest.measurementIds) {
-      const definition = context.database.getMeasurementDefinition(metric);
-      if (!definition) throw new AnalyticsQueryError(404, "UNKNOWN_ANALYTICS_MEASUREMENT", `Unknown measurement: ${metric}`);
-      if (definition.genericHistoryEnabled === false || definition.genericStatsEnabled === false) {
-        throw new AnalyticsQueryError(422, "ANALYTICS_MEASUREMENT_DISABLED", `Analytics is disabled for measurement: ${metric}`);
-      }
-    }
+    const sensors = resolveAnalyticsScopeSensors(context.database, coverageRequest, context.visibility(response));
+    requireAnalyticsCoverageMeasurements(context.database, coverageRequest.measurementIds);
     const startedAt = performance.now();
     const coverage = await withResponseSignal(response, (signal) => context.analyticsWorkLimiter.run(
       "analytics-coverage",
@@ -83,40 +45,17 @@ export function registerAnalyticsQueryRoutes(context: AnalyticsQueryRouteContext
       }),
       signal,
     ));
-    const labels = new Map(sensors.map((sensor) => [sensor.id, sensor.name]));
-    const series = coverage.records.map((record) => ({
-      entityId: record.sensorId,
-      entityLabel: labels.get(record.sensorId) ?? record.sensorId,
-      measurementId: record.metric,
-      start: record.start,
-      end: record.end,
-    }));
-    const starts = series.map((item) => item.start).sort(compareCodeUnits);
-    const ends = series.map((item) => item.end).sort(compareCodeUnits);
     response.setHeader("cache-control", "no-store");
     response.setHeader(
       "server-timing",
       `analytics-coverage;dur=${(performance.now() - startedAt).toFixed(1)}`,
     );
-    response.json({
-      apiVersion: "1.0",
-      requestId: coverageRequest.requestId,
-      dataMode: coverageRequest.dataMode,
-      range: { start: starts[0] ?? null, end: ends.at(-1) ?? null },
-      series,
-      complete: coverage.complete,
-      archiveState: coverage.archiveState,
-      generatedAt: new Date().toISOString(),
-    });
+    response.json(analyticsCoverageResponse(coverageRequest, sensors, coverage));
   });
   context.app.post(`${context.v2Prefix}/analytics/query`, async (request, response) => {
     const analyticsRequest = parseAnalyticsQueryRequest(request.body);
-    const sensors = resolveScopeSensors(context, response, analyticsRequest);
-    const definitions = analyticsRequest.measurementIds.map((metric) => {
-      const definition = context.database.getMeasurementDefinition(metric);
-      if (!definition) throw new AnalyticsQueryError(404, "UNKNOWN_ANALYTICS_MEASUREMENT", `Unknown measurement: ${metric}`);
-      return definition;
-    });
+    const sensors = resolveAnalyticsScopeSensors(context.database, analyticsRequest, context.visibility(response));
+    const definitions = analyticsQueryDefinitions(context.database, analyticsRequest.measurementIds);
     const startedAt = performance.now();
     const expectedIntervalSeconds = context.database.expectedReportingIntervals(sensors.flatMap((sensor) => (
       definitions.map((definition) => ({ sensorId: sensor.id, metric: definition.id }))
