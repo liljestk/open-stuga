@@ -512,6 +512,16 @@ export function buildBaseSchemaSql(schemaName: string): string[] {
     `INSERT INTO ${relation("schema_migrations")} (version, description)
       VALUES (8, 'Complete Gree and Wilfa humidity and operating-state archive')
       ON CONFLICT (version) DO NOTHING`,
+    // A sealed variant holds only the active day's buckets that end at or
+    // before sealed_until; NULL means the whole day. Writes at or after a
+    // day's generation seal extend the open tail without invalidating it.
+    `ALTER TABLE ${relation("measurement_ordered_rollup_generations")}
+      ADD COLUMN IF NOT EXISTS sealed_until TIMESTAMPTZ`,
+    `ALTER TABLE ${relation("measurement_ordered_rollup_dirty")}
+      ADD COLUMN IF NOT EXISTS sealed_until TIMESTAMPTZ`,
+    `INSERT INTO ${relation("schema_migrations")} (version, description)
+      VALUES (9, 'Sealed ordered telemetry states for the active day')
+      ON CONFLICT (version) DO NOTHING`,
   ];
 }
 

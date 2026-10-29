@@ -8,6 +8,13 @@ import type { AnalyticsWorkLimiter } from "../analytics/work-limiter.js";
 
 const SUMMARY_TTL_MS = 60_000;
 /**
+ * A window that closed this long ago no longer gains live samples, so its
+ * summary (invoice periods, the projection's last month) is kept longer.
+ * Tariff edits change the key and configuration changes clear the cache.
+ */
+const CLOSED_WINDOW_AGE_MS = 3_600_000;
+const CLOSED_WINDOW_TTL_MS = 30 * 60_000;
+/**
  * A summary still missing sources is shared briefly rather than recomputed
  * for every tab and household client until its sources arrive.
  */
@@ -58,6 +65,7 @@ export class EnergySummaryCache {
     ])).digest("hex");
     const hit = this.#cache.has(key);
     const coalesced = !hit && this.#cache.isLoading(key);
+    const ttlMs = Date.parse(request.to) <= Date.now() - CLOSED_WINDOW_AGE_MS ? CLOSED_WINDOW_TTL_MS : SUMMARY_TTL_MS;
     const summary = await this.#cache.getOrLoad(key, (signal) => this.limiter.run(
       "energy-summary",
       () => this.energyCost.summarize({
@@ -71,7 +79,7 @@ export class EnergySummaryCache {
       signal,
     ), {
       serveStale: false,
-      ttlMs: SUMMARY_TTL_MS,
+      ttlMs,
       ...withSignal(request.signal),
     });
     if (!summary.complete && !hit && !coalesced) this.#cache.set(key, summary, { ttlMs: INCOMPLETE_TTL_MS });

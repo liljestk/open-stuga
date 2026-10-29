@@ -2,6 +2,23 @@
 
 All notable Stugu releases are recorded here.
 
+## 0.52.13
+
+Electricity costs and analytics answer much faster, especially late in the day.
+
+- "Calculating from stored history…" no longer takes 5–30 seconds on a Raspberry Pi. The cost and consumption figures used to re-read every raw power and energy sample since midnight UTC on every refresh: about 30,000 rows per fast plug by evening. The archive now keeps compact states for today's finished 15-minute periods and reads raw samples only for the last few minutes. Charts and summaries on the Analytics page use the same states.
+- A meter that only reports power is no longer first checked for an energy counter it does not have, and a meter that only has a counter skips the power pass.
+- The Energy page asks for its projection only after the visible summaries have answered, so they no longer queue behind it.
+- Several requests could each hold one of the two analytics slots while waiting for an energy summary that needed the other. This happened with the projection, the optimizer and the Analytics Health panel. They now finish in the slot they already hold instead of waiting until the browser gives up.
+- Invoice checks and the Health panel's bill comparison share one cached summary per closed period instead of recalculating each one.
+- Refreshes keep what is already on screen:
+  - Energy cost and consumption cards stay visible while a refresh is still preparing or fails, instead of switching back to "Calculating…".
+  - Daily findings keep their content during the 15-second poll.
+  - The "open now" state of doors and windows no longer blanks every minute.
+  - The electricity history chart no longer shows a loading note on background refreshes.
+- Repeated Analytics and export previews within the same minute reuse the server's cached answer.
+- Upgrade impact: application-only update. The TimescaleDB archive gains two nullable columns (`sealed_until` on the ordered-state tables, schema migration 9), applied automatically when the API starts. Today's states are built in the background, so the first visit after an update or after midnight UTC still reads today raw until they are ready. Nothing waits for them.
+
 ## 0.52.12
 
 - `npm run rpi:doctor` no longer reports `ARCHIVE_DATABASE: Archive syncing, caught up false` on a healthy, streaming Raspberry Pi. The API marks the TimescaleDB archive as not caught up for about a second after every new sample, until its next live flush. A production Pi was in that state for about half of its health reads, so two of three doctor runs said "attention" and `release:verify` refused the receipt even though there was no backlog. When the first read is not caught up, the doctor now re-reads the archive status up to four more times over about three seconds. It passes if any of those reads finds the archive caught up, or sees its last successful sync move forward. If the archive is still behind on every read (a stall, or a queue that keeps growing), the check warns as before, now with the queue length at the first and last read.
