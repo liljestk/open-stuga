@@ -379,7 +379,8 @@ Always show endpoints, units, numeric sensor values, and a text description near
 **Everything:** Atkinson Hyperlegible Next (variable, bundled with
 `@fontsource-variable/atkinson-hyperlegible-next`), 400–700, through
 `--font-sans`. Headings use Bold; labels use 600. Its slashed zero and distinct
-`1`/`l`/`I` are deliberate legibility features, not a defect.  
+`1`/`l`/`I` are deliberate legibility features, not a defect.
+
 **Code and identifiers:** SFMono-Regular, Consolas, Liberation Mono, monospace.
 
 Every size comes from one scale with a 12 px floor (Bringhurst's classic
