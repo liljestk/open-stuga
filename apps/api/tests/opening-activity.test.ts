@@ -234,6 +234,10 @@ describe("opening activity API", () => {
   });
 
   it("returns the server-owned derivation with provenance", async () => {
+    const announced: string[] = [];
+    const unsubscribe = runtime.bus.subscribe((event) => {
+      if (event.type === "mutation") announced.push(event.data.resource);
+    });
     const response = await request(runtime.app)
       .post("/api/v2/analytics/opening-activity")
       .send({
@@ -263,6 +267,10 @@ describe("opening activity API", () => {
         openedCount: 1,
       }],
     });
+    // A read must not tell every open browser that the workspace changed.
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    unsubscribe();
+    expect(announced).toEqual([]);
   });
 
   it("cancels opening evidence reads when the client disconnects", async () => {

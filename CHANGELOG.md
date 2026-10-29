@@ -2,7 +2,7 @@
 
 All notable Stugu releases are recorded here.
 
-## 0.52.9
+## 0.52.15
 
 Power and energy charts on the Analytics page load in about half the time.
 
@@ -11,7 +11,14 @@ Power and energy charts on the Analytics page load in about half the time.
 - Opening a chart no longer writes to the archive when its stored states are up to date. It prepares them only when a day is missing or out of date, or when today's states have not been started yet.
 - Upgrade impact: application-only update; no schema, Compose or host-trust change beyond those of 0.52.7, which it builds on.
 
-## 0.52.7
+## 0.52.14
+
+- Saving something in Stugu no longer makes every open browser reload the whole workspace. Before, each save (renaming a sensor, dragging it, adding a note, acknowledging an alert) reopened both live connections in every open tab and queued about 18 reads, which delayed the page you were looking at. Other tabs now reload only what changed: renaming a sensor reloads the sensor list and refreshes monitoring and analytics, and a new note reloads the notes. Adding or deleting a Home or property, membership and Stuguby changes still reload everything, as do changes a Guest is not allowed to see in detail.
+- Opening activity and calendar comparison charts no longer announce themselves as workspace changes. While one was open, each load could trigger the next one and a reload in every other tab.
+- Home monitoring answers are reused for up to 10 seconds, and routine integration polls no longer discard them. Gree and TP-Link republish their status after every poll; the cache is now cleared only when a connection's state actually changes, or by alerts, weather and saves. Open pages also stop refreshing monitoring for those polls.
+- Upgrade impact: application-only update; no schema, Compose, configuration or host-trust change. The live-stream `mutation` event is unchanged, but `POST /api/v2/analytics/opening-activity` and `POST /api/v2/analytics/calendar-comparison` no longer emit one.
+
+## 0.52.13
 
 Electricity costs and analytics answer much faster, especially late in the day.
 
@@ -27,6 +34,12 @@ Electricity costs and analytics answer much faster, especially late in the day.
   - The electricity history chart no longer shows a loading note on background refreshes.
 - Repeated Analytics and export previews within the same minute reuse the server's cached answer.
 - Upgrade impact: application-only update. The TimescaleDB archive gains two nullable columns (`sealed_until` on the ordered-state tables, schema migration 9), applied automatically when the API starts. Today's states are built in the background, so the first visit after an update or after midnight UTC still reads today raw until they are ready. Nothing waits for them.
+
+## 0.52.12
+
+- `npm run rpi:doctor` no longer reports `ARCHIVE_DATABASE: Archive syncing, caught up false` on a healthy, streaming Raspberry Pi. The API marks the TimescaleDB archive as not caught up for about a second after every new sample, until its next live flush. A production Pi was in that state for about half of its health reads, so two of three doctor runs said "attention" and `release:verify` refused the receipt even though there was no backlog. When the first read is not caught up, the doctor now re-reads the archive status up to four more times over about three seconds. It passes if any of those reads finds the archive caught up, or sees its last successful sync move forward. If the archive is still behind on every read (a stall, or a queue that keeps growing), the check warns as before, now with the queue length at the first and last read.
+- The API, its `caughtUp` flag, the setup doctor in the web app, and the live-migration readiness checks are unchanged.
+- Upgrade impact: no appliance update needed. Only the operator's `rpi:doctor` tooling changes. It works against any installed release, including 0.52.0, and a default doctor run takes up to three seconds longer when the archive is busy.
 
 ## 0.52.5
 

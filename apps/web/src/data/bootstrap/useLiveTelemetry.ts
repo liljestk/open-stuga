@@ -94,14 +94,14 @@ export function useLiveTelemetry(
   store: Pick<ClimateDataStore,
     | "activeHouseId" | "activeSeriesTelemetryBuffers" | "activeTelemetryLoadBuffers" | "apiAvailable"
     | "applyIntegrationStatus" | "connection" | "dataMode" | "dataModeRef" | "globalFieldVersions"
-    | "measurementFlushTimer" | "mutationRefreshTimer" | "pendingLegacyReadings"
-    | "pendingMeasurementSamples" | "scenario" | "sessionLockedRef" | "setBootstrapAttempt"
+    | "measurementFlushTimer" | "pendingLegacyReadings"
+    | "pendingMeasurementSamples" | "scenario"
     | "setState" | "stateRef" | "tick" | "tpLinkPollStatus"
   >,
-  actions: Pick<PipelineActions, "refreshTpLinkDevices" | "loadHouseData">,
+  actions: Pick<PipelineActions, "refreshTpLinkDevices" | "loadHouseData" | "scheduleMutationRefresh">,
 ): LiveTelemetryActions {
-  const { activeHouseId, stateRef, connection, dataMode, tick, setState, dataModeRef, scenario, measurementFlushTimer, pendingLegacyReadings, pendingMeasurementSamples, mutationRefreshTimer, sessionLockedRef, setBootstrapAttempt, activeTelemetryLoadBuffers, activeSeriesTelemetryBuffers, tpLinkPollStatus, applyIntegrationStatus, globalFieldVersions, apiAvailable } = store;
-  const { refreshTpLinkDevices, loadHouseData } = actions;
+  const { activeHouseId, stateRef, connection, dataMode, tick, setState, dataModeRef, scenario, measurementFlushTimer, pendingLegacyReadings, pendingMeasurementSamples, activeTelemetryLoadBuffers, activeSeriesTelemetryBuffers, tpLinkPollStatus, applyIntegrationStatus, globalFieldVersions, apiAvailable } = store;
+  const { refreshTpLinkDevices, loadHouseData, scheduleMutationRefresh } = actions;
   const isActiveHouseSensor = useCallback((sensorId: string) => {
       const houseId = activeHouseId.current;
       return houseId !== null && stateRef.current.sensors.some((sensor) => (
@@ -134,13 +134,6 @@ export function useLiveTelemetry(
         sample,
       ])).values()];
       setState((current) => withLiveTelemetry(current, activeHouseId.current, readings, streamedSamples));
-    }, []);
-  const scheduleMutationRefresh = useCallback(() => {
-      if (mutationRefreshTimer.current !== null) window.clearTimeout(mutationRefreshTimer.current);
-      mutationRefreshTimer.current = window.setTimeout(() => {
-        mutationRefreshTimer.current = null;
-        if (!sessionLockedRef.current) setBootstrapAttempt((attempt) => attempt + 1);
-      }, 350);
     }, []);
   const queueLiveReading = useCallback((reading: Reading) => {
       if (!isActiveHouseSensor(reading.sensorId)
@@ -175,7 +168,7 @@ export function useLiveTelemetry(
       if (event.type === "heartbeat") {
         setState((current) => ({ ...current, latestTelemetryHeartbeatAt: Date.now() }));
       } else if (event.type === "mutation") {
-        scheduleMutationRefresh();
+        scheduleMutationRefresh(event.data);
       } else if (event.type === "opening") {
         setState((current) => current.houses.some((house) => house.id === event.data.houseId)
           ? { ...current, latestOpeningStateObservation: event.data }
