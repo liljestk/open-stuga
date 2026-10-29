@@ -35,7 +35,7 @@ class RollupPool {
   private dispatch(config: QueryConfig): QueryResult<QueryResultRow> {
     const query = { text: config.text, values: config.values ?? [] };
     this.queries.push(query);
-    return queryResult(query.text.includes("AS requested(sensor_id TEXT, metric TEXT, aggregation TEXT)") ? [{
+    return queryResult(query.text.includes("AS requested(sensor_id TEXT, metric TEXT, aggregation TEXT") ? [{
       sensor_id: "meter-1",
       metric: "power",
       canonical_unit: "W",
@@ -91,7 +91,7 @@ describe("TimeseriesStore analytics rollup", () => {
       }],
     });
 
-    const rollup = pool.queries.find(({ text }) => text.includes("AS requested(sensor_id TEXT, metric TEXT, aggregation TEXT)"))!;
+    const rollup = pool.queries.find(({ text }) => text.includes("AS requested(sensor_id TEXT, metric TEXT, aggregation TEXT"))!;
     expect(rollup.values).toEqual([
       JSON.stringify([{ sensor_id: "meter-1", metric: "power", aggregation: "time_weighted_mean" }]),
       FROM,
@@ -109,7 +109,8 @@ describe("TimeseriesStore analytics rollup", () => {
     expect(rollup.text).toContain("dirty.day_start = required.day_start");
     expect(rollup.text).toContain("dirty.sensor_id IS NULL OR generation.sensor_id IS NULL");
     expect(rollup.text).toContain("GREATEST(dirty.current_seq, generation.current_seq)");
-    expect(rollup.text).toContain("date_bin($5::INTERVAL");
+    expect(rollup.text).toContain("$5::INTERVAL AS target_width");
+    expect(rollup.text).toContain("date_bin(target.target_width");
     expect(rollup.text).toContain("rollup.bucket_seconds = $8::INTEGER");
     expect(rollup.text).toContain("counts.cadence_seconds * 1.5");
     expect(rollup.text).toContain("ORDER BY sample.observed_at ASC LIMIT 1");
@@ -141,7 +142,7 @@ describe("TimeseriesStore analytics rollup", () => {
       qualities: ["good"],
     });
 
-    const rollup = pool.queries.find(({ text }) => text.includes("AS requested(sensor_id TEXT, metric TEXT, aggregation TEXT)"))!;
+    const rollup = pool.queries.find(({ text }) => text.includes("AS requested(sensor_id TEXT, metric TEXT, aggregation TEXT"))!;
     expect(rollup.values[4]).toBe("7 minutes");
     expect(rollup.text).toContain("sample.bucket_start >= coverage.cached_from AND sample.bucket_start < coverage.cached_to");
     expect(rollup.text).toContain("sample.observed_at >= boundary.raw_from AND sample.observed_at < boundary.raw_to");

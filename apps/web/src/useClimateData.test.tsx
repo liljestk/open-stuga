@@ -373,18 +373,65 @@ describe("useClimateData", () => {
     expect(result.current.state.latestMeasurements[sensor.id]?.temperature?.value).not.toBe(39.5);
   });
 
-  it("debounces mutation events into one authoritative live refresh", async () => {
+  it("refreshes a renamed sensor and a new note without reopening streams or reloading inventory", async () => {
+    const demo = createDemoState();
     const { result } = renderHook(() => useClimateData());
     await waitFor(() => expect(result.current.loading).toBe(false));
     const [[handleEvent]] = mocks.subscribeToEvents.mock.calls as unknown as [[(event: TelemetryEvent) => void]];
-    mocks.session.mockClear();
+    mocks.sensors.mockResolvedValue(demo.sensors.map((sensor) => (
+      sensor.id === "sensor-living" ? { ...sensor, name: "Lounge" } : sensor
+    )));
+    const untouched = [
+      mocks.session, mocks.properties, mocks.houses, mocks.propertyAreas, mocks.areaEquipment,
+      mocks.snapshot, mocks.integrations, mocks.subscribeToEvents, mocks.subscribeToMeasurementEvents,
+    ];
+    const untouchedCalls = untouched.map((mock) => mock.mock.calls.length);
+    const sensorLoads = mocks.sensors.mock.calls.length;
+    const noteLoads = mocks.propertyNotes.mock.calls.length;
 
     act(() => {
       handleEvent({ type: "mutation", data: { method: "PATCH", resource: "/sensors/sensor-living", occurredAt: "2026-07-16T12:00:00.000Z" } });
       handleEvent({ type: "mutation", data: { method: "POST", resource: "/property-notes", occurredAt: "2026-07-16T12:00:00.100Z" } });
     });
 
-    await waitFor(() => expect(mocks.session).toHaveBeenCalledTimes(1), { timeout: 1_500 });
+    await waitFor(() => expect(
+      result.current.state.sensors.find((sensor) => sensor.id === "sensor-living")?.name,
+    ).toBe("Lounge"), { timeout: 1_500 });
+    await waitFor(() => expect(mocks.propertyNotes).toHaveBeenCalledTimes(noteLoads + 1));
+    expect(mocks.sensors).toHaveBeenCalledTimes(sensorLoads + 1);
+    expect(untouched.map((mock) => mock.mock.calls.length)).toEqual(untouchedCalls);
+    expect(result.current.bootstrapStatus).toBe("ready");
+  });
+
+  it("keeps a full workspace bootstrap for a new Home", async () => {
+    const { result } = renderHook(() => useClimateData());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    const [[handleEvent]] = mocks.subscribeToEvents.mock.calls as unknown as [[(event: TelemetryEvent) => void]];
+    const sessionLoads = mocks.session.mock.calls.length;
+
+    act(() => {
+      handleEvent({ type: "mutation", data: { method: "POST", resource: "/houses", occurredAt: "2026-07-16T12:00:00.000Z" } });
+    });
+
+    await waitFor(() => expect(mocks.session).toHaveBeenCalledTimes(sessionLoads + 1), { timeout: 1_500 });
+    await waitFor(() => expect(mocks.subscribeToEvents).toHaveBeenCalledTimes(2));
+  });
+
+  it("bootstraps again when a Home edit reveals that the Home list changed", async () => {
+    const demo = createDemoState();
+    const { result } = renderHook(() => useClimateData());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    const [[handleEvent]] = mocks.subscribeToEvents.mock.calls as unknown as [[(event: TelemetryEvent) => void]];
+    const sessionLoads = mocks.session.mock.calls.length;
+    const houseLoads = mocks.houses.mock.calls.length;
+    mocks.houses.mockResolvedValueOnce([...demo.houses, { ...demo.houses[0]!, id: "house-shared-meanwhile" }]);
+
+    act(() => {
+      handleEvent({ type: "mutation", data: { method: "PATCH", resource: `/houses/${demo.houses[0]!.id}`, occurredAt: "2026-07-16T12:00:00.000Z" } });
+    });
+
+    await waitFor(() => expect(mocks.houses).toHaveBeenCalledTimes(houseLoads + 2), { timeout: 1_500 });
+    expect(mocks.session).toHaveBeenCalledTimes(sessionLoads + 1);
   });
 
   it("distinguishes an empty installation from an unavailable service and can retry", async () => {
