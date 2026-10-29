@@ -190,6 +190,13 @@ export interface MeasurementAnalyticsSeriesQuery {
   aggregation: MeasurementAnalyticsAggregation;
 }
 
+/** Base buckets that summaries need when the displayed buckets are coarser. */
+export interface MeasurementAnalyticsSummaryQuery {
+  resolution: MeasurementAnalyticsResolution;
+  /** A subset of the rollup query's series, with the same aggregations. */
+  series: readonly MeasurementAnalyticsSeriesQuery[];
+}
+
 /**
  * A bounded, database-side analytics query. The source window itself is not
  * point-limited; only the requested series and returned bucket count are.
@@ -202,6 +209,11 @@ export interface MeasurementAnalyticsRollupQuery extends QueryControl {
   qualities: readonly TelemetryQuality[];
   /** Real-data mode excludes archived demo/replay rows before all calculations. */
   excludeSynthetic?: boolean;
+  /**
+   * Read alongside the display buckets. Ordered series whose stored variant
+   * matches are re-bucketed from the same states in one statement.
+   */
+  summary?: MeasurementAnalyticsSummaryQuery;
 }
 
 export interface MeasurementAnalyticsBucketRecord {
@@ -228,8 +240,18 @@ export interface MeasurementAnalyticsSeriesRecord {
   buckets: MeasurementAnalyticsBucketRecord[];
 }
 
+export interface MeasurementAnalyticsSummaryResult {
+  resolution: MeasurementAnalyticsResolution;
+  series: MeasurementAnalyticsSeriesRecord[];
+}
+
 export interface MeasurementAnalyticsRollupResult {
   series: MeasurementAnalyticsSeriesRecord[];
+  /**
+   * Present when the query asked for summary buckets. Summaries are supporting
+   * statistics, so null means that read is still materializing or failed.
+   */
+  summary?: MeasurementAnalyticsSummaryResult | null;
 }
 
 export interface MeasurementHistoryQuery extends QueryControl {
@@ -252,7 +274,11 @@ export interface MeasurementHistoryBucketedQuery extends QueryControl {
   limit?: number;
   /** Real-data mode must remove synthetic rows before calculating bucket values. */
   excludeSynthetic?: boolean;
-  /** Internal sample projections can skip decoding metadata; full archive reads retain it by default. */
+  /**
+   * Internal sample projections can skip decoding metadata, which also lets
+   * whole-minute buckets read the continuous aggregates. Full archive reads
+   * retain metadata by default.
+   */
   includeMetadata?: boolean;
 }
 

@@ -10,8 +10,12 @@ import type {
 } from "@climate-twin/contracts";
 import { type ClimateState } from "../../domain";
 import { routeFromLocation } from "../../routing";
+import type { StoreRefresh } from "../live/mutationScope";
 import { aggregateConnection, blankState, houseMutationKey, withoutDemoTelemetry } from "./support";
 import type { BootstrapStatus, BufferedHouseMutation, BufferedLiveTelemetry, BufferedSeriesTelemetry, ClientDataMode, HouseInventoryMutation, HouseMutationBuffer, SeriesCommit, SeriesLoadState, StreamConnections } from "./support";
+/** A bootstrap-store refresh a debounced mutation asked for, or a full workspace bootstrap. */
+export type PendingMutationRefresh = StoreRefresh | "bootstrap";
+
 export function useClimateDataStore() {
   // Telemetry starts empty until the API positively confirms that this database
     // is still allowed to use demo data. This prevents a real installation from
@@ -55,6 +59,8 @@ export function useClimateDataStore() {
   const reconnectResyncTimer = useRef<number | null>(null);
   const heartbeatFallbackTimer = useRef<number | null>(null);
   const mutationRefreshTimer = useRef<number | null>(null);
+  // What the mutations debounced by mutationRefreshTimer make stale.
+  const pendingMutationRefresh = useRef(new Set<PendingMutationRefresh>());
   const sensorMoveQueues = useRef(new Map<string, Promise<void>>());
   const sensorMoveVersions = useRef(new Map<string, number>());
   const persistedSensorPoints = useRef(new Map<string, Point>());
@@ -90,6 +96,7 @@ export function useClimateDataStore() {
       heartbeatFallbackTimer.current = null;
       mutationRefreshTimer.current = null;
       saveStateTimer.current = null;
+      pendingMutationRefresh.current.clear();
       pendingMeasurementSamples.current = [];
       for (const unsubscribe of activeStreamUnsubscribers.current) unsubscribe();
       activeStreamUnsubscribers.current.clear();
@@ -137,5 +144,5 @@ export function useClimateDataStore() {
       });
     }, []);
   const pendingLegacyReadings = useRef<Reading[]>([]);
-  return { initialHouseId, sessionLockedRef, sessionLocked, setSessionLocked, state, setStateInternal, setState, loading, setLoading, bootstrapStatus, setBootstrapStatus, bootstrapError, setBootstrapError, bootstrapAttempt, setBootstrapAttempt, dataMode, setDataMode, streamConnections, setStreamConnections, connection, pollingFallback, setPollingFallback, resourceErrors, setResourceErrors, seriesStates, setSeriesStates, scenario, setScenario, saveState, setSaveState, tpLinkDevices, setTpLinkDevices, tpLinkDevicesRef, tpLinkDevicesLoading, setTpLinkDevicesLoading, tpLinkDevicesError, setTpLinkDevicesError, tick, apiAvailable, dataModeRef, stateRef, streamConnectionsRef, hasReachedLiveConnection, hasHydratedActiveHouse, heartbeatPollAt, reconnectResyncTimer, heartbeatFallbackTimer, mutationRefreshTimer, sensorMoveQueues, sensorMoveVersions, persistedSensorPoints, activeHouseId, activeHouseLoadVersion, houseTelemetryVersions, seriesLoadVersions, seriesCommitVersions, seriesCommitSequence, tpLinkPollStatus, tpLinkRefreshVersion, pendingMeasurementSamples, measurementFlushTimer, saveStateTimer, activeTelemetryLoadBuffers, activeHouseMutationBuffers, activeSeriesTelemetryBuffers, activeInventoryMutationBuffers, activeStreamUnsubscribers, activeStreamGateReleases, sessionLifecycleEpoch, globalFieldVersions, recordResourceError, recordHouseMutation, recordInventoryMutation, applyIntegrationStatus, pendingLegacyReadings };
+  return { initialHouseId, sessionLockedRef, sessionLocked, setSessionLocked, state, setStateInternal, setState, loading, setLoading, bootstrapStatus, setBootstrapStatus, bootstrapError, setBootstrapError, bootstrapAttempt, setBootstrapAttempt, dataMode, setDataMode, streamConnections, setStreamConnections, connection, pollingFallback, setPollingFallback, resourceErrors, setResourceErrors, seriesStates, setSeriesStates, scenario, setScenario, saveState, setSaveState, tpLinkDevices, setTpLinkDevices, tpLinkDevicesRef, tpLinkDevicesLoading, setTpLinkDevicesLoading, tpLinkDevicesError, setTpLinkDevicesError, tick, apiAvailable, dataModeRef, stateRef, streamConnectionsRef, hasReachedLiveConnection, hasHydratedActiveHouse, heartbeatPollAt, reconnectResyncTimer, heartbeatFallbackTimer, mutationRefreshTimer, pendingMutationRefresh, sensorMoveQueues, sensorMoveVersions, persistedSensorPoints, activeHouseId, activeHouseLoadVersion, houseTelemetryVersions, seriesLoadVersions, seriesCommitVersions, seriesCommitSequence, tpLinkPollStatus, tpLinkRefreshVersion, pendingMeasurementSamples, measurementFlushTimer, saveStateTimer, activeTelemetryLoadBuffers, activeHouseMutationBuffers, activeSeriesTelemetryBuffers, activeInventoryMutationBuffers, activeStreamUnsubscribers, activeStreamGateReleases, sessionLifecycleEpoch, globalFieldVersions, recordResourceError, recordHouseMutation, recordInventoryMutation, applyIntegrationStatus, pendingLegacyReadings };
 }
