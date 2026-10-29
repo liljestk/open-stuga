@@ -384,7 +384,7 @@ export const svPart4 = {
   "sensors.filterStatus": "Status",
   "sensors.filterAll": "Alla sensorer",
   "sensors.filterLive": "Aktiva",
-  "sensors.filterWaiting": "Väntar på data",
+  "sensors.filterWaiting": "Ingen aktuell data",
   "sensors.filterUnplaced": "Ej placerade",
   "sensors.filterArchived": "Arkiverade",
   "sensors.filterType": "Sensortyp",

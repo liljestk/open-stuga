@@ -144,7 +144,7 @@ export const enPart5 = {
   "sensors.filterStatus": "Status",
   "sensors.filterAll": "All sensors",
   "sensors.filterLive": "Live",
-  "sensors.filterWaiting": "Waiting for data",
+  "sensors.filterWaiting": "No recent data",
   "sensors.filterUnplaced": "Unplaced",
   "sensors.filterArchived": "Archived",
   "sensors.filterType": "Sensor type",

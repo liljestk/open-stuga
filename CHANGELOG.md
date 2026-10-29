@@ -7,7 +7,7 @@ All notable Stugu releases are recorded here.
 Fixes found in a review of every page and tab.
 
 - Charts show their full range as soon as the history arrives. They used to wait for the forecast as well, which is computed on request and can take tens of seconds. Until then a sensor's detail chart drew only its newest log page, about five hours of a 24-hour range, and said its history began there. The forecast is now added when it arrives, and the chart no longer reports where the history begins while the range is still loading.
-- The Sensors page now treats a reading as current for 15 minutes, the same window Home, Overview and the floor plan use (`VITE_SPATIAL_MAX_SAMPLE_AGE_MS` still overrides it). Before, a sensor reporting every 10–15 minutes kept switching between Live and Waiting, and Sensors could show none live while Home counted most of them. A sensor that has reported before but not recently now says "Not reporting" instead of "Waiting for data".
+- The Sensors page now treats a reading as current for 15 minutes, the same window Home, Overview and the floor plan use (`VITE_SPATIAL_MAX_SAMPLE_AGE_MS` still overrides it). Before, a sensor reporting every 10–15 minutes kept switching between Live and Waiting, and Sensors could show none live while Home counted most of them. A sensor that has reported before but not recently now says "Not reporting" instead of "Waiting for data". The summary tile and the status filter call both kinds "No recent data".
 - Layout fixes:
   - Set up → Sensor mapping and the property's Tariff and Bill check cards have inner padding.
   - Property → Map layer names and the search and type filters no longer get cut off.

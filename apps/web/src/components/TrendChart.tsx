@@ -222,10 +222,13 @@ export function TrendChart({ sensor, history, forecast, definition, units, range
  * Whether the drawn history starts noticeably after the requested window.
  * While the range is still loading the chart only holds what it already had,
  * so its first sample says nothing about where the stored history begins.
+ * The load state's `partial` flag is not used: it is set as soon as the first
+ * sample lands one bucket after the window start, which every sensor reporting
+ * less often than once a minute does.
  */
 function isCoveragePartial(loadState: SeriesLoadState | undefined, coverageStart: number | null, partialAfter: number): boolean {
   if (loadState?.status === "loading") return false;
-  if (loadState?.partial === true) return true;
+  if (loadState?.truncated === true) return true;
   return coverageStart !== null && Number.isFinite(coverageStart) && coverageStart > partialAfter;
 }
 

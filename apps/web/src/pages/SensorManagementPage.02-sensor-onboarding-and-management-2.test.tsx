@@ -227,7 +227,7 @@ describe("sensor onboarding and management", () => {
     };
     renderPage({ state, house: currentHouse, houses: base.houses });
 
-    expect(screen.getByRole("button", { name: /Waiting for data.*1/ })).not.toBeNull();
+    expect(screen.getByRole("button", { name: /No recent data.*1/ })).not.toBeNull();
     expect(screen.getByRole("button", { name: /Unplaced.*1/ })).not.toBeNull();
     expect(screen.getByRole("button", { name: /Live.*1/ })).not.toBeNull();
     expect(screen.getByRole("button", { name: /Archived.*1/ })).not.toBeNull();

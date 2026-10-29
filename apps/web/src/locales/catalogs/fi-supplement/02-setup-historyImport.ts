@@ -500,7 +500,7 @@ export const fiSupplementPart2 = {
   "sensors.inventory": "Anturiluettelo",
   "sensors.houseSensors": "Kodin {house} anturit",
   "sensors.filterLive": "Toiminnassa",
-  "sensors.filterWaiting": "Odottaa tietoja",
+  "sensors.filterWaiting": "Ei tuoreita tietoja",
   "sensors.notReporting": "Ei raportoi",
   "weather.configuredHousesOne": "{count} koti sijainnilla",
   "sensors.filterUnplaced": "Sijoittamaton",
