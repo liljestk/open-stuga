@@ -17,7 +17,7 @@
   height: 42px;
   display: grid;
   place-items: center;
-  border-radius: 11px;
+  border-radius: var(--radius);
   color: var(--action);
   background: var(--panel);
   box-shadow: inset 0 0 0 1px var(--line);
@@ -29,14 +29,14 @@
 
 .contact-sensor-prompt h2 {
   margin: 2px 0 3px;
-  font: 700 16px/1.3 "Manrope", sans-serif;
+  font: 700 var(--text-md)/1.3 var(--font-sans);
 }
 
 .contact-sensor-prompt p,
 .contact-sensor-prompt small {
   margin: 0;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--text-xs);
   line-height: 1.45;
 }
 
@@ -63,14 +63,14 @@
 
 .contact-assignment-panel h2 {
   margin: 2px 0 4px;
-  font: 700 18px/1.3 "Manrope", sans-serif;
+  font: 700 var(--text-lg)/1.3 var(--font-sans);
 }
 
 .contact-assignment-panel header p,
 .contact-assignment-empty p {
   margin: 0;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--text-xs);
   line-height: 1.5;
 }
 
@@ -82,7 +82,7 @@
   gap: 10px;
   padding: 9px 11px;
   border: 1px solid var(--line);
-  border-radius: 9px;
+  border-radius: var(--radius-sm);
   background: var(--panel-soft);
   color: var(--action);
 }
@@ -97,7 +97,7 @@
 .contact-assignment-device small {
   overflow: hidden;
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--text-xs);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -129,7 +129,7 @@
   height: 42px;
   display: grid;
   place-items: center;
-  border-radius: 11px;
+  border-radius: var(--radius);
   color: var(--action);
   background: var(--panel);
   box-shadow: inset 0 0 0 1px var(--line);
@@ -144,11 +144,11 @@
 .sensor-contact-detail-hero small,
 .sensor-contact-detail-hero > span:nth-child(2) > span {
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--text-xs);
 }
 
 .sensor-contact-detail-hero > span:nth-child(2) > strong {
-  font: 700 15px/1.3 "Manrope", sans-serif;
+  font: 700 var(--text-md)/1.3 var(--font-sans);
 }
 
 .contact-state {
@@ -156,11 +156,10 @@
   display: inline-flex;
   align-items: center;
   padding: 0 9px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   color: var(--positive);
   background: var(--positive-soft);
-  font-size: 10px;
-  text-transform: uppercase;
+  font-size: var(--text-xs);
 }
 
 .contact-state.unknown {
@@ -173,7 +172,7 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
   margin: 0;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   overflow: hidden;
 }
 
@@ -193,22 +192,21 @@
 
 .sensor-contact-details dt {
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-weight: 700;
-  text-transform: uppercase;
 }
 
 .sensor-contact-details dd {
   margin: 2px 0 0;
   overflow-wrap: anywhere;
-  font-size: 11px;
+  font-size: var(--text-xs);
   font-weight: 700;
 }
 
 .sensor-contact-details > p {
   margin: 0;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--text-xs);
   line-height: 1.5;
 }
 
@@ -245,8 +243,8 @@
 
 .contact-opening-room text {
   fill: var(--muted);
-  font-family: "DM Sans", sans-serif;
-  font-size: 12px;
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
   font-weight: 650;
   text-anchor: middle;
   pointer-events: none;
@@ -289,7 +287,7 @@
 .contact-opening-map-help {
   margin: 0;
   color: var(--muted);
-  font-size: 10.5px;
+  font-size: var(--text-xs);
 }
 
 .contact-opening-list {
@@ -307,7 +305,7 @@
   gap: 9px;
   padding: 8px 10px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   color: var(--ink);
   text-align: left;
   background: var(--panel);
@@ -335,7 +333,7 @@
   align-items: center;
   gap: 4px;
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-weight: 700;
 }
 
@@ -348,7 +346,7 @@
 
 .contact-opening-list small {
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--text-xs);
 }
 
 .opening-kind {
@@ -371,7 +369,7 @@
   gap: 9px;
   padding: 12px;
   border: 1px solid color-mix(in srgb, var(--yellow) 45%, var(--line));
-  border-radius: 9px;
+  border-radius: var(--radius-sm);
   color: var(--yellow);
   background: var(--yellow-soft);
 }
@@ -381,7 +379,7 @@
   color: var(--red);
   border-color: color-mix(in srgb, var(--red) 35%, var(--line));
   background: var(--red-soft);
-  font-size: 11px;
+  font-size: var(--text-xs);
 }
 
 .contact-assignment-panel > footer {

@@ -52,19 +52,36 @@ describe("semantic stylesheet tokens", () => {
     }
   });
 
-  it("enforces the production type floor and weight ceiling", () => {
-    for (const match of allProductionStyles.matchAll(/font-size\s*:\s*(\d+(?:\.\d+)?)px/g)) {
-      expect(Number(match[1])).toBeGreaterThanOrEqual(10);
-    }
+  it("sets type from the 12 px-floor scale in one family and caps weights", () => {
+    const scale = [...allProductionStyles.matchAll(/--text-[\w-]+\s*:\s*(\d+)px/g)].map((match) => Number(match[1]));
+    expect(scale).toEqual([12, 14, 16, 18, 21, 24, 36, 48]);
+    expect(allProductionStyles).not.toMatch(/font-size\s*:[^;{}]*\d(?:px|rem)/);
+    expect(allProductionStyles).not.toMatch(/font\s*:\s*(?:\d{3}\s+)?(?:clamp\()?[\d.]+(?:px|rem)/);
+    expect(allProductionStyles).not.toMatch(/"(?:Manrope|DM Sans)"/);
 
     for (const match of allProductionStyles.matchAll(/font-weight\s*:\s*(\d+)/g)) {
       expect(Number(match[1])).toBeLessThanOrEqual(700);
     }
 
-    for (const match of allProductionStyles.matchAll(/font\s*:\s*(\d{3})\s+(\d+(?:\.\d+)?)px/g)) {
+    for (const match of allProductionStyles.matchAll(/font\s*:\s*(\d{3})\s/g)) {
       expect(Number(match[1])).toBeLessThanOrEqual(700);
-      expect(Number(match[2])).toBeGreaterThanOrEqual(10);
     }
+  });
+
+  it("writes labels in sentence case", () => {
+    expect(allProductionStyles).not.toMatch(/text-transform\s*:\s*uppercase/);
+  });
+
+  it("keeps the lantern accent to the mark, the current page and the page title", () => {
+    const owners = [...allProductionStyles.matchAll(/([^{}]*)\{[^{}]*var\(--lantern\)[^{}]*\}/g)]
+      .map((match) => match[1]!.replace(/\/\*[\s\S]*?\*\//g, "").trim());
+    expect(owners.sort()).toEqual([
+      ".nav-button.active::before",
+      ".page-heading::before",
+      ".stugu-mark-window",
+      ".stuguby-mark-window",
+      ".stuguby-page-header::before",
+    ]);
   });
 
   it("keeps explicit focus-visible rings separated by three pixels", () => {
@@ -81,8 +98,8 @@ describe("semantic stylesheet tokens", () => {
     }
   });
 
-  it("uses radius tokens for canonical 5px and 10px values", () => {
-    expect(allProductionStyles).not.toMatch(/border-radius\s*:\s*(?:5|10)px(?=\s*[;}])/);
+  it("uses radius tokens instead of literal corner sizes", () => {
+    expect(allProductionStyles).not.toMatch(/border(?:-[a-z]+)*-radius\s*:[^;{}]*\b(?:[2-9]|\d{2,})(?:\.\d+)?(?:px|rem)/);
   });
 
   it("keeps the primary navigation vertical-only", () => {

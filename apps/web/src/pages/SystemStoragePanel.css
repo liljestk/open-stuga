@@ -19,7 +19,7 @@
 
 .storage-panel-heading h2 {
   margin: 3px 0 0;
-  font: 700 18px/1.2 "Manrope", sans-serif;
+  font: 700 var(--text-lg)/1.2 var(--font-sans);
   letter-spacing: -.02em;
 }
 
@@ -35,7 +35,7 @@
   align-items: center;
   gap: 6px;
   padding: 6px 10px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   font-weight: 700;
   white-space: nowrap;
 }
@@ -64,7 +64,7 @@
   min-width: 0;
   padding: 12px;
   border: 1px solid var(--line);
-  border-radius: 9px;
+  border-radius: var(--radius-sm);
   background: var(--panel-soft);
 }
 
@@ -81,8 +81,6 @@
 .storage-current small {
   color: var(--muted);
   font-weight: 700;
-  letter-spacing: .06em;
-  text-transform: uppercase;
 }
 
 .storage-current code,
@@ -114,7 +112,7 @@
   gap: 9px;
   padding: 11px 12px;
   border-left: 3px solid var(--action);
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
   background: var(--action-soft);
 }
 
@@ -188,7 +186,7 @@
   height: 36px;
   display: grid !important;
   place-items: center;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   color: var(--action);
   background: var(--action-soft);
 }
@@ -244,7 +242,7 @@
   gap: 10px;
   padding: 11px;
   border: 1px solid var(--line-strong);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: var(--panel);
   cursor: pointer;
 }
@@ -318,7 +316,7 @@
   gap: 14px;
   padding: 14px;
   border-left: 4px solid var(--action);
-  border-radius: 9px;
+  border-radius: var(--radius-sm);
   background: var(--action-soft);
 }
 
@@ -346,7 +344,7 @@
 }
 
 .storage-change-plan h3 {
-  font: 700 16px/1.25 "Manrope", sans-serif;
+  font: 700 var(--text-md)/1.25 var(--font-sans);
 }
 
 .storage-change-plan p {

@@ -2,6 +2,24 @@
 
 All notable Stugu releases are recorded here.
 
+## 0.54.0
+
+A new look: Kaamos, the polar night.
+
+- Stugu has a new visual identity:
+  - The navigation and the phone's header bar are night blue in both light and dark mode.
+  - Pages are snow-light or night-dark, with cool blue-grey neutrals.
+  - Buttons are rounded pills.
+  - One lantern amber marks the logo's window, the page you are on, and the page title, like a lit cottage window in the dark. It is never used for a status. Warning yellow is now a separate straw yellow, so the two can't be confused in dark mode.
+- All text uses Atkinson Hyperlegible Next, a typeface drawn for low-vision reading. It is bundled with Stugu, so no font is fetched from the internet. Its zero has a slash, so it can't be mistaken for the letter O.
+- Text is never smaller than 12 px. Sizes come from one scale of eight steps instead of 52 different sizes, of which 10 px was the most common.
+- Labels are written in sentence case instead of spaced capitals.
+- Corners, shadows and greys follow one set of values everywhere, including the floor plan and the 3D view in dark mode.
+- "Report a bug" in the navigation is readable again: its text had 2.8:1 contrast against the dark rail.
+- The logo, favicon and browser theme colour use the new mark, and spreadsheet exports use the new blue for their header row.
+- The tabs on Property, Set up, Activity and the Outdoor forecast now share one design and one keyboard behaviour. Arrow keys work in both directions, and Home and End jump to the first and last tab. On Set up, the tab row keeps a keyboard stop while an advanced section is open.
+- Upgrade impact: application-only update; no API, schema, Compose, configuration or host-trust change. The iOS companion keeps its previous colours for now.
+
 ## 0.53.0
 
 Clearer messages and visible progress.
