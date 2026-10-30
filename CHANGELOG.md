@@ -8,6 +8,7 @@ The iPhone, iPad and Apple Watch apps take on the Kaamos look.
 
 - The app icon on iPhone, iPad and Apple Watch is now the Kaamos mark: a snow cottage with a lit lantern window on a night-blue tile. The logo at the top of the README uses the same icon.
 - The iPhone and iPad screens use the web app's colours in light and dark mode: snow and night backgrounds, cool blue-grey text, fjord-blue actions (frost blue in dark mode), straw-yellow warnings and the web app's error red. The launch screen opens on the same snow or night background, and the Watch app's accent is frost blue.
+- On the Apple Watch and in the Home status widget, warnings are straw yellow instead of orange, so they can't be mistaken for the lantern in the new icon. Good and critical states use the app's green and red, and the widget's background matches the app's cards.
 - Buttons are rounded pills. Cards have slightly rounder corners, and text fields and pickers share one smaller corner.
 - In dark mode, the markers for people and equipment on the Property map, the pin for an equipment location and the Finish button of a room scan show a dark symbol or label on their light fill. Before, they were white and hard to read.
 - Temperature on Home uses the web app's warm orange. The lantern amber appears only in the logo and is never used for a status.
