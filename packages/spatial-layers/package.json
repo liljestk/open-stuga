@@ -1,6 +1,6 @@
 {
   "name": "@climate-twin/spatial-layers",
-  "version": "0.52.17",
+  "version": "0.52.19",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",

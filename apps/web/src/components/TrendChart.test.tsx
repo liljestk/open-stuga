@@ -3,9 +3,56 @@ import { describe, expect, it, vi } from "vitest";
 import { createDemoState } from "../domain";
 import { I18nProvider } from "../i18n";
 import { definitionFor } from "../measurements";
+import type { SeriesLoadState } from "../useClimateData";
 import { timelineValueDomain, TrendChart } from "./TrendChart";
 
 describe("TrendChart", () => {
+  describe("history coverage note", () => {
+    const state = createDemoState();
+    const sensor = state.sensors[0]!;
+    const definition = definitionFor(state.measurementDefinitions, "temperature");
+    const template = state.latestMeasurements[sensor.id]!.temperature!;
+    const now = Date.now();
+    const windowStart = now - 24 * 3_600_000;
+    // A sensor reporting every 10 minutes whose first sample lands 6 minutes into the window.
+    const tenMinuteHistory = Array.from({ length: 144 }, (_, index) => ({
+      ...template,
+      timestamp: new Date(windowStart + 6 * 60_000 + index * 600_000).toISOString(),
+      value: 21 + index / 144,
+    }));
+    const loadState = (overrides: Partial<SeriesLoadState>): SeriesLoadState => ({
+      status: "ready", error: null, forecastError: null,
+      requestedFrom: new Date(windowStart).toISOString(), requestedTo: new Date(now).toISOString(),
+      loadedFrom: tenMinuteHistory[0]!.timestamp, loadedTo: tenMinuteHistory.at(-1)!.timestamp,
+      partial: true, truncated: false,
+      ...overrides,
+    });
+    const renderChart = (history: typeof tenMinuteHistory, state: SeriesLoadState) => render(
+      <I18nProvider>
+        <TrendChart
+          sensor={sensor} history={history} forecast={[]} definition={definition}
+          units="metric" range="24h" onRange={vi.fn()} loadState={state}
+        />
+      </I18nProvider>,
+    );
+
+    it("does not call a full range partial because the first sample follows the window start by one interval", () => {
+      renderChart(tenMinuteHistory, loadState({}));
+      expect(screen.queryByText(/Available history begins/)).toBeNull();
+    });
+
+    it("says nothing about coverage while the range is still loading", () => {
+      renderChart(tenMinuteHistory.slice(-30), loadState({ status: "loading", loadedFrom: null, loadedTo: null }));
+      expect(screen.queryByText(/Available history begins/)).toBeNull();
+    });
+
+    it("names where history begins when the series is young or the server cut it", () => {
+      const young = tenMinuteHistory.slice(-30);
+      renderChart(young, loadState({ loadedFrom: young[0]!.timestamp }));
+      expect(screen.getByText(/Available history begins/)).not.toBeNull();
+    });
+  });
+
   it("auto-scales the vertical axis to the visible values", () => {
     const definition = definitionFor(createDemoState().measurementDefinitions, "power");
 

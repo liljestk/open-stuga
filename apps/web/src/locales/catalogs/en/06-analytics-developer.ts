@@ -333,6 +333,7 @@ export const enPart6 = {
   "weather.title": "Outdoor context",
   "weather.description": "Arrange nearby homes at map scale and choose the weather reference used for {house}'s FMI observations, forecasts, and active warnings.",
   "weather.configuredHouses": "{count} homes with a location",
+  "weather.configuredHousesOne": "{count} home with a location",
   "weather.locationSet": "Location set",
   "weather.locationMissing": "Location needed",
   "weather.houseLocation": "Home location",

@@ -313,6 +313,7 @@ export const enPart7 = {
   "properties.inventoryAreaFilter": "Area",
   "properties.inventoryAllAreas": "All areas",
   "properties.inventoryShowing": "{count} items shown",
+  "properties.inventoryShowingOne": "{count} item shown",
   "properties.inventoryEmpty": "No inventory items yet",
   "properties.inventoryEmptyHelp": "Record equipment once here so maintenance and optional location tracking use the same item.",
   "properties.inventoryNoMatches": "No items match these filters",

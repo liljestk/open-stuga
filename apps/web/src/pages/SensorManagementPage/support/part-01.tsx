@@ -5,7 +5,9 @@ import type { Floor, House, HousePatch, IntegrationStatus, MeasurementSample, Me
 import { type CreateSensorInput, type HistoricalImportResult } from "../../../api";
 import type { ClimateState, TimeRange } from "../../../domain";
 import { type TranslationKey } from "../../../i18n";
+import { configuredSpatialMaxSampleAgeMs } from "../../../spatial/freshness";
 import { isTpLinkContactDevice } from "../../../tpLinkDeviceClassification";
+import type { SeriesLoadState } from "../../../useClimateData";
 
 export const HistoricalImportWizard = lazy(() => import("../../../components/HistoricalImportWizard")
   .then((module) => ({ default: module.HistoricalImportWizard })));
@@ -35,6 +37,8 @@ export interface SensorManagementPageProps {
   units?: UnitSystem;
   onRequestedDeviceHandled?: () => void;
   onLoadSeries?: (sensorId: string, metric: Metric, range: TimeRange, forecastSupported: boolean, signal?: AbortSignal) => void;
+  /** Load state of the series `onLoadSeries` fills, keyed by `seriesStateKey`. */
+  seriesStates?: Record<string, SeriesLoadState>;
   onHouse: (houseId: string) => void;
   onUpdateHouse: (houseId: string, patch: HousePatch) => Promise<House>;
   onRefreshDevices: () => Promise<void>;
@@ -259,7 +263,14 @@ export function latestSensorTimestamp(state: ClimateState, sensorId: string): nu
 export function isLive(state: ClimateState, sensor: Sensor, houses: House[], now: number): boolean {
   if (!sensor.enabled || isUnplaced(sensor, houses)) return false;
   const timestamp = latestSensorTimestamp(state, sensor.id);
-  return timestamp !== null && timestamp <= now + 5 * 60_000 && now - timestamp <= 10 * 60_000;
+  // Home, Overview and the floor plan call a reading current for this long; a
+  // shorter window here showed sensors as waiting while Home counted them.
+  return timestamp !== null && timestamp <= now + 5 * 60_000 && now - timestamp <= configuredSpatialMaxSampleAgeMs();
+}
+
+/** A sensor that has reported before but not recently is not reporting, rather than waiting for its first reading. */
+export function sensorStatusLabelKey(status: SensorStatus, lastTimestamp: number | null): TranslationKey {
+  return status === "waiting" && lastTimestamp !== null ? "sensors.notReporting" : `sensors.${status}`;
 }
 
 export function sensorStatus(state: ClimateState, sensor: Sensor, houses: House[], now: number): SensorStatus {

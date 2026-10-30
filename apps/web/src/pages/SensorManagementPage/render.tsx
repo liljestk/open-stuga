@@ -26,6 +26,7 @@ import {
 import { formatInTimeZone } from "../../dateTime";
 import { measurementLabel } from "../../measurements";
 import { TrendChart } from "../../components/TrendChart";
+import { seriesStateKey } from "../../useClimateData";
 import { ContactSensorHistoryPanel } from "./ContactSensorHistoryPanel";
 import { TpLinkContactAssignment } from "./TpLinkContactAssignment";
 import {
@@ -33,12 +34,12 @@ import {
   tpLinkContactDeviceForSensor,
   tpLinkOpeningForDevice,
 } from "../../tpLinkDeviceClassification";
-import { HistoricalImportWizard, SensorLabelCard, deviceBindingKey, isDemoSensor, isGreeSensor, latestSensorTimestamp, sensorFloor } from "./support";
+import { HistoricalImportWizard, SensorLabelCard, deviceBindingKey, isDemoSensor, isGreeSensor, latestSensorTimestamp, sensorFloor, sensorStatusLabelKey } from "./support";
 import type { SensorFilter } from "./support";
 import { useSensorManagementPagePart04 } from "./part-04";
 import { Nexus433SendersPanel } from "./Nexus433SendersPanel";
 export function renderSensorManagementPage(context: ReturnType<typeof useSensorManagementPagePart04>) {
-  const { state, house, houses, tpLinkDevicesLoading, tpLinkDevicesError, readOnly, localAuthority, units, onImportHistoricalData, locale, t, tpLinkStatus, pageHeadingRef, importButtonRef, detailsHeadingRef, search, setSearch, filter, modelFilter, setModelFilter, mode, pageFeedback, setPageFeedback, contactSetupDevice, contactOpenerRef, rowBusyId, cleanupBusy, refreshing, refreshError, importOpen, setImportOpen, detailsContactKey, detailSamples, detailCursor, detailsLoading, detailsError, setDetailMetric, detailRange, currentSensors, visibleDetailsSensor, visibleDetailsIsContactSensor, visibleDetailsContactDevice, visibleDetailsContactOpening, demoSensors, detailDefinitions, detailDefinition, detailHistory, homeTpLinkDevices, contactDevices, mappedContactDevices, contactHistoryDevice, contactHistoryOpening, contactStatuses, availableContactDevices, addableDevices, sensorStatuses, statusCounts, sensorModels, visibleSensors, visibleContactDevices, beginAdd, beginAddDevice, beginEdit, closeImport, loadSensorDetails, closeSensorDetails, openContactDetails, closeContactDetails, beginContactSetup, closeContactSetup, assignContactToOpening, setArchived, removeSensor, removeDemoSensors, refreshDevices, renderAddEditor, renderEditEditor } = context;
+  const { state, seriesStates, house, houses, tpLinkDevicesLoading, tpLinkDevicesError, readOnly, localAuthority, units, onImportHistoricalData, locale, t, tpLinkStatus, pageHeadingRef, importButtonRef, detailsHeadingRef, search, setSearch, filter, modelFilter, setModelFilter, mode, pageFeedback, setPageFeedback, contactSetupDevice, contactOpenerRef, rowBusyId, cleanupBusy, refreshing, refreshError, importOpen, setImportOpen, detailsContactKey, detailSamples, detailCursor, detailsLoading, detailsError, setDetailMetric, detailRange, currentSensors, visibleDetailsSensor, visibleDetailsIsContactSensor, visibleDetailsContactDevice, visibleDetailsContactOpening, demoSensors, detailDefinitions, detailDefinition, detailHistory, homeTpLinkDevices, contactDevices, mappedContactDevices, contactHistoryDevice, contactHistoryOpening, contactStatuses, availableContactDevices, addableDevices, sensorStatuses, statusCounts, sensorModels, visibleSensors, visibleContactDevices, beginAdd, beginAddDevice, beginEdit, closeImport, loadSensorDetails, closeSensorDetails, openContactDetails, closeContactDetails, beginContactSetup, closeContactSetup, assignContactToOpening, setArchived, removeSensor, removeDemoSensors, refreshDevices, renderAddEditor, renderEditEditor } = context;
   const visibleDetailsIsGreeSensor = Boolean(visibleDetailsSensor && isGreeSensor(visibleDetailsSensor));
   const visibleSensorNameCounts = visibleSensors.reduce((counts, sensor) => {
     const key = sensor.name.trim().toLocaleLowerCase(locale);
@@ -143,7 +144,7 @@ export function renderSensorManagementPage(context: ReturnType<typeof useSensorM
         </section>}
 
         <section className="sensor-overview" aria-label={t("sensors.overview") }>
-          <button type="button" className={filter === "waiting" ? "active" : ""} aria-pressed={filter === "waiting"} onClick={() => context.selectSensorFilter("waiting")}><span className="sensor-overview-icon waiting"><TriangleAlert size={18} aria-hidden="true" /></span><span><small>{t("sensors.waiting")}</small>{" "}<strong>{statusCounts.waiting}</strong></span></button>
+          <button type="button" className={filter === "waiting" ? "active" : ""} aria-pressed={filter === "waiting"} onClick={() => context.selectSensorFilter("waiting")}><span className="sensor-overview-icon waiting"><TriangleAlert size={18} aria-hidden="true" /></span><span><small>{t("sensors.filterWaiting")}</small>{" "}<strong>{statusCounts.waiting}</strong></span></button>
           <button type="button" className={filter === "unplaced" ? "active" : ""} aria-pressed={filter === "unplaced"} onClick={() => context.selectSensorFilter("unplaced")}><span className="sensor-overview-icon unplaced"><MapPin size={18} aria-hidden="true" /></span><span><small>{t("sensors.unplaced")}</small>{" "}<strong>{statusCounts.unplaced}</strong></span></button>
           <button type="button" className={filter === "live" ? "active" : ""} aria-pressed={filter === "live"} onClick={() => context.selectSensorFilter("live")}><span className="sensor-overview-icon live"><CircleDot size={18} aria-hidden="true" /></span><span><small>{t("sensors.live")}</small>{" "}<strong>{statusCounts.live}</strong></span></button>
           <button type="button" className={filter === "archived" ? "active" : ""} aria-pressed={filter === "archived"} onClick={() => context.selectSensorFilter("archived")}><span className="sensor-overview-icon archived"><Archive size={18} aria-hidden="true" /></span><span><small>{t("sensors.archived")}</small>{" "}<strong>{statusCounts.archived}</strong></span></button>
@@ -243,6 +244,7 @@ export function renderSensorManagementPage(context: ReturnType<typeof useSensorM
                 units={units}
                 range={detailRange}
                 onRange={context.selectDetailRange}
+                loadState={seriesStates[seriesStateKey(visibleDetailsSensor.id, detailDefinition.id)]}
                 timeZone={house.timezone}
                 heading={measurementLabel(detailDefinition, locale)}
               />
@@ -324,6 +326,7 @@ export function renderSensorManagementPage(context: ReturnType<typeof useSensorM
                   const floor = sensorFloor(sensor, houses);
                   const status = sensorStatuses.get(sensor.id) ?? "waiting";
                   const lastTimestamp = latestSensorTimestamp(state, sensor.id);
+                  const statusLabelKey = sensorStatusLabelKey(status, lastTimestamp);
                   const sensorTimeZone = houses.find((candidate) => candidate.id === sensor.houseId)?.timezone;
                   const legacyContact = isLegacyTpLinkContactSensor(sensor);
                   const greeSensor = isGreeSensor(sensor);
@@ -333,14 +336,14 @@ export function renderSensorManagementPage(context: ReturnType<typeof useSensorM
                     <li key={sensor.id} className={!sensor.enabled ? "archived" : ""}>
                       <span className={`sensor-list-glyph${legacyContact ? " contact" : ""}`} aria-hidden="true">{legacyContact ? <DoorOpen size={19} /> : <><span /><span /></>}</span>
                       <div className="sensor-list-copy">
-                        <span className="sensor-list-name"><strong>{sensor.name}</strong>{isDemoSensor(sensor) && <span className="sensor-demo-badge">{t("sensors.demoBadge")}</span>}<span className={`sensor-status-badge ${status}`}>{t(`sensors.${status}`)}</span></span>
+                        <span className="sensor-list-name"><strong>{sensor.name}</strong>{isDemoSensor(sensor) && <span className="sensor-demo-badge">{t("sensors.demoBadge")}</span>}<span className={`sensor-status-badge ${status}`}>{t(statusLabelKey)}</span></span>
                         <span className="sensor-list-location"><Home size={13} aria-hidden="true" />{legacyContactOpening?.element.label?.trim() || sensor.room} · {legacyContactOpening?.floor.name || floor?.name || t("sensors.unknownFloor")}</span>
                         <small>{sensor.model}{legacyContact
                           ? ` · ${t("sensors.contactDevice")} · ${t("sensors.contactLegacyStatus")}`
                           : greeSensor ? ` · ${t("sensors.greeSource")}` : sensor.tpLinkDeviceId ? ` · ${t("sensors.boundTo", { id: sensor.tpLinkDeviceId })}` : ` · ${t("sensors.manual")}`}{lastTimestamp ? ` · ${t("sensors.lastSeen", { time: formatInTimeZone(lastTimestamp, locale, sensorTimeZone, { dateStyle: "short", timeStyle: "short" }) })}` : ""}</small>
                       </div>
                       <div className="sensor-list-actions">
-                        <button type="button" className="secondary-button" disabled={cleanupBusy} aria-label={(visibleSensorNameCounts.get(sensor.name.trim().toLocaleLowerCase(locale)) ?? 0) > 1 ? `${t("sensors.detailsAction", { name: sensor.name })} · ${t(`sensors.${status}`)}` : undefined} aria-expanded={visibleDetailsSensor?.id === sensor.id} aria-controls={visibleDetailsSensor?.id === sensor.id ? "sensor-details-panel" : undefined} onClick={() => void loadSensorDetails(sensor)}><Database size={14} aria-hidden="true" />{t("sensors.detailsAction", { name: sensor.name })}</button>
+                        <button type="button" className="secondary-button" disabled={cleanupBusy} aria-label={(visibleSensorNameCounts.get(sensor.name.trim().toLocaleLowerCase(locale)) ?? 0) > 1 ? `${t("sensors.detailsAction", { name: sensor.name })} · ${t(statusLabelKey)}` : undefined} aria-expanded={visibleDetailsSensor?.id === sensor.id} aria-controls={visibleDetailsSensor?.id === sensor.id ? "sensor-details-panel" : undefined} onClick={() => void loadSensorDetails(sensor)}><Database size={14} aria-hidden="true" />{t("sensors.detailsAction", { name: sensor.name })}</button>
                       </div>
                     </li>
                   );
