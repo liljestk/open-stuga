@@ -336,3 +336,23 @@ export const API_V2_VERSION = "v2" as const;
 export const API_V1_PREFIX = `/api/${API_V1_VERSION}` as const;
 
 export const API_V2_PREFIX = `/api/${API_V2_VERSION}` as const;
+
+/** Timestamps that advance on every poll, event or delivery without any change in what a source reports. */
+const INTEGRATION_ACTIVITY_TIMESTAMPS: ReadonlySet<string> = new Set([
+  "lastPollAt",
+  "lastEventAt",
+  "lastSuccessAt",
+  "lastDeliveryAt",
+  "lastSyncAt",
+]);
+
+/**
+ * The integration status with its activity timestamps left out. Sources such
+ * as Gree and TP-Link republish their status after every poll; two statuses
+ * with the same signature differ only in when a source was last heard from.
+ */
+export function integrationStatusSignature(status: IntegrationStatus): string {
+  return JSON.stringify(status, (key, value: unknown) => (
+    INTEGRATION_ACTIVITY_TIMESTAMPS.has(key) ? undefined : value
+  ));
+}

@@ -282,7 +282,33 @@ describe("electricity cost correctness", () => {
       sensorIds: ["meter-a", "meter-b"], from: FROM, to: TO,
     })).rejects.toBe(preparing);
     expect(reader.energyCostAggregate).toHaveBeenCalledTimes(2);
-    expect(reader.powerCostAggregate).toHaveBeenCalledTimes(2);
+    // Neither meter has stored power, so there is no power basis to try.
+    expect(reader.powerCostAggregate).not.toHaveBeenCalled();
+  });
+
+  it("prices a power-only meter without a counter pass and shares one coverage probe", async () => {
+    const reader = {
+      measurementCoverage: vi.fn(async () => ({
+        archiveState: "merged",
+        complete: true,
+        records: [{ sensorId: "plug", metric: "power", start: FROM, end: TO }],
+      })),
+      energyCostAggregate: vi.fn(async () => { throw new Error("a power-only meter has no counter"); }),
+      powerCostAggregate: vi.fn(async () => ({
+        deltaCount: 4, consumptionKwh: 1, pricedConsumptionKwh: 1, spotCostEur: 0.1, hourly: [],
+        totalDurationMs: Date.parse(TO) - Date.parse(FROM), pricedDurationMs: Date.parse(TO) - Date.parse(FROM),
+        maximumIntervalDurationMs: 60_000, coverageFrom: FROM, coverageUntil: TO,
+      })),
+    } as unknown as HybridTelemetryReader;
+    const service = new EnergyCostService(reader);
+    const input = { houseId: "house-main", propertyId: "property-main", sensorIds: ["plug"], from: FROM, to: TO };
+
+    const [first, second] = await Promise.all([service.summarize(input), service.summarize(input)]);
+
+    expect(first.consumptionKwh).toBe(1);
+    expect(second.consumptionKwh).toBe(1);
+    expect(reader.energyCostAggregate).not.toHaveBeenCalled();
+    expect(reader.measurementCoverage).toHaveBeenCalledOnce();
   });
 
   it("degrades a combined summary per source while one source's rollups materialize", async () => {

@@ -228,9 +228,9 @@ registerTimeseriesStoreMethods({
               ${insertSql}
               RETURNING sensor_id, metric, observed_at
             ), changed_days AS MATERIALIZED (
-              SELECT DISTINCT sensor_id, metric, date_bin(INTERVAL '1 day', observed_at,
-                TIMESTAMPTZ '1970-01-01 00:00:00+00') AS day_start
-              FROM changed
+              SELECT sensor_id, metric, date_bin(INTERVAL '1 day', observed_at,
+                TIMESTAMPTZ '1970-01-01 00:00:00+00') AS day_start, min(observed_at) AS first_changed_at
+              FROM changed GROUP BY 1, 2, 3
             ), ordered_days AS (
               SELECT day.* FROM changed_days day
               WHERE day.metric = ANY(${orderedMetricsParameter}::TEXT[])
@@ -252,6 +252,15 @@ registerTimeseriesStoreMethods({
                     AND dirty.day_start = generation.day_start
                 ) THEN generation.synced_seq ELSE generation.current_seq + 1 END,
                 updated_at = clock_timestamp()
+              -- Appends at or after the active day's seal extend its open
+              -- tail; the locked row's seal is current, so a concurrent
+              -- re-seal cannot miss a sample that lands inside it.
+              WHERE generation.sealed_until IS NULL OR EXISTS (
+                SELECT 1 FROM ordered_days day
+                WHERE day.sensor_id = generation.sensor_id AND day.metric = generation.metric
+                  AND day.day_start = generation.day_start
+                  AND day.first_changed_at < generation.sealed_until
+              )
               RETURNING sensor_id, metric, day_start, current_seq
             ), dirtied AS (
               UPDATE ${qualifiedName(this.schema, "measurement_ordered_rollup_dirty")} AS dirty SET

@@ -1,14 +1,17 @@
 import type {
   ConnectionState,
+  IntegrationStatus,
   MeasurementSample,
   TelemetryEvent,
 } from "@climate-twin/contracts";
+import { integrationStatusSignature } from "@climate-twin/contracts";
 import type { Query, QueryClient } from "@tanstack/react-query";
 import {
   subscribeToEvents,
   subscribeToMeasurementEvents,
 } from "../../api";
 import { queryClient } from "../queryClient";
+import { mutationScope, type MutationScope, type QueryRefresh } from "./mutationScope";
 
 type StreamName = "legacy" | "measurements";
 const MONITORING_INVALIDATION_DEBOUNCE_MS = 2_000;
@@ -60,11 +63,53 @@ function isHomePerformanceQuery(query: Query, houseId?: string): boolean {
     && (houseId === undefined || query.queryKey[1] === houseId);
 }
 
+function isHouseKeyedQuery(query: Query, family: string, houseId?: string): boolean {
+  return query.queryKey[0] === family
+    && (houseId === undefined || query.queryKey[1] === houseId);
+}
+
+const ELECTRICITY_HOME_QUERIES: ReadonlySet<unknown> = new Set([
+  "energy-summary",
+  "energy-projection",
+  "electricity-price",
+  "electricity-price-history",
+]);
+
+function isElectricityQuery(query: Query, propertyId?: string): boolean {
+  const key = query.queryKey;
+  return (key[0] === "property" && (propertyId === undefined || key[1] === propertyId))
+    || (key[0] === "house" && ELECTRICITY_HOME_QUERIES.has(key[2]));
+}
+
+function matchesQueryRefresh(query: Query, family: QueryRefresh, scope: MutationScope): boolean {
+  const houseId = scope.houseId ?? undefined;
+  switch (family) {
+  case "monitoring":
+    return isMonitoringQuery(query, houseId);
+  case "analytics":
+    return isOpeningActivityQuery(query, houseId)
+      || isCalendarComparisonQuery(query, houseId)
+      || isHomePerformanceQuery(query, houseId);
+  case "connectedDevices":
+    return isHouseKeyedQuery(query, "connected-devices", houseId);
+  case "heatPumps":
+    return isHouseKeyedQuery(query, "heat-pumps", houseId);
+  case "electricity":
+    return isElectricityQuery(query, scope.propertyId ?? undefined);
+  }
+}
+
 function invalidate(
   client: QueryClient,
   predicate: (query: Query) => boolean,
 ): void {
   void client.invalidateQueries({ predicate });
+}
+
+/** Invalidates the query families a workspace mutation makes stale, and no others. */
+export function invalidateForMutation(client: QueryClient, scope: MutationScope): void {
+  if (scope.queries.length === 0) return;
+  invalidate(client, (query) => scope.queries.some((family) => matchesQueryRefresh(query, family, scope)));
 }
 
 export function invalidateForMeasurement(client: QueryClient, houseId?: string): void {
@@ -111,13 +156,7 @@ export function invalidateForTelemetry(
     ));
     break;
   case "mutation":
-    invalidate(client, (query) => (
-      isMonitoringQuery(query)
-      || isOpeningActivityQuery(query)
-      || isCalendarComparisonQuery(query)
-      || isHomePerformanceQuery(query)
-      || query.queryKey[0] === "connected-devices"
-    ));
+    invalidateForMutation(client, mutationScope(event.data));
     break;
   case "heartbeat":
     break;
@@ -212,12 +251,21 @@ export class LiveEventCoordinator {
       else invalidateEveryMonitoringHouse = true;
       scheduleMonitoringTimer();
     };
+    // Sources republish their status after every poll; only a different
+    // signature can change what monitoring or Home Performance reports.
+    let integrationSignature: string | null = null;
+    const integrationChanged = (status: IntegrationStatus) => {
+      const signature = integrationStatusSignature(status);
+      const changed = signature !== integrationSignature;
+      integrationSignature = signature;
+      return changed;
+    };
     const handleTelemetryEvent = (event: TelemetryEvent) => {
       handlers.onTelemetry(event);
       if (event.type === "reading" || event.type === "measurement") {
         scheduleMonitoringInvalidation(event.data.sensorId);
       }
-      else invalidateForTelemetry(
+      else if (event.type !== "integration" || integrationChanged(event.data)) invalidateForTelemetry(
         this.client,
         event,
         telemetryHouseId(event, handlers.houseIdForSensor),
