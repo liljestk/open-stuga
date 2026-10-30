@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { cssRule, globalStyles } from "../test/styleSources";
 
 const phones = "(max-width: 680px)";
+const stacked = "@container floor-plan (max-width: 760px)";
 const collapsedOnPlan = ".floor-plan-layout > .outdoor-context-card.collapsed";
 
 function pixels(value: string | undefined): number {
@@ -22,9 +23,14 @@ describe("OutdoorConditionsBadge layout styles", () => {
     expect([pixels(top), right, bottom]).toEqual([pixels(zoom.get("top")), "auto", "auto"]);
   });
 
-  it("gives the collapsed card the plan's corner on phones, where the zoom controls leave it", () => {
-    expect(cssRule(globalStyles, ".plan-zoom-controls", phones).get("top")).toBe("50%");
-    expect(cssRule(globalStyles, collapsedOnPlan, phones).get("inset")).toBe("12px auto auto 12px");
+  it("keeps the collapsed card in the flow above a stacked plan, off the zoom controls and the shell's chips", () => {
+    expect(cssRule(globalStyles, ".floor-plan-layout", stacked).get("flex-direction")).toBe("column");
+    const collapsed = cssRule(globalStyles, collapsedOnPlan, stacked);
+    expect([collapsed.get("position"), collapsed.get("inset")]).toEqual(["relative", "auto"]);
+    // Phones (≤ 680px) always get the stacked plan: the floor-plan container is never wider than the page.
+    expect(pixels(/max-width: (\d+px)/u.exec(stacked)?.[1])).toBeGreaterThanOrEqual(pixels(/max-width: (\d+px)/u.exec(phones)?.[1]));
+    // No phone rule may float it back over the plan.
+    expect(() => cssRule(globalStyles, collapsedOnPlan, phones)).toThrow();
   });
 
   it("wraps condition tiles from their content width instead of cutting them to fixed thirds", () => {

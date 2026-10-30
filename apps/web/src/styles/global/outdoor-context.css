@@ -86,7 +86,7 @@
 }
 
 /* The plan's zoom controls own the stage's top-left corner (10px in, 42px wide), so the collapsed card
-   starts beside them; on phones they move to the middle of the left edge and the card takes the corner. */
+   starts beside them. A stacked plan puts it in the flow instead (see the floor-plan container query). */
 .floor-plan-layout > .outdoor-context-card.collapsed {
   inset: 10px auto auto 62px;
   max-width: min(286px, calc(100% - 74px));
@@ -114,6 +114,17 @@
     flex-basis: auto;
     margin: 10px;
     overflow: visible;
+  }
+
+  /* Stacked, the plan's top edge holds the outdoor shell's chips, so the collapsed card stays in the
+     flow above the plan like the expanded one instead of floating over them. */
+  .floor-plan-layout > .outdoor-context-card.collapsed {
+    position: relative;
+    inset: auto;
+    align-self: flex-start;
+    max-width: calc(100% - 20px);
+    margin: 10px;
+    box-shadow: none;
   }
 }
 

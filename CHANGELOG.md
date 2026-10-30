@@ -16,7 +16,7 @@ The 3D view's outdoor readings are readable and name no weather service.
 
 The "Outside now" card fits its readings and keeps out of the plan's way.
 
-- On the 2D plan, a hidden "Outside now" card no longer covers the zoom-in button. Its summary now sits beside the zoom controls. On phones, where the zoom controls are halfway down the left edge, it stays in the top-left corner.
+- On the 2D plan, a hidden "Outside now" card no longer covers the zoom-in button. Its summary now sits beside the zoom controls. On phones and in narrow windows, where the plan sits below the card, the summary sits above the plan instead of over its top edge, so it no longer hides the outdoor temperature either.
 - The card's readings are no longer cut off. Wind speed, gust and direction used to read "4.2 m…", "Gust …" and "SW · …" on a desktop screen. When three tiles don't fit on one row, the wind tile moves to its own row.
 - Upgrade impact: application-only update; no API, schema, Compose, configuration or host-trust change.
 
