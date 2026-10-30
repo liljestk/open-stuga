@@ -406,3 +406,5 @@
 .setup-config-disclosure > .setup-found-results { margin: 16px 16px 0; }
 
 .setup-config-disclosure > .setup-child-discovery-explainer, .setup-config-disclosure > .setup-manual-fallback { margin: 14px 16px 0; }
+
+.setup-config-disclosure > .credential-admin-note { margin: 14px 16px 16px; }

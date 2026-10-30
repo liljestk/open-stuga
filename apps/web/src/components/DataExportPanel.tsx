@@ -113,9 +113,11 @@ function exportRange(
   now = Date.now(),
 ): ExportRange | null {
   if (period !== "custom") {
+    // Minute-aligned, so a reopened preview shares the API's cached answer.
+    const end = Math.floor(now / 60_000) * 60_000;
     return {
-      start: new Date(now - presetMilliseconds(period)).toISOString(),
-      end: new Date(now).toISOString(),
+      start: new Date(end - presetMilliseconds(period)).toISOString(),
+      end: new Date(end).toISOString(),
     };
   }
   const starts = houseLocalDateTimeCandidates(customStart, timeZone);

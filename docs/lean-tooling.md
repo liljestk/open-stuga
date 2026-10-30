@@ -37,7 +37,13 @@ Default mode opens one strict, non-interactive SSH connection and is killed at
 14 seconds. It collects one-shot service, container, restart, CPU/memory,
 event-loop, archive/database, bounded queue, integration, updater, version, and
 appliance-identity evidence. It uses `docker stats --no-stream`; it does not
-read raw telemetry, credentials, or unbounded logs. `--deep` explicitly adds
+read raw telemetry, credentials, or unbounded logs. The API's archive
+`caughtUp` flag is instantaneous: during steady streaming every new sample
+clears it until the next one-second live flush. When the first health read is
+not caught up, the collector re-reads only the archive status up to four times
+within the health budget. `ARCHIVE_DATABASE` warns only when no follow-up read
+sees the archive caught up or its `lastSuccessAt` advance, so a small in-flight
+queue passes while a sustained, stalled, or growing backlog still warns. `--deep` explicitly adds
 SQLite integrity checks and bounded service and API log summaries. The queue
 and integration census remains available if the separately bounded integrity
 scan times out. Database evidence includes only file sizes and a fixed index

@@ -1,3 +1,4 @@
+import type { IntegrationStatus } from "@climate-twin/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import request from "supertest";
 import { createApi, type ApiRuntime } from "../src/app.js";
@@ -135,9 +136,6 @@ describe("Home monitoring API", () => {
 
     const groupedRead = vi.spyOn(runtime.database, "measurementHistoryBucketedMulti");
     const legacyPerSeriesRead = vi.spyOn(runtime.database, "measurementHistoryBucketed");
-    const cacheClock = vi.spyOn(Date, "now").mockReturnValue(
-      Date.parse("2026-07-30T09:00:10.000Z"),
-    );
     const detail = await request(runtime.app)
       .get("/api/v2/monitoring/houses/home-one?dataMode=live&include=insights")
       .expect(200);
@@ -191,6 +189,7 @@ describe("Home monitoring API", () => {
     expect(cachedDetail.headers["x-stugu-cache"]).toBe("hit");
     expect(groupedRead).toHaveBeenCalledOnce();
 
+    // New readings are bounded by the TTL rather than by clearing the cache.
     runtime.bus.publish({
       type: "measurement",
       data: {
@@ -198,18 +197,59 @@ describe("Home monitoring API", () => {
         metric: "temperature",
         value: 22,
         canonicalUnit: "\u00b0C",
-        timestamp: "2026-07-30T09:00:11.000Z",
+        timestamp: new Date().toISOString(),
         source: "tp-link",
         quality: "good",
       },
     });
-    cacheClock.mockReturnValue(Date.parse("2026-07-30T09:00:12.100Z"));
+    const afterReading = await request(runtime.app)
+      .get("/api/v2/monitoring/houses/home-one?dataMode=live&include=insights")
+      .expect(200);
+    expect(afterReading.headers["x-stugu-cache"]).toBe("hit");
+
+    // A workspace write clears the answer; trend history is recomputed with it.
+    runtime.bus.publish({
+      type: "mutation",
+      data: { method: "POST", resource: "/alerts/alert-1/acknowledge", occurredAt: new Date().toISOString() },
+    });
     const refreshedDetail = await request(runtime.app)
       .get("/api/v2/monitoring/houses/home-one?dataMode=live&include=insights")
       .expect(200);
     expect(refreshedDetail.headers["x-stugu-cache"]).toBe("miss");
-    expect(groupedRead).toHaveBeenCalledOnce();
-    cacheClock.mockRestore();
+    expect(groupedRead).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps cached answers through poll-only integration status and drops them when health changes", async () => {
+    const status = (await request(runtime.app).get("/api/v1/integrations/status").expect(200)).body as IntegrationStatus;
+    const polledAt = (iso: string): IntegrationStatus => ({
+      ...status,
+      tpLink: { ...status.tpLink, lastPollAt: iso },
+      homeAssistant: { ...status.homeAssistant, lastEventAt: iso },
+      weather: { ...status.weather, lastSuccessAt: iso },
+    });
+    const detail = () => request(runtime.app)
+      .get("/api/v2/monitoring/houses/home-one?dataMode=live")
+      .expect(200);
+    const collection = () => request(runtime.app)
+      .get("/api/v2/monitoring/houses?dataMode=live")
+      .expect(200);
+
+    runtime.bus.publish({ type: "integration", data: polledAt("2026-10-28T10:00:00.000Z") });
+    expect((await detail()).headers["x-stugu-cache"]).toBe("miss");
+    expect((await collection()).headers["x-stugu-cache"]).toBe("miss");
+
+    runtime.bus.publish({ type: "integration", data: polledAt("2026-10-28T10:01:00.000Z") });
+    runtime.bus.publish({ type: "integration", data: polledAt("2026-10-28T10:02:00.000Z") });
+    expect((await detail()).headers["x-stugu-cache"]).toBe("hit");
+    expect((await collection()).headers["x-stugu-cache"]).toBe("hit");
+
+    const disconnected = polledAt("2026-10-28T10:03:00.000Z");
+    runtime.bus.publish({
+      type: "integration",
+      data: { ...disconnected, tpLink: { ...disconnected.tpLink, configured: true, connected: !status.tpLink.connected } },
+    });
+    expect((await detail()).headers["x-stugu-cache"]).toBe("miss");
+    expect((await collection()).headers["x-stugu-cache"]).toBe("miss");
   });
 
   it("reports estimated and missing evidence as partial or unavailable", async () => {

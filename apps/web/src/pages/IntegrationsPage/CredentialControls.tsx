@@ -13,5 +13,5 @@ interface CredentialControlsProps {
 export function CredentialControls({ allowed, children, explain = true }: Readonly<CredentialControlsProps>) {
   const { t } = useI18n();
   if (allowed) return <>{children}</>;
-  return explain ? <p className="setup-help">{t("setup.integrationCredentialsAdminOnly")}</p> : null;
+  return explain ? <p className="setup-help credential-admin-note">{t("setup.integrationCredentialsAdminOnly")}</p> : null;
 }

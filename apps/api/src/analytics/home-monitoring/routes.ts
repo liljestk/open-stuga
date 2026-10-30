@@ -8,7 +8,9 @@ import type {
   HomeMonitoringDetailResponse,
   IntegrationStatus,
   MeasurementSample,
+  TelemetryEvent,
 } from "@climate-twin/contracts";
+import { integrationStatusSignature } from "@climate-twin/contracts";
 import { HttpError } from "../../http-error.js";
 import { LruTtlCache } from "../../cache.js";
 import type { ClimateDatabase } from "../../db.js";
@@ -72,21 +74,51 @@ function cacheKey(parts: readonly unknown[]): string {
   return createHash("sha256").update(JSON.stringify(parts)).digest("hex");
 }
 
+/** Current-state answers are reused this long; clients refresh them at most every 15 seconds. */
+const CURRENT_STATE_TTL_MS = 10_000;
+const HISTORY_TTL_MS = 60_000;
+
+/**
+ * The Home, its sensors and the viewer's authorization are part of every cache
+ * key, and new readings are bounded by the TTL. That leaves alerts, weather,
+ * integration health and workspace writes. Integration sources republish their
+ * status after every poll, so only a status whose signature changed counts.
+ */
+function monitoringInputChanges(): (event: TelemetryEvent) => boolean {
+  let integrationSignature: string | null = null;
+  return (event) => {
+    switch (event.type) {
+      case "integration": {
+        const signature = integrationStatusSignature(event.data);
+        const changed = signature !== integrationSignature;
+        integrationSignature = signature;
+        return changed;
+      }
+      case "alert":
+      case "weather":
+      case "mutation":
+        return true;
+      default:
+        return false;
+    }
+  };
+}
+
 export function registerHomeMonitoringRoutes(context: HomeMonitoringRouteContext): () => void {
   const collectionCache = new LruTtlCache<HomeMonitoringCollectionResponse>({
     maxEntries: 64,
     maxBytes: 8 * 1024 * 1024,
-    defaultTtlMs: 2_000,
+    defaultTtlMs: CURRENT_STATE_TTL_MS,
   });
   const detailCache = new LruTtlCache<HomeMonitoringDetailResponse>({
     maxEntries: 128,
     maxBytes: 16 * 1024 * 1024,
-    defaultTtlMs: 2_000,
+    defaultTtlMs: CURRENT_STATE_TTL_MS,
   });
   const historyCache = new LruTtlCache<HomeMonitoringHistoryResult>({
     maxEntries: 128,
     maxBytes: 32 * 1024 * 1024,
-    defaultTtlMs: 60_000,
+    defaultTtlMs: HISTORY_TTL_MS,
   });
   const removeCollectionStats = context.analyticsWorkLimiter.registerCache(
     "home-monitoring-collection",
@@ -100,12 +132,9 @@ export function registerHomeMonitoringRoutes(context: HomeMonitoringRouteContext
     "home-monitoring-history",
     () => historyCache.stats(),
   );
+  const changesMonitoringInput = monitoringInputChanges();
   const removeCacheWake = context.bus.subscribe((event) => {
-    if (
-      event.type === "heartbeat"
-      || event.type === "reading"
-      || event.type === "measurement"
-    ) return;
+    if (!changesMonitoringInput(event)) return;
     collectionCache.clear();
     detailCache.clear();
     historyCache.clear();
@@ -132,7 +161,6 @@ export function registerHomeMonitoringRoutes(context: HomeMonitoringRouteContext
     const authorization = context.streamAuthorizationFingerprint(request, response) ?? "bootstrap";
     const key = `monitoring:collection:${cacheKey([
       requestedDataMode,
-      Math.floor(Date.now() / 2_000),
       authorization,
       scopes.map((scope) => [
         scope.house.id,
@@ -153,7 +181,7 @@ export function registerHomeMonitoringRoutes(context: HomeMonitoringRouteContext
         dataMode: requestedDataMode,
         evaluatedAt,
       }, scopes);
-    }, { serveStale: false, ttlMs: 2_000 });
+    }, { serveStale: false, ttlMs: CURRENT_STATE_TTL_MS });
     response.setHeader("cache-control", "private, no-store");
     response.setHeader("x-stugu-cache", hit ? "hit" : coalesced ? "coalesced" : "miss");
     response.setHeader(
@@ -188,7 +216,6 @@ export function registerHomeMonitoringRoutes(context: HomeMonitoringRouteContext
     const authorization = context.streamAuthorizationFingerprint(request, response) ?? "bootstrap";
     const key = `monitoring:detail:${house.id}:${cacheKey([
       requestedDataMode,
-      Math.floor(Date.now() / 2_000),
       authorization,
       house.updatedAt,
       sensors,
@@ -200,7 +227,6 @@ export function registerHomeMonitoringRoutes(context: HomeMonitoringRouteContext
       const evaluatedAt = new Date().toISOString();
       const scope = { house, sensors };
       const historyKey = `monitoring:history:${house.id}:${cacheKey([
-        Math.floor(Date.now() / 60_000),
         house.updatedAt,
         sensors,
       ])}`;
@@ -227,7 +253,7 @@ export function registerHomeMonitoringRoutes(context: HomeMonitoringRouteContext
             throw error;
           }
         },
-        { serveStale: false, ttlMs: 60_000, signal },
+        { serveStale: false, ttlMs: HISTORY_TTL_MS, signal },
       );
       return getHomeMonitoringDetail({
         database: context.database,
@@ -241,7 +267,7 @@ export function registerHomeMonitoringRoutes(context: HomeMonitoringRouteContext
       }, scope);
     }, {
       serveStale: false,
-      ttlMs: 2_000,
+      ttlMs: CURRENT_STATE_TTL_MS,
       signal: requestSignal,
     }));
     response.setHeader("cache-control", "private, no-store");

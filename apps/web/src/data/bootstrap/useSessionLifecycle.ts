@@ -11,18 +11,9 @@ import { activateAccountStorage,deactivateAccountStorage } from "../../browserSt
 import { subscribeToApiAuthorizationChanges } from "../../api";
 import { subscribeToAuthEpoch } from "../../authEpoch";
 import { LiveEventCoordinator } from "../live/LiveEventCoordinator";
-import { STREAM_BOOTSTRAP_WAIT_MS, apiStatus, blankState, replayHouseInventory, replayHouseMutations, settleInBackground, withoutDemoTelemetry } from "./support";
+import { STREAM_BOOTSTRAP_WAIT_MS, apiStatus, blankState, replayHouseInventory, replayWorkspaceSensors, settleInBackground, withoutDemoTelemetry } from "./support";
 import type { HouseInventoryMutation,HouseMutationBuffer,StreamConnections } from "./support";
 import type { ClimateDataStore, PipelineActions, SessionLifecycleActions } from "./pipelineTypes";
-/** Replays sensor mutations that arrived while the workspace sensor index loaded, house by house. */
-function replayWorkspaceSensors(houses: readonly House[], sensors: readonly Sensor[], mutations: HouseMutationBuffer): Sensor[] {
-  return houses.flatMap((house) => replayHouseMutations(house.id, {
-    sensors: sensors.filter((sensor) => sensor.houseId === house.id),
-    observations: [],
-    maintenanceTasks: [],
-    staticParameters: [],
-  }, mutations).sensors);
-}
 
 // Scoped maintenance and workspace sensors may fail on their own without failing the bootstrap.
 async function loadWorkspaceInventory() {
@@ -78,7 +69,7 @@ export function useSessionLifecycle(
     | "activeStreamUnsubscribers" | "activeTelemetryLoadBuffers" | "apiAvailable" | "bootstrapAttempt"
     | "dataModeRef" | "globalFieldVersions" | "hasHydratedActiveHouse" | "hasReachedLiveConnection"
     | "heartbeatFallbackTimer" | "heartbeatPollAt" | "houseTelemetryVersions" | "initialHouseId"
-    | "measurementFlushTimer" | "mutationRefreshTimer" | "pendingLegacyReadings"
+    | "measurementFlushTimer" | "mutationRefreshTimer" | "pendingLegacyReadings" | "pendingMutationRefresh"
     | "pendingMeasurementSamples" | "persistedSensorPoints" | "reconnectResyncTimer"
     | "recordResourceError" | "saveStateTimer" | "sensorMoveQueues" | "sensorMoveVersions"
     | "seriesCommitSequence" | "seriesCommitVersions" | "seriesLoadVersions" | "sessionLifecycleEpoch"
@@ -90,7 +81,7 @@ export function useSessionLifecycle(
   >,
   actions: Pick<PipelineActions, "resetStreamConnections" | "handleTelemetry" | "handleHeartbeat" | "handleMeasurement" | "updateStreamConnection" | "loadHouseData" | "refreshTpLinkDevices">,
 ): SessionLifecycleActions {
-  const { sessionLifecycleEpoch, activeStreamUnsubscribers, activeStreamGateReleases, apiAvailable, hasHydratedActiveHouse, setBootstrapError, setBootstrapStatus, setLoading, sessionLockedRef, setSessionLocked, hasReachedLiveConnection, heartbeatPollAt, activeHouseId, initialHouseId, tick, measurementFlushTimer, reconnectResyncTimer, heartbeatFallbackTimer, mutationRefreshTimer, saveStateTimer, pendingMeasurementSamples, pendingLegacyReadings, activeTelemetryLoadBuffers, activeHouseMutationBuffers, activeSeriesTelemetryBuffers, activeInventoryMutationBuffers, activeHouseLoadVersion, tpLinkRefreshVersion, seriesCommitSequence, houseTelemetryVersions, seriesLoadVersions, seriesCommitVersions, sensorMoveQueues, sensorMoveVersions, persistedSensorPoints, tpLinkPollStatus, globalFieldVersions, stateRef, setStateInternal, tpLinkDevicesRef, setTpLinkDevices, setTpLinkDevicesLoading, setTpLinkDevicesError, setResourceErrors, setSeriesStates, setScenario, setSaveState, setDataMode, dataModeRef, setBootstrapAttempt, sessionLocked, setState, recordResourceError, bootstrapAttempt } = store;
+  const { sessionLifecycleEpoch, activeStreamUnsubscribers, activeStreamGateReleases, apiAvailable, hasHydratedActiveHouse, setBootstrapError, setBootstrapStatus, setLoading, sessionLockedRef, setSessionLocked, hasReachedLiveConnection, heartbeatPollAt, activeHouseId, initialHouseId, tick, measurementFlushTimer, reconnectResyncTimer, heartbeatFallbackTimer, mutationRefreshTimer, pendingMutationRefresh, saveStateTimer, pendingMeasurementSamples, pendingLegacyReadings, activeTelemetryLoadBuffers, activeHouseMutationBuffers, activeSeriesTelemetryBuffers, activeInventoryMutationBuffers, activeHouseLoadVersion, tpLinkRefreshVersion, seriesCommitSequence, houseTelemetryVersions, seriesLoadVersions, seriesCommitVersions, sensorMoveQueues, sensorMoveVersions, persistedSensorPoints, tpLinkPollStatus, globalFieldVersions, stateRef, setStateInternal, tpLinkDevicesRef, setTpLinkDevices, setTpLinkDevicesLoading, setTpLinkDevicesError, setResourceErrors, setSeriesStates, setScenario, setSaveState, setDataMode, dataModeRef, setBootstrapAttempt, sessionLocked, setState, recordResourceError, bootstrapAttempt } = store;
   const { resetStreamConnections, handleTelemetry, handleHeartbeat, handleMeasurement, updateStreamConnection, loadHouseData, refreshTpLinkDevices } = actions;
   const enterIncompatibleState = useCallback((error: ApiVersionMismatchError) => {
       sessionLifecycleEpoch.current += 1;
@@ -129,6 +120,7 @@ export function useSessionLifecycle(
       heartbeatFallbackTimer.current = null;
       mutationRefreshTimer.current = null;
       saveStateTimer.current = null;
+      pendingMutationRefresh.current.clear();
       pendingMeasurementSamples.current = [];
       pendingLegacyReadings.current = [];
 
