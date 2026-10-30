@@ -7,6 +7,7 @@ import { useI18n } from "../i18n";
 import { formatInTimeZone } from "../dateTime";
 import { useNow } from "../useNow";
 import type { SeriesLoadState } from "../useClimateData";
+import { CardHeader } from "./CardHeader";
 
 interface TrendChartProps {
   sensor: Sensor | null;
@@ -104,7 +105,7 @@ export function TrendChart({ sensor, history, forecast, definition, units, range
 
   const all = [...series.observed, ...series.predicted];
   if (!sensor) {
-    return <section className="panel chart-panel"><div className="panel-header"><div><span className="eyebrow">{t("chart.title")}</span><h2>{t("twin.selectSensor")}</h2></div></div><div className="empty-state">{t("common.noData")}</div></section>;
+    return <section className="panel chart-panel"><CardHeader title={t("twin.selectSensor")} eyebrow={t("chart.title")} /><div className="empty-state">{t("common.noData")}</div></section>;
   }
   if (!all.length) {
     return <section className="panel chart-panel"><ChartHeader sensor={sensor} heading={heading} range={range} onRange={onRange} />

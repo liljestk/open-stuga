@@ -38,6 +38,7 @@ import { HistoricalImportWizard, SensorLabelCard, deviceBindingKey, isDemoSensor
 import type { SensorFilter } from "./support";
 import { useSensorManagementPagePart04 } from "./part-04";
 import { Nexus433SendersPanel } from "./Nexus433SendersPanel";
+import { RefreshButton } from "../../components/RefreshButton";
 export function renderSensorManagementPage(context: ReturnType<typeof useSensorManagementPagePart04>) {
   const { state, seriesStates, house, houses, tpLinkDevicesLoading, tpLinkDevicesError, readOnly, localAuthority, units, onImportHistoricalData, locale, t, tpLinkStatus, pageHeadingRef, importButtonRef, detailsHeadingRef, search, setSearch, filter, modelFilter, setModelFilter, mode, pageFeedback, setPageFeedback, contactSetupDevice, contactOpenerRef, rowBusyId, cleanupBusy, refreshing, refreshError, importOpen, setImportOpen, detailsContactKey, detailSamples, detailCursor, detailsLoading, detailsError, setDetailMetric, detailRange, currentSensors, visibleDetailsSensor, visibleDetailsIsContactSensor, visibleDetailsContactDevice, visibleDetailsContactOpening, demoSensors, detailDefinitions, detailDefinition, detailHistory, homeTpLinkDevices, contactDevices, mappedContactDevices, contactHistoryDevice, contactHistoryOpening, contactStatuses, availableContactDevices, addableDevices, sensorStatuses, statusCounts, sensorModels, visibleSensors, visibleContactDevices, beginAdd, beginAddDevice, beginEdit, closeImport, loadSensorDetails, closeSensorDetails, openContactDetails, closeContactDetails, beginContactSetup, closeContactSetup, assignContactToOpening, setArchived, removeSensor, removeDemoSensors, refreshDevices, renderAddEditor, renderEditEditor } = context;
   const visibleDetailsIsGreeSensor = Boolean(visibleDetailsSensor && isGreeSensor(visibleDetailsSensor));
@@ -138,9 +139,7 @@ export function renderSensorManagementPage(context: ReturnType<typeof useSensorM
             <strong>{t("sensors.discoveryPausedTitle")}</strong>
             <small>{t("sensors.discoveryPaused")}</small>
           </span>
-          <button type="button" className="secondary-button" disabled={tpLinkDevicesLoading || refreshing} onClick={() => void refreshDevices()}>
-            <RefreshCw className={tpLinkDevicesLoading || refreshing ? "spin" : ""} size={15} aria-hidden="true" />{t("sensors.refreshDeviceList")}
-          </button>
+          <RefreshButton onClick={() => void refreshDevices()} busy={tpLinkDevicesLoading || refreshing} label={t("sensors.refreshDeviceList")} />
         </section>}
 
         <section className="sensor-overview" aria-label={t("sensors.overview") }>

@@ -51,7 +51,7 @@
   display: grid;
   gap: 7px;
   color: var(--ink);
-  font-size: 12px;
+  font-size: var(--text-xs);
   font-weight: 700;
 }
 
@@ -76,7 +76,7 @@
   min-height: 44px;
   padding: 4px;
   border: 1px solid var(--line-strong);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: var(--panel);
 }
 
@@ -93,17 +93,15 @@
   width: 100%;
   margin-bottom: 2px;
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-weight: 700;
-  letter-spacing: .04em;
-  text-transform: uppercase;
 }
 
 .tuya-mode-choice label {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  font-size: 12px;
+  font-size: var(--text-xs);
   font-weight: 700;
 }
 
@@ -140,10 +138,10 @@
   margin: 0;
   padding: 11px 12px;
   border: 1px solid color-mix(in srgb, var(--positive) 45%, var(--line));
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   color: var(--action);
   background: var(--positive-soft);
-  font-size: 12.5px;
+  font-size: var(--text-xs);
   line-height: 1.45;
 }
 
@@ -210,8 +208,8 @@
 .connected-device-state,
 .connected-device-name {
   fill: var(--ink);
-  font-family: "Manrope", sans-serif;
-  font-size: 11px;
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
   font-weight: 700;
   paint-order: stroke;
   pointer-events: none;
@@ -222,7 +220,7 @@
 
 .connected-device-state {
   fill: var(--muted);
-  font-size: 10px;
+  font-size: var(--text-xs);
 }
 
 .connected-device-marker.unavailable {

@@ -1,5 +1,5 @@
 
-/* Keep non-chart metadata at the documented 10 px accessibility floor. */
+/* Keep metadata that a component sizes relatively at the 12 px floor of the type scale. */
 body :is(
   .level-card small,
   .level-sensor-count,
@@ -102,4 +102,4 @@ body :is(
   .observation-revision-history li span,
   .observation-revision-history li small,
   .observation-revision-history li time
-) { font-size: 10px; }
+) { font-size: var(--text-xs); }

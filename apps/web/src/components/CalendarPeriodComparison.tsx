@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { CalendarRange, RefreshCw } from "lucide-react";
+import { CalendarRange } from "lucide-react";
 import {
   CALENDAR_COMPARISON_UNITS,
   type AnalyticsAggregation,
@@ -18,6 +18,7 @@ import { useCalendarComparisonQuery } from "../data/analytics/calendarComparison
 import { formatInTimeZone } from "../dateTime";
 import { useI18n } from "../i18n";
 import { CalendarComparisonResult } from "./CalendarComparisonResult";
+import { RefreshButton } from "./RefreshButton";
 import {
   sensorHistoryName,
   sensorHistoryState,
@@ -386,15 +387,7 @@ export function CalendarPeriodComparison(props: Readonly<CalendarPeriodCompariso
           <option value="reliable">{t("analytics.quality_reliable")}</option>
           <option value="all">{t("analytics.quality_all")}</option>
         </select></label>
-        <button
-          type="button"
-          className="secondary-button calendar-comparison-refresh"
-          onClick={() => setRevision((value) => value + 1)}
-          disabled={loading}
-        >
-          <RefreshCw className={loading ? "spin" : ""} size={14} aria-hidden="true" />
-          {t("common.refresh")}
-        </button>
+        <RefreshButton className="secondary-button calendar-comparison-refresh" onClick={() => setRevision((value) => value + 1)} busy={loading} />
       </div>
 
       {loading && <output

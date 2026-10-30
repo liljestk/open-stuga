@@ -276,7 +276,7 @@ describe("Stugu app", () => {
     renderApp();
 
     await user.click(screen.getByRole("link", { name: "Set up" }));
-    await user.click(await screen.findByRole("tab", { name: /Where readings come from/ }));
+    await user.click(await screen.findByRole("tab", { name: /Where readings come from/ }, { timeout: ROUTE_READY_TIMEOUT_MS }));
     await user.click(screen.getByRole("button", { name: "Find devices" }));
     await waitFor(() => expect(localStorage.getItem(`stugu.integration-discovery.${selectedHouse.id}`)).toBe(job.id));
     await user.click(screen.getByRole("link", { name: /^Home$/ }));
@@ -290,7 +290,7 @@ describe("Stugu app", () => {
     expect(screen.queryByText("2 home systems found")).toBeNull();
 
     await user.click(screen.getByRole("link", { name: "Set up" }));
-    await user.click(await screen.findByRole("tab", { name: /Where readings come from/ }));
+    await user.click(await screen.findByRole("tab", { name: /Where readings come from/ }, { timeout: ROUTE_READY_TIMEOUT_MS }));
     expect(await screen.findByRole("radio", { name: /Desk plug/ })).not.toBeNull();
     expect(screen.getByRole("radio", { name: /Heater plug/ })).not.toBeNull();
   });

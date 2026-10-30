@@ -2,7 +2,7 @@
 .scheduled-data-exports > header { display: flex; justify-content: space-between; gap: 18px; align-items: flex-start; }
 .scheduled-data-exports h3, .scheduled-data-exports p { margin: 0; }
 .scheduled-data-exports header p { color: var(--muted); margin-top: 4px; }
-.scheduled-target { display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto; padding: 6px 9px; border-radius: 999px; font-size: .78rem; font-weight: 700; background: color-mix(in srgb, var(--red) 12%, transparent); color: var(--red); }
+.scheduled-target { display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto; padding: 6px 9px; border-radius: var(--radius-pill); font-size: var(--text-xs); font-weight: 700; background: color-mix(in srgb, var(--red) 12%, transparent); color: var(--red); }
 .scheduled-target.connected { background: color-mix(in srgb, var(--positive) 12%, transparent); color: var(--positive); }
 .scheduled-target-callout, .scheduled-quick-create { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 12px; border-radius: var(--radius); background: var(--panel); }
 .scheduled-target-callout p { color: var(--muted); }

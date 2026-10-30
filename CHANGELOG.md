@@ -2,10 +2,44 @@
 
 All notable Stugu releases are recorded here.
 
-## 0.52.19
+## 0.54.1
 
 - Mean, sum, minimum, maximum and last analytics on a TimescaleDB archive answer much faster. The raw readings at the edges of a range were read by scanning and decompressing the Sensor's whole stored history; they now read only the archive chunks that hold them. On a Raspberry Pi, a 30-day mean at 15 minutes for a power plug reporting every 2 seconds dropped from 1.6 s to 0.09 s, and 90- and 365-day hourly reads from about 2 s to 0.2 s. Results are unchanged.
 - Upgrade impact: application-only update; no schema, Compose, configuration or host-trust change.
+
+## 0.54.0
+
+A new look: Kaamos, the polar night.
+
+- Stugu has a new visual identity:
+  - The navigation and the phone's header bar are night blue in both light and dark mode.
+  - Pages are snow-light or night-dark, with cool blue-grey neutrals.
+  - Buttons are rounded pills.
+  - One lantern amber marks the logo's window, the page you are on, and the page title, like a lit cottage window in the dark. It is never used for a status. Warning yellow is now a separate straw yellow, so the two can't be confused in dark mode.
+- All text uses Atkinson Hyperlegible Next, a typeface drawn for low-vision reading. It is bundled with Stugu, so no font is fetched from the internet. Its zero has a slash, so it can't be mistaken for the letter O.
+- Text is never smaller than 12 px. Sizes come from one scale of eight steps instead of 52 different sizes, of which 10 px was the most common.
+- Labels are written in sentence case instead of spaced capitals.
+- Corners, shadows and greys follow one set of values everywhere, including the floor plan and the 3D view in dark mode.
+- "Report a bug" in the navigation is readable again: its text had 2.8:1 contrast against the dark rail.
+- The logo, favicon and browser theme colour use the new mark, and spreadsheet exports use the new blue for their header row.
+- The tabs on Property, Set up, Activity and the Outdoor forecast now share one design and one keyboard behaviour. Arrow keys work in both directions, and Home and End jump to the first and last tab. On Set up, the tab row keeps a keyboard stop while an advanced section is open.
+- Upgrade impact: application-only update; no API, schema, Compose, configuration or host-trust change. The iOS companion keeps its previous colours for now.
+
+## 0.53.0
+
+Clearer messages and visible progress.
+
+- Data & analytics:
+  - Home performance, Thermal isolation and Moisture response each show one message for their saved analysis instead of up to three. A failed update said both "the update failed" and "newer evidence is prepared". It now says the update couldn't run, why, and that the saved result below is still shown.
+  - You can close these messages. A closed message comes back when its situation changes, for example a different failure or a new result.
+  - Their button is now "Recalculate". After you choose it, it reads "Recalculating…" until the background job finishes. The panel checks every 5 seconds instead of every 30, for up to two minutes.
+  - The "Daily comparisons are being updated" banner no longer runs its title and text together.
+- Refresh buttons say what they are doing:
+  - Data & analytics, Set up's check, Alerts, the calendar comparison, Sensors' device list and System's update check read "Refreshing…" or "Checking…" while they work.
+  - With reduced motion turned on, as Windows does when animation effects are off, every spinner stopped after one frame. Spinners now fade in and out instead of turning.
+- Outdoor: Refresh on the "weather unavailable" card keeps the card in place while it retries, then says when it last tried. Before, the card blinked to "Updating" and back, so the button seemed to do nothing.
+- Opening Stugu no longer flashes the "Add your first home" screen while the selected Home is still loading.
+- Upgrade impact: application-only update; no API, schema, Compose, configuration or host-trust change.
 
 ## 0.52.18
 

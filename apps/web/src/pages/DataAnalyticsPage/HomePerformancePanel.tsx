@@ -9,7 +9,6 @@ import {
   Gauge,
   Info,
   RadioTower,
-  RefreshCw,
   Wind,
   Wrench,
 } from "lucide-react";
@@ -23,6 +22,7 @@ import { useHomePerformanceQuery } from "../../data/analytics/homePerformanceQue
 import { useI18n } from "../../i18n";
 import { measurementLabel } from "../../measurements";
 import { DerivedArtifactNotices } from "../../components/DerivedArtifactNotices";
+import { RefreshButton } from "../../components/RefreshButton";
 
 const PERFORMANCE_DAYS = 30;
 
@@ -201,9 +201,13 @@ export function HomePerformancePanel(props: Readonly<HomePerformancePanelProps>)
           </div>}
       <div className="isolation-controls">
         {performance && <PerformanceState state={performance.status} />}
-        {canRefresh && <button type="button" className="secondary-button" onClick={() => query.refresh()} disabled={query.isFetching || props.dataMode === "unknown"}>
-          <RefreshCw className={query.isFetching ? "spin" : ""} size={14} aria-hidden="true" />{t("common.refresh")}
-        </button>}
+        {canRefresh && <RefreshButton
+          onClick={() => query.refresh()}
+          busy={query.recalculating}
+          disabled={query.isFetching || props.dataMode === "unknown"}
+          label={t("derived.recalculate")}
+          busyLabel={t("derived.recalculating")}
+        />}
       </div>
     </header>
 

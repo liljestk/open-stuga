@@ -1,6 +1,6 @@
 # Stugu brand and interface system
 
-Version 1.10 · 8 August 2026
+Version 2.0 · 29 October 2026
 
 ## 1. Brand idea
 
@@ -14,13 +14,21 @@ Version 1.10 · 8 August 2026
 
 ### Creative direction
 
-The visual language combines three ideas:
+The identity is **Kaamos**, the Nordic polar night. A cottage in winter is a dark
+shape with one lit window, and that is the whole idea:
 
-- Bauhaus geometry: circles, squares, clear alignment, purposeful primary colour.
-- Scandinavian warmth: off-white surfaces, honest materials, generous negative space.
-- Product restraint: few effects, quiet motion, precise typography, and controls that explain themselves.
+- **Night:** the navigation shell is night blue in both themes. It frames the
+  home rather than competing with it.
+- **Snow:** pages are cool snow-white in light mode and night-dark in dark mode.
+  Blue-grey neutrals do almost all of the work.
+- **The lantern:** one amber, used only for "here, now": the mark's window, the
+  current page in the navigation, and the page title. It never appears inside
+  content, so it can never be mistaken for a status.
+- **Legibility first:** one typeface, Atkinson Hyperlegible Next, drawn for
+  low-vision reading, so a wall tablet across the room stays readable.
 
-The result should feel architectural rather than decorative, warm rather than rustic, and advanced without looking technical.
+The result should feel calm, nocturnal and precise: architectural rather than
+decorative, and advanced without looking technical.
 
 ## 2. Design principles
 
@@ -255,10 +263,12 @@ Before adding a surface, ask: what decision does this help someone make now, wha
 
 The mark is a cottage built from four elementary forms:
 
-- a vermilion square tile;
-- a cream house and roof silhouette;
-- a cobalt circular window;
-- a dark rectangular door.
+- a night-blue square tile (`#22303D`);
+- a snow house and roof silhouette (`#E9EFF3`);
+- a lantern-amber circular window (`#F2B33D`), the lit window;
+- a night rectangular door (`#141E28`).
+
+The mark keeps these fixed colours in both themes and on every surface.
 
 It remains recognisable in monochrome because the silhouette and openings do the work. The mark is decorative beside the written name and should use `aria-hidden="true"` there.
 
@@ -284,43 +294,60 @@ The source mark is implemented in
 
 ### Wordmark
 
-Set **Stugu** in Manrope Bold with tight optical tracking (`-0.045em`). The product lockup uses sentence case, never all caps. The tagline may use small uppercase lettering because it is secondary and short.
+Set **Stugu** in Atkinson Hyperlegible Next Bold with slight optical tracking (`-0.01em`). The product lockup and the tagline use sentence case, never all caps.
 
 Use the written name whenever space permits. The symbol alone is appropriate for the favicon and very small app surfaces.
 
 ## 4. Colour
 
-Warm neutrals do most of the work. Cobalt is the interaction colour. Vermilion belongs to the identity and rare emphasis—not every button.
+Cool blue-grey neutrals do most of the work. Fjord blue is the interaction
+colour. The lantern amber belongs to the identity and marks only the current
+place; status colours (positive, caution, critical) never borrow it.
 
-### Light theme
+### Shell (both themes)
 
 | Token | Value | Purpose | Verified contrast |
 |---|---:|---|---:|
-| Canvas | `#F1EFE9` | Page background | — |
-| Surface | `#FCFBF7` | Cards and controls | — |
-| Ink | `#1B1D1A` | Primary text | 16.39:1 on Surface |
-| Muted | `#60635D` | Secondary text | 5.90:1 on Surface |
-| Muted 2 | `#70736C` | Placeholders and metadata | 4.65:1 on Surface |
-| Line | `#DEDBD2` | Decorative separators only | — |
-| Strong line | `#919088` | Essential control boundaries | 3.10:1 on Surface |
-| Action cobalt | `#0755C9` | Links, focus, primary actions | 6.66:1 with white |
-| Action hover | `#003F9E` | Hover/pressed action | 9.52:1 with white |
-| Stugu red | `#B54122` | Brand mark and rare emphasis | 5.42:1 on Surface |
-| Success | `#007A5C` | Positive state | 5.15:1 on Surface |
-| Warning | `#795000` | Caution text | 6.30:1 on `#FFF1C7` |
-| Critical | `#B42318` | Destructive/error text | 5.75:1 on `#FDECEA` |
+| `--shell` | `#141E28` (`#0F1720` in dark) | Navigation rail and phone header | — |
+| `--shell-raised` | `#22303D` | Current page in the rail | 13.48:1 with white |
+| `--shell-ink` | `#E9EFF3` | Rail text | 14.53:1 on Shell |
+| `--shell-muted` | `#9FB0BE` | Rail labels and secondary text | 7.57:1 on Shell |
+| `--lantern` | `#F2B33D` | Mark window, current-page marker, page-title bar | 9.06:1 on Shell |
+
+### Light theme (snow)
+
+| Token | Value | Purpose | Verified contrast |
+|---|---:|---|---:|
+| Canvas `--bg` | `#EEF2F5` | Page background | — |
+| Surface `--panel` | `#FFFFFF` | Cards and controls | — |
+| Ink | `#15212C` | Primary text | 16.33:1 on Surface |
+| Muted | `#566573` | Secondary text | 5.99:1 on Surface, 5.32:1 on Canvas |
+| Muted 2 | `#5D6C79` | Placeholders and metadata | 5.40:1 on Surface |
+| Line | `#D6DEE5` | Decorative separators only | — |
+| Strong line | `#8796A3` | Essential control boundaries | 3.03:1 on Surface |
+| Action fjord | `#1F5F92` | Links, focus, primary actions | 6.75:1 with white |
+| Action hover | `#164A73` | Hover/pressed action | 9.29:1 with white |
+| Warm | `#B4461F` | Warming and temperature emphasis | 5.47:1 on Surface |
+| Success | `#1D6B55` | Positive state | 5.52:1 on `#E2F2EC` |
+| Warning | `#7A5100` | Caution text | 6.11:1 on `#FBEFCF` |
+| Critical | `#B3261E` | Destructive/error text | 5.50:1 on `#FBE7E5` |
+
+The page-title bar is decorative; it carries no information, so the lantern's
+1.65:1 against the snow canvas is acceptable there and nowhere else.
 
 Contrast ratios were calculated with the WCAG relative-luminance formula. Recheck them whenever a token changes.
 
-### Dark theme
+### Dark theme (night)
 
-Dark mode is neutral charcoal, not green-black. Core pairs are:
+Dark mode is the polar night itself: blue-black, never neutral grey or green-black. Core pairs are:
 
-- Ink `#F2F0E9` on Surface `#1B1D19`: 14.90:1.
-- Muted `#B4B8AF` on Surface: 8.42:1.
-- Action `#78A7FF` on Surface: 7.09:1.
-- Dark button text `#111A2A` on Action: 7.28:1.
-- Strong line `#666B61` on Surface: 3.11:1.
+- Ink `#E9EFF3` on Surface `#1B2733`: 13.08:1.
+- Muted `#A2B1BD` on Surface: 6.90:1.
+- Action frost `#8CC8F0` on Surface: 8.40:1.
+- Dark button text `#0C1A26` on Action: 9.77:1.
+- Strong line `#667A8D` on Surface: 3.42:1.
+- Caution `#E5CF62` on `#36321B`: 8.25:1. Caution is straw yellow, kept
+  visibly apart from the orange-amber lantern.
 
 ### Colour-vision safety
 
@@ -349,32 +376,45 @@ Always show endpoints, units, numeric sensor values, and a text description near
 
 ## 5. Typography
 
-**Display and headings:** Manrope, 600–700.  
-**Body and controls:** DM Sans, 400–700.  
+**Everything:** Atkinson Hyperlegible Next (variable, bundled with
+`@fontsource-variable/atkinson-hyperlegible-next`), 400–700, through
+`--font-sans`. Headings use Bold; labels use 600. Its slashed zero and distinct
+`1`/`l`/`I` are deliberate legibility features, not a defect.
+
 **Code and identifiers:** SFMono-Regular, Consolas, Liberation Mono, monospace.
 
-| Role | Size / line height | Notes |
-|---|---|---|
-| Page title | `clamp(30px, 3vw, 46px)` / 1.06 | Tight tracking, short line |
-| Section title | 18 px / 1.25 | Manrope, 600–700 |
-| Body | 14 px / 1.55 | Default explanatory copy |
-| Control | 12–14 px / 1.3 | Labels remain visible; no placeholder-only fields |
-| Metadata | 10–12 px / 1.4 | Avoid below 10 px outside chart axes |
-| Eyebrow | 10 px / 1.2 | Uppercase, 0.13 em tracking |
+Every size comes from one scale with a 12 px floor (Bringhurst's classic
+12/14/16/18/21/24/36/48 sequence), exposed as `--text-xs` … `--text-4xl`.
+Stylesheets never write a literal font size.
 
-Keep line length below roughly 70 characters for prose. Do not use light font weights. Prefer a larger size or more space before adding another weight.
+| Role | Token / line height | Notes |
+|---|---|---|
+| Page title | `clamp(--text-2xl, 3vw, --text-3xl)` / 1.1 | Bold, -0.015 em, short line |
+| Panel title | `--text-lg` (18 px) / 1.25 | Bold |
+| Body | `--text-md`/`--text-sm` / 1.5 | Default explanatory copy |
+| Control | `--text-sm` (14 px) / 1.3 | Labels remain visible; no placeholder-only fields |
+| Metadata | `--text-xs` (12 px) / 1.4 | The floor, including chart labels |
+| Eyebrow | `--text-xs` / 1.3 | Sentence case, 600, Muted. Use only when it adds information the title does not |
+
+Labels are sentence case everywhere: no `text-transform: uppercase` and no
+spaced capitals. Keep line length below roughly 70 characters for prose. Do not
+use light font weights. Prefer a larger size or more space before adding
+another weight.
 
 ## 6. Layout and shape
 
-Use a 4 px base grid. Preferred spacing steps are `4, 8, 12, 16, 24, 32, 48, 64`.
+Use a 4 px base grid. Spacing steps are `--space-1` … `--space-7`:
+`4, 8, 12, 16, 24, 32, 48`.
 
 - Desktop shell: 256 px navigation rail plus a fluid content column.
 - Main content: maximum 1660 px with 24–56 px responsive gutters.
-- Default card radius: 10 px.
-- Controls: 5 px radius.
-- Navigation and small tools: 4 px radius.
+- Radii come from tokens only: `--radius` 12 px for cards and panels,
+  `--radius-sm` 8 px for controls, fields and navigation items, `--radius-xs`
+  4 px for small tools and chips, `--radius-lg` 16 px for dialogs and
+  `--radius-pill` for buttons and counts.
 - Circles are reserved for sensors, live/healthy state, and selected icon moments.
-- Shadows are low-contrast and broad. Borders define structure; shadows only separate layers.
+- Surfaces are flat. A light theme card carries at most a 1–2 px hairline
+  shadow; dark theme cards carry none. Borders define structure.
 - Avoid stacked “cards inside cards.” Prefer dividers and whitespace within a surface.
 
 ### Responsive behaviour
@@ -399,7 +439,7 @@ Use a 4 px base grid. Preferred spacing steps are `4, 8, 12, 16, 24, 32, 48, 64`
 
 ### Navigation
 
-The rail is near-black to frame the home rather than compete with it. Active items use a cream block and a cobalt square marker. Labels remain visible; icon-only primary navigation is not allowed.
+The rail is night blue (`--shell`) to frame the home rather than compete with it. On phones the header bar uses the same night blue. The current page is a raised block (`--shell-raised`) with white text and a 4 px lantern bar on the rail's edge. Labels remain visible; icon-only primary navigation is not allowed.
 
 Preferred user-facing labels:
 
@@ -426,7 +466,8 @@ name the Home or Property they will change.
 
 ### Buttons
 
-- Primary: cobalt fill, white text, one per action group.
+- Shape: buttons are pills (`--radius-pill`), 42 px tall with 18 px side padding.
+- Primary: Action fill (fjord in light, frost in dark) with `--on-action` text, one per action group.
 - Secondary: Surface fill, strong border, Ink text.
 - Destructive: Critical fill or Critical text with an explicit confirmation.
 - Icon button: must have an accessible name and at least a 24 × 24 px target; aim for 40–44 px.
@@ -566,9 +607,11 @@ Automation cannot approve wording, focus order, chart comprehension, or whether 
 - Referencing an undeclared design token is a build failure. Components use
   semantic tokens (`--bg`, `--panel-soft`, `--line-strong`, `--red`, and
   related theme pairs) rather than local fallbacks that bypass dark mode.
-- Body and control text must not render below 10 px at default settings. Font
-  weights use the loaded 400–700 range; synthetic weights above 700 are a
-  migration defect, not a new style.
+- Text must not render below 12 px at default settings. Font sizes, radii and
+  the family come from the tokens in `styles/global/base.css`;
+  `semantic-tokens.test.ts` fails on a literal font size, a literal radius, an
+  uppercase transform, or a `--lantern` use outside the mark, the current-page
+  marker and the page-title bar. Font weights stay in 400–700.
 - Existing routes and stored data keep working through a documented migration
   window. Scope or hierarchy changes must preserve historical telemetry
   ownership, authorization, deep links, rollback, and explicit failure modes.
@@ -581,6 +624,12 @@ When introducing a component, document any new token here rather than adding a o
 
 ### Change record
 
+- **2.0 (29 October 2026):** Replaced the warm cream, terracotta and cobalt
+  look with the Kaamos identity: a night-blue shell in both themes, snow and
+  night page palettes, fjord/frost actions, and one lantern amber reserved for
+  the mark, the current page and the page title. Moved every screen to one
+  typeface (Atkinson Hyperlegible Next), one 12 px-floor type scale, sentence-case
+  labels, and token-only radii, with test enforcement.
 - **1.10 (8 August 2026):** Added the blocking visual-acceptance contract for
   finished UI inspection with representative data, workflow checks, and
   recorded pass/fail evidence.

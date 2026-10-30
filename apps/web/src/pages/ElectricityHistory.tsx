@@ -29,6 +29,7 @@ import { aggregateCumulativeSeries, consumptionHistorySeries, holdSeriesForBucke
 import { useElectricityHistoryQuery } from "../data/energy/electricityHistoryQuery";
 import { historyIsPreparing } from "../data/energy/historyPreparation";
 import { electricityHistoryLocation, writeElectricityHistoryLocation, type ElectricityChartMode } from "./electricityHistoryLocation";
+import { CardHeader } from "../components/CardHeader";
 
 interface ElectricityHistoryProps {
   state: ClimateState;
@@ -311,7 +312,7 @@ export function ElectricityHistory(props: Readonly<ElectricityHistoryProps>) {
 
   return <>
     <section className="panel energy-history-controls" aria-labelledby="energy-history-heading">
-      <div className="panel-header"><div><span className="eyebrow">{t("chart.history")}</span><h2 id="energy-history-heading">{t("energy.historyTitle")}</h2></div></div>
+      <CardHeader title={t("energy.historyTitle")} eyebrow={t("chart.history")} titleId="energy-history-heading" />
       <div className="energy-history-fields">
         <div className="field">
           <span>{t("common.metric")}</span>

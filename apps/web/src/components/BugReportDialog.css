@@ -15,6 +15,10 @@
 
 .bug-report-trigger:hover { background: var(--panel-soft); color: var(--ink); }
 
+.sidebar .bug-report-trigger { color: var(--shell-muted); }
+
+.sidebar .bug-report-trigger:hover { background: var(--shell-hover); color: var(--shell-ink); }
+
 .bug-report-dialog {
   width: min(94vw, 42rem);
   max-height: min(88vh, 50rem);
@@ -28,8 +32,8 @@
 
 .bug-report-dialog::backdrop { background: color-mix(in srgb, var(--ink) 62%, transparent); backdrop-filter: blur(3px); }
 .bug-report-dialog__header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 22px 24px 12px; }
-.bug-report-dialog__header h2 { margin: 2px 0 0; font-size: 22px; }
-.bug-report-dialog__eyebrow { color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.bug-report-dialog__header h2 { margin: 2px 0 0; font-size: var(--text-xl); }
+.bug-report-dialog__eyebrow { color: var(--muted); font-size: var(--text-xs); font-weight: 700; }
 .bug-report-dialog form, .bug-report-dialog__success { display: grid; gap: 16px; padding: 0 24px 24px; }
 .bug-report-dialog__intro { margin: 0; color: var(--muted); }
 .bug-report-dialog__description { display: grid; gap: 7px; font-weight: 600; }
@@ -49,7 +53,7 @@
 .bug-report-dialog__choice small { color: var(--muted); font-weight: 400; }
 .bug-report-dialog__details { border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--panel-soft); }
 .bug-report-dialog__details summary { padding: 10px 12px; cursor: pointer; font-weight: 600; }
-.bug-report-dialog__details pre { max-height: 14rem; margin: 0; padding: 0 12px 12px; overflow: auto; white-space: pre-wrap; font-size: 11px; }
+.bug-report-dialog__details pre { max-height: 14rem; margin: 0; padding: 0 12px 12px; overflow: auto; white-space: pre-wrap; font-size: var(--text-xs); }
 .bug-report-dialog__error { margin: 0; color: var(--red); }
 .bug-report-dialog__error small { display: block; margin-top: 4px; color: var(--muted); }
 .bug-report-dialog__actions { display: grid; grid-template-columns: auto 1fr auto auto; gap: 10px; align-items: center; }

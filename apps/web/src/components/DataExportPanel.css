@@ -16,11 +16,11 @@
 
 .data-export-summary-copy .eyebrow { margin: 0; }
 
-.data-export-summary-copy h2 { margin: 0; font: 700 18px/1.25 "Manrope", sans-serif; letter-spacing: -.025em; }
+.data-export-summary-copy h2 { margin: 0; font: 700 var(--text-lg)/1.25 var(--font-sans); letter-spacing: -.02em; }
 
-.data-export-summary-copy small { max-width: 72ch; color: var(--muted); font-size: 12px; line-height: 1.45; }
+.data-export-summary-copy small { max-width: 72ch; color: var(--muted); font-size: var(--text-xs); line-height: 1.45; }
 
-.data-export-format-badge, .data-export-row-count { min-height: 29px; display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: 999px; color: var(--ink); background: var(--panel); font-size: 11px; font-weight: 700; white-space: nowrap; }
+.data-export-format-badge, .data-export-row-count { min-height: 29px; display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: var(--radius-pill); color: var(--ink); background: var(--panel); font-size: var(--text-xs); font-weight: 700; white-space: nowrap; }
 
 .data-export-chevron { color: var(--muted); transition: transform .16s ease; }
 
@@ -32,9 +32,9 @@
 
 .data-export-example > svg { flex: 0 0 auto; margin-top: 2px; color: var(--action); }
 
-.data-export-example p { margin: 0; font-size: 13px; line-height: 1.5; }
+.data-export-example p { margin: 0; font-size: var(--text-sm); line-height: 1.5; }
 
-.data-export-example strong { display: block; font-family: "Manrope", sans-serif; }
+.data-export-example strong { display: block; font-family: var(--font-sans); }
 
 .data-export-content form { display: grid; gap: 14px; }
 
@@ -48,7 +48,7 @@
 
 .data-export-picker { position: relative; }
 
-.data-export-picker > summary { min-height: 42px; display: flex; align-items: center; padding: 0 36px 0 12px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); color: var(--ink); background: var(--panel); cursor: pointer; list-style: none; font-size: 13px; font-weight: 600; }
+.data-export-picker > summary { min-height: 42px; display: flex; align-items: center; padding: 0 36px 0 12px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); color: var(--ink); background: var(--panel); cursor: pointer; list-style: none; font-size: var(--text-sm); font-weight: 600; }
 
 .data-export-picker > summary::-webkit-details-marker { display: none; }
 
@@ -62,7 +62,7 @@
 
 .data-export-picker-actions { display: flex; justify-content: flex-end; gap: 4px; padding: 7px; border-bottom: 1px solid var(--line); background: var(--panel-soft); }
 
-.data-export-picker-actions button { min-height: 32px; padding: 0 9px; border: 1px solid var(--line-strong); border-radius: 4px; color: var(--action); background: var(--panel); font: 700 11px/1 "DM Sans", sans-serif; cursor: pointer; }
+.data-export-picker-actions button { min-height: 32px; padding: 0 9px; border: 1px solid var(--line-strong); border-radius: var(--radius-xs); color: var(--action); background: var(--panel); font: 700 var(--text-xs)/1 var(--font-sans); cursor: pointer; }
 
 .data-export-picker fieldset { max-height: 280px; margin: 0; padding: 6px; overflow-y: auto; border: 0; }
 
@@ -74,23 +74,23 @@
 
 .data-export-picker fieldset label > span { min-width: 0; display: grid; }
 
-.data-export-picker fieldset strong { overflow: hidden; color: var(--ink); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.data-export-picker fieldset strong { overflow: hidden; color: var(--ink); font-size: var(--text-xs); text-overflow: ellipsis; white-space: nowrap; }
 
-.data-export-picker fieldset small { overflow: hidden; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.data-export-picker fieldset small { overflow: hidden; color: var(--muted); font-size: var(--text-xs); text-overflow: ellipsis; white-space: nowrap; }
 
 .data-export-custom-range { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; padding: 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel-soft); }
 
-.data-export-custom-range p { grid-column: 1 / -1; margin: -4px 0 0; color: var(--muted); font-size: 11px; }
+.data-export-custom-range p { grid-column: 1 / -1; margin: -4px 0 0; color: var(--muted); font-size: var(--text-xs); }
 
 .data-export-form-footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-top: 2px; }
 
-.data-export-form-footer > p { max-width: 70ch; margin: 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.data-export-form-footer > p { max-width: 70ch; margin: 0; color: var(--muted); font-size: var(--text-xs); line-height: 1.5; }
 
 .data-export-form-footer .primary-button { flex: 0 0 auto; }
 
 .data-export-error { margin: 0; }
 
-.data-export-progress { display: block; color: var(--muted); font-size: 12px; }
+.data-export-progress { display: block; color: var(--muted); font-size: var(--text-xs); }
 
 .data-export-preview { min-width: 0; overflow: hidden; border: 1px solid var(--line-strong); border-radius: var(--radius); background: var(--panel); }
 
@@ -102,21 +102,21 @@
 
 .data-export-preview.stale > header .eyebrow { color: var(--yellow); }
 
-.data-export-preview > header h3 { margin: 0; font: 700 16px/1.25 "Manrope", sans-serif; }
+.data-export-preview > header h3 { margin: 0; font: 700 var(--text-md)/1.25 var(--font-sans); }
 
-.data-export-preview > header p { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
+.data-export-preview > header p { margin: 4px 0 0; color: var(--muted); font-size: var(--text-xs); }
 
-.data-export-warnings { margin: 0; padding: 10px 18px 10px 36px; border-bottom: 1px solid var(--line); color: var(--yellow); background: var(--yellow-soft); font-size: 11px; }
+.data-export-warnings { margin: 0; padding: 10px 18px 10px 36px; border-bottom: 1px solid var(--line); color: var(--yellow); background: var(--yellow-soft); font-size: var(--text-xs); }
 
 .data-export-table-wrap { max-height: 430px; overflow: auto; outline-offset: -3px; }
 
-.data-export-table-wrap table { width: 100%; min-width: 680px; border-collapse: separate; border-spacing: 0; font-size: 12px; }
+.data-export-table-wrap table { width: 100%; min-width: 680px; border-collapse: separate; border-spacing: 0; font-size: var(--text-xs); }
 
 .data-export-table-wrap :is(th, td) { padding: 9px 11px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; }
 
 .data-export-table-wrap tr > :last-child { border-right: 0; }
 
-.data-export-table-wrap thead th { position: sticky; z-index: 1; top: 0; color: var(--ink); background: var(--panel-soft); font-size: 11px; }
+.data-export-table-wrap thead th { position: sticky; z-index: 1; top: 0; color: var(--ink); background: var(--panel-soft); font-size: var(--text-xs); }
 
 .data-export-table-wrap thead th small { display: block; color: var(--muted); font-weight: 600; }
 
@@ -124,7 +124,7 @@
 
 .data-export-table-wrap tbody td { color: var(--ink); font-variant-numeric: tabular-nums; }
 
-.data-export-table-wrap tbody td:is(:nth-child(1), :nth-child(2), :nth-child(4)) { color: var(--muted); font-family: SFMono-Regular, Consolas, "Liberation Mono", monospace; font-size: 10.5px; }
+.data-export-table-wrap tbody td:is(:nth-child(1), :nth-child(2), :nth-child(4)) { color: var(--muted); font-family: SFMono-Regular, Consolas, "Liberation Mono", monospace; font-size: var(--text-xs); }
 
 .data-export-table-wrap td.missing { color: var(--muted); }
 
@@ -132,7 +132,7 @@
 
 .data-export-preview > footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 18px; background: var(--panel-soft); }
 
-.data-export-preview > footer > p { max-width: 65ch; margin: 0; color: var(--muted); font-size: 11px; line-height: 1.45; }
+.data-export-preview > footer > p { max-width: 65ch; margin: 0; color: var(--muted); font-size: var(--text-xs); line-height: 1.45; }
 
 .data-export-downloads { display: flex; flex: 0 0 auto; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 

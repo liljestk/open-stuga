@@ -1,7 +1,8 @@
-import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { OutdoorConditions, UnitSystem } from "@climate-twin/contracts";
 import { getDateTimeFormatter } from "../dateTime";
 import { useI18n, type Locale, type TranslationKey } from "../i18n";
+import { Tabs } from "./Tabs";
 
 export const FORECAST_WINDOW_HOURS = 12;
 export const MAX_FORECAST_HOURS = 48;
@@ -171,7 +172,6 @@ export function ForecastWindowNavigator({
   const { t } = useI18n();
   const id = useId().replaceAll(":", "");
   const [selectedWindow, setSelectedWindow] = useState(forecastWindowFromLocation);
-  const tabs = useRef<Array<HTMLButtonElement | null>>([]);
   const scope = useRef({ houseId, horizonHours, path: typeof window === "undefined" ? "" : window.location.pathname });
   const windowLabels = useMemo(() => FORECAST_WINDOW_LABEL_KEYS.map((key) => t(key)), [t]);
   const windows = useMemo(
@@ -213,31 +213,9 @@ export function ForecastWindowNavigator({
     return () => window.removeEventListener("popstate", restoreWindow);
   }, [windows.length]);
 
-  const selectWindow = (index: number, focus: boolean) => {
+  const selectWindow = (index: number) => {
     setSelectedWindow(index);
     writeForecastWindowToLocation(index, "push");
-    if (focus) tabs.current[index]?.focus();
-  };
-
-  const selectAndFocus = (index: number) => {
-    const next = (index + windows.length) % windows.length;
-    selectWindow(next, true);
-  };
-
-  const handleTabKey = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
-    if (event.key === "ArrowRight") {
-      event.preventDefault();
-      selectAndFocus(index + 1);
-    } else if (event.key === "ArrowLeft") {
-      event.preventDefault();
-      selectAndFocus(index - 1);
-    } else if (event.key === "Home") {
-      event.preventDefault();
-      selectAndFocus(0);
-    } else if (event.key === "End") {
-      event.preventDefault();
-      selectAndFocus(windows.length - 1);
-    }
   };
 
   const range = activeWindow.start
@@ -256,25 +234,15 @@ export function ForecastWindowNavigator({
         <p><strong>{t("forecast.windowRange")}:</strong> {range}</p>
       </div>
 
-      <div className="outdoor-forecast-tabs" role="tablist" aria-label={t("forecast.navigationLabel")}>
-        {windows.map((window, index) => (
-          <button
-            key={window.index}
-            ref={(element) => { tabs.current[index] = element; }}
-            type="button"
-            role="tab"
-            id={`${id}-forecast-tab-${index}`}
-            aria-selected={activeIndex === index}
-            aria-controls={`${id}-forecast-panel`}
-            tabIndex={activeIndex === index ? 0 : -1}
-            onClick={() => selectWindow(index, false)}
-            onKeyDown={(event) => handleTabKey(event, index)}
-          >
-            {window.label}
-            <small>{window.points.length}</small>
-          </button>
-        ))}
-      </div>
+      <Tabs
+        className="outdoor-forecast-tabs"
+        label={t("forecast.navigationLabel")}
+        items={windows.map((window, index) => ({ id: String(index), label: window.label, count: window.points.length }))}
+        selected={String(activeIndex)}
+        onSelect={(index) => selectWindow(Number(index))}
+        tabId={(index) => `${id}-forecast-tab-${index}`}
+        panelId={() => `${id}-forecast-panel`}
+      />
 
       <div
         className="outdoor-forecast-panel"

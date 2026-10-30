@@ -17,6 +17,7 @@ import { useEffect, useRef, useState } from "react";
 import type { SystemUpdateBlockReason } from "../api";
 import { useI18n, type TranslationKey } from "../i18n";
 import { RestartInstallDialog } from "./RestartInstallDialog";
+import { RefreshButton } from "../components/RefreshButton";
 
 export type SystemUpdateStreamState = "connecting" | "live" | "reconnecting" | "polling";
 
@@ -430,10 +431,7 @@ export function SystemUpdateOverview({
         <h2 id="unified-update-title">{headline}</h2>
         <p>{summary}</p>
       </div>
-      <button type="button" className="secondary-button unified-update-check" disabled={busy !== null || active} onClick={onCheck}>
-        <RefreshCw className={busy === "check" ? "spin" : ""} size={15} aria-hidden="true" />
-        {t("updates.checkNow")}
-      </button>
+      <RefreshButton className="secondary-button unified-update-check" onClick={onCheck} busy={busy === "check"} disabled={busy !== null || active} label={t("updates.checkNow")} busyLabel={t("common.checking")} />
     </div>
 
     {status.checkError && <p className="unified-update-check-error" role="status"><CircleAlert size={14} aria-hidden="true" />{status.checkError}</p>}
