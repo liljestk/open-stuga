@@ -200,6 +200,17 @@
     margin: 10px;
     overflow: visible;
   }
+
+  /* Stacked, the 3D view's top edge holds the outdoor shell's chips, so the collapsed card stays in the
+     flow above the view like the expanded one instead of floating over them. */
+  .building-map-layout > .outdoor-context-card.collapsed {
+    position: relative;
+    inset: auto;
+    align-self: flex-start;
+    max-width: calc(100% - 20px);
+    margin: 10px;
+    box-shadow: none;
+  }
 }
 
 .building-viewport { position: relative; min-width: 0; flex: 1; overflow: hidden; overscroll-behavior: contain; background-color: #e8eff6; background-image: radial-gradient(rgb(19 29 40 / .09) .7px, transparent .7px); background-size: 17px 17px; }
@@ -208,7 +219,7 @@
 
 .building-svg:active { cursor: grabbing; }
 
-.building-outdoor-shell { pointer-events: none; }
+.building-outdoor-shell, .building-outdoor-shell-labels { pointer-events: none; }
 
 .building-outdoor-shell-face { fill: rgb(63 118 211 / .035); stroke: none; }
 
@@ -232,9 +243,9 @@
 
 .building-outdoor-shell-rail .outdoor-shell-chip-value { font-size: var(--text-md); }
 
-.building-shell-title rect { fill: var(--blue); }
+.building-shell-title rect { fill: var(--action); }
 
-.building-shell-title .outdoor-shell-chip-label { fill: #fff; font-size: var(--text-xs); opacity: 1; }
+.building-shell-title .outdoor-shell-chip-label { fill: var(--on-action); font-size: var(--text-xs); opacity: 1; }
 
 .building-outdoor-influence { pointer-events: none; }
 

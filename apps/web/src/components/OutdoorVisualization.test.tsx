@@ -2,7 +2,11 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { House, HouseWeather, UnitSystem } from "@climate-twin/contracts";
 import { createDemoState } from "../domain";
-import { I18nProvider } from "../i18n";
+import { I18nProvider, type TranslationKey } from "../i18n";
+import { en } from "../locales/catalogs/en";
+import { fiOverrides } from "../locales/catalogs/fi-overrides";
+import { fiSupplement } from "../locales/catalogs/fi-supplement";
+import { svOverrides } from "../locales/catalogs/sv";
 import { definitionFor } from "../measurements";
 import { createOutdoorBoundaryContext } from "../outdoor/context";
 import type { OutdoorVisualizationState } from "./OutdoorConditionsBadge";
@@ -42,8 +46,26 @@ function outdoorState(house: House, response = weather(house)): OutdoorVisualiza
     timeZone: house.timezone,
     ...(house.orientationDegrees === undefined ? {} : { orientationDegrees: house.orientationDegrees }),
     attribution: response.attribution,
-    station: { name: response.observationStation!.name, distanceKm: response.observationStation!.distanceKm },
+    ...(response.observationStation
+      ? { station: { name: response.observationStation.name, distanceKm: response.observationStation.distanceKm } }
+      : {}),
   };
+}
+
+function sceneView(house: House, outdoor: OutdoorVisualizationState) {
+  const state = createDemoState();
+  const sensors = state.sensors.filter((sensor) => sensor.houseId === house.id);
+  const definition = definitionFor(state.measurementDefinitions, "temperature");
+  const samples = Object.fromEntries(sensors.map((sensor) => [sensor.id, state.latestMeasurements[sensor.id]!.temperature!]));
+  return render(
+    <I18nProvider>
+      <BuildingScene
+        house={house} sensors={sensors} samples={samples} observations={[]} definition={definition} units="metric"
+        activeFloorId={house.floors[0]!.id} selectedSensorId={sensors[0]!.id} outdoor={outdoor}
+        onFloorSelect={vi.fn()} onSensorSelect={vi.fn()}
+      />
+    </I18nProvider>,
+  );
 }
 
 function floorView(
@@ -95,7 +117,7 @@ describe("outdoor boundary visualization", () => {
     expect(screen.getByRole("group", { name: /Editing Ground floor/ })).not.toBeNull();
   });
 
-  it("shows FMI conditions and highlights the windward edge without drawing over the plan", () => {
+  it("shows outdoor conditions and highlights the windward edge without drawing over the plan", () => {
     localStorage.setItem("climate-twin-locale", "en");
     const demo = createDemoState();
     const house: House = {
@@ -112,7 +134,7 @@ describe("outdoor boundary visualization", () => {
     expect(screen.getByText(/Helsinki Kaisaniemi.*0.7 km/)).not.toBeNull();
     const shell = view.container.querySelector<SVGGElement>(".outdoor-shell");
     const windwardEdge = shell?.querySelector<SVGPathElement>(".outdoor-shell-windward-edge");
-    expect(shell?.getAttribute("aria-label")).toMatch(/FMI outdoor shell.*Temperature 3 °C.*Relative humidity 82%.*Wind speed 4 m\/s.*Windward edge left/i);
+    expect(shell?.getAttribute("aria-label")).toMatch(/Outdoor shell.*Temperature 3 °C.*Relative humidity 82%.*Wind speed 4 m\/s.*Windward edge left/i);
     expect(windwardEdge?.dataset.windwardEdge).toBe("left");
     expect(windwardEdge?.getAttribute("d")).toMatch(/^M-.*L/);
     expect(windwardEdge?.dataset.windFromDegrees).toBe("270");
@@ -305,25 +327,15 @@ describe("outdoor boundary visualization", () => {
     const house: House = {
       ...state.houses[0]!, location: { latitude: 60.17, longitude: 24.94 }, orientationDegrees: 0,
     };
-    const sensors = state.sensors.filter((sensor) => sensor.houseId === house.id);
-    const definition = definitionFor(state.measurementDefinitions, "temperature");
-    const samples = Object.fromEntries(sensors.map((sensor) => [sensor.id, state.latestMeasurements[sensor.id]!.temperature!]));
-    const view = render(
-      <I18nProvider>
-        <BuildingScene
-          house={house} sensors={sensors} samples={samples} observations={[]} definition={definition} units="metric"
-          activeFloorId={house.floors[0]!.id} selectedSensorId={sensors[0]!.id} outdoor={outdoorState(house)}
-          onFloorSelect={vi.fn()} onSensorSelect={vi.fn()}
-        />
-      </I18nProvider>,
-    );
+    const view = sceneView(house, outdoorState(house));
     const shell = view.container.querySelector<SVGGElement>(".building-outdoor-shell")!;
+    const chips = view.container.querySelector<SVGGElement>(".building-outdoor-shell-labels")!;
     const windwardEdge = shell.querySelector<SVGLineElement>(".building-outdoor-windward-edge")!;
-    expect(shell.getAttribute("aria-label")).toMatch(/FMI outdoor shell.*Temperature 3 °C.*Relative humidity 82%.*Wind speed 4 m\/s.*Windward edge left/i);
-    expect(shell.querySelector(".building-temperature-chip")?.textContent).toContain("3 °C");
-    expect(shell.querySelector(".building-humidity-chip")?.textContent).toContain("82%");
-    expect(shell.querySelector(".building-temperature-chip rect")?.getAttribute("width")).toBe("136");
-    expect(shell.querySelector(".building-temperature-chip rect")?.getAttribute("height")).toBe("52");
+    expect(shell.getAttribute("aria-label")).toMatch(/Outdoor shell.*Temperature 3 °C.*Relative humidity 82%.*Wind speed 4 m\/s.*Windward edge left/i);
+    expect(chips.querySelector(".building-temperature-chip")?.textContent).toContain("3 °C");
+    expect(chips.querySelector(".building-humidity-chip")?.textContent).toContain("82%");
+    expect(chips.querySelector(".building-temperature-chip rect")?.getAttribute("width")).toBe("148");
+    expect(chips.querySelector(".building-temperature-chip rect")?.getAttribute("height")).toBe("52");
     expect(shell.querySelectorAll(".building-outdoor-shell-edge")).toHaveLength(4);
     expect(windwardEdge.dataset.windwardEdge).toBe("left");
     const mapLayout = view.container.querySelector(".building-map-layout");
@@ -382,5 +394,54 @@ describe("outdoor boundary visualization", () => {
     };
     floorView(house, { ...outdoorState(house), refreshFailed: true });
     expect(screen.getByText("Refresh failed; showing the last received observation.")).not.toBeNull();
+  });
+
+  it("paints the 3D shell's chips after the building, side by side", () => {
+    localStorage.setItem("climate-twin-locale", "en");
+    const demo = createDemoState();
+    const house: House = { ...demo.houses[0]!, location: { latitude: 60.17, longitude: 24.94 }, orientationDegrees: 0 };
+    const view = sceneView(house, outdoorState(house));
+    const labels = view.container.querySelector<SVGGElement>(".building-outdoor-shell-labels")!;
+
+    // SVG paints in document order, so a building layer after the chips would draw over them.
+    for (const layer of [".building-floors", ".building-roofs", ".building-sensors", ".building-heat-pumps"]) {
+      expect(view.container.querySelector(layer)!.compareDocumentPosition(labels) & Node.DOCUMENT_POSITION_FOLLOWING, layer).toBeTruthy();
+    }
+    expect(view.container.querySelector(".building-outdoor-shell .outdoor-shell-chip")).toBeNull();
+    expect(labels.getAttribute("aria-hidden")).toBe("true");
+    const chips = [...labels.querySelectorAll<SVGGElement>(".outdoor-shell-chip")].map((chip) => ({
+      x: Number(/translate\(([-\d.]+)/u.exec(chip.getAttribute("transform") ?? "")?.[1] ?? 0),
+      width: Number(chip.querySelector("rect")!.getAttribute("width")),
+    }));
+    expect(chips).toHaveLength(3);
+    chips.slice(1).forEach((chip, index) => expect(chip.x).toBeGreaterThan(chips[index]!.x + chips[index]!.width));
+  });
+
+  it("names no weather provider on the shell chips of an Open-Meteo home", () => {
+    localStorage.setItem("climate-twin-locale", "en");
+    const demo = createDemoState();
+    const house: House = { ...demo.houses[0]!, location: { latitude: 60.17, longitude: 24.94 }, orientationDegrees: 0 };
+    const openMeteo: HouseWeather = {
+      ...weather(house), provider: "open-meteo", attribution: "Weather data by Open-Meteo.com (CC BY 4.0)", observationStation: null,
+    };
+    const scene = sceneView(house, outdoorState(house, openMeteo));
+    const labels = scene.container.querySelector(".building-outdoor-shell-labels")!;
+    expect([...labels.querySelectorAll(".outdoor-shell-chip-label")].map((label) => label.textContent))
+      .toEqual(["Outdoor shell", "Outdoor temperature", "Outdoor humidity"]);
+    expect(scene.container.querySelector(".building-outdoor-shell")!.getAttribute("aria-label")).not.toMatch(/FMI/);
+    scene.unmount();
+
+    const plan = floorView(house, outdoorState(house, openMeteo));
+    const shell = plan.container.querySelector(".outdoor-shell")!;
+    expect(`${shell.getAttribute("aria-label")} ${shell.textContent}`).not.toMatch(/FMI/);
+    expect(shell.querySelector(".outdoor-temperature-chip")?.textContent).toContain("Outdoor temperature");
+  });
+
+  it("keeps the shell chip labels provider-neutral in every locale", () => {
+    const catalogs: Record<string, Partial<Record<TranslationKey, string>>> = { en, fi: { ...fiOverrides, ...fiSupplement }, sv: svOverrides };
+    const keys = ["outdoor.shellLabel", "outdoor.shellTemperature", "outdoor.shellHumidity", "outdoor.shellWind"] as const;
+    for (const [locale, catalog] of Object.entries(catalogs)) {
+      for (const key of keys) expect(catalog[key], `${locale}.${key}`).not.toMatch(/FMI|Open-Meteo/i);
+    }
   });
 });
