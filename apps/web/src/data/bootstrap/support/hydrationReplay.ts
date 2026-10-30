@@ -1,5 +1,6 @@
 import type {
   Floor,
+  House,
   ManualObservation,
   MaintenanceTask,
   MeasurementSample,
@@ -142,6 +143,16 @@ export function replayHouseMutations<T extends {
     else replayStaticParameterMutation(replay, mutation);
   }
   return { ...loaded, ...replay };
+}
+
+/** Replays sensor mutations that arrived while the workspace sensor index loaded, house by house. */
+export function replayWorkspaceSensors(houses: readonly House[], sensors: readonly Sensor[], mutations: HouseMutationBuffer): Sensor[] {
+  return houses.flatMap((house) => replayHouseMutations(house.id, {
+    sensors: sensors.filter((sensor) => sensor.houseId === house.id),
+    observations: [],
+    maintenanceTasks: [],
+    staticParameters: [],
+  }, mutations).sensors);
 }
 
 interface ReplayedHouseResources {

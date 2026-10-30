@@ -1,6 +1,7 @@
 import type { AlertRule, AlertRulePatch, AreaEquipment, AreaEquipmentInput, AreaEquipmentPatch, ConnectionState, Floor, House, HousePatch, MaintenanceTask, MaintenanceTaskInput, MaintenanceTaskPatch, ManualObservation, ManualObservationInput, ManualObservationPatch, MeasurementSample, MockScenario, Point, Property, PropertyArea, PropertyAreaInput, PropertyAreaPatch, PropertyCreateInput, PropertyNote, PropertyNoteInput, PropertyNotePatch, PropertyPatch, Sensor, SensorPatch, StaticParameter, TelemetryEvent, TpLinkDiscoveredDevice } from "@climate-twin/contracts";
 import { api, type CreateHouseInput, type CreateSensorInput, type HouseGeoreferencePatch, type MeasurementHistoryPage } from "../../api";
 import type { TimeRange } from "../../domain";
+import type { MutationNotice } from "../live/mutationScope";
 import type {
   HistoricalSeriesWindow,
   StreamConnections,
@@ -47,6 +48,10 @@ export interface SessionLifecycleActions {
   retryBootstrap: () => void;
   revalidateSession: () => void;
   endSession: () => void;
+}
+
+export interface MutationRefreshActions {
+  scheduleMutationRefresh: (notice: MutationNotice) => void;
 }
 
 export interface LiveTelemetryActions {
@@ -137,8 +142,8 @@ export interface MaintenanceActions {
 }
 
 /** Every action a bootstrap hook returns; each hook takes only the ones it calls. */
-export type PipelineActions = IntegrationActions & WorkspaceHydrationActions & StreamConnectionActions & LiveTelemetryActions
-  & SessionLifecycleActions & SeriesActions & SensorActions & PropertyActions & OperationsActions & MaintenanceActions;
+export type PipelineActions = IntegrationActions & WorkspaceHydrationActions & StreamConnectionActions & MutationRefreshActions
+  & LiveTelemetryActions & SessionLifecycleActions & SeriesActions & SensorActions & PropertyActions & OperationsActions & MaintenanceActions;
 
 /** The store with every action, which the public model selects from. */
 export type ClimateDataPipeline = ClimateDataStore & PipelineActions;

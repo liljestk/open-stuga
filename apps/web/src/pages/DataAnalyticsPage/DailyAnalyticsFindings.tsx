@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Activity, CloudSun, DoorOpen, RefreshCw, Sparkles, Zap, type LucideIcon } from "lucide-react";
 import type {
   AnalyticsFinding,
@@ -48,10 +48,15 @@ export function DailyAnalyticsFindings(props: Readonly<DailyAnalyticsFindingsPro
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [retryRevision, setRetryRevision] = useState(0);
+  const shownHouseId = useRef(props.house.id);
 
   useEffect(() => {
     const controller = new AbortController();
-    setResponse(null);
+    // A poll or refresh keeps the findings already shown; only another Home clears them.
+    if (shownHouseId.current !== props.house.id) {
+      shownHouseId.current = props.house.id;
+      setResponse(null);
+    }
     setLoading(true);
     setError(null);
     void api.analyticsFindings(props.house.id, controller.signal).then((result) => {

@@ -2,6 +2,7 @@ import { useClimateDataStore } from "./useClimateDataStore";
 import { useIntegrationActions } from "./useIntegrationActions";
 import { useWorkspaceHydration } from "./useWorkspaceHydration";
 import { useStreamConnections } from "./useStreamConnections";
+import { useMutationRefresh } from "./useMutationRefresh";
 import { useLiveTelemetry } from "./useLiveTelemetry";
 import { useSessionLifecycle } from "./useSessionLifecycle";
 import { useSeriesQueries } from "./useSeriesQueries";
@@ -20,7 +21,8 @@ export function useClimateData() {
   const integrations = useIntegrationActions(store);
   const hydration = useWorkspaceHydration(store);
   const streams = useStreamConnections(store, hydration);
-  const telemetry = useLiveTelemetry(store, { ...integrations, ...hydration });
+  const refresh = useMutationRefresh(store, { ...integrations, ...hydration });
+  const telemetry = useLiveTelemetry(store, { ...integrations, ...hydration, ...refresh });
   const lifecycle = useSessionLifecycle(store, { ...integrations, ...hydration, ...streams, ...telemetry });
   const series = useSeriesQueries(store);
   const sensors = useSensorActions(store, integrations);
@@ -28,7 +30,7 @@ export function useClimateData() {
   const operations = useOperationsActions(store, properties);
   const maintenance = useMaintenanceActions(store);
   return createClimateDataPublicModel({
-    ...store, ...integrations, ...hydration, ...streams, ...telemetry, ...lifecycle,
+    ...store, ...integrations, ...hydration, ...streams, ...refresh, ...telemetry, ...lifecycle,
     ...series, ...sensors, ...properties, ...operations, ...maintenance,
   });
 }
