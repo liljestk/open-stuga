@@ -2,7 +2,7 @@
 
 All notable Stugu releases are recorded here.
 
-## 0.56.4
+## 0.56.5
 
 The 3D view's outdoor readings are readable and name no weather service.
 
