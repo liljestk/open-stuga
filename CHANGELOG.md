@@ -2,6 +2,22 @@
 
 All notable Stugu releases are recorded here.
 
+## 0.53.0
+
+Clearer messages and visible progress.
+
+- Data & analytics:
+  - Home performance, Thermal isolation and Moisture response each show one message for their saved analysis instead of up to three. A failed update said both "the update failed" and "newer evidence is prepared". It now says the update couldn't run, why, and that the saved result below is still shown.
+  - You can close these messages. A closed message comes back when its situation changes, for example a different failure or a new result.
+  - Their button is now "Recalculate". After you choose it, it reads "Recalculating…" until the background job finishes. The panel checks every 5 seconds instead of every 30, for up to two minutes.
+  - The "Daily comparisons are being updated" banner no longer runs its title and text together.
+- Refresh buttons say what they are doing:
+  - Data & analytics, Set up's check, Alerts, the calendar comparison, Sensors' device list and System's update check read "Refreshing…" or "Checking…" while they work.
+  - With reduced motion turned on, as Windows does when animation effects are off, every spinner stopped after one frame. Spinners now fade in and out instead of turning.
+- Outdoor: Refresh on the "weather unavailable" card keeps the card in place while it retries, then says when it last tried. Before, the card blinked to "Updating" and back, so the button seemed to do nothing.
+- Opening Stugu no longer flashes the "Add your first home" screen while the selected Home is still loading.
+- Upgrade impact: application-only update; no API, schema, Compose, configuration or host-trust change.
+
 ## 0.52.18
 
 Fixes found in a review of every page and tab.

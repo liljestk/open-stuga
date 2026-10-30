@@ -246,6 +246,7 @@ export const fiOverridesPart2 = {
   "outdoor.selectHouse": "Sään sijainti",
   "outdoor.refresh": "Päivitä",
   "outdoor.refreshing": "Päivitetään…",
+  "outdoor.lastTried": "Yritetty viimeksi klo {time}.",
   "outdoor.current": "Nykyiset olosuhteet",
   "outdoor.observed": "Havaittu",
   "outdoor.modelled": "Mallinnettu",

@@ -197,6 +197,12 @@
 }
 
 
+.outdoor-weather-state .outdoor-weather-attempt {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+
 .outdoor-weather-state > .outdoor-issue-details {
   width: min(860px, 100%);
   color: var(--ink);

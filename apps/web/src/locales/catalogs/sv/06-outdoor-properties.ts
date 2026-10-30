@@ -3,6 +3,7 @@ export const svPart6 = {
   "outdoor.selectHouse": "Väderläge",
   "outdoor.refresh": "Uppdatera",
   "outdoor.refreshing": "Uppdaterar…",
+  "outdoor.lastTried": "Senast försökt {time}.",
   "outdoor.current": "Aktuella förhållanden",
   "outdoor.observed": "Observerat",
   "outdoor.modelled": "Modellerad",

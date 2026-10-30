@@ -255,7 +255,7 @@ export function SpatialLayerPanel({ layers, timeZone, historyAt = null, compact 
           <span>{spatialLayerLabel(layerId, t)}</span>{" "}
           <small>{t(`spatial.maturity.${manifest?.maturity ?? "research"}`)}</small>
         </button>;
-        })}<button type="button" className="spatial-refresh" disabled={layers.refreshing} aria-label={t("spatial.refresh")} title={t("spatial.refresh")} onClick={() => void layers.refresh()}><RefreshCw size={17} className={layers.refreshing ? "spin" : ""} aria-hidden="true" /></button></div>
+        })}<button type="button" className="spatial-refresh" disabled={layers.refreshing} aria-busy={layers.refreshing} aria-label={t("spatial.refresh")} title={t("spatial.refresh")} onClick={() => void layers.refresh()}><RefreshCw size={17} className={layers.refreshing ? "spin" : ""} aria-hidden="true" /></button></div>
         </section>
 
         {layers.error && layers.snapshots.length > 0 && <p className="spatial-retained-warning" role="status"><AlertTriangle size={14} aria-hidden="true" />{t("spatial.refreshFailed")}</p>}
