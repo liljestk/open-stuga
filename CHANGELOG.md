@@ -2,6 +2,14 @@
 
 All notable Stugu releases are recorded here.
 
+## 0.56.3
+
+The "Outside now" card fits its readings and keeps out of the plan's way.
+
+- On the 2D plan, a hidden "Outside now" card no longer covers the zoom-in button. Its summary now sits beside the zoom controls. On phones, where the zoom controls are halfway down the left edge, it stays in the top-left corner.
+- The card's readings are no longer cut off. Wind speed, gust and direction used to read "4.2 m…", "Gust …" and "SW · …" on a desktop screen. When three tiles don't fit on one row, the wind tile moves to its own row.
+- Upgrade impact: application-only update; no API, schema, Compose, configuration or host-trust change.
+
 ## 0.54.0
 
 A new look: Kaamos, the polar night.

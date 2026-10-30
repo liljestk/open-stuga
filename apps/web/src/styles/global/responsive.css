@@ -76,6 +76,7 @@
   .plan-stage > .map-information-toggle { right: 9px; bottom: 8px; }
   /* Phones: the stage runs taller than the plan, so its vertical middle is below the west compass label. */
   .plan-zoom-controls { top: 50%; left: 8px; transform: translateY(-50%); }
+  .floor-plan-layout > .outdoor-context-card.collapsed { inset: 12px auto auto 12px; max-width: calc(100% - 24px); }
   .building-legend .map-information-toggle { align-self: flex-end; }
   .sensor-inspector { padding: 15px; }
   .structure-scroll { display: block; }
