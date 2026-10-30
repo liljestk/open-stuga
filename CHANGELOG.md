@@ -2,6 +2,12 @@
 
 All notable Stugu releases are recorded here.
 
+## 0.56.4
+
+- The Stugu plugin for ChatGPT and Codex shows the Kaamos mark (night tile, snow cottage, lantern window) and uses the night tile `#22303D` as its brand colour instead of the old terracotta. The plugin package version moves to 0.20.3 so installed copies pick up the new look.
+- The page Stugu shows after you approve Cloudflare remote access uses the Kaamos ink on snow (`#15212C` on `#EEF2F5`, 14.5:1 contrast) instead of the old ink on cream.
+- Upgrade impact: application-only update; one API-served page changes colour. No API contract, schema, Compose, configuration or host-trust change. Reinstall or refresh the `stugu-home` plugin in ChatGPT or Codex to see the new mark and colour.
+
 ## 0.52.16
 
 - Set up → Connections: the note telling a Member that only an Owner or Admin can change TP-Link or Home Assistant credentials now has the same inner spacing as the other text in the "Enter an address manually" section. It sat against the section's border before.
