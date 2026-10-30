@@ -98,7 +98,8 @@
 
 .sensor-list-actions { display: flex; align-items: center; gap: 6px; }
 
-.sensor-list-actions .secondary-button { min-height: 35px; padding: 0 9px; font-size: 10.5px; }
+.sensor-list-actions { min-width: 0; }
+.sensor-list-actions .secondary-button { min-width: 0; max-width: 100%; min-height: 35px; padding: 0 9px; font-size: 10.5px; white-space: normal; overflow-wrap: anywhere; text-align: start; }
 
 .sensor-list-actions .archive-action { color: var(--muted); }
 

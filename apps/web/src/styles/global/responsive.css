@@ -72,8 +72,10 @@
   .map-layer-legends { right: 9px; bottom: 76px; max-width: min(290px, calc(100% - 18px)); }
   .map-layer-legends .flow-legend { max-width: 100%; }
   .heat-legend { left: 9px; bottom: 8px; max-width: calc(100% - 70px); }
+  .map-information-content { left: 9px; right: 9px; bottom: 8px; }
   .plan-stage > .map-information-toggle { right: 9px; bottom: 8px; }
-  .plan-zoom-controls { left: 8px; }
+  /* Phones: the stage runs taller than the plan, so its vertical middle is below the west compass label. */
+  .plan-zoom-controls { top: 50%; left: 8px; transform: translateY(-50%); }
   .building-legend .map-information-toggle { align-self: flex-end; }
   .sensor-inspector { padding: 15px; }
   .structure-scroll { display: block; }

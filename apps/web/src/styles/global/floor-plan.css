@@ -10,7 +10,8 @@
 
 .floor-plan:focus-visible { outline: 3px solid var(--action); outline-offset: 3px; }
 
-.plan-zoom-controls { position: absolute; z-index: 10; top: 50%; left: 10px; display: grid; overflow: hidden; border: 1px solid var(--line-strong); border-radius: var(--radius); color: var(--ink); background: rgb(255 255 255 / .92); box-shadow: 0 4px 14px rgb(13 39 31 / .12); backdrop-filter: blur(9px); transform: translateY(-50%); }
+/* Top-left corner: vertically centred, the control covered the west compass label. */
+.plan-zoom-controls { position: absolute; z-index: 10; top: 10px; left: 10px; display: grid; overflow: hidden; border: 1px solid var(--line-strong); border-radius: var(--radius); color: var(--ink); background: rgb(255 255 255 / .92); box-shadow: 0 4px 14px rgb(13 39 31 / .12); backdrop-filter: blur(9px); }
 
 .plan-zoom-controls button { width: 40px; min-width: 40px; height: 40px; min-height: 40px; display: grid; place-items: center; padding: 0; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; color: inherit; background: transparent; }
 
@@ -260,7 +261,12 @@
 
 .heat-gradient.humidity { background: linear-gradient(90deg, #d8f0f6, #2a84b8, #123d75); }
 
-.map-information-content { display: contents; }
+/* One bottom strip for the legend and the layer notes: when both do not fit
+   side by side the notes wrap above the legend instead of covering it. The
+   right padding keeps the strip clear of the information toggle. */
+.map-information-content { position: absolute; z-index: 9; left: 16px; right: 15px; bottom: 14px; display: flex; flex-wrap: wrap-reverse; align-items: flex-end; gap: 7px; padding-right: 52px; pointer-events: none; }
+.map-information-content > .heat-legend { position: static; pointer-events: auto; }
+.map-information-content > .map-layer-legends { position: static; margin-left: auto; }
 
 .map-information-toggle { min-width: 44px; min-height: 44px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: 999px; color: var(--ink); background: rgb(255 255 255 / .92); box-shadow: 0 4px 14px rgb(13 39 31 / .12); backdrop-filter: blur(9px); cursor: pointer; }
 

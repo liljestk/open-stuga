@@ -1,4 +1,5 @@
 .setup-operations-grid { min-width: 0; max-width: 100%; display: grid; gap: 18px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.setup-operations-grid > .panel { padding: 18px; }
 .developer-heading > div { min-width: 0; }
 @media (max-width: 680px) {
   .developer-heading .eyebrow { display: block; }

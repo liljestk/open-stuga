@@ -282,7 +282,12 @@ export async function optionalForecast<T>(request: Promise<T[]>): Promise<{ valu
   }
 }
 
-export async function canonicalSeries(
+/**
+ * Starts the history and forecast reads together and hands both back
+ * unsettled. The forecast is computed on request and can take many times as
+ * long as the history, so callers commit each one as it arrives.
+ */
+export function canonicalSeries(
   sensorId: string,
   metric: string,
   range: TimeRange,
@@ -295,11 +300,10 @@ export async function canonicalSeries(
   // Counter deltas and held power need a predecessor at the left edge.
   const historyFrom = metric === "energy" || metric === "power"
     ? new Date(Date.parse(from) - 15 * 60_000).toISOString() : from;
-  const [history, forecast] = await Promise.all([
-    api.measurementHistoryPage(sensorId, { metric, from: historyFrom, to, limit: seriesLimit(range), bucketSeconds, signal }),
-    forecastSupported
+  return {
+    history: api.measurementHistoryPage(sensorId, { metric, from: historyFrom, to, limit: seriesLimit(range), bucketSeconds, signal }),
+    forecast: forecastSupported
       ? optionalForecast(api.measurementForecast(sensorId, { metric, hours: 12, signal }))
       : Promise.resolve({ value: [], error: null }),
-  ]);
-  return { samples: history.samples, history, forecast };
+  };
 }
