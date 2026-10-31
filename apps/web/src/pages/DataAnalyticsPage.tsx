@@ -280,7 +280,9 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
     requestId: analyticsRequestId,
     enabled: analyticsEnabled,
     request: () => {
-      const end = new Date();
+      // Minute-aligned so a reopened panel or a second tab reuses the API's
+      // cached answer for the same window instead of recomputing it.
+      const end = new Date(Math.floor(Date.now() / 60_000) * 60_000);
       const start = new Date(end.getTime() - timeRangeHours(range) * 3_600_000);
       return {
         apiVersion: "1.0",

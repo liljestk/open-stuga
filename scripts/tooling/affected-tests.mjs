@@ -23,6 +23,9 @@ function workspaceFull(id, label, workspace) {
   };
 }
 
+// Doctor test files and fixtures that `npm run test:lean-tooling` already runs.
+const LEAN_TOOLING_TESTS = /^scripts\/tests\/(?:lean-tooling|rpi-doctor-[a-z-]+)(?:\.test)?\.mjs$/u;
+
 const SCRIPT_TESTS = [
   [/^(?:scripts\/(?:stugu-)?(?:backup|restore)|docker-compose)/u, "test:r2-backup"],
   [/^scripts\/(?:stugu-live-migrate|stugu-migration|migrate-telemetry)/u, "test:live-migration"],
@@ -79,7 +82,7 @@ export function affectedTestPlan(files, mergeBase) {
 
   if (any(/^apps\/ios\//u)) add(npmTest("TEST_NATIVE_READINESS", "Native readiness tests", "test:native-readiness"));
 
-  if (packageMetadata || any(/^scripts\/(?:tooling\/|verify-local\.mjs$|release-verify\.mjs$|rpi-doctor\.mjs$|check-cognitive-complexity\.mjs$|tests\/lean-tooling\.test\.mjs$)/u)) {
+  if (packageMetadata || any(LEAN_TOOLING_TESTS) || any(/^scripts\/(?:tooling\/|verify-local\.mjs$|release-verify\.mjs$|rpi-doctor\.mjs$|check-cognitive-complexity\.mjs$)/u)) {
     add(npmTest("TEST_LEAN_TOOLING", "Lean tooling tests", "test:lean-tooling"));
   }
 
@@ -104,7 +107,7 @@ export function affectedTestPlan(files, mergeBase) {
   }
 
   for (const file of files.filter((path) => /^scripts\/tests\/.*\.test\.mjs$/u.test(path))) {
-    if (file === "scripts/tests/lean-tooling.test.mjs") continue;
+    if (LEAN_TOOLING_TESTS.test(file)) continue;
     const id = `TEST_FILE_${file.replace(/[^A-Za-z0-9]+/gu, "_").toUpperCase()}`;
     add({
       id,

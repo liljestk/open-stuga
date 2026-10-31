@@ -24,6 +24,8 @@ import type {
   MeasurementAnalyticsRollupQuery,
   MeasurementAnalyticsRollupResult,
   MeasurementAnalyticsSeriesRecord,
+  MeasurementAnalyticsSummaryQuery,
+  MeasurementAnalyticsSummaryResult,
 } from "../../timeseries/types.js";
 
 export interface PlanAnalyticsRollupInput {
@@ -109,21 +111,21 @@ export interface BuildAnalyticsRollupResponseInput extends PlanAnalyticsRollupIn
   plan: Omit<MeasurementAnalyticsRollupQuery, "excludeSynthetic">;
   rollup: MeasurementAnalyticsRollupResult;
   /** Time-weighted base buckets for summaries, when the display is coarser than the base. */
-  summaryRollup?: { resolution: MeasurementAnalyticsResolution; result: MeasurementAnalyticsRollupResult } | null;
+  summaryRollup?: MeasurementAnalyticsSummaryResult | null;
   /** Long-run reporting interval per series key, for coverage. */
   expectedIntervalSeconds?: ReadonlyMap<string, number>;
   archiveState: HybridArchiveReadState;
   generatedAt?: string;
 }
 
-/** The base read a rollup response needs for time-weighted summaries, or null when the display already is the base. */
+/** The base buckets a rollup response needs for time-weighted summaries, or null when the display already is the base. */
 export function planSummaryRollup(
   plan: Omit<MeasurementAnalyticsRollupQuery, "excludeSynthetic">,
-): Omit<MeasurementAnalyticsRollupQuery, "excludeSynthetic"> | null {
+): MeasurementAnalyticsSummaryQuery | null {
   const resolution = summaryBaseResolution((Date.parse(plan.to) - Date.parse(plan.from)) / 1_000);
   const series = plan.series.filter((item) => item.aggregation === "time_weighted_mean" || item.aggregation === "mean");
   if (series.length === 0 || resolution === plan.resolution) return null;
-  return { ...plan, series, resolution };
+  return { series, resolution };
 }
 
 export function buildAnalyticsResponseFromRollup(
@@ -153,7 +155,7 @@ export function buildAnalyticsResponseFromRollup(
       const points = rollupPoints(record, start, end, plan.resolution, aggregation, expectedIntervalSeconds);
       const timeWeighted = aggregation === "time_weighted_mean" || aggregation === "mean";
       const baseResolution = summaryBaseResolution((end - start) / 1_000);
-      const baseRecord = input.summaryRollup?.result.series.find((item) => analyticsSeriesKey(item.sensorId, item.metric) === key);
+      const baseRecord = input.summaryRollup?.series.find((item) => analyticsSeriesKey(item.sensorId, item.metric) === key);
       const summaryPoints = !timeWeighted || baseResolution === plan.resolution
         ? points
         : baseRecord && input.summaryRollup

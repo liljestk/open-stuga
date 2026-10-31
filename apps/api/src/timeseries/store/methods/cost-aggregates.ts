@@ -1,13 +1,15 @@
 import { hourlyUsageFromRows } from "../../../electricity/hourly-usage.js";
 import type { QueryResultRow } from "pg";
 import { MEASUREMENT_ANALYTICS_BUCKETS, MEASUREMENT_BUCKETS, measurementAnalyticsAggregateName, measurementAggregateName, qualifiedName } from "../../schema.js";
-import type { AggregateRefreshQuery, EnergyCostAggregateQuery, EnergyCostAggregateRecord, PowerCostAggregateQuery } from "../../types.js";
+import type { AggregateRefreshQuery, EnergyCostAggregateQuery, EnergyCostAggregateRecord, MeasurementAnalyticsSeriesQuery, PowerCostAggregateQuery } from "../../types.js";
 import { RollupsMaterializingError } from "../../read-support.js";
 import { EnergyCostAggregateRow, ExtensionRow } from "../support/row-types.js";
 import { abortError, timestamp } from "../support/query-values.js";
 import { registerTimeseriesStoreMethods, timeseriesStoreState, type TimeseriesStoreInternals } from "../core.js";
 import { measurementCostRollupRequirementsSql, measurementCostRollupSql } from "../measurement-cost-rollup-sql.js";
 import { postgresErrorCode } from "./connection.js";
+
+const DAY_MS = 86_400_000;
 
 interface CostRollupRequirementRow extends QueryResultRow {
   day_start: string | Date;
@@ -45,6 +47,28 @@ async function refreshContinuousAggregate(
       });
     }
   }
+}
+
+/**
+ * The active day's sealed quarter states only shorten the raw tail, so a
+ * reader asks for them to be kept current but never waits for them.
+ */
+async function enqueueActiveDayStates(
+  store: TimeseriesStoreInternals,
+  series: readonly MeasurementAnalyticsSeriesQuery[],
+  query: EnergyCostAggregateQuery,
+): Promise<void> {
+  const activeDayStart = Math.floor(Date.now() / DAY_MS) * DAY_MS;
+  if (Date.parse(query.to) <= activeDayStart) return;
+  await store.enqueueMeasurementOrderedRollups(
+    series,
+    new Date(Math.max(Date.parse(query.from), activeDayStart)).toISOString(),
+    query.to,
+    3,
+    query.excludeSynthetic === true ? "real" : "all",
+    900,
+    query,
+  );
 }
 
 async function orderedCostAggregate(
@@ -89,6 +113,7 @@ async function orderedCostAggregate(
       days,
     );
   }
+  await enqueueActiveDayStates(store, series, query);
   // Do not run the full pricing join just to discover known unfinished work.
   if (requirements.rows.some((row) => row.ready === false)) throw new RollupsMaterializingError();
   const result = await store.__query<EnergyCostAggregateRow>(

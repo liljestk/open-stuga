@@ -7,6 +7,26 @@ import { hostAllowsBackgroundWork } from "../src/analytics/background-admission.
 import type { HostSystemHealth } from "@climate-twin/contracts";
 
 describe("AnalyticsWorkLimiter", () => {
+  it("runs nested work in the slot its caller already holds", async () => {
+    const limiter = new AnalyticsWorkLimiter({ maxConcurrent: 1, maxQueued: 2 });
+    let releaseQueued!: () => void;
+    const outer = limiter.run("energy-projection", async () => {
+      // A projection asking for an energy summary used to queue behind itself.
+      const summary = await limiter.run("energy-summary", async () => "summary");
+      return `projection with ${summary}`;
+    });
+    const queued = limiter.run("analytics-query", () => new Promise<string>((resolve) => {
+      releaseQueued = () => resolve("queued");
+    }));
+
+    await expect(outer).resolves.toBe("projection with summary");
+    await vi.waitFor(() => expect(releaseQueued).toBeTypeOf("function"));
+    releaseQueued();
+    await expect(queued).resolves.toBe("queued");
+    expect(limiter.snapshot().operations["energy-summary"]).toMatchObject({ started: 1, succeeded: 1 });
+    expect(limiter.snapshot().active).toBe(0);
+  });
+
   it("bounds active work, queues fairly, and reports timings", async () => {
     let now = 0;
     const limiter = new AnalyticsWorkLimiter({
