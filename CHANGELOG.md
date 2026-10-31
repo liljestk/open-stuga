@@ -7,6 +7,16 @@ All notable Stugu releases are recorded here.
 - Mean, sum, minimum, maximum and last analytics on a TimescaleDB archive answer much faster. The raw readings at the edges of a range were read by scanning and decompressing the Sensor's whole stored history; they now read only the archive chunks that hold them. On a Raspberry Pi, a 30-day mean at 15 minutes for a power plug reporting every 2 seconds dropped from 1.6 s to 0.09 s, and 90- and 365-day hourly reads from about 2 s to 0.2 s. Results are unchanged.
 - Upgrade impact: application-only update; no schema, Compose, configuration or host-trust change.
 
+## 0.56.5
+
+The 3D view's outdoor readings are readable and name no weather service.
+
+- In the 3D view, the outdoor temperature no longer fades behind the roof. The house's walls and roof were drawn over the temperature reading above the house, so it looked half covered and hard to read. The outdoor readings are now drawn on top of the house.
+- The outdoor readings around the house no longer say "FMI" for every home. Homes that get their weather from Open-Meteo were labelled "FMI temperature". The labels now read "Outdoor shell", "Outdoor temperature" and "Outdoor humidity" in English, Finnish and Swedish. The "Outside now" card still names the weather source.
+- In dark mode, the "Outdoor shell" label is dark text on light blue. It used to be white on light blue, which was hard to read.
+- On phones and narrow windows, a hidden "Outside now" card sits above the 3D view instead of covering the outdoor readings.
+- Upgrade impact: application-only update; no API, schema, Compose, configuration or host-trust change.
+
 ## 0.56.3
 
 The "Outside now" card fits its readings and keeps out of the plan's way.
