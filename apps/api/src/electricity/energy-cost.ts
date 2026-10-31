@@ -9,12 +9,27 @@ import { RollupsMaterializingError } from "../timeseries/read-support.js";
 import { AnalyticsCapacityError } from "../analytics/work-limiter.js";
 import type { EnergyCostAggregateRecord } from "../timeseries/types.js";
 import { compareCodeUnits } from "../text-order.js";
+import { LruTtlCache } from "../cache.js";
 
 const MEASUREMENT_EDGE_TOLERANCE_MS = 5 * 60_000;
 const MINIMUM_MEASUREMENT_DURATION_COVERAGE = 0.999;
 const POWER_HOLD_MS = 15 * 60_000;
 const MAXIMUM_MEASURED_COUNTER_INTERVAL_MS = 15 * 60_000 + 1_000;
 const SUMMARY_CONCURRENCY = 2;
+/**
+ * Coverage only decides which meters can contribute to a window. Its newest
+ * edge may lag by this much; a meter that started reporting within it joins
+ * the next summary after the entry expires.
+ */
+const COVERAGE_TTL_MS = 5 * 60_000;
+
+/** Which stored readings a meter has; a basis without one cannot contribute. */
+export interface EnergyMeasures {
+  energy: boolean;
+  power: boolean;
+}
+
+const BOTH_MEASURES: EnergyMeasures = { energy: true, power: true };
 
 function rounded(value: number, decimals: number): number {
   return Number(value.toFixed(decimals));
@@ -84,6 +99,28 @@ interface BasisCalculation {
   estimated: boolean;
 }
 
+/** Readings each meter has stored that can contribute to the window. */
+function measuresInWindow(
+  records: ReadonlyArray<{ sensorId: string; metric: string; start: string; end: string }>,
+  fromMs: number,
+  toMs: number,
+): Map<string, EnergyMeasures> {
+  const bySensor = new Map<string, EnergyMeasures>();
+  for (const record of records) {
+    const start = Date.parse(record.start);
+    const end = Date.parse(record.end);
+    if (!Number.isFinite(start) || !Number.isFinite(end) || start > toMs) continue;
+    const covers = record.metric === "energy"
+      ? end >= fromMs
+      : record.metric === "power" && end >= fromMs - POWER_HOLD_MS;
+    if (!covers) continue;
+    const measures = bySensor.get(record.sensorId) ?? { energy: false, power: false };
+    measures[record.metric as keyof EnergyMeasures] = true;
+    bySensor.set(record.sensorId, measures);
+  }
+  return bySensor;
+}
+
 function temporarilyUnavailable(error: unknown): boolean {
   return error instanceof RollupsMaterializingError
     || error instanceof AnalyticsCapacityError
@@ -113,6 +150,10 @@ export class EnergyCostService {
   private readonly now: () => Date;
   private readonly meterRole: (sensorId: string) => EnergyMeterRole;
   private readonly tariffFor: (propertyId: string, houseId: string) => ElectricityTariffContext | null;
+  readonly #coverage = new LruTtlCache<Awaited<ReturnType<HybridTelemetryReader["measurementCoverage"]>>>({
+    maxEntries: 64,
+    defaultTtlMs: COVERAGE_TTL_MS,
+  });
 
   constructor(
     private readonly telemetryReader: HybridTelemetryReader,
@@ -138,29 +179,21 @@ export class EnergyCostService {
     from: string;
     to: string;
     signal?: AbortSignal;
+    /** Readings the meter has stored; a basis without its reading is skipped. */
+    measures?: EnergyMeasures;
   }): Promise<HomeEnergyCost> {
     // One basis being temporarily unavailable (rollups materializing, load
     // shed, archive gap) must not take down the other: the fallback basis is
     // often already serveable, and attempting it also enqueues its own rollup
     // variants so both families converge in the same catch-up round.
-    let energy: BasisCalculation | null = null;
-    let unavailable: unknown = null;
-    try {
-      energy = await this.calculateBasis(input, "energy_counter");
-    } catch (error) {
-      if (!temporarilyUnavailable(error)) throw error;
-      unavailable = error;
-    }
+    const measures = input.measures ?? BOTH_MEASURES;
+    const energyAttempt = await this.#attemptBasis(input, "energy_counter", measures.energy);
+    const energy = energyAttempt.calculation;
     if (energy?.measurementComplete && !energy.estimated) return energy.cost;
 
-    let power: BasisCalculation | null = null;
-    try {
-      power = await this.calculateBasis(input, "integrated_power");
-    } catch (error) {
-      if (!temporarilyUnavailable(error)) throw error;
-      unavailable ??= error;
-    }
-    if (!energy && !power) throw unavailable;
+    const powerAttempt = await this.#attemptBasis(input, "integrated_power", measures.power);
+    const power = powerAttempt.calculation;
+    if (!energy && !power) throw energyAttempt.unavailable ?? powerAttempt.unavailable;
     if (!power) return energy!.cost;
     if (!energy) return power.cost;
     if (energy.measurementComplete && energy.estimated && power.measurementComplete) return power.cost;
@@ -179,11 +212,7 @@ export class EnergyCostService {
     to: string;
     signal?: AbortSignal;
   }): Promise<HomeEnergySummary> {
-    const coverage = await this.telemetryReader.measurementCoverage({
-      sensorIds: input.sensorIds,
-      metrics: ["energy", "power"],
-      ...withSignal(input.signal),
-    });
+    const coverage = await this.#measurementCoverage(input.sensorIds, input.signal);
     if (!coverage.complete) {
       throw new IncompleteTelemetryHistoryError(
         coverage.archiveState === "merged" ? "not-ready" : coverage.archiveState,
@@ -192,14 +221,8 @@ export class EnergyCostService {
 
     const fromMs = Date.parse(input.from);
     const toMs = Date.parse(input.to);
-    const candidates = [...new Set(coverage.records.filter((record) => {
-      const start = Date.parse(record.start);
-      const end = Date.parse(record.end);
-      if (!Number.isFinite(start) || !Number.isFinite(end) || start > toMs) return false;
-      return record.metric === "energy"
-        ? end >= fromMs
-        : record.metric === "power" && end >= fromMs - POWER_HOLD_MS;
-    }).map((record) => record.sensorId))].sort(compareCodeUnits);
+    const measuresBySensor = measuresInWindow(coverage.records, fromMs, toMs);
+    const candidates = [...measuresBySensor.keys()].sort(compareCodeUnits);
 
     const roleFor = (sensorId: string): EnergyMeterRole => {
       try {
@@ -223,7 +246,7 @@ export class EnergyCostService {
     const excludedSourceCount = candidates.length - selected.length;
 
     const settled = await mapSettledWithConcurrency(selected, SUMMARY_CONCURRENCY, (sensorId) => (
-      this.calculate({ ...input, sensorId })
+      this.calculate({ ...input, sensorId, measures: measuresBySensor.get(sensorId)! })
     ));
     if (input.signal?.aborted) {
       throw input.signal.reason instanceof Error
@@ -309,6 +332,34 @@ export class EnergyCostService {
       contributions,
       calculatedAt,
     };
+  }
+
+  /** A skipped or temporarily unavailable basis yields no calculation; other failures propagate. */
+  async #attemptBasis(
+    input: Parameters<EnergyCostService["calculateBasis"]>[0],
+    basis: HomeEnergyConsumptionBasis,
+    enabled: boolean,
+  ): Promise<{ calculation: BasisCalculation | null; unavailable: unknown }> {
+    if (!enabled) return { calculation: null, unavailable: null };
+    try {
+      return { calculation: await this.calculateBasis(input, basis), unavailable: null };
+    } catch (error) {
+      if (!temporarilyUnavailable(error)) throw error;
+      return { calculation: null, unavailable: error };
+    }
+  }
+
+  /** Shared by concurrent summaries; an incomplete archive answer is never kept. */
+  async #measurementCoverage(sensorIds: readonly string[], signal?: AbortSignal) {
+    const ids = [...new Set(sensorIds)].sort(compareCodeUnits);
+    const key = JSON.stringify(ids);
+    const coverage = await this.#coverage.getOrLoad(key, (loadSignal) => this.telemetryReader.measurementCoverage({
+      sensorIds: ids,
+      metrics: ["energy", "power"],
+      signal: loadSignal,
+    }), { serveStale: false, ...withSignal(signal) });
+    if (!coverage.complete) this.#coverage.invalidate(key);
+    return coverage;
   }
 
   private async calculateBasis(

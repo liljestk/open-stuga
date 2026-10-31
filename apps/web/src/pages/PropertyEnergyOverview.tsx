@@ -6,9 +6,8 @@ import type { ClimateState } from "../domain";
 import { definitionFor, formatMeasurement } from "../measurements";
 import { useI18n } from "../i18n";
 import { homeEnergySummaryQueryOptions } from "../data/energy/homeEnergySummaryQuery";
-import { historyIsPreparing } from "../data/energy/historyPreparation";
 import { queryClient } from "../data/queryClient";
-import { energySummaryState } from "./energySummaryState";
+import { summaryQueryState } from "./energySummaryState";
 import { ELECTRICITY_METRICS } from "./energyTelemetry";
 import {
   freshSourcesForMetric,
@@ -145,8 +144,7 @@ export function PropertyEnergyOverview({ state, propertyId, propertyName, units,
           const share = totalConsumption !== null && totalConsumption > 0 && consumption !== null
             ? Math.max(0, Math.min(100, consumption / totalConsumption * 100))
             : 0;
-          const summaryState = historyIsPreparing(row.query?.error) ? "loading"
-            : energySummaryState(summary, row.query?.isPending ?? false, row.query?.isError ?? false);
+          const summaryState = summaryQueryState(row.query, summary);
           const status = !row.hasUsageSource
             ? t("energy.propertyNoSource")
             : summaryState === "loading"

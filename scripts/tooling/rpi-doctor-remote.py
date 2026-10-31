@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import concurrent.futures
 import hashlib
+import http.client
 import json
 import os
 import platform
@@ -290,6 +291,74 @@ def docker_snapshot() -> dict[str, Any]:
     }
 
 
+ARCHIVE_PHASES = {"idle", "starting", "syncing", "ready", "degraded", "stopped"}
+ISO_INSTANT = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$")
+# The API clears caughtUp for every new sample until its one-second live flush,
+# so a single read during steady streaming is false about half the time. A few
+# follow-up reads let the doctor tell that in-flight queue from a sustained lag.
+ARCHIVE_FOLLOW_UP_READS = 4
+ARCHIVE_FOLLOW_UP_INTERVAL = 0.75
+ARCHIVE_FOLLOW_UP_TIMEOUT = 1.0
+# The whole health collection stays below the six-second wait in main().
+HEALTH_BUDGET = 5.0
+
+
+def open_health(timeout: float) -> Any:
+    request = urllib.request.Request(
+        "http://127.0.0.1:8080/api/v1/health", headers={"Accept": "application/json"}
+    )
+    try:
+        return urllib.request.urlopen(request, timeout=timeout)
+    except urllib.error.HTTPError as error:
+        # A degraded 503 can still contain useful, allowlisted health data.
+        return error
+
+
+def archive_read(status: dict[str, Any], started: float) -> dict[str, Any]:
+    phase = status.get("phase")
+    queued = status.get("queuedSamples")
+    success = status.get("lastSuccessAt")
+    return {
+        "elapsedMs": round((time.monotonic() - started) * 1000),
+        "phase": phase if isinstance(phase, str) and phase in ARCHIVE_PHASES else None,
+        "caughtUp": status.get("caughtUp") is True,
+        "queuedSamples": queued
+        if isinstance(queued, int) and not isinstance(queued, bool) and queued >= 0
+        else None,
+        "lastSuccessAt": success
+        if isinstance(success, str) and ISO_INSTANT.match(success)
+        else None,
+    }
+
+
+def archive_follow_up(archive: Any, started: float) -> list[dict[str, Any]] | None:
+    if (
+        not isinstance(archive, dict)
+        or archive.get("enabled") is not True
+        or archive.get("caughtUp") is not False
+    ):
+        return None
+    reads: list[dict[str, Any]] = []
+    deadline = started + HEALTH_BUDGET
+    while len(reads) < ARCHIVE_FOLLOW_UP_READS and (
+        time.monotonic() + ARCHIVE_FOLLOW_UP_INTERVAL + ARCHIVE_FOLLOW_UP_TIMEOUT
+        <= deadline
+    ):
+        time.sleep(ARCHIVE_FOLLOW_UP_INTERVAL)
+        try:
+            with open_health(ARCHIVE_FOLLOW_UP_TIMEOUT) as response:
+                value = json.loads(response.read(MAX_OUTPUT + 1))
+        except (OSError, ValueError, http.client.HTTPException):
+            break
+        status = value.get("telemetryArchive") if isinstance(value, dict) else None
+        if not isinstance(status, dict):
+            break
+        reads.append(archive_read(status, started))
+        if status.get("caughtUp") is True:
+            break
+    return reads
+
+
 def health_snapshot() -> dict[str, Any]:
     started = time.monotonic()
     http_status: int | None = None
@@ -305,15 +374,8 @@ def health_snapshot() -> dict[str, Any]:
             },
         }
 
-    request = urllib.request.Request(
-        "http://127.0.0.1:8080/api/v1/health", headers={"Accept": "application/json"}
-    )
     try:
-        try:
-            response = urllib.request.urlopen(request, timeout=2.5)
-        except urllib.error.HTTPError as error:
-            # A degraded 503 can still contain useful, allowlisted health data.
-            response = error
+        response = open_health(2.5)
         with response:
             http_status = response.status
             body = response.read(MAX_OUTPUT + 1)
@@ -335,7 +397,7 @@ def health_snapshot() -> dict[str, Any]:
                 "eventLoopLagMs",
                 "uptimeSeconds",
             }
-            return result(
+            snapshot = result(
                 "success" if 200 <= http_status < 300 else "http-error",
                 True,
                 **{key: value[key] for key in allowed if key in value},
@@ -350,6 +412,12 @@ def health_snapshot() -> dict[str, Any]:
             else "connection-error"
         )
         return result(outcome)
+    # The probe duration above covers only the first read; follow-up reads are
+    # reported separately with their own elapsed times.
+    follow_up = archive_follow_up(snapshot.get("telemetryArchive"), started)
+    if follow_up is not None:
+        snapshot["telemetryArchiveFollowUp"] = follow_up
+    return snapshot
 
 
 DATABASE_SCRIPT = r"""

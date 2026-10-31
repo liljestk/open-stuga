@@ -61,6 +61,14 @@ function supportsMetric(state: ClimateState, sensor: Sensor, metric: Electricity
     || (metric === "energy" && supportsDirectMetric(state, sensor, "power"));
 }
 
+/**
+ * Background refreshes keep the plotted history; only a first load, or a
+ * history still being prepared with nothing to show yet, counts as loading.
+ */
+function consumptionFirstLoad(query: { isLoading: boolean; error: unknown; data?: unknown }): boolean {
+  return query.isLoading || (historyIsPreparing(query.error) && !query.data);
+}
+
 function loadedMetrics(metric: ElectricityMetric): ElectricityMetric[] {
   if (metric !== "energy") return [metric];
   // Consumption has a separate integral query. Generic history is averaged
@@ -260,8 +268,8 @@ export function ElectricityHistory(props: Readonly<ElectricityHistoryProps>) {
     return state ? [state] : [];
   }));
   const preparing = props.metric === "energy" && historyIsPreparing(consumptionQuery.error);
-  const loading = preparing || loadStates.some((state) => state.status === "loading")
-    || (props.metric === "energy" && consumptionQuery.isFetching)
+  const loading = (props.metric === "energy" && consumptionFirstLoad(consumptionQuery))
+    || loadStates.some((state) => state.status === "loading")
     || (props.metric === "electricity_price" && props.priceLoading === true);
   const errors = loadStates.filter((state) => state.status === "error");
   const truncatedSeries = loadStates.some((state) => state.truncated);

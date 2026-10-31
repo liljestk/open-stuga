@@ -15,7 +15,6 @@ import { useI18n } from "../i18n";
 import { formatInTimeZone } from "../dateTime";
 import { api, ApiRequestError } from "../api";
 import { useHomeEnergySummaryQuery } from "../data/energy/homeEnergySummaryQuery";
-import { historyIsPreparing } from "../data/energy/historyPreparation";
 import { useHouseElectricityPriceQuery } from "../data/energy/houseElectricityPriceQuery";
 import { currentElectricityPrice, propertyElectricityKey, useEnergyOptimizationQuery, usePriceHistoryQuery, usePropertyElectricityQuery } from "../data/energy/electricityQueries";
 import { queryClient } from "../data/queryClient";
@@ -27,7 +26,7 @@ import { EnergyPlanningPanel } from "./EnergyPlanningPanel";
 import { useHomeEnergyProjectionQuery } from "../data/energy/homeEnergyProjectionQuery";
 import { ElectricityBillCheckPanel } from "./ElectricityBillCheckPanel";
 import { ElectricityTariffPanel } from "./ElectricityTariffPanel";
-import { energySummaryState } from "./energySummaryState";
+import { summaryQueryState, summaryRefreshState } from "./energySummaryState";
 import { PropertyEnergyOverview } from "./PropertyEnergyOverview";
 import {
   freshElectricitySample,
@@ -174,7 +173,9 @@ export function EnergyPage({ state, dataMode = "live", house = null, propertyId:
   const rollingSummaryQuery = useHomeEnergySummaryQuery(
     house?.id ?? "", "month", 30 * 24 * 3_600_000, summariesEnabled, 5 * 60_000,
   );
-  const projectionQuery = useHomeEnergyProjectionQuery(house?.id ?? "", summariesEnabled);
+  // The projection reruns a month of history; let the visible summaries go first.
+  const projectionQuery = useHomeEnergyProjectionQuery(house?.id ?? "",
+    summariesEnabled && !dailySummaryQuery.isPending && !energyCostQuery.isPending);
   const homePriceQuery = useHouseElectricityPriceQuery(house?.id ?? "", Boolean(house));
   const homePrice = house ? currentElectricityPrice(homePriceQuery.data, now) : null;
   const propertyPriceQuery = usePropertyElectricityQuery(propertyId, !house && !priceBusy);
@@ -195,12 +196,12 @@ export function EnergyPage({ state, dataMode = "live", house = null, propertyId:
   const dailySummary = dailySummaryQuery.data ?? null;
   const energyCost = energyCostQuery.data ?? null;
   const rollingSummary = rollingSummaryQuery.data ?? null;
-  const dailyPreparing = historyIsPreparing(dailySummaryQuery.error);
-  const costPreparing = historyIsPreparing(energyCostQuery.error);
-  const energyCostBusy = summariesEnabled && (energyCostQuery.isPending || costPreparing);
-  const energyCostError = energyCostQuery.isError && !costPreparing;
-  const summariesPreparing = summariesEnabled
-    && (dailySummaryQuery.isPending || energyCostQuery.isPending || dailyPreparing || costPreparing);
+  // A refresh that is still preparing or failed keeps the figures already shown.
+  const dailyRefresh = summaryRefreshState(dailySummaryQuery);
+  const costRefresh = summaryRefreshState(energyCostQuery);
+  const energyCostBusy = summariesEnabled && costRefresh.busy;
+  const energyCostError = costRefresh.failed;
+  const summariesPreparing = summariesEnabled && (dailyRefresh.busy || costRefresh.busy);
 
   useEffect(() => {
     const expectedPathname = window.location.pathname;
@@ -267,9 +268,7 @@ export function EnergyPage({ state, dataMode = "live", house = null, propertyId:
       ? sensors[0]!.name
       : t("energy.combinedSources", { count: reporting, total: sensors.length });
   const powerSourceLabel = combinedSourceLabel(powerSensors, powerSources.length);
-  const dailyState = energySummaryState(dailySummary,
-    (dailySummaryQuery.isPending || dailyPreparing) && summariesEnabled,
-    dailySummaryQuery.isError && !dailyPreparing);
+  const dailyState = summaryQueryState(summariesEnabled ? dailySummaryQuery : undefined, dailySummary);
   const energySourceLabel = dailyState === "loading" ? t("energy.costLoading")
     : dailyState === "unavailable" ? t("energy.summaryUnavailable")
     : dailyState === "empty" ? t("energy.costUsageUnavailable")
