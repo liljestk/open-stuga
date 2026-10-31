@@ -2,10 +2,16 @@
 
 All notable Stugu releases are recorded here.
 
-## 0.56.6
+## 0.56.8
 
 - Mean, sum, minimum, maximum and last analytics on a TimescaleDB archive answer much faster. The raw readings at the edges of a range were read by scanning and decompressing the Sensor's whole stored history; they now read only the archive chunks that hold them. On a Raspberry Pi, a 30-day mean at 15 minutes for a power plug reporting every 2 seconds dropped from 1.6 s to 0.09 s, and 90- and 365-day hourly reads from about 2 s to 0.2 s. Results are unchanged.
 - Upgrade impact: application-only update; no schema, Compose, configuration or host-trust change.
+
+## 0.56.7
+
+- The Stugu plugin for ChatGPT and Codex shows the Kaamos mark (night tile, snow cottage, lantern window) and uses the night tile `#22303D` as its brand colour instead of the old terracotta. The plugin package version moves to 0.20.3 so installed copies pick up the new look.
+- The page Stugu shows after you approve Cloudflare remote access uses the Kaamos ink on snow (`#15212C` on `#EEF2F5`, 14.5:1 contrast) instead of the old ink on cream.
+- Upgrade impact: application-only update; one API-served page changes colour. No API contract, schema, Compose, configuration or host-trust change. Reinstall or refresh the `stugu-home` plugin in ChatGPT or Codex to see the new mark and colour.
 
 ## 0.56.5
 
