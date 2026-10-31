@@ -9,6 +9,8 @@ import {
   heatPumpSensorId,
 } from "./heat-pump-measurements.js";
 import { heatPumpEvidenceInfluenceRange } from "./analytics/heat-pump-evidence.js";
+import { isLocalTelemetryHistoryComplete } from "./timeseries/read-support.js";
+import type { TimeseriesStore } from "./timeseries/store.js";
 
 interface StateRow {
   state_json: string;
@@ -78,7 +80,7 @@ export class HeatPumpStateStore {
   #measurementSink: ((samples: MeasurementSample[]) => void) | null = null;
 
   constructor(private readonly database: ClimateDatabase) {
-    this.backfillSensorTelemetry();
+    if (!database.readOnly) this.backfillSensorTelemetry();
   }
 
   setMeasurementSink(sink: (samples: MeasurementSample[]) => void): void {
@@ -426,4 +428,61 @@ export class HeatPumpStateStore {
     this.record(unavailable);
     return unavailable;
   }
+}
+
+export interface HeatPumpStateHistoryRequest {
+  store: HeatPumpStateStore;
+  timeseries: Pick<TimeseriesStore, "heatPumpStateHistory"> | null;
+  retention: { timeseriesEnabled: boolean; retentionDays: number };
+  connectionId: string;
+  from?: string;
+  to?: string;
+  limit: number;
+  /** Called when the archive read fails, e.g. to ask the archive worker to reconcile. */
+  onArchiveFailure?: () => void;
+}
+
+/**
+ * One connection's states, newest first: the local journal merged with the
+ * archive. `complete` is false when local retention cannot cover the range
+ * and the archive is missing or failed.
+ */
+export async function readHeatPumpStateHistory(
+  request: HeatPumpStateHistoryRequest,
+): Promise<{ complete: true; states: HeatPumpState[] } | { complete: false }> {
+  const { store, timeseries, connectionId, from, to, limit } = request;
+  const localHistoryComplete = isLocalTelemetryHistoryComplete({
+    timeseriesEnabled: request.retention.timeseriesEnabled,
+    retentionDays: request.retention.retentionDays,
+    ...(from === undefined ? {} : { from }),
+  });
+  const local = store.history(connectionId, {
+    ...(from ? { from } : {}),
+    ...(to ? { to } : {}),
+    limit,
+  });
+  let archived: HeatPumpState[] = [];
+  if (timeseries) {
+    try {
+      archived = await timeseries.heatPumpStateHistory({
+        connectionId,
+        from: from ?? "1970-01-01T00:00:00.000Z",
+        to: to ?? new Date(Date.now() + 86_400_000).toISOString(),
+        limit,
+      });
+    } catch {
+      request.onArchiveFailure?.();
+      if (!localHistoryComplete) return { complete: false };
+    }
+  } else if (!localHistoryComplete) {
+    return { complete: false };
+  }
+  const merged = new Map<string, HeatPumpState>();
+  for (const state of [...archived, ...local]) {
+    merged.set(JSON.stringify([state.connectionId, state.observedAt]), state);
+  }
+  const states = [...merged.values()]
+    .sort((left, right) => right.observedAt.localeCompare(left.observedAt))
+    .slice(0, limit);
+  return { complete: true, states };
 }

@@ -56,8 +56,11 @@ releasing it. The [README](../README.md) has screenshots and an overview, and
   evidence capture and a Property work plan with verification history.
 - [Apple Notes bridge and Telegram alerts](apple-notes-telegram.md): Telegram
   bot pairing and per-rule delivery, plus revocable iOS Shortcut grants.
-- [ChatGPT and voice](chatgpt.md): the focused read-only MCP profile for
-  private ChatGPT conversations.
+- [Claude and ChatGPT](assistants.md): connect an AI assistant with one URL
+  and an Owner/Admin approval, then ask about your Homes on the web, on your
+  phone or by voice.
+- [ChatGPT and voice](chatgpt.md): the focused read-only MCP profile and the
+  private Secure MCP Tunnel for installations without a public address.
 - [API, MCP and integrations](integrations.md): v1 and v2 REST and SSE, MCP
   tools, alert webhooks and adapter guidance. The
   [API testing catalogue](testing/api-endpoint-combinations.md) lists endpoint

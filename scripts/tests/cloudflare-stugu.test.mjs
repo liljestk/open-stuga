@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join, parse as parsePath, resolve } from "node:path";
 import test from "node:test";
 import {
+  assistantConnectorApplicationSpec,
+  assistantConnectorPolicySpec,
   parseArguments,
   provision,
   readCoordinatorDeployment,
@@ -57,6 +59,32 @@ test("coordinator Access exception is exact, invisible, and bypasses only for ap
   });
   assert.deepEqual(stugubyProtocolPolicySpec("stugu.example.test"), {
     name: "Stugu (stugu.example.test) signed Stuguby nodes",
+    decision: "bypass",
+    precedence: 1,
+    include: [{ everyone: {} }],
+    exclude: [],
+    require: [],
+  });
+});
+
+test("assistant connector Access exception covers only the OAuth and MCP machine paths", () => {
+  assert.deepEqual(assistantConnectorApplicationSpec("stugu.example.test"), {
+    name: "Stugu (stugu.example.test) assistant connector",
+    type: "self_hosted",
+    domain: "stugu.example.test/api/v1/mcp",
+    destinations: [
+      { type: "public", uri: "stugu.example.test/api/v1/mcp" },
+      { type: "public", uri: "stugu.example.test/api/v1/oauth/*" },
+      { type: "public", uri: "stugu.example.test/.well-known/oauth-authorization-server" },
+      { type: "public", uri: "stugu.example.test/.well-known/oauth-protected-resource/api/v1/mcp" },
+    ],
+    app_launcher_visible: false,
+  });
+  const destinations = assistantConnectorApplicationSpec("stugu.example.test").destinations.map((destination) => destination.uri);
+  assert.ok(!destinations.some((uri) => uri.includes("/connect/assistant") || uri.includes("/assistant-connector")),
+    "the consent page and its API must stay behind the human Access application");
+  assert.deepEqual(assistantConnectorPolicySpec("stugu.example.test"), {
+    name: "Stugu (stugu.example.test) OAuth-authenticated assistants",
     decision: "bypass",
     precedence: 1,
     include: [{ everyone: {} }],
@@ -187,7 +215,7 @@ test("bundled reverse proxy rate-limits the machine exception before the generic
   assert.match(dockerfile, /find \/usr\/share\/nginx\/html[\s\S]*gzip -9 -c "\$file" > "\$file\.gz"/u);
   assert.match(nginx, /resolver \$\{STUGA_CONTAINER_DNS_RESOLVER\} valid=10s ipv6=off;/u);
   assert.match(nginx, /set \$stuga_api_host api;/u);
-  assert.equal((nginx.match(/proxy_pass http:\/\/\$stuga_api_host:8787;/gu) ?? []).length, 3);
+  assert.equal((nginx.match(/proxy_pass http:\/\/\$stuga_api_host:8787;/gu) ?? []).length, 5);
   assert.match(nginx, /limit_req_zone \$stuga_client_address zone=stugby_join:10m rate=6r\/m;/u);
   assert.match(nginx, /limit_req_zone \$stuga_client_address zone=stugby_protocol:10m rate=30r\/s;/u);
   const join = nginx.indexOf("location = /api/v1/stugby-protocol/join");
@@ -197,6 +225,14 @@ test("bundled reverse proxy rate-limits the machine exception before the generic
   assert.match(nginx.slice(join, protocol), /client_max_body_size 64k;/u);
   assert.match(nginx.slice(join, protocol), /limit_req zone=stugby_join burst=5 nodelay;/u);
   assert.match(nginx.slice(protocol, genericApi), /limit_req zone=stugby_protocol burst=120 nodelay;/u);
+  assert.match(nginx, /limit_req_zone \$stuga_client_address zone=assistant_oauth:10m rate=30r\/m;/u);
+  const discovery = nginx.indexOf("location ^~ /.well-known/oauth- {");
+  const otherWellKnown = nginx.indexOf("location ^~ /.well-known/ {");
+  const oauth = nginx.indexOf("location ^~ /api/v1/oauth/ {");
+  assert.ok(protocol < discovery && discovery < otherWellKnown && otherWellKnown < oauth && oauth < genericApi);
+  assert.match(nginx.slice(discovery, otherWellKnown), /limit_req zone=assistant_oauth[\s\S]*proxy_pass/u);
+  assert.match(nginx.slice(otherWellKnown, oauth), /return 404;/u);
+  assert.match(nginx.slice(oauth, genericApi), /client_max_body_size 16k;[\s\S]*limit_req zone=assistant_oauth burst=20 nodelay;/u);
   const assets = nginx.indexOf("location ^~ /assets/");
   const application = nginx.indexOf("location / {", assets);
   assert.ok(assets > genericApi && application > assets);
@@ -220,14 +256,29 @@ function publicAsset(contentType) {
   return new Response("", { status: 200, headers: { "content-type": contentType } });
 }
 
-function cloudflareDeployment(mode) {
+function cloudflareDeployment(mode, extra = {}) {
   const directory = mkdtempSync(join(tmpdir(), "stugu-cloudflare-test-"));
   writeFileSync(join(directory, "deployment.json"), JSON.stringify({
     version: 2,
     mode,
     hostname: "stugu.example.test",
+    ...extra,
   }));
   return directory;
+}
+
+function assistantChallenge() {
+  return new Response(JSON.stringify({ jsonrpc: "2.0", error: { code: -32001 }, id: null }), {
+    status: 401,
+    headers: {
+      "content-type": "application/json",
+      "www-authenticate": 'Bearer realm="Stugu MCP", resource_metadata="https://stugu.example.test/.well-known/oauth-protected-resource/api/v1/mcp"',
+    },
+  });
+}
+
+function assistantMetadata(issuer = "https://stugu.example.test") {
+  return new Response(JSON.stringify({ issuer }), { status: 200, headers: { "content-type": "application/json" } });
 }
 
 function coordinatorDeployment() {
@@ -343,6 +394,7 @@ test("coordinator verifier proves that human/admin paths are protected and machi
       handoffStatus: 200,
       handoffScriptStatus: 200,
       machineStatus: 400,
+      assistantConnector: null,
     });
     assert.deepEqual(urls, [
       "https://stugu.example.test/",
@@ -387,6 +439,65 @@ test("coordinator verifier fails closed for an exposed root or Access-blocked ma
         { fetcher: async () => blockedHandoff.shift(), logger: { log() {} } },
       ),
       /Invitation handoff page is not publicly reachable/u,
+    );
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("verifier proves assistants reach OAuth and MCP while the consent page stays behind Access", async () => {
+  const directory = cloudflareDeployment("remote-ui", { assistantConnectorApplicationId: "app-assistant" });
+  const responses = [
+    accessRedirect(),
+    accessRedirect(),
+    publicAsset("text/html"),
+    publicAsset("application/javascript"),
+    accessRedirect(),
+    accessRedirect(),
+    assistantMetadata(),
+    assistantChallenge(),
+  ];
+  const urls = [];
+  try {
+    const result = await verifyDeployment(
+      { secretDirectory: directory },
+      {
+        fetcher: async (url) => {
+          urls.push(url);
+          return responses.shift();
+        },
+        logger: { log() {} },
+      },
+    );
+    assert.deepEqual(result.assistantConnector, { consentStatus: 302, metadataStatus: 200, mcpStatus: 401 });
+    assert.deepEqual(urls.slice(5), [
+      "https://stugu.example.test/connect/assistant",
+      "https://stugu.example.test/.well-known/oauth-authorization-server",
+      "https://stugu.example.test/api/v1/mcp",
+    ]);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("verifier fails closed when the assistant paths are still behind Access or the consent page is exposed", async () => {
+  const directory = cloudflareDeployment("remote-ui", { assistantConnectorApplicationId: "app-assistant" });
+  const prefix = () => [accessRedirect(), accessRedirect(), publicAsset("text/html"), publicAsset("application/javascript"), accessRedirect()];
+  try {
+    const blocked = [...prefix(), accessRedirect(), accessRedirect()];
+    await assert.rejects(
+      verifyDeployment({ secretDirectory: directory }, { fetcher: async () => blocked.shift(), logger: { log() {} } }),
+      /OAuth discovery did not reach Stugu/u,
+    );
+    const exposed = [...prefix(), publicAsset("text/html")];
+    await assert.rejects(
+      verifyDeployment({ secretDirectory: directory }, { fetcher: async () => exposed.shift(), logger: { log() {} } }),
+      /consent page is not protected/u,
+    );
+    const challengeBlocked = [...prefix(), accessRedirect(), assistantMetadata(), accessRedirect()];
+    await assert.rejects(
+      verifyDeployment({ secretDirectory: directory }, { fetcher: async () => challengeBlocked.shift(), logger: { log() {} } }),
+      /did not answer with Stugu's OAuth challenge/u,
     );
   } finally {
     rmSync(directory, { recursive: true, force: true });

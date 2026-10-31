@@ -83,6 +83,17 @@ export function authAttemptKeys(request: Request, config: AppConfig, kind: strin
   ];
 }
 
+/** Assistant OAuth endpoints are public: bound registrations and token exchanges per client address. */
+export function assistantOAuthAttemptKeys(request: Request, config: AppConfig, endpoint: string): AuthAttemptLimit[] {
+  const address = trustedProxyClientAddress(request, config)
+    ?? request.socket.remoteAddress?.toLowerCase().replace(/^::ffff:/, "")
+    ?? "unknown";
+  return [
+    { key: `assistant-oauth:${address}:*`, maxAttempts: 120, maxActive: 4 },
+    { key: `assistant-oauth:${address}:${endpoint}`, maxAttempts: endpoint === "register" ? 10 : 60, maxActive: 2 },
+  ];
+}
+
 export function trackingObserverAttemptKeys(
   request: Request,
   config: AppConfig,

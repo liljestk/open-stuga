@@ -185,6 +185,10 @@
 
 .mcp-token-note.warning { color: var(--yellow); }
 
+div.mcp-token-note { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
+
+div.mcp-token-note > p { margin: 0; }
+
 .endpoint-copy-status.failed { color: var(--red); }
 
 .table-scroll { overflow-x: auto; margin-top: 14px; }

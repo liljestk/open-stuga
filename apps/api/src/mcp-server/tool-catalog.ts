@@ -6,6 +6,9 @@ import { homeToolDefinitions } from "./home-tool-definitions.js";
 import { telemetryToolDefinitions } from "./telemetry-tool-definitions.js";
 import { systemToolDefinitions, workspaceToolDefinitions } from "./workspace-tool-definitions.js";
 import { derivedAnalyticsToolDefinitions } from "./derived-analytics-tools.js";
+import { heatPumpToolDefinitions } from "./heat-pump-tools.js";
+import { electricityToolDefinitions } from "./energy-tools.js";
+import { analyticsQueryToolDefinitions } from "./analytics-query-tools.js";
 
 export const resultOutputSchema = {
   type: "object",
@@ -19,6 +22,9 @@ export const READ_ONLY_MCP_TOOL_NAMES: ReadonlySet<string> = new Set([
   "get_property",
   "get_property_electricity",
   "get_property_energy_optimization",
+  "get_property_electricity_tariff",
+  "list_electricity_invoices",
+  "get_electricity_invoice_reconciliation",
   "list_property_areas",
   "list_area_equipment",
   "list_property_notes",
@@ -38,6 +44,9 @@ export const READ_ONLY_MCP_TOOL_NAMES: ReadonlySet<string> = new Set([
   "get_house_electricity_price",
   "get_house_energy_cost",
   "get_house_energy_summary",
+  "get_house_energy_projection",
+  "list_heat_pump_states",
+  "query_heat_pump_history",
   "query_outdoor_temperature_history",
   "get_home_moisture_response",
   "run_thermal_simulation",
@@ -47,6 +56,8 @@ export const READ_ONLY_MCP_TOOL_NAMES: ReadonlySet<string> = new Set([
   "get_measurement_snapshot",
   "query_measurement_history",
   "summarize_home_measurements",
+  "query_analytics",
+  "get_measurement_coverage",
   "forecast_measurement",
   "get_sensor_snapshot",
   "query_history",
@@ -89,6 +100,9 @@ export const mcpToolDefinitions = [
   ...workspaceToolDefinitions,
   ...systemToolDefinitions,
   ...derivedAnalyticsToolDefinitions,
+  ...heatPumpToolDefinitions,
+  ...electricityToolDefinitions,
+  ...analyticsQueryToolDefinitions,
 ] as const;
 
 /** The tools a server with this profile lists, with the ChatGPT app's titles when it is that profile. */

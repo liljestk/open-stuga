@@ -11,6 +11,7 @@ import { svBugReports } from "./sv/bug-reports";
 import { svElectricityTariffs } from "./sv/electricity-tariffs";
 import { svAnalyticsQuality } from "./sv/analytics-quality";
 import { svRequestErrors } from "./sv/request-errors";
+import { svAssistantConnector } from "./sv/assistant-connector";
 import type { TranslationKey } from "./en";
 
 export const svOverrides = {
@@ -27,4 +28,5 @@ export const svOverrides = {
   ...svElectricityTariffs,
   ...svAnalyticsQuality,
   ...svRequestErrors,
+  ...svAssistantConnector,
 } satisfies Record<TranslationKey, string>;
