@@ -72,6 +72,14 @@ test("unknown Watch status stays neutral", async () => {
   )?.[0];
   assert.match(symbolSwitch ?? "", /case "balanced": "checkmark\.circle\.fill"/);
   assert.match(symbolSwitch ?? "", /default: "circle\.dashed"/);
-  assert.match(colorSwitch ?? "", /case "balanced": \.green/);
+  assert.match(colorSwitch ?? "", /case "balanced": WatchPalette\.success/);
   assert.match(colorSwitch ?? "", /default: \.secondary/);
+});
+
+test("Watch and widget caution is straw yellow, never the lantern's orange", async () => {
+  for (const file of ["StuguWatch/StuguWatchApp.swift", "StuguWidget/StuguWidget.swift"]) {
+    const text = await source(file);
+    assert.match(text, /static let caution = \w+\([^)]*0xE5CF62\)/, `${file} caution`);
+    assert.doesNotMatch(text, /\.orange\b|0xF2B33D/i, `${file} must not use orange or the lantern`);
+  }
 });

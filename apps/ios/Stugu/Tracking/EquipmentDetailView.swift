@@ -781,7 +781,7 @@ private struct EquipmentPhotoTile: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
             ZStack {
-                RoundedRectangle(cornerRadius: 8)
+                RoundedRectangle(cornerRadius: StuguTheme.Radius.control)
                     .fill(StuguTheme.action.opacity(0.08))
                     .aspectRatio(4 / 3, contentMode: .fit)
                 if let image {
@@ -789,7 +789,7 @@ private struct EquipmentPhotoTile: View {
                         .resizable()
                         .scaledToFill()
                         .aspectRatio(4 / 3, contentMode: .fill)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .clipShape(RoundedRectangle(cornerRadius: StuguTheme.Radius.control))
                 } else if failed {
                     Image(systemName: "photo.badge.exclamationmark")
                         .foregroundStyle(StuguTheme.muted)
@@ -1447,8 +1447,8 @@ struct EquipmentLocationMapPicker: View {
                             ) {
                                 Image(systemName: "mappin.circle.fill")
                                     .font(.system(size: 34, weight: .semibold))
-                                    .foregroundStyle(StuguTheme.brand)
-                                    .background(Circle().fill(.white))
+                                    .foregroundStyle(StuguTheme.action)
+                                    .background(Circle().fill(StuguTheme.actionText))
                                     .accessibilityLabel("Selected equipment location")
                             }
                         }
@@ -1535,9 +1535,9 @@ private struct InventoryLocationContextLabel: View {
             .padding(.vertical, 5)
             .foregroundStyle(StuguTheme.ink)
             .background(.regularMaterial)
-            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: StuguTheme.Radius.small, style: .continuous))
             .overlay {
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                RoundedRectangle(cornerRadius: StuguTheme.Radius.small, style: .continuous)
                     .stroke(StuguTheme.strongLine, lineWidth: 1)
             }
     }

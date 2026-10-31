@@ -151,7 +151,7 @@ private struct StuguWidgetView: View {
             }
         }
         .containerBackground(for: .widget) {
-            Color(uiColor: .secondarySystemBackground)
+            WidgetPalette.surface
         }
     }
 
@@ -189,7 +189,7 @@ private struct StuguWidgetView: View {
                             .font(.caption.bold())
                             .padding(.horizontal, 7)
                             .padding(.vertical, 3)
-                            .background(Color.red.opacity(0.15), in: Capsule())
+                            .background(WidgetPalette.critical.opacity(0.15), in: Capsule())
                     }
                 }
                 Text(snapshot.title)
@@ -232,9 +232,9 @@ private struct StuguWidgetView: View {
 
     private func color(_ state: String) -> Color {
         switch state {
-        case "critical": .red
-        case "attention": .orange
-        case "balanced": .green
+        case "critical": WidgetPalette.critical
+        case "attention": WidgetPalette.caution
+        case "balanced": WidgetPalette.success
         default: .secondary
         }
     }
@@ -245,6 +245,27 @@ private struct StuguWidgetView: View {
         return formatter.date(from: value)
             ?? ISO8601DateFormatter().date(from: value)
             ?? entry.date
+    }
+}
+
+// Kaamos surface and status colours from DESIGN.md §4; the widget extension
+// does not compile StuguTheme.swift.
+private enum WidgetPalette {
+    static let surface = adaptive(light: 0xFFFFFF, dark: 0x1B2733)
+    static let success = adaptive(light: 0x1D6B55, dark: 0x7ED6B0)
+    static let caution = adaptive(light: 0x7A5100, dark: 0xE5CF62)
+    static let critical = adaptive(light: 0xB3261E, dark: 0xFF8F86)
+
+    private static func adaptive(light: UInt32, dark: UInt32) -> Color {
+        Color(uiColor: UIColor { traits in
+            let hex = traits.userInterfaceStyle == .dark ? dark : light
+            return UIColor(
+                red: CGFloat((hex >> 16) & 0xFF) / 255,
+                green: CGFloat((hex >> 8) & 0xFF) / 255,
+                blue: CGFloat(hex & 0xFF) / 255,
+                alpha: 1
+            )
+        })
     }
 }
 

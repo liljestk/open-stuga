@@ -249,9 +249,9 @@ struct HomeDashboardView: View {
                 .padding(14)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(StuguTheme.surface)
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: StuguTheme.Radius.card, style: .continuous))
                 .overlay {
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    RoundedRectangle(cornerRadius: StuguTheme.Radius.card, style: .continuous)
                         .stroke(StuguTheme.line, lineWidth: 1)
                 }
         }
@@ -298,7 +298,7 @@ struct HomeDashboardView: View {
         }
         .padding(14)
         .background(alert.severity == "critical" ? StuguTheme.criticalSurface : StuguTheme.warningSurface)
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: StuguTheme.Radius.card, style: .continuous))
         .overlay(alignment: .leading) {
             Rectangle()
                 .fill(color)
@@ -355,9 +355,9 @@ struct HomeDashboardView: View {
         .padding(14)
         .frame(maxWidth: .infinity, minHeight: 124, alignment: .topLeading)
         .background(StuguTheme.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: StuguTheme.Radius.card, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
+            RoundedRectangle(cornerRadius: StuguTheme.Radius.card, style: .continuous)
                 .stroke(StuguTheme.line, lineWidth: 1)
         }
         .accessibilityElement(children: .combine)
@@ -496,7 +496,7 @@ struct HomeDashboardView: View {
 
     private func metricColor(_ metric: GlanceOverviewMetric) -> Color {
         switch metric {
-        case .temperature: StuguTheme.brand
+        case .temperature: StuguTheme.warm
         case .humidity: StuguTheme.action
         case .power: StuguTheme.warning
         case .co2: StuguTheme.muted

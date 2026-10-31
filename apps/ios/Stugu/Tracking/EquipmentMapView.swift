@@ -523,9 +523,9 @@ struct EquipmentMapView: View {
             .padding(.horizontal, 12)
             .frame(minHeight: 46)
             .background(StuguTheme.surface)
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: StuguTheme.Radius.control, style: .continuous))
             .overlay {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                RoundedRectangle(cornerRadius: StuguTheme.Radius.control, style: .continuous)
                     .stroke(StuguTheme.line)
             }
 
@@ -743,9 +743,9 @@ struct EquipmentMapView: View {
         }
         .padding(12)
         .background(StuguTheme.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: StuguTheme.Radius.card, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
+            RoundedRectangle(cornerRadius: StuguTheme.Radius.card, style: .continuous)
                 .stroke(StuguTheme.line)
         }
     }
@@ -1127,9 +1127,9 @@ private struct PropertyMapContextLabel: View {
             .padding(.vertical, 5)
             .foregroundStyle(StuguTheme.ink)
             .background(.regularMaterial)
-            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: StuguTheme.Radius.small, style: .continuous))
             .overlay {
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                RoundedRectangle(cornerRadius: StuguTheme.Radius.small, style: .continuous)
                     .stroke(StuguTheme.strongLine, lineWidth: 1)
             }
     }
@@ -1147,7 +1147,7 @@ private struct InventorySummaryMetric: View {
                 .foregroundStyle(color)
                 .frame(width: 28, height: 28)
                 .background(color.opacity(0.1))
-                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: StuguTheme.Radius.control, style: .continuous))
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 1) {
                 Text(value)
@@ -1200,9 +1200,9 @@ private struct MemberLocationSharingBanner: View {
         }
         .padding(12)
         .background(StuguTheme.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: StuguTheme.Radius.card, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
+            RoundedRectangle(cornerRadius: StuguTheme.Radius.card, style: .continuous)
                 .stroke(StuguTheme.line)
         }
     }
@@ -1214,7 +1214,7 @@ private struct MemberLocationMarker: View {
     var body: some View {
         VStack(spacing: 3) {
             Image(systemName: "person.fill")
-                .foregroundStyle(.white)
+                .foregroundStyle(StuguTheme.actionText)
                 .frame(width: 34, height: 34)
                 .background(StuguTheme.action)
                 .clipShape(Circle())
@@ -1252,7 +1252,7 @@ private struct EquipmentMarker: View {
             }
             Image(systemName: markerSymbol)
                 .font(.system(size: 16, weight: .bold))
-                .foregroundStyle(.white)
+                .foregroundStyle(StuguTheme.actionText)
                 .frame(width: selected ? 38 : 32, height: selected ? 38 : 32)
                 .background(markerColor)
                 .clipShape(Circle())
@@ -1341,7 +1341,7 @@ private struct InventoryEquipmentRow: View {
                     .foregroundStyle(statusColor)
                     .frame(width: 38, height: 38)
                     .background(statusColor.opacity(0.1))
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: StuguTheme.Radius.control, style: .continuous))
                 VStack(alignment: .leading, spacing: 4) {
                     Text(equipment.name)
                         .font(.subheadline.weight(.semibold))

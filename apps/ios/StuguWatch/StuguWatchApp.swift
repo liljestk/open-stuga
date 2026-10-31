@@ -47,7 +47,7 @@ private struct StuguWatchHomeView: View {
                 if snapshot.homeOrigin == "remote" {
                     Label("Remote Stuguby Home", systemImage: "person.2.fill")
                         .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.blue)
+                        .foregroundStyle(WatchPalette.action)
                 }
                 Text(snapshot.title)
                     .font(.body.weight(.semibold))
@@ -58,7 +58,7 @@ private struct StuguWatchHomeView: View {
                 if model.snapshotIsStale {
                     Label("Status may be out of date", systemImage: "clock.badge.exclamationmark")
                         .font(.caption2)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(WatchPalette.caution)
                 } else if snapshot.cached {
                     Label("Saved on iPhone", systemImage: "clock.arrow.circlepath")
                         .font(.caption2)
@@ -68,7 +68,7 @@ private struct StuguWatchHomeView: View {
                 if snapshot.alerts.isEmpty {
                     Label("No unseen alerts", systemImage: "checkmark.circle.fill")
                         .font(.footnote.weight(.semibold))
-                        .foregroundStyle(.green)
+                        .foregroundStyle(WatchPalette.success)
                         .padding(.top, 4)
                 } else {
                     Divider()
@@ -134,10 +134,10 @@ private struct StuguWatchHomeView: View {
 
     private func stateColor(_ state: String) -> Color {
         switch state {
-        case "critical": .red
-        case "attention": .orange
+        case "critical": WatchPalette.critical
+        case "attention": WatchPalette.caution
         case "limited": .secondary
-        case "balanced": .green
+        case "balanced": WatchPalette.success
         default: .secondary
         }
     }
@@ -149,7 +149,24 @@ private struct StuguWatchHomeView: View {
     }
 
     private func severityColor(_ severity: String) -> Color {
-        severity == "critical" ? .red : .orange
+        severity == "critical" ? WatchPalette.critical : WatchPalette.caution
+    }
+}
+
+// Kaamos night values from DESIGN.md §4; watchOS is always dark, and the
+// Watch target does not compile StuguTheme.swift.
+private enum WatchPalette {
+    static let action = color(0x8CC8F0)
+    static let success = color(0x7ED6B0)
+    static let caution = color(0xE5CF62)
+    static let critical = color(0xFF8F86)
+
+    private static func color(_ hex: UInt32) -> Color {
+        Color(
+            red: Double((hex >> 16) & 0xFF) / 255,
+            green: Double((hex >> 8) & 0xFF) / 255,
+            blue: Double(hex & 0xFF) / 255
+        )
     }
 }
 

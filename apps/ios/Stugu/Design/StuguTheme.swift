@@ -1,27 +1,46 @@
 import SwiftUI
 import UIKit
 
+// Kaamos palette from DESIGN.md §4: snow in light, polar night in dark.
 enum StuguTheme {
-    static let canvas = adaptive(light: 0xF1EFE9, dark: 0x121411)
-    static let surface = adaptive(light: 0xFCFBF7, dark: 0x1B1D19)
-    static let surfaceRaised = adaptive(light: 0xFFFFFF, dark: 0x232620)
-    static let ink = adaptive(light: 0x1B1D1A, dark: 0xF2F0E9)
-    static let muted = adaptive(light: 0x60635D, dark: 0xB4B8AF)
-    static let line = adaptive(light: 0xDEDBD2, dark: 0x464B43)
-    static let strongLine = adaptive(light: 0x919088, dark: 0x666B61)
-    static let action = adaptive(light: 0x0755C9, dark: 0x78A7FF)
-    static let actionText = adaptive(light: 0xFFFFFF, dark: 0x111A2A)
-    static let brand = adaptive(light: 0xB54122, dark: 0xE06B4C)
-    static let success = adaptive(light: 0x007A5C, dark: 0x5DD6B2)
-    static let warning = adaptive(light: 0x795000, dark: 0xF2C14E)
-    static let critical = adaptive(light: 0xB42318, dark: 0xFF8A80)
-    static let warningSurface = adaptive(light: 0xFFF1C7, dark: 0x352B13)
-    static let criticalSurface = adaptive(light: 0xFDECEA, dark: 0x3B1C19)
+    static let canvas = adaptive(light: 0xEEF2F5, dark: 0x141E28)
+    static let surface = adaptive(light: 0xFFFFFF, dark: 0x1B2733)
+    static let surfaceRaised = adaptive(light: 0xFFFFFF, dark: 0x22303D)
+    static let ink = adaptive(light: 0x15212C, dark: 0xE9EFF3)
+    static let muted = adaptive(light: 0x566573, dark: 0xA2B1BD)
+    static let line = adaptive(light: 0xD6DEE5, dark: 0x2C3B49)
+    static let strongLine = adaptive(light: 0x8796A3, dark: 0x667A8D)
+    static let action = adaptive(light: 0x1F5F92, dark: 0x8CC8F0)
+    static let actionPressed = adaptive(light: 0x164A73, dark: 0xB0DAF5)
+    static let actionText = adaptive(light: 0xFFFFFF, dark: 0x0C1A26)
+    static let warm = adaptive(light: 0xB4461F, dark: 0xFF9A6E)
+    static let success = adaptive(light: 0x1D6B55, dark: 0x7ED6B0)
+    static let warning = adaptive(light: 0x7A5100, dark: 0xE5CF62)
+    static let critical = adaptive(light: 0xB3261E, dark: 0xFF8F86)
+    static let warningSurface = adaptive(light: 0xFBEFCF, dark: 0x36321B)
+    static let criticalSurface = adaptive(light: 0xFBE7E5, dark: 0x482426)
+    /// The lit window. Reserved for the mark and a current-place marker; never a status colour.
+    static let lantern = fixed(0xF2B33D)
+
+    enum Radius {
+        /// Small tools and chips.
+        static let small: CGFloat = 4
+        /// Controls, fields, icon tiles and thumbnails.
+        static let control: CGFloat = 8
+        /// Cards and panels.
+        static let card: CGFloat = 12
+        /// Dialogs and large media frames.
+        static let large: CGFloat = 16
+    }
 
     static func adaptive(light: UInt32, dark: UInt32) -> Color {
         Color(uiColor: UIColor { traits in
             UIColor(hex: traits.userInterfaceStyle == .dark ? dark : light)
         })
+    }
+
+    static func fixed(_ hex: UInt32) -> Color {
+        Color(uiColor: UIColor(hex: hex))
     }
 }
 
@@ -54,9 +73,9 @@ struct StuguCard<Content: View>: View {
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(StuguTheme.surface)
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: StuguTheme.Radius.card, style: .continuous))
             .overlay {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                RoundedRectangle(cornerRadius: StuguTheme.Radius.card, style: .continuous)
                     .stroke(StuguTheme.line, lineWidth: 1)
             }
     }
@@ -66,10 +85,11 @@ struct PrimaryButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.body.weight(.semibold))
+            .padding(.horizontal, 18)
             .frame(maxWidth: .infinity, minHeight: 48)
             .foregroundStyle(StuguTheme.actionText)
-            .background(configuration.isPressed ? StuguTheme.action.opacity(0.82) : StuguTheme.action)
-            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .background(configuration.isPressed ? StuguTheme.actionPressed : StuguTheme.action)
+            .clipShape(Capsule())
     }
 }
 
@@ -77,12 +97,13 @@ struct SecondaryButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.body.weight(.semibold))
+            .padding(.horizontal, 18)
             .frame(maxWidth: .infinity, minHeight: 46)
             .foregroundStyle(StuguTheme.ink)
             .background(configuration.isPressed ? StuguTheme.line.opacity(0.55) : StuguTheme.surface)
-            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .clipShape(Capsule())
             .overlay {
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                Capsule()
                     .stroke(StuguTheme.strongLine, lineWidth: 1)
             }
     }

@@ -206,6 +206,8 @@ struct RoomPlanImportView: View {
                     }
                 }
                 .buttonStyle(.borderedProminent)
+                .buttonBorderShape(.capsule)
+                .foregroundStyle(StuguTheme.actionText)
                 .disabled(captureShouldStop)
             }
             .padding()
@@ -288,9 +290,9 @@ struct RoomPlanImportView: View {
                         }
                         .padding(12)
                         .background(StuguTheme.surfaceRaised)
-                        .clipShape(RoundedRectangle(cornerRadius: 5))
+                        .clipShape(RoundedRectangle(cornerRadius: StuguTheme.Radius.control))
                         .overlay {
-                            RoundedRectangle(cornerRadius: 5)
+                            RoundedRectangle(cornerRadius: StuguTheme.Radius.control)
                                 .stroke(StuguTheme.strongLine, lineWidth: 1)
                         }
 
@@ -740,9 +742,9 @@ private struct RoomPlanPreview: View {
         }
         .padding(8)
         .background(StuguTheme.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .clipShape(RoundedRectangle(cornerRadius: StuguTheme.Radius.card))
         .overlay {
-            RoundedRectangle(cornerRadius: 10)
+            RoundedRectangle(cornerRadius: StuguTheme.Radius.card)
                 .stroke(StuguTheme.line, lineWidth: 1)
         }
     }
