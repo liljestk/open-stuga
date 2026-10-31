@@ -65,7 +65,7 @@
     "apps/api/src/host-system/prometheus.ts": [17],
     "apps/api/src/integration-secrets-lock.ts": [41],
     "apps/api/src/integration-secrets.ts": [44, 28, 23, 19, 18],
-    "apps/api/src/scheduled-data-exports.ts": [35, 34, 23],
+    "apps/api/src/scheduled-data-exports.ts": [35, 34, 22],
     "apps/api/src/setup-doctor.ts": [49],
     "apps/api/src/spatial-layers/core-input/03-climate-database-spatial-input-adapter.ts": [19],
     "apps/api/src/spatial-layers/core-input/topology-builder.ts": [28, 18],

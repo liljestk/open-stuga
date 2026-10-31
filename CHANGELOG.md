@@ -2,10 +2,22 @@
 
 All notable Stugu releases are recorded here.
 
-## 0.58.1
+## 0.59.1
 
 - Mean, sum, minimum, maximum and last analytics on a TimescaleDB archive answer much faster. The raw readings at the edges of a range were read by scanning and decompressing the Sensor's whole stored history; they now read only the archive chunks that hold them. On a Raspberry Pi, a 30-day mean at 15 minutes for a power plug reporting every 2 seconds dropped from 1.6 s to 0.09 s, and 90- and 365-day hourly reads from about 2 s to 0.2 s. Results are unchanged.
 - Upgrade impact: application-only update; no schema, Compose, configuration or host-trust change.
+
+## 0.59.0
+
+Scheduled exports can go to Dropbox or Google Drive instead of the NAS.
+
+- Under **Set up → Operations**, the **Backups and exports** panel (formerly "NAS for backups and exports") has a new **Where scheduled exports go** choice: NAS, Dropbox or Google Drive. The choice applies to every Home's scheduled exports.
+- To connect Dropbox, choose **Connect**, approve Stugu in Dropbox, and paste the code Dropbox shows. To connect Google Drive, choose **Connect**, then enter the short code Stugu shows at google.com/device on any phone or computer. The page finishes by itself once Google approves. Connecting a drive also selects it.
+- Stugu can only see its own folder: the Dropbox app folder, or files it created in Google Drive (My Drive › Stugu). Each schedule's files go into `data-exports/<schedule>`, and only the newest *Files to keep* stay there, the same as on the NAS. **Disconnect** removes the account, revokes access, and switches exports back to the NAS. Files already uploaded are kept.
+- Recovery backups don't change. They stay on the NAS, or on this device when no NAS is connected, because they include stored credentials and can be large.
+- iCloud Drive is listed as *Coming later*. Apple has no supported server API for it.
+- The **Scheduled exports** card in Data & Analytics shows where files are saved, for example "Saving to Dropbox", and links to the destination choice when none is ready.
+- Upgrade impact: feature update with no schema or host-trust change; existing NAS schedules keep working unchanged. Dropbox and Google Drive appear as *Not enabled on this installation yet* until the installation has the providers' public app IDs (`STUGU_DROPBOX_APP_KEY`, `STUGU_GOOGLE_DRIVE_CLIENT_ID`, `STUGU_GOOGLE_DRIVE_CLIENT_SECRET`), which Compose now passes to the API. See `docs/cloud-export-destinations.md` for the one-time app registration. New API: `GET/PUT /system/export-destinations` plus connect, code, cancel and disconnect operations (Owner/Admin only). The API now reaches `api.dropboxapi.com`, `content.dropboxapi.com`, `oauth2.googleapis.com` and `www.googleapis.com` only after an owner connects a drive.
 
 ## 0.58.0
 

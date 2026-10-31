@@ -63,6 +63,7 @@ function backgroundServices(context: ApiRouteRegistrationContext): BackgroundSer
     { stop: () => context.notificationOutbox.stop() },
     { start: () => context.cloudflareAccess?.start(), stop: () => context.cloudflareAccess?.stop() },
     { stop: () => context.cloudflareSetup.stop() },
+    { stop: () => context.exportDestinations.stop() },
     { stop: () => context.weatherRecovery.stop() },
     { start: () => context.notifySpatial((runtime) => runtime.start()), stop: () => context.spatialLayers?.stop() },
     {
@@ -155,6 +156,7 @@ export function buildApiRuntime(
     tracking: context.tracking,
     systemUpdates: context.systemUpdates,
     systemStorage: context.systemStorage,
+    exportDestinations: context.exportDestinations,
     hostSystem: context.hostSystem,
     derivedAnalytics: context.derivedAnalytics,
     ready: () => lifecycle.runtimeReady,

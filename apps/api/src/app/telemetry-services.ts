@@ -110,7 +110,7 @@ export function createTelemetryServices(context: CoreDataServices) {
   const scheduledDataExports = new ScheduledDataExportService({
       database: context.database,
       telemetryReader,
-      systemStorage: context.systemStorage,
+      destinations: context.exportDestinations,
       dataOperations: context.dataOperations,
       operationsDirectory: config.backupOperationsDirectory ?? null,
       systemErrorLog: context.systemErrorLog,

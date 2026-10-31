@@ -2,14 +2,16 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   AnalyticsAggregation,
   AnalyticsResolution,
+  ExportDestinationStatus,
   House,
   ScheduledDataExport,
   ScheduledDataExportFrequency,
   ScheduledDataExportInput,
 } from "@climate-twin/contracts";
-import { CalendarClock, HardDrive, LoaderCircle, Pause, Play, Plus, Trash2 } from "lucide-react";
+import { CalendarClock, Cloud, HardDrive, LoaderCircle, Pause, Play, Plus, Trash2 } from "lucide-react";
 import { api } from "../api";
 import { confirmAction } from "./ConfirmationProvider";
+import { EXPORT_DESTINATION_NAME_KEYS } from "./exportDestinationNames";
 import { useI18n } from "../i18n";
 import "./ScheduledDataExportsPanel.css";
 
@@ -49,7 +51,7 @@ function scheduleInput(schedule: ScheduledDataExport, enabled = schedule.enabled
 export function ScheduledDataExportsPanel(props: Readonly<ScheduledDataExportsPanelProps>) {
   const { locale, t } = useI18n();
   const [schedules, setSchedules] = useState<ScheduledDataExport[]>([]);
-  const [nasConfigured, setNasConfigured] = useState<boolean | null>(null);
+  const [destination, setDestination] = useState<ExportDestinationStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [scheduleLoadError, setScheduleLoadError] = useState<string | null>(null);
@@ -93,9 +95,9 @@ export function ScheduledDataExportsPanel(props: Readonly<ScheduledDataExportsPa
       storageInFlight.current = null;
     }
     const controller = new AbortController();
-    const task = api.systemStorageStatus(controller.signal).then((storage) => {
+    const task = api.exportDestinations(controller.signal).then((nextDestination) => {
       if (controller.signal.aborted) return;
-      setNasConfigured(storage.settings.backups.kind === "nas-path");
+      setDestination(nextDestination);
       setStorageLoadError(null);
     }).catch((loadError: unknown) => {
       if (!controller.signal.aborted) setStorageLoadError(message(loadError, t("dataExport.scheduleLoadError")));
@@ -108,7 +110,7 @@ export function ScheduledDataExportsPanel(props: Readonly<ScheduledDataExportsPa
 
   useEffect(() => {
     setSchedules([]);
-    setNasConfigured(null);
+    setDestination(null);
     setScheduleLoadError(null);
     setStorageLoadError(null);
     setActionError(null);
@@ -160,7 +162,8 @@ export function ScheduledDataExportsPanel(props: Readonly<ScheduledDataExportsPa
 
   const selectionError = props.configurationError
     ?? (props.period === "custom" ? t("dataExport.scheduleCustomPeriod") : null);
-  const canCreate = nasConfigured === true && !selectionError && busy === null;
+  const targetReady = destination === null ? null : destination.ready;
+  const canCreate = targetReady === true && !selectionError && busy === null;
   const error = actionError ?? scheduleLoadError ?? storageLoadError;
 
   const create = async (selectedFrequency: ScheduledDataExportFrequency, selectedName: string) => {
@@ -244,10 +247,10 @@ export function ScheduledDataExportsPanel(props: Readonly<ScheduledDataExportsPa
   return <section className="scheduled-data-exports" aria-labelledby="scheduled-data-exports-title">
     <header>
       <div><span className="eyebrow"><CalendarClock size={14} aria-hidden="true" /> {t("dataExport.scheduleEyebrow")}</span><h3 id="scheduled-data-exports-title">{t("dataExport.scheduleTitle")}</h3><p>{t("dataExport.scheduleDescription")}</p></div>
-      <span className={`scheduled-target ${nasConfigured ? "connected" : "missing"}`}><HardDrive size={14} aria-hidden="true" />{nasConfigured === null ? t("dataExport.scheduleTargetChecking") : nasConfigured ? t("dataExport.scheduleTargetConnected") : t("dataExport.scheduleTargetMissing")}</span>
+      <span className={`scheduled-target ${targetReady ? "connected" : "missing"}`}>{destination?.selected && destination.selected !== "nas" ? <Cloud size={14} aria-hidden="true" /> : <HardDrive size={14} aria-hidden="true" />}{destination === null ? t("dataExport.scheduleTargetChecking") : targetReady ? t("dataExport.scheduleTargetConnected", { destination: t(EXPORT_DESTINATION_NAME_KEYS[destination.selected]) }) : t("dataExport.scheduleTargetMissing")}</span>
     </header>
 
-    {!nasConfigured && nasConfigured !== null && <div className="scheduled-target-callout"><p>{t("dataExport.scheduleTargetHelp")}</p><a className="secondary-button" href="/setup/operations#nas-export-setup">{t("dataExport.scheduleSetupNas")}</a></div>}
+    {targetReady === false && <div className="scheduled-target-callout"><p>{t("dataExport.scheduleTargetHelp")}</p><a className="secondary-button" href="/setup/operations#nas-export-setup">{t("dataExport.scheduleSetupNas")}</a></div>}
 
     <div className="scheduled-quick-create">
       <div><strong>{t("dataExport.scheduleUsingSelection")}</strong><small>{t("dataExport.scheduleCsvOnly")}</small></div>

@@ -10,6 +10,7 @@ import {
   type TuyaConnectionSecret,
   type WebhookDestinationSecret,
 } from "../integration-secrets.js";
+import type { ExportDestinationSecrets } from "../export-destinations/secrets.js";
 
 export interface AppConfig {
   port: number;
@@ -181,6 +182,14 @@ export interface AppConfig {
   bugReportRelaySource?: "environment" | "protected-file" | null;
   /** When a workspace administrator last saved the relay through the API. */
   bugReportRelayUpdatedAt?: string | null;
+  /** Public key of the PKCE Dropbox app (App-folder access) that enables the Dropbox export destination. */
+  dropboxAppKey?: string | null;
+  /** Google "TVs and Limited Input devices" OAuth client that enables the Google Drive export destination. */
+  googleDriveClientId?: string | null;
+  /** That installed-app client's secret. Google does not treat it as confidential; it is still never returned. */
+  googleDriveClientSecret?: string | null;
+  /** The export destination choice and cloud refresh tokens from the protected secrets file. */
+  exportDestinations?: ExportDestinationSecrets | null;
   /** Optional account-scoped Cloudflare Access group synchronized from local members and invitations. */
   cloudflareAccessAccountId: string | null;
   cloudflareAccessGroupId: string | null;

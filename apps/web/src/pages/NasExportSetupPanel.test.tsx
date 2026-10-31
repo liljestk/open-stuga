@@ -24,6 +24,7 @@ describe("NasExportSetupPanel", () => {
       operation: null,
     };
     vi.spyOn(api, "systemStorageStatus").mockResolvedValue(status);
+    vi.spyOn(api, "exportDestinations").mockResolvedValue({ selected: "nas", ready: false, nasConnected: false, accounts: [], connection: null });
     const update = vi.spyOn(api, "updateSystemStorage").mockResolvedValue(status);
     const user = userEvent.setup();
 

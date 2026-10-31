@@ -22,6 +22,7 @@ beforeEach(() => {
     capability: { available: true, runtime: "docker", agentLastSeenAt: "2026-08-01T10:00:00.000Z", reason: "ready", detail: null },
     operation: null,
   });
+  vi.spyOn(api, "exportDestinations").mockResolvedValue({ selected: "nas", ready: false, nasConnected: false, accounts: [], connection: null });
 });
 
 const doctor: SetupDoctorReport = {
