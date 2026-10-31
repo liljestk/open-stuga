@@ -2,7 +2,7 @@ import axe from "axe-core";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { AnalyticsQueryRequest, AnalyticsQueryResponse, Sensor } from "@climate-twin/contracts";
+import type { AnalyticsQueryRequest, AnalyticsQueryResponse, ExportDestinationStatus, Sensor } from "@climate-twin/contracts";
 import { api } from "../api";
 import { createDemoState } from "../domain";
 import { I18nProvider } from "../i18n";
@@ -95,17 +95,13 @@ function responseWithLeadingGaps(input: AnalyticsQueryRequest): AnalyticsQueryRe
   };
 }
 
+const readyDestination: ExportDestinationStatus = { selected: "nas", ready: true, nasConnected: true, accounts: [], connection: null };
+
 describe("DataExportPanel", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     vi.spyOn(api, "scheduledDataExports").mockResolvedValue([]);
-    vi.spyOn(api, "systemStorageStatus").mockResolvedValue({
-      settings: { timeseries: { kind: "managed", path: null }, backups: { kind: "nas-path", path: "/mnt/stugu/nas" } },
-      revision: "storage-revision",
-      allowedRoots: ["/mnt/stugu"],
-      capability: { available: true, runtime: "docker", agentLastSeenAt: "2026-08-01T10:00:00.000Z", reason: "ready", detail: null },
-      operation: null,
-    });
+    vi.spyOn(api, "exportDestinations").mockResolvedValue(readyDestination);
   });
 
   it("does not load scheduled exports while the export disclosure is closed", async () => {
@@ -116,11 +112,11 @@ describe("DataExportPanel", () => {
     render(<I18nProvider><DataExportPanel state={state} house={house} units="metric" dataMode="demo" /></I18nProvider>);
 
     expect(api.scheduledDataExports).not.toHaveBeenCalled();
-    expect(api.systemStorageStatus).not.toHaveBeenCalled();
+    expect(api.exportDestinations).not.toHaveBeenCalled();
 
     await user.click(screen.getByText("Export sensor data").closest("summary")!);
     await waitFor(() => expect(api.scheduledDataExports).toHaveBeenCalledOnce());
-    expect(api.systemStorageStatus).toHaveBeenCalledOnce();
+    expect(api.exportDestinations).toHaveBeenCalledOnce();
   });
 
   it("does not expose installation-owned schedules to a Guest", () => {

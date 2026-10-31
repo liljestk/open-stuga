@@ -1,7 +1,7 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ScheduledDataExport } from "@climate-twin/contracts";
+import type { ExportDestinationStatus, ScheduledDataExport } from "@climate-twin/contracts";
 import { api } from "../api";
 import { createDemoState } from "../domain";
 import { I18nProvider } from "../i18n";
@@ -56,23 +56,40 @@ function createdSchedule(houseId: string, overrides: Partial<ScheduledDataExport
   };
 }
 
+const readyDestination: ExportDestinationStatus = { selected: "nas", ready: true, nasConnected: true, accounts: [], connection: null };
+
 function mockTarget() {
   vi.spyOn(api, "scheduledDataExports").mockResolvedValue([]);
-  vi.spyOn(api, "systemStorageStatus").mockResolvedValue({
-    settings: { timeseries: { kind: "managed", path: null }, backups: { kind: "nas-path", path: "/mnt/stugu/nas" } },
-    revision: "storage-revision",
-    allowedRoots: ["/mnt/stugu"],
-    capability: { available: true, runtime: "docker", agentLastSeenAt: "2026-08-02T12:00:00.000Z", reason: "ready", detail: null },
-    operation: null,
-  });
+  vi.spyOn(api, "exportDestinations").mockResolvedValue(readyDestination);
 }
 
 describe("ScheduledDataExportsPanel", () => {
+  it("names the connected cloud drive that receives the exports", async () => {
+    vi.spyOn(api, "scheduledDataExports").mockResolvedValue([]);
+    vi.spyOn(api, "exportDestinations").mockResolvedValue({ ...readyDestination, selected: "dropbox" });
+
+    renderPanel();
+
+    expect(await screen.findByText("Saving to Dropbox")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Schedule weekly export" })).toBeEnabled();
+  });
+
+  it("asks for a destination before an active schedule can be created", async () => {
+    vi.spyOn(api, "scheduledDataExports").mockResolvedValue([]);
+    vi.spyOn(api, "exportDestinations").mockResolvedValue({ ...readyDestination, ready: false, nasConnected: false });
+
+    renderPanel();
+
+    expect(await screen.findByText("No destination connected")).toBeVisible();
+    expect(screen.getByRole("link", { name: "Choose destination" })).toHaveAttribute("href", "/setup/operations#nas-export-setup");
+    expect(screen.getByRole("button", { name: "Schedule weekly export" })).toBeDisabled();
+  });
+
   it("shows schedules without waiting for the independent storage check", async () => {
     const state = createDemoState();
     const house = state.houses[0]!;
     vi.spyOn(api, "scheduledDataExports").mockResolvedValue([createdSchedule(house.id)]);
-    vi.spyOn(api, "systemStorageStatus").mockReturnValue(new Promise(() => undefined));
+    vi.spyOn(api, "exportDestinations").mockReturnValue(new Promise(() => undefined));
 
     renderPanel();
 
@@ -85,7 +102,7 @@ describe("ScheduledDataExportsPanel", () => {
     const house = state.houses[0]!;
     const pending = createdSchedule(house.id, { lastRunStatus: "pending" });
     const schedules = vi.spyOn(api, "scheduledDataExports").mockResolvedValue([pending]);
-    vi.spyOn(api, "systemStorageStatus").mockReturnValue(new Promise(() => undefined));
+    vi.spyOn(api, "exportDestinations").mockReturnValue(new Promise(() => undefined));
 
     renderPanel();
     await act(async () => { await Promise.resolve(); });
@@ -109,19 +126,12 @@ describe("ScheduledDataExportsPanel", () => {
         return neverSettles;
       })
       .mockResolvedValueOnce([]);
-    const storageStatus: Awaited<ReturnType<typeof api.systemStorageStatus>> = {
-      settings: { timeseries: { kind: "managed", path: null }, backups: { kind: "nas-path", path: "/mnt/stugu/nas" } },
-      revision: "storage-revision",
-      allowedRoots: ["/mnt/stugu"],
-      capability: { available: true, runtime: "docker", agentLastSeenAt: "2026-08-02T12:00:00.000Z", reason: "ready", detail: null },
-      operation: null,
-    };
-    vi.spyOn(api, "systemStorageStatus")
+    vi.spyOn(api, "exportDestinations")
       .mockImplementationOnce((signal) => {
         firstStorageSignal = signal;
         return new Promise(() => undefined);
       })
-      .mockResolvedValueOnce(storageStatus);
+      .mockResolvedValueOnce(readyDestination);
     const sensors = state.sensors.filter((sensor) => sensor.houseId === firstHouse.id && sensor.enabled);
     const panel = (house: typeof firstHouse) => <I18nProvider><ScheduledDataExportsPanel
       house={house}
@@ -153,13 +163,7 @@ describe("ScheduledDataExportsPanel", () => {
       .mockResolvedValueOnce([pending])
       .mockReturnValueOnce(poll)
       .mockResolvedValue([pending]);
-    vi.spyOn(api, "systemStorageStatus").mockResolvedValue({
-      settings: { timeseries: { kind: "managed", path: null }, backups: { kind: "nas-path", path: "/mnt/stugu/nas" } },
-      revision: "storage-revision",
-      allowedRoots: ["/mnt/stugu"],
-      capability: { available: true, runtime: "docker", agentLastSeenAt: "2026-08-02T12:00:00.000Z", reason: "ready", detail: null },
-      operation: null,
-    });
+    vi.spyOn(api, "exportDestinations").mockResolvedValue(readyDestination);
 
     renderPanel();
     await act(async () => { await Promise.resolve(); });
@@ -181,7 +185,7 @@ describe("ScheduledDataExportsPanel", () => {
     const { house, sensors } = renderPanel();
     create.mockResolvedValue(createdSchedule(house.id, { name: `${house.name} weekly export`, sensorIds: sensors.map((sensor) => sensor.id) }));
 
-    await screen.findByText("NAS connected");
+    await screen.findByText("Saving to NAS");
     await userEvent.setup().click(screen.getByRole("button", { name: "Schedule weekly export" }));
 
     await waitFor(() => expect(create).toHaveBeenCalledWith(house.id, expect.objectContaining({
@@ -202,7 +206,7 @@ describe("ScheduledDataExportsPanel", () => {
     create.mockResolvedValue(createdSchedule(house.id, { name: "Month end", frequency: "monthly", dayOfWeek: null, dayOfMonth: 31, retentionCount: 6 }));
     const user = userEvent.setup();
 
-    await screen.findByText("NAS connected");
+    await screen.findByText("Saving to NAS");
     await user.click(screen.getByText("Advanced schedule"));
     await user.clear(screen.getByRole("textbox", { name: "Schedule name" }));
     await user.type(screen.getByRole("textbox", { name: "Schedule name" }), "Month end");

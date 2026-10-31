@@ -13,6 +13,7 @@ import { DataModeCoordinator } from "../demo/data-mode.js";
 import { SYSTEM_VERSION } from "../version.js";
 import { SystemUpdateService } from "../system-updates/service.js";
 import { SystemStorageService } from "../system-storage.js";
+import { ExportDestinationService } from "../export-destinations/service.js";
 import { HostSystemMonitor } from "../host-system/monitor.js";
 import { HostDatabaseMetricsCollector, SqliteHostStorageHistory } from "../host-system/database-metrics.js";
 import { SystemErrorLog } from "../system-error-log.js";
@@ -107,6 +108,15 @@ export function createCoreDataServices(context: ApiConfigContext) {
     });
   const systemStorage = new SystemStorageService({
       operationsDirectory: config.systemUpdateOperationsDirectory,
+    });
+  const exportDestinations = new ExportDestinationService({
+      secretsFile: config.integrationSecretsFile,
+      stored: config.exportDestinations ?? null,
+      systemStorage,
+      dropboxAppKey: config.dropboxAppKey ?? null,
+      googleDriveClientId: config.googleDriveClientId ?? null,
+      googleDriveClientSecret: config.googleDriveClientSecret ?? null,
+      ...(context.options.exportDestinationFetcher ? { fetchImpl: context.options.exportDestinationFetcher } : {}),
     });
   const hostDatabaseMetrics = new HostDatabaseMetricsCollector(database, {
       databasePath: config.databasePath,
@@ -223,7 +233,7 @@ export function createCoreDataServices(context: ApiConfigContext) {
     telegramDeliveryGeneration: 0,
     telegramConfigurationGeneration: 0,
   };
-  const extended = Object.assign(context, { disposers: new RuntimeDisposers(), runtimeState, database, systemErrorLog, trackingFlags, trackingStore, tracking, systemUpdates, systemStorage, hostDatabaseMetrics, hostSystem, cloudflareSetup, dataOperations, energyOptimizer, integrationMetadata, localAuth, recordSecurityAudit, cloudflareAccess, authAbuseLimiter, trackingObserverAbuseLimiter, dataMode, bus, stuguby, assertSensorHouseMoveAllowed });
+  const extended = Object.assign(context, { disposers: new RuntimeDisposers(), runtimeState, database, systemErrorLog, trackingFlags, trackingStore, tracking, systemUpdates, systemStorage, exportDestinations, hostDatabaseMetrics, hostSystem, cloudflareSetup, dataOperations, energyOptimizer, integrationMetadata, localAuth, recordSecurityAudit, cloudflareAccess, authAbuseLimiter, trackingObserverAbuseLimiter, dataMode, bus, stuguby, assertSensorHouseMoveAllowed });
   return extended;
 }
 

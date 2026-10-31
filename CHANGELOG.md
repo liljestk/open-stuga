@@ -2,6 +2,18 @@
 
 All notable Stugu releases are recorded here.
 
+## 0.59.0
+
+Scheduled exports can go to Dropbox or Google Drive instead of the NAS.
+
+- Under **Set up → Operations**, the **Backups and exports** panel (formerly "NAS for backups and exports") has a new **Where scheduled exports go** choice: NAS, Dropbox or Google Drive. The choice applies to every Home's scheduled exports.
+- To connect Dropbox, choose **Connect**, approve Stugu in Dropbox, and paste the code Dropbox shows. To connect Google Drive, choose **Connect**, then enter the short code Stugu shows at google.com/device on any phone or computer. The page finishes by itself once Google approves. Connecting a drive also selects it.
+- Stugu can only see its own folder: the Dropbox app folder, or files it created in Google Drive (My Drive › Stugu). Each schedule's files go into `data-exports/<schedule>`, and only the newest *Files to keep* stay there, the same as on the NAS. **Disconnect** removes the account, revokes access, and switches exports back to the NAS. Files already uploaded are kept.
+- Recovery backups don't change. They stay on the NAS, or on this device when no NAS is connected, because they include stored credentials and can be large.
+- iCloud Drive is listed as *Coming later*. Apple has no supported server API for it.
+- The **Scheduled exports** card in Data & Analytics shows where files are saved, for example "Saving to Dropbox", and links to the destination choice when none is ready.
+- Upgrade impact: feature update with no schema or host-trust change; existing NAS schedules keep working unchanged. Dropbox and Google Drive appear as *Not enabled on this installation yet* until the installation has the providers' public app IDs (`STUGU_DROPBOX_APP_KEY`, `STUGU_GOOGLE_DRIVE_CLIENT_ID`, `STUGU_GOOGLE_DRIVE_CLIENT_SECRET`), which Compose now passes to the API. See `docs/cloud-export-destinations.md` for the one-time app registration. New API: `GET/PUT /system/export-destinations` plus connect, code, cancel and disconnect operations (Owner/Admin only). The API now reaches `api.dropboxapi.com`, `content.dropboxapi.com`, `oauth2.googleapis.com` and `www.googleapis.com` only after an owner connects a drive.
+
 ## 0.58.0
 
 Ask Claude or ChatGPT about your Homes. Paste one URL into the assistant, approve the connection in Stugu, and it can answer questions such as "Is the front door open?" or "How much electricity did we use yesterday?" on the web, in the desktop apps, on your phone and by voice. The MCP servers can also read heat pumps, electricity contracts and the charts' analytics, and two forecast tools that failed are fixed.

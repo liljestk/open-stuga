@@ -1,9 +1,9 @@
-import { type CloudflareSetupStartInput, type SystemStorageSettings, type SystemUpdateSettings, withSignal, type DataExportPrivacyLevel, type MockScenario, type ScheduledDataExportInput, type ScheduledDataExportUpdate } from "@climate-twin/contracts";
+import { type CloudExportProvider, type CloudflareSetupStartInput, type ExportDestinationKind, type SystemStorageSettings, type SystemUpdateSettings, withSignal, type DataExportPrivacyLevel, type MockScenario, type ScheduledDataExportInput, type ScheduledDataExportUpdate } from "@climate-twin/contracts";
 import { request } from "./support/request";
 import type { SystemUpdateOperationInput } from "./support/response-types";
 import { API_BASE } from "./support/client-state";
 import type { ApiReadSchedulingClass } from "./support/requestScheduler";
-import { backupOperationStatusShape, cloudflareSetupStartResultShape, cloudflareSetupStatusResponseShape, dataExportPreviewShape, hostSystemHealthShape, localMcpRuntimeStartResultShape, localMcpRuntimeStatusShape, mockScenarioShape, scheduledDataExportShape, setupDoctorReportShape, systemStorageStatusShape, systemUpdateStatusShape } from "./support/entity-shapes";
+import { backupOperationStatusShape, cloudflareSetupStartResultShape, cloudflareSetupStatusResponseShape, dataExportPreviewShape, exportDestinationStatusShape, hostSystemHealthShape, localMcpRuntimeStartResultShape, localMcpRuntimeStatusShape, mockScenarioShape, scheduledDataExportShape, setupDoctorReportShape, systemStorageStatusShape, systemUpdateStatusShape } from "./support/entity-shapes";
 import { noContent, boolean, arrayOf, fields } from "./support/response-shapes";
 
 /** Host health, updates, storage, the local MCP runtime, Cloudflare set-up, backups, exports and the setup doctor. */
@@ -35,6 +35,24 @@ export const systemApi = {
       method: "PUT",
       body: JSON.stringify(input),
     }),
+  exportDestinations: (signal?: AbortSignal) => request("/system/export-destinations", exportDestinationStatusShape, withSignal(signal)),
+  selectExportDestination: (selected: ExportDestinationKind) => request("/system/export-destinations", exportDestinationStatusShape, {
+      method: "PUT",
+      body: JSON.stringify({ selected }),
+    }),
+  connectExportDestination: (provider: CloudExportProvider) => request(
+      `/system/export-destinations/${provider}/connect`, exportDestinationStatusShape, { method: "POST" },
+    ),
+  submitExportDestinationCode: (provider: CloudExportProvider, connectionId: string, code: string) => request(
+      `/system/export-destinations/${provider}/code`, exportDestinationStatusShape, {
+        method: "POST",
+        body: JSON.stringify({ connectionId, code }),
+      },
+    ),
+  cancelExportDestinationConnection: () => request("/system/export-destinations/connection", exportDestinationStatusShape, { method: "DELETE" }),
+  disconnectExportDestination: (provider: CloudExportProvider) => request(
+      `/system/export-destinations/${provider}`, exportDestinationStatusShape, { method: "DELETE" },
+    ),
   cloudflareSetupStatus: () => request("/cloudflare/setup", cloudflareSetupStatusResponseShape),
   startCloudflareSetup: (input: CloudflareSetupStartInput) => request("/cloudflare/setup/start", cloudflareSetupStartResultShape, {
       method: "POST",

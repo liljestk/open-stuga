@@ -8,6 +8,7 @@ import { nexus433Paths } from "./nexus433-paths.js";
 import { bugReportPaths } from "./bug-report-paths.js";
 import { electricityTariffPaths } from "./electricity-tariff-paths.js";
 import { assistantConnectorPaths, assistantConnectorSchemas } from "./assistant-connector-paths.js";
+import { exportDestinationPaths, exportDestinationSchemas } from "./export-destination-paths.js";
 import { schemasPart01 } from "./schemas-01.js";
 import { schemasPart02 } from "./schemas-02.js";
 import { schemasPart03 } from "./schemas-03.js";
@@ -47,6 +48,7 @@ export const combinedOpenApiDocument = {
     ...bugReportPaths,
     ...electricityTariffPaths,
     ...assistantConnectorPaths,
+    ...exportDestinationPaths,
   },
   components: {
     securitySchemes: {
@@ -89,6 +91,7 @@ export const combinedOpenApiDocument = {
       ...schemasPart11,
       ...schemasPart12,
       ...assistantConnectorSchemas,
+      ...exportDestinationSchemas,
     },
   },
 } as const;

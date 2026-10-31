@@ -18,6 +18,10 @@
 .nas-setup-config > summary { cursor: pointer; font-weight: 700; }
 .nas-setup-config > div { display: grid; gap: 12px; margin-top: 12px; }
 .nas-setup-config .primary-button { width: fit-content; }
+.nas-setup-section { display: grid; gap: 12px; border-top: 1px solid var(--line); padding-top: 14px; }
+.nas-setup-section-header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: 8px 14px; }
+.nas-setup-section-header h3 { margin: 0 0 2px; }
+.nas-setup-section-header small { color: var(--muted); }
 .setup-doctor-summary { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; align-items: center; padding: 12px; border-radius: var(--radius); background: var(--panel-soft); }
 .setup-doctor-summary > span { grid-column: 2; }
 .setup-doctor-summary.ready svg, .setup-doctor-list .pass svg, .setup-doctor-list .not-applicable svg { color: var(--positive); }

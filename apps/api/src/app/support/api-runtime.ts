@@ -17,6 +17,7 @@ import { ReplayEngine } from "../../demo/replay-engine.js";
 import { RuntimeStatus } from "../../runtime-status.js";
 import { SystemUpdateService } from "../../system-updates/service.js";
 import { SystemStorageService } from "../../system-storage.js";
+import type { ExportDestinationService } from "../../export-destinations/service.js";
 import { HostSystemMonitor } from "../../host-system/monitor.js";
 import { SystemErrorLog } from "../../system-error-log.js";
 import { WeatherMonitor } from "../../weather/monitor.js";
@@ -87,6 +88,7 @@ export interface ApiRuntime {
   tracking: TrackingService;
   systemUpdates: SystemUpdateService;
   systemStorage: SystemStorageService;
+  exportDestinations: ExportDestinationService;
   hostSystem: HostSystemMonitor;
   systemErrorLog: SystemErrorLog;
   ready: () => Promise<void>;
@@ -118,6 +120,8 @@ export interface CreateApiOptions {
   electricityPriceFetcher?: typeof fetch;
   cloudflareAccessFetcher?: typeof fetch;
   cloudflareSetupFetcher?: typeof fetch;
+  /** Test/embedding hook for the Dropbox and Google Drive export destinations. */
+  exportDestinationFetcher?: typeof fetch;
   bugReportFetcher?: typeof fetch;
   cloudflareSetup?: CloudflareSetupService;
   stugubyFetcher?: typeof fetch;

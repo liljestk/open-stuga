@@ -260,6 +260,12 @@ byte count, and SHA-256 digest before copying to
 and returns a receipt to the API. The API container never receives writable
 access to the NAS mount.
 
+Owners can instead send scheduled exports to Dropbox or Google Drive. The API
+then uploads the same CSV directly to the connected drive's app-only folder and
+prunes that schedule's older files there; recovery sets stay on the NAS or
+managed storage. See [Dropbox and Google Drive export
+destinations](cloud-export-destinations.md).
+
 A primary telemetry move is journaled host maintenance, not a direct remount.
 Before changing Compose state, the agent creates and verifies a complete backup,
 runs an isolated restore drill, cleanly stops TimescaleDB, checks PostgreSQL's
