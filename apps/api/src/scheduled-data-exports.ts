@@ -26,12 +26,13 @@ import type {
   ScheduledDataExportInput,
   ScheduledDataExportPeriod,
   ScheduledDataExportUpdate,
+  ExportDestinationKind,
 } from "@climate-twin/contracts";
 import type { ClimateDatabase } from "./db.js";
 import type { DataOperationsService } from "./data-operations.js";
 import { executeAnalyticsQuery } from "./analytics/query/execute.js";
 import type { HybridTelemetryReader } from "./timeseries/read-facade.js";
-import type { SystemStorageService } from "./system-storage.js";
+import type { ExportDestinationService } from "./export-destinations/service.js";
 
 const MAX_RECEIPT_BYTES = 128 * 1024;
 const MAX_EXPORT_BYTES = 64 * 1024 * 1024;
@@ -69,11 +70,25 @@ interface ScheduledExportRow {
 interface ScheduledDataExportServiceOptions {
   database: ClimateDatabase;
   telemetryReader: HybridTelemetryReader;
-  systemStorage: Pick<SystemStorageService, "status">;
+  destinations: Pick<ExportDestinationService, "selected" | "ready" | "deliver">;
   dataOperations: Pick<DataOperationsService, "audit">;
   operationsDirectory?: string | null;
   now?: () => Date;
   systemErrorLog?: FailureLog;
+}
+
+interface ExportRun {
+  schedule: ScheduledDataExport;
+  houseName: string;
+  timeZone: string;
+  runId: string;
+  endedAt: Date;
+}
+
+interface PreparedExport {
+  csv: string;
+  outputName: string;
+  rows: number;
 }
 
 interface ZonedParts {
@@ -324,7 +339,7 @@ export class ScheduledDataExportService {
   readonly #errorLog: FailureLog | null;
   readonly #database: ClimateDatabase;
   readonly #telemetryReader: HybridTelemetryReader;
-  readonly #systemStorage: Pick<SystemStorageService, "status">;
+  readonly #destinations: Pick<ExportDestinationService, "selected" | "ready" | "deliver">;
   readonly #dataOperations: Pick<DataOperationsService, "audit">;
   readonly #operationsDirectory: string | null;
   readonly #now: () => Date;
@@ -335,7 +350,7 @@ export class ScheduledDataExportService {
     this.#errorLog = options.systemErrorLog ?? null;
     this.#database = options.database;
     this.#telemetryReader = options.telemetryReader;
-    this.#systemStorage = options.systemStorage;
+    this.#destinations = options.destinations;
     this.#dataOperations = options.dataOperations;
     this.#operationsDirectory = options.operationsDirectory ?? null;
     this.#now = options.now ?? (() => new Date());
@@ -355,7 +370,7 @@ export class ScheduledDataExportService {
   }
 
   targetConfigured(): boolean {
-    return this.#systemStorage.status().settings.backups.kind === "nas-path";
+    return this.#destinations.ready();
   }
 
   list(houseId: string): ScheduledDataExport[] {
@@ -372,7 +387,7 @@ export class ScheduledDataExportService {
   create(houseId: string, value: unknown): ScheduledDataExport {
     const now = this.#now();
     const input = this.#validatedInput(houseId, value);
-    if (input.enabled) this.#assertNasConfigured();
+    if (input.enabled) this.#assertDestinationReady();
     const id = randomUUID();
     const createdAt = now.toISOString();
     const house = this.#database.getHouse(houseId)!;
@@ -399,7 +414,7 @@ export class ScheduledDataExportService {
     if (update.baseRevision !== current.revision) {
       throw new ScheduledDataExportError(409, "SCHEDULED_EXPORT_REVISION_CONFLICT", "Scheduled export changed; reload it before saving");
     }
-    if (update.enabled) this.#assertNasConfigured();
+    if (update.enabled) this.#assertDestinationReady();
     const now = this.#now();
     const house = this.#database.getHouse(current.house_id)!;
     const nextRunAt = update.enabled ? nextScheduledDataExportRun(update, house.timezone, now) : null;
@@ -504,8 +519,7 @@ export class ScheduledDataExportService {
     }
     if (advanceSchedule && row.enabled !== 1) return;
     try {
-      this.#assertNasConfigured();
-      if (!this.#operationsDirectory) throw new Error("The isolated export worker is not configured");
+      const destination = this.#readyDestination();
       const schedule = publicSchedule(row);
       const house = this.#database.getHouse(schedule.houseId);
       if (!house) throw new Error("The Home no longer exists");
@@ -519,7 +533,8 @@ export class ScheduledDataExportService {
           runId, started.toISOString(), started.toISOString(), nextRunAt, started.toISOString(), id,
         );
       if (Number(claimed.changes) !== 1) throw new ScheduledDataExportError(409, "SCHEDULED_EXPORT_RUNNING", "This export is already running");
-      await this.#prepareHandoff(schedule, house.name, house.timezone, runId, started);
+      const run: ExportRun = { schedule, houseName: house.name, timeZone: house.timezone, runId, endedAt: started };
+      await this.#send(destination, run, await this.#prepareCsv(run));
     } catch (error) {
       const message = error instanceof Error ? error.message.slice(0, 2_000) : "Scheduled export failed";
       const failedAt = this.#now();
@@ -538,13 +553,7 @@ export class ScheduledDataExportService {
     }
   }
 
-  async #prepareHandoff(
-    schedule: ScheduledDataExport,
-    houseName: string,
-    timeZone: string,
-    runId: string,
-    endedAt: Date,
-  ): Promise<void> {
+  async #prepareCsv({ schedule, houseName, timeZone, runId, endedAt }: ExportRun): Promise<PreparedExport> {
     const sensorsById = new Map(this.#database.listSensors(schedule.houseId).filter((sensor) => sensor.enabled)
       .map((sensor) => [sensor.id, sensor]));
     const sensors = schedule.sensorIds.map((sensorId) => sensorsById.get(sensorId)).filter((sensor) => sensor !== undefined);
@@ -575,11 +584,43 @@ export class ScheduledDataExportService {
     });
     const csv = scheduledDataExportCsv(response, definitions as MeasurementDefinition[], timeZone);
     if (Buffer.byteLength(csv, "utf8") > MAX_EXPORT_BYTES) {
-      throw new Error("The scheduled export exceeds the 64 MiB NAS handoff limit");
+      throw new Error("The scheduled export exceeds the 64 MiB export limit");
     }
+    return {
+      csv,
+      outputName: `stugu-${slug(houseName)}-${start.slice(0, 10)}-${end.slice(0, 10)}-${schedule.resolution}-${schedule.aggregation}-${runId.slice(0, 8)}.csv`,
+      rows: response.quality.sampleCount,
+    };
+  }
+
+  async #send(destination: ExportDestinationKind, run: ExportRun, prepared: PreparedExport): Promise<void> {
+    if (destination === "nas") {
+      this.#handOffToNasWorker(run, prepared);
+      return;
+    }
+    const { schedule, runId } = run;
+    const provider = await this.#destinations.deliver({
+      folder: ["data-exports", schedule.id],
+      name: prepared.outputName,
+      content: prepared.csv,
+      retentionCount: schedule.retentionCount,
+    });
+    const completedAt = this.#now().toISOString();
+    const changed = this.#database.db.prepare(`UPDATE scheduled_data_exports SET
+      last_run_status = 'complete', last_run_error = NULL, last_output_name = ?, pending_run_id = NULL,
+      pending_started_at = NULL, revision = revision + 1, updated_at = ?
+      WHERE id = ? AND pending_run_id = ?`).run(prepared.outputName, completedAt, schedule.id, runId);
+    if (Number(changed.changes) === 1) {
+      this.#dataOperations.audit("scheduled-data-export.complete", {
+        id: schedule.id, runId, outputName: prepared.outputName, destination: provider, rows: prepared.rows,
+      });
+    }
+  }
+
+  #handOffToNasWorker({ schedule, runId, endedAt }: ExportRun, prepared: PreparedExport): void {
+    const { csv, outputName } = prepared;
     const payloadName = `data-export-${runId}.csv`;
     const requestName = `data-export-${runId}.request.json`;
-    const outputName = `stugu-${slug(houseName)}-${start.slice(0, 10)}-${end.slice(0, 10)}-${schedule.resolution}-${schedule.aggregation}-${runId.slice(0, 8)}.csv`;
     const payloadPath = join(this.#operationsDirectory!, payloadName);
     try {
       durableFile(payloadPath, csv);
@@ -597,7 +638,7 @@ export class ScheduledDataExportService {
         retentionCount: schedule.retentionCount,
       });
       this.#dataOperations.audit("scheduled-data-export.staged", {
-        id: schedule.id, runId, houseId: schedule.houseId, rows: response.quality.sampleCount,
+        id: schedule.id, runId, houseId: schedule.houseId, rows: prepared.rows,
       });
     } catch (error) {
       rmSync(payloadPath, { force: true });
@@ -663,8 +704,16 @@ export class ScheduledDataExportService {
     return { ...base, baseRevision };
   }
 
-  #assertNasConfigured(): void {
-    if (!this.targetConfigured()) throw new ScheduledDataExportError(409, "NAS_EXPORT_TARGET_REQUIRED", "Connect a NAS export destination in Set up first");
+  #assertDestinationReady(): void {
+    if (!this.targetConfigured()) throw new ScheduledDataExportError(409, "EXPORT_DESTINATION_REQUIRED", "Choose and connect an export destination in Set up first");
+  }
+
+  /** The selected destination, once it can take a run; the NAS also needs the isolated worker's directory. */
+  #readyDestination(): ExportDestinationKind {
+    this.#assertDestinationReady();
+    const destination = this.#destinations.selected();
+    if (destination === "nas" && !this.#operationsDirectory) throw new Error("The isolated export worker is not configured");
+    return destination;
   }
 
   #tickSafely(): void {
@@ -688,7 +737,7 @@ export class ScheduledDataExportService {
       }
       const failedAt = this.#now().toISOString();
       const changed = this.#database.db.prepare(`UPDATE scheduled_data_exports SET last_run_status = 'failed',
-        last_run_error = 'The NAS export worker did not finish in time', pending_run_id = NULL,
+        last_run_error = 'The export did not finish in time', pending_run_id = NULL,
         pending_started_at = NULL, revision = revision + 1, updated_at = ?
         WHERE id = ? AND pending_run_id = ?`).run(failedAt, item.id, item.pending_run_id);
       if (Number(changed.changes) === 1) this.#dataOperations.audit("scheduled-data-export.failed", {

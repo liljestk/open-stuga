@@ -19,7 +19,9 @@ describe("scheduled data exports", () => {
     for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true });
   });
 
-  function fixture(nasConfigured = true) {
+  function fixture(options: { ready?: boolean; destination?: "nas" | "dropbox" } = {}) {
+    const ready = options.ready ?? true;
+    const destination = options.destination ?? "nas";
     const operationsDirectory = mkdtempSync(join(tmpdir(), "stugu-scheduled-export-"));
     directories.push(operationsDirectory);
     const database = new ClimateDatabase(":memory:", true);
@@ -35,20 +37,16 @@ describe("scheduled data exports", () => {
       quality: "good",
     }]);
     const audit = vi.fn();
+    const deliver = vi.fn(async () => "dropbox" as const);
     const service = new ScheduledDataExportService({
       database,
       telemetryReader: new HybridTelemetryReader({ local: database }),
-      systemStorage: {
-        status: () => ({ settings: {
-          timeseries: { kind: "managed", path: null },
-          backups: nasConfigured ? { kind: "nas-path", path: "/mnt/stugu/nas" } : { kind: "managed", path: null },
-        } }),
-      } as never,
+      destinations: { selected: () => destination, ready: () => ready, deliver },
       dataOperations: { audit } as never,
       operationsDirectory,
       now: () => new Date("2026-08-02T12:00:00.000Z"),
     });
-    return { service, operationsDirectory, audit };
+    return { service, operationsDirectory, audit, deliver };
   }
 
   const input = {
@@ -104,10 +102,40 @@ describe("scheduled data exports", () => {
     });
   });
 
-  it("requires a configured NAS for active schedules", () => {
-    const { service } = fixture(false);
+  it("requires a connected export destination for active schedules", () => {
+    const { service } = fixture({ ready: false });
     expect(() => service.create("house-main", input)).toThrowError(ScheduledDataExportError);
     expect(() => service.create("house-main", { ...input, enabled: false })).not.toThrow();
+  });
+
+  it("uploads straight to a connected cloud drive and completes without the NAS worker", async () => {
+    const { service, operationsDirectory, audit, deliver } = fixture({ destination: "dropbox" });
+    const schedule = service.create("house-main", input);
+
+    const completed = await service.runNow(schedule.id);
+
+    expect(deliver).toHaveBeenCalledOnce();
+    const [file] = deliver.mock.calls[0] as unknown as [{ folder: string[]; name: string; content: string; retentionCount: number }];
+    expect(file.folder).toEqual(["data-exports", schedule.id]);
+    expect(file.name).toMatch(/^stugu-.+-1h-mean-[0-9a-f]{8}\.csv$/u);
+    expect(file.content).toContain("Home time,UTC timestamp,Sensor name,Sensor ID,Temperature (°C)");
+    expect(file.retentionCount).toBe(12);
+    expect(completed).toMatchObject({ lastRunStatus: "complete", lastOutputName: file.name, lastRunError: null });
+    expect(readdirSync(operationsDirectory)).toEqual([]);
+    expect(audit).toHaveBeenCalledWith("scheduled-data-export.complete", expect.objectContaining({ id: schedule.id, destination: "dropbox" }));
+  });
+
+  it("records a cloud upload failure on the schedule", async () => {
+    const { service, deliver } = fixture({ destination: "dropbox" });
+    deliver.mockRejectedValueOnce(new Error("Dropbox access was removed. Connect Dropbox again in Set up."));
+    const schedule = service.create("house-main", input);
+
+    await expect(service.runNow(schedule.id)).rejects.toThrowError(ScheduledDataExportError);
+
+    expect(service.get(schedule.id)).toMatchObject({
+      lastRunStatus: "failed",
+      lastRunError: "Dropbox access was removed. Connect Dropbox again in Set up.",
+    });
   });
 
   it("resolves monthly end-of-month schedules in the Home timezone", () => {

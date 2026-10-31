@@ -14,6 +14,7 @@ import { randomBytes } from "node:crypto";
 import { dirname } from "node:path";
 import { normalizeBugReportRelayInput, type BugReportRelayInput } from "@climate-twin/contracts";
 import { pendingIntegrationSecretsPath, withIntegrationSecretsLock } from "./integration-secrets-lock.js";
+import { normalizedExportDestinationSecrets, type ExportDestinationSecrets } from "./export-destinations/secrets.js";
 
 export interface IntegrationSecrets {
   version: 1;
@@ -34,6 +35,8 @@ export interface IntegrationSecrets {
   telegram?: { botToken: string; chatId: string };
   /** Bug-report relay configured by a workspace administrator instead of deployment environment variables. */
   bugReportRelay?: { url: string; token: string; updatedAt: string };
+  /** The chosen scheduled-export destination and any connected cloud drives. */
+  exportDestinations?: ExportDestinationSecrets;
   appleNotesGrants?: AppleNotesGrantSecret[];
   hiddenHouseData?: HiddenHouseIntegrationData[];
 }
@@ -451,6 +454,17 @@ function normalizedHiddenHouseData(value: unknown): HiddenHouseIntegrationData[]
   });
 }
 
+function storedExportDestinations(value: unknown): Pick<IntegrationSecrets, "exportDestinations"> {
+  return value === undefined
+    ? {}
+    : { exportDestinations: normalizedExportDestinationSecrets(value, "The export destinations in the integration secrets file") };
+}
+
+function patchExportDestinations(next: IntegrationSecrets, value: ExportDestinationSecrets | null | undefined): void {
+  if (value === null) delete next.exportDestinations;
+  else if (value !== undefined) next.exportDestinations = normalizedExportDestinationSecrets(value, "The export destinations");
+}
+
 export function readIntegrationSecrets(path: string): IntegrationSecrets {
   if (!existsSync(path)) return { version: 1 };
   const parsed = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
@@ -539,6 +553,7 @@ export function readIntegrationSecrets(path: string): IntegrationSecrets {
       "The bug report relay in the integration secrets file",
     );
   }
+  Object.assign(result, storedExportDestinations(parsed.exportDestinations));
   if (parsed.appleNotesGrants !== undefined) {
     result.appleNotesGrants = normalizedAppleNotesGrants(parsed.appleNotesGrants);
   }
@@ -617,6 +632,7 @@ export interface IntegrationSecretsPatch {
     webhookDestinations?: WebhookDestinationSecret[] | null;
     telegram?: IntegrationSecrets["telegram"] | null;
     bugReportRelay?: IntegrationSecrets["bugReportRelay"] | null;
+    exportDestinations?: ExportDestinationSecrets | null;
     appleNotesGrants?: AppleNotesGrantSecret[];
     hiddenHouseData?: HiddenHouseIntegrationData[];
     addAppleNotesGrant?: AppleNotesGrantSecret;
@@ -660,6 +676,7 @@ export function applyIntegrationSecretsPatch(
     else if (patch.bugReportRelay !== undefined) {
       next.bugReportRelay = normalizedBugReportRelay(patch.bugReportRelay, "The bug report relay");
     }
+    patchExportDestinations(next, patch.exportDestinations);
     if (patch.appleNotesGrants !== undefined) next.appleNotesGrants = patch.appleNotesGrants.map((grant) => ({ ...grant }));
     if (patch.hiddenHouseData !== undefined) next.hiddenHouseData = normalizedHiddenHouseData(patch.hiddenHouseData);
     if (patch.addAppleNotesGrant !== undefined) {

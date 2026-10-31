@@ -278,6 +278,32 @@ function readBugReportRelayConfig(env: Env, stored: StoredSecrets): Pick<AppConf
   };
 }
 
+/** Provider app IDs that let the owner connect a cloud drive, plus any drive they already connected. */
+function readCloudExportConfig(env: Env, stored: StoredSecrets): Pick<AppConfig,
+  "dropboxAppKey" | "googleDriveClientId" | "googleDriveClientSecret" | "exportDestinations"> {
+  const dropboxAppKey = optional(env.STUGU_DROPBOX_APP_KEY);
+  if (dropboxAppKey && !/^[a-z0-9]{8,64}$/iu.test(dropboxAppKey)) {
+    throw new Error("STUGU_DROPBOX_APP_KEY is not a valid Dropbox app key");
+  }
+  const googleClientId = optional(env.STUGU_GOOGLE_DRIVE_CLIENT_ID);
+  const googleClientSecret = optionalFileSecret(
+    env, "STUGU_GOOGLE_DRIVE_CLIENT_SECRET", "STUGU_GOOGLE_DRIVE_CLIENT_SECRET_FILE", "Google Drive client secret", 8, true,
+  );
+  requireAllOrNone(
+    [googleClientId, googleClientSecret],
+    "The Google Drive export destination needs both STUGU_GOOGLE_DRIVE_CLIENT_ID and STUGU_GOOGLE_DRIVE_CLIENT_SECRET",
+  );
+  if (googleClientId && !/^[A-Za-z0-9-]{8,200}\.apps\.googleusercontent\.com$/u.test(googleClientId)) {
+    throw new Error("STUGU_GOOGLE_DRIVE_CLIENT_ID is not a valid Google OAuth client ID");
+  }
+  return {
+    dropboxAppKey,
+    googleDriveClientId: googleClientId,
+    googleDriveClientSecret: googleClientSecret,
+    exportDestinations: stored.exportDestinations ?? null,
+  };
+}
+
 function validCloudflareIds(accountId: string | null, groupId: string | null): void {
   if (accountId && !/^[a-f0-9]{32}$/i.test(accountId)) {
     throw new Error("CLOUDFLARE_ACCESS_ACCOUNT_ID must be a 32-character hexadecimal account ID");
@@ -486,6 +512,7 @@ export function loadConfig(env: Env = process.env): AppConfig {
     corsOrigin: optional(env.CORS_ORIGIN) ?? optional(env.CLOUDFLARE_ACCESS_PUBLIC_ORIGIN),
     ...readLocalAuthConfig(env),
     ...readBugReportRelayConfig(env, stored),
+    ...readCloudExportConfig(env, stored),
     ...readCloudflareAccessConfig(env),
     ...readCloudflareSetupConfig(env),
     electricityAllowPrivateEndpoints: booleanValue(env.ELECTRICITY_ALLOW_PRIVATE_ENDPOINTS, false),

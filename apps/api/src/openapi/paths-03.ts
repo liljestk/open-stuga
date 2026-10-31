@@ -116,13 +116,13 @@ export const pathsPart03 = {
         get: {
           tags: ["Context"], operationId: "listScheduledDataExports",
           parameters: [{ name: "houseId", in: "path", required: true, schema: { type: "string" } }],
-          responses: { "200": jsonResponse("Home-owned scheduled exports to the shared NAS destination.", { type: "object", additionalProperties: false, required: ["exports"], properties: { exports: { type: "array", items: { $ref: "#/components/schemas/ScheduledDataExport" } } } }) },
+          responses: { "200": jsonResponse("Home-owned scheduled exports to the shared export destination (NAS, Dropbox, or Google Drive).", { type: "object", additionalProperties: false, required: ["exports"], properties: { exports: { type: "array", items: { $ref: "#/components/schemas/ScheduledDataExport" } } } }) },
         },
         post: {
           tags: ["Context"], operationId: "createScheduledDataExport",
           parameters: [{ name: "houseId", in: "path", required: true, schema: { type: "string" } }],
           requestBody: jsonRequestBody({ $ref: "#/components/schemas/ScheduledDataExportInput" }),
-          responses: { "201": jsonResponse("Scheduled export created.", { type: "object", additionalProperties: false, required: ["export"], properties: { export: { $ref: "#/components/schemas/ScheduledDataExport" } } }), "409": { description: "A NAS destination must be configured first" } },
+          responses: { "201": jsonResponse("Scheduled export created.", { type: "object", additionalProperties: false, required: ["export"], properties: { export: { $ref: "#/components/schemas/ScheduledDataExport" } } }), "409": { description: "An export destination must be connected first" } },
         },
       },
   "/houses/{houseId}/scheduled-data-exports/{id}": {
@@ -130,7 +130,7 @@ export const pathsPart03 = {
           tags: ["Context"], operationId: "updateScheduledDataExport",
           parameters: [{ name: "houseId", in: "path", required: true, schema: { type: "string" } }, { $ref: "#/components/parameters/Id" }],
           requestBody: jsonRequestBody({ $ref: "#/components/schemas/ScheduledDataExportUpdate" }),
-          responses: { "200": jsonResponse("Scheduled export updated.", { type: "object", additionalProperties: false, required: ["export"], properties: { export: { $ref: "#/components/schemas/ScheduledDataExport" } } }), "409": { description: "Revision conflict, active run, or missing NAS destination" } },
+          responses: { "200": jsonResponse("Scheduled export updated.", { type: "object", additionalProperties: false, required: ["export"], properties: { export: { $ref: "#/components/schemas/ScheduledDataExport" } } }), "409": { description: "Revision conflict, active run, or missing export destination" } },
         },
         delete: {
           tags: ["Context"], operationId: "deleteScheduledDataExport",
@@ -142,7 +142,7 @@ export const pathsPart03 = {
         post: {
           tags: ["Context"], operationId: "runScheduledDataExport",
           parameters: [{ name: "houseId", in: "path", required: true, schema: { type: "string" } }, { $ref: "#/components/parameters/Id" }],
-          responses: { "202": jsonResponse("CSV generation staged for the isolated NAS worker.", { type: "object", additionalProperties: false, required: ["export"], properties: { export: { $ref: "#/components/schemas/ScheduledDataExport" } } }), "409": { description: "The schedule is already running or the NAS is unavailable" } },
+          responses: { "202": jsonResponse("CSV generated and staged for the NAS worker, or uploaded to the connected cloud drive.", { type: "object", additionalProperties: false, required: ["export"], properties: { export: { $ref: "#/components/schemas/ScheduledDataExport" } } }), "409": { description: "The schedule is already running or the export destination is unavailable" } },
         },
       },
   "/backups/status": {

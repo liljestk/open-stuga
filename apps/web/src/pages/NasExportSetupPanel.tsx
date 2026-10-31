@@ -4,6 +4,7 @@ import { CheckCircle2, CircleAlert, HardDrive, LoaderCircle, Save } from "lucide
 import { api } from "../api";
 import { confirmAction } from "../components/ConfirmationProvider";
 import { useI18n } from "../i18n";
+import { ExportDestinationPicker } from "./ExportDestinationPicker";
 
 const activePhases = new Set(["queued", "validating", "backing-up", "quiescing", "copying", "applying", "verifying", "rolling-back"]);
 
@@ -65,20 +66,24 @@ export function NasExportSetupPanel() {
   };
 
   return <section id="nas-export-setup" className="panel nas-export-setup-panel" aria-labelledby="nas-export-setup-title">
-    <div className="panel-header"><div><span className="eyebrow"><HardDrive size={14} aria-hidden="true" /> {t("dataExport.nasSetupEyebrow")}</span><h2 id="nas-export-setup-title">{t("dataExport.nasSetupTitle")}</h2></div>{status && <span className={`nas-setup-state ${connected ? "connected" : "missing"}`}>{connected ? <CheckCircle2 size={14} aria-hidden="true" /> : <CircleAlert size={14} aria-hidden="true" />}{connected ? t("dataExport.nasSetupConnected") : t("dataExport.nasSetupNotConnected")}</span>}</div>
+    <div className="panel-header"><div><span className="eyebrow"><HardDrive size={14} aria-hidden="true" /> {t("dataExport.nasSetupEyebrow")}</span><h2 id="nas-export-setup-title">{t("dataExport.nasSetupTitle")}</h2></div></div>
     <p>{t("dataExport.nasSetupDescription")}</p>
     <p className="nas-setup-shared">{t("dataExport.nasSetupShared")}</p>
-    {busy === "load" && <p role="status"><LoaderCircle className="spin" size={16} aria-hidden="true" /> {t("dataExport.nasSetupLoading")}</p>}
-    {status && !status.capability.available && <p className="nas-setup-warning"><CircleAlert size={15} aria-hidden="true" />{status.capability.detail ?? t("dataExport.nasSetupAgentUnavailable")}</p>}
-    {status?.operation && <p className="nas-setup-operation" role="status">{operationActive && <LoaderCircle className="spin" size={15} aria-hidden="true" />}<strong>{status.operation.phase.replaceAll("-", " ")}</strong>{status.operation.detail && <span>{status.operation.detail}</span>}</p>}
-    {error && <p className="inline-error" role="alert">{error}</p>}
-    {status && <details className="nas-setup-config" open={!connected}>
-      <summary>{connected ? t("dataExport.nasSetupChange") : t("dataExport.nasSetupConfigure")}</summary>
-      <div>
-        <label className="field"><span>{t("dataExport.nasSetupPath")}</span><input value={path} placeholder="/mnt/stugu/nas-storage" autoCapitalize="none" autoCorrect="off" spellCheck={false} onChange={(event) => setPath(event.target.value)} /><small>{t("dataExport.nasSetupPathHelp")}</small></label>
-        {status.allowedRoots.length > 0 && <small>{t("dataExport.nasSetupAllowedRoots")}: <code>{status.allowedRoots.join(", ")}</code></small>}
-        <button type="button" className="primary-button" disabled={!path.trim() || busy !== null || operationActive || !status.capability.available || (connected && path.trim() === status.settings.backups.path)} onClick={() => void save()}>{busy === "save" ? <LoaderCircle className="spin" size={15} aria-hidden="true" /> : <Save size={15} aria-hidden="true" />}{busy === "save" ? t("dataExport.nasSetupSaving") : t("dataExport.nasSetupSave")}</button>
-      </div>
-    </details>}
+    <ExportDestinationPicker nasConnected={connected} />
+    <div className="nas-setup-section">
+      <div className="nas-setup-section-header"><div><h3>{t("dataExport.nasSetupSectionTitle")}</h3><small>{t("dataExport.nasSetupSectionHelp")}</small></div>{status && <span className={`nas-setup-state ${connected ? "connected" : "missing"}`}>{connected ? <CheckCircle2 size={14} aria-hidden="true" /> : <CircleAlert size={14} aria-hidden="true" />}{connected ? t("dataExport.nasSetupConnected") : t("dataExport.nasSetupNotConnected")}</span>}</div>
+      {busy === "load" && <p role="status"><LoaderCircle className="spin" size={16} aria-hidden="true" /> {t("dataExport.nasSetupLoading")}</p>}
+      {status && !status.capability.available && <p className="nas-setup-warning"><CircleAlert size={15} aria-hidden="true" />{status.capability.detail ?? t("dataExport.nasSetupAgentUnavailable")}</p>}
+      {status?.operation && <p className="nas-setup-operation" role="status">{operationActive && <LoaderCircle className="spin" size={15} aria-hidden="true" />}<strong>{status.operation.phase.replaceAll("-", " ")}</strong>{status.operation.detail && <span>{status.operation.detail}</span>}</p>}
+      {error && <p className="inline-error" role="alert">{error}</p>}
+      {status && <details className="nas-setup-config" open={!connected}>
+        <summary>{connected ? t("dataExport.nasSetupChange") : t("dataExport.nasSetupConfigure")}</summary>
+        <div>
+          <label className="field"><span>{t("dataExport.nasSetupPath")}</span><input value={path} placeholder="/mnt/stugu/nas-storage" autoCapitalize="none" autoCorrect="off" spellCheck={false} onChange={(event) => setPath(event.target.value)} /><small>{t("dataExport.nasSetupPathHelp")}</small></label>
+          {status.allowedRoots.length > 0 && <small>{t("dataExport.nasSetupAllowedRoots")}: <code>{status.allowedRoots.join(", ")}</code></small>}
+          <button type="button" className="primary-button" disabled={!path.trim() || busy !== null || operationActive || !status.capability.available || (connected && path.trim() === status.settings.backups.path)} onClick={() => void save()}>{busy === "save" ? <LoaderCircle className="spin" size={15} aria-hidden="true" /> : <Save size={15} aria-hidden="true" />}{busy === "save" ? t("dataExport.nasSetupSaving") : t("dataExport.nasSetupSave")}</button>
+        </div>
+      </details>}
+    </div>
   </section>;
 }

@@ -13,6 +13,7 @@ import { registerTenantAdministrationRoutes } from "./tenant-administration-rout
 import { registerSystemUpdateRoutes } from "./system-update-routes.js";
 import { registerSystemStorageRoutes } from "./system-storage-routes.js";
 import { registerScheduledDataExportRoutes } from "./scheduled-data-export-routes.js";
+import { registerExportDestinationRoutes } from "./export-destination-routes.js";
 import { registerHostSystemRoutes } from "./host-system-routes.js";
 import { registerCloudflareSetupRoutes } from "./cloudflare-setup-routes.js";
 import { registerLocationDiscoveryRoutes } from "./location-discovery-routes.js";
@@ -83,6 +84,7 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
   registerSystemUpdateRoutes(context);
   registerSystemStorageRoutes(context);
   registerScheduledDataExportRoutes(context);
+  registerExportDestinationRoutes(context);
   registerCloudflareSetupRoutes(context);
   registerLocationDiscoveryRoutes(context);
   registerMeasurementDefinitionRoutes(context);
