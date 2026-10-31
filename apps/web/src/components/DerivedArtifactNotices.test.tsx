@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import type { DurableDerivedAnalyticsResponse, DurableDerivedAnalyticsState } from "@climate-twin/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "../i18n";
@@ -40,6 +40,7 @@ function durable(
 
 describe("DerivedArtifactNotices", () => {
   beforeEach(() => {
+    localStorage.clear();
     localStorage.setItem("climate-twin-locale", "en");
     vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-08-08T09:00:00.000Z"));
   });
@@ -52,15 +53,16 @@ describe("DerivedArtifactNotices", () => {
       hasResult={false}
       canRefresh
     /></I18nProvider>);
-    expect(screen.getByRole("status")).toHaveTextContent("failed before a result could be saved");
-    expect(screen.queryByText(/last successful result/i)).toBeNull();
+    expect(screen.getByRole("status")).toHaveTextContent("This analysis couldn't be calculated");
+    expect(screen.queryByText(/saved result below/i)).toBeNull();
 
     view.rerender(<I18nProvider><DerivedArtifactNotices
       status={durable("failed", true)}
       hasResult
       canRefresh
     /></I18nProvider>);
-    expect(screen.getByRole("status")).toHaveTextContent("last successful result is still available");
+    expect(screen.getByRole("status")).toHaveTextContent("Couldn't update this analysis");
+    expect(screen.getByRole("status")).toHaveTextContent("The saved result below is still shown.");
     expect(screen.getByText("1 hour ago")).toHaveAttribute("dateTime", "2026-08-08T08:00:00.000Z");
     expect(screen.getByText("1 hour ago").closest("small")).toHaveTextContent("Saved");
   });
@@ -97,7 +99,7 @@ describe("DerivedArtifactNotices", () => {
         canRefresh
       /></I18nProvider>);
       expect(screen.getAllByRole("status")).toHaveLength(1);
-      expect(screen.getByRole("status")).toHaveTextContent("last successful result is still available");
+      expect(screen.getByRole("status")).toHaveTextContent("The saved result below is still shown.");
     }
 
     view.rerender(<I18nProvider><DerivedArtifactNotices
@@ -114,7 +116,39 @@ describe("DerivedArtifactNotices", () => {
       hasResult={false}
       canRefresh={false}
     /></I18nProvider>);
-    expect(screen.getByRole("status")).toHaveTextContent("No saved analysis is available yet");
-    expect(screen.getByRole("status")).toHaveTextContent("A home owner can queue it");
+    expect(screen.getByRole("status")).toHaveTextContent("No saved analysis yet");
+    expect(screen.getByRole("status")).toHaveTextContent("A home owner can start it");
+  });
+
+  it("shows one notice for a failed refresh, never also claiming newer evidence is being prepared", () => {
+    render(<I18nProvider><DerivedArtifactNotices
+      status={{ ...durable("failed", true, "HVAC_EVIDENCE_INSUFFICIENT"), stale: true }}
+      hasResult
+      canRefresh
+    /></I18nProvider>);
+    expect(screen.getAllByRole("status")).toHaveLength(1);
+    expect(screen.getByRole("status")).toHaveTextContent(/Couldn't update this analysis.*heat-pump-off time.*saved result below is still shown/);
+    expect(screen.queryByText(/New readings have arrived/)).toBeNull();
+  });
+
+  it("hides a closed notice until its situation changes", () => {
+    const failed = durable("failed", true, "HVAC_EVIDENCE_INSUFFICIENT");
+    const view = render(<I18nProvider><DerivedArtifactNotices status={failed} hasResult canRefresh /></I18nProvider>);
+    fireEvent.click(screen.getByRole("button", { name: "Hide this note" }));
+    expect(screen.queryByRole("status")).toBeNull();
+
+    view.unmount();
+    const again = render(<I18nProvider><DerivedArtifactNotices status={failed} hasResult canRefresh /></I18nProvider>);
+    expect(screen.queryByRole("status")).toBeNull();
+
+    again.rerender(<I18nProvider><DerivedArtifactNotices status={durable("failed", true, "THERMAL_SCOPE_TOO_LARGE")} hasResult canRefresh /></I18nProvider>);
+    expect(screen.getByRole("status")).toHaveTextContent("Couldn't update this analysis");
+  });
+
+  it("keeps a running recalculation visible without a close button", () => {
+    render(<I18nProvider><DerivedArtifactNotices status={durable("refreshing", true)} hasResult canRefresh /></I18nProvider>);
+    expect(screen.getByRole("status")).toHaveTextContent("Recalculating in the background");
+    expect(screen.getByRole("status")).toHaveTextContent("The saved result below stays until the new one is ready.");
+    expect(screen.queryByRole("button", { name: "Hide this note" })).toBeNull();
   });
 });

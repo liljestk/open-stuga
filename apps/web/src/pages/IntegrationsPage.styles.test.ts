@@ -4,7 +4,7 @@ import { cssRule, globalStyles } from "../test/styleSources";
 
 describe("IntegrationsPage layout styles", () => {
   it("fills the desktop setup navigation with its three primary tabs", () => {
-    expect(cssRule(globalStyles, ".setup-workspace-tabs").get("grid-template-columns")).toBe("repeat(3, minmax(0, 1fr))");
+    expect(cssRule(globalStyles, ".tabs.setup-workspace-tabs").get("grid-template-columns")).toBe("repeat(3, minmax(0, 1fr))");
   });
 
   it("separates the completed setup message from the progress heading", () => {

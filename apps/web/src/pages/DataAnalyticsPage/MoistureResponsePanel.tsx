@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Droplets, Gauge, Layers3, RefreshCw, ShieldCheck, TriangleAlert, Wind } from "lucide-react";
+import { Droplets, Gauge, Layers3, ShieldCheck, TriangleAlert, Wind } from "lucide-react";
 import type {
   House,
   MoistureResponseEntry,
@@ -9,6 +9,7 @@ import type {
 import { useI18n } from "../../i18n";
 import { useMoistureResponse } from "../../data/analytics/useMoistureResponse";
 import { DerivedArtifactNotices } from "../../components/DerivedArtifactNotices";
+import { RefreshButton } from "../../components/RefreshButton";
 
 interface MoistureResponsePanelProps {
   house: House;
@@ -97,7 +98,7 @@ export function MoistureResponsePanel({ house, embedded = false, dataMode = "rea
   const { locale, t } = useI18n();
   const [windowHours, setWindowHours] = useState<number>(7 * 24);
   const activeDataMode = dataMode === "real" ? "live" as const : "demo" as const;
-  const { result, status, loading, error, errorCode, run } = useMoistureResponse(house.id, activeDataMode);
+  const { result, status, loading, recalculating, error, errorCode, run } = useMoistureResponse(house.id, activeDataMode);
 
   const load = useCallback(() => {
     void run({ windowDays: (windowHours / 24) as 1 | 7 | 14 });
@@ -120,7 +121,7 @@ export function MoistureResponsePanel({ house, embedded = false, dataMode = "rea
         <label className="field"><span>{t("moisture.window")}</span><select value={windowHours} onChange={(event) => setWindowHours(Number(event.target.value))}>
           {WINDOW_OPTIONS.map((value) => <option key={value} value={value}>{value === 24 ? t("moisture.window24h") : t("moisture.windowDays", { count: value / 24 })}</option>)}
         </select></label>
-        {canRefresh && <button type="button" className="secondary-button" onClick={refresh} disabled={loading || dataMode === "unknown"}><RefreshCw className={loading ? "spin" : ""} size={14} aria-hidden="true" />{t("common.refresh")}</button>}
+        {canRefresh && <RefreshButton onClick={refresh} busy={recalculating} disabled={loading || dataMode === "unknown"} label={t("derived.recalculate")} busyLabel={t("derived.recalculating")} />}
       </div>
     </div> : <header className="panel-header isolation-panel-header">
       <div><span className="eyebrow"><Droplets size={13} aria-hidden="true" />{t("moisture.eyebrow")}</span><h2 id="moisture-response-title">{t("moisture.title")}</h2><p>{t("moisture.description")}</p></div>
@@ -128,7 +129,7 @@ export function MoistureResponsePanel({ house, embedded = false, dataMode = "rea
         <label className="field"><span>{t("moisture.window")}</span><select value={windowHours} onChange={(event) => setWindowHours(Number(event.target.value))}>
           {WINDOW_OPTIONS.map((value) => <option key={value} value={value}>{value === 24 ? t("moisture.window24h") : t("moisture.windowDays", { count: value / 24 })}</option>)}
         </select></label>
-        {canRefresh && <button type="button" className="secondary-button" onClick={refresh} disabled={loading || dataMode === "unknown"}><RefreshCw className={loading ? "spin" : ""} size={14} aria-hidden="true" />{t("common.refresh")}</button>}
+        {canRefresh && <RefreshButton onClick={refresh} busy={recalculating} disabled={loading || dataMode === "unknown"} label={t("derived.recalculate")} busyLabel={t("derived.recalculating")} />}
       </div>
     </header>}
 

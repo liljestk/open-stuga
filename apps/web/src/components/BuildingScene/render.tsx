@@ -24,7 +24,7 @@ import {
 } from "../../planElementGeometry";
 import { roofEavesZ, roofSurfaces } from "../../architecturalGeometry";
 import { MapInformationToggle } from "../MapInformationToggle";
-import { DEFAULT_CAMERA, VIEW_HEIGHT, VIEW_WIDTH, points, relativeSensorHeight, smoothProjectedAirflowPath, svgToken, visualLabel } from "./sceneGeometry";
+import { DEFAULT_CAMERA, OUTDOOR_SHELL_RAIL, VIEW_HEIGHT, VIEW_WIDTH, points, relativeSensorHeight, smoothProjectedAirflowPath, svgToken, visualLabel } from "./sceneGeometry";
 import type { AddableOpeningKind, BuildingSceneProps } from "./sceneGeometry";
 import { useBuildingScenePart03 } from "./part-03";
 export function renderBuildingScene(context: ReturnType<typeof useBuildingScenePart03>) {
@@ -144,29 +144,6 @@ export function renderBuildingScene(context: ReturnType<typeof useBuildingSceneP
                     className="building-outdoor-shell-edge"
                   />
                 ))}
-                {outdoorExtrasVisible && <><line
-                  x1={outdoorShellRail.anchor.x}
-                  y1={outdoorShellRail.anchor.y}
-                  x2={outdoorShellRail.x + 209}
-                  y2={outdoorShellRail.y + 53}
-                  className="building-outdoor-shell-connector"
-                />
-                <g transform={`translate(${outdoorShellRail.x} ${outdoorShellRail.y})`} className="building-outdoor-shell-rail">
-                  <g className="outdoor-shell-chip building-shell-title">
-                    <rect width="132" height="52" rx="26" />
-                    <text x="66" y="31" textAnchor="middle"><tspan className="outdoor-shell-chip-label">{t("outdoor.shellLabel")}</tspan></text>
-                  </g>
-                  <g transform="translate(140 0)" className={`outdoor-shell-chip building-temperature-chip ${outdoorTemperatureColor ? "condition-color" : ""}`} style={outdoorTemperatureStyle}>
-                    <rect width="136" height="52" rx="26" />
-                    <text x="68" y="18" textAnchor="middle"><tspan className="outdoor-shell-chip-label">{t("outdoor.shellTemperature")}</tspan></text>
-                    <text x="68" y="38" textAnchor="middle"><tspan className="outdoor-shell-chip-value">{outdoorTemperature ?? t("common.noData")}</tspan></text>
-                  </g>
-                  <g transform="translate(284 0)" className={`outdoor-shell-chip building-humidity-chip ${outdoorHumidityColor ? "condition-color" : ""}`} style={outdoorHumidityStyle}>
-                    <rect width="136" height="52" rx="26" />
-                    <text x="68" y="18" textAnchor="middle"><tspan className="outdoor-shell-chip-label">{t("outdoor.shellHumidity")}</tspan></text>
-                    <text x="68" y="38" textAnchor="middle"><tspan className="outdoor-shell-chip-value">{outdoorHumidity ?? t("common.noData")}</tspan></text>
-                  </g>
-                </g></>}
               </g>
             )}
 
@@ -417,6 +394,33 @@ export function renderBuildingScene(context: ReturnType<typeof useBuildingSceneP
                 />;
               })}
             </g>
+
+            {/* Painted after the building so walls and roofs never fade the readings; the shell's label carries them for assistive tech. */}
+            {outdoorShellRail && outdoorExtrasVisible && <g className="building-outdoor-shell-labels" aria-hidden="true">
+              <line
+                x1={outdoorShellRail.anchor.x}
+                y1={outdoorShellRail.anchor.y}
+                x2={outdoorShellRail.x + OUTDOOR_SHELL_RAIL.width / 2}
+                y2={outdoorShellRail.y + OUTDOOR_SHELL_RAIL.height}
+                className="building-outdoor-shell-connector"
+              />
+              <g transform={`translate(${outdoorShellRail.x} ${outdoorShellRail.y})`} className="building-outdoor-shell-rail">
+                <g className="outdoor-shell-chip building-shell-title">
+                  <rect width={OUTDOOR_SHELL_RAIL.titleWidth} height={OUTDOOR_SHELL_RAIL.height} rx={OUTDOOR_SHELL_RAIL.height / 2} />
+                  <text x={OUTDOOR_SHELL_RAIL.titleWidth / 2} y="31" textAnchor="middle"><tspan className="outdoor-shell-chip-label">{t("outdoor.shellLabel")}</tspan></text>
+                </g>
+                <g transform={`translate(${OUTDOOR_SHELL_RAIL.titleWidth + OUTDOOR_SHELL_RAIL.gap} 0)`} className={`outdoor-shell-chip building-temperature-chip ${outdoorTemperatureColor ? "condition-color" : ""}`} style={outdoorTemperatureStyle}>
+                  <rect width={OUTDOOR_SHELL_RAIL.chipWidth} height={OUTDOOR_SHELL_RAIL.height} rx={OUTDOOR_SHELL_RAIL.height / 2} />
+                  <text x={OUTDOOR_SHELL_RAIL.chipWidth / 2} y="18" textAnchor="middle"><tspan className="outdoor-shell-chip-label">{t("outdoor.shellTemperature")}</tspan></text>
+                  <text x={OUTDOOR_SHELL_RAIL.chipWidth / 2} y="38" textAnchor="middle"><tspan className="outdoor-shell-chip-value">{outdoorTemperature ?? t("common.noData")}</tspan></text>
+                </g>
+                <g transform={`translate(${OUTDOOR_SHELL_RAIL.width - OUTDOOR_SHELL_RAIL.chipWidth} 0)`} className={`outdoor-shell-chip building-humidity-chip ${outdoorHumidityColor ? "condition-color" : ""}`} style={outdoorHumidityStyle}>
+                  <rect width={OUTDOOR_SHELL_RAIL.chipWidth} height={OUTDOOR_SHELL_RAIL.height} rx={OUTDOOR_SHELL_RAIL.height / 2} />
+                  <text x={OUTDOOR_SHELL_RAIL.chipWidth / 2} y="18" textAnchor="middle"><tspan className="outdoor-shell-chip-label">{t("outdoor.shellHumidity")}</tspan></text>
+                  <text x={OUTDOOR_SHELL_RAIL.chipWidth / 2} y="38" textAnchor="middle"><tspan className="outdoor-shell-chip-value">{outdoorHumidity ?? t("common.noData")}</tspan></text>
+                </g>
+              </g>
+            </g>}
 
             {editing && <g className="building-plan-elements building-plan-elements-editing">
               {orderedFloors.flatMap(({ floor }) => (floor.planElements ?? []).map((element, index) => renderArchitecturalElement(floor, element, index)))}

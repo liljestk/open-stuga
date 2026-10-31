@@ -208,7 +208,7 @@ export function PropertyAreaMap({
       }
       const selected = area.id === selectedAreaId;
       const style: L.PathOptions = {
-        color: selected ? "#0755c9" : areaColors[area.kind],
+        color: selected ? "#1f5f92" : areaColors[area.kind],
         fillColor: areaColors[area.kind],
         fillOpacity: selected ? 0.32 : 0.2,
         opacity: 0.95,
@@ -480,7 +480,7 @@ export function PropertyAreaMap({
       draftLayerRef.current = null;
       return;
     }
-    const style: L.PathOptions = { color: "#0755c9", dashArray: "7 5", fillColor: "#4f9d8a", fillOpacity: 0.22, weight: 3 };
+    const style: L.PathOptions = { color: "#1f5f92", dashArray: "7 5", fillColor: "#4f9d8a", fillOpacity: 0.22, weight: 3 };
     if (!draftLayerRef.current) draftLayerRef.current = L.polygon(points, style).addTo(map);
     else draftLayerRef.current.setLatLngs(points).setStyle(style);
   }, [draftPolygon, selectedAreaId]);

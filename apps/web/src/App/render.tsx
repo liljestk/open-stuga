@@ -1,4 +1,4 @@
-import { Suspense } from "react";
+import { Suspense, type ReactNode } from "react";
 import { hasLocalHouseAuthority } from "@climate-twin/contracts";
 import { AlertTriangle, LoaderCircle, RotateCcw, ShieldCheck, Wrench } from "lucide-react";
 import { AppShell } from "./AppShell";
@@ -14,6 +14,24 @@ import { twinDashboardHomeViewLocation } from "../pages/TwinDashboard/queryState
 import { ActivityPage, AlertsPage, DataAnalyticsPage, DeveloperPage, EnergyPage, IntegrationsPage, MaintenancePage, OutdoorWeatherPage, PeopleAccessPage, PortfolioOverview, PropertyManagementPage, SensorManagementPage, StugubyPage, SystemUpdatesPage, TwinDashboard, latestIso, settleInBackground } from "./shellSupport";
 import { useAppPart03 } from "./part-03";
 import { hasBrowserCapability } from "../accessPolicy";
+/**
+ * This branch also renders while the route is still resolving: for one render
+ * the selected property is not known yet, or its Home is not selected yet.
+ * Showing the first-Home card then flashed "Add your first home" on every load.
+ */
+function homeEmptyStateContent({ propertyHomes, propertyResolved, workspaceHomes, readOnly, loading, noAccess, firstHome }: {
+  propertyHomes: number;
+  propertyResolved: boolean;
+  workspaceHomes: number;
+  readOnly: boolean;
+  loading: ReactNode;
+  noAccess: () => ReactNode;
+  firstHome: () => ReactNode;
+}): ReactNode {
+  if (propertyHomes > 0 || (!propertyResolved && workspaceHomes > 0)) return loading;
+  return readOnly ? noAccess() : firstHome();
+}
+
 export function renderApp(context: ReturnType<typeof useAppPart03>) {
   const { t, climate, state, workspaceReadOnly, canManagePeople, loadSeriesInBackground, page, routeLoading, routeNotFound, setRouteRevision, propertyId, setPropertyId, houseId, setHouseId, setFloorId, metric, setMetric, viewMode, setViewMode, selectedSensorId, setSelectedSensorId, units, bootstrapAction, maintenanceObservationId, setMaintenanceObservationId, requestedSensorDevice, setRequestedSensorDevice, invitationToken, setInvitationToken, logoutUncertain, setLogoutUncertain, logout, property, propertyElectricityAvailable, propertyHouses, selectedPropertyHouse, house, houseLocalAuthority, locationRoute, readOnly, effectiveRouteNotFound, floor, lastUpdated, openAlertCount, undisclosedTpLinkDevices, discoveredSensorNotice, applyHouse, setUnits, dismissTpLinkDeviceNotices, navigate, chooseHouse, chooseProperty, createHouse, deleteHouse, repairHome, renderFirstHomeCard, renderNoAccessCard } = context;
   const localAuthorityHouses = propertyHouses.filter(hasLocalHouseAuthority);
@@ -352,7 +370,7 @@ export function renderApp(context: ReturnType<typeof useAppPart03>) {
         principalEmail={state.session.principal.email}
         onLogout={logout}
         onRetryConnection={climate.retryBootstrap}
-      ><div className="home-empty-state">{readOnly ? renderNoAccessCard() : renderFirstHomeCard()}</div></AppShell>;
+      ><div className="home-empty-state">{homeEmptyStateContent({ propertyHomes: propertyHouses.length, propertyResolved: Boolean(property), workspaceHomes: state.houses.length, readOnly, loading: routeLoading, noAccess: renderNoAccessCard, firstHome: renderFirstHomeCard })}</div></AppShell>;
     }
   if (!house) {
       return <main className="bootstrap-screen">{readOnly ? renderNoAccessCard() : <section className="bootstrap-card"><AlertTriangle size={24} aria-hidden="true" /><h1>{t("bootstrap.inventoryUnavailable")}</h1><button type="button" className="primary-button" onClick={climate.retryBootstrap}><RotateCcw size={16} aria-hidden="true" />{t("bootstrap.retry")}</button></section>}</main>;
@@ -513,6 +531,7 @@ export function renderApp(context: ReturnType<typeof useAppPart03>) {
             canManageIntegrations={canManagePeople}
             units={units}
             onLoadSeries={loadSeriesInBackground}
+            seriesStates={climate.seriesStates}
             onRequestedDeviceHandled={() => setRequestedSensorDevice(null)}
             onHouse={chooseHouse}
             onUpdateHouse={climate.updateHouse}

@@ -46,6 +46,31 @@ function durable(result: ThermalIsolationResult): DurableDerivedAnalyticsRespons
 describe("useThermalIsolation", () => {
   beforeEach(() => vi.clearAllMocks());
 
+  it("stays busy after a recalculation request until its job settles, checking back every 5 seconds", async () => {
+    vi.useFakeTimers();
+    try {
+      const ready = durable(isolation("2026-07-01T00:00:00.000Z", "2026-07-08T00:00:00.000Z"));
+      mocks.refresh.mockResolvedValueOnce({ ...ready, state: "queued" });
+      mocks.cached.mockResolvedValueOnce({ ...ready, state: "refreshing" }).mockResolvedValueOnce(ready);
+      const { result } = renderHook(() => useThermalIsolation("house-a", "live"));
+
+      await act(async () => { await result.current.run({ windowDays: 7 }, true); });
+      expect(result.current.status?.state).toBe("queued");
+      expect(result.current.recalculating).toBe(true);
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+      expect(mocks.cached).toHaveBeenCalledTimes(1);
+      expect(result.current.recalculating).toBe(true);
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+      expect(mocks.cached).toHaveBeenCalledTimes(2);
+      expect(result.current.status?.state).toBe("ready");
+      expect(result.current.recalculating).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("keeps last-good evidence while a manual refresh is pending or fails", async () => {
     const firstOptions = { from: "2026-07-01T00:00:00.000Z", to: "2026-07-08T00:00:00.000Z" };
     const second = deferred<DurableDerivedAnalyticsResponse<ThermalIsolationResult>>();

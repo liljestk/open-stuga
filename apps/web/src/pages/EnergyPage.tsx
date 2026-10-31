@@ -37,6 +37,7 @@ import {
   supportsMetric,
 } from "./energyTelemetry";
 import "./EnergyPage.css";
+import { CardHeader } from "../components/CardHeader";
 
 
 const COST_INTERVALS = [
@@ -383,7 +384,7 @@ export function EnergyPage({ state, dataMode = "live", house = null, propertyId:
       />}
 
       {!house && <section className="panel energy-price-config" aria-labelledby="energy-price-config-heading">
-        <div className="panel-header"><div><span className="eyebrow">{t("energy.priceSource")}</span><h2 id="energy-price-config-heading">{t("energy.contractTitle")}</h2></div></div>
+        <CardHeader title={t("energy.contractTitle")} eyebrow={t("energy.priceSource")} titleId="energy-price-config-heading" />
         <p>{t("energy.contractDescription")}</p>
         {currentPropertyPrice && <p><strong>{t("energy.priceSummary", {
           effective: currentPropertyPrice.effectivePriceCentsPerKwh.toFixed(3),

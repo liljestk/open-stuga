@@ -48,7 +48,7 @@ export function installRequestPipeline(context: RuntimeCoordination) {
       response.send(`<!doctype html>
   <html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width">
   <title>${successful ? "Cloudflare approved" : "Cloudflare approval not completed"}</title>
-  <body style="font:16px system-ui,sans-serif;max-width:38rem;margin:10vh auto;padding:1.5rem;color:#1b1d1a;background:#f1efe9">
+  <body style="font:16px system-ui,sans-serif;max-width:38rem;margin:10vh auto;padding:1.5rem;color:#15212c;background:#eef2f5">
   <h1>${successful ? "Cloudflare approved" : "Approval not completed"}</h1>
   <p>${successful
       ? "Stugu is finishing the secure connection. You can close this window and return to Stugu."

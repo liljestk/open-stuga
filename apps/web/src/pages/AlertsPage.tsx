@@ -11,6 +11,7 @@ import { alertGroupKey } from "../alertGrouping";
 import { TelegramSetupPanel } from "./TelegramSetupPanel";
 import { ActionPlaybookLauncher, AlertOrchestrationPanel } from "./AlertOrchestrationPanel";
 import { HostSystemAlertsPanel } from "./HostSystemAlertsPanel";
+import { CardHeader } from "../components/CardHeader";
 
 export { countActionableAlertGroups } from "../alertGrouping";
 
@@ -188,7 +189,7 @@ function AlertsPageView({ state, units, onCreateRule, onUpdateRule, onAcknowledg
         <div>
           <button type="button" className="secondary-button" onClick={() => setShowForm((value) => !value)} aria-expanded={showForm} aria-controls={showForm ? "new-rule-builder" : undefined}><Plus size={16} aria-hidden="true" />{t("alerts.newRule")}</button>
           {showForm && <section id="new-rule-builder" className="rule-builder" aria-labelledby="new-rule-heading">
-            <div className="panel-header"><div><span className="eyebrow">{t("alerts.rules")}</span><h2 id="new-rule-heading">{t("alerts.newRule")}</h2></div></div>
+            <CardHeader title={t("alerts.newRule")} eyebrow={t("alerts.rules")} titleId="new-rule-heading" />
             <form onSubmit={submit}>
               <label className="field field-wide"><span>{t("alerts.ruleName")}</span><input required value={name} onChange={(event) => setName(event.target.value)} placeholder={t("alerts.ruleNamePlaceholder")} /></label>
               <div className="form-grid">

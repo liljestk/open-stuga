@@ -42,8 +42,8 @@
 .heat-pump-name,
 .heat-pump-value {
   fill: var(--ink);
-  font-family: "Manrope", sans-serif;
-  font-size: 11px;
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
   font-weight: 700;
   paint-order: stroke;
   pointer-events: none;
@@ -53,11 +53,11 @@
 }
 .heat-pump-value {
   fill: var(--on-ink);
-  font-size: 10px;
+  font-size: var(--text-xs);
   stroke: none;
 }
-.heat-pump-value.compact { font-size: 10px; }
-.heat-pump-state { fill: var(--muted); font-size: 10px; }
+.heat-pump-value.compact { font-size: var(--text-xs); }
+.heat-pump-state { fill: var(--muted); font-size: var(--text-xs); }
 .building-heat-pump .heat-pump-name,
 .building-heat-pump .heat-pump-state { text-anchor: start; }
 .heat-pump-marker.selectable:hover .heat-pump-ring,
@@ -115,7 +115,7 @@
   border: 1px dashed var(--line-strong);
   border-radius: var(--radius-sm);
   background: var(--panel-soft);
-  font-size: 11px;
+  font-size: var(--text-xs);
 }
 .heat-pump-placement-tray > span { flex: 1 1 220px; }
 .heat-pump-impact-legend {
@@ -124,7 +124,7 @@
   gap: 8px 14px;
   margin: 8px 0 0;
   color: var(--muted);
-  font-size: 10.5px;
+  font-size: var(--text-xs);
 }
 .heat-pump-impact-legend span { display: inline-flex; align-items: center; gap: 5px; }
 .heat-pump-impact-legend i {
@@ -132,7 +132,7 @@
   height: 8px;
   display: inline-block;
   border: 1.5px solid var(--blue);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--blue-soft);
 }
 .heat-pump-impact-legend .reported i { border-style: solid; }
@@ -149,7 +149,7 @@
   flex: 0 0 auto;
   margin-top: 3px;
   border: 2px solid var(--line-strong);
-  border-radius: 9px;
+  border-radius: var(--radius-sm);
   background: var(--panel-soft);
   box-shadow: inset 0 -8px 14px color-mix(in srgb, var(--ink) 5%, transparent);
 }
@@ -179,10 +179,10 @@
   flex: 0 0 auto;
   padding: 4px 8px;
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   color: var(--muted);
   background: var(--panel-soft);
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-weight: 700;
 }
 .heat-pump-status-pill i {
@@ -208,15 +208,15 @@
   background: var(--panel-soft);
 }
 .heat-pump-evidence > span:last-child { min-width: 0; display: grid; gap: 2px; }
-.heat-pump-evidence strong { color: var(--ink); font-size: 10.5px; }
-.heat-pump-evidence small { font-size: 10px; line-height: 1.4; }
+.heat-pump-evidence strong { color: var(--ink); font-size: var(--text-xs); }
+.heat-pump-evidence small { font-size: var(--text-xs); line-height: 1.4; }
 .heat-pump-evidence-mark {
   width: 22px;
   height: 12px;
   flex: 0 0 auto;
   margin-top: 2px;
   border: 2px dashed var(--heat-pump-color, var(--muted));
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: color-mix(in srgb, var(--heat-pump-color, var(--muted)) 12%, transparent);
 }
 .heat-pump-evidence.cooling,
@@ -235,7 +235,7 @@
   color: var(--action);
   cursor: pointer;
   list-style: none;
-  font-size: 10.5px;
+  font-size: var(--text-xs);
   font-weight: 700;
 }
 .heat-pump-details > summary::-webkit-details-marker { display: none; }
@@ -245,13 +245,13 @@
 .heat-pump-details-content { padding: 2px 0 8px; }
 .heat-pump-details-content > p,
 .heat-pump-diagnostics-heading p,
-.heat-pump-no-diagnostics { margin: 0; color: var(--muted); font-size: 10px; line-height: 1.45; }
+.heat-pump-no-diagnostics { margin: 0; color: var(--muted); font-size: var(--text-xs); line-height: 1.45; }
 .heat-pump-detail-list { padding: 6px 0; }
 .heat-pump-detail-list > div { align-items: flex-start; padding: 5px 0; }
 .heat-pump-detail-list dd { max-width: 150px; overflow-wrap: anywhere; }
 .heat-pump-technical-value { font-family: SFMono-Regular, Consolas, "Liberation Mono", monospace; }
 .heat-pump-diagnostics-heading { display: grid; gap: 3px; margin-top: 7px; padding-top: 10px; border-top: 1px solid var(--line); }
-.heat-pump-diagnostics-heading strong { font-size: 10.5px; }
+.heat-pump-diagnostics-heading strong { font-size: var(--text-xs); }
 .heat-pump-diagnostics-list { padding-top: 4px; }
 .heat-pump-no-diagnostics { padding: 8px 0; }
 

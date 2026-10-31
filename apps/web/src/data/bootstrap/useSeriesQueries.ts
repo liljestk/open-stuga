@@ -25,7 +25,7 @@ export function useSeriesQueries(
       const seriesKey = seriesStateKey(sensorId, metric);
       const requestVersion = (seriesLoadVersions.current.get(seriesKey) ?? 0) + 1;
       seriesLoadVersions.current.set(seriesKey, requestVersion);
-      const isCurrentRequest = () => seriesLoadVersions.current.get(seriesKey) === requestVersion;
+      const isCurrentRequest = () => !signal?.aborted && seriesLoadVersions.current.get(seriesKey) === requestVersion;
       const to = new Date();
       const from = new Date(to.getTime() - timeRangeHours(range) * 3600000);
       const requestedFrom = from.toISOString();
@@ -79,71 +79,77 @@ export function useSeriesQueries(
         }
       }
       activeSeriesTelemetryBuffers.current.add(liveTelemetry);
+      const requests = canonicalSeries(sensorId, metric, range, requestedFrom, requestedTo, forecastSupported, signal);
+      let history: Awaited<typeof requests.history>;
       try {
-        let loaded: Awaited<ReturnType<typeof canonicalSeries>> | null = null;
-        let canonicalError: unknown = null;
-        try {
-          loaded = await canonicalSeries(sensorId, metric, range, requestedFrom, requestedTo, forecastSupported, signal);
-        } catch (error) {
-          canonicalError = error;
-        }
-        if (signal?.aborted) return;
-        if (!isCurrentRequest()) return;
-        if (loaded) {
-          const refreshedSamples = mergeMeasurementSeries(
-            loaded.samples,
-            liveTelemetry.samples.values(),
-            MAX_SERIES_SAMPLES,
-          );
-          seriesCommitSequence.current += 1;
-          seriesCommitVersions.current.set(seriesKey, { version: seriesCommitSequence.current });
-          setState((current) => {
-            const samples = replaceMeasurementSeriesWindow(
-              current.measurementHistory[sensorId]?.[metric] ?? [],
-              loaded.samples,
-              liveTelemetry.samples.values(),
-              requestedFrom,
-              requestedTo,
-              loaded.history.truncated,
-            );
-            const next = {
-              ...current,
-              measurementHistory: {
-                ...current.measurementHistory,
-                [sensorId]: { ...current.measurementHistory[sensorId], [metric]: samples },
-              },
-            };
-            return loaded.forecast.value === null ? next : {
-              ...next,
-              measurementForecasts: {
-                ...current.measurementForecasts,
-                [sensorId]: { ...current.measurementForecasts[sensorId], [metric]: loaded.forecast.value },
-              },
-            };
-          });
-          const loadedFrom = refreshedSamples[0]?.timestamp ?? null;
-          const loadedTo = refreshedSamples.at(-1)?.timestamp ?? null;
-          setSeriesStates((current) => ({
-            ...current,
-            [seriesKey]: {
-              status: "ready",
-              error: null,
-              forecastError: loaded.forecast.error,
-              requestedFrom,
-              requestedTo,
-              loadedFrom,
-              loadedTo,
-              partial: loaded.history.truncated
-                || (loadedFrom !== null && Date.parse(loadedFrom) > from.getTime() + (loaded.history.bucketSeconds ?? 0) * 1_000),
-              truncated: loaded.history.truncated,
-            },
-          }));
-          return;
-        }
-        fail(canonicalError);
+        history = await requests.history;
+      } catch (error) {
+        fail(error);
+        return;
       } finally {
         activeSeriesTelemetryBuffers.current.delete(liveTelemetry);
       }
+      if (!isCurrentRequest()) return;
+      // The history is committed before the forecast settles. A forecast is
+      // computed on request and can take tens of seconds; waiting for it left
+      // every chart drawing only the samples it already held.
+      const refreshedSamples = mergeMeasurementSeries(
+        history.samples,
+        liveTelemetry.samples.values(),
+        MAX_SERIES_SAMPLES,
+      );
+      seriesCommitSequence.current += 1;
+      seriesCommitVersions.current.set(seriesKey, { version: seriesCommitSequence.current });
+      setState((current) => ({
+        ...current,
+        measurementHistory: {
+          ...current.measurementHistory,
+          [sensorId]: {
+            ...current.measurementHistory[sensorId],
+            [metric]: replaceMeasurementSeriesWindow(
+              current.measurementHistory[sensorId]?.[metric] ?? [],
+              history.samples,
+              liveTelemetry.samples.values(),
+              requestedFrom,
+              requestedTo,
+              history.truncated,
+            ),
+          },
+        },
+      }));
+      const loadedFrom = refreshedSamples[0]?.timestamp ?? null;
+      const loadedTo = refreshedSamples.at(-1)?.timestamp ?? null;
+      setSeriesStates((current) => ({
+        ...current,
+        [seriesKey]: {
+          status: "ready",
+          error: null,
+          forecastError: current[seriesKey]?.forecastError ?? null,
+          requestedFrom,
+          requestedTo,
+          loadedFrom,
+          loadedTo,
+          partial: history.truncated
+            || (loadedFrom !== null && Date.parse(loadedFrom) > from.getTime() + (history.bucketSeconds ?? 0) * 1_000),
+          truncated: history.truncated,
+        },
+      }));
+      const forecast = await requests.forecast;
+      if (!isCurrentRequest()) return;
+      if (forecast.value !== null) {
+        const points = forecast.value;
+        setState((current) => ({
+          ...current,
+          measurementForecasts: {
+            ...current.measurementForecasts,
+            [sensorId]: { ...current.measurementForecasts[sensorId], [metric]: points },
+          },
+        }));
+      }
+      setSeriesStates((current) => {
+        const settled = current[seriesKey];
+        return settled ? { ...current, [seriesKey]: { ...settled, forecastError: forecast.error } } : current;
+      });
     }, []);
   return { loadSeries };
 }

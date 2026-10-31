@@ -19,7 +19,7 @@ to get one is the [Cloudflare Tunnel and Access setup](cloudflare-access.md).
 Any HTTPS reverse proxy that forwards `/api/v1/mcp`, `/api/v1/oauth/*` and
 `/.well-known/oauth-*` to the Stugu web service also works.
 
-If you set up Cloudflare before 0.55.0, run the Cloudflare setup again: the
+If you set up Cloudflare before 0.58.0, run the Cloudflare setup again: the
 [UI-managed setup](cloudflare-access.md#ui-managed-setup), or
 `node scripts/cloudflare-stugu.mjs provision …` (or `provision-coordinator`)
 with the same arguments. This adds one Access application that lets the
@@ -124,7 +124,7 @@ body.
   `https://<your Stugu>/.well-known/oauth-authorization-server` in a private
   browser window. It should show JSON whose `issuer` is your Stugu address.
   An Access login page means the Cloudflare setup has not been run again
-  since 0.55.0. `node scripts/cloudflare-stugu.mjs verify --secret-dir …`
+  since 0.58.0. `node scripts/cloudflare-stugu.mjs verify --secret-dir …`
   checks the paths for you.
 - **"This connection request can't be used".** The assistant asked for
   something Stugu does not support, or its registration expired. Remove the

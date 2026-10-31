@@ -146,7 +146,7 @@ describe("HomePerformancePanel", () => {
     expect(screen.getByText(/Left out of comfort exposure: Sauna\./)).not.toBeNull();
   });
 
-  it("keeps the local Refresh button as the explicit compute action", () => {
+  it("keeps the local Recalculate button as the explicit compute action", () => {
     const state = createDemoState();
     const refresh = vi.fn();
     const refetch = vi.fn();
@@ -155,6 +155,7 @@ describe("HomePerformancePanel", () => {
       error: null,
       isFetching: false,
       isLoading: false,
+      recalculating: false,
       refetch,
       refresh,
     } as unknown as ReturnType<typeof useHomePerformanceQuery>);
@@ -165,7 +166,7 @@ describe("HomePerformancePanel", () => {
       dataMode="real"
       refreshRevision={0}
     /></I18nProvider>);
-    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    fireEvent.click(screen.getByRole("button", { name: "Recalculate" }));
 
     expect(refresh).toHaveBeenCalledOnce();
     expect(refetch).not.toHaveBeenCalled();

@@ -49,8 +49,8 @@
 
 .outdoor-wind-label text {
   fill: var(--ink);
-  font-family: "Manrope", sans-serif;
-  font-size: 13px;
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
   font-weight: 700;
   letter-spacing: .01em;
 }

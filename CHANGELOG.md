@@ -2,23 +2,9 @@
 
 All notable Stugu releases are recorded here.
 
-## 0.56.0
+## 0.58.0
 
-The MCP servers can now read heat pumps, electricity contracts and the charts' analytics, and two forecast tools that failed are fixed.
-
-- `forecast_measurement` and `forecast_sensor` no longer fail with "attempt to write a readonly database". The MCP process opens the workspace read-only, but a forecast tried to store its model evaluation unless the web app had recently stored one. The MCP process now computes the evaluation without storing it.
-- `get_home_monitoring` now sees the latest stored weather, so its insights take outdoor conditions and weather warnings into account. It used to evaluate every Home as if no weather were available.
-- New read-only tools in the local MCP profile (61 → 69 tools):
-  - `list_heat_pump_states` and `query_heat_pump_history`: power, mode, target and room temperature, fan and availability for each configured heat pump, with history merged from the telemetry archive. Connection credentials are never included.
-  - `get_house_energy_projection`: the Energy page's 30-day electricity use and cost projection.
-  - `get_property_electricity_tariff`, `list_electricity_invoices` and `get_electricity_invoice_reconciliation`: the electricity contract, recorded invoices, and how each invoice compares with Stugu's own calculation.
-  - `query_analytics` and `get_measurement_coverage`: the same bucketed series, summaries and quality as the Analytics charts over up to ten years, and how far back each sensor's data goes. The MCP process measures each sensor's reporting interval for these queries without storing it.
-- The ChatGPT profile, which Claude and ChatGPT connected through the 0.55.0 connector also use, adds `list_heat_pump_states` and `get_house_energy_projection` (20 → 22 tools), and the `stugu-home` plugin's guidance explains when to use them.
-- Upgrade impact: application-only update; no schema, Compose, configuration or host-trust change. MCP clients see eight new local tools or two new ChatGPT tools after reconnecting. The heat-pump history endpoint and the analytics query and coverage endpoints share their reading code with the MCP tools; their responses are unchanged.
-
-## 0.55.0
-
-Ask Claude or ChatGPT about your Homes. Paste one URL into the assistant, approve the connection in Stugu, and it can answer questions such as "Is the front door open?" or "How much electricity did we use yesterday?" on the web, in the desktop apps, on your phone and by voice.
+Ask Claude or ChatGPT about your Homes. Paste one URL into the assistant, approve the connection in Stugu, and it can answer questions such as "Is the front door open?" or "How much electricity did we use yesterday?" on the web, in the desktop apps, on your phone and by voice. The MCP servers can also read heat pumps, electricity contracts and the charts' analytics, and two forecast tools that failed are fixed.
 
 - Advanced → API & MCP has a new **Claude and ChatGPT** panel. It shows the connector URL (`https://<your Stugu>/api/v1/mcp`), the steps for Claude, ChatGPT and Claude Code, and every connected assistant with who approved it and when it was last used. **Disconnect** stops an assistant immediately.
 - Connecting opens a Stugu page that names the assistant, the address asking, and what it can and cannot read. Only an Owner or Admin can approve, and you sign in first if needed. The assistant is named from the address Stugu answers to, never from the name it gives itself. Stugu only sends approvals to Claude's and ChatGPT's own callback addresses, or to an app on the computer you approve from.
@@ -26,7 +12,95 @@ Ask Claude or ChatGPT about your Homes. Paste one URL into the assistant, approv
 - Stugu now runs its own OAuth 2.1 sign-in for this, with dynamic client registration, PKCE (S256), and access tokens that last one hour. Refresh tokens rotate on every use, and a reused one disconnects the assistant. Connections survive restarts. They stop working if the approving account is removed or is no longer an Owner or Admin. Approvals and disconnections are recorded in the security audit log.
 - The network MCP server starts on demand when a connected assistant asks, so you no longer have to press Start first. Stopping it still revokes the manual token; an assistant's next question starts it again. When assistants started it, **Create access token** issues a manual token for other MCP clients.
 - Claude and ChatGPT connect from their own servers, so Stugu must be reachable over HTTPS from the internet, for example through the Cloudflare Tunnel. Running the Cloudflare setup again adds a narrow Access exception for `/api/v1/mcp`, `/api/v1/oauth/*` and the two OAuth discovery documents. Each of these authenticates the client itself. The approval page and everything else stay behind Access. The bundled proxy rate-limits the new public paths.
-- Upgrade impact: feature release. It adds three SQLite tables (`assistant_oauth_clients`, `assistant_connector_grants`, `assistant_connector_tokens`), created automatically on start. It also adds seven API operations: `POST /api/v1/oauth/register|token|revoke`, `GET|POST /api/v1/assistant-connector/authorization`, `GET /api/v1/assistant-connector/connections` and `DELETE /api/v1/assistant-connector/connections/{id}`. Outside `/api/v1`, it adds `GET /.well-known/oauth-authorization-server` and `/.well-known/oauth-protected-resource/api/v1/mcp`. `GET /api/v1/system/mcp-runtime` gains `accessTokenIssued`. The web image's nginx configuration changes. To use Claude or ChatGPT behind Cloudflare Access, rerun the Cloudflare setup (or `node scripts/cloudflare-stugu.mjs provision …`). Existing tunnels keep working unchanged until you do. No Compose or host-trust change.
+- `forecast_measurement` and `forecast_sensor` no longer fail with "attempt to write a readonly database". The MCP process opens the workspace read-only, but a forecast tried to store its model evaluation unless the web app had recently stored one. The MCP process now computes the evaluation without storing it.
+- `get_home_monitoring` now sees the latest stored weather, so its insights take outdoor conditions and weather warnings into account. It used to evaluate every Home as if no weather were available.
+- New read-only tools in the local MCP profile (61 → 69 tools):
+  - `list_heat_pump_states` and `query_heat_pump_history`: power, mode, target and room temperature, fan and availability for each configured heat pump, with history merged from the telemetry archive. Connection credentials are never included.
+  - `get_house_energy_projection`: the Energy page's 30-day electricity use and cost projection.
+  - `get_property_electricity_tariff`, `list_electricity_invoices` and `get_electricity_invoice_reconciliation`: the electricity contract, recorded invoices, and how each invoice compares with Stugu's own calculation.
+  - `query_analytics` and `get_measurement_coverage`: the same bucketed series, summaries and quality as the Analytics charts over up to ten years, and how far back each sensor's data goes. The MCP process measures each sensor's reporting interval for these queries without storing it.
+- The ChatGPT profile, which connected Claude and ChatGPT assistants also use, adds `list_heat_pump_states` and `get_house_energy_projection` (20 → 22 tools), and the `stugu-home` plugin's guidance explains when to use them. The plugin package version moves to 0.21.0 so installed copies pick up the new guidance.
+- Upgrade impact: feature release. It adds three SQLite tables (`assistant_oauth_clients`, `assistant_connector_grants`, `assistant_connector_tokens`), created automatically on start. It also adds seven API operations: `POST /api/v1/oauth/register|token|revoke`, `GET|POST /api/v1/assistant-connector/authorization`, `GET /api/v1/assistant-connector/connections` and `DELETE /api/v1/assistant-connector/connections/{id}`. Outside `/api/v1`, it adds `GET /.well-known/oauth-authorization-server` and `/.well-known/oauth-protected-resource/api/v1/mcp`. `GET /api/v1/system/mcp-runtime` gains `accessTokenIssued`. The web image's nginx configuration changes. To use Claude or ChatGPT behind Cloudflare Access, rerun the Cloudflare setup (or `node scripts/cloudflare-stugu.mjs provision …`). Existing tunnels keep working unchanged until you do. MCP clients see eight new local tools or two new ChatGPT tools after reconnecting. Reinstall or refresh the `stugu-home` plugin in ChatGPT or Codex for its new guidance. The heat-pump history endpoint and the analytics query and coverage endpoints share their reading code with the MCP tools; their responses are unchanged. No Compose or host-trust change.
+
+## 0.56.7
+
+- The Stugu plugin for ChatGPT and Codex shows the Kaamos mark (night tile, snow cottage, lantern window) and uses the night tile `#22303D` as its brand colour instead of the old terracotta. The plugin package version moves to 0.20.3 so installed copies pick up the new look.
+- The page Stugu shows after you approve Cloudflare remote access uses the Kaamos ink on snow (`#15212C` on `#EEF2F5`, 14.5:1 contrast) instead of the old ink on cream.
+- Upgrade impact: application-only update; one API-served page changes colour. No API contract, schema, Compose, configuration or host-trust change. Reinstall or refresh the `stugu-home` plugin in ChatGPT or Codex to see the new mark and colour.
+
+## 0.56.5
+
+The 3D view's outdoor readings are readable and name no weather service.
+
+- In the 3D view, the outdoor temperature no longer fades behind the roof. The house's walls and roof were drawn over the temperature reading above the house, so it looked half covered and hard to read. The outdoor readings are now drawn on top of the house.
+- The outdoor readings around the house no longer say "FMI" for every home. Homes that get their weather from Open-Meteo were labelled "FMI temperature". The labels now read "Outdoor shell", "Outdoor temperature" and "Outdoor humidity" in English, Finnish and Swedish. The "Outside now" card still names the weather source.
+- In dark mode, the "Outdoor shell" label is dark text on light blue. It used to be white on light blue, which was hard to read.
+- On phones and narrow windows, a hidden "Outside now" card sits above the 3D view instead of covering the outdoor readings.
+- Upgrade impact: application-only update; no API, schema, Compose, configuration or host-trust change.
+
+## 0.56.3
+
+The "Outside now" card fits its readings and keeps out of the plan's way.
+
+- On the 2D plan, a hidden "Outside now" card no longer covers the zoom-in button. Its summary now sits beside the zoom controls. On phones and in narrow windows, where the plan sits below the card, the summary sits above the plan instead of over its top edge, so it no longer hides the outdoor temperature either.
+- The card's readings are no longer cut off. Wind speed, gust and direction used to read "4.2 m…", "Gust …" and "SW · …" on a desktop screen. When three tiles don't fit on one row, the wind tile moves to its own row.
+- Upgrade impact: application-only update; no API, schema, Compose, configuration or host-trust change.
+
+## 0.56.1
+
+- The README and Getting started screenshots show the Kaamos look: the night-blue navigation, snow and night pages, the lantern on the current page, and Atkinson Hyperlegible Next. All twelve images (Home, the 2D plan, the 3D building, Data & analytics, Electricity and the phone Home page, each in light and dark) were captured again from the same synthetic sample home, at the same sizes and file names.
+- Upgrade impact: none. Only documentation changes; the API, web app, database, configuration, Compose and host trust are unchanged.
+
+## 0.54.0
+
+A new look: Kaamos, the polar night.
+
+- Stugu has a new visual identity:
+  - The navigation and the phone's header bar are night blue in both light and dark mode.
+  - Pages are snow-light or night-dark, with cool blue-grey neutrals.
+  - Buttons are rounded pills.
+  - One lantern amber marks the logo's window, the page you are on, and the page title, like a lit cottage window in the dark. It is never used for a status. Warning yellow is now a separate straw yellow, so the two can't be confused in dark mode.
+- All text uses Atkinson Hyperlegible Next, a typeface drawn for low-vision reading. It is bundled with Stugu, so no font is fetched from the internet. Its zero has a slash, so it can't be mistaken for the letter O.
+- Text is never smaller than 12 px. Sizes come from one scale of eight steps instead of 52 different sizes, of which 10 px was the most common.
+- Labels are written in sentence case instead of spaced capitals.
+- Corners, shadows and greys follow one set of values everywhere, including the floor plan and the 3D view in dark mode.
+- "Report a bug" in the navigation is readable again: its text had 2.8:1 contrast against the dark rail.
+- The logo, favicon and browser theme colour use the new mark, and spreadsheet exports use the new blue for their header row.
+- The tabs on Property, Set up, Activity and the Outdoor forecast now share one design and one keyboard behaviour. Arrow keys work in both directions, and Home and End jump to the first and last tab. On Set up, the tab row keeps a keyboard stop while an advanced section is open.
+- Upgrade impact: application-only update; no API, schema, Compose, configuration or host-trust change. The iOS companion keeps its previous colours for now.
+
+## 0.53.0
+
+Clearer messages and visible progress.
+
+- Data & analytics:
+  - Home performance, Thermal isolation and Moisture response each show one message for their saved analysis instead of up to three. A failed update said both "the update failed" and "newer evidence is prepared". It now says the update couldn't run, why, and that the saved result below is still shown.
+  - You can close these messages. A closed message comes back when its situation changes, for example a different failure or a new result.
+  - Their button is now "Recalculate". After you choose it, it reads "Recalculating…" until the background job finishes. The panel checks every 5 seconds instead of every 30, for up to two minutes.
+  - The "Daily comparisons are being updated" banner no longer runs its title and text together.
+- Refresh buttons say what they are doing:
+  - Data & analytics, Set up's check, Alerts, the calendar comparison, Sensors' device list and System's update check read "Refreshing…" or "Checking…" while they work.
+  - With reduced motion turned on, as Windows does when animation effects are off, every spinner stopped after one frame. Spinners now fade in and out instead of turning.
+- Outdoor: Refresh on the "weather unavailable" card keeps the card in place while it retries, then says when it last tried. Before, the card blinked to "Updating" and back, so the button seemed to do nothing.
+- Opening Stugu no longer flashes the "Add your first home" screen while the selected Home is still loading.
+- Upgrade impact: application-only update; no API, schema, Compose, configuration or host-trust change.
+
+## 0.52.18
+
+Fixes found in a review of every page and tab.
+
+- Charts show their full range as soon as the history arrives. They used to wait for the forecast as well, which is computed on request and can take tens of seconds. Until then a sensor's detail chart drew only its newest log page, about five hours of a 24-hour range, and said its history began there. The forecast is now added when it arrives, and the chart no longer reports where the history begins while the range is still loading.
+- The Sensors page now treats a reading as current for 15 minutes, the same window Home, Overview and the floor plan use (`VITE_SPATIAL_MAX_SAMPLE_AGE_MS` still overrides it). Before, a sensor reporting every 10–15 minutes kept switching between Live and Waiting, and Sensors could show none live while Home counted most of them. A sensor that has reported before but not recently now says "Not reporting" instead of "Waiting for data". The summary tile and the status filter call both kinds "No recent data".
+- Layout fixes:
+  - Set up → Sensor mapping and the property's Tariff and Bill check cards have inner padding.
+  - Property → Map layer names and the search and type filters no longer get cut off.
+  - On phones, "View data for …" buttons with long sensor names wrap instead of running past the card.
+- "1 item shown" and "1 home with a location" replace "1 items" and "1 homes".
+- On the floor plan:
+  - A room's name moves above a sensor marker that would cover it.
+  - The zoom control no longer covers the west compass label. On tablets and desktops it moves to the top-left corner.
+  - On tablets, the layer notes wrap above the temperature legend instead of covering it.
+- Upgrade impact: application-only update; no API, schema, Compose, configuration or host-trust change.
 
 ## 0.52.16
 

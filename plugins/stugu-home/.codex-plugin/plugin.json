@@ -1,6 +1,6 @@
 {
   "name": "stugu-home",
-  "version": "0.20.2",
+  "version": "0.21.0",
   "description": "Ask ChatGPT about current and historical Home conditions through Stugu.",
   "author": {
     "name": "open-stuga contributors",
@@ -20,7 +20,7 @@
     "category": "Lifestyle",
     "capabilities": ["Read"],
     "websiteURL": "https://github.com/liljestk/open-stuga",
-    "brandColor": "#B54122",
+    "brandColor": "#22303D",
     "composerIcon": "./assets/stugu-mark.svg",
     "logo": "./assets/stugu-mark.svg",
     "defaultPrompt": [

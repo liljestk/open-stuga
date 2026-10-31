@@ -48,7 +48,7 @@ assistants' own callback addresses, codes are single-use and PKCE-bound, and
 `/api/v1/mcp` requires a bearer token issued for that exact URL. The approval
 page `/connect/assistant` and its API stay behind the root application. The
 bundled proxy rate-limits the OAuth paths. Installations provisioned before
-0.55.0 keep working unchanged; rerun provisioning to add the application.
+0.58.0 keep working unchanged; rerun provisioning to add the application.
 `verify` and `verify-coordinator` check these paths when the deployment
 records the application.
 

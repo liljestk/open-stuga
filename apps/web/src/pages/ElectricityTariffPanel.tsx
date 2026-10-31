@@ -11,6 +11,7 @@ import { queryClient } from "../data/queryClient";
 import { queryKeys } from "../data/queryKeys";
 import { useI18n } from "../i18n";
 import "./ElectricityTariffPanel.css";
+import { CardHeader } from "../components/CardHeader";
 
 type ScheduleChoice = ElectricityRateScheduleKind | "none";
 
@@ -243,7 +244,7 @@ export function ElectricityTariffPanel({ propertyId, readOnly }: ElectricityTari
 
   return (
     <section className="panel electricity-tariff" aria-labelledby="electricity-tariff-heading">
-      <div className="panel-header"><div><span className="eyebrow">{t("tariff.eyebrow")}</span><h2 id="electricity-tariff-heading">{t("tariff.title")}</h2></div></div>
+      <CardHeader title={t("tariff.title")} eyebrow={t("tariff.eyebrow")} titleId="electricity-tariff-heading" />
       <p>{t("tariff.description")}</p>
       {query.data && <p className="electricity-tariff-note">{t("tariff.timeZone", { timeZone: query.data.timeZone })}</p>}
       {query.isPending && <p role="status">{t("tariff.loading")}</p>}

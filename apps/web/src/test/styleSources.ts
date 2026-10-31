@@ -92,14 +92,16 @@ function rules(source: string): Array<{ prelude: string; body: string }> {
 
 /**
  * The declarations of every rule whose selector list includes `selector`, inside the
- * `@media` block whose condition is `media` when given, otherwise outside any at-rule.
- * Declaration order inside and across rules is kept; order between properties is not asserted.
+ * `@media` block whose condition is `media` when given (or the at-rule `media` names when it
+ * starts with `@`, such as `@container building-scene (max-width: 760px)`), otherwise outside
+ * any at-rule. Declaration order inside and across rules is kept; order between properties is not asserted.
  */
 export function cssRule(source: string, selector: string, media?: string): CssRule {
   const withoutComments = source.replace(/\/\*[\s\S]*?\*\//gu, "");
+  const atRule = media?.startsWith("@") ? normalize(media) : `@media ${normalize(media ?? "")}`;
   const scopes = media === undefined
     ? [withoutComments]
-    : rules(withoutComments).filter((rule) => rule.prelude === `@media ${normalize(media)}`).map((rule) => rule.body);
+    : rules(withoutComments).filter((rule) => rule.prelude === atRule).map((rule) => rule.body);
   const declarations: Array<[string, string]> = [];
   const wanted = normalize(selector);
   for (const scope of scopes) {
@@ -111,7 +113,7 @@ export function cssRule(source: string, selector: string, media?: string): CssRu
       }
     }
   }
-  if (declarations.length === 0) throw new Error(`No rule for ${selector}${media ? ` inside @media ${media}` : ""}`);
+  if (declarations.length === 0) throw new Error(`No rule for ${selector}${media ? ` inside ${atRule}` : ""}`);
   return {
     declarations,
     get: (property) => declarations.filter(([name]) => name === property).at(-1)?.[1],

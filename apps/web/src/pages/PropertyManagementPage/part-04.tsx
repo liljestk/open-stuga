@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import {
   Building2,
   Boxes,
@@ -201,18 +201,6 @@ export function usePropertyManagementPagePart04(context: ReturnType<typeof usePr
       { id: "notes", key: "properties.notes", icon: NotebookPen },
       ...(canManageAccess ? [{ id: "access" as const, key: "properties.access" as const, icon: Users }] : []),
     ];
-  const chooseTabFromKeyboard = (event: ReactKeyboardEvent<HTMLButtonElement>, index: number) => {
-      let nextIndex = index;
-      if (event.key === "ArrowRight" || event.key === "ArrowDown") nextIndex = (index + 1) % tabs.length;
-      else if (event.key === "ArrowLeft" || event.key === "ArrowUp") nextIndex = (index - 1 + tabs.length) % tabs.length;
-      else if (event.key === "Home") nextIndex = 0;
-      else if (event.key === "End") nextIndex = tabs.length - 1;
-      else return;
-      event.preventDefault();
-      setTab(tabs[nextIndex]!.id);
-      const buttons = event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>("[role='tab']");
-      buttons?.[nextIndex]?.focus();
-    };
   const vertexLabel = useCallback((index: number, canFinish: boolean) => canFinish
       ? t("properties.finishBoundaryPoint")
       : t("properties.moveBoundaryPoint", { number: index + 1 }), [t]);
@@ -262,5 +250,5 @@ export function usePropertyManagementPagePart04(context: ReturnType<typeof usePr
       });
       setRedoVertices([]);
     };
-  return Object.assign(context, { visibleMapHouses, visibleAssetIds, visibleMapEquipment, visibleMapMembers, placementDraftIsValid, tabs, chooseTabFromKeyboard, vertexLabel, midpointLabel, startArea, startFixedAsset, appendVertex });
+  return Object.assign(context, { visibleMapHouses, visibleAssetIds, visibleMapEquipment, visibleMapMembers, placementDraftIsValid, tabs, vertexLabel, midpointLabel, startArea, startFixedAsset, appendVertex });
 }

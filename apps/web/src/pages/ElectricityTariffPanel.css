@@ -1,6 +1,11 @@
+.electricity-tariff,
+.electricity-bill-check {
+  padding: 18px;
+}
+
 .electricity-tariff-note {
   color: var(--muted);
-  font-size: 0.9rem;
+  font-size: var(--text-sm);
 }
 
 .electricity-tariff-table {
