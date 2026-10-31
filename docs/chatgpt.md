@@ -2,11 +2,16 @@
 
 Stugu includes a focused, read-only MCP profile for private ChatGPT
 conversations. It exposes current and historical measurements, openings,
-electricity, weather, alerts, and temperature-corrected indoor/outdoor moisture
-response. It cannot change the Home or control equipment.
+electricity use and its 30-day projection, heat-pump state, weather, alerts,
+and temperature-corrected indoor/outdoor moisture response. It cannot change the Home or control equipment.
 
-The recommended private connection is OpenAI's
-[Secure MCP Tunnel](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels).
+The simplest connection is the OAuth connector: paste
+`https://<your Stugu>/api/v1/mcp` into ChatGPT and approve the connection in
+Stugu. It needs Stugu's public HTTPS address, for example through the
+Cloudflare Tunnel. See [Claude and ChatGPT](assistants.md).
+
+When Stugu has no public address, use OpenAI's
+[Secure MCP Tunnel](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels) instead.
 It runs beside Stugu and makes an outbound HTTPS connection; Stugu does not
 need a public port. A tunnel is for private and developer-mode use, not public
 plugin submission.
@@ -71,7 +76,7 @@ steps](https://developers.openai.com/plugins/deploy/connect-chatgpt):
    read-only view of the Home.
 3. Under **Connection**, select **Tunnel**, choose the Stugu tunnel (or paste
    its `tunnel_id`), and create the connection.
-4. Review the 20 discovered tools and test the starter questions below.
+4. Review the 22 discovered tools and test the starter questions below.
 
 The connection is usable immediately. The reusable package in
 `plugins/stugu-home` adds Stugu's conversation guidance and branding. After
@@ -90,6 +95,7 @@ message**, enable Stugu, and ask, for example:
 - “What was the average temperature in the Home last night?”
 - “Is the front door open?”
 - “How much electricity did we use yesterday?”
+- “Is the heat pump on, and what is it set to?”
 - “Is the current wind consistent with the humidity change inside?”
 
 The last question combines current weather, indoor readings, opening state, and

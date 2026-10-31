@@ -7,6 +7,7 @@ import { homeAnalyticsPaths } from "./home-analytics-paths.js";
 import { nexus433Paths } from "./nexus433-paths.js";
 import { bugReportPaths } from "./bug-report-paths.js";
 import { electricityTariffPaths } from "./electricity-tariff-paths.js";
+import { assistantConnectorPaths, assistantConnectorSchemas } from "./assistant-connector-paths.js";
 import { schemasPart01 } from "./schemas-01.js";
 import { schemasPart02 } from "./schemas-02.js";
 import { schemasPart03 } from "./schemas-03.js";
@@ -45,6 +46,7 @@ export const combinedOpenApiDocument = {
     ...nexus433Paths,
     ...bugReportPaths,
     ...electricityTariffPaths,
+    ...assistantConnectorPaths,
   },
   components: {
     securitySchemes: {
@@ -52,6 +54,7 @@ export const combinedOpenApiDocument = {
           csrfToken: { type: "apiKey", in: "header", name: "X-CSRF-Token", description: "Session-bound token required together with the session cookie on unsafe methods." },
           ingestKey: { type: "apiKey", in: "header", name: "X-API-Key", description: "Optional, configured by INGEST_API_KEY." },
           mcpBearer: { type: "http", scheme: "bearer", bearerFormat: "opaque", description: "One-time-displayed token generated when an Owner/Admin starts the network MCP runtime." },
+          assistantOAuth: { type: "oauth2", description: "OAuth 2.1 with PKCE for Claude, ChatGPT and local MCP apps. An Owner or Admin approves each connection in the Stugu web app.", flows: { authorizationCode: { authorizationUrl: "/connect/assistant", tokenUrl: "/api/v1/oauth/token", refreshUrl: "/api/v1/oauth/token", scopes: { "stugu.read": "Read-only conversation tools for the Homes in this Stugu" } } } },
           notesGrant: { type: "http", scheme: "bearer", bearerFormat: "opaque", description: "One-time, house-scoped Apple Notes Shortcut grant. The local server stores only its SHA-256 hash." },
           tapoWorkerBearer: { type: "http", scheme: "bearer", bearerFormat: "opaque", description: "Route-scoped token for the isolated Appium Tapo export worker." },
           trackingObserverBearer: { type: "http", scheme: "bearer", bearerFormat: "opaque", description: "Installation-bound credential accepted only by tracking observation and heartbeat routes." },
@@ -85,6 +88,7 @@ export const combinedOpenApiDocument = {
       ...homeAnalyticsSchemas,
       ...schemasPart11,
       ...schemasPart12,
+      ...assistantConnectorSchemas,
     },
   },
 } as const;

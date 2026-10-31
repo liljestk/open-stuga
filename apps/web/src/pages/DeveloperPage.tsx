@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { Braces, Check, ChevronDown, CircleCheck, CircleOff, Clipboard, Clock3, ExternalLink, KeyRound, Play, Radio, ServerCog, Square, TerminalSquare, TriangleAlert, Wifi } from "lucide-react";
+import type { LocalMcpRuntimeErrorCode, LocalMcpRuntimeState } from "@climate-twin/contracts";
+import { Braces, Check, ChevronDown, CircleCheck, CircleOff, Clipboard, Clock3, ExternalLink, KeyRound, Link2, Play, Radio, ServerCog, Square, TerminalSquare, TriangleAlert, Wifi } from "lucide-react";
 import { api, API_BASE, API_V2_BASE } from "../api";
-import { useI18n } from "../i18n";
+import { assistantConnectorUrl } from "../assistantConnector";
+import { useI18n, type TranslationKey } from "../i18n";
+import { AssistantConnectionsPanel } from "./DeveloperPage/AssistantConnectionsPanel";
 import { SystemOperationsPanel } from "./SetupOperationsPanel";
 
 export function browserFacingApiBase(base: string, browserOrigin: string): string {
@@ -13,6 +16,44 @@ export function browserFacingApiBase(base: string, browserOrigin: string): strin
   } catch {
     return `${browserOrigin}${base}`;
   }
+}
+
+function mcpStateLabelKey(state: LocalMcpRuntimeState, loading: boolean): TranslationKey {
+  if (loading) return "developer.mcpChecking";
+  if (state === "running") return "developer.mcpRunning";
+  if (state === "starting") return "developer.mcpStarting";
+  if (state === "stopping") return "developer.mcpStopping";
+  if (state === "error") return "developer.mcpError";
+  return "developer.mcpStopped";
+}
+
+function mcpStateDetailKey(state: LocalMcpRuntimeState, errorCode: LocalMcpRuntimeErrorCode | null | undefined): TranslationKey {
+  if (state === "running") return "developer.mcpRunningDetail";
+  if (state === "starting") return "developer.mcpStartingDetail";
+  if (state === "stopping") return "developer.mcpStoppingDetail";
+  if (state === "error") return errorCode === "build_missing" ? "developer.mcpBuildMissing" : "developer.mcpErrorDetail";
+  return "developer.mcpStoppedDetail";
+}
+
+function McpStateIcon({ state, loading }: Readonly<{ state: LocalMcpRuntimeState; loading: boolean }>) {
+  if (state === "running") return <CircleCheck size={18} aria-hidden="true" />;
+  if (state === "starting" || state === "stopping" || loading) return <Clock3 size={18} aria-hidden="true" />;
+  if (state === "error") return <TriangleAlert size={18} aria-hidden="true" />;
+  return <CircleOff size={18} aria-hidden="true" />;
+}
+
+const mcpRequestErrorKeys: Record<"load" | "start" | "stop", TranslationKey> = {
+  load: "developer.mcpStatusFailed",
+  start: "developer.mcpStartFailed",
+  stop: "developer.mcpStopFailed",
+};
+
+/** The manual token is shown once; an assistant connection can run the server without one. */
+function McpTokenNote({ token, issued, busy, onCreate }: Readonly<{ token: string | null; issued: boolean; busy: boolean; onCreate: () => void }>) {
+  const { t } = useI18n();
+  if (token) return <p className="mcp-token-note">{t("developer.mcpTokenOnce")}</p>;
+  if (issued) return <p className="mcp-token-note warning">{t("developer.mcpTokenHidden")}</p>;
+  return <div className="mcp-token-note warning"><p>{t("developer.mcpNoManualToken")}</p><button type="button" className="secondary-button" disabled={busy} onClick={onCreate}><KeyRound size={15} aria-hidden="true" />{t("developer.mcpCreateToken")}</button></div>;
 }
 
 export function DeveloperPage({ canManageSystem = false }: { canManageSystem?: boolean }) {
@@ -30,6 +71,7 @@ export function DeveloperPage({ canManageSystem = false }: { canManageSystem?: b
   const absoluteV2Base = browserFacingApiBase(API_V2_BASE, origin);
   const mcpHttpEndpoint = `${absoluteBase}/mcp`;
   const mcpCommand = "node apps/api/dist/mcp-server.js";
+  const assistantUrl = assistantConnectorUrl(origin);
 
   useEffect(() => () => {
     if (clearCopyResultTimer.current !== null) window.clearTimeout(clearCopyResultTimer.current);
@@ -111,42 +153,9 @@ export function DeveloperPage({ canManageSystem = false }: { canManageSystem?: b
     : mcpRuntimeAction === "stop"
       ? "stopping"
       : mcpRuntime?.state ?? "stopped";
-  const mcpStateLabel = mcpRuntimeLoading
-    ? t("developer.mcpChecking")
-    : displayedMcpState === "running"
-      ? t("developer.mcpRunning")
-      : displayedMcpState === "starting"
-        ? t("developer.mcpStarting")
-        : displayedMcpState === "stopping"
-          ? t("developer.mcpStopping")
-          : displayedMcpState === "error"
-            ? t("developer.mcpError")
-            : t("developer.mcpStopped");
-  const mcpStateDetail = displayedMcpState === "running"
-    ? t("developer.mcpRunningDetail", { count: mcpRuntime?.toolCount ?? 0 })
-    : displayedMcpState === "starting"
-      ? t("developer.mcpStartingDetail")
-      : displayedMcpState === "stopping"
-        ? t("developer.mcpStoppingDetail")
-        : displayedMcpState === "error" && mcpRuntime?.errorCode === "build_missing"
-          ? t("developer.mcpBuildMissing")
-          : displayedMcpState === "error"
-            ? t("developer.mcpErrorDetail")
-            : t("developer.mcpStoppedDetail");
-  const mcpStateIcon = displayedMcpState === "running"
-    ? <CircleCheck size={18} aria-hidden="true" />
-    : displayedMcpState === "starting" || displayedMcpState === "stopping" || mcpRuntimeLoading
-      ? <Clock3 size={18} aria-hidden="true" />
-      : displayedMcpState === "error"
-        ? <TriangleAlert size={18} aria-hidden="true" />
-        : <CircleOff size={18} aria-hidden="true" />;
-  const mcpRequestError = mcpRuntimeRequestError === "start"
-    ? t("developer.mcpStartFailed")
-    : mcpRuntimeRequestError === "stop"
-      ? t("developer.mcpStopFailed")
-      : mcpRuntimeRequestError === "load"
-        ? t("developer.mcpStatusFailed")
-        : null;
+  const mcpStateLabel = t(mcpStateLabelKey(displayedMcpState, mcpRuntimeLoading));
+  const mcpStateDetail = t(mcpStateDetailKey(displayedMcpState, mcpRuntime?.errorCode), { count: mcpRuntime?.toolCount ?? 0 });
+  const mcpRequestError = mcpRuntimeRequestError ? t(mcpRequestErrorKeys[mcpRuntimeRequestError]) : null;
 
   return (
     <>
@@ -172,7 +181,7 @@ export function DeveloperPage({ canManageSystem = false }: { canManageSystem?: b
           </dl>
           {canManageSystem && <>
             <div className={`mcp-runtime-control ${displayedMcpState}`} aria-live="polite">
-              <div className="mcp-runtime-summary"><span className="mcp-runtime-state-icon">{mcpStateIcon}</span><span><strong>{mcpStateLabel}</strong><small>{mcpStateDetail}</small></span></div>
+              <div className="mcp-runtime-summary"><span className="mcp-runtime-state-icon"><McpStateIcon state={displayedMcpState} loading={mcpRuntimeLoading} /></span><span><strong>{mcpStateLabel}</strong><small>{mcpStateDetail}</small></span></div>
               {displayedMcpState === "running"
                 ? <button type="button" className="secondary-button" onClick={() => void changeMcpRuntime("stop")} disabled={mcpRuntimeAction !== null}><Square size={15} aria-hidden="true" />{t("developer.mcpStop")}</button>
                 : <button type="button" className="primary-button" onClick={() => void changeMcpRuntime("start")} disabled={mcpRuntimeLoading || mcpRuntimeAction !== null}><Play size={15} aria-hidden="true" />{t("developer.mcpStart")}</button>}
@@ -184,10 +193,15 @@ export function DeveloperPage({ canManageSystem = false }: { canManageSystem?: b
                 <Endpoint label={t("developer.mcpHttpEndpoint")} value={mcpHttpEndpoint} icon={<Wifi size={15} />} status={copyResult?.id === "mcp-http" ? copyResult.status : null} onCopy={() => copy("mcp-http", mcpHttpEndpoint)} />
                 {mcpAccessToken && <Endpoint sensitive label={t("developer.mcpAccessToken")} value={mcpAccessToken} icon={<KeyRound size={15} />} status={copyResult?.id === "mcp-token" ? copyResult.status : null} onCopy={() => copy("mcp-token", mcpAccessToken)} />}
               </dl>
-              <p className={mcpAccessToken ? "mcp-token-note" : "mcp-token-note warning"}>{mcpAccessToken ? t("developer.mcpTokenOnce") : t("developer.mcpTokenHidden")}</p>
+              <McpTokenNote token={mcpAccessToken} issued={mcpRuntime?.accessTokenIssued ?? false} busy={mcpRuntimeAction !== null} onCreate={() => void changeMcpRuntime("start")} />
             </div>}
           </>}
         </section>
+        {canManageSystem && <AssistantConnectionsPanel secureOrigin={origin.startsWith("https://")}>
+          <dl className="endpoint-list">
+            <Endpoint label={t("assistantConnector.connectorUrl")} value={assistantUrl} icon={<Link2 size={15} />} status={copyResult?.id === "assistant-url" ? copyResult.status : null} onCopy={() => copy("assistant-url", assistantUrl)} />
+          </dl>
+        </AssistantConnectionsPanel>}
       </div>
       <details className="panel route-table developer-route-disclosure">
         <summary><span><span className="eyebrow">{t("developer.localRuntime")} {"\u00b7"} /api/v1 {"\u00b7"} /api/v2</span><strong id="routes-title">{t("developer.localRoutesTitle")}</strong><small>{t("developer.routeCount", { count: 11 })}</small></span><ChevronDown size={18} aria-hidden="true" /></summary>

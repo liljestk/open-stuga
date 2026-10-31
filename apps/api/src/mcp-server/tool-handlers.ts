@@ -24,7 +24,18 @@ import { summarizeMcpStuguby } from "./stuguby-tools.js";
 import { backupStatus } from "./setup-tools.js";
 import { dailyAnalyticsFindings } from "./derived-analytics-tools.js";
 import { getMcpStuguby } from "./stuguby-tools.js";
-import { houseElectricityPrice, houseEnergyCost, houseEnergySummary, propertyElectricity } from "./energy-tools.js";
+import {
+  electricityInvoiceReconciliation,
+  electricityInvoices,
+  houseElectricityPrice,
+  houseEnergyCost,
+  houseEnergyProjection,
+  houseEnergySummary,
+  propertyElectricity,
+  propertyElectricityTariff,
+} from "./energy-tools.js";
+import { heatPumpHistory, listHeatPumpStates } from "./heat-pump-tools.js";
+import { measurementCoverage, queryAnalytics } from "./analytics-query-tools.js";
 import { houseOpeningStates, openingActivity } from "./opening-tools.js";
 import { listPropertyNotes } from "./record-tools.js";
 import { outdoorTemperatureHistory } from "./weather-tools.js";
@@ -52,6 +63,9 @@ export function createToolHandlers(runtime: McpRuntime): Record<string, ToolHand
       requiredToolString(args, "propertyId"),
       mcpBoundedInteger(args.windowHours, "windowHours", 2, 1, 12),
     ),
+    get_property_electricity_tariff: (args) => propertyElectricityTariff(runtime, args),
+    list_electricity_invoices: (args) => electricityInvoices(runtime, args),
+    get_electricity_invoice_reconciliation: (args, signal) => electricityInvoiceReconciliation(runtime, args, signal),
     list_property_areas: (args) => database.listPropertyAreas(optionalToolString(args, "propertyId"))
       .map(summarizeMcpPropertyArea),
     list_area_equipment: (args) => database.listAreaEquipment({
@@ -86,6 +100,9 @@ export function createToolHandlers(runtime: McpRuntime): Record<string, ToolHand
     get_house_electricity_price: (args) => houseElectricityPrice(runtime, args),
     get_house_energy_cost: (args) => houseEnergyCost(runtime, args),
     get_house_energy_summary: (args) => houseEnergySummary(runtime, args),
+    get_house_energy_projection: (args, signal) => houseEnergyProjection(runtime, args, signal),
+    list_heat_pump_states: (args) => listHeatPumpStates(runtime, args),
+    query_heat_pump_history: (args) => heatPumpHistory(runtime, args),
     query_outdoor_temperature_history: (args) => outdoorTemperatureHistory(runtime, args),
     get_home_moisture_response: (args) => homeMoistureResponse(runtime, args),
     run_thermal_simulation: (args, signal) => thermalSimulation(runtime, args, signal),
@@ -97,6 +114,8 @@ export function createToolHandlers(runtime: McpRuntime): Record<string, ToolHand
     get_measurement_snapshot: (args) => measurementSnapshot(runtime, optionalToolString(args, "houseId")),
     query_measurement_history: (args) => queryMeasurementHistory(runtime, args),
     summarize_home_measurements: (args) => homeMeasurementSummary(runtime, args),
+    query_analytics: (args, signal) => queryAnalytics(runtime, args, signal),
+    get_measurement_coverage: (args, signal) => measurementCoverage(runtime, args, signal),
     forecast_measurement: (args) => {
       const sensorId = requiredToolString(args, "sensorId");
       const metric = requiredToolString(args, "metric");

@@ -12,6 +12,8 @@ export interface LocalMcpRuntimeStatus {
   toolCount: number | null;
   serverVersion: string | null;
   errorCode: LocalMcpRuntimeErrorCode | null;
+  /** Whether a manual bearer token is live. Assistant connections can run the server without one. */
+  accessTokenIssued: boolean;
 }
 
 export interface LocalMcpRuntimeStartResult extends LocalMcpRuntimeStatus {

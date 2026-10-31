@@ -33,6 +33,11 @@ export default defineConfig({
         target: "http://127.0.0.1:8787",
         changeOrigin: false,
       },
+      // Assistant connections discover Stugu's OAuth endpoints at the origin root.
+      "/.well-known/oauth-": {
+        target: "http://127.0.0.1:8787",
+        changeOrigin: false,
+      },
     },
   },
   build: {

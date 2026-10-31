@@ -1,6 +1,6 @@
 {
   "name": "stugu-home",
-  "version": "0.20.3",
+  "version": "0.21.0",
   "description": "Ask ChatGPT about current and historical Home conditions through Stugu.",
   "author": {
     "name": "open-stuga contributors",

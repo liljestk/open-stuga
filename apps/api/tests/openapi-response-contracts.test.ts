@@ -53,7 +53,7 @@ describe("served response contracts", () => {
   it("keeps the MCP start response closed while allowing its one-time token", () => {
     const schema = documents.v1.paths["/system/mcp-runtime/start"]!.post.responses["200"].content["application/json"].schema;
     const body = { state: "running", endpointPath: "/api/v1/mcp", pid: 123,
-      startedAt: "2026-10-04T12:00:00Z", toolCount: 40, serverVersion: "0.41.15", errorCode: null,
+      startedAt: "2026-10-04T12:00:00Z", toolCount: 40, serverVersion: "0.41.15", errorCode: null, accessTokenIssued: true,
       accessToken: "synthetic-one-time-token" };
     const check = validate(schema, body);
     expect(check({ ...body, accessToken: null })).toBe(true);
