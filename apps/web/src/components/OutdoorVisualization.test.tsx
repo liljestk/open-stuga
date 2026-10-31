@@ -242,6 +242,10 @@ describe("outdoor boundary visualization", () => {
     expect(screen.getByText("4 m/s · W · 270°")).not.toBeNull();
     expect(localStorage.getItem("climate-twin-outdoor-panel")).toBe("collapsed");
     expect(first.container.querySelector(".outdoor-shell-windward-edge")).not.toBeNull();
+    // The layout styles place this chip beside the plan's zoom controls; both must sit in the same plan layout.
+    const plan = first.container.querySelector(".floor-plan-layout")!;
+    expect(plan.querySelector(":scope > .outdoor-context-card.collapsed")).not.toBeNull();
+    expect(plan.querySelector(".plan-zoom-controls")?.contains(screen.getByRole("button", { name: "Zoom in" }))).toBe(true);
 
     first.unmount();
     floorView(house, outdoorState(house));

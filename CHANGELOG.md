@@ -7,6 +7,14 @@ All notable Stugu releases are recorded here.
 - Mean, sum, minimum, maximum and last analytics on a TimescaleDB archive answer much faster. The raw readings at the edges of a range were read by scanning and decompressing the Sensor's whole stored history; they now read only the archive chunks that hold them. On a Raspberry Pi, a 30-day mean at 15 minutes for a power plug reporting every 2 seconds dropped from 1.6 s to 0.09 s, and 90- and 365-day hourly reads from about 2 s to 0.2 s. Results are unchanged.
 - Upgrade impact: application-only update; no schema, Compose, configuration or host-trust change.
 
+## 0.56.3
+
+The "Outside now" card fits its readings and keeps out of the plan's way.
+
+- On the 2D plan, a hidden "Outside now" card no longer covers the zoom-in button. Its summary now sits beside the zoom controls. On phones and in narrow windows, where the plan sits below the card, the summary sits above the plan instead of over its top edge, so it no longer hides the outdoor temperature either.
+- The card's readings are no longer cut off. Wind speed, gust and direction used to read "4.2 m…", "Gust …" and "SW · …" on a desktop screen. When three tiles don't fit on one row, the wind tile moves to its own row.
+- Upgrade impact: application-only update; no API, schema, Compose, configuration or host-trust change.
+
 ## 0.56.1
 
 - The README and Getting started screenshots show the Kaamos look: the night-blue navigation, snow and night pages, the lantern on the current page, and Atkinson Hyperlegible Next. All twelve images (Home, the 2D plan, the 3D building, Data & analytics, Electricity and the phone Home page, each in light and dark) were captured again from the same synthetic sample home, at the same sizes and file names.

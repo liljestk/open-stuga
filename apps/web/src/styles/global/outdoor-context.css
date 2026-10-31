@@ -4,9 +4,10 @@
 
 .outdoor-context-heading > b { padding: 2px 6px; border-radius: var(--radius-sm); color: var(--yellow); background: var(--yellow-soft); font-size: var(--text-xs); }
 
-.outdoor-context-values { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; }
+/* Tiles start at their content width and wrap to a new row rather than cutting a reading short. */
+.outdoor-context-values { display: flex; flex-wrap: wrap; gap: 5px; }
 
-.outdoor-context-values > span { min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; column-gap: 4px; padding: 6px; border-radius: var(--radius-sm); background: var(--panel-soft); }
+.outdoor-context-values > span { min-width: 0; flex: 1 1 auto; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; column-gap: 4px; padding: 6px; border-radius: var(--radius-sm); background: var(--panel-soft); }
 
 .outdoor-context-values > span.outdoor-condition-color { background: color-mix(in srgb, var(--outdoor-condition-color) 16%, var(--panel-soft)); box-shadow: inset 3px 0 0 var(--outdoor-condition-color); }
 
@@ -84,6 +85,13 @@
   backdrop-filter: blur(10px);
 }
 
+/* The plan's zoom controls own the stage's top-left corner (10px in, 42px wide), so the collapsed card
+   starts beside them. A stacked plan puts it in the flow instead (see the floor-plan container query). */
+.floor-plan-layout > .outdoor-context-card.collapsed {
+  inset: 10px auto auto 62px;
+  max-width: min(286px, calc(100% - 74px));
+}
+
 .outdoor-map-layout > .plan-stage,
 .outdoor-map-layout > .building-viewport {
   min-width: 0;
@@ -106,6 +114,17 @@
     flex-basis: auto;
     margin: 10px;
     overflow: visible;
+  }
+
+  /* Stacked, the plan's top edge holds the outdoor shell's chips, so the collapsed card stays in the
+     flow above the plan like the expanded one instead of floating over them. */
+  .floor-plan-layout > .outdoor-context-card.collapsed {
+    position: relative;
+    inset: auto;
+    align-self: flex-start;
+    max-width: calc(100% - 20px);
+    margin: 10px;
+    box-shadow: none;
   }
 }
 
