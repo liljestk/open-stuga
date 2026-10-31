@@ -62,7 +62,7 @@ local workspace; Guests can be limited to selected Properties, Homes and areas.
     <td width="50%">
       <picture>
         <source media="(prefers-color-scheme: dark)" srcset="docs/images/screenshots/home-dark.webp">
-        <img src="docs/images/screenshots/home-light.webp" alt="The Home page: Home Pulse says the home is worth watching because rooms differ by 3.5 °C, with the average temperature and the number of sensors reporting.">
+        <img src="docs/images/screenshots/home-light.webp" alt="The Home page: Home Pulse says the home is worth watching because rooms differ by 3.6 °C, with the average temperature and the number of sensors reporting.">
       </picture>
       <p><b>Home.</b> Home Pulse says whether anything needs attention and why, and what the rooms feel like right now.</p>
     </td>

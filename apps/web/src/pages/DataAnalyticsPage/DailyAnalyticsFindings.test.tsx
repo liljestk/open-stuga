@@ -125,6 +125,33 @@ describe("DailyAnalyticsFindings", () => {
     expect(pendingText.closest('[role="status"]')).not.toBeNull();
   });
 
+  it("keeps the shown state while its 15 s poll is in flight", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const state = createDemoState();
+      let resolveNext!: () => void;
+      const request = vi.spyOn(api, "analyticsFindings")
+        .mockResolvedValueOnce({ snapshot: null, status: { state: "pending", lastAttemptAt: null, lastError: null } })
+        .mockImplementation(() => new Promise((resolve) => {
+          resolveNext = () => resolve({ snapshot: null, status: { state: "pending", lastAttemptAt: null, lastError: null } });
+        }));
+
+      render(<I18nProvider><DailyAnalyticsFindings
+        house={state.houses[0]!}
+        definitions={state.measurementDefinitions}
+        units="metric"
+      /></I18nProvider>);
+
+      expect(await screen.findByText("The first daily comparison is being prepared")).not.toBeNull();
+      await vi.advanceTimersByTimeAsync(15_100);
+      await waitFor(() => expect(request).toHaveBeenCalledTimes(2));
+      expect(screen.getByText("The first daily comparison is being prepared")).not.toBeNull();
+      resolveNext();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("renders a property-local date without shifting it across the date line", async () => {
     const state = createDemoState();
     const house = { ...state.houses[0]!, timezone: "Pacific/Kiritimati" };

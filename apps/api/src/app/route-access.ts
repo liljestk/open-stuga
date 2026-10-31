@@ -23,6 +23,8 @@ export interface RouteAccessPolicy {
 export function routeAccessPolicy(prefix: string, v2Prefix: string): RouteAccessPolicy {
   const sideEffectFreePosts = new Set([`${v2Prefix}/analytics/query`, `${v2Prefix}/analytics/coverage`]);
   const ingestPaths = new Set([`${prefix}/readings`, `${v2Prefix}/measurements`, `${v2Prefix}/measurements/import`]);
+  // Read-only analytics that still require a member session and CSRF token.
+  const analyticsReads = new Set([`${v2Prefix}/analytics/opening-activity`, `${v2Prefix}/analytics/calendar-comparison`]);
   const demoEngine = (path: string) => path.startsWith(`${prefix}/mock/`) || path === `${prefix}/replay`;
   return {
     sideEffectFreePost: (request) => request.method === "POST" && sideEffectFreePosts.has(request.path),
@@ -32,9 +34,11 @@ export function routeAccessPolicy(prefix: string, v2Prefix: string): RouteAccess
       || (request.method === "POST" && request.path === `${prefix}/bug-reports`),
     administration: (request) => request.path.startsWith(`${prefix}/integrations/`) || demoEngine(request.path),
     // Authentication, machine ingestion and observer evidence carry their own
-    // signals; bug reports and the demo engines change no workspace state.
+    // signals; bug reports, analytics reads and the demo engines change no
+    // workspace state.
     quietMutation: (request) => request.path.startsWith(`${prefix}/auth/`)
       || ingestPaths.has(request.path)
+      || analyticsReads.has(request.path)
       || request.path === `${prefix}/tracking/evidence:batch`
       || isTrackingObserverHeartbeatPath(request.path, prefix)
       || request.path === `${prefix}/bug-reports`

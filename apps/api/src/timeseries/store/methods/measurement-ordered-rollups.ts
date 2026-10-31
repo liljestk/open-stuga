@@ -10,6 +10,15 @@ export const MEASUREMENT_ORDERED_ROLLUP_VERSION = 2;
 
 const WORK_STATEMENT_TIMEOUT_MS = 120_000;
 
+/**
+ * The active day's states cover buckets that closed at least this long ago,
+ * so the archive's normal ingest lag lands in the open tail, not the seal.
+ */
+export const ACTIVE_DAY_SETTLE_SQL = "INTERVAL '5 minutes'";
+
+/** A sealed variant is extended once at least this much more history has closed. */
+const ACTIVE_DAY_MINIMUM_EXTENSION_SECONDS = 900;
+
 interface ClaimedRollupRow extends QueryResultRow {
   sensor_id: string;
   metric: string;
@@ -18,6 +27,7 @@ interface ClaimedRollupRow extends QueryResultRow {
   quality_mask: string | number;
   source_scope: "all" | "real";
   current_seq: string | number;
+  seal?: string | Date | null;
 }
 
 function messageFor(error: unknown): string {
@@ -70,12 +80,14 @@ registerTimeseriesStoreMethods({
         excludeSynthetic: "($5::TEXT = 'real')",
       })}
       ), history_limits AS (
+        -- The active day is included: its variant is sealed and extended in
+        -- the background, while readers never wait for it.
         SELECT *, GREATEST($2::TIMESTAMPTZ, first_at) AS history_from,
           LEAST($3::TIMESTAMPTZ,
             last_at + CASE WHEN metric = 'power' THEN INTERVAL '15 minutes' ELSE INTERVAL '0' END
               + INTERVAL '1 microsecond',
             date_bin(INTERVAL '1 day', clock_timestamp(),
-              TIMESTAMPTZ '1970-01-01 00:00:00+00')) AS history_to
+              TIMESTAMPTZ '1970-01-01 00:00:00+00') + INTERVAL '1 day') AS history_to
         FROM measurement_bounds WHERE first_at IS NOT NULL AND last_at IS NOT NULL
       ), days AS (
         SELECT DISTINCT requested.sensor_id, requested.metric, selected_day.day_start
@@ -165,21 +177,50 @@ registerTimeseriesStoreMethods({
         AND generation.day_start = candidate.day_start
         AND generation.current_seq = candidate.current_seq`, [metrics], control);
     const leaseToken = randomUUID();
-    const claim = await this.__query<ClaimedRollupRow>(`WITH candidate AS (
+    // A past day is rebuilt whole. The active day is sealed at its newest
+    // settled bucket edge and re-sealed as more history closes; raising the
+    // generation seal in this statement serializes with sample writes, which
+    // invalidate the day only for samples before that seal.
+    const claim = await this.__query<ClaimedRollupRow>(`WITH clock AS (
+        SELECT date_bin(INTERVAL '1 day', clock_timestamp(),
+            TIMESTAMPTZ '1970-01-01 00:00:00+00') AS active_day,
+          clock_timestamp() - ${ACTIVE_DAY_SETTLE_SQL} AS settled_at
+      ), candidate AS (
         SELECT dirty.sensor_id, dirty.metric, dirty.day_start, dirty.bucket_seconds,
           dirty.quality_mask, dirty.source_scope,
-          GREATEST(dirty.current_seq, generation.current_seq) AS current_seq
+          GREATEST(dirty.current_seq, generation.current_seq) AS current_seq,
+          CASE WHEN dirty.day_start = clock.active_day THEN edge.settled_edge END AS seal
         FROM ${qualifiedName(this.schema, "measurement_ordered_rollup_dirty")} dirty
         JOIN ${qualifiedName(this.schema, "measurement_ordered_rollup_generations")} generation
           USING (sensor_id, metric, day_start)
-        WHERE GREATEST(dirty.current_seq, generation.current_seq) <> dirty.clean_seq
-          AND dirty.metric = ANY($1::TEXT[])
-          AND dirty.day_start < date_bin(INTERVAL '1 day', clock_timestamp(),
-            TIMESTAMPTZ '1970-01-01 00:00:00+00')
+        CROSS JOIN clock
+        CROSS JOIN LATERAL (
+          SELECT date_bin(make_interval(secs => dirty.bucket_seconds), clock.settled_at,
+            TIMESTAMPTZ '1970-01-01 00:00:00+00') AS settled_edge
+        ) edge
+        WHERE dirty.metric = ANY($1::TEXT[])
           AND (dirty.lease_until IS NULL OR dirty.lease_until < clock_timestamp())
+          AND ((dirty.day_start < clock.active_day
+              AND (GREATEST(dirty.current_seq, generation.current_seq) <> dirty.clean_seq
+                OR dirty.sealed_until IS NOT NULL))
+            OR (dirty.day_start = clock.active_day
+              AND edge.settled_edge > dirty.day_start
+              AND (GREATEST(dirty.current_seq, generation.current_seq) <> dirty.clean_seq
+                OR dirty.sealed_until IS NULL
+                OR dirty.sealed_until <= edge.settled_edge
+                  - make_interval(secs => GREATEST(dirty.bucket_seconds, ${ACTIVE_DAY_MINIMUM_EXTENSION_SECONDS})))))
         ORDER BY dirty.bucket_seconds DESC, dirty.day_start, dirty.updated_at, dirty.sensor_id, dirty.metric
         FOR UPDATE OF dirty SKIP LOCKED
         LIMIT 1
+      ), sealed AS (
+        UPDATE ${qualifiedName(this.schema, "measurement_ordered_rollup_generations")} generation SET
+          sealed_until = CASE WHEN candidate.seal IS NULL THEN NULL
+            ELSE GREATEST(generation.sealed_until, candidate.seal) END
+        FROM candidate
+        WHERE generation.sensor_id = candidate.sensor_id
+          AND generation.metric = candidate.metric
+          AND generation.day_start = candidate.day_start
+        RETURNING generation.sensor_id
       )
       UPDATE ${qualifiedName(this.schema, "measurement_ordered_rollup_dirty")} AS dirty SET
         current_seq = GREATEST(dirty.current_seq, candidate.current_seq),
@@ -195,9 +236,10 @@ registerTimeseriesStoreMethods({
         AND dirty.quality_mask = candidate.quality_mask
         AND dirty.source_scope = candidate.source_scope
       RETURNING dirty.sensor_id, dirty.metric, dirty.day_start, dirty.bucket_seconds,
-        dirty.quality_mask, dirty.source_scope, dirty.current_seq`, [metrics, leaseToken], control);
+        dirty.quality_mask, dirty.source_scope, dirty.current_seq, candidate.seal`, [metrics, leaseToken], control);
     const row = claim.rows[0];
     if (!row) return { processed: false };
+    const sealedUntil = row.seal === null || row.seal === undefined ? null : new Date(row.seal).toISOString();
 
     const sensorId = row.sensor_id;
     const metric = row.metric;
@@ -221,6 +263,7 @@ registerTimeseriesStoreMethods({
           WHERE sample.sensor_id = $1 AND sample.metric = $2
             AND sample.observed_at >= $3::TIMESTAMPTZ
             AND sample.observed_at < $3::TIMESTAMPTZ + INTERVAL '24 hours'
+            AND ($9::TIMESTAMPTZ IS NULL OR sample.observed_at < $9::TIMESTAMPTZ)
             AND (CASE sample.quality WHEN 'good' THEN 1 WHEN 'estimated' THEN 2
               WHEN 'stale' THEN 4 ELSE 0 END & $6::SMALLINT) <> 0
             AND ($7::TEXT = 'all' OR sample.source NOT IN ('mock', 'replay'))
@@ -277,7 +320,7 @@ registerTimeseriesStoreMethods({
         FROM ordered
         GROUP BY sensor_id, metric, bucket_seconds, bucket_start`, [
         sensorId, metric, dayStart, MEASUREMENT_ORDERED_ROLLUP_VERSION, generation,
-        qualityMask, sourceScope, bucketSeconds,
+        qualityMask, sourceScope, bucketSeconds, sealedUntil,
       ]);
       generatedRows = staged.rowCount ?? 0;
       await client.query("COMMIT");
@@ -317,12 +360,12 @@ registerTimeseriesStoreMethods({
       await client.query(`INSERT INTO ${qualifiedName(this.schema, "measurement_ordered_rollups")}
         SELECT * FROM stugu_ordered_rollup_stage`);
       await client.query(`UPDATE ${qualifiedName(this.schema, "measurement_ordered_rollup_dirty")}
-        SET clean_seq = current_seq, lease_token = NULL, lease_until = NULL,
+        SET clean_seq = current_seq, sealed_until = $9::TIMESTAMPTZ, lease_token = NULL, lease_until = NULL,
           attempt_count = 0, last_error = NULL, updated_at = clock_timestamp()
         WHERE sensor_id = $1 AND metric = $2 AND day_start = $3::TIMESTAMPTZ
           AND bucket_seconds = $4::INTEGER AND quality_mask = $5::SMALLINT
           AND source_scope = $6 AND lease_token = $7 AND current_seq = $8::BIGINT`, [
-        sensorId, metric, dayStart, bucketSeconds, qualityMask, sourceScope, leaseToken, generation,
+        sensorId, metric, dayStart, bucketSeconds, qualityMask, sourceScope, leaseToken, generation, sealedUntil,
       ]);
       await client.query("COMMIT");
       return { processed: true, sensorId, metric, dayStart, bucketSeconds, qualityMask, sourceScope, generatedRows, stale: false };

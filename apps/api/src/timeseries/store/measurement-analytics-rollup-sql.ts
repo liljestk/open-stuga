@@ -147,7 +147,9 @@ export function mergeableAnalyticsSql(schema: string, base: MeasurementAnalytics
 /**
  * Bound parameters, referenced by position across every CTE below:
  *
- * - `$1` JSONB array of `{ sensor_id, metric, aggregation }` request rows
+ * - `$1` JSONB array of `{ sensor_id, metric, aggregation, summary_width? }`
+ *   request rows; `summary_width` (an interval) also re-buckets that series
+ *   from the same states to the base width its summary needs
  * - `$2` inclusive range start (TIMESTAMPTZ)
  * - `$3` exclusive range end (TIMESTAMPTZ)
  * - `$4` accepted quality states (TEXT[])
@@ -159,6 +161,8 @@ export function mergeableAnalyticsSql(schema: string, base: MeasurementAnalytics
  * `$5` and `$8` describe two different bucket widths — `$8` selects which
  * persisted rollup rows are readable, `$5` is the width the caller asked for
  * and is only applied when re-bucketing those rows into the response.
+ * Summary rows carry `summary_target`; `preparation_required` tells the caller
+ * the variant still has to be enqueued.
  */
 export function orderedAnalyticsSql(schema: string): string {
   const measurements = qualifiedName(schema, "measurement_samples");
@@ -167,9 +171,9 @@ export function orderedAnalyticsSql(schema: string): string {
   const rollups = qualifiedName(schema, "measurement_ordered_rollups");
   const countAggregate = qualifiedName(schema, measurementAnalyticsAggregateName("1h"));
   return `WITH requested_series AS (
-      SELECT DISTINCT sensor_id, metric, aggregation
+      SELECT DISTINCT sensor_id, metric, aggregation, summary_width
       FROM jsonb_to_recordset($1::JSONB)
-        AS requested(sensor_id TEXT, metric TEXT, aggregation TEXT)
+        AS requested(sensor_id TEXT, metric TEXT, aggregation TEXT, summary_width INTERVAL)
     ), ordered_bounds AS (
       SELECT date_bin(make_interval(secs => $8::INTEGER), $2::TIMESTAMPTZ,
           TIMESTAMPTZ '1970-01-01 00:00:00+00') AS from_bucket,
@@ -186,8 +190,7 @@ export function orderedAnalyticsSql(schema: string): string {
     ), hour_limits AS (
       SELECT CASE WHEN from_bucket = $2::TIMESTAMPTZ THEN from_bucket
           ELSE from_bucket + INTERVAL '1 hour' END AS full_from,
-        LEAST(to_bucket, date_bin(INTERVAL '1 day', clock_timestamp(),
-          TIMESTAMPTZ '1970-01-01 00:00:00+00')) AS full_to
+        to_bucket AS full_to
       FROM hour_bounds
     ), measurement_bounds AS (${measurementSeriesBoundsSql(schema, {
       requested: "requested_series", until: "$3::TIMESTAMPTZ",
@@ -220,6 +223,7 @@ export function orderedAnalyticsSql(schema: string): string {
         count(*) FILTER (WHERE required.day_start IS NOT NULL AND (
           dirty.sensor_id IS NULL OR generation.sensor_id IS NULL
           OR GREATEST(dirty.current_seq, generation.current_seq) <> dirty.clean_seq
+          OR dirty.sealed_until IS NOT NULL
         ))::BIGINT AS pending_days
       FROM requested_series requested
       LEFT JOIN required_days required USING (sensor_id, metric)
@@ -233,6 +237,32 @@ export function orderedAnalyticsSql(schema: string): string {
         ON generation.sensor_id = required.sensor_id AND generation.metric = required.metric
         AND generation.day_start = required.day_start
       GROUP BY requested.sensor_id, requested.metric
+    ), preparation AS MATERIALIZED (
+      -- The enqueue prepares every day this read needs, plus the active day
+      -- once history reaches it so the worker can seal it. When those
+      -- variants already exist and are clean, the caller skips that write.
+      -- Materialized for the reason given at count_coverage.
+      SELECT pending.sensor_id, pending.metric, pending.pending_days > 0 OR (
+          bounds.first_at IS NOT NULL AND bounds.last_at IS NOT NULL
+          AND LEAST($3::TIMESTAMPTZ,
+            bounds.last_at + CASE WHEN bounds.metric = 'power' THEN INTERVAL '15 minutes' ELSE INTERVAL '0' END
+              + INTERVAL '1 microsecond',
+            date_bin(INTERVAL '1 day', clock_timestamp(),
+              TIMESTAMPTZ '1970-01-01 00:00:00+00') + INTERVAL '1 day')
+            > GREATEST($2::TIMESTAMPTZ, bounds.first_at, date_bin(INTERVAL '1 day', clock_timestamp(),
+              TIMESTAMPTZ '1970-01-01 00:00:00+00'))
+          AND NOT EXISTS (
+            SELECT 1 FROM ${dirty} dirty
+            WHERE dirty.sensor_id = bounds.sensor_id AND dirty.metric = bounds.metric
+              AND dirty.day_start = date_bin(INTERVAL '1 day', clock_timestamp(),
+                TIMESTAMPTZ '1970-01-01 00:00:00+00')
+              AND dirty.bucket_seconds = $8::INTEGER
+              AND dirty.quality_mask = $7::SMALLINT
+              AND dirty.source_scope = CASE WHEN $6::BOOLEAN THEN 'real' ELSE 'all' END
+          )
+        ) AS required
+      FROM pending
+      JOIN measurement_bounds bounds USING (sensor_id, metric)
     ), closed_states AS (
       SELECT rollup.sensor_id, rollup.metric, rollup.bucket_start,
         rollup.sample_count, rollup.sum_value, rollup.minimum, rollup.maximum,
@@ -256,7 +286,7 @@ export function orderedAnalyticsSql(schema: string): string {
           AND rollup.bucket_seconds = $8::INTEGER
           AND rollup.bucket_start >= ordered_limits.full_from
           AND rollup.bucket_start < ordered_limits.full_to
-          AND rollup.day_start < date_bin(INTERVAL '1 day', clock_timestamp(),
+          AND rollup.day_start <= date_bin(INTERVAL '1 day', clock_timestamp(),
             TIMESTAMPTZ '1970-01-01 00:00:00+00')
         OFFSET 0
       ) rollup
@@ -271,28 +301,52 @@ export function orderedAnalyticsSql(schema: string): string {
         AND generation.day_start = dirty.day_start
         AND GREATEST(dirty.current_seq, generation.current_seq) = dirty.clean_seq
         AND rollup.generation = GREATEST(dirty.current_seq, generation.current_seq)
+        -- A past day needs whole-day states; the active day's sealed states
+        -- cover only buckets that closed before its seal.
+        AND CASE WHEN dirty.day_start < date_bin(INTERVAL '1 day', clock_timestamp(),
+            TIMESTAMPTZ '1970-01-01 00:00:00+00')
+          THEN dirty.sealed_until IS NULL
+          ELSE rollup.bucket_start + make_interval(secs => $8::INTEGER) <= dirty.sealed_until END
+    ), active_seals AS (
+      SELECT requested.sensor_id, requested.metric, (
+        SELECT dirty.sealed_until FROM ${dirty} dirty
+        JOIN ${generations} generation
+          ON generation.sensor_id = dirty.sensor_id AND generation.metric = dirty.metric
+          AND generation.day_start = dirty.day_start
+        WHERE dirty.sensor_id = requested.sensor_id AND dirty.metric = requested.metric
+          AND dirty.day_start = date_bin(INTERVAL '1 day', clock_timestamp(),
+            TIMESTAMPTZ '1970-01-01 00:00:00+00')
+          AND dirty.bucket_seconds = $8::INTEGER
+          AND dirty.quality_mask = $7::SMALLINT
+          AND dirty.source_scope = CASE WHEN $6::BOOLEAN THEN 'real' ELSE 'all' END
+          AND dirty.sealed_until IS NOT NULL
+          AND GREATEST(dirty.current_seq, generation.current_seq) = dirty.clean_seq
+      ) AS sealed_until
+      FROM requested_series requested
     ), edge_and_current_ranges AS (
       -- Disjoint windows keep the raw read limited to the two partial buckets
-      -- and the active day. An OR over the complete history prevents Timescale
-      -- from pruning historical chunks before applying the boundary filter.
-      SELECT $2::TIMESTAMPTZ AS raw_from,
+      -- and the active day's open tail. An OR over the complete history
+      -- prevents Timescale from pruning historical chunks before applying the
+      -- boundary filter.
+      SELECT seal.sensor_id, seal.metric, $2::TIMESTAMPTZ AS raw_from,
         LEAST(ordered_limits.full_from, ordered_limits.full_to, $3::TIMESTAMPTZ) AS raw_to
-      FROM ordered_limits
+      FROM ordered_limits CROSS JOIN active_seals seal
       UNION ALL
-      SELECT GREATEST(ordered_limits.full_from, $2::TIMESTAMPTZ,
-          date_bin(INTERVAL '1 day', clock_timestamp(),
-            TIMESTAMPTZ '1970-01-01 00:00:00+00')),
+      SELECT seal.sensor_id, seal.metric, GREATEST(ordered_limits.full_from, $2::TIMESTAMPTZ,
+          COALESCE(seal.sealed_until, date_bin(INTERVAL '1 day', clock_timestamp(),
+            TIMESTAMPTZ '1970-01-01 00:00:00+00'))),
         LEAST(ordered_limits.full_to, $3::TIMESTAMPTZ)
-      FROM ordered_limits
+      FROM ordered_limits CROSS JOIN active_seals seal
       UNION ALL
-      SELECT GREATEST(ordered_limits.full_to, $2::TIMESTAMPTZ), $3::TIMESTAMPTZ
-      FROM ordered_limits
+      SELECT seal.sensor_id, seal.metric, GREATEST(ordered_limits.full_to, $2::TIMESTAMPTZ), $3::TIMESTAMPTZ
+      FROM ordered_limits CROSS JOIN active_seals seal
     ), edge_and_current_bucketed AS (
       SELECT sample.*,
         date_bin(make_interval(secs => $8::INTEGER), sample.observed_at,
           TIMESTAMPTZ '1970-01-01 00:00:00+00') AS bucket_start
       FROM edge_and_current_ranges boundary
-      CROSS JOIN requested_series requested
+      JOIN requested_series requested
+        ON requested.sensor_id = boundary.sensor_id AND requested.metric = boundary.metric
       CROSS JOIN LATERAL (
         SELECT sample.* FROM ${measurements} sample
         WHERE sample.sensor_id = requested.sensor_id AND sample.metric = requested.metric
@@ -340,64 +394,6 @@ export function orderedAnalyticsSql(schema: string): string {
       FROM edge_and_current_ordered GROUP BY sensor_id, metric, bucket_start
     ), states AS (
       SELECT * FROM closed_states UNION ALL SELECT * FROM edge_and_current_states
-    ), hour_count_ranges AS (
-      SELECT $2::TIMESTAMPTZ AS raw_from,
-        LEAST(hour_limits.full_from, hour_limits.full_to, $3::TIMESTAMPTZ) AS raw_to
-      FROM hour_limits
-      UNION ALL
-      SELECT GREATEST(hour_limits.full_to, $2::TIMESTAMPTZ), $3::TIMESTAMPTZ
-      FROM hour_limits
-    ), excluded_counts AS (
-      -- Rows outside the quality filter, counted as stored like every other
-      -- path does; included states are de-duplicated, so subtracting them
-      -- from a stored total would report repeated readings as exclusions.
-      SELECT aggregate.sensor_id, aggregate.metric,
-        COALESCE(sum(aggregate.sample_count) FILTER (WHERE NOT (aggregate.quality = ANY($4::TEXT[]))), 0)::BIGINT AS sample_count
-      FROM ${countAggregate} aggregate
-      JOIN requested_series requested
-        ON requested.sensor_id = aggregate.sensor_id AND requested.metric = aggregate.metric
-      CROSS JOIN hour_limits
-      WHERE aggregate.bucket_start >= hour_limits.full_from
-        AND aggregate.bucket_start < hour_limits.full_to
-        AND aggregate.quality IN ('good', 'estimated', 'stale')
-        AND (NOT $6::BOOLEAN OR aggregate.source NOT IN ('mock', 'replay'))
-      GROUP BY aggregate.sensor_id, aggregate.metric
-      UNION ALL
-      SELECT sample.sensor_id, sample.metric,
-        count(*) FILTER (WHERE NOT (sample.quality = ANY($4::TEXT[])))::BIGINT
-      FROM hour_count_ranges boundary
-      CROSS JOIN requested_series requested
-      CROSS JOIN LATERAL (
-        SELECT sample.* FROM ${measurements} sample
-        WHERE sample.sensor_id = requested.sensor_id AND sample.metric = requested.metric
-          AND sample.observed_at >= boundary.raw_from AND sample.observed_at < boundary.raw_to
-          AND sample.quality IN ('good', 'estimated', 'stale')
-          AND (NOT $6::BOOLEAN OR sample.source NOT IN ('mock', 'replay'))
-        OFFSET 0
-      ) sample
-      WHERE boundary.raw_from < boundary.raw_to
-      GROUP BY sample.sensor_id, sample.metric
-    ), raw_count_bounds AS (
-      SELECT requested.sensor_id, requested.metric,
-        first_sample.observed_at AS first_at, last_sample.observed_at AS last_at
-      FROM requested_series requested
-      CROSS JOIN hour_limits
-      LEFT JOIN LATERAL (
-        SELECT sample.observed_at FROM ${measurements} sample
-        WHERE sample.sensor_id = requested.sensor_id AND sample.metric = requested.metric
-          AND sample.observed_at >= hour_limits.full_from AND sample.observed_at < hour_limits.full_to
-          AND sample.quality IN ('good', 'estimated', 'stale')
-          AND (NOT $6::BOOLEAN OR sample.source NOT IN ('mock', 'replay'))
-        ORDER BY sample.observed_at ASC LIMIT 1
-      ) first_sample ON TRUE
-      LEFT JOIN LATERAL (
-        SELECT sample.observed_at FROM ${measurements} sample
-        WHERE sample.sensor_id = requested.sensor_id AND sample.metric = requested.metric
-          AND sample.observed_at >= hour_limits.full_from AND sample.observed_at < hour_limits.full_to
-          AND sample.quality IN ('good', 'estimated', 'stale')
-          AND (NOT $6::BOOLEAN OR sample.source NOT IN ('mock', 'replay'))
-        ORDER BY sample.observed_at DESC LIMIT 1
-      ) last_sample ON TRUE
     ), aggregate_count_bounds AS (
       SELECT requested.sensor_id, requested.metric,
         first_bucket.bucket_start AS first_bucket, last_bucket.bucket_start AS last_bucket
@@ -419,7 +415,78 @@ export function orderedAnalyticsSql(schema: string): string {
           AND (NOT $6::BOOLEAN OR aggregate.source NOT IN ('mock', 'replay'))
         ORDER BY aggregate.bucket_start DESC LIMIT 1
       ) last_bucket ON TRUE
-    ), count_coverage AS (
+    ), count_limits AS (
+      -- Hours counted from the 1h aggregate. Past days count whole once
+      -- count_coverage confirms both ends. The active day counts up to the
+      -- newest materialized bucket, which stays raw because it may have been
+      -- materialized before its last observation arrived; as on past days,
+      -- this relies on contiguous aggregate refresh windows.
+      SELECT bounds.sensor_id, bounds.metric, hour_limits.full_from,
+        CASE WHEN bounds.last_bucket >= date_bin(INTERVAL '1 day', clock_timestamp(),
+            TIMESTAMPTZ '1970-01-01 00:00:00+00') THEN bounds.last_bucket
+          ELSE LEAST(hour_limits.full_to, date_bin(INTERVAL '1 day', clock_timestamp(),
+            TIMESTAMPTZ '1970-01-01 00:00:00+00')) END AS full_to
+      FROM aggregate_count_bounds bounds
+      CROSS JOIN hour_limits
+    ), hour_count_ranges AS (
+      SELECT limits.sensor_id, limits.metric, $2::TIMESTAMPTZ AS raw_from,
+        LEAST(limits.full_from, limits.full_to, $3::TIMESTAMPTZ) AS raw_to
+      FROM count_limits limits
+      UNION ALL
+      SELECT limits.sensor_id, limits.metric, GREATEST(limits.full_to, $2::TIMESTAMPTZ), $3::TIMESTAMPTZ
+      FROM count_limits limits
+    ), excluded_counts AS (
+      -- Rows outside the quality filter, counted as stored like every other
+      -- path does; included states are de-duplicated, so subtracting them
+      -- from a stored total would report repeated readings as exclusions.
+      SELECT aggregate.sensor_id, aggregate.metric,
+        COALESCE(sum(aggregate.sample_count) FILTER (WHERE NOT (aggregate.quality = ANY($4::TEXT[]))), 0)::BIGINT AS sample_count
+      FROM ${countAggregate} aggregate
+      JOIN count_limits limits
+        ON limits.sensor_id = aggregate.sensor_id AND limits.metric = aggregate.metric
+      WHERE aggregate.bucket_start >= limits.full_from
+        AND aggregate.bucket_start < limits.full_to
+        AND aggregate.quality IN ('good', 'estimated', 'stale')
+        AND (NOT $6::BOOLEAN OR aggregate.source NOT IN ('mock', 'replay'))
+      GROUP BY aggregate.sensor_id, aggregate.metric
+      UNION ALL
+      SELECT sample.sensor_id, sample.metric,
+        count(*) FILTER (WHERE NOT (sample.quality = ANY($4::TEXT[])))::BIGINT
+      FROM hour_count_ranges boundary
+      CROSS JOIN LATERAL (
+        SELECT sample.* FROM ${measurements} sample
+        WHERE sample.sensor_id = boundary.sensor_id AND sample.metric = boundary.metric
+          AND sample.observed_at >= boundary.raw_from AND sample.observed_at < boundary.raw_to
+          AND sample.quality IN ('good', 'estimated', 'stale')
+          AND (NOT $6::BOOLEAN OR sample.source NOT IN ('mock', 'replay'))
+        OFFSET 0
+      ) sample
+      WHERE boundary.raw_from < boundary.raw_to
+      GROUP BY sample.sensor_id, sample.metric
+    ), raw_count_bounds AS (
+      SELECT limits.sensor_id, limits.metric,
+        first_sample.observed_at AS first_at, last_sample.observed_at AS last_at
+      FROM count_limits limits
+      LEFT JOIN LATERAL (
+        SELECT sample.observed_at FROM ${measurements} sample
+        WHERE sample.sensor_id = limits.sensor_id AND sample.metric = limits.metric
+          AND sample.observed_at >= limits.full_from AND sample.observed_at < limits.full_to
+          AND sample.quality IN ('good', 'estimated', 'stale')
+          AND (NOT $6::BOOLEAN OR sample.source NOT IN ('mock', 'replay'))
+        ORDER BY sample.observed_at ASC LIMIT 1
+      ) first_sample ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT sample.observed_at FROM ${measurements} sample
+        WHERE sample.sensor_id = limits.sensor_id AND sample.metric = limits.metric
+          AND sample.observed_at >= limits.full_from AND sample.observed_at < limits.full_to
+          AND sample.quality IN ('good', 'estimated', 'stale')
+          AND (NOT $6::BOOLEAN OR sample.source NOT IN ('mock', 'replay'))
+        ORDER BY sample.observed_at DESC LIMIT 1
+      ) last_sample ON TRUE
+    ), count_coverage AS MATERIALIZED (
+      -- Materialized so its per-series seeks run once per series. Inlined,
+      -- PostgreSQL may join it after the states and repeat both raw seeks for
+      -- every stored state (25 s instead of 4 s for 30 days on a Pi).
       SELECT aggregate.sensor_id, aggregate.metric, raw.first_at IS NULL OR (
         aggregate.first_bucket <= date_bin(INTERVAL '1 hour', raw.first_at, TIMESTAMPTZ '1970-01-01 00:00:00+00')
         AND aggregate.last_bucket >= date_bin(INTERVAL '1 hour', raw.last_at, TIMESTAMPTZ '1970-01-01 00:00:00+00')
@@ -436,27 +503,40 @@ export function orderedAnalyticsSql(schema: string): string {
             AND excluded_counts.metric = requested.metric), 0)::BIGINT AS excluded_sample_count,
         GREATEST(1.0, EXTRACT(EPOCH FROM ($3::TIMESTAMPTZ - $2::TIMESTAMPTZ))
           / GREATEST(1, COALESCE(sum(states.sample_count), 0)))::DOUBLE PRECISION AS cadence_seconds,
-        COALESCE(pending.pending_days, 0) = 0 AND bool_and(count_coverage.complete) AS coverage_complete
+        COALESCE(pending.pending_days, 0) = 0 AND bool_and(count_coverage.complete) AS coverage_complete,
+        preparation.required AS preparation_required
       FROM requested_series requested
       JOIN pending USING (sensor_id, metric)
+      JOIN preparation USING (sensor_id, metric)
       JOIN count_coverage USING (sensor_id, metric)
       LEFT JOIN states ON states.sensor_id = requested.sensor_id AND states.metric = requested.metric
-      GROUP BY requested.sensor_id, requested.metric, requested.aggregation, pending.pending_days
+      GROUP BY requested.sensor_id, requested.metric, requested.aggregation, pending.pending_days,
+        preparation.required
+    ), targets AS (
+      -- Every series is bucketed for display; a series with a summary width
+      -- is bucketed again from the same states for its summary.
+      SELECT sensor_id, metric, FALSE AS summary_target, $5::INTERVAL AS target_width
+      FROM requested_series
+      UNION ALL
+      SELECT sensor_id, metric, TRUE, summary_width
+      FROM requested_series WHERE summary_width IS NOT NULL
     ), sequenced AS (
-      SELECT states.*,
-        date_bin($5::INTERVAL, states.bucket_start, TIMESTAMPTZ '1970-01-01 00:00:00+00') AS target_bucket,
+      SELECT states.*, target.summary_target, target.target_width,
+        date_bin(target.target_width, states.bucket_start, TIMESTAMPTZ '1970-01-01 00:00:00+00') AS target_bucket,
         lag(states.last_at) OVER sequence AS previous_last_at,
         lag(states.last_value) OVER sequence AS previous_last_value,
         lead(states.first_at) OVER sequence AS next_first_at,
-        lag(date_bin($5::INTERVAL, states.bucket_start, TIMESTAMPTZ '1970-01-01 00:00:00+00')) OVER sequence AS previous_target_bucket,
+        lag(date_bin(target.target_width, states.bucket_start, TIMESTAMPTZ '1970-01-01 00:00:00+00')) OVER sequence AS previous_target_bucket,
         row_number() OVER (
-          PARTITION BY states.sensor_id, states.metric,
-            date_bin($5::INTERVAL, states.bucket_start, TIMESTAMPTZ '1970-01-01 00:00:00+00')
+          PARTITION BY states.sensor_id, states.metric, target.summary_target,
+            date_bin(target.target_width, states.bucket_start, TIMESTAMPTZ '1970-01-01 00:00:00+00')
           ORDER BY states.bucket_start DESC
         ) AS reverse_bucket_row
-      FROM states WINDOW sequence AS (PARTITION BY sensor_id, metric ORDER BY bucket_start)
+      FROM states
+      JOIN targets target ON target.sensor_id = states.sensor_id AND target.metric = states.metric
+      WINDOW sequence AS (PARTITION BY states.sensor_id, states.metric, target.summary_target ORDER BY states.bucket_start)
     ), observed_bucket_aggregates AS (
-      SELECT sequenced.sensor_id, sequenced.metric, sequenced.target_bucket AS bucket_start,
+      SELECT sequenced.sensor_id, sequenced.metric, sequenced.summary_target, sequenced.target_bucket AS bucket_start,
         sum(sequenced.sample_count)::BIGINT AS bucket_sample_count,
         sum(sequenced.sum_value)::DOUBLE PRECISION AS sum_value,
         min(sequenced.minimum)::DOUBLE PRECISION AS minimum,
@@ -482,7 +562,7 @@ export function orderedAnalyticsSql(schema: string): string {
               counts.cadence_seconds * 1.5)
           ELSE 0 END + CASE WHEN sequenced.reverse_bucket_row = 1 THEN
             sequenced.last_value * LEAST(
-              GREATEST(EXTRACT(EPOCH FROM (sequenced.target_bucket + $5::INTERVAL - sequenced.last_at)), 0),
+              GREATEST(EXTRACT(EPOCH FROM (sequenced.target_bucket + sequenced.target_width - sequenced.last_at)), 0),
               counts.cadence_seconds * 1.5)
           ELSE 0 END)::DOUBLE PRECISION AS weighted_value_seconds,
         sum(sequenced.weighted_seconds + CASE
@@ -490,11 +570,11 @@ export function orderedAnalyticsSql(schema: string): string {
             GREATEST(EXTRACT(EPOCH FROM (sequenced.first_at - sequenced.previous_last_at)), 0),
             counts.cadence_seconds * 1.5)
           ELSE 0 END + CASE WHEN sequenced.reverse_bucket_row = 1 THEN LEAST(
-            GREATEST(EXTRACT(EPOCH FROM (sequenced.target_bucket + $5::INTERVAL - sequenced.last_at)), 0),
+            GREATEST(EXTRACT(EPOCH FROM (sequenced.target_bucket + sequenced.target_width - sequenced.last_at)), 0),
             counts.cadence_seconds * 1.5)
           ELSE 0 END)::DOUBLE PRECISION AS weighted_seconds
       FROM sequenced JOIN series_counts counts USING (sensor_id, metric)
-      GROUP BY sequenced.sensor_id, sequenced.metric, sequenced.target_bucket
+      GROUP BY sequenced.sensor_id, sequenced.metric, sequenced.summary_target, sequenced.target_bucket
     ), consumption_boundaries AS (
       -- Index seeks provide consumption anchors without adding out-of-range
       -- observations to sample counts, extrema or ordinary rollup values.
@@ -536,7 +616,7 @@ export function orderedAnalyticsSql(schema: string): string {
       -- Counter increments are retained before any averaging, including resets
       -- within a stored bucket. Power uses <=15-minute states and a bounded
       -- last-value hold; its tails are split across display bucket boundaries.
-      SELECT sensor_id, metric, target_bucket AS bucket_start,
+      SELECT sensor_id, metric, summary_target, target_bucket AS bucket_start,
         CASE WHEN metric = 'energy' THEN internal_counter_consumption + CASE
           WHEN consumption_previous_value IS NULL THEN 0
           WHEN first_value >= consumption_previous_value THEN first_value - consumption_previous_value
@@ -547,34 +627,36 @@ export function orderedAnalyticsSql(schema: string): string {
           ELSE weighted_value_seconds / 3600000.0 END AS consumption_kwh
       FROM consumption_sequenced WHERE metric IN ('energy', 'power')
       UNION ALL
-      SELECT sensor_id, metric,
-        date_bin($5::INTERVAL, $3::TIMESTAMPTZ - INTERVAL '1 microsecond', TIMESTAMPTZ '1970-01-01 00:00:00+00'),
+      SELECT sensor_id, metric, target.summary_target,
+        date_bin(target.target_width, $3::TIMESTAMPTZ - INTERVAL '1 microsecond', TIMESTAMPTZ '1970-01-01 00:00:00+00'),
         CASE WHEN closing_value >= closing_previous_value THEN closing_value - closing_previous_value
           ELSE closing_value END * EXTRACT(EPOCH FROM (
             $3::TIMESTAMPTZ - GREATEST(closing_previous_at, $2::TIMESTAMPTZ)
           )) / EXTRACT(EPOCH FROM ($3::TIMESTAMPTZ - closing_previous_at))
-      FROM consumption_boundaries WHERE metric = 'energy'
+      FROM consumption_boundaries JOIN targets target USING (sensor_id, metric)
+      WHERE metric = 'energy'
         AND closing_value >= 0 AND closing_previous_value >= 0 AND closing_previous_at < $3::TIMESTAMPTZ
       UNION ALL
-      SELECT boundary.sensor_id, boundary.metric, bucket.bucket_start,
+      SELECT boundary.sensor_id, boundary.metric, target.summary_target, bucket.bucket_start,
         CASE WHEN opening_value < 0 THEN NULL ELSE opening_value * EXTRACT(EPOCH FROM (
-          LEAST(hold.end_at, bucket.bucket_start + $5::INTERVAL)
+          LEAST(hold.end_at, bucket.bucket_start + target.target_width)
             - GREATEST($2::TIMESTAMPTZ, bucket.bucket_start)
         )) / 3600000.0 END
       FROM consumption_boundaries boundary
+      JOIN targets target USING (sensor_id, metric)
       CROSS JOIN LATERAL (SELECT LEAST(COALESCE(first_at, $3::TIMESTAMPTZ),
         $3::TIMESTAMPTZ, opening_at + INTERVAL '15 minutes') AS end_at) hold
       CROSS JOIN LATERAL generate_series(
-        date_bin($5::INTERVAL, $2::TIMESTAMPTZ, TIMESTAMPTZ '1970-01-01 00:00:00+00'),
-        date_bin($5::INTERVAL, hold.end_at - INTERVAL '1 microsecond',
-          TIMESTAMPTZ '1970-01-01 00:00:00+00'), $5::INTERVAL
+        date_bin(target.target_width, $2::TIMESTAMPTZ, TIMESTAMPTZ '1970-01-01 00:00:00+00'),
+        date_bin(target.target_width, hold.end_at - INTERVAL '1 microsecond',
+          TIMESTAMPTZ '1970-01-01 00:00:00+00'), target.target_width
       ) AS bucket(bucket_start)
       WHERE boundary.metric = 'power' AND boundary.opening_at IS NOT NULL
         AND hold.end_at > $2::TIMESTAMPTZ
       UNION ALL
-      SELECT state.sensor_id, state.metric, bucket.bucket_start,
+      SELECT state.sensor_id, state.metric, state.summary_target, bucket.bucket_start,
         CASE WHEN state.last_value < 0 THEN NULL ELSE state.last_value * EXTRACT(EPOCH FROM (
-          LEAST(hold.end_at, bucket.bucket_start + $5::INTERVAL)
+          LEAST(hold.end_at, bucket.bucket_start + state.target_width)
           - GREATEST(state.last_at, bucket.bucket_start)
         )) / 3600000.0 END
       FROM sequenced state
@@ -583,21 +665,22 @@ export function orderedAnalyticsSql(schema: string): string {
         $3::TIMESTAMPTZ, state.last_at + INTERVAL '15 minutes'
       ) AS end_at) hold
       CROSS JOIN LATERAL generate_series(
-        date_bin($5::INTERVAL, state.last_at, TIMESTAMPTZ '1970-01-01 00:00:00+00'),
-        date_bin($5::INTERVAL, hold.end_at - INTERVAL '1 microsecond',
-          TIMESTAMPTZ '1970-01-01 00:00:00+00'), $5::INTERVAL
+        date_bin(state.target_width, state.last_at, TIMESTAMPTZ '1970-01-01 00:00:00+00'),
+        date_bin(state.target_width, hold.end_at - INTERVAL '1 microsecond',
+          TIMESTAMPTZ '1970-01-01 00:00:00+00'), state.target_width
       ) AS bucket(bucket_start)
       WHERE state.metric = 'power' AND hold.end_at > state.last_at
     ), consumption_buckets AS (
-      SELECT sensor_id, metric, bucket_start,
+      SELECT sensor_id, metric, summary_target, bucket_start,
         -- A signed stored integral cannot recover positive-only usage. Do not
         -- silently sum its remaining positive parts into a plausible total.
         CASE WHEN bool_or(consumption_kwh IS NULL) THEN NULL
           ELSE sum(consumption_kwh) END::DOUBLE PRECISION AS consumption_kwh
-      FROM consumption_parts GROUP BY sensor_id, metric, bucket_start
+      FROM consumption_parts GROUP BY sensor_id, metric, summary_target, bucket_start
     ), bucket_aggregates AS (
       SELECT COALESCE(observed.sensor_id, consumption.sensor_id) AS sensor_id,
         COALESCE(observed.metric, consumption.metric) AS metric,
+        COALESCE(observed.summary_target, consumption.summary_target) AS summary_target,
         COALESCE(observed.bucket_start, consumption.bucket_start) AS bucket_start,
         observed.bucket_sample_count, observed.sum_value, observed.minimum,
         observed.maximum, observed.last_value, observed.delta_value,
@@ -605,11 +688,12 @@ export function orderedAnalyticsSql(schema: string): string {
         observed.stale_sample_count, observed.weighted_value_seconds,
         observed.weighted_seconds, consumption.consumption_kwh
       FROM observed_bucket_aggregates observed
-      FULL JOIN consumption_buckets consumption USING (sensor_id, metric, bucket_start)
+      FULL JOIN consumption_buckets consumption USING (sensor_id, metric, summary_target, bucket_start)
     )
-    SELECT counts.sensor_id, counts.metric, counts.canonical_unit,
+    SELECT counts.sensor_id, counts.metric, target.summary_target, counts.canonical_unit,
       counts.canonical_unit = counts.canonical_unit_max AS unit_consistent,
-      counts.coverage_complete, counts.included_sample_count, counts.excluded_sample_count,
+      counts.coverage_complete, counts.preparation_required,
+      counts.included_sample_count, counts.excluded_sample_count,
       counts.cadence_seconds, buckets.bucket_start,
       CASE counts.aggregation
         WHEN 'mean' THEN buckets.sum_value / NULLIF(buckets.bucket_sample_count, 0)
@@ -625,6 +709,7 @@ export function orderedAnalyticsSql(schema: string): string {
       buckets.estimated_sample_count, buckets.stale_sample_count, buckets.counter_reset_count,
       buckets.consumption_kwh
     FROM series_counts counts
-    LEFT JOIN bucket_aggregates buckets USING (sensor_id, metric)
-    ORDER BY counts.sensor_id, counts.metric, buckets.bucket_start`;
+    JOIN targets target USING (sensor_id, metric)
+    LEFT JOIN bucket_aggregates buckets USING (sensor_id, metric, summary_target)
+    ORDER BY counts.sensor_id, counts.metric, target.summary_target, buckets.bucket_start`;
 }
