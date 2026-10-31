@@ -1,7 +1,7 @@
 # Versioning and pre-1.0 change policy
 
 Stugu uses Semantic Versioning for the product release shown by the local API,
-web/API packages, shared contracts, and Apple app metadata. The current release is `0.59.0`.
+web/API packages, shared contracts, and Apple app metadata. The current release is `0.59.1`.
 
 Before `1.0.0`, the data model, API, configuration, and UI may change in
 backwards-incompatible ways while the architecture is still being established.
