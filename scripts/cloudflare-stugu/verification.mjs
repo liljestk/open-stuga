@@ -18,6 +18,25 @@ export function isAccessChallenge(response) {
   return Boolean(response.headers.get("cf-ray")) && !contentType.includes("application/json");
 }
 
+/** Claude and ChatGPT reach OAuth discovery and the MCP challenge without Access; the consent page stays protected. */
+async function verifyAssistantConnector(probe, origin) {
+  const consent = await probe("/connect/assistant", { headers: { accept: "text/html" } });
+  if (!isAccessChallenge(consent)) {
+    throw new Error(`Assistant consent page is not protected by Cloudflare Access (HTTP ${consent.status})`);
+  }
+  const metadata = await probe("/.well-known/oauth-authorization-server");
+  let issuer = null;
+  try { issuer = (await metadata.json())?.issuer ?? null; } catch { /* Reported below without echoing a body. */ }
+  if (metadata.status !== 200 || issuer !== origin) {
+    throw new Error(`Assistant OAuth discovery did not reach Stugu (HTTP ${metadata.status})`);
+  }
+  const mcp = await probe("/api/v1/mcp", { method: "POST", body: "{}" });
+  if (mcp.status !== 401 || !(mcp.headers.get("www-authenticate") ?? "").includes("resource_metadata=")) {
+    throw new Error(`Assistant MCP endpoint did not answer with Stugu's OAuth challenge (HTTP ${mcp.status})`);
+  }
+  return { consentStatus: consent.status, metadataStatus: metadata.status, mcpStatus: mcp.status };
+}
+
 export async function verifyBoundary(deployment, dependencies = {}) {
   const fetcher = dependencies.fetcher ?? fetch;
   const logger = dependencies.logger ?? console;
@@ -63,12 +82,18 @@ export async function verifyBoundary(deployment, dependencies = {}) {
   } else if (!isAccessChallenge(machine)) {
     throw new Error(`Stuguby machine path is not protected by Cloudflare Access (HTTP ${machine.status})`);
   }
+  const assistantConnector = deployment.assistantConnectorApplicationId
+    ? await verifyAssistantConnector(probe, origin)
+    : null;
   logger.log(`Verified Cloudflare boundary for ${origin}`);
   logger.log("  protected: / and /api/v1/stugbys");
   logger.log("  public: /invite-bootstrap and /invite-bootstrap.js");
   logger.log(deployment.mode === "stuguby-coordinator"
     ? "  reachable but application-authenticated: /api/v1/stugby-protocol/*"
     : "  protected: /api/v1/stugby-protocol/*");
+  logger.log(assistantConnector
+    ? "  reachable but OAuth-authenticated: /api/v1/mcp, /api/v1/oauth/*, /.well-known/oauth-*; protected: /connect/assistant"
+    : "  assistant connector not configured: rerun provisioning to let Claude and ChatGPT connect");
   logger.log(`Rollback: ${composeCommand} stop cloudflared`);
   return {
     origin,
@@ -77,6 +102,7 @@ export async function verifyBoundary(deployment, dependencies = {}) {
     handoffStatus: handoff.status,
     handoffScriptStatus: handoffScript.status,
     machineStatus: machine.status,
+    assistantConnector,
   };
 }
 

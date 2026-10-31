@@ -1,10 +1,12 @@
 import { createServer } from "node:http";
+import type { RequestHandler } from "express";
 import { createHash, timingSafeEqual } from "node:crypto";
 import type { AddressInfo } from "node:net";
 import { createMcpExpressApp } from "@modelcontextprotocol/sdk/server/express.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { buildMcpTools } from "./mcp-server/tool-catalog.js";
 import { McpHost, type ConnectedMcpServer, type McpTransport } from "./mcp-server/host.js";
+import type { McpProfile } from "./mcp-server/chatgpt-profile.js";
 import { createMcpRuntime } from "./mcp-server/runtime.js";
 import { SYSTEM_VERSION } from "./version.js";
 
@@ -27,7 +29,13 @@ function authorized(authorization: string | undefined): boolean {
 const mcpHost = new McpHost(createMcpRuntime());
 const app = createMcpExpressApp({ host });
 app.disable("x-powered-by");
-app.post("/mcp", (request, response, next) => {
+
+// The API authenticates every client and forwards only this process's own bearer.
+// /mcp serves the full local inspection profile; /assistant serves the focused
+// conversation profile that OAuth-connected assistants use.
+const profilePaths: ReadonlyArray<[path: string, profile: McpProfile]> = [["/mcp", "local"], ["/assistant", "chatgpt"]];
+
+const requireUpstreamBearer: RequestHandler = (request, response, next) => {
   if (authorized(request.header("authorization"))) {
     next();
     return;
@@ -37,39 +45,46 @@ app.post("/mcp", (request, response, next) => {
     error: { code: -32001, message: "A valid Stugu MCP access token is required" },
     id: null,
   });
-}, async (request, response) => {
-  response.setHeader("cache-control", "no-store");
-  response.setHeader("x-content-type-options", "nosniff");
-  const transport = new StreamableHTTPServerTransport({
-    enableJsonResponse: true,
-  });
-  let server: ConnectedMcpServer | undefined;
-  try {
-    server = await mcpHost.connect(transport as unknown as McpTransport);
-    const connectedServer = server;
-    response.once("close", () => {
-      void mcpHost.disconnect(connectedServer);
-    });
-    await transport.handleRequest(request, response, request.body);
-  } catch {
-    if (server) await mcpHost.disconnect(server).catch(() => undefined);
-    if (!response.headersSent) {
-      response.status(500).json({
-        jsonrpc: "2.0",
-        error: { code: -32603, message: "Internal server error" },
-        id: null,
-      });
-    }
-  }
-});
+};
 
-app.all("/mcp", (_request, response) => {
-  response.status(405).set("allow", "POST").json({
-    jsonrpc: "2.0",
-    error: { code: -32000, message: "Method not allowed" },
-    id: null,
+function serveProfile(profile: McpProfile): RequestHandler {
+  return async (request, response) => {
+    response.setHeader("cache-control", "no-store");
+    response.setHeader("x-content-type-options", "nosniff");
+    const transport = new StreamableHTTPServerTransport({
+      enableJsonResponse: true,
+    });
+    let server: ConnectedMcpServer | undefined;
+    try {
+      server = await mcpHost.connect(transport as unknown as McpTransport, profile);
+      const connectedServer = server;
+      response.once("close", () => {
+        void mcpHost.disconnect(connectedServer);
+      });
+      await transport.handleRequest(request, response, request.body);
+    } catch {
+      if (server) await mcpHost.disconnect(server).catch(() => undefined);
+      if (!response.headersSent) {
+        response.status(500).json({
+          jsonrpc: "2.0",
+          error: { code: -32603, message: "Internal server error" },
+          id: null,
+        });
+      }
+    }
+  };
+}
+
+for (const [path, profile] of profilePaths) {
+  app.post(path, requireUpstreamBearer, serveProfile(profile));
+  app.all(path, (_request, response) => {
+    response.status(405).set("allow", "POST").json({
+      jsonrpc: "2.0",
+      error: { code: -32000, message: "Method not allowed" },
+      id: null,
+    });
   });
-});
+}
 
 const httpServer = createServer(app);
 await new Promise<void>((resolve, reject) => {

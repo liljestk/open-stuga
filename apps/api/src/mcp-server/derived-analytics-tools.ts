@@ -1,5 +1,6 @@
 import { ANALYTICS_AGGREGATIONS, type AnalyticsAggregation, type AnalyticsSampleQuality, type CalendarComparisonRequest } from "@climate-twin/contracts";
 import { requireMcpHouse, requireMcpHouseSensor } from "./validation.js";
+import { outdoorLocationKey } from "../db.js";
 import { DAILY_ANALYTICS_ALGORITHM_VERSION } from "../daily-analytics-findings.js";
 import { configuredHeatPumpConnectionIds } from "../analytics/heat-pump-evidence.js";
 import type { McpRuntime } from "./runtime.js";
@@ -94,7 +95,13 @@ function monitoringContext(runtime: McpRuntime, evaluatedAt: string) {
     database,
     latestMeasurements: (houseId: string) => database.latestMeasurementSamples(houseId),
     integrationStatus: () => structuredClone(status.value),
-    latestWeather: () => null,
+    // The API reads its weather broker; this process reads the snapshot the broker persisted.
+    latestWeather: (houseId: string) => {
+      const house = database.getHouse(houseId);
+      return house?.location
+        ? database.getWeatherSnapshot(house.id, outdoorLocationKey(house.location))?.weather ?? null
+        : null;
+    },
     dataMode: database.isRealDataMode() ? "live" as const : "demo" as const,
     evaluatedAt,
   };

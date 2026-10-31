@@ -19,6 +19,8 @@ import { localPowerProfile } from "./local-power-profile.js";
 
 export interface DatabaseInternals {
   readonly db: DatabaseSync;
+  /** Opened read-only and query-only; caches are computed but not stored. */
+  readonly readOnly: boolean;
   closeCostReader(): void;
   costAggregateAsync(metric: "energy" | "power", query: EnergyCostAggregateQuery): Promise<EnergyCostAggregateRecord>;
   measurementHistoryBucketedAsync(query: LocalBucketQuery): Promise<MeasurementSample[]>;
@@ -70,12 +72,15 @@ export interface ClimateDatabaseCore {
 
 export class ClimateDatabaseCore {
   readonly db: DatabaseSync;
+  /** Opened read-only and query-only, as the MCP processes open the workspace. */
+  readonly readOnly: boolean;
   readonly #databasePath: string;
   #telemetryWorker: LocalTelemetryWorker | null = null;
   #transactionDepth = 0;
   constructor(path: string, seed = true, options: { readOnly?: boolean } = {}) {
       assertRegisteredMethods("ClimateDatabase", this, "migrate", "db.js");
       this.#databasePath = path;
+      this.readOnly = options.readOnly === true;
       if (options.readOnly) {
         if (path === ":memory:") throw new Error("A read-only ClimateDatabase requires an existing database file");
         this.db = new DatabaseSync(path, { readOnly: true });

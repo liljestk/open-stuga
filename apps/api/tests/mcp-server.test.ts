@@ -97,7 +97,7 @@ describe("read-only MCP server", () => {
 
       const listed = await client.listTools();
       const names = listed.tools.map((tool) => tool.name);
-      expect(listed.tools).toHaveLength(61);
+      expect(listed.tools).toHaveLength(69);
       expect(new Set(names).size).toBe(names.length);
       expect(names).toEqual(expect.arrayContaining([
         "list_properties",
@@ -114,9 +114,17 @@ describe("read-only MCP server", () => {
         "compare_calendar_periods",
         "get_house_energy_cost",
         "get_house_energy_summary",
+        "get_house_energy_projection",
+        "get_property_electricity_tariff",
+        "list_electricity_invoices",
+        "get_electricity_invoice_reconciliation",
+        "list_heat_pump_states",
+        "query_heat_pump_history",
         "query_outdoor_temperature_history",
         "get_home_moisture_response",
         "summarize_home_measurements",
+        "query_analytics",
+        "get_measurement_coverage",
         "get_house_thermal_isolation",
         "list_notification_deliveries",
         "list_action_playbooks",
@@ -190,6 +198,9 @@ describe("read-only MCP server", () => {
       await call("get_house_electricity_price", { houseId: "house-main" });
       await call("get_house_energy_cost", { houseId: "house-main", sensorId: "sensor-01" });
       await call("get_house_energy_summary", { houseId: "house-main" });
+      await call("get_house_energy_projection", { houseId: "house-main" });
+      await call("list_heat_pump_states");
+      await call("list_electricity_invoices", { propertyId: "property-main" });
       await call("query_outdoor_temperature_history", { houseId: "house-main" });
       await call("get_home_moisture_response", { houseId: "house-main" });
       await call("get_house_thermal_isolation", { houseId: "house-main" });
@@ -258,7 +269,7 @@ describe("read-only MCP server", () => {
 
       const listed = await client.listTools();
       const names = listed.tools.map((tool) => tool.name);
-      expect(listed.tools).toHaveLength(20);
+      expect(listed.tools).toHaveLength(22);
       expect(new Set(names).size).toBe(names.length);
       expect(names).toEqual(expect.arrayContaining([
         "get_measurement_snapshot",
@@ -266,6 +277,8 @@ describe("read-only MCP server", () => {
         "summarize_home_measurements",
         "get_house_opening_states",
         "get_house_energy_summary",
+        "get_house_energy_projection",
+        "list_heat_pump_states",
         "get_house_weather",
         "get_home_moisture_response",
       ]));

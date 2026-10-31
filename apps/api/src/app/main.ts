@@ -22,6 +22,10 @@ import { registerNexus433Routes } from "./nexus433-routes.js";
 import { registerBugReportRoutes } from "./bug-report-routes.js";
 import { registerLocalMcpRuntimeRoutes, registerLocalMcpTransportRoute } from "./local-mcp-runtime-routes.js";
 import { LocalMcpRuntimeService } from "../local-mcp-runtime.js";
+import { AssistantAuthorizationServer } from "../assistant-connector/authorization-server.js";
+import { AssistantConnectorStore } from "../assistant-connector/store.js";
+import { registerAssistantConnectorProtocolRoutes, registerAssistantConnectorRoutes } from "./assistant-connector-routes.js";
+import { requestOrigin } from "./support/origins.js";
 import { registerEnergyOptimizationRoute } from "./energy-optimization-route.js";
 import { registerElectricityRoutes } from "./electricity-routes.js";
 import { registerMeasurementIngestRoutes } from "./measurement-ingest-routes.js";
@@ -71,8 +75,14 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
   const feeds = createExternalFeedServices(bridges);
   const localMcpRuntime = new LocalMcpRuntimeService();
   const runtimeCoordination = createRuntimeCoordination(feeds);
-  // The MCP bearer route authenticates itself and must precede browser sessions.
-  registerLocalMcpTransportRoute(runtimeCoordination, localMcpRuntime);
+  const assistantConnector = new AssistantAuthorizationServer(new AssistantConnectorStore(runtimeCoordination.database));
+  // The MCP bearer route and the assistant OAuth endpoints authenticate
+  // themselves and must precede browser sessions.
+  registerAssistantConnectorProtocolRoutes(runtimeCoordination, assistantConnector);
+  registerLocalMcpTransportRoute(runtimeCoordination, localMcpRuntime, {
+    origin: (request) => requestOrigin(request, runtimeCoordination.config),
+    verifyAccessToken: (token, origin) => assistantConnector.verifyAccessToken(token, origin),
+  });
   const pipeline = installRequestPipeline(runtimeCoordination);
   const context = installAccessControl(pipeline);
 
@@ -91,6 +101,7 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
   registerNexus433Routes(context);
   registerBugReportRoutes(context);
   registerLocalMcpRuntimeRoutes(context, localMcpRuntime);
+  registerAssistantConnectorRoutes(context, assistantConnector);
   registerMeasurementIngestRoutes(context);
   registerMeasurementHistoryRoutes(context);
   registerPropertyRoutes(context);

@@ -2,7 +2,7 @@
 
 All notable Stugu releases are recorded here.
 
-## 0.57.0
+## 0.59.0
 
 Scheduled exports can go to Dropbox or Google Drive instead of the NAS.
 
@@ -13,6 +13,26 @@ Scheduled exports can go to Dropbox or Google Drive instead of the NAS.
 - iCloud Drive is listed as *Coming later*. Apple has no supported server API for it.
 - The **Scheduled exports** card in Data & Analytics shows where files are saved, for example "Saving to Dropbox", and links to the destination choice when none is ready.
 - Upgrade impact: feature update with no schema or host-trust change; existing NAS schedules keep working unchanged. Dropbox and Google Drive appear as *Not enabled on this installation yet* until the installation has the providers' public app IDs (`STUGU_DROPBOX_APP_KEY`, `STUGU_GOOGLE_DRIVE_CLIENT_ID`, `STUGU_GOOGLE_DRIVE_CLIENT_SECRET`), which Compose now passes to the API. See `docs/cloud-export-destinations.md` for the one-time app registration. New API: `GET/PUT /system/export-destinations` plus connect, code, cancel and disconnect operations (Owner/Admin only). The API now reaches `api.dropboxapi.com`, `content.dropboxapi.com`, `oauth2.googleapis.com` and `www.googleapis.com` only after an owner connects a drive.
+
+## 0.58.0
+
+Ask Claude or ChatGPT about your Homes. Paste one URL into the assistant, approve the connection in Stugu, and it can answer questions such as "Is the front door open?" or "How much electricity did we use yesterday?" on the web, in the desktop apps, on your phone and by voice. The MCP servers can also read heat pumps, electricity contracts and the charts' analytics, and two forecast tools that failed are fixed.
+
+- Advanced → API & MCP has a new **Claude and ChatGPT** panel. It shows the connector URL (`https://<your Stugu>/api/v1/mcp`), the steps for Claude, ChatGPT and Claude Code, and every connected assistant with who approved it and when it was last used. **Disconnect** stops an assistant immediately.
+- Connecting opens a Stugu page that names the assistant, the address asking, and what it can and cannot read. Only an Owner or Admin can approve, and you sign in first if needed. The assistant is named from the address Stugu answers to, never from the name it gives itself. Stugu only sends approvals to Claude's and ChatGPT's own callback addresses, or to an app on the computer you approve from.
+- Assistants get the same read-only conversation tools as the ChatGPT app: Homes, rooms, readings and history, doors and windows, electricity, weather, alerts and daily findings. They cannot change anything, control equipment, or see accounts or credentials.
+- Stugu now runs its own OAuth 2.1 sign-in for this, with dynamic client registration, PKCE (S256), and access tokens that last one hour. Refresh tokens rotate on every use, and a reused one disconnects the assistant. Connections survive restarts. They stop working if the approving account is removed or is no longer an Owner or Admin. Approvals and disconnections are recorded in the security audit log.
+- The network MCP server starts on demand when a connected assistant asks, so you no longer have to press Start first. Stopping it still revokes the manual token; an assistant's next question starts it again. When assistants started it, **Create access token** issues a manual token for other MCP clients.
+- Claude and ChatGPT connect from their own servers, so Stugu must be reachable over HTTPS from the internet, for example through the Cloudflare Tunnel. Running the Cloudflare setup again adds a narrow Access exception for `/api/v1/mcp`, `/api/v1/oauth/*` and the two OAuth discovery documents. Each of these authenticates the client itself. The approval page and everything else stay behind Access. The bundled proxy rate-limits the new public paths.
+- `forecast_measurement` and `forecast_sensor` no longer fail with "attempt to write a readonly database". The MCP process opens the workspace read-only, but a forecast tried to store its model evaluation unless the web app had recently stored one. The MCP process now computes the evaluation without storing it.
+- `get_home_monitoring` now sees the latest stored weather, so its insights take outdoor conditions and weather warnings into account. It used to evaluate every Home as if no weather were available.
+- New read-only tools in the local MCP profile (61 → 69 tools):
+  - `list_heat_pump_states` and `query_heat_pump_history`: power, mode, target and room temperature, fan and availability for each configured heat pump, with history merged from the telemetry archive. Connection credentials are never included.
+  - `get_house_energy_projection`: the Energy page's 30-day electricity use and cost projection.
+  - `get_property_electricity_tariff`, `list_electricity_invoices` and `get_electricity_invoice_reconciliation`: the electricity contract, recorded invoices, and how each invoice compares with Stugu's own calculation.
+  - `query_analytics` and `get_measurement_coverage`: the same bucketed series, summaries and quality as the Analytics charts over up to ten years, and how far back each sensor's data goes. The MCP process measures each sensor's reporting interval for these queries without storing it.
+- The ChatGPT profile, which connected Claude and ChatGPT assistants also use, adds `list_heat_pump_states` and `get_house_energy_projection` (20 → 22 tools), and the `stugu-home` plugin's guidance explains when to use them. The plugin package version moves to 0.21.0 so installed copies pick up the new guidance.
+- Upgrade impact: feature release. It adds three SQLite tables (`assistant_oauth_clients`, `assistant_connector_grants`, `assistant_connector_tokens`), created automatically on start. It also adds seven API operations: `POST /api/v1/oauth/register|token|revoke`, `GET|POST /api/v1/assistant-connector/authorization`, `GET /api/v1/assistant-connector/connections` and `DELETE /api/v1/assistant-connector/connections/{id}`. Outside `/api/v1`, it adds `GET /.well-known/oauth-authorization-server` and `/.well-known/oauth-protected-resource/api/v1/mcp`. `GET /api/v1/system/mcp-runtime` gains `accessTokenIssued`. The web image's nginx configuration changes. To use Claude or ChatGPT behind Cloudflare Access, rerun the Cloudflare setup (or `node scripts/cloudflare-stugu.mjs provision …`). Existing tunnels keep working unchanged until you do. MCP clients see eight new local tools or two new ChatGPT tools after reconnecting. Reinstall or refresh the `stugu-home` plugin in ChatGPT or Codex for its new guidance. The heat-pump history endpoint and the analytics query and coverage endpoints share their reading code with the MCP tools; their responses are unchanged. No Compose or host-trust change.
 
 ## 0.56.7
 

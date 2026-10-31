@@ -1,6 +1,7 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { ConfirmationProvider } from "../components/ConfirmationProvider";
 import { I18nProvider } from "../i18n";
 import { api } from "../api";
 import { browserFacingApiBase, DeveloperPage } from "./DeveloperPage";
@@ -56,8 +57,9 @@ describe("DeveloperPage", () => {
   it("keeps workspace system operations out of non-admin developer access", () => {
     vi.spyOn(api, "localMcpRuntimeStatus").mockResolvedValue({
       state: "stopped", endpointPath: "/api/v1/mcp", pid: null, startedAt: null,
-      toolCount: null, serverVersion: null, errorCode: null,
+      toolCount: null, serverVersion: null, errorCode: null, accessTokenIssued: false,
     });
+    vi.spyOn(api, "assistantConnections").mockResolvedValue([]);
     localStorage.setItem("climate-twin-locale", "en");
     const view = render(<I18nProvider><DeveloperPage /></I18nProvider>);
 
@@ -72,12 +74,13 @@ describe("DeveloperPage", () => {
     const user = userEvent.setup();
     const stopped = {
       state: "stopped" as const, endpointPath: "/api/v1/mcp" as const, pid: null, startedAt: null,
-      toolCount: null, serverVersion: null, errorCode: null,
+      toolCount: null, serverVersion: null, errorCode: null, accessTokenIssued: false,
     };
     const running = {
       state: "running" as const, endpointPath: "/api/v1/mcp" as const, pid: 4321,
-      startedAt: "2026-08-02T12:00:00.000Z", toolCount: 61, serverVersion: "0.30.0", errorCode: null,
+      startedAt: "2026-08-02T12:00:00.000Z", toolCount: 61, serverVersion: "0.30.0", errorCode: null, accessTokenIssued: true,
     };
+    vi.spyOn(api, "assistantConnections").mockResolvedValue([]);
     vi.spyOn(api, "localMcpRuntimeStatus").mockResolvedValue(stopped);
     const start = vi.spyOn(api, "startLocalMcpRuntime").mockResolvedValue({
       ...running,
@@ -101,6 +104,53 @@ describe("DeveloperPage", () => {
     expect(stop).toHaveBeenCalledOnce();
     expect(await screen.findByText("Network MCP is stopped")).toBeTruthy();
     expect(screen.queryByLabelText("One-time access token")).toBeNull();
+  });
+
+  it("offers a replacement token when assistants started the server without one", async () => {
+    const user = userEvent.setup();
+    const runningForAssistants = {
+      state: "running" as const, endpointPath: "/api/v1/mcp" as const, pid: 4321,
+      startedAt: "2026-08-02T12:00:00.000Z", toolCount: 61, serverVersion: "0.30.0", errorCode: null, accessTokenIssued: false,
+    };
+    vi.spyOn(api, "localMcpRuntimeStatus").mockResolvedValue(runningForAssistants);
+    vi.spyOn(api, "assistantConnections").mockResolvedValue([]);
+    const start = vi.spyOn(api, "startLocalMcpRuntime").mockResolvedValue({
+      ...runningForAssistants, accessTokenIssued: true, accessToken: "stugu_mcp_replacement",
+    });
+    localStorage.setItem("climate-twin-locale", "en");
+    render(<I18nProvider><DeveloperPage canManageSystem /></I18nProvider>);
+
+    expect(await screen.findByText(/No access token is active/u)).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Create access token" }));
+    expect(start).toHaveBeenCalledOnce();
+    expect((await screen.findByLabelText("One-time access token") as HTMLInputElement).value).toBe("stugu_mcp_replacement");
+  });
+
+  it("explains how to connect Claude and ChatGPT and disconnects an approved assistant", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(api, "localMcpRuntimeStatus").mockResolvedValue({
+      state: "stopped", endpointPath: "/api/v1/mcp", pid: null, startedAt: null,
+      toolCount: null, serverVersion: null, errorCode: null, accessTokenIssued: false,
+    });
+    vi.spyOn(api, "assistantConnections").mockResolvedValue([{
+      id: "grant-1", assistant: "claude", clientName: "Claude", approvedBy: "owner@example.test",
+      createdAt: "2026-10-29T08:00:00.000Z", lastUsedAt: null,
+    }]);
+    const revoke = vi.spyOn(api, "revokeAssistantConnection").mockResolvedValue([]);
+    localStorage.setItem("climate-twin-locale", "en");
+    render(<I18nProvider><ConfirmationProvider><DeveloperPage canManageSystem /></ConfirmationProvider></I18nProvider>);
+
+    expect(screen.getByRole("heading", { name: "Claude and ChatGPT" })).toBeTruthy();
+    expect((screen.getByRole("textbox", { name: "Connector URL" }) as HTMLInputElement).value).toBe(`${window.location.origin}/api/v1/mcp`);
+    expect(screen.getByText(/need Stugu's public HTTPS address/u)).toBeTruthy();
+    expect(await screen.findByText(/^Approved by owner@example.test on .*2026$/u)).toBeTruthy();
+    expect(screen.getByText("Not used yet")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Disconnect" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "Disconnect" }));
+    expect(revoke).toHaveBeenCalledWith("grant-1");
+    expect(await screen.findByText("No assistant is connected yet.")).toBeTruthy();
   });
 
   it("announces when copying is unavailable in a non-secure local context", async () => {

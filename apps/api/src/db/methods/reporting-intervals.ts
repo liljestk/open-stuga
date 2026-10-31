@@ -70,7 +70,8 @@ registerDatabaseMethods({
         interval = Number(measured.gap_count) >= MINIMUM_GAPS && measured.median_gap !== null
           ? Math.round(Number(measured.median_gap) * 10) / 10
           : null;
-        store.run(sensorId, metric, interval, Number(measured.gap_count), new Date(now).toISOString());
+        // A read-only workspace (an MCP process) measures without caching.
+        if (!this.readOnly) store.run(sensorId, metric, interval, Number(measured.gap_count), new Date(now).toISOString());
       }
       if (interval !== null && interval > 0) result.set(seriesKey(sensorId, metric), interval);
     }

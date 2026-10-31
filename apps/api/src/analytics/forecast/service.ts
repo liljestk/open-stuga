@@ -199,7 +199,8 @@ export class MeasurementForecastService {
         coverage90: pooledCoverage(best.result.horizons),
       }
       : emptyEvaluation({ sensorId, metric, computedAt, history, outdoorDriver });
-    this.database.saveForecastEvaluation(evaluation);
+    // A read-only workspace (an MCP process) recomputes instead of caching.
+    if (!this.database.readOnly) this.database.saveForecastEvaluation(evaluation);
     return evaluation;
   }
 

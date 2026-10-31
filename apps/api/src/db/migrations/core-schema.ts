@@ -12,6 +12,7 @@ import { TELEMETRY_HISTORY_REVISION_SCHEMA_SQL } from "./telemetry-history-revis
 import { ANALYTICS_LATENCY_SCHEMA_SQL } from "./analytics-latency-schema.js";
 import { WEATHER_SNAPSHOT_SCHEMA_SQL } from "./weather-snapshot-schema.js";
 import { DERIVED_ANALYTICS_SCHEMA_SQL } from "./derived-analytics-schema.js";
+import { ASSISTANT_CONNECTOR_SCHEMA_SQL } from "./assistant-connector-schema.js";
 
 // Statements run in this order: triggers follow the tables they guard.
 export const CORE_SCHEMA_SQL = [
@@ -29,4 +30,5 @@ export const CORE_SCHEMA_SQL = [
   ANALYTICS_LATENCY_SCHEMA_SQL,
   WEATHER_SNAPSHOT_SCHEMA_SQL,
   DERIVED_ANALYTICS_SCHEMA_SQL,
+  ASSISTANT_CONNECTOR_SCHEMA_SQL,
 ].join("");

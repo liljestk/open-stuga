@@ -14,6 +14,8 @@ export const CHATGPT_MCP_TOOL_NAMES: ReadonlySet<string> = new Set([
   "get_house_electricity_price",
   "get_house_energy_cost",
   "get_house_energy_summary",
+  "get_house_energy_projection",
+  "list_heat_pump_states",
   "query_outdoor_temperature_history",
   "get_home_moisture_response",
   "list_sensors",
@@ -72,6 +74,14 @@ const chatgptToolPresentation: Record<string, { title: string; description: stri
   get_house_energy_summary: {
     title: "Get Home electricity use",
     description: "Get total electricity consumption and coverage for all enabled energy sensors in one Home.",
+  },
+  get_house_energy_projection: {
+    title: "Project electricity use",
+    description: "Project one Home's electricity use and cost over the next 30 days from recent use, the weather forecast, and the tariff.",
+  },
+  list_heat_pump_states: {
+    title: "Check heat pumps",
+    description: "Check whether each heat pump or air conditioner is on, its mode, target and room temperature, and when it last reported.",
   },
   query_outdoor_temperature_history: {
     title: "Get outdoor temperature history",

@@ -1,5 +1,6 @@
 import { ClimateDatabase } from "../db.js";
 import { publicElectricityConfiguration } from "../electricity/prices.js";
+import { invoiceRange, reconcileInvoice } from "../electricity/invoice-reconciliation.js";
 import { requireMcpHouse, requireMcpHouseSensor, validateMcpDateRange } from "./validation.js";
 import type { McpRuntime } from "./runtime.js";
 import { mcpDateTime, requiredToolString } from "./arguments.js";
@@ -89,3 +90,102 @@ export async function houseEnergySummary(runtime: McpRuntime, args: Record<strin
     to,
   });
 }
+
+function requireMcpProperty(runtime: McpRuntime, args: Record<string, unknown>): string {
+  const propertyId = requiredToolString(args, "propertyId");
+  if (!runtime.database.getProperty(propertyId)) throw new Error(`Unknown property: ${propertyId}`);
+  return propertyId;
+}
+
+function enabledHouseSensors(runtime: McpRuntime, houseId: string) {
+  return runtime.database.listSensors(houseId).filter((sensor) => sensor.enabled);
+}
+
+export async function houseEnergyProjection(runtime: McpRuntime, args: Record<string, unknown>, signal?: AbortSignal): Promise<object> {
+  const house = requireMcpHouse(runtime.database, requiredToolString(args, "houseId"));
+  return { projection: await runtime.energyProjections.get(house, enabledHouseSensors(runtime, house.id), signal) };
+}
+
+export function propertyElectricityTariff(runtime: McpRuntime, args: Record<string, unknown>): object {
+  const propertyId = requireMcpProperty(runtime, args);
+  const tariff = runtime.database.getPropertyElectricityTariff(propertyId);
+  if (!tariff) throw new Error(`Property ${propertyId} does not have an electricity tariff`);
+  return { tariff, timeZone: runtime.database.propertyElectricityTimeZone(propertyId) };
+}
+
+export function electricityInvoices(runtime: McpRuntime, args: Record<string, unknown>): object {
+  return { invoices: runtime.database.listElectricityInvoices(requireMcpProperty(runtime, args)) };
+}
+
+export async function electricityInvoiceReconciliation(
+  runtime: McpRuntime,
+  args: Record<string, unknown>,
+  signal?: AbortSignal,
+): Promise<object> {
+  const { database, energySummaries } = runtime;
+  const propertyId = requireMcpProperty(runtime, args);
+  const invoiceId = requiredToolString(args, "invoiceId");
+  const invoice = database.getElectricityInvoice(propertyId, invoiceId);
+  if (!invoice) throw new Error(`Unknown invoice: ${invoiceId}`);
+  const house = database.getHouse(invoice.houseId);
+  const range = house ? invoiceRange(invoice, house.timezone) : null;
+  if (!house || !range) throw new Error("The invoice period cannot be resolved for its Home");
+  // The invoice belongs to this Property's contract and price feed.
+  const { summary } = await energySummaries.get({
+    houseId: house.id,
+    propertyId,
+    timeZone: house.timezone,
+    sensors: enabledHouseSensors(runtime, house.id),
+    ...range,
+    ...(signal ? { signal } : {}),
+  });
+  return { reconciliation: reconcileInvoice(invoice, summary) };
+}
+
+const propertyIdSchema = { type: "string", minLength: 1, maxLength: 200 } as const;
+
+export const electricityToolDefinitions = [
+  {
+    name: "get_house_energy_projection",
+    description: "Project one Home's electricity use and cost over the next 30 days, with a low/high range and confidence, from its recent daily use, the stored weather forecast, and the Property tariff.",
+    inputSchema: {
+      type: "object",
+      properties: { houseId: { type: "string", minLength: 1, maxLength: 200 } },
+      required: ["houseId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_property_electricity_tariff",
+    description: "Get one Property's versioned electricity contract: energy pricing (spot or fixed), margins, network and tax components, and their validity dates.",
+    inputSchema: {
+      type: "object",
+      properties: { propertyId: propertyIdSchema },
+      required: ["propertyId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "list_electricity_invoices",
+    description: "List the electricity invoices recorded for one Property, with period, totals, consumption, and cost components.",
+    inputSchema: {
+      type: "object",
+      properties: { propertyId: propertyIdSchema },
+      required: ["propertyId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_electricity_invoice_reconciliation",
+    description: "Compare one recorded electricity invoice with the consumption and cost Stugu calculated for the same Home-local period.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        propertyId: propertyIdSchema,
+        invoiceId: { type: "string", minLength: 1, maxLength: 200 },
+      },
+      required: ["propertyId", "invoiceId"],
+      additionalProperties: false,
+    },
+  },
+] as const;

@@ -37,6 +37,21 @@ root Access application. The generated runtime also pins
 value. Without deployment configuration, the Owner/Admin UI can persist a
 coordinator origin, but it cannot create or widen Cloudflare policies.
 
+Every provisioning run also adds one Access application for assistant
+connections (see [Claude and ChatGPT](assistants.md)). It covers exactly
+`<hostname>/api/v1/mcp`, `<hostname>/api/v1/oauth/*`,
+`<hostname>/.well-known/oauth-authorization-server` and
+`<hostname>/.well-known/oauth-protected-resource/api/v1/mcp`. Its Bypass policy
+lets Claude's and ChatGPT's servers complete OAuth and call MCP. Stugu
+authenticates each of those requests: client registration accepts only the
+assistants' own callback addresses, codes are single-use and PKCE-bound, and
+`/api/v1/mcp` requires a bearer token issued for that exact URL. The approval
+page `/connect/assistant` and its API stay behind the root application. The
+bundled proxy rate-limits the OAuth paths. Installations provisioned before
+0.58.0 keep working unchanged; rerun provisioning to add the application.
+`verify` and `verify-coordinator` check these paths when the deployment
+records the application.
+
 Cloudflare does not authenticate or create Access logs for a Bypass policy.
 This narrow exception is intentional: the Stuguby protocol itself authenticates
 the exact method, path, body digest, node, timestamp, and replay ID, and checks

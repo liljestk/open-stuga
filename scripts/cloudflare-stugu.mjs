@@ -30,6 +30,10 @@ export { stugubyProtocolApplicationSpec } from "./cloudflare-stugu/tunnel-runtim
 
 export { stugubyProtocolPolicySpec } from "./cloudflare-stugu/tunnel-runtime.mjs";
 
+export { assistantConnectorApplicationSpec } from "./cloudflare-stugu/tunnel-runtime.mjs";
+
+export { assistantConnectorPolicySpec } from "./cloudflare-stugu/tunnel-runtime.mjs";
+
 export { validateOptions } from "./cloudflare-stugu/configuration-client.mjs";
 
 export { validateToken } from "./cloudflare-stugu/configuration-client.mjs";
