@@ -100,6 +100,22 @@ export const VIEW_HEIGHT = 720;
 
 export const DEFAULT_CAMERA: CameraOrbit = { yaw: -.68, pitch: .63, zoom: 1 };
 
+/**
+ * The outdoor shell's chip rail in view units: a title chip, then temperature and humidity chips. The
+ * reading chips fit the longest en/fi/sv label ("Outdoor temperature", about 118 units) inside their
+ * rounded ends.
+ */
+const OUTDOOR_SHELL_RAIL_TITLE_WIDTH = 112;
+const OUTDOOR_SHELL_RAIL_CHIP_WIDTH = 148;
+const OUTDOOR_SHELL_RAIL_GAP = 8;
+export const OUTDOOR_SHELL_RAIL = {
+  titleWidth: OUTDOOR_SHELL_RAIL_TITLE_WIDTH,
+  chipWidth: OUTDOOR_SHELL_RAIL_CHIP_WIDTH,
+  gap: OUTDOOR_SHELL_RAIL_GAP,
+  height: 52,
+  width: OUTDOOR_SHELL_RAIL_TITLE_WIDTH + 2 * (OUTDOOR_SHELL_RAIL_GAP + OUTDOOR_SHELL_RAIL_CHIP_WIDTH),
+} as const;
+
 export function points(projected: ProjectedPoint3D[]): string {
   return projected.map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(" ");
 }

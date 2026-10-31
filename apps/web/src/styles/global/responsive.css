@@ -368,7 +368,7 @@
   .outdoor-shell-halo { fill: rgb(120 167 255 / .035); stroke: rgb(120 167 255 / .13); }
   .building-outdoor-shell-face { fill: rgb(120 167 255 / .04); }
   .outdoor-shell-chip rect { fill: #131d28; }
-  .building-shell-title rect { fill: var(--blue); }
+  .building-shell-title rect { fill: var(--action); }
   .outdoor-edge-labels text { stroke: rgb(11 21 32 / .94); }
   .building-scene, .building-viewport { background-color: #0e1823; }
   .floor-surface { fill: #141f2a; stroke: #424e5a; }
