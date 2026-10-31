@@ -20,6 +20,9 @@ import { MEASUREMENT_ORDERED_ROLLUP_VERSION } from "./methods/measurement-ordere
 export function mergeableAnalyticsSql(schema: string, base: MeasurementAnalyticsBaseBucket): string {
   const measurements = qualifiedName(schema, "measurement_samples");
   const aggregate = qualifiedName(schema, measurementAnalyticsAggregateName(base));
+  // Redundant with the exact windows below, but constant, so the planner
+  // skips chunks outside the request instead of planning the whole history.
+  const inRange = (column: string) => `AND sample.${column} >= $2::TIMESTAMPTZ AND sample.${column} < $3::TIMESTAMPTZ`;
   return `WITH requested_series AS (
       SELECT DISTINCT sensor_id, metric, aggregation
       FROM jsonb_to_recordset($1::JSONB)
@@ -40,6 +43,7 @@ export function mergeableAnalyticsSql(schema: string, base: MeasurementAnalytics
         SELECT sample.bucket_start FROM ${aggregate} sample
         WHERE sample.sensor_id = requested.sensor_id AND sample.metric = requested.metric
           AND sample.bucket_start >= limits.full_from AND sample.bucket_start < limits.full_to
+          ${inRange("bucket_start")}
           AND sample.quality = ANY($4::TEXT[])
           AND (NOT $6::BOOLEAN OR sample.source NOT IN ('mock', 'replay'))
         ORDER BY sample.bucket_start ASC LIMIT 1
@@ -48,6 +52,7 @@ export function mergeableAnalyticsSql(schema: string, base: MeasurementAnalytics
         SELECT sample.bucket_start FROM ${aggregate} sample
         WHERE sample.sensor_id = requested.sensor_id AND sample.metric = requested.metric
           AND sample.bucket_start >= limits.full_from AND sample.bucket_start < limits.full_to
+          ${inRange("bucket_start")}
           AND sample.quality = ANY($4::TEXT[])
           AND (NOT $6::BOOLEAN OR sample.source NOT IN ('mock', 'replay'))
         ORDER BY sample.bucket_start DESC LIMIT 1
@@ -71,19 +76,25 @@ export function mergeableAnalyticsSql(schema: string, base: MeasurementAnalytics
       SELECT sensor_id, metric, GREATEST($2::TIMESTAMPTZ, cached_to), $3::TIMESTAMPTZ
       FROM coverage WHERE cached_to IS NOT NULL
     ), source_rows AS (
+      -- Each read stays parameterized by its window (OFFSET 0), so Timescale
+      -- excludes chunks at run time. A plain join on these CTE bounds let the
+      -- planner decompress the series' whole raw history and filter it
+      -- afterwards. Series are unique, so coverage has one row per series.
       SELECT sample.sensor_id, sample.metric, sample.bucket_start AS observed_bucket,
         sample.source, sample.quality, sample.canonical_unit,
         sample.sample_count, sample.sum_value, sample.minimum, sample.maximum,
         sample.first_value, sample.first_at, sample.last_value, sample.last_at
-      FROM ${aggregate} sample
-      JOIN requested_series requested
-        ON requested.sensor_id = sample.sensor_id AND requested.metric = sample.metric
-      JOIN coverage
-        ON coverage.sensor_id = sample.sensor_id AND coverage.metric = sample.metric
+      FROM coverage
       CROSS JOIN limits
-      WHERE sample.bucket_start >= limits.full_from AND sample.bucket_start < limits.full_to
-        AND sample.bucket_start >= coverage.cached_from AND sample.bucket_start < coverage.cached_to
-        AND (NOT $6::BOOLEAN OR sample.source NOT IN ('mock', 'replay'))
+      CROSS JOIN LATERAL (
+        SELECT sample.* FROM ${aggregate} sample
+        WHERE sample.sensor_id = coverage.sensor_id AND sample.metric = coverage.metric
+          AND sample.bucket_start >= limits.full_from AND sample.bucket_start < limits.full_to
+          AND sample.bucket_start >= coverage.cached_from AND sample.bucket_start < coverage.cached_to
+          ${inRange("bucket_start")}
+          AND (NOT $6::BOOLEAN OR sample.source NOT IN ('mock', 'replay'))
+        OFFSET 0
+      ) sample
       UNION ALL
       SELECT sample.sensor_id, sample.metric,
         date_bin($7::INTERVAL, sample.observed_at, TIMESTAMPTZ '1970-01-01 00:00:00+00'),
@@ -91,11 +102,15 @@ export function mergeableAnalyticsSql(schema: string, base: MeasurementAnalytics
         1::BIGINT, sample.value, sample.value, sample.value,
         sample.value, sample.observed_at, sample.value, sample.observed_at
       FROM raw_windows boundary
-      JOIN ${measurements} sample
-        ON sample.sensor_id = boundary.sensor_id AND sample.metric = boundary.metric
+      CROSS JOIN LATERAL (
+        SELECT sample.* FROM ${measurements} sample
+        WHERE sample.sensor_id = boundary.sensor_id AND sample.metric = boundary.metric
           AND sample.observed_at >= boundary.raw_from AND sample.observed_at < boundary.raw_to
+          ${inRange("observed_at")}
+          AND (NOT $6::BOOLEAN OR sample.source NOT IN ('mock', 'replay'))
+        OFFSET 0
+      ) sample
       WHERE boundary.raw_from < boundary.raw_to
-        AND (NOT $6::BOOLEAN OR sample.source NOT IN ('mock', 'replay'))
     ), series_counts AS (
       SELECT requested.sensor_id, requested.metric, requested.aggregation,
         COALESCE(min(source.canonical_unit) FILTER (WHERE source.quality = ANY($4::TEXT[])), '') AS canonical_unit,
