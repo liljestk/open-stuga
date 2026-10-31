@@ -1,11 +1,12 @@
 import { errorText } from "../errorText";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
-import { CheckCircle2, ChevronDown, CirclePlay, Clock3, LoaderCircle, RefreshCw, RotateCcw, Send, ShieldAlert } from "lucide-react";
+import { CheckCircle2, ChevronDown, CirclePlay, Clock3, LoaderCircle, RotateCcw, Send, ShieldAlert } from "lucide-react";
 import type { ActionPlaybook, ActionRun, AlertEvent, NotificationDeliveryStatus } from "@climate-twin/contracts";
 import { api } from "../api";
 import { formatInTimeZone } from "../dateTime";
 import { useI18n } from "../i18n";
 import "./AlertOrchestrationPanel.css";
+import { RefreshButton } from "../components/RefreshButton";
 
 export function AlertOrchestrationPanel() {
   const { locale, t } = useI18n();
@@ -54,10 +55,7 @@ export function AlertOrchestrationPanel() {
     <div>
       <div className="panel-header">
         <div><span className="eyebrow">{t("alerts.orchestration.eyebrow")}</span><h2>{t("alerts.orchestration.title")}</h2></div>
-        <button type="button" className="secondary-button" disabled={loading} onClick={load}>
-          <RefreshCw className={loading ? "spin" : ""} size={15} aria-hidden="true" />
-          {t("alerts.orchestration.refresh")}
-        </button>
+        <RefreshButton onClick={load} busy={loading} label={t("alerts.orchestration.refresh")} />
       </div>
       {error && <p className="error-message" role="alert">{error}</p>}
       <div className="alert-orchestration-grid">

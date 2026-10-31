@@ -1,6 +1,6 @@
 {
   "name": "@climate-twin/bug-report-relay",
-  "version": "0.56.4",
+  "version": "0.56.7",
   "private": true,
   "type": "module",
   "scripts": {
@@ -13,7 +13,7 @@
     "test": "vitest run --configLoader runner"
   },
   "dependencies": {
-    "@climate-twin/contracts": "0.56.4"
+    "@climate-twin/contracts": "0.56.7"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.20.3",

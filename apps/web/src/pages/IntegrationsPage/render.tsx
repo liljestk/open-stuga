@@ -25,6 +25,7 @@ import { LocationDiscoveryPanel } from "../../components/LocationDiscoveryPanel"
 import { locationForRoute } from "../../routing";
 import { AutomationSetupPanel } from "../AutomationSetupPanel";
 import { SetupOperationsPanel } from "../SetupOperationsPanel";
+import { countKey } from "../../i18n";
 import { ConnectionSourceManager } from "./ConnectionSourceManager";
 import { ACTIVE_TP_LINK_EXPORT_STATUSES, RETRYABLE_TP_LINK_EXPORT_STATUSES, TP_LINK_EXPORT_PROVIDER_KEYS, TP_LINK_EXPORT_STATUS_KEYS, decimal, setupSectionOrder } from "./setupModel";
 import { useIntegrationsPagePart06 } from "./part-06";
@@ -33,8 +34,10 @@ import { GreeSetupPanel } from "./GreeSetupPanel";
 import { TuyaSetupPanel } from "./TuyaSetupPanel";
 import { Nexus433SetupPanel } from "./Nexus433SetupPanel";
 import { SetupProviderGrid } from "./SetupProviderGrid";
+import { Tabs } from "../../components/Tabs";
+import { CardHeader } from "../../components/CardHeader";
 export function renderIntegrationsPage(context: ReturnType<typeof useIntegrationsPagePart06>) {
-  const { houses, connectionHouses, tpLinkDevicesError, canManageIntegrations, onIntegrationChange, onOpenSensors, onOpenLayout, locale, t, house, integration, activeSection, testing, result, testingDirect, directResult, discovering, discovery, discoveryOutcome, connectionSetupOpen, setConnectionSetupOpen, tpLinkSettingsOpen, setTpLinkSettingsOpen, tpLinkHost, tpLinkUsername, tpLinkPassword, reuseSavedTpLinkAccount, setReuseSavedTpLinkAccount, showTpLinkPassword, setShowTpLinkPassword, savingTpLink, tpLinkFeedback, setTpLinkFeedback, refreshingTpLinkInventory, tpLinkInventoryRefreshFailed, tpLinkExportEnabled, tpLinkExportJobs, tpLinkExportAutomation, tpLinkExportJobsLoading, tpLinkExportJobsError, busyTpLinkExportJobId, tpLinkCanaryTargets, tpLinkCanarySensorId, setTpLinkCanarySensorId, tpLinkCanaryMetric, setTpLinkCanaryMetric, tpLinkCanaryRunning, tpLinkChildDiscovery, haUrl, haToken, showHaToken, setShowHaToken, savingHomeAssistant, homeAssistantFeedback, busyAssignment, assignmentHouseDrafts, setAssignmentHouseDrafts, assignmentFeedback, latitude, setLatitude, longitude, setLongitude, locationLabel, setLocationLabel, timezone, setTimezone, savingLocation, locationFeedback, setLocationFeedback, localDateTime, homeAssistantAssignments, tpLinkAssignments, changeTpLinkDraft, changeHomeAssistantDraft, coordinateValidationVisible, timezoneValidationVisible, draftMapLocation, selectSetupHouse, disconnectHomeAssistantAssignment, disconnectTpLinkAssignment, moveHomeAssistantAssignment, moveTpLinkAssignment, testConnection, testDirectConnection, refreshTpLinkInventory, loadTpLinkExportJobs, runTpLinkCanary, retryTpLinkExportJob, cancelTpLinkExportJob, scanIntegrations, settleTpLinkChildren, saveTpLink, saveHomeAssistant, saveLocation, removeLocation, usePlacementForWeather, savePlacementForWeather, applyDiscoveredDefaults, discoveredCount, sensorSourceConfigured, sensorSourceConnected, tpLinkReadyDevices, assignmentCount, connectedSourceLabel, tpLinkHealthState, tpLinkHealthLabel, tpLinkStatusTitle, connectionWorkspaceActive, steps, completeCount, nextStepIndex, nextStep, selectedDiscoveredTpLink, selectedDiscoveredHomeAssistant, primarySetupSections, advancedSetupSections, activeSectionLabel, sectionHeading, sectionDescription, activateSection, handleSectionKeyDown, runRecommendedAction, recommendedActionLabel } = context;
+  const { houses, connectionHouses, tpLinkDevicesError, canManageIntegrations, onIntegrationChange, onOpenSensors, onOpenLayout, locale, t, house, integration, activeSection, testing, result, testingDirect, directResult, discovering, discovery, discoveryOutcome, connectionSetupOpen, setConnectionSetupOpen, tpLinkSettingsOpen, setTpLinkSettingsOpen, tpLinkHost, tpLinkUsername, tpLinkPassword, reuseSavedTpLinkAccount, setReuseSavedTpLinkAccount, showTpLinkPassword, setShowTpLinkPassword, savingTpLink, tpLinkFeedback, setTpLinkFeedback, refreshingTpLinkInventory, tpLinkInventoryRefreshFailed, tpLinkExportEnabled, tpLinkExportJobs, tpLinkExportAutomation, tpLinkExportJobsLoading, tpLinkExportJobsError, busyTpLinkExportJobId, tpLinkCanaryTargets, tpLinkCanarySensorId, setTpLinkCanarySensorId, tpLinkCanaryMetric, setTpLinkCanaryMetric, tpLinkCanaryRunning, tpLinkChildDiscovery, haUrl, haToken, showHaToken, setShowHaToken, savingHomeAssistant, homeAssistantFeedback, busyAssignment, assignmentHouseDrafts, setAssignmentHouseDrafts, assignmentFeedback, latitude, setLatitude, longitude, setLongitude, locationLabel, setLocationLabel, timezone, setTimezone, savingLocation, locationFeedback, setLocationFeedback, localDateTime, homeAssistantAssignments, tpLinkAssignments, changeTpLinkDraft, changeHomeAssistantDraft, coordinateValidationVisible, timezoneValidationVisible, draftMapLocation, selectSetupHouse, disconnectHomeAssistantAssignment, disconnectTpLinkAssignment, moveHomeAssistantAssignment, moveTpLinkAssignment, testConnection, testDirectConnection, refreshTpLinkInventory, loadTpLinkExportJobs, runTpLinkCanary, retryTpLinkExportJob, cancelTpLinkExportJob, scanIntegrations, settleTpLinkChildren, saveTpLink, saveHomeAssistant, saveLocation, removeLocation, usePlacementForWeather, savePlacementForWeather, applyDiscoveredDefaults, discoveredCount, sensorSourceConfigured, sensorSourceConnected, tpLinkReadyDevices, assignmentCount, connectedSourceLabel, tpLinkHealthState, tpLinkHealthLabel, tpLinkStatusTitle, connectionWorkspaceActive, steps, completeCount, nextStepIndex, nextStep, selectedDiscoveredTpLink, selectedDiscoveredHomeAssistant, primarySetupSections, advancedSetupSections, activeSectionLabel, sectionHeading, sectionDescription, activateSection, runRecommendedAction, recommendedActionLabel } = context;
   const editingTpLinkConnection = tpLinkAssignments.find((connection) => connection.id === context.tpLinkEditingConnectionId.current);
   const inheritedPropertyWeather = house.location?.source === "property-location" && house.location.userOverridden !== true;
   const editingTpLinkSourceName = editingTpLinkConnection?.sourceAlias ?? editingTpLinkConnection?.sourceModel
@@ -73,23 +76,15 @@ export function renderIntegrationsPage(context: ReturnType<typeof useIntegration
           {!connectionWorkspaceActive && <span className={`integration-pill ${sensorSourceConnected ? "connected" : ""}`}><span aria-hidden="true" />{connectedSourceLabel}</span>}
         </header>
         <div className="setup-workspace-navigation">
-        <div className="setup-workspace-tabs" role="tablist" aria-label={t("setup.workspaceNavigation")}>
-          {primarySetupSections.map((section) => (
-            <button
-              key={section.id}
-              id={`setup-tab-${section.id}`}
-              type="button"
-              role="tab"
-              aria-selected={activeSection === section.id}
-              aria-controls={`setup-panel-${section.id}`}
-              tabIndex={activeSection === section.id ? 0 : -1}
-              onClick={() => activateSection(section.id)}
-              onKeyDown={(event) => handleSectionKeyDown(event, section.id)}
-            >
-              <strong>{section.label}</strong><small>{section.detail}</small>
-            </button>
-          ))}
-        </div>
+        <Tabs
+          className="setup-workspace-tabs"
+          label={t("setup.workspaceNavigation")}
+          items={primarySetupSections.map((section) => ({ id: section.id, label: section.label, detail: section.detail }))}
+          selected={activeSection}
+          onSelect={activateSection}
+          tabId={(section) => `setup-tab-${section}`}
+          panelId={(section) => `setup-panel-${section}`}
+        />
         <details className="setup-advanced-navigation" open={advancedSetupSections.some((section) => section.id === activeSection) || undefined}>
           <summary>{t("setup.advancedSetup")}</summary>
           <div>
@@ -412,7 +407,7 @@ export function renderIntegrationsPage(context: ReturnType<typeof useIntegration
               <div><span className={`status-symbol ${integration.homeAssistant.connected ? "positive" : ""}`}><Home size={17} aria-hidden="true" /></span><span><strong>Home Assistant</strong><small>{t("setup.mapped", { count: integration.homeAssistant.mappedEntities })}</small></span><b>{integration.homeAssistant.connected ? t("common.on") : t("common.off")}</b></div>
               <div><span className={`status-symbol ${integration.mock.enabled ? "positive" : ""}`}><RadioTower size={17} aria-hidden="true" /></span><span><strong>{integration.mock.mode === "real" ? t("setup.mockLocked") : t("setup.mockEnabled")}</strong><small>{integration.mock.mode === "real" ? t("setup.realDataMode") : `${integration.mock.intervalMs / 1000}s`}</small></span><b>{integration.mock.enabled ? t("common.on") : t("common.off")}</b></div>
               <div><span className={`status-symbol ${integration.webhook.configured ? "positive" : ""}`}><ExternalLink size={17} aria-hidden="true" /></span><span><strong>DayOps / OpenWearable webhook</strong><small>{integration.webhook.lastDeliveryAt ? t("setup.lastEvent", { time: localDateTime(integration.webhook.lastDeliveryAt) ?? "—" }) : t("common.noData")}</small></span><b>{integration.webhook.configured ? t("common.on") : t("common.off")}</b></div>
-              <div><span className={`status-symbol ${integration.weather.configuredHouses > 0 && !integration.weather.error ? "positive" : ""}`}><CloudSun size={17} aria-hidden="true" /></span><span><strong>{t("setup.weatherService")}</strong><small>{integration.weather.error ?? (integration.weather.lastSuccessAt ? t("weather.lastSuccess", { time: localDateTime(integration.weather.lastSuccessAt) ?? "—" }) : t("weather.configuredHouses", { count: integration.weather.configuredHouses }))}</small></span><b>{t("setup.automatic")}</b></div>
+              <div><span className={`status-symbol ${integration.weather.configuredHouses > 0 && !integration.weather.error ? "positive" : ""}`}><CloudSun size={17} aria-hidden="true" /></span><span><strong>{t("setup.weatherService")}</strong><small>{integration.weather.error ?? (integration.weather.lastSuccessAt ? t("weather.lastSuccess", { time: localDateTime(integration.weather.lastSuccessAt) ?? "—" }) : t(countKey(integration.weather.configuredHouses, "weather.configuredHousesOne", "weather.configuredHouses"), { count: integration.weather.configuredHouses }))}</small></span><b>{t("setup.automatic")}</b></div>
               </div>
             </details>}
           </div>
@@ -468,7 +463,7 @@ export function renderIntegrationsPage(context: ReturnType<typeof useIntegration
               <div className="panel-header"><div><span className="eyebrow">{t("setup.systemEyebrow")}</span><h3 id="setup-system-title">{t("setup.systemTitle")}</h3></div><span className="weather-card-icon current"><RadioTower size={20} aria-hidden="true" /></span></div>
               <p className="weather-card-description">{t("setup.systemDescription")}</p>
               <div className="integration-status compact-status">
-                <div><span className={`status-symbol ${integration.weather.configuredHouses > 0 && !integration.weather.error ? "positive" : ""}`}><CloudSun size={17} aria-hidden="true" /></span><span><strong>{t("setup.weatherService")}</strong><small>{integration.weather.error ?? t("weather.configuredHouses", { count: integration.weather.configuredHouses })}</small></span><b>{t("setup.automatic")}</b></div>
+                <div><span className={`status-symbol ${integration.weather.configuredHouses > 0 && !integration.weather.error ? "positive" : ""}`}><CloudSun size={17} aria-hidden="true" /></span><span><strong>{t("setup.weatherService")}</strong><small>{integration.weather.error ?? t(countKey(integration.weather.configuredHouses, "weather.configuredHousesOne", "weather.configuredHouses"), { count: integration.weather.configuredHouses })}</small></span><b>{t("setup.automatic")}</b></div>
                 <div><span className={`status-symbol ${integration.mock.enabled ? "positive" : ""}`}><RadioTower size={17} aria-hidden="true" /></span><span><strong>{integration.mock.mode === "real" ? t("setup.mockLocked") : t("setup.mockEnabled")}</strong><small>{integration.mock.mode === "real" ? t("setup.realDataMode") : `${integration.mock.intervalMs / 1000}s`}</small></span><b>{integration.mock.enabled ? t("common.on") : t("common.off")}</b></div>
                 <div><span className={`status-symbol ${integration.webhook.configured ? "positive" : ""}`}><ExternalLink size={17} aria-hidden="true" /></span><span><strong>DayOps / OpenWearable webhook</strong><small>{integration.webhook.lastDeliveryAt ? t("setup.lastEvent", { time: localDateTime(integration.webhook.lastDeliveryAt) ?? "—" }) : t("common.noData")}</small></span><b>{integration.webhook.configured ? t("common.on") : t("common.off")}</b></div>
               </div>
@@ -485,7 +480,7 @@ export function renderIntegrationsPage(context: ReturnType<typeof useIntegration
           aria-labelledby="setup-tab-layout"
         >
           <section className="panel setup-layout-card">
-            <div className="panel-header"><div><span className="eyebrow">{house.name}</span><h2>{t("setup.layoutTitle")}</h2></div><Building2 size={22} aria-hidden="true" /></div>
+            <CardHeader title={t("setup.layoutTitle")} eyebrow={house.name} aside={<Building2 size={22} aria-hidden="true" />} />
             <p>{t("setup.layoutDescription")}</p>
             <div className="setup-config-summary">
               <div><span>{t("common.floor")}</span><strong>{house.floors.length}</strong><small>{t("setup.workspaceLayoutDetail", { count: house.floors.length })}</small></div>

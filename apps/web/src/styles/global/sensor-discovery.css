@@ -4,13 +4,13 @@
 
 .sensor-discovery-watch > span:nth-child(2) { min-width: 0; display: grid; gap: 3px; }
 
-.sensor-discovery-watch strong { font-size: 11px; }
+.sensor-discovery-watch strong { font-size: var(--text-xs); }
 
-.sensor-discovery-watch small { color: var(--muted); font-size: 10.5px; line-height: 1.4; }
+.sensor-discovery-watch small { color: var(--muted); font-size: var(--text-xs); line-height: 1.4; }
 
 .sensor-discovery-watch > .secondary-button { min-height: 38px; background: var(--panel); }
 
-.sensor-overview { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; margin-bottom: 16px; overflow: hidden; border: 1px solid var(--line); border-radius: 14px; background: var(--line); box-shadow: var(--shadow); }
+.sensor-overview { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; margin-bottom: 16px; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius); background: var(--line); box-shadow: var(--shadow); }
 
 .sensor-overview > button { min-width: 0; min-height: 72px; display: flex; align-items: center; gap: 10px; padding: 12px 16px; border: 0; color: var(--ink); background: var(--panel); text-align: left; }
 
@@ -20,9 +20,9 @@
 
 .sensor-overview > button > span:last-child { min-width: 0; display: grid; gap: 2px; }
 
-.sensor-overview small { color: var(--muted); font-size: 10.5px; }
+.sensor-overview small { color: var(--muted); font-size: var(--text-xs); }
 
-.sensor-overview strong { font-family: "Manrope", sans-serif; font-size: 18px; }
+.sensor-overview strong { font-family: var(--font-sans); font-size: var(--text-lg); }
 
 .sensor-overview-icon { width: 34px; height: 34px; display: grid; place-items: center; flex: 0 0 auto; border-radius: var(--radius); color: var(--action); background: var(--action-soft); }
 
@@ -40,15 +40,15 @@
 
 .sensor-analytics-heading > div:first-child { min-width: min(100%, 340px); flex: 1 1 360px; }
 
-.sensor-analytics-heading h2 { margin: 5px 0 4px; font-family: "Manrope", sans-serif; font-size: 20px; line-height: 1.25; }
+.sensor-analytics-heading h2 { margin: 5px 0 4px; font-family: var(--font-sans); font-size: var(--text-xl); line-height: 1.25; }
 
-.sensor-analytics-heading p { max-width: 68ch; margin: 0; color: var(--muted); font-size: 14px; line-height: 1.55; }
+.sensor-analytics-heading p { max-width: 68ch; margin: 0; color: var(--muted); font-size: var(--text-sm); line-height: 1.55; }
 
 .sensor-analytics-controls { min-width: min(100%, 820px); display: grid; flex: 1.6 1 860px; grid-template-columns: minmax(230px, 1.05fr) minmax(190px, .8fr) minmax(520px, 2fr); align-items: end; gap: 12px; }
 
 .sensor-analytics-controls .field { min-width: 0; gap: 8px; margin: 0; }
 
-.sensor-analytics-controls .field > span { color: var(--muted); font-size: 14px; font-weight: 700; line-height: 1.4; }
+.sensor-analytics-controls .field > span { color: var(--muted); font-size: var(--text-sm); font-weight: 700; line-height: 1.4; }
 
 .sensor-analytics-controls select { min-height: 52px; font-weight: 600; }
 
@@ -60,7 +60,7 @@
 
 .sensor-series-picker { position: relative; min-width: 0; }
 
-.sensor-series-picker > summary { min-height: 52px; display: flex; align-items: center; justify-content: space-between; gap: 9px; padding: 0 14px; border: 1px solid var(--line-strong); border-radius: 6px; color: var(--ink); background: var(--panel); cursor: pointer; list-style: none; font-size: 14px; font-weight: 600; line-height: 1.3; }
+.sensor-series-picker > summary { min-height: 52px; display: flex; align-items: center; justify-content: space-between; gap: 9px; padding: 0 14px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); color: var(--ink); background: var(--panel); cursor: pointer; list-style: none; font-size: var(--text-sm); font-weight: 600; line-height: 1.3; }
 
 .sensor-series-picker > summary::-webkit-details-marker { display: none; }
 
@@ -76,7 +76,7 @@
 
 .sensor-series-picker-actions { position: sticky; top: 0; z-index: 1; display: flex; justify-content: space-between; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--line); background: var(--panel); }
 
-.sensor-series-picker-actions button { min-height: 27px; padding: 0 7px; border: 0; color: var(--action); background: transparent; font-size: 10.5px; font-weight: 700; }
+.sensor-series-picker-actions button { min-height: 27px; padding: 0 7px; border: 0; color: var(--action); background: transparent; font-size: var(--text-xs); font-weight: 700; }
 
 .sensor-series-picker-actions button:disabled { color: var(--muted-2); cursor: default; }
 
@@ -84,9 +84,9 @@
 
 .sensor-series-picker-menu fieldset:first-of-type { border-top: 0; }
 
-.sensor-series-picker-menu legend { padding: 2px 0 4px; color: var(--muted-2); font-size: 10px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
+.sensor-series-picker-menu legend { padding: 2px 0 4px; color: var(--muted-2); font-size: var(--text-xs); font-weight: 700; }
 
-.sensor-series-picker-menu label { min-height: 31px; display: flex; align-items: center; gap: 8px; padding: 3px 5px; border-radius: 6px; color: var(--ink); cursor: pointer; font-size: 11px; }
+.sensor-series-picker-menu label { min-height: 31px; display: flex; align-items: center; gap: 8px; padding: 3px 5px; border-radius: var(--radius-sm); color: var(--ink); cursor: pointer; font-size: var(--text-xs); }
 
 .sensor-series-picker-menu label:hover { background: var(--panel-soft); }
 
@@ -100,11 +100,11 @@
 
 .sensor-analytics-stats > div:first-child { border-left: 0; }
 
-.sensor-analytics-stats span { min-width: 0; display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 10px; }
+.sensor-analytics-stats span { min-width: 0; display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: var(--text-xs); }
 
-.sensor-analytics-stats strong { grid-row: 1 / span 2; grid-column: 2; align-self: center; font-family: "Manrope", sans-serif; font-size: 16px; }
+.sensor-analytics-stats strong { grid-row: 1 / span 2; grid-column: 2; align-self: center; font-family: var(--font-sans); font-size: var(--text-md); }
 
-.sensor-analytics-stats small { color: var(--muted-2); font-size: 10px; }
+.sensor-analytics-stats small { color: var(--muted-2); font-size: var(--text-xs); }
 
 .sensor-analytics-gap-status { display: flex; align-items: flex-start; gap: 9px; padding: 10px 18px; border-bottom: 1px solid var(--line); background: var(--yellow-soft); }
 
@@ -112,15 +112,15 @@
 
 .sensor-analytics-gap-status > span { min-width: 0; display: grid; flex: 1 1 auto; gap: 2px; }
 
-.sensor-analytics-gap-status strong { color: var(--ink); font-size: 11px; }
+.sensor-analytics-gap-status strong { color: var(--ink); font-size: var(--text-xs); }
 
-.sensor-analytics-gap-status small { color: var(--yellow); font-size: 10px; line-height: 1.4; }
+.sensor-analytics-gap-status small { color: var(--yellow); font-size: var(--text-xs); line-height: 1.4; }
 
 .sensor-analytics-gap-status > .icon-button { flex: 0 0 auto; width: 30px; height: 30px; margin: -4px -8px -4px auto; color: var(--yellow); }
 
 .sensor-analytics-gap-status > .icon-button:hover { background: color-mix(in srgb, var(--yellow) 12%, transparent); }
 
-.sensor-analytics-legend { display: flex; flex-wrap: wrap; gap: 7px 13px; padding: 10px 18px 2px; color: var(--muted); font-size: 10px; }
+.sensor-analytics-legend { display: flex; flex-wrap: wrap; gap: 7px 13px; padding: 10px 18px 2px; color: var(--muted); font-size: var(--text-xs); }
 
 .sensor-analytics-legend span { display: inline-flex; align-items: center; gap: 5px; }
 
@@ -182,7 +182,7 @@
 
 .sensor-analytics-end-label circle { fill: var(--panel); stroke: var(--ink); stroke-width: 2; vector-effect: non-scaling-stroke; }
 
-.sensor-analytics-end-label text { fill: var(--ink); font-family: "DM Sans", sans-serif; font-size: 10px; font-weight: 700; paint-order: stroke; stroke: var(--panel); stroke-width: 4px; stroke-linejoin: round; }
+.sensor-analytics-end-label text { fill: var(--ink); font-family: var(--font-sans); font-size: var(--text-xs); font-weight: 700; paint-order: stroke; stroke: var(--panel); stroke-width: 4px; stroke-linejoin: round; }
 
 .sensor-analytics-hover { pointer-events: none; }
 
@@ -192,13 +192,13 @@
 
 .sensor-analytics-tooltip > rect { fill: var(--panel); stroke: var(--line-strong); stroke-width: 1; vector-effect: non-scaling-stroke; }
 
-.sensor-analytics-tooltip text { fill: var(--ink); font-family: "DM Sans", sans-serif; }
+.sensor-analytics-tooltip text { fill: var(--ink); font-family: var(--font-sans); }
 
-.sensor-analytics-tooltip-time { font-size: 10px; }
+.sensor-analytics-tooltip-time { font-size: var(--text-xs); }
 
-.sensor-analytics-tooltip-label { font-size: 10px; font-weight: 650; }
+.sensor-analytics-tooltip-label { font-size: var(--text-xs); font-weight: 650; }
 
-.sensor-analytics-tooltip-value { font-size: 13px; font-weight: 700; }
+.sensor-analytics-tooltip-value { font-size: var(--text-sm); font-weight: 700; }
 
 .sensor-analytics-hover-dot.series-0 { stroke: var(--blue); }
 .sensor-analytics-hover-dot.series-1 { stroke: var(--orange); }
@@ -229,9 +229,9 @@
 
 .calendar-comparison > summary > span > span { min-width: 0; display: grid; gap: 2px; }
 
-.calendar-comparison > summary strong { font-family: "Manrope", sans-serif; font-size: 12px; }
+.calendar-comparison > summary strong { font-family: var(--font-sans); font-size: var(--text-xs); }
 
-.calendar-comparison > summary small { color: var(--muted); font-size: 10px; line-height: 1.4; }
+.calendar-comparison > summary small { color: var(--muted); font-size: var(--text-xs); line-height: 1.4; }
 
 .calendar-comparison[open] > summary { border-bottom: 1px solid var(--line); background: var(--panel-soft); }
 
@@ -245,35 +245,35 @@
 
 .calendar-comparison-refresh { min-height: 40px; justify-content: center; }
 
-.calendar-comparison-status { display: block; padding: 12px 18px; border-top: 1px solid var(--line); color: var(--muted); font-size: 10.5px; }
+.calendar-comparison-status { display: block; padding: 12px 18px; border-top: 1px solid var(--line); color: var(--muted); font-size: var(--text-xs); }
 
-.calendar-comparison-warning { margin: 0; padding: 10px 18px; border-top: 1px solid var(--line); color: var(--yellow); background: var(--yellow-soft); font-size: 10.5px; }
+.calendar-comparison-warning { margin: 0; padding: 10px 18px; border-top: 1px solid var(--line); color: var(--yellow); background: var(--yellow-soft); font-size: var(--text-xs); }
 
 .calendar-comparison .empty-state, .calendar-comparison .inline-error { margin: 0; border-top: 1px solid var(--line); border-radius: 0; }
 
 .calendar-comparison-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; border-block: 1px solid var(--line); background: var(--line); }
 
-.calendar-comparison-summary > span { min-width: 0; display: grid; gap: 2px; padding: 11px 18px; color: var(--muted); background: var(--panel); font-size: 10px; }
+.calendar-comparison-summary > span { min-width: 0; display: grid; gap: 2px; padding: 11px 18px; color: var(--muted); background: var(--panel); font-size: var(--text-xs); }
 
-.calendar-comparison-summary strong { overflow: hidden; color: var(--ink); font-family: "Manrope", sans-serif; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
+.calendar-comparison-summary strong { overflow: hidden; color: var(--ink); font-family: var(--font-sans); font-size: var(--text-sm); text-overflow: ellipsis; white-space: nowrap; }
 
 .calendar-comparison-period-summaries { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 1px; border-block: 1px solid var(--line); background: var(--line); }
 
 .calendar-comparison-period-summaries article { position: relative; min-width: 0; display: grid; gap: 3px; padding: 12px 18px; background: var(--panel); }
 
-.calendar-comparison-period-summaries article > span { overflow: hidden; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.calendar-comparison-period-summaries article > span { overflow: hidden; color: var(--muted); font-size: var(--text-xs); text-overflow: ellipsis; white-space: nowrap; }
 
-.calendar-comparison-period-summaries article > strong { color: var(--ink); font-family: "Manrope", sans-serif; font-size: 17px; }
+.calendar-comparison-period-summaries article > strong { color: var(--ink); font-family: var(--font-sans); font-size: var(--text-lg); }
 
-.calendar-comparison-period-summaries article > small { color: var(--muted); font-size: 10px; line-height: 1.4; }
+.calendar-comparison-period-summaries article > small { color: var(--muted); font-size: var(--text-xs); line-height: 1.4; }
 
-.calendar-comparison-period-summaries article > em { position: absolute; top: 10px; right: 12px; padding: 2px 6px; border: 1px solid var(--line-strong); border-radius: 999px; color: var(--muted); background: var(--panel-soft); font-size: 10px; font-style: normal; font-weight: 700; }
+.calendar-comparison-period-summaries article > em { position: absolute; top: 10px; right: 12px; padding: 2px 6px; border: 1px solid var(--line-strong); border-radius: var(--radius-pill); color: var(--muted); background: var(--panel-soft); font-size: var(--text-xs); font-style: normal; font-weight: 700; }
 
 .calendar-comparison-period-summaries .calendar-comparison-delta { border-left: 3px solid var(--action); }
 
-.calendar-comparison-cohort { margin: 0; padding: 8px 18px 0; color: var(--muted); font-size: 10px; line-height: 1.45; }
+.calendar-comparison-cohort { margin: 0; padding: 8px 18px 0; color: var(--muted); font-size: var(--text-xs); line-height: 1.45; }
 
-.calendar-comparison-legend { display: flex; flex-wrap: wrap; gap: 7px 13px; padding: 10px 18px 3px; color: var(--muted); font-size: 10px; }
+.calendar-comparison-legend { display: flex; flex-wrap: wrap; gap: 7px 13px; padding: 10px 18px 3px; color: var(--muted); font-size: var(--text-xs); }
 
 .calendar-comparison-legend span { display: inline-flex; align-items: center; gap: 5px; }
 
@@ -343,25 +343,25 @@
 
 .calendar-comparison-series.combined { stroke: var(--ink); stroke-width: 2.8; }
 
-.calendar-comparison-unit { fill: var(--muted); font-family: "DM Sans", sans-serif; font-size: 10px; font-weight: 700; }
+.calendar-comparison-unit { fill: var(--muted); font-family: var(--font-sans); font-size: var(--text-xs); font-weight: 700; }
 
-.calendar-comparison-table-details > summary { min-height: 42px; display: flex; align-items: center; padding: 0 18px; border-top: 1px solid var(--line); color: var(--action); cursor: pointer; font-size: 10.5px; font-weight: 700; }
+.calendar-comparison-table-details > summary { min-height: 42px; display: flex; align-items: center; padding: 0 18px; border-top: 1px solid var(--line); color: var(--action); cursor: pointer; font-size: var(--text-xs); font-weight: 700; }
 
 .calendar-comparison-table-wrap { max-height: 420px; overflow: auto; }
 
 .calendar-comparison-table-wrap:focus-visible { outline: 3px solid var(--action); outline-offset: 3px; }
 
-.calendar-comparison-table-wrap table { width: 100%; border-collapse: collapse; font-size: 10.5px; }
+.calendar-comparison-table-wrap table { width: 100%; border-collapse: collapse; font-size: var(--text-xs); }
 
 .calendar-comparison-table-wrap th, .calendar-comparison-table-wrap td { padding: 9px 14px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; }
 
-.calendar-comparison-table-wrap thead th { position: sticky; top: 0; z-index: 1; color: var(--muted); background: var(--panel); font-size: 10px; letter-spacing: .04em; text-transform: uppercase; }
+.calendar-comparison-table-wrap thead th { position: sticky; top: 0; z-index: 1; color: var(--muted); background: var(--panel); font-size: var(--text-xs); }
 
 .calendar-comparison-table-wrap tbody th { font-weight: 700; }
 
 .calendar-comparison-table-wrap td strong, .calendar-comparison-table-wrap td small { display: block; }
 
-.calendar-comparison-table-wrap td small { margin-top: 2px; color: var(--muted); font-size: 10px; }
+.calendar-comparison-table-wrap td small { margin-top: 2px; color: var(--muted); font-size: var(--text-xs); }
 
 .daily-findings { min-width: 0; margin-bottom: 16px; overflow: hidden; }
 
@@ -371,11 +371,11 @@
 
 .daily-findings-header p { max-width: 76ch; margin: 4px 0 0; color: var(--muted); }
 
-.daily-findings-meta { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 7px 16px; padding: 9px 18px; border-top: 1px solid var(--line); color: var(--muted); background: var(--panel-soft); font-size: 10px; font-weight: 700; }
+.daily-findings-meta { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 7px 16px; padding: 9px 18px; border-top: 1px solid var(--line); color: var(--muted); background: var(--panel-soft); font-size: var(--text-xs); font-weight: 700; }
 
 .daily-findings-state { min-height: 78px; display: flex; flex-direction: column; justify-content: center; gap: 3px; padding: 16px 18px; border-top: 1px solid var(--line); color: var(--muted); }
 
-.daily-findings-state strong { color: var(--ink); font-size: 12px; }
+.daily-findings-state strong { color: var(--ink); font-size: var(--text-xs); }
 
 .daily-findings-state .spinner { width: 15px; height: 15px; margin-bottom: 4px; border: 2px solid var(--line); border-top-color: var(--action); border-radius: 50%; animation: spin .8s linear infinite; }
 
@@ -389,7 +389,7 @@
 
 .daily-findings-error .secondary-button { min-height: 40px; }
 
-.daily-findings .inline-warning { display: block; padding: 10px 18px; border-top: 1px solid var(--line); color: var(--yellow); background: var(--yellow-soft); font-size: 10.5px; line-height: 1.45; }
+.daily-findings .inline-warning { display: block; padding: 10px 18px; border-top: 1px solid var(--line); color: var(--yellow); background: var(--yellow-soft); font-size: var(--text-xs); line-height: 1.45; }
 
 .daily-findings .inline-warning span { color: inherit; }
 
@@ -409,11 +409,11 @@
 
 .daily-finding-card > header > div { min-width: 0; display: grid; gap: 1px; }
 
-.daily-finding-card > header h3 { margin: 0; overflow-wrap: anywhere; font-family: "Manrope", sans-serif; font-size: 12px; line-height: 1.35; }
+.daily-finding-card > header h3 { margin: 0; overflow-wrap: anywhere; font-family: var(--font-sans); font-size: var(--text-xs); line-height: 1.35; }
 
-.daily-finding-card > header small { color: var(--muted); font-size: 10px; line-height: 1.4; }
+.daily-finding-card > header small { color: var(--muted); font-size: var(--text-xs); line-height: 1.4; }
 
-.daily-finding-card .status-badge { font-size: 10px; }
+.daily-finding-card .status-badge { font-size: var(--text-xs); }
 
 .daily-finding-icon { width: 32px; height: 32px; display: grid; place-items: center; flex: 0 0 auto; border-radius: var(--radius); color: var(--action); background: var(--action-soft); }
 
@@ -423,16 +423,16 @@
 
 .daily-finding-icon.opening { color: var(--positive); background: var(--positive-soft); }
 
-.daily-finding-card > p { max-width: 70ch; margin: 0; padding: 3px 18px 14px 59px; color: var(--ink); font-size: 12px; line-height: 1.55; }
+.daily-finding-card > p { max-width: 70ch; margin: 0; padding: 3px 18px 14px 59px; color: var(--ink); font-size: var(--text-xs); line-height: 1.55; }
 
 .daily-finding-card > details { border-top: 1px solid var(--line); }
 
-.daily-finding-card > details > summary { min-height: 42px; display: flex; align-items: center; padding: 0 18px; color: var(--action); background: var(--panel-soft); cursor: pointer; font-size: 10.5px; font-weight: 700; }
+.daily-finding-card > details > summary { min-height: 42px; display: flex; align-items: center; padding: 0 18px; color: var(--action); background: var(--panel-soft); cursor: pointer; font-size: var(--text-xs); font-weight: 700; }
 
 .daily-finding-card .table-scroll { max-height: 220px; margin: 0; overflow: auto; }
 
-.daily-finding-card table { width: 100%; border-collapse: collapse; font-size: 10px; }
+.daily-finding-card table { width: 100%; border-collapse: collapse; font-size: var(--text-xs); }
 
 .daily-finding-card th, .daily-finding-card td { padding: 7px 9px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; }
 
-.daily-finding-card thead th { color: var(--muted); font-size: 10px; letter-spacing: .035em; text-transform: uppercase; }
+.daily-finding-card thead th { color: var(--muted); font-size: var(--text-xs); }

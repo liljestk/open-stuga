@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Gauge, Home, Layers3, RefreshCw, ShieldCheck, Thermometer, TriangleAlert } from "lucide-react";
+import { Gauge, Home, Layers3, ShieldCheck, Thermometer, TriangleAlert } from "lucide-react";
 import type {
   House,
   ThermalIsolationEntry,
@@ -10,6 +10,7 @@ import type {
 import { useI18n, type TranslationKey } from "../../i18n";
 import { useThermalIsolation } from "../../data/analytics/useThermalIsolation";
 import { DerivedArtifactNotices } from "../../components/DerivedArtifactNotices";
+import { RefreshButton } from "../../components/RefreshButton";
 
 interface ThermalIsolationPanelProps {
   house: House;
@@ -138,7 +139,7 @@ export function ThermalIsolationPanel({ house, units, dataMode, embedded = false
   const { locale, t } = useI18n();
   const [windowHours, setWindowHours] = useState<number>(7 * 24);
   const activeDataMode = dataMode === "real" ? "live" as const : "demo" as const;
-  const { result, status, loading, error, errorCode, errorStatus, errorDetail, run } = useThermalIsolation(house.id, activeDataMode);
+  const { result, status, loading, recalculating, error, errorCode, errorStatus, errorDetail, run } = useThermalIsolation(house.id, activeDataMode);
   const errorMessage = errorCopy(errorCode, errorStatus);
 
   const load = useCallback(() => {
@@ -169,7 +170,7 @@ export function ThermalIsolationPanel({ house, units, dataMode, embedded = false
         <label className="field"><span>{t("isolation.window")}</span><select value={windowHours} onChange={(event) => setWindowHours(Number(event.target.value))}>
           {WINDOW_OPTIONS.map((hours) => <option key={hours} value={hours}>{hours === 24 ? t("isolation.window24h") : t("isolation.windowDays", { count: hours / 24 })}</option>)}
         </select></label>
-        {canRefresh && <button type="button" className="secondary-button" onClick={refresh} disabled={loading || dataMode === "unknown"}><RefreshCw className={loading ? "spin" : ""} size={14} aria-hidden="true" />{t("common.refresh")}</button>}
+        {canRefresh && <RefreshButton onClick={refresh} busy={recalculating} disabled={loading || dataMode === "unknown"} label={t("derived.recalculate")} busyLabel={t("derived.recalculating")} />}
       </div>
     </div> : <header className="panel-header isolation-panel-header">
       <div><span className="eyebrow"><ShieldCheck size={13} aria-hidden="true" />{t("isolation.eyebrow")}</span><h2 id="thermal-isolation-title">{t("isolation.title")}</h2><p>{t("isolation.description")}</p></div>
@@ -177,7 +178,7 @@ export function ThermalIsolationPanel({ house, units, dataMode, embedded = false
         <label className="field"><span>{t("isolation.window")}</span><select value={windowHours} onChange={(event) => setWindowHours(Number(event.target.value))}>
           {WINDOW_OPTIONS.map((hours) => <option key={hours} value={hours}>{hours === 24 ? t("isolation.window24h") : t("isolation.windowDays", { count: hours / 24 })}</option>)}
         </select></label>
-        {canRefresh && <button type="button" className="secondary-button" onClick={refresh} disabled={loading || dataMode === "unknown"}><RefreshCw className={loading ? "spin" : ""} size={14} aria-hidden="true" />{t("common.refresh")}</button>}
+        {canRefresh && <RefreshButton onClick={refresh} busy={recalculating} disabled={loading || dataMode === "unknown"} label={t("derived.recalculate")} busyLabel={t("derived.recalculating")} />}
       </div>
     </header>}
 

@@ -4,8 +4,6 @@
   color: var(--muted);
   background: var(--panel-soft);
   text-align: left;
-  text-transform: uppercase;
-  letter-spacing: .06em;
 }
 
 
@@ -130,7 +128,7 @@
 
 .outdoor-advanced-grid > div {
   padding: 10px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: var(--panel-soft);
 }
 
@@ -138,7 +136,7 @@
 .outdoor-advanced-grid dt,
 .outdoor-source-details dt {
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--text-xs);
 }
 
 
@@ -182,7 +180,7 @@
 
 .outdoor-weather-state h2 {
   color: var(--ink);
-  font-family: "Manrope", sans-serif;
+  font-family: var(--font-sans);
 }
 
 
@@ -194,6 +192,12 @@
 
 .outdoor-weather-state.error {
   color: var(--red);
+}
+
+
+.outdoor-weather-state .outdoor-weather-attempt {
+  color: var(--muted);
+  font-size: var(--text-sm);
 }
 
 
@@ -293,14 +297,12 @@
     text-align: left;
   }
 
-  .outdoor-forecast-tabs {
+  .tabs.outdoor-forecast-tabs {
     display: flex;
-    overflow-x: auto;
-    padding: 2px 2px 7px;
     scroll-snap-type: x proximity;
   }
 
-  .outdoor-forecast-tabs button {
+  .tabs.outdoor-forecast-tabs > .tab {
     min-width: 138px;
     flex: 1 0 auto;
     scroll-snap-align: start;
@@ -321,19 +323,19 @@
     gap: 8px 12px;
     padding: 13px;
     border: 1px solid var(--line);
-    border-radius: 7px;
+    border-radius: var(--radius-sm);
     background: var(--panel-soft);
   }
 
   .outdoor-forecast-cards time {
     color: var(--muted);
-    font-size: 11px;
+    font-size: var(--text-xs);
     line-height: 1.4;
   }
 
   .outdoor-forecast-cards > li > strong {
     color: var(--ink);
-    font-size: 18px;
+    font-size: var(--text-lg);
   }
 
   .outdoor-forecast-cards dl {
@@ -354,12 +356,12 @@
 
   .outdoor-forecast-cards dt {
     color: var(--muted);
-    font-size: 10px;
+    font-size: var(--text-xs);
   }
 
   .outdoor-forecast-cards dd {
     margin: 0;
-    font-size: 11px;
+    font-size: var(--text-xs);
     font-weight: 700;
   }
 
@@ -431,9 +433,5 @@
   .outdoor-freshness-details-body,
   .outdoor-weather-state {
     box-shadow: none;
-  }
-
-  .outdoor-forecast-tabs button[aria-selected="true"] {
-    border: 3px solid Highlight;
   }
 }

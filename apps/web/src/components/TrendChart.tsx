@@ -7,6 +7,7 @@ import { useI18n } from "../i18n";
 import { formatInTimeZone } from "../dateTime";
 import { useNow } from "../useNow";
 import type { SeriesLoadState } from "../useClimateData";
+import { CardHeader } from "./CardHeader";
 
 interface TrendChartProps {
   sensor: Sensor | null;
@@ -17,7 +18,7 @@ interface TrendChartProps {
   range: TimeRange;
   onRange: (range: TimeRange) => void;
   timeZone?: string;
-  loadState?: SeriesLoadState;
+  loadState?: SeriesLoadState | undefined;
   heading?: string | undefined;
 }
 
@@ -104,7 +105,7 @@ export function TrendChart({ sensor, history, forecast, definition, units, range
 
   const all = [...series.observed, ...series.predicted];
   if (!sensor) {
-    return <section className="panel chart-panel"><div className="panel-header"><div><span className="eyebrow">{t("chart.title")}</span><h2>{t("twin.selectSensor")}</h2></div></div><div className="empty-state">{t("common.noData")}</div></section>;
+    return <section className="panel chart-panel"><CardHeader title={t("twin.selectSensor")} eyebrow={t("chart.title")} /><div className="empty-state">{t("common.noData")}</div></section>;
   }
   if (!all.length) {
     return <section className="panel chart-panel"><ChartHeader sensor={sensor} heading={heading} range={range} onRange={onRange} />
@@ -155,8 +156,7 @@ export function TrendChart({ sensor, history, forecast, definition, units, range
   const dataRows = dataOpen ? [...all].sort((left, right) => left.timestamp - right.timestamp) : [];
   const observedStart = series.observed.length ? (minimum(series.observed.map((point) => point.timestamp)) ?? Number.POSITIVE_INFINITY) : null;
   const coverageStart = loadState?.loadedFrom ? Date.parse(loadState.loadedFrom) : observedStart;
-  const coverageIsPartial = loadState?.partial === true
-    || (coverageStart !== null && Number.isFinite(coverageStart) && coverageStart > requestedStart + rangeHours * 36_000);
+  const coverageIsPartial = isCoveragePartial(loadState, coverageStart, requestedStart + rangeHours * 36_000);
 
   return (
     <section className="panel chart-panel">
@@ -217,6 +217,20 @@ export function TrendChart({ sensor, history, forecast, definition, units, range
       {!definition.forecastSupported && <p className="chart-capability-note">{t("chart.forecastUnsupported", { metric: metricLabel })}</p>}
     </section>
   );
+}
+
+/**
+ * Whether the drawn history starts noticeably after the requested window.
+ * While the range is still loading the chart only holds what it already had,
+ * so its first sample says nothing about where the stored history begins.
+ * The load state's `partial` flag is not used: it is set as soon as the first
+ * sample lands one bucket after the window start, which every sensor reporting
+ * less often than once a minute does.
+ */
+function isCoveragePartial(loadState: SeriesLoadState | undefined, coverageStart: number | null, partialAfter: number): boolean {
+  if (loadState?.status === "loading") return false;
+  if (loadState?.truncated === true) return true;
+  return coverageStart !== null && Number.isFinite(coverageStart) && coverageStart > partialAfter;
 }
 
 function ChartHeader({ sensor, heading, range, onRange }: { sensor: Sensor; heading?: string | undefined; range: TimeRange; onRange: (range: TimeRange) => void }) {

@@ -456,6 +456,7 @@ export const fiSupplementPart3 = {
   "properties.inventoryAreaFilter": "Alue",
   "properties.inventoryAllAreas": "Kaikki alueet",
   "properties.inventoryShowing": "{count} kohdetta näytetään",
+  "properties.inventoryShowingOne": "{count} kohde näytetään",
   "properties.inventoryEmpty": "Omaisuusluettelo on tyhjä",
   "properties.inventoryEmptyHelp": "Kirjaa laite kerran, jotta huolto ja mahdollinen paikannus käyttävät samaa kohdetta.",
   "properties.inventoryNoMatches": "Suodattimilla ei löytynyt kohteita",

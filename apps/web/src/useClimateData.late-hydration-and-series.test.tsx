@@ -506,4 +506,41 @@ describe("useClimateData", () => {
 
     expect(result.current.state.measurementHistory[sensor.id]?.temperature).toEqual([staleSample, liveSample]);
   });
+
+  it("commits the history before a slow forecast settles", async () => {
+    const demo = createDemoState();
+    const sensor = demo.sensors[0]!;
+    const historySample: MeasurementSample = {
+      ...demo.latestMeasurements[sensor.id]!.temperature!,
+      timestamp: new Date(Date.now() - 60 * 60_000).toISOString(),
+      value: 19.4,
+    };
+    const forecastPoint: MeasurementForecastPoint = {
+      sensorId: sensor.id,
+      metric: "temperature",
+      timestamp: new Date(Date.now() + 60 * 60_000).toISOString(),
+      value: 19.8,
+      low: 19.1,
+      high: 20.5,
+    };
+    const forecastRequest = deferred<MeasurementForecastPoint[]>();
+    const { result } = renderHook(() => useClimateData());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    mocks.measurementHistoryPage.mockResolvedValueOnce({
+      samples: [historySample], from: historySample.timestamp, to: historySample.timestamp, bucketSeconds: 60, truncated: false,
+    });
+    mocks.measurementForecast.mockReturnValueOnce(forecastRequest.promise);
+
+    let seriesLoad!: Promise<void>;
+    act(() => { seriesLoad = result.current.loadSeries(sensor.id, "temperature", "24h"); });
+    await waitFor(() => expect(result.current.state.measurementHistory[sensor.id]?.temperature).toContainEqual(historySample));
+    expect(result.current.seriesStates[seriesStateKey(sensor.id, "temperature")]?.status).toBe("ready");
+    expect(result.current.state.measurementForecasts[sensor.id]?.temperature).not.toEqual([forecastPoint]);
+
+    await act(async () => {
+      forecastRequest.resolve([forecastPoint]);
+      await seriesLoad;
+    });
+    expect(result.current.state.measurementForecasts[sensor.id]?.temperature).toEqual([forecastPoint]);
+  });
 });

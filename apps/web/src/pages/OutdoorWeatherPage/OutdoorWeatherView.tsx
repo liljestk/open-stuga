@@ -31,6 +31,8 @@ import { useI18n } from "../../i18n";
 import { useHouseWeather } from "../../useHouseWeather";
 import "../OutdoorWeatherPage.css";
 import { OutdoorWeatherViewProps, WarningCoverageArea, WeatherIssueDetails, backfillLabelKeys, decimal, isFiniteNumber, outageComponentLabel, pressure, recoveryFromError, stationDistance, summarizeOutdoorForecast, translateCopy, unavailableLabel, visibility } from "./outdoorWeatherCopy";
+import { formatInTimeZone } from "../../dateTime";
+import { RefreshButton } from "../../components/RefreshButton";
 
 function forecastDisclosureRequested(): boolean {
   if (typeof window === "undefined") return false;
@@ -61,7 +63,8 @@ export function OutdoorWeatherView({
   const summary = useMemo(() => summarizeOutdoorForecast(horizonPoints), [horizonPoints]);
   const current = weather?.current ?? null;
   const refreshFailed = Boolean(error && weather);
-  const recovery = weather?.recovery ?? recoveryFromError(error);
+  const retryFeedback = useRetryFeedback({ loading, error, onRefresh, timeZone: house.timezone });
+  const recovery = weather?.recovery ?? recoveryFromError(retryFeedback.shownError);
   const warningStatus = weather?.componentStatus?.warnings;
   const warningsVerified = warningStatus
     ? warningStatus.availability === "available"
@@ -132,17 +135,18 @@ export function OutdoorWeatherView({
           <p>{copy.noLocationBody}</p>
           {onConfigureLocation && <button type="button" className="primary-button" onClick={onConfigureLocation}>{copy.configureLocation}</button>}
         </section>
-      ) : !weather && loading ? (
+      ) : !weather && loading && !retryFeedback.shownError ? (
         <section className="outdoor-weather-state" aria-live="polite" aria-busy="true">
           <LoaderCircle className="spin" size={28} aria-hidden="true" />
           <h2>{copy.updating}</h2>
         </section>
-      ) : !weather && error ? (
+      ) : !weather && retryFeedback.shownError ? (
         <section className="outdoor-weather-state error" role="alert">
           <TriangleAlert size={28} aria-hidden="true" />
           <h2>{copy.providerDataUnavailable}</h2>
           <p>{copy.providerDataUnavailableBody}</p>
-          <button type="button" onClick={() => void onRefresh()}><RefreshCw size={15} aria-hidden="true" />{copy.refresh}</button>
+          <RefreshButton className="" onClick={() => void retryFeedback.retry()} busy={loading} label={copy.refresh} busyLabel={copy.refreshing} />
+          {retryFeedback.attemptNote}
           <WeatherIssueDetails
             recovery={recovery}
             house={house}
@@ -321,4 +325,32 @@ export function OutdoorWeatherPage({
       {...(onConfigureLocation ? { onConfigureLocation } : {})}
     />
   );
+}
+
+/**
+ * Keeps the last failure on screen while the viewer retries. The weather hook
+ * clears its error as a retry starts, so the error card was swapped for
+ * "Updating" and back within a moment and the button seemed to do nothing.
+ */
+function useRetryFeedback({ loading, error, onRefresh, timeZone }: {
+  loading: boolean;
+  error: Error | null;
+  onRefresh: () => void | Promise<void>;
+  timeZone: string;
+}) {
+  const { locale, t } = useI18n();
+  const [settledError, setSettledError] = useState(error);
+  const [lastTriedAt, setLastTriedAt] = useState<number | null>(null);
+  useEffect(() => {
+    if (!loading) setSettledError(error);
+  }, [error, loading]);
+  const shownError = loading ? settledError : error;
+  const retry = async () => {
+    await onRefresh();
+    setLastTriedAt(Date.now());
+  };
+  const attemptNote = lastTriedAt !== null && !loading && shownError
+    ? <p className="outdoor-weather-attempt">{t("outdoor.lastTried", { time: formatInTimeZone(lastTriedAt, locale, timeZone, { timeStyle: "medium" }) })}</p>
+    : null;
+  return { shownError, retry, attemptNote };
 }

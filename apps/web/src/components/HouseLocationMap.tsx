@@ -317,7 +317,7 @@ export function HouseLocationMap({
       }
 
       const footprintStyle: L.PathOptions = {
-        color: selected ? "#0755c9" : "#174f43",
+        color: selected ? "#1f5f92" : "#174f43",
         fillColor: selected ? "#4f9d8a" : "#79aa9c",
         fillOpacity: selected ? 0.34 : 0.22,
         opacity: selected ? 1 : 0.82,

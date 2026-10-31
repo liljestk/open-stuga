@@ -12,14 +12,14 @@
 
 .property-energy-overview-heading h2 {
   margin: 0.35rem 0 0;
-  font-size: clamp(1.45rem, 2vw, 1.85rem);
+  font-size: clamp(var(--text-xl), 2vw, var(--text-2xl));
 }
 
 .property-energy-overview-heading p {
   max-width: 66ch;
   margin: 0;
   color: var(--muted);
-  font-size: 0.88rem;
+  font-size: var(--text-sm);
   line-height: 1.55;
 }
 
@@ -37,14 +37,14 @@
 
 .property-energy-homes > .panel-header h3 {
   margin-top: 0.35rem;
-  font-size: 1.05rem;
+  font-size: var(--text-md);
 }
 
 .property-energy-homes > .panel-header p {
   max-width: 52ch;
   margin: 0;
   color: var(--muted);
-  font-size: 0.8rem;
+  font-size: var(--text-xs);
   line-height: 1.45;
   text-align: right;
 }
@@ -82,7 +82,7 @@
   width: 2.25rem;
   height: 2.25rem;
   place-items: center;
-  border-radius: 0.4rem;
+  border-radius: var(--radius-sm);
   color: var(--action);
   background: var(--action-soft);
 }
@@ -96,25 +96,25 @@
 .property-energy-home h4 {
   margin: 0;
   overflow-wrap: anywhere;
-  font-family: "Manrope", sans-serif;
-  font-size: 0.92rem;
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
 }
 
 .property-energy-home-heading > div > span {
   color: var(--muted);
-  font-size: 0.72rem;
+  font-size: var(--text-xs);
 }
 
 .property-energy-home-heading > strong {
-  font-family: "Manrope", sans-serif;
-  font-size: 1rem;
+  font-family: var(--font-sans);
+  font-size: var(--text-md);
 }
 
 .property-energy-share {
   grid-column: 1;
   height: 0.35rem;
   overflow: hidden;
-  border-radius: 0.2rem;
+  border-radius: var(--radius-xs);
   background: var(--panel-soft);
 }
 
@@ -143,15 +143,15 @@
 
 .property-energy-home dt {
   color: var(--muted);
-  font-size: 0.7rem;
+  font-size: var(--text-xs);
   line-height: 1.35;
 }
 
 .property-energy-home dd {
   margin: 0;
   overflow-wrap: anywhere;
-  font-family: "Manrope", sans-serif;
-  font-size: 0.86rem;
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
   font-weight: 700;
 }
 
@@ -164,13 +164,13 @@
 
 .property-energy-empty h3 {
   margin: 0 0 0.25rem;
-  font-size: 1rem;
+  font-size: var(--text-md);
 }
 
 .property-energy-empty p {
   margin: 0;
   color: var(--muted);
-  font-size: 0.85rem;
+  font-size: var(--text-sm);
 }
 
 @media (max-width: 800px) {

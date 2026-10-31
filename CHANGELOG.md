@@ -2,11 +2,85 @@
 
 All notable Stugu releases are recorded here.
 
-## 0.56.4
+## 0.56.7
 
 - The Stugu plugin for ChatGPT and Codex shows the Kaamos mark (night tile, snow cottage, lantern window) and uses the night tile `#22303D` as its brand colour instead of the old terracotta. The plugin package version moves to 0.20.3 so installed copies pick up the new look.
 - The page Stugu shows after you approve Cloudflare remote access uses the Kaamos ink on snow (`#15212C` on `#EEF2F5`, 14.5:1 contrast) instead of the old ink on cream.
 - Upgrade impact: application-only update; one API-served page changes colour. No API contract, schema, Compose, configuration or host-trust change. Reinstall or refresh the `stugu-home` plugin in ChatGPT or Codex to see the new mark and colour.
+
+## 0.56.5
+
+The 3D view's outdoor readings are readable and name no weather service.
+
+- In the 3D view, the outdoor temperature no longer fades behind the roof. The house's walls and roof were drawn over the temperature reading above the house, so it looked half covered and hard to read. The outdoor readings are now drawn on top of the house.
+- The outdoor readings around the house no longer say "FMI" for every home. Homes that get their weather from Open-Meteo were labelled "FMI temperature". The labels now read "Outdoor shell", "Outdoor temperature" and "Outdoor humidity" in English, Finnish and Swedish. The "Outside now" card still names the weather source.
+- In dark mode, the "Outdoor shell" label is dark text on light blue. It used to be white on light blue, which was hard to read.
+- On phones and narrow windows, a hidden "Outside now" card sits above the 3D view instead of covering the outdoor readings.
+- Upgrade impact: application-only update; no API, schema, Compose, configuration or host-trust change.
+
+## 0.56.3
+
+The "Outside now" card fits its readings and keeps out of the plan's way.
+
+- On the 2D plan, a hidden "Outside now" card no longer covers the zoom-in button. Its summary now sits beside the zoom controls. On phones and in narrow windows, where the plan sits below the card, the summary sits above the plan instead of over its top edge, so it no longer hides the outdoor temperature either.
+- The card's readings are no longer cut off. Wind speed, gust and direction used to read "4.2 m…", "Gust …" and "SW · …" on a desktop screen. When three tiles don't fit on one row, the wind tile moves to its own row.
+- Upgrade impact: application-only update; no API, schema, Compose, configuration or host-trust change.
+
+## 0.56.1
+
+- The README and Getting started screenshots show the Kaamos look: the night-blue navigation, snow and night pages, the lantern on the current page, and Atkinson Hyperlegible Next. All twelve images (Home, the 2D plan, the 3D building, Data & analytics, Electricity and the phone Home page, each in light and dark) were captured again from the same synthetic sample home, at the same sizes and file names.
+- Upgrade impact: none. Only documentation changes; the API, web app, database, configuration, Compose and host trust are unchanged.
+
+## 0.54.0
+
+A new look: Kaamos, the polar night.
+
+- Stugu has a new visual identity:
+  - The navigation and the phone's header bar are night blue in both light and dark mode.
+  - Pages are snow-light or night-dark, with cool blue-grey neutrals.
+  - Buttons are rounded pills.
+  - One lantern amber marks the logo's window, the page you are on, and the page title, like a lit cottage window in the dark. It is never used for a status. Warning yellow is now a separate straw yellow, so the two can't be confused in dark mode.
+- All text uses Atkinson Hyperlegible Next, a typeface drawn for low-vision reading. It is bundled with Stugu, so no font is fetched from the internet. Its zero has a slash, so it can't be mistaken for the letter O.
+- Text is never smaller than 12 px. Sizes come from one scale of eight steps instead of 52 different sizes, of which 10 px was the most common.
+- Labels are written in sentence case instead of spaced capitals.
+- Corners, shadows and greys follow one set of values everywhere, including the floor plan and the 3D view in dark mode.
+- "Report a bug" in the navigation is readable again: its text had 2.8:1 contrast against the dark rail.
+- The logo, favicon and browser theme colour use the new mark, and spreadsheet exports use the new blue for their header row.
+- The tabs on Property, Set up, Activity and the Outdoor forecast now share one design and one keyboard behaviour. Arrow keys work in both directions, and Home and End jump to the first and last tab. On Set up, the tab row keeps a keyboard stop while an advanced section is open.
+- Upgrade impact: application-only update; no API, schema, Compose, configuration or host-trust change. The iOS companion keeps its previous colours for now.
+
+## 0.53.0
+
+Clearer messages and visible progress.
+
+- Data & analytics:
+  - Home performance, Thermal isolation and Moisture response each show one message for their saved analysis instead of up to three. A failed update said both "the update failed" and "newer evidence is prepared". It now says the update couldn't run, why, and that the saved result below is still shown.
+  - You can close these messages. A closed message comes back when its situation changes, for example a different failure or a new result.
+  - Their button is now "Recalculate". After you choose it, it reads "Recalculating…" until the background job finishes. The panel checks every 5 seconds instead of every 30, for up to two minutes.
+  - The "Daily comparisons are being updated" banner no longer runs its title and text together.
+- Refresh buttons say what they are doing:
+  - Data & analytics, Set up's check, Alerts, the calendar comparison, Sensors' device list and System's update check read "Refreshing…" or "Checking…" while they work.
+  - With reduced motion turned on, as Windows does when animation effects are off, every spinner stopped after one frame. Spinners now fade in and out instead of turning.
+- Outdoor: Refresh on the "weather unavailable" card keeps the card in place while it retries, then says when it last tried. Before, the card blinked to "Updating" and back, so the button seemed to do nothing.
+- Opening Stugu no longer flashes the "Add your first home" screen while the selected Home is still loading.
+- Upgrade impact: application-only update; no API, schema, Compose, configuration or host-trust change.
+
+## 0.52.18
+
+Fixes found in a review of every page and tab.
+
+- Charts show their full range as soon as the history arrives. They used to wait for the forecast as well, which is computed on request and can take tens of seconds. Until then a sensor's detail chart drew only its newest log page, about five hours of a 24-hour range, and said its history began there. The forecast is now added when it arrives, and the chart no longer reports where the history begins while the range is still loading.
+- The Sensors page now treats a reading as current for 15 minutes, the same window Home, Overview and the floor plan use (`VITE_SPATIAL_MAX_SAMPLE_AGE_MS` still overrides it). Before, a sensor reporting every 10–15 minutes kept switching between Live and Waiting, and Sensors could show none live while Home counted most of them. A sensor that has reported before but not recently now says "Not reporting" instead of "Waiting for data". The summary tile and the status filter call both kinds "No recent data".
+- Layout fixes:
+  - Set up → Sensor mapping and the property's Tariff and Bill check cards have inner padding.
+  - Property → Map layer names and the search and type filters no longer get cut off.
+  - On phones, "View data for …" buttons with long sensor names wrap instead of running past the card.
+- "1 item shown" and "1 home with a location" replace "1 items" and "1 homes".
+- On the floor plan:
+  - A room's name moves above a sensor marker that would cover it.
+  - The zoom control no longer covers the west compass label. On tablets and desktops it moves to the top-left corner.
+  - On tablets, the layer notes wrap above the temperature legend instead of covering it.
+- Upgrade impact: application-only update; no API, schema, Compose, configuration or host-trust change.
 
 ## 0.52.16
 
