@@ -285,9 +285,9 @@ services:
       SOURCE_MQTT_PASSWORD_FILE: /run/secrets/source-ingress/password
       CLOUDFLARE_SETUP_DEPLOYMENT_FILE: /run/secrets/cloudflare/deployment.json
       STUGA_CLOUDFLARE_OAUTH_CLIENT_ID: ${STUGA_CLOUDFLARE_OAUTH_CLIENT_ID:-}
-      # Public app IDs that let an owner connect Dropbox or Google Drive as the
-      # scheduled-export destination. Empty hides that option; see
-      # docs/cloud-export-destinations.md.
+      # Optional overrides for the public app IDs that let an owner connect
+      # Dropbox or Google Drive as the scheduled-export destination. Empty uses
+      # the apps built into the API; see docs/cloud-export-destinations.md.
       STUGU_DROPBOX_APP_KEY: ${STUGU_DROPBOX_APP_KEY:-}
       STUGU_GOOGLE_DRIVE_CLIENT_ID: ${STUGU_GOOGLE_DRIVE_CLIENT_ID:-}
       STUGU_GOOGLE_DRIVE_CLIENT_SECRET: ${STUGU_GOOGLE_DRIVE_CLIENT_SECRET:-}

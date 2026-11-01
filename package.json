@@ -1,6 +1,6 @@
 {
   "name": "climate-twin",
-  "version": "0.59.1",
+  "version": "0.60.0",
   "private": true,
   "license": "MIT",
   "description": "A local-first digital twin for extensible whole-home environmental telemetry.",

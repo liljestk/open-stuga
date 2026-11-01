@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApi, type ApiRuntime } from "../src/app.js";
 import { loadConfig } from "../src/config.js";
+import { PROJECT_CLOUD_EXPORT_APPS } from "../src/config/cloud-export-apps.js";
 import { ExportDestinationError, ExportDestinationService } from "../src/export-destinations/service.js";
 import { readIntegrationSecrets, updateIntegrationSecrets } from "../src/integration-secrets.js";
 import { setupOwner } from "./local-authTestSupport.js";
@@ -355,7 +356,7 @@ describe("export destinations", () => {
     const initial = await owner.agent.get("/api/v1/system/export-destinations").expect(200);
     expect(initial.headers["cache-control"]).toBe("no-store");
     expect(initial.body.accounts.map((account: { provider: string; available: boolean }) => [account.provider, account.available]))
-      .toEqual([["dropbox", true], ["google-drive", false]]);
+      .toEqual([["dropbox", true], ["google-drive", Boolean(PROJECT_CLOUD_EXPORT_APPS.googleDriveClientId)]]);
 
     const started = await owner.agent.post("/api/v1/system/export-destinations/dropbox/connect").set("x-csrf-token", owner.csrf).expect(200);
     providers.state.dropboxChallenge = new URL(started.body.connection.url).searchParams.get("code_challenge")!;
