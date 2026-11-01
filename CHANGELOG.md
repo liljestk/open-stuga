@@ -2,6 +2,16 @@
 
 All notable Stugu releases are recorded here.
 
+## 0.59.3
+
+Host updates can no longer stall because the update feed's trust metadata expired.
+
+- Since 30 September, appliances reported `TRUST_VERIFICATION_FAILED` and paused host updates. The feed's targets metadata had expired on 4 September, and nothing renewed it. The weekly online refresh then stopped too, so the timestamp lapsed. Application updates were never affected.
+- New `npm run host-tuf-renewal` on the operator machine that holds the feed's signing keys. `install` sets up a pinned copy, proves it with its end-to-end test and a read-only check of the live feed, and registers a daily Windows scheduled task that catches up missed runs. On Linux and macOS it prints a cron line instead. `status`, `check`, `run` and `uninstall` cover day-to-day operation.
+- Each run checks the published chain against root v1, including signatures and hash pins. Within 90 days of expiry it re-signs targets for a year with byte-identical target entries, and signs a matching snapshot and timestamp. If the online workflow is more than a week behind, it refreshes those two as well. Before pushing, it proves the result with python-tuf 5.1.0, the same client version and limits the appliance uses, then verifies the public feed the same way. It never adds or edits a target, never touches root, and keeps the keys on that machine.
+- The feed's daily freshness check now alerts per role, while there is still time to act: timestamp at 10 days, snapshot at 30, targets at 75, root at 180. It also closes its issue once the feed is healthy. These workflow changes are in `liljestk/stugu-releases`.
+- Upgrade impact: operator tooling and documentation only. Application images and the appliance are unchanged, apart from a refactor that moves the host updater's python-tuf client limits into one constant. The renewer is checked against that constant. To resume host updates, install the task on the key-holding machine (or run `npm run host-tuf-renewal -- run` there once). Then let the appliance run its next host-update check, or run `stuguctl host-update check --channel stable`. See "Keeping feed metadata fresh" in `docs/host-update-release.md`.
+
 ## 0.59.1
 
 - Mean, sum, minimum, maximum and last analytics on a TimescaleDB archive answer much faster. The raw readings at the edges of a range were read by scanning and decompressing the Sensor's whole stored history; they now read only the archive chunks that hold them. On a Raspberry Pi, a 30-day mean at 15 minutes for a power plug reporting every 2 seconds dropped from 1.6 s to 0.09 s, and 90- and 365-day hourly reads from about 2 s to 0.2 s. Results are unchanged.

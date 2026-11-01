@@ -346,7 +346,7 @@ update.
 | Evidence | Interpretation | Action |
 | --- | --- | --- |
 | Native `failed` + `UPDATE_NOT_FOUND`; doctor `UPDATER` pass | No eligible signed host target | App-only recovery may be evaluated against every prerequisite above |
-| `TRUST_VERIFICATION_FAILED` or `METADATA_FETCH_FAILED`; doctor feed-scoped warning | Host feed trust is unavailable, but application containers do not use TUF | Pause host updates; a current release may perform app-only OTA through the supported UI/API after ordinary app checks |
+| `TRUST_VERIFICATION_FAILED` or `METADATA_FETCH_FAILED`; doctor feed-scoped warning | Host feed trust is unavailable, but application containers do not use TUF | Pause host updates; a current release may perform app-only OTA through the supported UI/API after ordinary app checks. Renew the feed with `npm run host-tuf-renewal -- status` / `-- run` on the key-holding machine ([runbook](host-update-release.md#6-keeping-feed-metadata-fresh)) |
 | Host `staged`, activating, returned, recovery-needed, or nonterminal journal | Real host workflow or recovery state | Stop; use `docs/host-update-release.md` and preserve the native journal |
 | Agent missing, incompatible, not ready, or contract below 3 | App updater cannot safely consume the request | Stop; upgrade the supported agent or perform the documented factory transition |
 | App operation `failed` or `rolling-back` | Candidate did not commit cleanly | Let rollback settle, preserve state, and rerun the doctor; do not queue another request |
