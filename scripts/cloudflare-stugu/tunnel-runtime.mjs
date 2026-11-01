@@ -6,25 +6,56 @@ import { pathToFileURL } from "node:url";
 
 import { CloudflareApiError, MANAGED_COMMENT, UsageError } from "./configuration-client.mjs";
 
-export async function ensureTunnel(api, accountId, tunnelName, hostname) {
-  const query = new URLSearchParams({ name: tunnelName, is_deleted: "false", per_page: "100" });
-  const tunnels = await api(`/accounts/${accountId}/cfd_tunnel?${query}`);
-  const matches = Array.isArray(tunnels) ? tunnels.filter((tunnel) => tunnel?.name === tunnelName) : [];
-  if (matches.length > 1) throw new UsageError(`Multiple active tunnels are named ${tunnelName}`);
-  const tunnel = matches[0] ?? await api(`/accounts/${accountId}/cfd_tunnel`, {
+import { LEGACY_MANAGED_COMMENT, managedNames } from "./managed-names.mjs";
+
+async function readUnlessMissing(api, path) {
+  try {
+    return await api(path);
+  } catch (error) {
+    if (error instanceof CloudflareApiError && error.status === 404) return null;
+    throw error;
+  }
+}
+
+async function recordedTunnel(api, accountId, recordedId) {
+  if (!recordedId) return null;
+  const tunnel = await readUnlessMissing(api, `/accounts/${accountId}/cfd_tunnel/${recordedId}`);
+  return tunnel?.id === recordedId && !tunnel.deleted_at ? tunnel : null;
+}
+
+async function namedTunnel(api, accountId, tunnelName) {
+  for (const name of managedNames(tunnelName)) {
+    const query = new URLSearchParams({ name, is_deleted: "false", per_page: "100" });
+    const tunnels = await api(`/accounts/${accountId}/cfd_tunnel?${query}`);
+    const matches = Array.isArray(tunnels) ? tunnels.filter((tunnel) => tunnel?.name === name) : [];
+    if (matches.length > 1) throw new UsageError(`Multiple active tunnels are named ${name}`);
+    if (matches.length === 1) return matches[0];
+  }
+  return null;
+}
+
+/**
+ * The Tunnel an earlier run created: the one recorded in deployment.json, or an
+ * active one with the current or pre-rebrand name. It may serve only `hostname`.
+ */
+export async function inspectTunnel(api, accountId, { name, recordedId, hostname }) {
+  const tunnel = await recordedTunnel(api, accountId, recordedId) ?? await namedTunnel(api, accountId, name);
+  if (!tunnel) return null;
+  if (!tunnel.id) throw new CloudflareApiError("Cloudflare did not return a Tunnel ID", 500);
+  const current = await readUnlessMissing(api, `/accounts/${accountId}/cfd_tunnel/${tunnel.id}/configurations`);
+  const ingress = current?.config?.ingress;
+  if (Array.isArray(ingress) && ingress.some((entry) => entry?.hostname && entry.hostname !== hostname)) {
+    throw new UsageError(`Refusing to replace unrelated public hostnames on Tunnel ${tunnel.name ?? tunnel.id}`);
+  }
+  return tunnel;
+}
+
+export async function ensureTunnel(api, accountId, existing, { name, hostname }) {
+  const tunnel = existing ?? await api(`/accounts/${accountId}/cfd_tunnel`, {
     method: "POST",
-    body: JSON.stringify({ name: tunnelName, config_src: "cloudflare" }),
+    body: JSON.stringify({ name, config_src: "cloudflare" }),
   });
   if (!tunnel?.id) throw new CloudflareApiError("Cloudflare did not return a Tunnel ID", 500);
-  try {
-    const current = await api(`/accounts/${accountId}/cfd_tunnel/${tunnel.id}/configurations`);
-    const ingress = current?.config?.ingress;
-    if (Array.isArray(ingress) && ingress.some((entry) => entry?.hostname && entry.hostname !== hostname)) {
-      throw new UsageError(`Refusing to replace unrelated public hostnames on Tunnel ${tunnelName}`);
-    }
-  } catch (error) {
-    if (!(error instanceof CloudflareApiError) || error.status !== 404) throw error;
-  }
   await api(`/accounts/${accountId}/cfd_tunnel/${tunnel.id}/configurations`, {
     method: "PUT",
     body: JSON.stringify({
@@ -39,18 +70,34 @@ export async function ensureTunnel(api, accountId, tunnelName, hostname) {
   return tunnel;
 }
 
-export async function ensureDns(api, zoneId, hostname, tunnelId) {
+/**
+ * The CNAME for `hostname`, if any. Every record with that name must already
+ * point to the Tunnel, so when the Tunnel does not exist yet (`tunnelId` null)
+ * any record for the name is a conflict.
+ */
+export async function inspectDns(api, zoneId, hostname, tunnelId) {
   const query = new URLSearchParams({ name: hostname, per_page: "100" });
   const records = await api(`/zones/${zoneId}/dns_records?${query}`);
   const exact = Array.isArray(records) ? records.filter((record) => record?.name === hostname) : [];
-  const target = `${tunnelId}.cfargotunnel.com`;
+  const target = tunnelId ? `${tunnelId}.cfargotunnel.com` : null;
   if (exact.some((record) => record.type !== "CNAME" || String(record.content).toLowerCase() !== target)) {
     throw new UsageError(`A conflicting DNS record already exists for ${hostname}; it was not changed`);
   }
-  const existing = exact.find((record) => record.type === "CNAME");
-  const body = { type: "CNAME", name: hostname, content: target, proxied: true, ttl: 1, comment: MANAGED_COMMENT };
+  return exact.find((record) => record.type === "CNAME") ?? null;
+}
+
+export async function ensureDns(api, zoneId, existing, { hostname, tunnelId }) {
+  const comment = existing?.comment === LEGACY_MANAGED_COMMENT ? LEGACY_MANAGED_COMMENT : MANAGED_COMMENT;
+  const body = {
+    type: "CNAME",
+    name: hostname,
+    content: `${tunnelId}.cfargotunnel.com`,
+    proxied: true,
+    ttl: 1,
+    comment,
+  };
   if (!existing) return api(`/zones/${zoneId}/dns_records`, { method: "POST", body: JSON.stringify(body) });
-  if (existing.proxied !== true || existing.ttl !== 1 || existing.comment !== MANAGED_COMMENT) {
+  if (existing.proxied !== true || existing.ttl !== 1 || existing.comment !== comment) {
     return api(`/zones/${zoneId}/dns_records/${existing.id}`, { method: "PUT", body: JSON.stringify(body) });
   }
   return existing;

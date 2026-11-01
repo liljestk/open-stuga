@@ -199,6 +199,56 @@ describe("CloudflareSetupPanel", () => {
     expect(screen.queryByRole("button", { name: "Continue with Cloudflare" })).toBeNull();
   });
 
+  it("offers the form again after an earlier setup completed without reporting that completion", async () => {
+    const onComplete = vi.fn();
+    const status = setupStatus({ mode: "stuguby-coordinator", oauthClientConfigured: true });
+    status.operation = {
+      id: "5d0e8c1a-6f4b-4b7e-9a2d-3c1f0e9b8a76",
+      mode: "stuguby-coordinator",
+      hostname: "stugu.example.com",
+      phase: "complete",
+      requestedAt: "2026-07-25T08:00:00.000Z",
+      completedAt: "2026-07-25T08:04:00.000Z",
+      detail: "Secure connection verified at https://stugu.example.com",
+    };
+    vi.spyOn(api, "cloudflareSetupStatus").mockResolvedValue(status);
+
+    render(<I18nProvider><CloudflareSetupPanel suggestedOrigin="https://stugu.example.com" onComplete={onComplete} /></I18nProvider>);
+
+    expect(await screen.findByRole("button", { name: "Continue with Cloudflare" })).toBeTruthy();
+    expect(screen.getByText("Secure sharing is ready")).toBeTruthy();
+    expect(onComplete).not.toHaveBeenCalled();
+  });
+
+  it("reports a setup that completes while the panel is open", async () => {
+    const onComplete = vi.fn();
+    const running = setupStatus();
+    running.operation = {
+      id: "2fc58aab-24fb-4aa3-894a-2a0811497d76",
+      mode: "stuguby-coordinator",
+      hostname: "stugu.example.com",
+      phase: "verifying",
+      requestedAt: "2026-07-24T08:00:00.000Z",
+      completedAt: null,
+      detail: null,
+    };
+    const complete = setupStatus();
+    complete.operation = { ...running.operation, phase: "complete", completedAt: "2026-07-24T08:04:00.000Z" };
+    vi.spyOn(api, "cloudflareSetupStatus")
+      .mockResolvedValueOnce(running)
+      .mockResolvedValue(complete);
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      render(<I18nProvider><CloudflareSetupPanel suggestedOrigin="https://stugu.example.com" onComplete={onComplete} /></I18nProvider>);
+      expect(await screen.findByText("Checking public and protected paths")).toBeTruthy();
+      await vi.advanceTimersByTimeAsync(3_000);
+      await waitFor(() => expect(onComplete).toHaveBeenCalledOnce());
+      expect(screen.queryByRole("button", { name: "Continue with Cloudflare" })).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("has no automated accessibility violations in the credential form", async () => {
     vi.spyOn(api, "cloudflareSetupStatus").mockResolvedValue(setupStatus({
       configured: false,

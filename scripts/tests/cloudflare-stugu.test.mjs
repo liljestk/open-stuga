@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, parse as parsePath, resolve } from "node:path";
 import test from "node:test";
+import { ACCOUNT_ID, ZONE_ID, fakeCloudflare, preRebrandCoordinator } from "./cloudflare-stugu-test-support.mjs";
 import {
   assistantConnectorApplicationSpec,
   assistantConnectorPolicySpec,
@@ -201,6 +202,170 @@ test("provisioning refuses to retain a broad setup token as the runtime token", 
       }),
       /must be different/u,
     );
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+const provisionedHostname = "stugu.example.test";
+
+function provisionOptions(secretDirectory, { command = "provision-coordinator", ownerEmail = "owner@example.test" } = {}) {
+  return {
+    command,
+    hostname: provisionedHostname,
+    zone: "example.test",
+    ownerEmail,
+    accountId: ACCOUNT_ID,
+    zoneId: ZONE_ID,
+    secretDirectory,
+    provisionTokenFile: null,
+    accessTokenFile: null,
+  };
+}
+
+function provisionDependencies(cloudflare) {
+  return {
+    fetcher: cloudflare.fetcher,
+    provisionToken: "temporary-provisioning-token-longer-than-32-bytes",
+    accessToken: "runtime-access-group-token-longer-than-32-bytes",
+    logger: { log() {} },
+    printGuidance: false,
+  };
+}
+
+const writeLines = (requests) => requests.map(({ method, path }) => `${method} ${path}`);
+
+test("rerunning a pre-rebrand coordinator reuses its Stuga resources and adds only the assistant connector", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "stugu-cloudflare-rebrand-test-"));
+  const legacy = preRebrandCoordinator(provisionedHostname, "owner@example.test");
+  // A run before this fix created a fresh group and then stopped; it must stay untouched.
+  legacy.cloudflare.groups.push({
+    id: "group-stray",
+    name: `Stugu (${provisionedHostname}) members`,
+    include: [{ email: { email: "owner@example.test" } }],
+    exclude: [],
+    require: [],
+  });
+  const cloudflare = fakeCloudflare(legacy.cloudflare);
+  const tunnelConfiguration = `PUT /accounts/${ACCOUNT_ID}/cfd_tunnel/${legacy.deployment.tunnelId}/configurations`;
+  try {
+    writeFileSync(join(directory, "deployment.json"), JSON.stringify(legacy.deployment));
+    await provision(provisionOptions(directory), provisionDependencies(cloudflare));
+
+    assert.deepEqual(writeLines(cloudflare.writes()), [
+      `POST /accounts/${ACCOUNT_ID}/access/apps`,
+      `POST /accounts/${ACCOUNT_ID}/access/apps/app-created-1/policies`,
+      tunnelConfiguration,
+    ]);
+    const [application, policy] = cloudflare.writes();
+    assert.deepEqual(application.body, assistantConnectorApplicationSpec(provisionedHostname));
+    assert.deepEqual(policy.body, assistantConnectorPolicySpec(provisionedHostname));
+    assert.deepEqual(cloudflare.state.groups.map((group) => group.name), [
+      `Stuga (${provisionedHostname}) members`,
+      `Stugu (${provisionedHostname}) members`,
+    ]);
+    assert.equal(cloudflare.state.tunnels.length, 1);
+    assert.equal(cloudflare.state.dnsRecords[0].comment, "Managed by Stuga cloudflare-stuga.mjs");
+
+    const environment = readFileSync(join(directory, "config.env"), "utf8");
+    assert.match(environment, /^CLOUDFLARE_ACCESS_GROUP_ID=group-members$/mu);
+    assert.match(environment, /^CLOUDFLARE_ACCESS_GROUP_NAME="Stuga \(stugu\.example\.test\) members"$/mu,
+      "the API's group synchronization requires the group's actual name");
+    assert.match(environment, /^STUGBY_PUBLIC_ORIGIN=https:\/\/stugu\.example\.test$/mu);
+    const deployment = JSON.parse(readFileSync(join(directory, "deployment.json"), "utf8"));
+    assert.deepEqual(deployment, {
+      version: 2,
+      mode: "stuguby-coordinator",
+      hostname: provisionedHostname,
+      accountId: ACCOUNT_ID,
+      zoneId: ZONE_ID,
+      tunnelId: legacy.deployment.tunnelId,
+      accessApplicationId: "app-human",
+      invitationHandoffApplicationId: "app-handoff",
+      stugubyProtocolApplicationId: "app-protocol",
+      assistantConnectorApplicationId: "app-created-1",
+      accessGroupId: "group-members",
+      identityProviderId: "idp-otp",
+      oauthClientId: "legacy-oauth-client",
+      oauthRedirectUri: legacy.deployment.oauthRedirectUri,
+    });
+    assert.equal(readFileSync(join(directory, "tunnel-token"), "utf8").trim(),
+      `connector-token-for-${legacy.deployment.tunnelId}-padded-past-thirty-two-bytes`);
+
+    const firstRunWrites = cloudflare.writes().length;
+    await provision(provisionOptions(directory), provisionDependencies(cloudflare));
+    assert.deepEqual(writeLines(cloudflare.writes().slice(firstRunWrites)), [tunnelConfiguration]);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("provisioning recognises pre-rebrand names when deployment.json has no resource IDs", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "stugu-cloudflare-rebrand-names-test-"));
+  const { cloudflare: resources } = preRebrandCoordinator(provisionedHostname, "owner@example.test");
+  const cloudflare = fakeCloudflare(resources);
+  const tunnelId = resources.tunnels[0].id;
+  try {
+    await provision(
+      provisionOptions(join(directory, "runtime"), { command: "provision", ownerEmail: "new-owner@example.test" }),
+      provisionDependencies(cloudflare),
+    );
+
+    assert.deepEqual(writeLines(cloudflare.writes()), [
+      `PUT /accounts/${ACCOUNT_ID}/access/groups/group-members`,
+      `POST /accounts/${ACCOUNT_ID}/access/apps`,
+      `POST /accounts/${ACCOUNT_ID}/access/apps/app-created-1/policies`,
+      `PUT /accounts/${ACCOUNT_ID}/cfd_tunnel/${tunnelId}/configurations`,
+    ]);
+    assert.deepEqual(cloudflare.writes()[0].body, {
+      name: `Stuga (${provisionedHostname}) members`,
+      include: [
+        { email: { email: "family@example.test" } },
+        { email: { email: "new-owner@example.test" } },
+        { email: { email: "owner@example.test" } },
+      ],
+      exclude: [],
+      require: [],
+    });
+    assert.ok(cloudflare.requests.some(({ path }) => path === `/accounts/${ACCOUNT_ID}/cfd_tunnel`),
+      "the Tunnel is found by its pre-rebrand name");
+    const deployment = JSON.parse(readFileSync(join(directory, "runtime", "deployment.json"), "utf8"));
+    assert.equal(deployment.mode, "remote-ui");
+    assert.equal(deployment.tunnelId, tunnelId);
+    assert.equal(deployment.accessApplicationId, "app-human");
+    assert.equal(deployment.stugubyProtocolApplicationId, null);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("provisioning refuses resources it does not own before changing anything", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "stugu-cloudflare-refusal-test-"));
+  const unmanagedApplication = fakeCloudflare({
+    applications: [{
+      id: "app-family-wiki",
+      name: "Family wiki",
+      type: "self_hosted",
+      domain: provisionedHostname,
+      destinations: [{ type: "public", uri: provisionedHostname }],
+    }],
+  });
+  const conflictingDns = fakeCloudflare({
+    dnsRecords: [{ id: "dns-a", type: "A", name: provisionedHostname, content: "192.0.2.10" }],
+  });
+  try {
+    await assert.rejects(
+      provision(provisionOptions(directory), provisionDependencies(unmanagedApplication)),
+      /An unmanaged Access application already protects stugu\.example\.test/u,
+    );
+    assert.deepEqual(unmanagedApplication.writes(), [], "no member group is created before the refusal");
+
+    await assert.rejects(
+      provision(provisionOptions(directory), provisionDependencies(conflictingDns)),
+      /A conflicting DNS record already exists for stugu\.example\.test/u,
+    );
+    assert.deepEqual(conflictingDns.writes(), [], "no Access resource or Tunnel is created before the refusal");
+    assert.equal(existsSync(join(directory, "config.env")), false);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

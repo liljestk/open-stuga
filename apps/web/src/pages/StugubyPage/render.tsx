@@ -16,6 +16,7 @@ import "../StugubyPage.css";
 import { MemberIdentity, datasetLabelKeys, editableHomeDatasets, formattedTime, loopbackOrigin } from "./stugubyModel";
 import { useStugubyPagePart03 } from "./part-03";
 import { GrantOverview } from "./GrantOverview";
+import { CloudflareConnectionCard } from "./CloudflareConnectionCard";
 export function renderStugubyPage(context: ReturnType<typeof useStugubyPagePart03>) {
   const { houses, properties, onInventoryChange, locale, t, roleLabel, stateLabel, index, detail, selectedId, loading, busy, error, setError, notice, setNotice, detailLoading, telemetryError, copied, setCopied, cloudflareSetupRequested, setCloudflareSetupRequested, createdInvitation, setCreatedInvitation, telemetrySamples, createName, setCreateName, createDescription, setCreateDescription, createCoordinatorUrl, setCreateCoordinatorUrl, joinCoordinatorUrl, setJoinCoordinatorUrl, joinUrl, setJoinUrl, joinInvitationId, setJoinInvitationId, joinSecret, setJoinSecret, inviteRole, setInviteRole, inviteLocalLabel, setInviteLocalLabel, inviteExpiresAt, setInviteExpiresAt, publishableHouses, grantHouseId, setGrantHouseId, audienceKind, setAudienceKind, audienceNodes, setAudienceNodes, datasetDraft, setDatasetDraft, telemetryLive, setTelemetryLive, telemetryHistoryHours, setTelemetryHistoryHours, telemetryMetrics, setTelemetryMetrics, telemetrySensors, setTelemetrySensors, telemetryRate, setTelemetryRate, grantExpiresAt, setGrantExpiresAt, houseEditPolicy, recoveryMode, houseSuccessorNodeId, setHouseSuccessorNodeId, editingGrantId, publicationCatalog, setCatalogRevision, grantHouseOptions, propertyName, setPropertyName, propertyDescription, setPropertyDescription, propertyLatitude, setPropertyLatitude, propertyLongitude, setPropertyLongitude, propertyLocationLabel, setPropertyLocationLabel, areasJson, setAreasJson, equipmentJson, setEquipmentJson, notesJson, setNotesJson, maintenanceJson, setMaintenanceJson, propertyEditPolicy, setPropertyEditPolicy, propertySuccessorNodeId, setPropertySuccessorNodeId, adoptionPropertyId, setAdoptionPropertyId, migrationPropertyId, setMigrationPropertyId, captureActiveScope, isActiveScope, resetGrantDraft, beginSelection, loadDetail, load, withBusy, createStuguby, joinStuguby, activeRemoteMembers, selectRecoveryMode, selectHouseEditPolicy, saveGrant, editGrant, saveProperty, memberName, updateMember, updateMemberLocalLabel, adoptSharedProperty, migrateLocalProperty, disconnectProperty, deleteStuguby } = context;
   if (loading) return <output className="page-loading"><LoaderCircle className="spin" size={20} aria-hidden="true" />{t("common.loading")}</output>;
@@ -188,6 +189,15 @@ export function renderStugubyPage(context: ReturnType<typeof useStugubyPagePart0
           <summary><Plus size={18} aria-hidden="true" /><span><strong>{t("stuguby.connectAnother")}</strong><small>{t("stuguby.connectAnotherBody")}</small></span></summary>
           <div className="stuguby-collapsible-body">{connectionSetup}</div>
         </details>}
+
+      <CloudflareConnectionCard
+        publicOrigin={index.publicOrigin}
+        deploymentManaged={index.publicOriginConfigurable === false}
+        onComplete={async () => {
+          await load();
+          setNotice(t("cloudflareSetup.completeNotice"));
+        }}
+      />
 
       {index.stugubys.length > 0 && <>
         <nav className="stuguby-selector" aria-label={t("nav.stugubys")}>

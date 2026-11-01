@@ -133,6 +133,14 @@
   box-shadow: none;
 }
 
+.stuguby-cloudflare-connection .stuguby-collapsible-body > p {
+  margin: 0;
+}
+
+.stuguby-cloudflare-connection .stuguby-collapsible-body > button {
+  justify-self: start;
+}
+
 
 .stuguby-subdetails {
   overflow: hidden;

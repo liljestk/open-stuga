@@ -183,9 +183,9 @@ export function safeErrorMessages(errors) {
   });
 }
 
-export function cloudflareClient(token) {
+export function cloudflareClient(token, fetcher = fetch) {
   return async (path, init = {}) => {
-    const response = await fetch(`${API_BASE}${path}`, {
+    const response = await fetcher(`${API_BASE}${path}`, {
       ...init,
       redirect: "error",
       signal: AbortSignal.timeout(20_000),
@@ -231,118 +231,4 @@ export async function findZone(api, accountId, zoneName, requestedId) {
     throw new UsageError(`Could not identify exactly one ${zoneName} zone; pass --zone-id explicitly`);
   }
   return zones[0].id;
-}
-
-export function exactEmailRule(rule) {
-  if (!rule || typeof rule !== "object" || Array.isArray(rule) || Object.keys(rule).length !== 1) return null;
-  const email = rule.email;
-  if (!email || typeof email !== "object" || Array.isArray(email) || Object.keys(email).length !== 1) return null;
-  return typeof email.email === "string" ? email.email.trim().toLowerCase() : null;
-}
-
-export async function ensureOtp(api, accountId) {
-  const providers = await api(`/accounts/${accountId}/access/identity_providers?per_page=100`);
-  const existing = Array.isArray(providers)
-    ? providers.find((provider) => provider?.type === "onetimepin")
-    : null;
-  if (existing?.id) return existing;
-  return api(`/accounts/${accountId}/access/identity_providers`, {
-    method: "POST",
-    body: JSON.stringify({ name: "Stugu one-time PIN", type: "onetimepin", config: {} }),
-  });
-}
-
-export async function ensureGroup(provisionApi, accessApi, accountId, groupName, ownerEmail) {
-  const groups = await provisionApi(`/accounts/${accountId}/access/groups?per_page=100`);
-  const matches = Array.isArray(groups) ? groups.filter((group) => group?.name === groupName) : [];
-  if (matches.length > 1) throw new UsageError(`Multiple Access groups are named ${groupName}`);
-  let group = matches[0] ?? await provisionApi(`/accounts/${accountId}/access/groups`, {
-    method: "POST",
-    body: JSON.stringify({ name: groupName, include: [{ email: { email: ownerEmail } }], exclude: [], require: [] }),
-  });
-  if (!group?.id) throw new CloudflareApiError("Cloudflare did not return an Access group ID", 500);
-  group = await accessApi(`/accounts/${accountId}/access/groups/${group.id}`);
-  const rules = Array.isArray(group.include) ? group.include : [];
-  const currentEmails = rules.map(exactEmailRule);
-  if (currentEmails.some((email) => email === null)
-    || (group.exclude?.length ?? 0) > 0
-    || (group.require?.length ?? 0) > 0) {
-    throw new UsageError(`Refusing to overwrite non-Stugu rules in Access group ${groupName}`);
-  }
-  const emails = [...new Set([...currentEmails, ownerEmail])].sort();
-  return accessApi(`/accounts/${accountId}/access/groups/${group.id}`, {
-    method: "PUT",
-    body: JSON.stringify({
-      name: groupName,
-      include: emails.map((email) => ({ email: { email } })),
-      exclude: [],
-      require: [],
-    }),
-  });
-}
-
-export function publicDestinations(application) {
-  return (Array.isArray(application?.destinations) ? application.destinations : [])
-    .filter((destination) => destination?.type === "public" && typeof destination.uri === "string")
-    .map((destination) => destination.uri)
-    .sort();
-}
-
-export async function ensureApplication(api, accountId, spec) {
-  const query = new URLSearchParams({ domain: spec.domain, exact: "true", per_page: "50" });
-  const applications = await api(`/accounts/${accountId}/access/apps?${query}`);
-  const matches = Array.isArray(applications)
-    ? applications.filter((application) => application?.domain === spec.domain)
-    : [];
-  if (matches.length > 1) throw new UsageError(`Multiple Access applications protect ${spec.domain}`);
-  if (matches.length === 1) {
-    const application = matches[0];
-    if (application.name !== spec.name || application.type !== "self_hosted") {
-      throw new UsageError(`An unmanaged Access application already protects ${spec.domain}`);
-    }
-    const currentDestinations = publicDestinations(application);
-    const desiredDestinations = spec.destinations.map((destination) => destination.uri).sort();
-    if (currentDestinations.length > 0 && JSON.stringify(currentDestinations) !== JSON.stringify(desiredDestinations)) {
-      throw new UsageError(`The managed Access application ${spec.name} has unexpected destinations`);
-    }
-    return application;
-  }
-  return api(`/accounts/${accountId}/access/apps`, {
-    method: "POST",
-    body: JSON.stringify(spec),
-  });
-}
-
-export function ruleMatches(rule, expected) {
-  return JSON.stringify(rule) === JSON.stringify(expected);
-}
-
-export async function ensureApplicationPolicy(api, accountId, applicationId, spec) {
-  const policies = await api(`/accounts/${accountId}/access/apps/${applicationId}/policies?per_page=100`);
-  const matches = Array.isArray(policies) ? policies.filter((policy) => policy?.name === spec.name) : [];
-  if (matches.length > 1) throw new UsageError(`Multiple Access policies are named ${spec.name}`);
-  const unmanaged = Array.isArray(policies) ? policies.filter((policy) => policy?.name !== spec.name) : [];
-  if (unmanaged.length > 0) {
-    throw new UsageError(`Refusing to coexist with unmanaged Access policies on application ${applicationId}`);
-  }
-  if (matches.length === 1) {
-    const policy = matches[0];
-    const includeMatches = Array.isArray(policy.include) && policy.include.length === spec.include.length
-      && policy.include.every((rule, index) => ruleMatches(rule, spec.include[index]));
-    const requireMatches = Array.isArray(policy.require) && policy.require.length === spec.require.length
-      && policy.require.every((rule, index) => ruleMatches(rule, spec.require[index]));
-    if (policy.decision !== spec.decision
-      || policy.precedence !== spec.precedence
-      || !includeMatches
-      || !requireMatches
-      || (policy.exclude?.length ?? 0) !== 0
-      || (spec.session_duration !== undefined && policy.session_duration !== spec.session_duration)) {
-      throw new UsageError(`The managed Access policy ${spec.name} has unexpected rules`);
-    }
-    return policy;
-  }
-  return api(`/accounts/${accountId}/access/apps/${applicationId}/policies`, {
-    method: "POST",
-    body: JSON.stringify(spec),
-  });
 }
