@@ -184,6 +184,8 @@ export function createCheckPlan({
         "scripts/tooling/rpi-doctor-remote.py",
         "scripts/verify-host-tuf-publication.py",
         "scripts/tests/host-publication-e2e.py",
+        "scripts/host-tuf-renewal.py",
+        "scripts/tests/host-tuf-renewal-e2e.py",
       ],
     },
     {
@@ -200,6 +202,8 @@ export function createCheckPlan({
         "scripts/tooling/rpi-doctor-remote.py",
         "scripts/verify-host-tuf-publication.py",
         "scripts/tests/host-publication-e2e.py",
+        "scripts/host-tuf-renewal.py",
+        "scripts/tests/host-tuf-renewal-e2e.py",
       ],
     },
     {
@@ -218,8 +222,10 @@ export function createCheckPlan({
         [
           "set -euo pipefail",
           "apt-get update >/dev/null",
-          "DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends ca-certificates openssl python3-cryptography python3-securesystemslib python3-tuf rauc squashfs-tools >/dev/null",
+          "DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends ca-certificates git openssl python3-cryptography python3-securesystemslib python3-tuf rauc squashfs-tools >/dev/null",
           "python3 scripts/tests/host-publication-e2e.py",
+          // The appliance's python-tuf (5.1) proves the feed renewer, too.
+          "python3 scripts/tests/host-tuf-renewal-e2e.py",
         ].join("\n"),
       ],
     },

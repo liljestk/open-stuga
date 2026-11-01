@@ -17,6 +17,17 @@ from .errors import ContractError, PreflightError, TrustError, UpdaterError
 
 
 ROOT_ROLES = {"root", "targets", "snapshot", "timestamp"}
+# python-tuf client limits for every refresh. scripts/host-tuf-renewal.py proves
+# renewed metadata against the same values before publishing it.
+CLIENT_LIMITS = {
+    "max_root_rotations": 0,
+    "max_delegations": 16,
+    "root_max_length": 512 * 1024,
+    "timestamp_max_length": 64 * 1024,
+    "snapshot_max_length": 2 * 1024 * 1024,
+    "targets_max_length": 4 * 1024 * 1024,
+    "prefix_targets_with_hash": True,
+}
 
 
 def require_root_policy(value: object, expected_version: int) -> None:
@@ -277,16 +288,7 @@ class TufRepository:
         # ngclient from performing an unretained parallel root rotation.
         atomic_write(self.metadata_dir / "root.json", trusted_root, mode=0o600)
         Updater, ClientConfig = self._load_client()
-        config = ClientConfig(
-            max_root_rotations=0,
-            max_delegations=16,
-            root_max_length=512 * 1024,
-            timestamp_max_length=64 * 1024,
-            snapshot_max_length=2 * 1024 * 1024,
-            targets_max_length=4 * 1024 * 1024,
-            prefix_targets_with_hash=True,
-            app_user_agent="stugu-host-updater/1",
-        )
+        config = ClientConfig(**CLIENT_LIMITS, app_user_agent="stugu-host-updater/1")
         try:
             self._updater = Updater(
                 metadata_dir=str(self.metadata_dir),
