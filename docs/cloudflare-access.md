@@ -60,8 +60,16 @@ protocol requests before request-body parsing. Do not widen the exception or
 use it for owner/admin routes.
 
 The script refuses ambiguous names, conflicting DNS, unexpected application
-destinations, and group/policy rules it does not own. It does not delete
-Cloudflare resources.
+destinations, and group/policy rules it does not own. It reads and checks every
+resource before it changes any, so a refusal leaves Cloudflare exactly as it
+was. It does not rename or delete Cloudflare resources.
+
+A rerun recognises the resources an earlier run created by the IDs recorded in
+`deployment.json`, or by name. That includes installations provisioned before
+the Stuga → Stugu rename in 0.14.0, whose Access applications, policies and
+group are named `Stuga (<hostname>)…` and whose Tunnel is named
+`stuga-<hostname>`. Those keep their names, and the runtime configuration keeps
+the group's existing name so member synchronization continues to match it.
 
 The generated runtime keeps two identity sources deliberately separate:
 
@@ -156,6 +164,8 @@ client manually:
    read-only for this security-boundary change.
 2. On a new local installation, choose **Set up secure sharing**. On an
    existing remote-UI installation, the Cloudflare panel opens automatically.
+   On a coordinator that already has its secure address, expand **Cloudflare
+   connection** and choose **Run Cloudflare setup again**.
 3. Create one Cloudflare API token with **OAuth Client Write** for the intended
    account and paste it into Stugu. This is the unavoidable bootstrap
    credential: an application cannot register its first OAuth client through
@@ -254,11 +264,28 @@ Account and zone IDs are advanced fields used only when discovery is ambiguous.
 ## Existing installation path
 
 After installing the release and refreshing a pre-feature host agent once,
-open the local Stuguby page. Stugu detects the current hostname, account, zone,
-and retained runtime token. Paste only the one-time OAuth Client Write token,
-approve Cloudflare consent, and leave the page open while Stugu applies and
-verifies the coordinator. No terminal Cloudflare provisioning or manually
-created OAuth client is required.
+open the local Stuguby page at `http://127.0.0.1:<port>/stugbys`:
+
+- On a remote-UI installation, the Cloudflare panel opens by itself.
+- On a coordinator that already has its HTTPS address, expand **Cloudflare
+  connection** and choose **Run Cloudflare setup again**. Do this whenever a
+  release asks you to rerun the Cloudflare setup, such as 0.58.0 for Claude and
+  ChatGPT.
+
+Stugu detects the current hostname, account, zone, and retained runtime token.
+An installation first set up from this page also reuses its OAuth client and
+asks for no token; otherwise paste the one-time OAuth Client Write token.
+Approve Cloudflare consent and leave the page open while Stugu applies and
+verifies the connection. Remote access pauses while Stugu restarts the
+connection, and stays off if verification fails; the loopback address keeps
+working. No terminal Cloudflare provisioning or manually created OAuth client
+is required.
+
+The rerun keeps the existing Tunnel, DNS record, member group, and Access
+applications, including the `Stuga (<hostname>)…` ones from before 0.14.0, and
+adds only what is missing, such as the assistant connector application. If it
+finds a resource it does not own, it stops before changing anything and names
+the resource in the error.
 
 ## CLI guided fallback
 

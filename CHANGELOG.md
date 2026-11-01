@@ -2,6 +2,15 @@
 
 All notable Stugu releases are recorded here.
 
+## 0.59.2
+
+Running the Cloudflare setup again, as 0.58.0 asks for Claude and ChatGPT, now works on a Stuguby coordinator that already has its secure address, including one set up before the Stuga → Stugu rename.
+
+- The local **Stugubys** page on a coordinator has a **Cloudflare connection** card with **Run Cloudflare setup again**. Until now the page offered the Cloudflare setup only before the coordinator had an HTTPS address, so an existing coordinator had no way to rerun it from the UI. An installation first set up from this page reuses its Cloudflare OAuth client and runtime token, so the rerun asks for no new token. A setup that completed earlier no longer closes the panel as soon as it opens.
+- Cloudflare provisioning, from the UI or `node scripts/cloudflare-stugu.mjs`, recognises installations set up before 0.14.0. Their Access applications, policies and member group are named `Stuga (<address>)…` and their Tunnel `stuga-<address>`; provisioning used to stop with "An unmanaged Access application already protects …". It now finds these resources by the IDs in `deployment.json` or by their old names, keeps those names, and adds only what is missing. The runtime configuration keeps the group's existing name, so member synchronization still matches it.
+- Provisioning reads and checks every Cloudflare resource before it changes any. A refusal, such as an Access application or DNS record Stugu does not own, now leaves Cloudflare unchanged. Previously a refused run could already have created a new member group, and on a pre-rename installation a second Tunnel.
+- Upgrade impact: application and host-tooling fix; no API, schema, Compose or host-trust change. On a coordinator set up before 0.58.0, open `http://127.0.0.1:<port>/stugbys` on the Stugu computer, expand **Cloudflare connection** and choose **Run Cloudflare setup again**, or rerun `node scripts/cloudflare-stugu.mjs provision-coordinator …`. Remote access pauses for a few minutes while the UI setup restarts the connection. A member group named `Stugu (<address>) members` left behind by a failed earlier run is not used or removed; delete it in Cloudflare Zero Trust if you no longer want it.
+
 ## 0.59.1
 
 - Mean, sum, minimum, maximum and last analytics on a TimescaleDB archive answer much faster. The raw readings at the edges of a range were read by scanning and decompressing the Sensor's whole stored history; they now read only the archive chunks that hold them. On a Raspberry Pi, a 30-day mean at 15 minutes for a power plug reporting every 2 seconds dropped from 1.6 s to 0.09 s, and 90- and 365-day hourly reads from about 2 s to 0.2 s. Results are unchanged.

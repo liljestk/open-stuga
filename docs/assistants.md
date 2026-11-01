@@ -19,12 +19,16 @@ to get one is the [Cloudflare Tunnel and Access setup](cloudflare-access.md).
 Any HTTPS reverse proxy that forwards `/api/v1/mcp`, `/api/v1/oauth/*` and
 `/.well-known/oauth-*` to the Stugu web service also works.
 
-If you set up Cloudflare before 0.58.0, run the Cloudflare setup again: the
-[UI-managed setup](cloudflare-access.md#ui-managed-setup), or
-`node scripts/cloudflare-stugu.mjs provision …` (or `provision-coordinator`)
-with the same arguments. This adds one Access application that lets the
-assistants reach the endpoints listed under
-[What is reachable from the internet](#what-is-reachable-from-the-internet).
+If you set up Cloudflare before 0.58.0, run the Cloudflare setup again. On the
+Stugu computer, open **Stugubys**, expand **Cloudflare connection** and choose
+**Run Cloudflare setup again** (see the
+[existing installation path](cloudflare-access.md#existing-installation-path)),
+or run `node scripts/cloudflare-stugu.mjs provision …` (or
+`provision-coordinator`) with the same arguments. This adds one Access
+application that lets the assistants reach the endpoints listed under
+[What is reachable from the internet](#what-is-reachable-from-the-internet),
+and keeps everything else, including resources named `Stuga (…)` from before
+0.14.0.
 
 An installation that is reachable only on your home network or over a VPN
 such as Tailscale cannot be reached from Claude's or ChatGPT's servers. You

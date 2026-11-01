@@ -42,6 +42,17 @@ function suggestedZone(hostname: string): string {
   return labels.length > 1 ? labels.slice(-2).join(".") : "";
 }
 
+/**
+ * The setup form stays hidden while an operation runs and after one this panel
+ * watched complete. An operation that had already completed when the panel
+ * opened belongs to an earlier run, so the form is offered again.
+ */
+function setupFormVisible(operation: CloudflareSetupOperation | null, earlierCompletionId: string | null): boolean {
+  if (!operation) return true;
+  if (activePhases.has(operation.phase)) return false;
+  return operation.phase !== "complete" || operation.id === earlierCompletionId;
+}
+
 function trustedAuthorizationUrl(value: string): string {
   const url = new URL(value);
   if (url.protocol !== "https:" || url.hostname !== "dash.cloudflare.com") {
@@ -69,6 +80,7 @@ export function CloudflareSetupPanel({
   const [oauthClientToken, setOauthClientToken] = useState("");
   const [oauthTokenHelpOpen, setOauthTokenHelpOpen] = useState(false);
   const [runtimeToken, setRuntimeToken] = useState("");
+  const [earlierCompletionId, setEarlierCompletionId] = useState<string | null>(null);
   const oauthTokenInputId = useId();
   const oauthTokenHelpId = useId();
   const hydrated = useRef(false);
@@ -77,15 +89,19 @@ export function CloudflareSetupPanel({
   const refresh = useCallback(async () => {
     try {
       const next = await api.cloudflareSetupStatus();
-      setStatus(next);
-      setLoadError(null);
       if (!hydrated.current) {
         const configuredHostname = next.configuration.hostname ?? initialHostname;
         setHostname(configuredHostname);
         setZone(next.configuration.suggestedZone ?? suggestedZone(configuredHostname));
         setOwnerEmail(next.configuration.ownerEmail ?? "");
+        // A setup that completed before this panel opened is not reported again.
+        const earlierCompletion = next.operation?.phase === "complete" ? next.operation.id : null;
+        completedOperation.current = earlierCompletion;
+        setEarlierCompletionId(earlierCompletion);
         hydrated.current = true;
       }
+      setStatus(next);
+      setLoadError(null);
     } catch (error) {
       setLoadError(errorText(error, t, t("cloudflareSetup.loadFailed")));
     }
@@ -232,7 +248,7 @@ export function CloudflareSetupPanel({
       </a>
     </p>}
 
-    {!operationActive && operation?.phase !== "complete" && <>
+    {setupFormVisible(operation, earlierCompletionId) && <>
       <div className="cloudflare-setup-grid">
         <label className="field">
           <span>{t("cloudflareSetup.hostname")}</span>
