@@ -2,6 +2,16 @@
 
 All notable Stugu releases are recorded here.
 
+## 0.60.0
+
+Dropbox and Google Drive export destinations can now reach the Raspberry Pi appliance through an ordinary application update.
+
+- The API now carries the project's own Dropbox app and Google OAuth client IDs. They are public IDs, not secrets. Once the project fills them in, every installation offers Dropbox and Google Drive under **Where scheduled exports go** without any setup, including Raspberry Pi appliances. The appliance runs the Compose file from its host image, and an application update only swaps the containers, so it could never receive the `STUGU_*` variables added in 0.59.0.
+- Until the apps are registered, the built-in IDs are empty and both providers still show *Not enabled on this installation yet*.
+- `STUGU_DROPBOX_APP_KEY`, `STUGU_GOOGLE_DRIVE_CLIENT_ID` and `STUGU_GOOGLE_DRIVE_CLIENT_SECRET` (or `_SECRET_FILE`) now override the built-in IDs for one installation, and an empty value uses the built-in app. The Google ID and secret replace the built-in client only as a pair.
+- Corrected the setup guide: on the appliance, values in `/persistent/stugu/stugu.env` reach the API only on host images built from 0.59.0 or later, because older host images' Compose files don't pass them through.
+- Upgrade impact: application-only update; no schema, Compose, configuration or host-trust change. Installations that already set the `STUGU_*` variables keep using their own apps.
+
 ## 0.59.1
 
 - Mean, sum, minimum, maximum and last analytics on a TimescaleDB archive answer much faster. The raw readings at the edges of a range were read by scanning and decompressing the Sensor's whole stored history; they now read only the archive chunks that hold them. On a Raspberry Pi, a 30-day mean at 15 minutes for a power plug reporting every 2 seconds dropped from 1.6 s to 0.09 s, and 90- and 365-day hourly reads from about 2 s to 0.2 s. Results are unchanged.
