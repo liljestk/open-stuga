@@ -24,6 +24,10 @@ release agent access to RAUC or TUF private keys.
 - A separate clean verifier downloads the production publication from immutable
   root v1 before rollout.
 
+- The operator machine's [renewal task](#6-keeping-feed-metadata-fresh)
+  re-signs the existing targets content with keys that never leave that
+  machine. It can neither add nor change a target, and it never touches root.
+
 No production private key belongs in this repository, a GitHub secret used by
 the image-build job, a release artifact, or the appliance.
 
@@ -210,6 +214,90 @@ enable a watchdog value by hand, install an ad-hoc selector, or call RAUC
 directly. Inspect service logs and the bounded persistent state under
 `/persistent/stugu/host-update/`; export sanitized diagnostics with
 `stuguctl host-update export-diagnostics`.
+
+## 6. Keeping feed metadata fresh
+
+Signed metadata expires, so a stale feed cannot be replayed forever. Each role
+has exactly one renewer. The feed's daily **Check TUF freshness** workflow
+alerts only when that renewer has fallen behind. It opens or comments on an
+issue in `liljestk/stugu-releases`, and closes it once every role is healthy
+again.
+
+| Role | Lifetime | Renewed by | When | Alert |
+| --- | --- | --- | --- | --- |
+| timestamp | 30 days | **Refresh TUF metadata** workflow in the feed repository | weekly (Monday) | 10 days left |
+| snapshot | 90 days | the same workflow | weekly | 30 days left |
+| targets | 365 days | `host-tuf-renewal` task on the key-holding operator machine | 90 days left | 75 days left |
+| root | v1 until 2031-08-02 | offline root ceremony | before expiry | 180 days left |
+
+Appliances pause host updates as soon as any role expires
+(`TRUST_VERIFICATION_FAILED`); application updates do not use TUF.
+
+### What the renewer does
+
+`scripts/host-tuf-renewal.py` clones the feed's metadata and verifies the
+published timestamp → snapshot → targets chain against the pinned root v1,
+including every signature and hash pin. It renews only when targets is within
+90 days of expiry, or when snapshot or timestamp is within 7 days (the weekly
+workflow has stopped). It then:
+
+1. when targets is due, re-signs it for 365 days with byte-identical target
+   entries and a new version, using the threshold of targets keys the root
+   lists;
+2. signs a matching snapshot (90 days) and timestamp (30 days);
+3. proves the new chain with python-tuf 5.1.0 and the appliance's client
+   limits (`CLIENT_LIMITS` in the host updater), as an appliance would;
+4. commits only new versioned files plus `timestamp.json`, pushes to the feed's
+   `main`, and verifies the public URL from root v1 again.
+
+It refuses, and pushes nothing, when a published file breaks its pin, when a
+key file is not one the root authorizes, when the feed publishes a root
+rotation (update the renewer alongside any root ceremony), or when targets
+delegates. Targets published by a host release with a short lifetime is
+extended on the next daily run.
+
+### Install on the key-holding machine
+
+The key directory holds the public `root.json` (root v1) and the unencrypted
+PKCS#8 ed25519 keys `tuf-targets-<n>.pem`, `tuf-snapshot-<n>.pem` and
+`tuf-timestamp-<n>.pem`. The installer checks only that these names exist.
+
+```powershell
+npm run host-tuf-renewal -- install --key-directory <KEY_DIRECTORY>
+```
+
+This copies the renewer, its end-to-end test and its pinned requirements to
+`%LOCALAPPDATA%\Stugu\host-tuf-renewal`, creates a virtual environment there,
+runs the end-to-end test and a read-only feed check, and registers
+`\Stugu\Host TUF renewal`. The task runs daily at 12:30 (`--time HH:MM`) and
+15 minutes after logon, and catches up missed runs. It runs only while you are
+logged on, without elevation, and pushes with your Git credentials. Once the
+renewal window opens, the machine has 15 days with a logged-on session before
+the 75-day alert fires, and 90 days before targets expires. On Linux or macOS
+the installer prints a cron line instead. Rerun
+`install` after the renewer changes; `install.json` records the source commit
+and hashes.
+
+```powershell
+npm run host-tuf-renewal -- status     # last run and task; exit 1 = needs attention
+npm run host-tuf-renewal -- check      # read-only verification of the live feed
+npm run host-tuf-renewal -- run        # renew and publish whatever is due, now
+npm run host-tuf-renewal -- uninstall  # remove the task, keep the history
+```
+
+Each run writes `state/last-run.json` and appends to `state/history.jsonl`.
+
+### When a role has expired anyway
+
+Keep host updates paused and run `npm run host-tuf-renewal -- run` on the
+key-holding machine. One commit renews targets, snapshot and timestamp, and the
+run verifies the public feed as appliances do. Then independently verify the
+publication with `npm run verify:host-publication` and the latest receipt as
+`--previous-receipt`. A same-generation renewal advances targets, snapshot and
+timestamp and leaves the target unchanged, which the verifier accepts.
+Appliances notice on their next host update check. Until then `rpi:doctor`
+reads the stored failure, so run `stuguctl host-update check --channel stable`
+when the warning should clear now.
 
 ## Preview boundary and fleet blockers
 

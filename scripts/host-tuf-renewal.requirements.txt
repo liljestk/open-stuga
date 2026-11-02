@@ -1,0 +1,15 @@
+# Pinned runtime of scripts/host-tuf-renewal.py on the key-holding operator
+# machine (installed into its own virtual environment by
+# `npm run host-tuf-renewal -- install`). python-tuf stays on 5.1.0, the
+# version the appliance's host updater runs, so the renewer's pre-publication
+# proof uses the same client; 6.0+ also needs symlink privileges on Windows.
+tuf==5.1.0
+securesystemslib[crypto]==1.6.0
+cryptography==50.0.1
+cffi==2.0.0
+pycparser==3.0
+requests==2.34.2
+urllib3==2.8.0
+certifi==2026.10.23
+charset-normalizer==3.5.2
+idna==3.20
