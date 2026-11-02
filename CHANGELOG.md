@@ -2,6 +2,11 @@
 
 All notable Stugu releases are recorded here.
 
+## 0.61.1
+
+- On a 320 px wide phone screen, the **Set up Google Drive** form under **Set up → Operations → Backups and exports** was wider than the screen: the **Open Google Cloud console** button didn't wrap, so the steps and fields ran off the right edge. Long button labels in the setup and sign-in steps now wrap, and the form fits the screen.
+- Upgrade impact: application-only update; no schema, Compose, configuration or host-trust change.
+
 ## 0.61.0
 
 Owners and Admins can now turn on Dropbox and Google Drive exports themselves, in Set up.

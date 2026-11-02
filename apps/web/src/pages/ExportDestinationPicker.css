@@ -10,10 +10,11 @@
 .export-destination-option small { grid-column: 2; color: var(--muted); font-size: var(--text-sm); overflow-wrap: anywhere; }
 .export-destination-name { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; }
 .export-destination-option > button { flex: 0 0 auto; }
-.export-destination-connect { display: grid; gap: 10px; padding: 14px; border: 1px solid var(--action); border-radius: var(--radius); background: color-mix(in srgb, var(--action) 6%, var(--panel-soft)); }
+.export-destination-connect { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; padding: 14px; border: 1px solid var(--action); border-radius: var(--radius); background: color-mix(in srgb, var(--action) 6%, var(--panel-soft)); }
 .export-destination-connect ol { margin: 0; padding-inline-start: 20px; display: grid; gap: 10px; }
 .export-destination-connect li > span { display: block; margin-bottom: 6px; }
-.export-destination-connect .secondary-button, .export-destination-connect .primary-button { width: fit-content; }
+/* A long link label such as "Open Google Cloud console" wraps instead of widening the form past a 320 px screen. */
+.export-destination-connect .secondary-button, .export-destination-connect .primary-button { width: fit-content; max-width: 100%; white-space: normal; }
 .export-destination-connect-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .export-destination-user-code { display: inline-block; padding: 6px 12px; border-radius: var(--radius); background: var(--panel); font-size: var(--text-xl); font-weight: 700; letter-spacing: 0.12em; user-select: all; }
 .export-destination-waiting { display: flex; align-items: center; gap: 7px; margin: 0; color: var(--muted); }
