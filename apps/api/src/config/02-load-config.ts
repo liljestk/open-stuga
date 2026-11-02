@@ -7,15 +7,11 @@ import {
   normalizedWebhookDestinations,
   type WebhookDestinationSecret,
 } from "../integration-secrets.js";
-import { AppConfig, booleanValue, boundedInteger, environmentTuple, exportIntervalMinutes, githubRepository, httpEndpoint, inferredStugubyPublicOrigin, localAuthProxySecret, nonNegativeInteger, normalizedEmailList, optional, optionalFileSecret, positiveInteger, stugubyPublicOrigin, systemUpdateImagePrefix, timeseriesPassword, timeseriesSslMode } from "./app-config.js";
+import { AppConfig, booleanValue, boundedInteger, environmentTuple, exportIntervalMinutes, githubRepository, httpEndpoint, inferredStugubyPublicOrigin, localAuthProxySecret, nonNegativeInteger, normalizedEmailList, optional, optionalFileSecret, positiveInteger, requireAllOrNone, stugubyPublicOrigin, systemUpdateImagePrefix, timeseriesPassword, timeseriesSslMode } from "./app-config.js";
+import { readCloudExportApps } from "./cloud-export-apps.js";
 
 type Env = NodeJS.ProcessEnv;
 type StoredSecrets = ReturnType<typeof readIntegrationSecrets>;
-
-/** Settings that only work as a set: all of them or none. */
-function requireAllOrNone(values: readonly unknown[], message: string): void {
-  if (values.some(Boolean) && !values.every(Boolean)) throw new Error(message);
-}
 
 function databasePathFrom(env: Env, port: number): string {
   const databasePath = env.DATABASE_PATH === ":memory:"
@@ -281,27 +277,7 @@ function readBugReportRelayConfig(env: Env, stored: StoredSecrets): Pick<AppConf
 /** Provider app IDs that let the owner connect a cloud drive, plus any drive they already connected. */
 function readCloudExportConfig(env: Env, stored: StoredSecrets): Pick<AppConfig,
   "dropboxAppKey" | "googleDriveClientId" | "googleDriveClientSecret" | "exportDestinations"> {
-  const dropboxAppKey = optional(env.STUGU_DROPBOX_APP_KEY);
-  if (dropboxAppKey && !/^[a-z0-9]{8,64}$/iu.test(dropboxAppKey)) {
-    throw new Error("STUGU_DROPBOX_APP_KEY is not a valid Dropbox app key");
-  }
-  const googleClientId = optional(env.STUGU_GOOGLE_DRIVE_CLIENT_ID);
-  const googleClientSecret = optionalFileSecret(
-    env, "STUGU_GOOGLE_DRIVE_CLIENT_SECRET", "STUGU_GOOGLE_DRIVE_CLIENT_SECRET_FILE", "Google Drive client secret", 8, true,
-  );
-  requireAllOrNone(
-    [googleClientId, googleClientSecret],
-    "The Google Drive export destination needs both STUGU_GOOGLE_DRIVE_CLIENT_ID and STUGU_GOOGLE_DRIVE_CLIENT_SECRET",
-  );
-  if (googleClientId && !/^[A-Za-z0-9-]{8,200}\.apps\.googleusercontent\.com$/u.test(googleClientId)) {
-    throw new Error("STUGU_GOOGLE_DRIVE_CLIENT_ID is not a valid Google OAuth client ID");
-  }
-  return {
-    dropboxAppKey,
-    googleDriveClientId: googleClientId,
-    googleDriveClientSecret: googleClientSecret,
-    exportDestinations: stored.exportDestinations ?? null,
-  };
+  return { ...readCloudExportApps(env), exportDestinations: stored.exportDestinations ?? null };
 }
 
 function validCloudflareIds(accountId: string | null, groupId: string | null): void {

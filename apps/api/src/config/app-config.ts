@@ -220,6 +220,11 @@ export function optional(value: string | undefined): string | null {
   return normalized ? normalized : null;
 }
 
+/** Settings that only work as a set: all of them or none. */
+export function requireAllOrNone(values: readonly unknown[], message: string): void {
+  if (values.some(Boolean) && !values.every(Boolean)) throw new Error(message);
+}
+
 export function normalizedEmailList(value: string | undefined, name: string): string[] {
   const emails = [...new Set((value ?? "").split(",")
     .map((entry) => entry.trim().toLowerCase())

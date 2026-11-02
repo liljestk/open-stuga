@@ -612,9 +612,9 @@ take precedence after restart.
 | `BUG_REPORT_RELAY_TOKEN` | empty | non-Compose inline relay credential; prefer the file form |
 | `BUG_REPORT_RELAY_TOKEN_FILE` | empty | non-Compose alternative file containing the relay credential |
 | `STUGA_BUG_REPORT_SECRET_DIR` | `./secrets/bug-report` | Compose-only host directory containing the relay credential as `relay-token` |
-| `STUGU_DROPBOX_APP_KEY` | empty | public key of a Dropbox app with App-folder access; enables Dropbox as the scheduled-export destination ([setup](cloud-export-destinations.md)) |
-| `STUGU_GOOGLE_DRIVE_CLIENT_ID` | empty | Google "TVs and Limited Input devices" OAuth client ID; enables Google Drive together with its client secret |
-| `STUGU_GOOGLE_DRIVE_CLIENT_SECRET` | empty | that installed-app client's secret; `STUGU_GOOGLE_DRIVE_CLIENT_SECRET_FILE` is the file form |
+| `STUGU_DROPBOX_APP_KEY` | built-in project app | overrides the public key of the Dropbox app (App-folder access) used for Dropbox scheduled exports; leave empty to use the project's app ([setup](cloud-export-destinations.md)) |
+| `STUGU_GOOGLE_DRIVE_CLIENT_ID` | built-in project client | overrides the Google "TVs and Limited Input devices" OAuth client ID used for Google Drive; set together with its client secret |
+| `STUGU_GOOGLE_DRIVE_CLIENT_SECRET` | built-in project client | that installed-app client's secret; `STUGU_GOOGLE_DRIVE_CLIENT_SECRET_FILE` is the file form |
 | `VITE_API_BASE_URL` | empty | compile-time web API base; empty uses same-origin `/api/v1` and `/api/v2` |
 | `VITE_SPATIAL_MAX_SAMPLE_AGE_MS` | `900000` | live sample age limit for 2D/3D clouds and gradient vectors |
 | `VITE_SPATIAL_REPLAY_MAX_SAMPLE_AGE_MS` | `5400000` | wider replay age limit for downsampled stored history |
