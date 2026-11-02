@@ -276,7 +276,7 @@ function readBugReportRelayConfig(env: Env, stored: StoredSecrets): Pick<AppConf
 
 /** Provider app IDs that let the owner connect a cloud drive, plus any drive they already connected. */
 function readCloudExportConfig(env: Env, stored: StoredSecrets): Pick<AppConfig,
-  "dropboxAppKey" | "googleDriveClientId" | "googleDriveClientSecret" | "exportDestinations"> {
+  "dropboxAppKey" | "googleDriveClientId" | "googleDriveClientSecret" | "dropboxAppSource" | "googleDriveAppSource" | "exportDestinations"> {
   return { ...readCloudExportApps(env), exportDestinations: stored.exportDestinations ?? null };
 }
 

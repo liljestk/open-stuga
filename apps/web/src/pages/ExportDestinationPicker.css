@@ -17,3 +17,6 @@
 .export-destination-connect-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .export-destination-user-code { display: inline-block; padding: 6px 12px; border-radius: var(--radius); background: var(--panel); font-size: var(--text-xl); font-weight: 700; letter-spacing: 0.12em; user-select: all; }
 .export-destination-waiting { display: flex; align-items: center; gap: 7px; margin: 0; color: var(--muted); }
+.export-destination-actions { flex: 0 0 auto; display: flex; flex-wrap: wrap; gap: 6px; }
+.export-destination-connect .export-destinations-help { margin: 0; }
+.export-destination-app-fields { display: grid; gap: 10px; }

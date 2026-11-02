@@ -15,6 +15,10 @@ function providerParameter(value: unknown): CloudExportProvider {
   return value;
 }
 
+function appSource(context: ExportDestinationRouteContext, provider: CloudExportProvider) {
+  return context.exportDestinations.status().accounts.find((account) => account.provider === provider)?.appSource ?? null;
+}
+
 /** Installation-wide export destination: the NAS or one connected cloud drive. Owner/Admin only. */
 export function registerExportDestinationRoutes(context: ExportDestinationRouteContext): void {
   const base = `${context.prefix}/system/export-destinations`;
@@ -61,6 +65,38 @@ export function registerExportDestinationRoutes(context: ExportDestinationRouteC
     requireJsonContentType(request);
     const provider = providerParameter(request.params.provider);
     const status = await context.exportDestinations.submitCode(provider, bodyObject(request.body));
+    response.setHeader("cache-control", "no-store");
+    response.json(status);
+  });
+
+  // The provider app an Owner/Admin registered, audited apart from the account that later signs in through it.
+  context.app.put(`${base}/:provider/app`, requireWorkspaceAdmin, (request, response) => {
+    requireJsonContentType(request);
+    const provider = providerParameter(request.params.provider);
+    const replacing = appSource(context, provider) === "protected-file";
+    const status = context.exportDestinations.saveApp(provider, bodyObject(request.body));
+    context.recordSecurityAudit(requestPrincipal(response), {
+      eventType: replacing ? "integration.credentials.rotated" : "integration.credentials.configured",
+      subjectType: "integration",
+      subjectId: `${provider}-app`,
+      details: { integration: provider },
+    });
+    response.setHeader("cache-control", "no-store");
+    response.json(status);
+  });
+
+  context.app.delete(`${base}/:provider/app`, requireWorkspaceAdmin, (request, response) => {
+    const provider = providerParameter(request.params.provider);
+    const removing = appSource(context, provider) === "protected-file";
+    const status = context.exportDestinations.removeApp(provider);
+    if (removing) {
+      context.recordSecurityAudit(requestPrincipal(response), {
+        eventType: "integration.credentials.revoked",
+        subjectType: "integration",
+        subjectId: `${provider}-app`,
+        details: { integration: provider },
+      });
+    }
     response.setHeader("cache-control", "no-store");
     response.json(status);
   });

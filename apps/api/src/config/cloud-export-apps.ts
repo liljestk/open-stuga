@@ -1,15 +1,26 @@
+import type { CloudExportAppSource } from "@climate-twin/contracts";
+import { isDropboxAppKey, isGoogleClientId } from "../export-destinations/apps.js";
 import { optional, optionalFileSecret, requireAllOrNone } from "./app-config.js";
 
 type Env = NodeJS.ProcessEnv;
+type ConfiguredAppSource = Extract<CloudExportAppSource, "environment" | "built-in">;
 
-/** The app IDs a Stugu installation uses to let an owner connect Dropbox or Google Drive. */
-export interface CloudExportApps {
+interface CloudExportAppValues {
   dropboxAppKey: string | null;
   googleDriveClientId: string | null;
   googleDriveClientSecret: string | null;
 }
 
-export type ProjectCloudExportApps = Readonly<Record<keyof CloudExportApps, string>>;
+/**
+ * The app IDs a Stugu installation uses to let an owner connect Dropbox or Google Drive, and where each
+ * provider's came from. An app an Owner/Admin enters in Set up replaces a built-in one, never an environment one.
+ */
+export interface CloudExportApps extends CloudExportAppValues {
+  dropboxAppSource: ConfiguredAppSource | null;
+  googleDriveAppSource: ConfiguredAppSource | null;
+}
+
+export type ProjectCloudExportApps = Readonly<Record<keyof CloudExportAppValues, string>>;
 
 /**
  * The project's registered Dropbox app and Google "TVs and Limited Input devices" OAuth client.
@@ -18,8 +29,9 @@ export type ProjectCloudExportApps = Readonly<Record<keyof CloudExportApps, stri
  * ordinary application update. That includes the Raspberry Pi appliance, whose Compose file is part
  * of the host image and only changes with a host update. The values identify public clients and are
  * not secrets; Google doesn't treat an installed-app client secret as confidential. A deployment's
- * `STUGU_DROPBOX_APP_KEY` and `STUGU_GOOGLE_DRIVE_CLIENT_*` variables override them. Empty values keep
- * the provider unavailable; docs/cloud-export-destinations.md has the registration steps.
+ * `STUGU_DROPBOX_APP_KEY` and `STUGU_GOOGLE_DRIVE_CLIENT_*` variables override them, and so does an
+ * app an Owner/Admin enters in Set up. Empty values leave the provider for Set up;
+ * docs/cloud-export-destinations.md has the registration steps.
  */
 export const PROJECT_CLOUD_EXPORT_APPS: ProjectCloudExportApps = {
   dropboxAppKey: "",
@@ -30,12 +42,12 @@ export const PROJECT_CLOUD_EXPORT_APPS: ProjectCloudExportApps = {
 const PROJECT_LABEL = "The built-in";
 
 function validDropboxAppKey(value: string | null, source: string): string | null {
-  if (value && !/^[a-z0-9]{8,64}$/iu.test(value)) throw new Error(`${source} is not a valid Dropbox app key`);
+  if (value && !isDropboxAppKey(value)) throw new Error(`${source} is not a valid Dropbox app key`);
   return value;
 }
 
 function validGoogleClient(clientId: string, clientSecret: string, source: string) {
-  if (!/^[A-Za-z0-9-]{8,200}\.apps\.googleusercontent\.com$/u.test(clientId)) {
+  if (!isGoogleClientId(clientId)) {
     throw new Error(`${source} is not a valid Google OAuth client ID`);
   }
   return { clientId, clientSecret };
@@ -64,16 +76,24 @@ function projectGoogleClient(project: ProjectCloudExportApps) {
   return clientId && clientSecret ? validGoogleClient(clientId, clientSecret, `${PROJECT_LABEL} Google Drive client ID`) : null;
 }
 
+function appSource(resolved: unknown, deployment: unknown): ConfiguredAppSource | null {
+  if (!resolved) return null;
+  return deployment ? "environment" : "built-in";
+}
+
 /** Deployment variables (inline or file form) win; empty ones fall back to the project's built-in apps. */
 export function readCloudExportApps(env: Env, project: ProjectCloudExportApps = PROJECT_CLOUD_EXPORT_APPS): CloudExportApps {
   const deploymentDropbox = optional(env.STUGU_DROPBOX_APP_KEY);
   const dropboxAppKey = deploymentDropbox
     ? validDropboxAppKey(deploymentDropbox, "STUGU_DROPBOX_APP_KEY")
     : validDropboxAppKey(optional(project.dropboxAppKey), `${PROJECT_LABEL} Dropbox app key`);
-  const google = deploymentGoogleClient(env) ?? projectGoogleClient(project);
+  const deploymentGoogle = deploymentGoogleClient(env);
+  const google = deploymentGoogle ?? projectGoogleClient(project);
   return {
     dropboxAppKey,
     googleDriveClientId: google?.clientId ?? null,
     googleDriveClientSecret: google?.clientSecret ?? null,
+    dropboxAppSource: appSource(dropboxAppKey, deploymentDropbox),
+    googleDriveAppSource: appSource(google, deploymentGoogle),
   };
 }

@@ -9,6 +9,7 @@ import {
   type ExportDestinationKind,
   type ExportDestinationStatus,
 } from "@climate-twin/contracts";
+import type { CloudExportApps } from "../config/cloud-export-apps.js";
 import { HttpError } from "../http-error.js";
 import { updateIntegrationSecrets } from "../integration-secrets.js";
 import type { SystemStorageService } from "../system-storage.js";
@@ -29,6 +30,7 @@ import {
   uploadToGoogleDrive,
   type GoogleDevicePoll,
 } from "./google-drive.js";
+import { resolveCloudExportApps, withAppFromInput, type GoogleDriveApp, type ResolvedCloudExportApps } from "./apps.js";
 import { ProviderRequestError, type AccessToken, type CloudExportFile, type OAuthTokens } from "./provider-http.js";
 import type { CloudAccountSecret, ExportDestinationSecrets } from "./secrets.js";
 
@@ -38,6 +40,10 @@ const SLOW_DOWN_STEP_MS = 5_000;
 
 const PROVIDER_NAMES: Record<CloudExportProvider, string> = { dropbox: "Dropbox", "google-drive": "Google Drive" };
 const SECRET_KEYS = { dropbox: "dropbox", "google-drive": "googleDrive" } as const satisfies Record<CloudExportProvider, keyof ExportDestinationSecrets>;
+const APP_INVALID: Record<CloudExportProvider, string> = {
+  dropbox: "Paste the app key from the Settings tab of your Dropbox app",
+  "google-drive": "Paste the client ID (it ends in .apps.googleusercontent.com) and the client secret of your Google OAuth client",
+};
 
 export class ExportDestinationError extends HttpError {
   constructor(status: number, code: string, message: string) {
@@ -46,14 +52,12 @@ export class ExportDestinationError extends HttpError {
   }
 }
 
-export interface ExportDestinationServiceOptions {
+/** The provider apps from the deployment's environment or the built-in apps; Set up can add its own. */
+export interface ExportDestinationServiceOptions extends CloudExportApps {
   secretsFile: string;
   /** The destinations already in the protected secrets file when the API started. */
   stored: ExportDestinationSecrets | null;
   systemStorage: Pick<SystemStorageService, "status">;
-  dropboxAppKey: string | null;
-  googleDriveClientId: string | null;
-  googleDriveClientSecret: string | null;
   fetchImpl?: typeof fetch;
   now?: () => Date;
 }
@@ -157,8 +161,33 @@ export class ExportDestinationService {
     this.#pending = null;
   }
 
+  /**
+   * Saves the Dropbox app or Google client an Owner/Admin registered, so the provider works without deployment
+   * variables. It replaces a built-in app but never an environment one, and never the app a connected account uses.
+   */
+  saveApp(provider: CloudExportProvider, body: Record<string, unknown>): ExportDestinationStatus {
+    this.#assertAppEditable(provider);
+    const apps = withAppFromInput(this.#state.apps, provider, { body, updatedAt: this.#now().toISOString() });
+    if (!apps) throw new ExportDestinationError(400, "CLOUD_EXPORT_APP_INVALID", APP_INVALID[provider]);
+    this.#cancelConnectionFor(provider);
+    this.#persist({ ...this.#state, apps });
+    return this.status();
+  }
+
+  /** Forgets the app entered in Set up; the provider falls back to the built-in app, if there is one. */
+  removeApp(provider: CloudExportProvider): ExportDestinationStatus {
+    this.#assertAppEditable(provider);
+    const key = SECRET_KEYS[provider];
+    if (!this.#state.apps?.[key]) return this.status();
+    this.#cancelConnectionFor(provider);
+    const { [key]: _removed, ...apps } = this.#state.apps;
+    const { apps: _previous, ...next } = this.#state;
+    this.#persist(Object.keys(apps).length > 0 ? { ...next, apps } : next);
+    return this.status();
+  }
+
   async disconnect(provider: CloudExportProvider): Promise<ExportDestinationStatus> {
-    if (this.#pending?.connection.provider === provider) this.cancelConnection();
+    this.#cancelConnectionFor(provider);
     const account = this.#secret(provider);
     if (!account) return this.status();
     const cachedToken = this.#accessTokens.get(provider) ?? null;
@@ -197,10 +226,33 @@ export class ExportDestinationService {
     return selected === "nas" ? nasConnected : Boolean(this.#secret(selected)) && this.#available(selected);
   }
 
+  #apps(): ResolvedCloudExportApps {
+    return resolveCloudExportApps(this.#options, this.#state.apps);
+  }
+
   #available(provider: CloudExportProvider): boolean {
-    return provider === "dropbox"
-      ? Boolean(this.#options.dropboxAppKey)
-      : Boolean(this.#options.googleDriveClientId && this.#options.googleDriveClientSecret);
+    return this.#apps()[provider] !== null;
+  }
+
+  #dropboxAppKey(): string {
+    return this.#apps().dropbox!.appKey;
+  }
+
+  #googleClient(): GoogleDriveApp {
+    return this.#apps()["google-drive"]!;
+  }
+
+  #assertAppEditable(provider: CloudExportProvider): void {
+    if (this.#apps()[provider]?.source === "environment") {
+      throw new ExportDestinationError(409, "CLOUD_EXPORT_APP_ENVIRONMENT_OWNED", `This installation's environment variables set the ${PROVIDER_NAMES[provider]} app`);
+    }
+    if (this.#secret(provider)) {
+      throw new ExportDestinationError(409, "CLOUD_EXPORT_APP_IN_USE", `Disconnect ${PROVIDER_NAMES[provider]} before changing its app`);
+    }
+  }
+
+  #cancelConnectionFor(provider: CloudExportProvider): void {
+    if (this.#pending?.connection.provider === provider) this.cancelConnection();
   }
 
   #secret(provider: CloudExportProvider): CloudAccountSecret | null {
@@ -209,9 +261,11 @@ export class ExportDestinationService {
 
   #account(provider: CloudExportProvider): CloudExportAccount {
     const secret = this.#secret(provider);
+    const app = this.#apps()[provider];
     return {
       provider,
-      available: this.#available(provider),
+      available: app !== null,
+      appSource: app?.source ?? null,
       connected: secret !== null,
       accountLabel: secret?.accountLabel ?? null,
       connectedAt: secret?.connectedAt ?? null,
@@ -239,7 +293,7 @@ export class ExportDestinationService {
         id: randomUUID(),
         provider: "dropbox",
         method: "paste-code",
-        url: dropboxAuthorizeUrl(this.#options.dropboxAppKey!, challenge),
+        url: dropboxAuthorizeUrl(this.#dropboxAppKey(), challenge),
         userCode: null,
         expiresAt: new Date(this.#now().getTime() + PASTE_CODE_TTL_MS).toISOString(),
         error: null,
@@ -255,7 +309,7 @@ export class ExportDestinationService {
   async #deviceConnection(): Promise<PendingConnection> {
     let signIn;
     try {
-      signIn = await startGoogleDeviceSignIn(this.#fetch, { clientId: this.#options.googleDriveClientId!, now: this.#now().getTime() });
+      signIn = await startGoogleDeviceSignIn(this.#fetch, { clientId: this.#googleClient().clientId, now: this.#now().getTime() });
     } catch (error) {
       throw new ExportDestinationError(502, "CLOUD_EXPORT_PROVIDER_FAILED", error instanceof Error ? error.message : "Google Drive could not start the sign-in");
     }
@@ -291,8 +345,8 @@ export class ExportDestinationService {
     let result: GoogleDevicePoll | null = null;
     try {
       result = await pollGoogleDeviceSignIn(this.#fetch, {
-        clientId: this.#options.googleDriveClientId!,
-        clientSecret: this.#options.googleDriveClientSecret!,
+        clientId: this.#googleClient().clientId,
+        clientSecret: this.#googleClient().clientSecret,
         deviceCode: pending.deviceCode!,
         now: this.#now().getTime(),
       });
@@ -326,7 +380,7 @@ export class ExportDestinationService {
 
   async #exchangeDropboxCode(code: string, codeVerifier: string): Promise<OAuthTokens> {
     try {
-      return await exchangeDropboxCode(this.#fetch, { appKey: this.#options.dropboxAppKey!, code, codeVerifier, now: this.#now().getTime() });
+      return await exchangeDropboxCode(this.#fetch, { appKey: this.#dropboxAppKey(), code, codeVerifier, now: this.#now().getTime() });
     } catch (error) {
       if (error instanceof ProviderRequestError && error.status === 400) {
         throw new ExportDestinationError(400, "CLOUD_EXPORT_CODE_REJECTED", "Dropbox did not accept that code. Paste the newest code, or start again.");
@@ -362,10 +416,10 @@ export class ExportDestinationService {
     let token: AccessToken;
     try {
       token = provider === "dropbox"
-        ? await refreshDropboxToken(this.#fetch, { appKey: this.#options.dropboxAppKey!, refreshToken: account.refreshToken, now })
+        ? await refreshDropboxToken(this.#fetch, { appKey: this.#dropboxAppKey(), refreshToken: account.refreshToken, now })
         : await refreshGoogleToken(this.#fetch, {
-          clientId: this.#options.googleDriveClientId!,
-          clientSecret: this.#options.googleDriveClientSecret!,
+          clientId: this.#googleClient().clientId,
+          clientSecret: this.#googleClient().clientSecret,
           refreshToken: account.refreshToken,
           now,
         });
@@ -392,7 +446,7 @@ export class ExportDestinationService {
       return;
     }
     const accessToken = cached?.accessToken ?? (await refreshDropboxToken(this.#fetch, {
-      appKey: this.#options.dropboxAppKey!,
+      appKey: this.#dropboxAppKey(),
       refreshToken: account.refreshToken,
       now: this.#now().getTime(),
     })).accessToken;

@@ -2,6 +2,16 @@
 
 All notable Stugu releases are recorded here.
 
+## 0.61.0
+
+Owners and Admins can now turn on Dropbox and Google Drive exports themselves, in Set up.
+
+- Under **Set up → Operations → Backups and exports**, a provider without an app now shows *Needs a one-time setup first* and a **Set up** button, instead of stopping at *Not enabled on this installation yet*. Set up walks through registering a free Dropbox app or Google OAuth client, takes its app key or its client ID and secret, and **Save and connect** goes straight on to the usual sign-in.
+- This works on the Raspberry Pi appliance as it is. No host update, environment variable or built-in app is needed.
+- The app is kept in the protected integration secrets file, next to the drive's refresh token. The API never returns the Google client secret.
+- An app entered in Set up replaces the built-in one. Deployment variables (`STUGU_DROPBOX_APP_KEY`, `STUGU_GOOGLE_DRIVE_CLIENT_*`) still win, and Set up doesn't offer to change an app they set. **Change app** and **Remove app** work only while no account is connected through that app, because the account's sign-in belongs to it. Disconnect first.
+- Upgrade impact: application-only update; no schema, Compose, configuration or host-trust change. New Owner/Admin API: `PUT` and `DELETE /system/export-destinations/{provider}/app`. Each cloud account in `GET /system/export-destinations` now includes `appSource`: `environment`, `protected-file`, `built-in`, or null.
+
 ## 0.60.0
 
 Dropbox and Google Drive export destinations can now reach the Raspberry Pi appliance through an ordinary application update.

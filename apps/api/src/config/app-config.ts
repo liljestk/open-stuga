@@ -188,6 +188,9 @@ export interface AppConfig {
   googleDriveClientId?: string | null;
   /** That installed-app client's secret. Google does not treat it as confidential; it is still never returned. */
   googleDriveClientSecret?: string | null;
+  /** Whether each provider's app above came from the deployment's environment or the built-in apps; null without one. */
+  dropboxAppSource?: "environment" | "built-in" | null;
+  googleDriveAppSource?: "environment" | "built-in" | null;
   /** The export destination choice and cloud refresh tokens from the protected secrets file. */
   exportDestinations?: ExportDestinationSecrets | null;
   /** Optional account-scoped Cloudflare Access group synchronized from local members and invitations. */
