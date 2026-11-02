@@ -380,6 +380,14 @@ export class LocalAuthStore {
     };
   }
 
+  /** A current member's email and role, or null once the account is removed. */
+  member(userId: string): { email: string; role: AccountRole } | null {
+    const row = this.database.db.prepare(`SELECT user.email, member.role FROM local_auth_users user
+      JOIN local_workspace_members member ON member.user_id = user.id WHERE user.id = ?`)
+      .get(userId) as unknown as { email: string; role: AccountRole } | undefined;
+    return row ? { email: row.email, role: row.role } : null;
+  }
+
   inviteMember(
     actor: Pick<LocalAuthIdentity, "userId" | "role">,
     emailValue: unknown,

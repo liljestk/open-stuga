@@ -33,6 +33,7 @@ import type { DataOperationsService } from "./data-operations.js";
 import { executeAnalyticsQuery } from "./analytics/query/execute.js";
 import type { HybridTelemetryReader } from "./timeseries/read-facade.js";
 import type { ExportDestinationService } from "./export-destinations/service.js";
+import type { LocalAuthStore } from "./local-auth.js";
 
 const MAX_RECEIPT_BYTES = 128 * 1024;
 const MAX_EXPORT_BYTES = 64 * 1024 * 1024;
@@ -62,15 +63,21 @@ interface ScheduledExportRow {
   last_output_name: string | null;
   pending_run_id: string | null;
   pending_started_at: string | null;
+  owner_user_id: string | null;
   revision: number;
   created_at: string;
   updated_at: string;
 }
 
+type ScheduleDestinations = Pick<ExportDestinationService, "selectedFor" | "readyFor" | "deliver">;
+
 interface ScheduledDataExportServiceOptions {
   database: ClimateDatabase;
   telemetryReader: HybridTelemetryReader;
-  destinations: Pick<ExportDestinationService, "selected" | "ready" | "deliver">;
+  /** Each schedule follows its owner's choice of destination. */
+  destinations: ScheduleDestinations;
+  /** Who owns a schedule; an owner who was removed leaves it without one. */
+  people: Pick<LocalAuthStore, "member">;
   dataOperations: Pick<DataOperationsService, "audit">;
   operationsDirectory?: string | null;
   now?: () => Date;
@@ -79,6 +86,7 @@ interface ScheduledDataExportServiceOptions {
 
 interface ExportRun {
   schedule: ScheduledDataExport;
+  ownerUserId: string | null;
   houseName: string;
   timeZone: string;
   runId: string;
@@ -116,7 +124,7 @@ function stringArray(value: string): string[] {
   }
 }
 
-function publicSchedule(row: ScheduledExportRow): ScheduledDataExport {
+function publicSchedule(row: ScheduledExportRow, owner: Pick<ScheduledDataExport, "ownerEmail" | "destination">): ScheduledDataExport {
   return {
     id: row.id,
     houseId: row.house_id,
@@ -137,6 +145,8 @@ function publicSchedule(row: ScheduledExportRow): ScheduledDataExport {
     lastRunStatus: row.last_run_status as ScheduledDataExport["lastRunStatus"],
     lastRunError: row.last_run_error,
     lastOutputName: row.last_output_name,
+    ownerEmail: owner.ownerEmail,
+    destination: owner.destination,
     revision: row.revision,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -339,7 +349,8 @@ export class ScheduledDataExportService {
   readonly #errorLog: FailureLog | null;
   readonly #database: ClimateDatabase;
   readonly #telemetryReader: HybridTelemetryReader;
-  readonly #destinations: Pick<ExportDestinationService, "selected" | "ready" | "deliver">;
+  readonly #destinations: ScheduleDestinations;
+  readonly #people: Pick<LocalAuthStore, "member">;
   readonly #dataOperations: Pick<DataOperationsService, "audit">;
   readonly #operationsDirectory: string | null;
   readonly #now: () => Date;
@@ -351,6 +362,7 @@ export class ScheduledDataExportService {
     this.#database = options.database;
     this.#telemetryReader = options.telemetryReader;
     this.#destinations = options.destinations;
+    this.#people = options.people;
     this.#dataOperations = options.dataOperations;
     this.#operationsDirectory = options.operationsDirectory ?? null;
     this.#now = options.now ?? (() => new Date());
@@ -369,25 +381,22 @@ export class ScheduledDataExportService {
     this.#timer = null;
   }
 
-  targetConfigured(): boolean {
-    return this.#destinations.ready();
-  }
-
   list(houseId: string): ScheduledDataExport[] {
     this.reconcileReceipts();
     return (this.#database.db.prepare(`SELECT * FROM scheduled_data_exports
-      WHERE house_id = ? ORDER BY created_at, id`).all(houseId) as unknown as ScheduledExportRow[]).map(publicSchedule);
+      WHERE house_id = ? ORDER BY created_at, id`).all(houseId) as unknown as ScheduledExportRow[]).map((row) => this.#schedule(row));
   }
 
   get(id: string): ScheduledDataExport | null {
     const row = this.#row(id);
-    return row ? publicSchedule(row) : null;
+    return row ? this.#schedule(row) : null;
   }
 
-  create(houseId: string, value: unknown): ScheduledDataExport {
+  /** Creates a schedule owned by `ownerUserId`, whose runs go wherever that person sends their exports. */
+  create(houseId: string, value: unknown, ownerUserId: string | null): ScheduledDataExport {
     const now = this.#now();
     const input = this.#validatedInput(houseId, value);
-    if (input.enabled) this.#assertDestinationReady();
+    if (input.enabled) this.#assertDestinationReady(ownerUserId);
     const id = randomUUID();
     const createdAt = now.toISOString();
     const house = this.#database.getHouse(houseId)!;
@@ -396,12 +405,12 @@ export class ScheduledDataExportService {
       id, house_id, name, enabled, frequency, time_local, day_of_week, day_of_month, period,
       sensor_ids_json, measurement_ids_json, resolution, aggregation, retention_count, next_run_at,
       last_run_at, last_run_status, last_run_error, last_output_name, pending_run_id, pending_started_at,
-      revision, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 'never', NULL, NULL, NULL, NULL, 1, ?, ?)`)
+      owner_user_id, revision, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 'never', NULL, NULL, NULL, NULL, ?, 1, ?, ?)`)
       .run(id, houseId, input.name, input.enabled ? 1 : 0, input.frequency, input.timeLocal,
         input.dayOfWeek ?? null, input.dayOfMonth ?? null, input.period, JSON.stringify(input.sensorIds),
         JSON.stringify(input.measurementIds), input.resolution, input.aggregation, input.retentionCount,
-        nextRunAt, createdAt, createdAt);
+        nextRunAt, ownerUserId, createdAt, createdAt);
     this.#dataOperations.audit("scheduled-data-export.created", { id, houseId, frequency: input.frequency });
     return this.get(id)!;
   }
@@ -414,7 +423,7 @@ export class ScheduledDataExportService {
     if (update.baseRevision !== current.revision) {
       throw new ScheduledDataExportError(409, "SCHEDULED_EXPORT_REVISION_CONFLICT", "Scheduled export changed; reload it before saving");
     }
-    if (update.enabled) this.#assertDestinationReady();
+    if (update.enabled) this.#assertDestinationReady(current.owner_user_id);
     const now = this.#now();
     const house = this.#database.getHouse(current.house_id)!;
     const nextRunAt = update.enabled ? nextScheduledDataExportRun(update, house.timezone, now) : null;
@@ -519,8 +528,8 @@ export class ScheduledDataExportService {
     }
     if (advanceSchedule && row.enabled !== 1) return;
     try {
-      const destination = this.#readyDestination();
-      const schedule = publicSchedule(row);
+      const destination = this.#readyDestination(row.owner_user_id);
+      const schedule = this.#schedule(row);
       const house = this.#database.getHouse(schedule.houseId);
       if (!house) throw new Error("The Home no longer exists");
       const started = this.#now();
@@ -533,14 +542,14 @@ export class ScheduledDataExportService {
           runId, started.toISOString(), started.toISOString(), nextRunAt, started.toISOString(), id,
         );
       if (Number(claimed.changes) !== 1) throw new ScheduledDataExportError(409, "SCHEDULED_EXPORT_RUNNING", "This export is already running");
-      const run: ExportRun = { schedule, houseName: house.name, timeZone: house.timezone, runId, endedAt: started };
+      const run: ExportRun = { schedule, ownerUserId: row.owner_user_id, houseName: house.name, timeZone: house.timezone, runId, endedAt: started };
       await this.#send(destination, run, await this.#prepareCsv(run));
     } catch (error) {
       const message = error instanceof Error ? error.message.slice(0, 2_000) : "Scheduled export failed";
       const failedAt = this.#now();
       const house = this.#database.getHouse(row.house_id);
       const nextRunAt = advanceSchedule && row.enabled === 1 && house
-        ? nextScheduledDataExportRun(publicSchedule(row), house.timezone, failedAt)
+        ? nextScheduledDataExportRun(this.#schedule(row), house.timezone, failedAt)
         : this.#row(id)?.next_run_at ?? row.next_run_at;
       this.#database.db.prepare(`UPDATE scheduled_data_exports SET last_run_status = 'failed', last_run_error = ?,
         pending_run_id = NULL, pending_started_at = NULL, next_run_at = ?, revision = revision + 1, updated_at = ? WHERE id = ?`)
@@ -599,7 +608,7 @@ export class ScheduledDataExportService {
       return;
     }
     const { schedule, runId } = run;
-    const provider = await this.#destinations.deliver({
+    const provider = await this.#destinations.deliver(run.ownerUserId, {
       folder: ["data-exports", schedule.id],
       name: prepared.outputName,
       content: prepared.csv,
@@ -704,14 +713,16 @@ export class ScheduledDataExportService {
     return { ...base, baseRevision };
   }
 
-  #assertDestinationReady(): void {
-    if (!this.targetConfigured()) throw new ScheduledDataExportError(409, "EXPORT_DESTINATION_REQUIRED", "Choose and connect an export destination in Set up first");
+  #assertDestinationReady(ownerUserId: string | null): void {
+    if (!this.#destinations.readyFor(ownerUserId)) {
+      throw new ScheduledDataExportError(409, "EXPORT_DESTINATION_REQUIRED", "Connect where this schedule's exports go first: the NAS, or its owner's cloud drive");
+    }
   }
 
-  /** The selected destination, once it can take a run; the NAS also needs the isolated worker's directory. */
-  #readyDestination(): ExportDestinationKind {
-    this.#assertDestinationReady();
-    const destination = this.#destinations.selected();
+  /** The owner's destination, once it can take a run; the NAS also needs the isolated worker's directory. */
+  #readyDestination(ownerUserId: string | null): ExportDestinationKind {
+    this.#assertDestinationReady(ownerUserId);
+    const destination = this.#destinations.selectedFor(ownerUserId);
     if (destination === "nas" && !this.#operationsDirectory) throw new Error("The isolated export worker is not configured");
     return destination;
   }
@@ -746,6 +757,14 @@ export class ScheduledDataExportService {
     }
   }
 
+  #schedule(row: ScheduledExportRow): ScheduledDataExport {
+    const owner = row.owner_user_id;
+    return publicSchedule(row, {
+      ownerEmail: owner ? this.#people.member(owner)?.email ?? null : null,
+      destination: this.#destinations.selectedFor(owner),
+    });
+  }
+
   #row(id: string): ScheduledExportRow | null {
     return (this.#database.db.prepare("SELECT * FROM scheduled_data_exports WHERE id = ?").get(id) as unknown as ScheduledExportRow | undefined) ?? null;
   }
@@ -773,11 +792,17 @@ export class ScheduledDataExportService {
       last_output_name TEXT,
       pending_run_id TEXT,
       pending_started_at TEXT,
+      owner_user_id TEXT,
       revision INTEGER NOT NULL DEFAULT 1,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_scheduled_data_exports_due
       ON scheduled_data_exports(enabled, next_run_at) WHERE enabled = 1;`);
+    // Schedules from before 0.62.0 have no owner and keep going to the shared NAS.
+    const columns = this.#database.db.prepare("PRAGMA table_info(scheduled_data_exports)").all() as unknown as Array<{ name: string }>;
+    if (!columns.some((column) => column.name === "owner_user_id")) {
+      this.#database.db.exec("ALTER TABLE scheduled_data_exports ADD COLUMN owner_user_id TEXT");
+    }
   }
 }

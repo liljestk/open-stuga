@@ -13,7 +13,7 @@ interface CloudExportAppValues {
 
 /**
  * The app IDs a Stugu installation uses to let an owner connect Dropbox or Google Drive, and where each
- * provider's came from. An app an Owner/Admin enters in Set up replaces a built-in one, never an environment one.
+ * provider's came from. An app an Owner/Admin enters in Stugu replaces a built-in one, never an environment one.
  */
 export interface CloudExportApps extends CloudExportAppValues {
   dropboxAppSource: ConfiguredAppSource | null;
@@ -30,7 +30,7 @@ export type ProjectCloudExportApps = Readonly<Record<keyof CloudExportAppValues,
  * of the host image and only changes with a host update. The values identify public clients and are
  * not secrets; Google doesn't treat an installed-app client secret as confidential. A deployment's
  * `STUGU_DROPBOX_APP_KEY` and `STUGU_GOOGLE_DRIVE_CLIENT_*` variables override them, and so does an
- * app an Owner/Admin enters in Set up. Empty values leave the provider for Set up;
+ * app an Owner/Admin enters in Stugu. Empty values leave the provider to an app entered in Stugu;
  * docs/cloud-export-destinations.md has the registration steps.
  */
 export const PROJECT_CLOUD_EXPORT_APPS: ProjectCloudExportApps = {

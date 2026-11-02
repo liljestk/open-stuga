@@ -47,7 +47,7 @@ function resolveGoogleDrive(configured: CloudExportApps, stored: StoredGoogleDri
     : null;
 }
 
-/** The deployment's environment wins, then the app an Owner/Admin entered in Set up, then the project's built-in app. */
+/** The deployment's environment wins, then the app an Owner/Admin entered in Stugu, then the project's built-in app. */
 export function resolveCloudExportApps(configured: CloudExportApps, stored: StoredCloudExportApps | undefined): ResolvedCloudExportApps {
   return { dropbox: resolveDropbox(configured, stored?.dropbox), "google-drive": resolveGoogleDrive(configured, stored?.googleDrive) };
 }

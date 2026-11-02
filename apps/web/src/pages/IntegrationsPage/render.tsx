@@ -511,7 +511,7 @@ export function renderIntegrationsPage(context: ReturnType<typeof useIntegration
           role="tabpanel"
           aria-labelledby="setup-tab-operations"
         >
-          <SetupOperationsPanel house={house} canManageSystem={canManageIntegrations === true} />
+          <SetupOperationsPanel house={house} />
         </section>}
 
         {setupSectionOrder.filter((section) => section !== activeSection).map((section) => (

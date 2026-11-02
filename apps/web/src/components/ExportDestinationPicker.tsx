@@ -1,9 +1,9 @@
 import type { CloudExportAccount, CloudExportConnection, CloudExportProvider, ExportDestinationKind, ExportDestinationStatus } from "@climate-twin/contracts";
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Cloud, ExternalLink, HardDrive, LoaderCircle } from "lucide-react";
 import { api } from "../api";
-import { confirmAction } from "../components/ConfirmationProvider";
-import { EXPORT_DESTINATION_NAME_KEYS } from "../components/exportDestinationNames";
+import { confirmAction } from "./ConfirmationProvider";
+import { EXPORT_DESTINATION_NAME_KEYS } from "./exportDestinationNames";
 import { useI18n } from "../i18n";
 import { ExportDestinationAppSetup, type CloudExportAppInput } from "./ExportDestinationAppSetup";
 import "./ExportDestinationPicker.css";
@@ -30,7 +30,7 @@ function readableUrl(value: string): string {
 }
 
 function cloudDetail(account: CloudExportAccount, t: Translate): string {
-  if (account.connected) return account.accountLabel ? t("dataExport.destinationConnectedAs", { account: account.accountLabel }) : t("dataExport.nasSetupConnected");
+  if (account.connected) return account.accountLabel ? t("dataExport.destinationConnectedAs", { account: account.accountLabel }) : t("dataExport.destinationConnected");
   return account.available ? t("dataExport.destinationSignInHint") : t("dataExport.destinationUnavailable");
 }
 
@@ -107,38 +107,36 @@ function ConnectionSteps(props: Readonly<ConnectionStepsProps>) {
   </form>;
 }
 
-/** The installation-wide choice of where scheduled exports go: the NAS, Dropbox, or Google Drive. */
-export function ExportDestinationPicker({ nasConnected }: Readonly<{ nasConnected: boolean }>) {
+interface ExportDestinationPickerProps {
+  /** The signed-in person's destination and drives; the owning panel loads it. */
+  status: ExportDestinationStatus;
+  onStatus: (status: ExportDestinationStatus) => void;
+  /** Reloads the status quietly while Google Drive waits for the account to approve; keep it stable. */
+  onRefresh: () => void;
+}
+
+/**
+ * Where the signed-in person's scheduled exports go: the shared NAS, or a Dropbox or Google Drive of their own.
+ * Only the provider apps are shared by the installation; each person signs in to their own account.
+ */
+export function ExportDestinationPicker({ status, onStatus, onRefresh }: Readonly<ExportDestinationPickerProps>) {
   const { t } = useI18n();
-  const [status, setStatus] = useState<ExportDestinationStatus | null>(null);
-  const [busy, setBusy] = useState<string | null>("load");
+  const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [appSetup, setAppSetup] = useState<CloudExportProvider | null>(null);
 
-  const load = useCallback(async (quiet = false) => {
-    try {
-      setStatus(await api.exportDestinations());
-      if (!quiet) setError(null);
-    } catch (loadError) {
-      if (!quiet) setError(message(loadError, t("dataExport.destinationError")));
-    } finally {
-      if (!quiet) setBusy(null);
-    }
-  }, [t]);
-
-  useEffect(() => { void load(); }, [load, nasConnected]);
-  const waitingForApproval = status?.connection?.method === "enter-code" && !status.connection.error;
+  const waitingForApproval = status.connection?.method === "enter-code" && !status.connection.error;
   useEffect(() => {
     if (!waitingForApproval) return;
-    const timer = window.setInterval(() => void load(true), POLL_MS);
+    const timer = window.setInterval(onRefresh, POLL_MS);
     return () => window.clearInterval(timer);
-  }, [load, waitingForApproval]);
+  }, [onRefresh, waitingForApproval]);
 
   const run = async (label: string, action: () => Promise<ExportDestinationStatus>) => {
     setBusy(label);
     setError(null);
     try {
-      setStatus(await action());
+      onStatus(await action());
     } catch (actionError) {
       setError(message(actionError, t("dataExport.destinationError")));
     } finally {
@@ -148,16 +146,16 @@ export function ExportDestinationPicker({ nasConnected }: Readonly<{ nasConnecte
   const providerName = (provider: CloudExportProvider) => t(EXPORT_DESTINATION_NAME_KEYS[provider]);
   const connect = (provider: CloudExportProvider) => void run(`connect-${provider}`, () => api.connectExportDestination(provider));
   const select = (kind: ExportDestinationKind) => {
-    if (kind !== status?.selected) void run("select", () => api.selectExportDestination(kind));
+    if (kind !== status.selected) void run("select", () => api.selectExportDestination(kind));
   };
   // Saving the app goes straight on to the sign-in, so setting up a drive stays one flow.
   const saveApp = async (provider: CloudExportProvider, app: CloudExportAppInput) => {
     setBusy(`app-${provider}`);
     setError(null);
     try {
-      setStatus(await api.saveExportDestinationApp(provider, app));
+      onStatus(await api.saveExportDestinationApp(provider, app));
       setAppSetup(null);
-      setStatus(await api.connectExportDestination(provider));
+      onStatus(await api.connectExportDestination(provider));
     } catch (actionError) {
       setError(message(actionError, t("dataExport.destinationError")));
     } finally {
@@ -201,21 +199,22 @@ export function ExportDestinationPicker({ nasConnected }: Readonly<{ nasConnecte
     return <div className="export-destination-actions">{button}{appButton(account.provider, true)}</div>;
   };
 
-  const connection = status?.connection ?? null;
-  const setupAccount = status?.accounts.find((account) => account.provider === appSetup && !account.connected && account.appSource !== "environment") ?? null;
+  const connection = status.connection;
+  const setupAccount = status.accounts.find((account) => account.provider === appSetup && !account.connected && account.appSource !== "environment") ?? null;
+  // The NAS is the installation's backup location, set under System › Storage rather than here.
+  const nasAction = status.nasConnected ? undefined : <a className="secondary-button" href="/system">{t("dataExport.destinationOpenSystem")}</a>;
   return <fieldset className="export-destinations">
-    <legend>{t("dataExport.destinationTitle")}</legend>
+    <legend className="sr-only">{t("dataExport.destinationTitle")}</legend>
     <p className="export-destinations-help">{t("dataExport.destinationHelp")}</p>
-    {busy === "load" && !status && <p role="status"><LoaderCircle className="spin" size={16} aria-hidden="true" /> {t("dataExport.destinationLoading")}</p>}
-    {status && <div className="export-destination-options">
-      <DestinationOption kind="nas" name={t(EXPORT_DESTINATION_NAME_KEYS.nas)} detail={status.nasConnected ? t("dataExport.nasSetupConnected") : t("dataExport.destinationNasMissing")}
-        cloud={false} selected={status.selected === "nas"} selectable={status.nasConnected || status.selected === "nas"} disabled={busy !== null} onSelect={select} />
+    <div className="export-destination-options">
+      <DestinationOption kind="nas" name={t(EXPORT_DESTINATION_NAME_KEYS.nas)} detail={status.nasConnected ? t("dataExport.destinationNasShared") : t("dataExport.destinationNasMissing")}
+        cloud={false} selected={status.selected === "nas"} selectable={status.nasConnected || status.selected === "nas"} disabled={busy !== null} onSelect={select} action={nasAction} />
       {status.accounts.map((account) => <DestinationOption key={account.provider} kind={account.provider} name={providerName(account.provider)} detail={cloudDetail(account, t)}
         cloud selected={status.selected === account.provider} selectable={account.connected} disabled={busy !== null} onSelect={select} action={cloudAction(account)} />)}
       <div className="export-destination-option unavailable">
         <label><input type="radio" name="export-destination" value="icloud" disabled /><span className="export-destination-name"><Cloud size={16} aria-hidden="true" />{t("dataExport.destinationIcloud")}</span><small>{t("dataExport.destinationComingLater")}</small></label>
       </div>
-    </div>}
+    </div>
     {setupAccount && <ExportDestinationAppSetup key={setupAccount.provider} provider={setupAccount.provider} providerName={providerName(setupAccount.provider)}
       removable={setupAccount.appSource === "protected-file"} busy={busy !== null}
       onSave={(app) => void saveApp(setupAccount.provider, app)} onRemove={() => removeApp(setupAccount.provider)} onCancel={() => setAppSetup(null)} />}
@@ -223,7 +222,7 @@ export function ExportDestinationPicker({ nasConnected }: Readonly<{ nasConnecte
       onSubmitCode={(code) => void run("code", () => api.submitExportDestinationCode(connection.provider, connection.id, code))}
       onCancel={() => void run("cancel", () => api.cancelExportDestinationConnection())}
       onRetry={() => connect(connection.provider)} />}
-    {status && status.selected !== "nas" && status.ready && <p className="export-destinations-folder">{t(PROVIDER_FOLDER_KEYS[status.selected])}</p>}
+    {status.selected !== "nas" && status.ready && <p className="export-destinations-folder">{t(PROVIDER_FOLDER_KEYS[status.selected])}</p>}
     {error && <p className="inline-error" role="alert">{error}</p>}
   </fieldset>;
 }

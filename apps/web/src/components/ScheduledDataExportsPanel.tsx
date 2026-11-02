@@ -11,11 +11,13 @@ import type {
 import { CalendarClock, Cloud, HardDrive, LoaderCircle, Pause, Play, Plus, Trash2 } from "lucide-react";
 import { api } from "../api";
 import { confirmAction } from "./ConfirmationProvider";
+import { ExportDestinationPicker } from "./ExportDestinationPicker";
 import { EXPORT_DESTINATION_NAME_KEYS } from "./exportDestinationNames";
 import { useI18n } from "../i18n";
 import "./ScheduledDataExportsPanel.css";
 
 type ExportPeriod = "24h" | "7d" | "30d" | "90d" | "custom";
+type Translate = ReturnType<typeof useI18n>["t"];
 
 interface ScheduledDataExportsPanelProps {
   house: House;
@@ -25,10 +27,44 @@ interface ScheduledDataExportsPanelProps {
   resolution: AnalyticsResolution | null;
   aggregation: AnalyticsAggregation;
   configurationError: string | null;
+  /** The signed-in person, so their own schedules read as theirs. */
+  viewerEmail: string | null;
 }
 
 function message(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
+}
+
+/** Where a schedule's runs go and whose choice that is. */
+function scheduleRouteLabel(schedule: ScheduledDataExport, viewerEmail: string | null, t: Translate): string {
+  const destination = t("dataExport.scheduleGoesTo", { destination: t(EXPORT_DESTINATION_NAME_KEYS[schedule.destination]) });
+  if (schedule.ownerEmail === null) return `${destination} · ${t("dataExport.scheduleOwnerShared")}`;
+  const yours = schedule.ownerEmail.toLowerCase() === viewerEmail?.toLowerCase();
+  return `${destination} · ${yours ? t("dataExport.scheduleOwnerYou") : t("dataExport.scheduleOwner", { owner: schedule.ownerEmail })}`;
+}
+
+function destinationSummary(status: ExportDestinationStatus, t: Translate): string {
+  if (!status.ready) return t("dataExport.scheduleTargetHelp");
+  if (status.selected === "nas") return t("dataExport.destinationNasShared");
+  const label = status.accounts.find((account) => account.provider === status.selected)?.accountLabel;
+  return label ? t("dataExport.destinationConnectedAs", { account: label }) : t("dataExport.destinationConnected");
+}
+
+interface DestinationSectionProps {
+  status: ExportDestinationStatus;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onStatus: (status: ExportDestinationStatus) => void;
+  onRefresh: () => void;
+}
+
+/** The person's own choice of destination, folded away once it is ready. */
+function DestinationSection(props: Readonly<DestinationSectionProps>) {
+  const { t } = useI18n();
+  return <details className="scheduled-destination" open={props.open} onToggle={(event) => props.onOpenChange(event.currentTarget.open)}>
+    <summary><span><strong>{t("dataExport.destinationTitle")}</strong><small>{destinationSummary(props.status, t)}</small></span></summary>
+    <ExportDestinationPicker status={props.status} onStatus={props.onStatus} onRefresh={props.onRefresh} />
+  </details>;
 }
 
 function scheduleInput(schedule: ScheduledDataExport, enabled = schedule.enabled): ScheduledDataExportInput {
@@ -52,6 +88,7 @@ export function ScheduledDataExportsPanel(props: Readonly<ScheduledDataExportsPa
   const { locale, t } = useI18n();
   const [schedules, setSchedules] = useState<ScheduledDataExport[]>([]);
   const [destination, setDestination] = useState<ExportDestinationStatus | null>(null);
+  const [destinationOpen, setDestinationOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [scheduleLoadError, setScheduleLoadError] = useState<string | null>(null);
@@ -98,6 +135,8 @@ export function ScheduledDataExportsPanel(props: Readonly<ScheduledDataExportsPa
     const task = api.exportDestinations(controller.signal).then((nextDestination) => {
       if (controller.signal.aborted) return;
       setDestination(nextDestination);
+      // Opens the choice whenever nothing can receive exports, and never folds it away on its own.
+      if (!nextDestination.ready) setDestinationOpen(true);
       setStorageLoadError(null);
     }).catch((loadError: unknown) => {
       if (!controller.signal.aborted) setStorageLoadError(message(loadError, t("dataExport.scheduleLoadError")));
@@ -123,6 +162,7 @@ export function ScheduledDataExportsPanel(props: Readonly<ScheduledDataExportsPa
       storageInFlight.current = null;
     };
   }, [loadSchedules, loadStorage]);
+  const refreshDestination = useCallback(() => { void loadStorage(); }, [loadStorage]);
   useEffect(() => setName(`${props.house.name} export`), [props.house.id, props.house.name]);
   useEffect(() => {
     if (!schedules.some((schedule) => schedule.lastRunStatus === "pending")) return;
@@ -250,7 +290,7 @@ export function ScheduledDataExportsPanel(props: Readonly<ScheduledDataExportsPa
       <span className={`scheduled-target ${targetReady ? "connected" : "missing"}`}>{destination?.selected && destination.selected !== "nas" ? <Cloud size={14} aria-hidden="true" /> : <HardDrive size={14} aria-hidden="true" />}{destination === null ? t("dataExport.scheduleTargetChecking") : targetReady ? t("dataExport.scheduleTargetConnected", { destination: t(EXPORT_DESTINATION_NAME_KEYS[destination.selected]) }) : t("dataExport.scheduleTargetMissing")}</span>
     </header>
 
-    {targetReady === false && <div className="scheduled-target-callout"><p>{t("dataExport.scheduleTargetHelp")}</p><a className="secondary-button" href="/setup/operations#nas-export-setup">{t("dataExport.scheduleSetupNas")}</a></div>}
+    {destination && <DestinationSection status={destination} open={destinationOpen} onOpenChange={setDestinationOpen} onStatus={setDestination} onRefresh={refreshDestination} />}
 
     <div className="scheduled-quick-create">
       <div><strong>{t("dataExport.scheduleUsingSelection")}</strong><small>{t("dataExport.scheduleCsvOnly")}</small></div>
@@ -274,7 +314,7 @@ export function ScheduledDataExportsPanel(props: Readonly<ScheduledDataExportsPa
 
     {error && <p className="inline-error" role="alert">{error}</p>}
     {loading && schedules.length === 0 ? <p className="scheduled-loading" role="status"><LoaderCircle className="spin" size={16} aria-hidden="true" />{t("dataExport.scheduleLoading")}</p> : schedules.length === 0 ? <p className="scheduled-empty">{t("dataExport.scheduleEmpty")}</p> : <ul className="scheduled-list">{schedules.map((schedule) => <li key={schedule.id}>
-      <div className="scheduled-list-main"><strong>{schedule.name}</strong><span>{recurrenceLabel(schedule)} · {schedule.timeLocal} · {schedule.period}</span><small>{t("dataExport.scheduleNextRun")}: {schedule.enabled ? formatDate(schedule.nextRunAt) : t("dataExport.schedulePaused")} · {t("dataExport.scheduleLastRun")}: {statusLabel(schedule)}</small>{schedule.lastOutputName && <small>{t("dataExport.scheduleLastFile")}: <code>{schedule.lastOutputName}</code></small>}{schedule.lastRunError && <small className="scheduled-run-error">{schedule.lastRunError}</small>}</div>
+      <div className="scheduled-list-main"><strong>{schedule.name}</strong><span>{recurrenceLabel(schedule)} · {schedule.timeLocal} · {schedule.period}</span><small>{scheduleRouteLabel(schedule, props.viewerEmail, t)}</small><small>{t("dataExport.scheduleNextRun")}: {schedule.enabled ? formatDate(schedule.nextRunAt) : t("dataExport.schedulePaused")} · {t("dataExport.scheduleLastRun")}: {statusLabel(schedule)}</small>{schedule.lastOutputName && <small>{t("dataExport.scheduleLastFile")}: <code>{schedule.lastOutputName}</code></small>}{schedule.lastRunError && <small className="scheduled-run-error">{schedule.lastRunError}</small>}</div>
       <div className="scheduled-actions"><button type="button" className="icon-button" title={t("dataExport.scheduleRunNow")} aria-label={t("dataExport.scheduleRunNow")} disabled={busy !== null || schedule.lastRunStatus === "pending"} onClick={() => void run(schedule)}><Play size={15} aria-hidden="true" /></button><button type="button" className="icon-button" title={schedule.enabled ? t("dataExport.schedulePause") : t("dataExport.scheduleResume")} aria-label={schedule.enabled ? t("dataExport.schedulePause") : t("dataExport.scheduleResume")} disabled={busy !== null || schedule.lastRunStatus === "pending"} onClick={() => void toggle(schedule)}>{schedule.enabled ? <Pause size={15} aria-hidden="true" /> : <Play size={15} aria-hidden="true" />}</button><button type="button" className="icon-button danger" title={t("dataExport.scheduleDelete")} aria-label={t("dataExport.scheduleDelete")} disabled={busy !== null || schedule.lastRunStatus === "pending"} onClick={() => void remove(schedule)}><Trash2 size={15} aria-hidden="true" /></button></div>
     </li>)}</ul>}
   </section>;

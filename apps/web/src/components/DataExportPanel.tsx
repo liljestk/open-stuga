@@ -489,6 +489,7 @@ export function DataExportPanel(props: Readonly<DataExportPanelProps>) {
           resolution={resolution}
           aggregation={resolution === "raw" ? "default" : aggregation}
           configurationError={validationError ?? (includesArchivedSensors ? t("dataExport.scheduleArchivedSelection") : null)}
+          viewerEmail={props.state.session.principal.email}
         />}
 
         {preview && <section className={`data-export-preview ${previewCurrent ? "current" : "stale"}`} aria-labelledby="data-export-preview-title">

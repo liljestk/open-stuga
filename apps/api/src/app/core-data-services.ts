@@ -1,7 +1,8 @@
 import { RuntimeDisposers } from "./runtime-disposers.js";
 import { reportBackgroundFailure } from "../system-error-log.js";
-import type {
-  TrackingFeatureFlags,
+import {
+  roleCanManageWorkspace,
+  type TrackingFeatureFlags,
 } from "@climate-twin/contracts";
 import {
   ClimateDatabase,
@@ -109,10 +110,17 @@ export function createCoreDataServices(context: ApiConfigContext) {
   const systemStorage = new SystemStorageService({
       operationsDirectory: config.systemUpdateOperationsDirectory,
     });
+  const localAuth = new LocalAuthStore(database);
   const exportDestinations = new ExportDestinationService({
       secretsFile: config.integrationSecretsFile,
       stored: config.exportDestinations ?? null,
       systemStorage,
+      // Before the first Owner exists, only the test bypass principal can reach these routes.
+      mayHoldAccounts: (userId) => {
+        if (!localAuth.isInitialized()) return true;
+        const member = localAuth.member(userId);
+        return member !== null && roleCanManageWorkspace(member.role);
+      },
       dropboxAppKey: config.dropboxAppKey ?? null,
       googleDriveClientId: config.googleDriveClientId ?? null,
       googleDriveClientSecret: config.googleDriveClientSecret ?? null,
@@ -141,7 +149,6 @@ export function createCoreDataServices(context: ApiConfigContext) {
   const dataOperations = new DataOperationsService(database, config);
   const energyOptimizer = new EnergyOptimizer(database);
   const integrationMetadata = initializeIntegrationMetadata(config, database);
-  const localAuth = new LocalAuthStore(database);
   const recordSecurityAudit = (
       actor: Pick<LocalAuthIdentity, "userId" | "role"> | null,
       event: Omit<SecurityAuditEventInput, "actorUserId" | "actorRole">,
