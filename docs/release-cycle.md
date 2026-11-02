@@ -318,12 +318,16 @@ staging, activation, trust override, or health-state rewrite. Runtime update
 interlocks and the verified backup remain mandatory when installing.
 
 Signed metadata expires to bound how long an obsolete feed can be replayed.
-Installing application containers does not renew it. The online feed workflow
-refreshes snapshot and timestamp roles; only the separately controlled offline
-targets/root ceremony can renew those roles. For expired targets, keep host
-updates paused, renew targets through the offline signer, then publish snapshot
-and timestamp in order and independently verify the chain. Never change the
-Pi clock, edit signed metadata, clear journals, or disable expiry checks.
+Installing application containers does not renew it. The feed's weekly
+workflow refreshes snapshot and timestamp. The `host-tuf-renewal` task on the
+key-holding operator machine re-signs targets, with unchanged content, 90 days
+before expiry, and backs up the weekly workflow. Only root still needs the
+offline ceremony. See
+[Keeping feed metadata fresh](host-update-release.md#6-keeping-feed-metadata-fresh).
+If a role has expired anyway, keep host updates paused, run
+`npm run host-tuf-renewal -- status` and `-- run` on that machine, then
+independently verify the chain. Never change the Pi clock, edit signed
+metadata, clear journals, or disable expiry checks.
 
 A drafted release is invisible to appliances. The update agent enumerates
 published feed releases and skips anything still marked draft, so a release
@@ -445,7 +449,9 @@ RAUC signing and TUF metadata publication require separate key custody and the
 receive signing private keys.
 
 The repository tracks the host bundle builder and independent publication
-verifier, but not a production TUF signing service. Ad-hoc helpers found under
+verifier, but not a production TUF signing service. The `host-tuf-renewal`
+task only re-signs the existing targets content; it cannot publish a host
+target. Ad-hoc helpers found under
 ignored `dist/` are ceremony output, not canonical tooling. If a host release
 is requested and the approved signer/TUF procedure is unavailable, report that
 specific operational gap and stop; do not reconstruct a production ceremony
