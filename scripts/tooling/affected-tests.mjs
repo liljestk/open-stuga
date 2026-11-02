@@ -31,7 +31,7 @@ const SCRIPT_TESTS = [
   [/^scripts\/(?:stugu-live-migrate|stugu-migration|migrate-telemetry)/u, "test:live-migration"],
   [/^scripts\/(?:cloudflare|local-ci|setup)/u, "test:setup"],
   [/^scripts\/(?:stugu-update-agent|stugu-storage)/u, "test:update-agent"],
-  [/^scripts\/(?:tooling\/|build-host|host-release|publish-local-release|local-release|release-verify|rpi-doctor|deploy-rpi-ota)/u, "test:rpi-ota"],
+  [/^scripts\/(?:tooling\/|build-host|host-release|host-tuf-renewal|publish-local-release|local-release|release-verify|rpi-doctor|deploy-rpi-ota)/u, "test:rpi-ota"],
   [/^scripts\/(?:build-nexus433|smoke-nexus433)/u, "test:nexus433-runtime"],
   [
     /^(?:scripts\/(?:check-(?:architecture-boundaries|unused-symbols)|agent-stop-gate|tooling\/quality-ratchets)\.mjs|\.claude\/settings\.json)$/u,
