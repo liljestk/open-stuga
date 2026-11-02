@@ -111,6 +111,7 @@ export function createTelemetryServices(context: CoreDataServices) {
       database: context.database,
       telemetryReader,
       destinations: context.exportDestinations,
+      people: context.localAuth,
       dataOperations: context.dataOperations,
       operationsDirectory: config.backupOperationsDirectory ?? null,
       systemErrorLog: context.systemErrorLog,

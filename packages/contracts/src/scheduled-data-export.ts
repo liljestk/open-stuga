@@ -1,3 +1,4 @@
+import type { ExportDestinationKind } from "./export-destinations.js";
 import type { AnalyticsAggregation, AnalyticsResolution } from "./measurement-analytics.js";
 
 export const SCHEDULED_DATA_EXPORT_FREQUENCIES = ["daily", "weekly", "monthly"] as const;
@@ -26,6 +27,13 @@ export interface ScheduledDataExport {
   lastRunStatus: ScheduledDataExportRunStatus;
   lastRunError: string | null;
   lastOutputName: string | null;
+  /**
+   * The Owner/Admin who set the schedule up; its runs go where that person sends their exports. Null for a
+   * schedule from before 0.62.0 or one whose owner was removed: those go to the shared NAS.
+   */
+  ownerEmail: string | null;
+  /** Where the next run goes, from the owner's current choice. */
+  destination: ExportDestinationKind;
   revision: number;
   createdAt: string;
   updatedAt: string;

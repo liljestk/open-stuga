@@ -14,6 +14,7 @@ export type TenantAdministrationRouteContext = Pick<
   | "synchronizeCloudflareAccess"
   | "recordSecurityAudit"
   | "database"
+  | "exportDestinations"
 >;
 
 export function registerTenantAdministrationRoutes(
@@ -79,6 +80,8 @@ export function registerTenantAdministrationRoutes(
         subjectType: "workspace-member",
         subjectId: auditAccountSubject(request.params.email),
       });
+      // Their cloud export drives go with them; the schedules they set up fall back to the NAS.
+      void context.exportDestinations.forgetDeparted().catch(() => undefined);
       await context.synchronizeCloudflareAccess();
       response.status(204).end();
     },

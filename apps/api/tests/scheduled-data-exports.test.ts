@@ -19,9 +19,12 @@ describe("scheduled data exports", () => {
     for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true });
   });
 
+  /** `destination` is where the owner, owner-1, sends exports; schedules without an owner always go to the NAS. */
   function fixture(options: { ready?: boolean; destination?: "nas" | "dropbox" } = {}) {
     const ready = options.ready ?? true;
     const destination = options.destination ?? "nas";
+    const members = new Map([["owner-1", { email: "owner@example.test", role: "owner" as const }]]);
+    const selectedFor = (userId: string | null) => (userId && members.has(userId) ? destination : "nas");
     const operationsDirectory = mkdtempSync(join(tmpdir(), "stugu-scheduled-export-"));
     directories.push(operationsDirectory);
     const database = new ClimateDatabase(":memory:", true);
@@ -37,16 +40,17 @@ describe("scheduled data exports", () => {
       quality: "good",
     }]);
     const audit = vi.fn();
-    const deliver = vi.fn(async () => "dropbox" as const);
+    const deliver = vi.fn(async (_userId: string | null) => "dropbox" as const);
     const service = new ScheduledDataExportService({
       database,
       telemetryReader: new HybridTelemetryReader({ local: database }),
-      destinations: { selected: () => destination, ready: () => ready, deliver },
+      destinations: { selectedFor, readyFor: () => ready, deliver },
+      people: { member: (userId: string) => members.get(userId) ?? null },
       dataOperations: { audit } as never,
       operationsDirectory,
       now: () => new Date("2026-08-02T12:00:00.000Z"),
     });
-    return { service, operationsDirectory, audit, deliver };
+    return { service, operationsDirectory, audit, deliver, members };
   }
 
   const input = {
@@ -66,9 +70,9 @@ describe("scheduled data exports", () => {
 
   it("creates a Home schedule and stages a checksummed CSV handoff", async () => {
     const { service, operationsDirectory, audit } = fixture();
-    const schedule = service.create("house-main", input);
+    const schedule = service.create("house-main", input, "owner-1");
 
-    expect(schedule).toMatchObject({ houseId: "house-main", enabled: true, lastRunStatus: "never" });
+    expect(schedule).toMatchObject({ houseId: "house-main", enabled: true, lastRunStatus: "never", ownerEmail: "owner@example.test", destination: "nas" });
     expect(schedule.nextRunAt).toBe("2026-08-08T23:00:00.000Z");
 
     const pending = await service.runNow(schedule.id);
@@ -104,18 +108,20 @@ describe("scheduled data exports", () => {
 
   it("requires a connected export destination for active schedules", () => {
     const { service } = fixture({ ready: false });
-    expect(() => service.create("house-main", input)).toThrowError(ScheduledDataExportError);
-    expect(() => service.create("house-main", { ...input, enabled: false })).not.toThrow();
+    expect(() => service.create("house-main", input, "owner-1")).toThrowError(ScheduledDataExportError);
+    expect(() => service.create("house-main", { ...input, enabled: false }, "owner-1")).not.toThrow();
   });
 
   it("uploads straight to a connected cloud drive and completes without the NAS worker", async () => {
     const { service, operationsDirectory, audit, deliver } = fixture({ destination: "dropbox" });
-    const schedule = service.create("house-main", input);
+    const schedule = service.create("house-main", input, "owner-1");
 
     const completed = await service.runNow(schedule.id);
 
     expect(deliver).toHaveBeenCalledOnce();
-    const [file] = deliver.mock.calls[0] as unknown as [{ folder: string[]; name: string; content: string; retentionCount: number }];
+    const [owner, file] = deliver.mock.calls[0] as unknown as [string, { folder: string[]; name: string; content: string; retentionCount: number }];
+    expect(owner).toBe("owner-1");
+    expect(schedule).toMatchObject({ ownerEmail: "owner@example.test", destination: "dropbox" });
     expect(file.folder).toEqual(["data-exports", schedule.id]);
     expect(file.name).toMatch(/^stugu-.+-1h-mean-[0-9a-f]{8}\.csv$/u);
     expect(file.content).toContain("Home time,UTC timestamp,Sensor name,Sensor ID,Temperature (°C)");
@@ -128,7 +134,7 @@ describe("scheduled data exports", () => {
   it("records a cloud upload failure on the schedule", async () => {
     const { service, deliver } = fixture({ destination: "dropbox" });
     deliver.mockRejectedValueOnce(new Error("Dropbox access was removed. Connect Dropbox again in Set up."));
-    const schedule = service.create("house-main", input);
+    const schedule = service.create("house-main", input, "owner-1");
 
     await expect(service.runNow(schedule.id)).rejects.toThrowError(ScheduledDataExportError);
 
@@ -136,6 +142,45 @@ describe("scheduled data exports", () => {
       lastRunStatus: "failed",
       lastRunError: "Dropbox access was removed. Connect Dropbox again in Set up.",
     });
+  });
+
+  it("sends a removed owner's schedule to the NAS instead of their cloud drive", async () => {
+    const { service, operationsDirectory, deliver, members } = fixture({ destination: "dropbox" });
+    const schedule = service.create("house-main", input, "owner-1");
+    members.delete("owner-1");
+
+    expect(service.get(schedule.id)).toMatchObject({ ownerEmail: null, destination: "nas" });
+    await expect(service.runNow(schedule.id)).resolves.toMatchObject({ lastRunStatus: "pending" });
+
+    expect(deliver).not.toHaveBeenCalled();
+    expect(readdirSync(operationsDirectory).some((name) => name.endsWith(".request.json"))).toBe(true);
+  });
+
+  it("gives schedules from before 0.62.0 no owner and keeps them on the NAS", () => {
+    const operationsDirectory = mkdtempSync(join(tmpdir(), "stugu-scheduled-export-legacy-"));
+    directories.push(operationsDirectory);
+    const database = new ClimateDatabase(":memory:", true);
+    databases.push(database);
+    database.db.exec(`CREATE TABLE scheduled_data_exports (
+      id TEXT PRIMARY KEY, house_id TEXT NOT NULL, name TEXT NOT NULL, enabled INTEGER NOT NULL, frequency TEXT NOT NULL,
+      time_local TEXT NOT NULL, day_of_week INTEGER, day_of_month INTEGER, period TEXT NOT NULL, sensor_ids_json TEXT NOT NULL,
+      measurement_ids_json TEXT NOT NULL, resolution TEXT NOT NULL, aggregation TEXT NOT NULL, retention_count INTEGER NOT NULL,
+      next_run_at TEXT, last_run_at TEXT, last_run_status TEXT NOT NULL, last_run_error TEXT, last_output_name TEXT,
+      pending_run_id TEXT, pending_started_at TEXT, revision INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    );
+    INSERT INTO scheduled_data_exports VALUES ('legacy-1', 'house-main', 'Old export', 0, 'daily', '02:00', NULL, NULL, '24h',
+      '["sensor-01"]', '["temperature"]', '1h', 'mean', 3, NULL, NULL, 'never', NULL, NULL, NULL, NULL, 1,
+      '2026-08-01T00:00:00.000Z', '2026-08-01T00:00:00.000Z');`);
+    const service = new ScheduledDataExportService({
+      database,
+      telemetryReader: new HybridTelemetryReader({ local: database }),
+      destinations: { selectedFor: (userId) => (userId ? "dropbox" : "nas"), readyFor: () => true, deliver: vi.fn() },
+      people: { member: () => null },
+      dataOperations: { audit: vi.fn() } as never,
+      operationsDirectory,
+    });
+
+    expect(service.get("legacy-1")).toMatchObject({ name: "Old export", ownerEmail: null, destination: "nas" });
   });
 
   it("resolves monthly end-of-month schedules in the Home timezone", () => {

@@ -1,6 +1,6 @@
 import request from "supertest";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -11,6 +11,7 @@ import type { ExportDestinationSecrets } from "../src/export-destinations/secret
 import { ExportDestinationError, ExportDestinationService } from "../src/export-destinations/service.js";
 import { readIntegrationSecrets, updateIntegrationSecrets } from "../src/integration-secrets.js";
 import { setupOwner } from "./local-authTestSupport.js";
+
 
 const DROPBOX_APP_KEY = "stugutestappkey";
 const GOOGLE_CLIENT_ID = "1234567890-test.apps.googleusercontent.com";
@@ -127,6 +128,10 @@ function fakeProviders() {
   return { fetchImpl, state, dropboxFiles, driveItems, revoked };
 }
 
+
+const OWNER = "owner-1";
+const ADMIN = "admin-1";
+
 describe("export destinations", () => {
   const directories: string[] = [];
   let runtime: ApiRuntime | null = null;
@@ -138,12 +143,16 @@ describe("export destinations", () => {
     for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true });
   });
 
-  /** `apps` says where configured provider apps come from: the deployment's variables or the built-in apps. */
+  /**
+   * `apps` says where configured provider apps come from: the deployment's variables or the built-in apps.
+   * `departed` holds the people who are no longer an Owner or Admin.
+   */
   function fixture(options: { nas?: boolean; configured?: boolean; apps?: "environment" | "built-in"; stored?: ExportDestinationSecrets } = {}) {
     const directory = mkdtempSync(join(tmpdir(), "stugu-export-destinations-"));
     directories.push(directory);
     const secretsFile = join(directory, "integration-secrets.json");
     const providers = fakeProviders();
+    const departed = new Set<string>();
     const configured = options.configured ?? true;
     const appSource = configured ? options.apps ?? "environment" : null;
     const service = new ExportDestinationService({
@@ -155,6 +164,7 @@ describe("export destinations", () => {
           backups: options.nas ? { kind: "nas-path", path: "/mnt/stugu/nas" } : { kind: "managed", path: null },
         } }),
       } as never,
+      mayHoldAccounts: (userId) => !departed.has(userId),
       dropboxAppKey: configured ? DROPBOX_APP_KEY : null,
       googleDriveClientId: configured ? GOOGLE_CLIENT_ID : null,
       googleDriveClientSecret: configured ? GOOGLE_CLIENT_SECRET : null,
@@ -163,19 +173,19 @@ describe("export destinations", () => {
       fetchImpl: providers.fetchImpl,
       now: () => new Date("2026-10-31T12:00:00.000Z"),
     });
-    return { service, secretsFile, providers };
+    return { service, secretsFile, providers, departed };
   }
 
-  async function connectDropbox(context: ReturnType<typeof fixture>) {
-    const started = await context.service.connect("dropbox");
+  async function connectDropbox(context: ReturnType<typeof fixture>, userId = OWNER) {
+    const started = await context.service.connect(userId, "dropbox");
     const authorize = new URL(started.connection!.url);
     context.providers.state.dropboxChallenge = authorize.searchParams.get("code_challenge")!;
-    return context.service.submitCode("dropbox", { connectionId: started.connection!.id, code: "dropbox-code-123" });
+    return context.service.submitCode(userId, "dropbox", { connectionId: started.connection!.id, code: "dropbox-code-123" });
   }
 
   it("defaults to the NAS and marks providers without an app ID as unavailable", () => {
     const { service } = fixture({ nas: true, configured: false });
-    expect(service.status()).toEqual({
+    expect(service.status(OWNER)).toEqual({
       selected: "nas",
       ready: true,
       nasConnected: true,
@@ -185,13 +195,14 @@ describe("export destinations", () => {
       ],
       connection: null,
     });
-    expect(fixture({ nas: false }).service.ready()).toBe(false);
-    return expect(service.connect("dropbox")).rejects.toMatchObject({ status: 409, code: "CLOUD_EXPORT_PROVIDER_UNAVAILABLE" });
+    expect(fixture({ nas: false }).service.readyFor(OWNER)).toBe(false);
+    expect(service.selectedFor(null)).toBe("nas");
+    return expect(service.connect(OWNER, "dropbox")).rejects.toMatchObject({ status: 409, code: "CLOUD_EXPORT_PROVIDER_UNAVAILABLE" });
   });
 
   it("connects Dropbox with a pasted PKCE code and keeps the refresh token in the protected file only", async () => {
     const context = fixture();
-    const started = await context.service.connect("dropbox");
+    const started = await context.service.connect(OWNER, "dropbox");
     expect(started.connection).toMatchObject({ provider: "dropbox", method: "paste-code", userCode: null, error: null });
     const authorize = new URL(started.connection!.url);
     expect(authorize.origin + authorize.pathname).toBe("https://www.dropbox.com/oauth2/authorize");
@@ -201,9 +212,9 @@ describe("export destinations", () => {
     expect(authorize.searchParams.has("redirect_uri")).toBe(false);
     context.providers.state.dropboxChallenge = authorize.searchParams.get("code_challenge")!;
 
-    await expect(context.service.submitCode("dropbox", { connectionId: started.connection!.id, code: "wrong-code-999" }))
+    await expect(context.service.submitCode(OWNER, "dropbox", { connectionId: started.connection!.id, code: "wrong-code-999" }))
       .rejects.toMatchObject({ status: 400, code: "CLOUD_EXPORT_CODE_REJECTED" });
-    const connected = await context.service.submitCode("dropbox", { connectionId: started.connection!.id, code: " dropbox-code-123 " });
+    const connected = await context.service.submitCode(OWNER, "dropbox", { connectionId: started.connection!.id, code: " dropbox-code-123 " });
 
     expect(connected).toMatchObject({ selected: "dropbox", ready: true, connection: null });
     expect(connected.accounts[0]).toEqual({
@@ -211,17 +222,18 @@ describe("export destinations", () => {
     });
     expect(JSON.stringify(connected)).not.toContain("dbx-refresh-1");
     expect(readIntegrationSecrets(context.secretsFile).exportDestinations).toEqual({
-      selected: "dropbox",
-      dropbox: { refreshToken: "dbx-refresh-1", accountLabel: "owner@example.test", connectedAt: "2026-10-31T12:00:00.000Z" },
+      people: {
+        [OWNER]: { selected: "dropbox", dropbox: { refreshToken: "dbx-refresh-1", accountLabel: "owner@example.test", connectedAt: "2026-10-31T12:00:00.000Z" } },
+      },
     });
   });
 
   it("rejects a code for a sign-in that is not in progress", async () => {
     const context = fixture();
-    await expect(context.service.submitCode("dropbox", { connectionId: "00000000-0000-4000-8000-000000000000", code: "dropbox-code-123" }))
+    await expect(context.service.submitCode(OWNER, "dropbox", { connectionId: "00000000-0000-4000-8000-000000000000", code: "dropbox-code-123" }))
       .rejects.toBeInstanceOf(ExportDestinationError);
-    await context.service.connect("dropbox");
-    await expect(context.service.submitCode("dropbox", { connectionId: "00000000-0000-4000-8000-000000000000", code: "dropbox-code-123" }))
+    await context.service.connect(OWNER, "dropbox");
+    await expect(context.service.submitCode(OWNER, "dropbox", { connectionId: "00000000-0000-4000-8000-000000000000", code: "dropbox-code-123" }))
       .rejects.toMatchObject({ status: 409, code: "CLOUD_EXPORT_CONNECTION_MISSING" });
   });
 
@@ -230,7 +242,7 @@ describe("export destinations", () => {
     await connectDropbox(context);
     const file = (name: string) => ({ folder: ["data-exports", "schedule-1"], name, content: "Home time,Value\n", retentionCount: 2 });
 
-    for (const name of ["one.csv", "two.csv", "three.csv"]) await expect(context.service.deliver(file(name))).resolves.toBe("dropbox");
+    for (const name of ["one.csv", "two.csv", "three.csv"]) await expect(context.service.deliver(OWNER, file(name))).resolves.toBe("dropbox");
 
     expect([...context.providers.dropboxFiles.keys()].sort()).toEqual([
       "/data-exports/schedule-1/three.csv",
@@ -242,23 +254,12 @@ describe("export destinations", () => {
   });
 
   it("explains a revoked Dropbox refresh token instead of failing silently", async () => {
-    const directory = mkdtempSync(join(tmpdir(), "stugu-export-destinations-"));
-    directories.push(directory);
-    const providers = fakeProviders();
-    const service = new ExportDestinationService({
-      secretsFile: join(directory, "integration-secrets.json"),
-      stored: { selected: "dropbox", dropbox: { refreshToken: "dbx-revoked", accountLabel: null, connectedAt: "2026-10-01T00:00:00.000Z" } },
-      systemStorage: { status: () => ({ settings: { backups: { kind: "managed", path: null } } }) } as never,
-      dropboxAppKey: DROPBOX_APP_KEY,
-      googleDriveClientId: null,
-      googleDriveClientSecret: null,
-      dropboxAppSource: "environment",
-      googleDriveAppSource: null,
-      fetchImpl: providers.fetchImpl,
+    const context = fixture({
+      stored: { people: { [OWNER]: { selected: "dropbox", dropbox: { refreshToken: "dbx-revoked", accountLabel: null, connectedAt: "2026-10-01T00:00:00.000Z" } } } },
     });
 
-    await expect(service.deliver({ folder: ["data-exports", "s"], name: "a.csv", content: "x", retentionCount: 1 }))
-      .rejects.toThrowError("Dropbox access was removed. Connect Dropbox again in Set up.");
+    await expect(context.service.deliver(OWNER, { folder: ["data-exports", "s"], name: "a.csv", content: "x", retentionCount: 1 }))
+      .rejects.toThrowError("Dropbox access was removed. Connect Dropbox again under Scheduled exports.");
   });
 
   it("connects Google Drive with a device code and finishes in the background", async () => {
@@ -266,7 +267,7 @@ describe("export destinations", () => {
     const context = fixture();
     const onConnected = vi.fn();
 
-    const started = await context.service.connect("google-drive", onConnected);
+    const started = await context.service.connect(OWNER, "google-drive", onConnected);
     expect(started.connection).toMatchObject({
       provider: "google-drive", method: "enter-code", url: "https://www.google.com/device", userCode: "ABCD-EFGH", error: null,
     });
@@ -274,26 +275,26 @@ describe("export destinations", () => {
     expect(new URLSearchParams(String(deviceRequest[1]?.body)).get("scope")).toBe("https://www.googleapis.com/auth/drive.file");
 
     await vi.advanceTimersByTimeAsync(5_000);
-    expect(context.service.status().connection?.error).toBeNull();
+    expect(context.service.status(OWNER).connection?.error).toBeNull();
     expect(onConnected).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(5_000);
 
     expect(onConnected).toHaveBeenCalledOnce();
-    expect(context.service.status()).toMatchObject({ selected: "google-drive", ready: true, connection: null });
-    expect(context.service.status().accounts[1]).toMatchObject({ connected: true, accountLabel: "owner@gmail.example" });
-    expect(readIntegrationSecrets(context.secretsFile).exportDestinations?.googleDrive?.refreshToken).toBe("g-refresh-1");
+    expect(context.service.status(OWNER)).toMatchObject({ selected: "google-drive", ready: true, connection: null });
+    expect(context.service.status(OWNER).accounts[1]).toMatchObject({ connected: true, accountLabel: "owner@gmail.example" });
+    expect(readIntegrationSecrets(context.secretsFile).exportDestinations?.people?.[OWNER]?.googleDrive?.refreshToken).toBe("g-refresh-1");
   });
 
   it("creates Stugu folders in Google Drive once and prunes beyond retention", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     const context = fixture();
     context.providers.state.approveAfterPolls = 0;
-    await context.service.connect("google-drive");
+    await context.service.connect(OWNER, "google-drive");
     await vi.advanceTimersByTimeAsync(5_000);
     const file = (name: string) => ({ folder: ["data-exports", "schedule-1"], name, content: "Home time,Value\n", retentionCount: 1 });
 
-    await context.service.deliver(file("first.csv"));
-    await context.service.deliver(file("second.csv"));
+    await context.service.deliver(OWNER, file("first.csv"));
+    await context.service.deliver(OWNER, file("second.csv"));
 
     const folders = context.providers.driveItems.filter((item) => item.folder);
     expect(folders.map(({ name, parent }) => ({ name, parent }))).toEqual([
@@ -308,34 +309,103 @@ describe("export destinations", () => {
     const context = fixture({ nas: true });
     await connectDropbox(context);
 
-    const status = await context.service.disconnect("dropbox");
+    const status = await context.service.disconnect(OWNER, "dropbox");
 
     expect(status).toMatchObject({ selected: "nas", ready: true });
     expect(status.accounts[0]).toMatchObject({ connected: false });
     expect(context.providers.revoked).toEqual(["Bearer dbx-access-1"]);
-    expect(readIntegrationSecrets(context.secretsFile).exportDestinations).toEqual({ selected: "nas" });
+    expect(readIntegrationSecrets(context.secretsFile).exportDestinations).toEqual({});
   });
 
   it("only selects a cloud drive once it is connected", async () => {
     const context = fixture({ nas: true });
-    expect(() => context.service.select({ selected: "google-drive" })).toThrowError(expect.objectContaining({ status: 409 }) as Error);
-    expect(() => context.service.select({ selected: "icloud" })).toThrowError(expect.objectContaining({ status: 400 }) as Error);
+    expect(() => context.service.select(OWNER, { selected: "google-drive" })).toThrowError(expect.objectContaining({ status: 409 }) as Error);
+    expect(() => context.service.select(OWNER, { selected: "icloud" })).toThrowError(expect.objectContaining({ status: 400 }) as Error);
     await connectDropbox(context);
-    expect(context.service.select({ selected: "nas" })).toMatchObject({ selected: "nas" });
-    expect(context.service.select({ selected: "dropbox" })).toMatchObject({ selected: "dropbox" });
+    expect(context.service.select(OWNER, { selected: "nas" })).toMatchObject({ selected: "nas" });
+    expect(context.service.select(OWNER, { selected: "dropbox" })).toMatchObject({ selected: "dropbox" });
   });
 
-  it("lets an Owner/Admin enter the provider apps when the installation has none", async () => {
+  it("keeps each person's drives, choice, and sign-in to themselves", async () => {
+    const context = fixture({ nas: true });
+    await connectDropbox(context, OWNER);
+    const ownerSignIn = await context.service.connect(OWNER, "google-drive");
+
+    const admin = context.service.status(ADMIN);
+    expect(admin).toMatchObject({ selected: "nas", ready: true, connection: null });
+    expect(admin.accounts.map((account) => [account.connected, account.accountLabel])).toEqual([[false, null], [false, null]]);
+    expect(() => context.service.select(ADMIN, { selected: "dropbox" })).toThrowError(expect.objectContaining({ code: "CLOUD_EXPORT_NOT_CONNECTED" }) as Error);
+    await expect(context.service.deliver(ADMIN, { folder: ["data-exports", "s"], name: "a.csv", content: "x", retentionCount: 1 }))
+      .rejects.toThrowError("NAS exports are handed to the storage worker");
+    await context.service.disconnect(ADMIN, "dropbox");
+    context.service.cancelConnection(ADMIN);
+
+    expect(context.service.status(OWNER)).toMatchObject({ selected: "dropbox", connection: { id: ownerSignIn.connection!.id } });
+    expect(context.service.status(OWNER).accounts[0]).toMatchObject({ connected: true, accountLabel: "owner@example.test" });
+    expect(context.providers.revoked).toEqual([]);
+    await expect(context.service.submitCode(ADMIN, "dropbox", { connectionId: ownerSignIn.connection!.id, code: "dropbox-code-123" }))
+      .rejects.toMatchObject({ code: "CLOUD_EXPORT_CONNECTION_MISSING" });
+    context.service.cancelConnection(OWNER);
+  });
+
+  it("sends a departed person's exports to the NAS at once and then revokes their drives", async () => {
+    const context = fixture({ nas: true });
+    await connectDropbox(context, OWNER);
+    await connectDropbox(context, ADMIN);
+    context.departed.add(ADMIN);
+
+    expect(context.service.selectedFor(ADMIN)).toBe("nas");
+    await expect(context.service.deliver(ADMIN, { folder: ["data-exports", "s"], name: "a.csv", content: "x", retentionCount: 1 }))
+      .rejects.toThrowError("NAS exports are handed to the storage worker");
+
+    await context.service.forgetDeparted();
+
+    expect(Object.keys(readIntegrationSecrets(context.secretsFile).exportDestinations?.people ?? {})).toEqual([OWNER]);
+    expect(context.providers.revoked).toEqual(["Bearer dbx-access-1"]);
+    expect(context.service.status(OWNER)).toMatchObject({ selected: "dropbox", ready: true });
+    await context.service.forgetDeparted();
+    expect(context.providers.revoked).toHaveLength(1);
+  });
+
+  it("retires the installation-wide sign-ins from before 0.62.0 and revokes them once", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "stugu-export-destinations-legacy-"));
+    directories.push(directory);
+    const legacyFile = join(directory, "integration-secrets.json");
+    writeFileSync(legacyFile, JSON.stringify({
+      version: 1,
+      exportDestinations: {
+        selected: "google-drive",
+        googleDrive: { refreshToken: "g-refresh-legacy", accountLabel: "someone@gmail.example", connectedAt: "2026-10-31T09:00:00.000Z" },
+        apps: { dropbox: { appKey: "ownerappkey1", updatedAt: "2026-10-30T09:00:00.000Z" } },
+      },
+    }));
+    const stored = readIntegrationSecrets(legacyFile).exportDestinations!;
+    expect(stored).toEqual({
+      apps: { dropbox: { appKey: "ownerappkey1", updatedAt: "2026-10-30T09:00:00.000Z" } },
+      retired: { googleDrive: { refreshToken: "g-refresh-legacy", accountLabel: "someone@gmail.example", connectedAt: "2026-10-31T09:00:00.000Z" } },
+    });
+    const context = fixture({ nas: true, stored });
+    expect(context.service.status(OWNER)).toMatchObject({ selected: "nas", ready: true });
+    expect(context.service.status(OWNER).accounts[1]).toMatchObject({ connected: false });
+
+    await context.service.forgetDeparted();
+
+    expect(context.providers.revoked).toEqual(["g-refresh-legacy"]);
+    expect(readIntegrationSecrets(context.secretsFile).exportDestinations).toEqual({ apps: stored.apps });
+  });
+
+  it("lets an Owner/Admin enter the provider apps everyone signs in through", async () => {
     const context = fixture({ nas: true, configured: false });
 
-    const withDropbox = context.service.saveApp("dropbox", { appKey: ` ${DROPBOX_APP_KEY} ` });
+    context.service.saveApp("dropbox", { appKey: ` ${DROPBOX_APP_KEY} ` });
+    const withDropbox = context.service.status(ADMIN);
     expect(withDropbox.accounts[0]).toMatchObject({ available: true, appSource: "protected-file", connected: false });
     expect(withDropbox.accounts[1]).toMatchObject({ available: false, appSource: null });
-    const withGoogle = context.service.saveApp("google-drive", { clientId: GOOGLE_CLIENT_ID, clientSecret: GOOGLE_CLIENT_SECRET });
+    context.service.saveApp("google-drive", { clientId: GOOGLE_CLIENT_ID, clientSecret: GOOGLE_CLIENT_SECRET });
+    const withGoogle = context.service.status(OWNER);
     expect(withGoogle.accounts[1]).toMatchObject({ available: true, appSource: "protected-file" });
     expect(JSON.stringify(withGoogle)).not.toContain(GOOGLE_CLIENT_SECRET);
     expect(readIntegrationSecrets(context.secretsFile).exportDestinations).toEqual({
-      selected: "nas",
       apps: {
         dropbox: { appKey: DROPBOX_APP_KEY, updatedAt: "2026-10-31T12:00:00.000Z" },
         googleDrive: { clientId: GOOGLE_CLIENT_ID, clientSecret: GOOGLE_CLIENT_SECRET, updatedAt: "2026-10-31T12:00:00.000Z" },
@@ -344,32 +414,35 @@ describe("export destinations", () => {
 
     // Both sign-ins run through the entered apps, and the apps survive a restart.
     await expect(connectDropbox(context)).resolves.toMatchObject({ selected: "dropbox", ready: true });
-    const google = await context.service.connect("google-drive");
-    context.service.cancelConnection();
+    const google = await context.service.connect(OWNER, "google-drive");
+    context.service.cancelConnection(OWNER);
     const deviceRequest = context.providers.fetchImpl.mock.calls.find(([url]) => String(url).endsWith("/device/code"))!;
     expect(new URLSearchParams(String(deviceRequest[1]?.body)).get("client_id")).toBe(GOOGLE_CLIENT_ID);
     expect(google.connection).toMatchObject({ provider: "google-drive", method: "enter-code" });
     const restarted = fixture({ configured: false, stored: readIntegrationSecrets(context.secretsFile).exportDestinations! });
-    expect(restarted.service.status().accounts.map((account) => [account.appSource, account.connected]))
+    expect(restarted.service.status(OWNER).accounts.map((account) => [account.appSource, account.connected]))
       .toEqual([["protected-file", true], ["protected-file", false]]);
   });
 
   it("prefers an entered app over the built-in one and falls back when it is removed", async () => {
     const context = fixture({ apps: "built-in" });
-    expect(context.service.status().accounts[0]).toMatchObject({ available: true, appSource: "built-in" });
+    expect(context.service.status(OWNER).accounts[0]).toMatchObject({ available: true, appSource: "built-in" });
 
     context.service.saveApp("dropbox", { appKey: "ownerappkey1" });
-    const started = await context.service.connect("dropbox");
+    const started = await context.service.connect(ADMIN, "dropbox");
     expect(new URL(started.connection!.url).searchParams.get("client_id")).toBe("ownerappkey1");
 
-    const removed = context.service.removeApp("dropbox");
+    // Changing the shared app ends anyone's sign-in that was running through the old one.
+    context.service.removeApp("dropbox");
+    const removed = context.service.status(ADMIN);
     expect(removed.connection).toBeNull();
     expect(removed.accounts[0]).toMatchObject({ available: true, appSource: "built-in" });
-    expect(readIntegrationSecrets(context.secretsFile).exportDestinations).toEqual({ selected: "nas" });
-    expect(context.service.removeApp("dropbox").accounts[0]).toMatchObject({ appSource: "built-in" });
+    expect(readIntegrationSecrets(context.secretsFile).exportDestinations).toEqual({});
+    context.service.removeApp("dropbox");
+    expect(context.service.status(OWNER).accounts[0]).toMatchObject({ appSource: "built-in" });
   });
 
-  it("refuses malformed apps, environment apps, and apps a connected account still uses", async () => {
+  it("refuses malformed apps, environment apps, and apps anyone's connected account still uses", async () => {
     const empty = fixture({ configured: false });
     const invalid = { status: 400, code: "CLOUD_EXPORT_APP_INVALID" };
     expect(() => empty.service.saveApp("dropbox", { appKey: "not a key" })).toThrowError(expect.objectContaining(invalid) as Error);
@@ -379,8 +452,11 @@ describe("export destinations", () => {
     expect(() => empty.service.saveApp("google-drive", { clientId: "1234567890-test", clientSecret: GOOGLE_CLIENT_SECRET }))
       .toThrowError(expect.objectContaining(invalid) as Error);
     expect(() => updateIntegrationSecrets(empty.secretsFile, {
-      exportDestinations: { selected: "nas", apps: { dropbox: { appKey: "x", updatedAt: "2026-10-31T12:00:00.000Z" } } },
+      exportDestinations: { apps: { dropbox: { appKey: "x", updatedAt: "2026-10-31T12:00:00.000Z" } } },
     })).toThrow("the Dropbox app is invalid");
+    expect(() => updateIntegrationSecrets(empty.secretsFile, {
+      exportDestinations: { people: JSON.parse("{\"__proto__\":{\"selected\":\"nas\"}}") as never },
+    })).toThrow("the people are invalid");
 
     const environment = fixture();
     const owned = { status: 409, code: "CLOUD_EXPORT_APP_ENVIRONMENT_OWNED" };
@@ -389,23 +465,24 @@ describe("export destinations", () => {
 
     const inUse = fixture({ nas: true, configured: false });
     inUse.service.saveApp("dropbox", { appKey: DROPBOX_APP_KEY });
-    await connectDropbox(inUse);
-    const connected = { status: 409, code: "CLOUD_EXPORT_APP_IN_USE" };
+    await connectDropbox(inUse, ADMIN);
+    const connected = { status: 409, code: "CLOUD_EXPORT_APP_IN_USE", message: expect.stringContaining("One account is still connected") };
     expect(() => inUse.service.saveApp("dropbox", { appKey: "ownerappkey2" })).toThrowError(expect.objectContaining(connected) as Error);
     expect(() => inUse.service.removeApp("dropbox")).toThrowError(expect.objectContaining(connected) as Error);
-    await inUse.service.disconnect("dropbox");
+    await inUse.service.disconnect(ADMIN, "dropbox");
     expect(inUse.providers.revoked).toEqual(["Bearer dbx-access-1"]);
-    expect(inUse.service.removeApp("dropbox").accounts[0]).toMatchObject({ available: false, appSource: null });
+    inUse.service.removeApp("dropbox");
+    expect(inUse.service.status(OWNER).accounts[0]).toMatchObject({ available: false, appSource: null });
   });
 
   it("keeps connected drives when another integration secret is saved", async () => {
     const context = fixture();
     await connectDropbox(context);
     updateIntegrationSecrets(context.secretsFile, { telegram: { botToken: "123456:telegram-token", chatId: "42" } });
-    expect(readIntegrationSecrets(context.secretsFile).exportDestinations?.dropbox?.refreshToken).toBe("dbx-refresh-1");
+    expect(readIntegrationSecrets(context.secretsFile).exportDestinations?.people?.[OWNER]?.dropbox?.refreshToken).toBe("dbx-refresh-1");
   });
 
-  it("serves the Owner/Admin routes and never returns refresh tokens", async () => {
+  it("serves each Owner/Admin their own drives and forgets a removed Admin's", async () => {
     const directory = mkdtempSync(join(tmpdir(), "stugu-export-destination-routes-"));
     directories.push(directory);
     const secretsFile = join(directory, "integration-secrets.json");
@@ -423,38 +500,59 @@ describe("export destinations", () => {
       startBackground: false,
     });
     const owner = await setupOwner(runtime);
-    const invitation = await owner.agent.post("/api/v1/tenant/members")
-      .set("x-csrf-token", owner.csrf)
-      .send({ email: "member@example.test", role: "member", grants: [] })
-      .expect(201);
-    const member = request.agent(runtime.app);
-    await member.post("/api/v1/auth/register")
-      .send({ token: invitation.body.registrationToken, password: "member password long enough" })
-      .expect(201);
-    await member.get("/api/v1/system/export-destinations").expect(403);
+    const joinAs = async (email: string, role: "admin" | "member") => {
+      const invitation = await owner.agent.post("/api/v1/tenant/members")
+        .set("x-csrf-token", owner.csrf)
+        .send({ email, role, grants: [] })
+        .expect(201);
+      const agent = request.agent(runtime!.app);
+      const registered = await agent.post("/api/v1/auth/register")
+        .send({ token: invitation.body.registrationToken, password: `${role} password long enough` })
+        .expect(201);
+      return { agent, csrf: registered.body.csrfToken as string };
+    };
+    const member = await joinAs("member@example.test", "member");
+    const admin = await joinAs("admin@example.test", "admin");
+    await member.agent.get("/api/v1/system/export-destinations").expect(403);
 
     const initial = await owner.agent.get("/api/v1/system/export-destinations").expect(200);
     expect(initial.headers["cache-control"]).toBe("no-store");
     expect(initial.body.accounts.map((account: { provider: string; available: boolean }) => [account.provider, account.available]))
       .toEqual([["dropbox", true], ["google-drive", Boolean(PROJECT_CLOUD_EXPORT_APPS.googleDriveClientId)]]);
 
-    const started = await owner.agent.post("/api/v1/system/export-destinations/dropbox/connect").set("x-csrf-token", owner.csrf).expect(200);
-    providers.state.dropboxChallenge = new URL(started.body.connection.url).searchParams.get("code_challenge")!;
-    const connected = await owner.agent.post("/api/v1/system/export-destinations/dropbox/code")
-      .set("x-csrf-token", owner.csrf)
-      .send({ connectionId: started.body.connection.id, code: "dropbox-code-123" })
-      .expect(200);
-
+    const connect = async (person: { agent: ReturnType<typeof request.agent>; csrf: string }) => {
+      const started = await person.agent.post("/api/v1/system/export-destinations/dropbox/connect").set("x-csrf-token", person.csrf).expect(200);
+      providers.state.dropboxChallenge = new URL(started.body.connection.url).searchParams.get("code_challenge")!;
+      return person.agent.post("/api/v1/system/export-destinations/dropbox/code")
+        .set("x-csrf-token", person.csrf)
+        .send({ connectionId: started.body.connection.id, code: "dropbox-code-123" })
+        .expect(200);
+    };
+    const connected = await connect(owner);
     expect(connected.body).toMatchObject({ selected: "dropbox", ready: true, connection: null });
     expect(JSON.stringify(connected.body)).not.toContain("dbx-refresh-1");
     expect(readFileSync(secretsFile, "utf8")).toContain("dbx-refresh-1");
+
+    // The Admin sees none of the Owner's drive and cannot disconnect it.
+    const adminView = await admin.agent.get("/api/v1/system/export-destinations").expect(200);
+    expect(adminView.body).toMatchObject({ selected: "nas", connection: null });
+    expect(adminView.body.accounts[0]).toMatchObject({ connected: false, accountLabel: null });
+    await admin.agent.delete("/api/v1/system/export-destinations/dropbox").set("x-csrf-token", admin.csrf).expect(200);
+    expect((await owner.agent.get("/api/v1/system/export-destinations").expect(200)).body.accounts[0]).toMatchObject({ connected: true });
+
+    await connect(admin);
+    expect(Object.keys(readIntegrationSecrets(secretsFile).exportDestinations?.people ?? {})).toHaveLength(2);
+    await owner.agent.delete("/api/v1/tenant/members/admin%40example.test").set("x-csrf-token", owner.csrf).expect(204);
+    expect(Object.keys(readIntegrationSecrets(secretsFile).exportDestinations?.people ?? {})).toHaveLength(1);
+    expect((await owner.agent.get("/api/v1/system/export-destinations").expect(200)).body.accounts[0]).toMatchObject({ connected: true });
+
     await owner.agent.post("/api/v1/system/export-destinations/icloud/connect").set("x-csrf-token", owner.csrf).expect(404);
     await owner.agent.put("/api/v1/system/export-destinations").set("x-csrf-token", owner.csrf).send({ selected: "nas" }).expect(200);
     const disconnected = await owner.agent.delete("/api/v1/system/export-destinations/dropbox").set("x-csrf-token", owner.csrf).expect(200);
     expect(disconnected.body.accounts[0]).toMatchObject({ connected: false });
 
     // Set up can add the app the environment leaves out, but never replace the environment's.
-    await member.put("/api/v1/system/export-destinations/google-drive/app")
+    await member.agent.put("/api/v1/system/export-destinations/google-drive/app").set("x-csrf-token", member.csrf)
       .send({ clientId: GOOGLE_CLIENT_ID, clientSecret: GOOGLE_CLIENT_SECRET }).expect(403);
     await owner.agent.put("/api/v1/system/export-destinations/dropbox/app").set("x-csrf-token", owner.csrf)
       .send({ appKey: "ownerappkey1" }).expect(409);

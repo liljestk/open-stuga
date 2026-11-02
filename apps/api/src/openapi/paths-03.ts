@@ -116,7 +116,7 @@ export const pathsPart03 = {
         get: {
           tags: ["Context"], operationId: "listScheduledDataExports",
           parameters: [{ name: "houseId", in: "path", required: true, schema: { type: "string" } }],
-          responses: { "200": jsonResponse("Home-owned scheduled exports to the shared export destination (NAS, Dropbox, or Google Drive).", { type: "object", additionalProperties: false, required: ["exports"], properties: { exports: { type: "array", items: { $ref: "#/components/schemas/ScheduledDataExport" } } } }) },
+          responses: { "200": jsonResponse("Home-owned scheduled exports. Each one goes where its owner sends their exports: the shared NAS or that person's own Dropbox or Google Drive.", { type: "object", additionalProperties: false, required: ["exports"], properties: { exports: { type: "array", items: { $ref: "#/components/schemas/ScheduledDataExport" } } } }) },
         },
         post: {
           tags: ["Context"], operationId: "createScheduledDataExport",

@@ -112,6 +112,12 @@ describe("scheduled data export routes", () => {
     expect(scheduledDataExports.runNow).toHaveBeenCalledWith("export-1");
   });
 
+  it("makes the signed-in Owner/Admin the owner of a schedule they create", async () => {
+    const { app, scheduledDataExports } = exportRoutes("admin");
+    await request(app).post("/api/v1/houses/house-a/scheduled-data-exports").send({ name: "Weekly" }).expect(201);
+    expect(scheduledDataExports.create).toHaveBeenCalledWith("house-a", { name: "Weekly" }, "user-admin");
+  });
+
   it("answers an unknown Home with 404 and refuses members", async () => {
     await request(exportRoutes().app).get("/api/v1/houses/house-missing/scheduled-data-exports").expect(404);
     await request(exportRoutes("member").app).get("/api/v1/houses/house-a/scheduled-data-exports").expect(403);

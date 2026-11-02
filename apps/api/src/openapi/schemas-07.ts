@@ -313,7 +313,7 @@ export const schemasPart07 = {
         },
   ScheduledDataExport: {
           type: "object", additionalProperties: false,
-          required: ["id", "houseId", ...scheduledDataExportInputRequired, "dayOfWeek", "dayOfMonth", "nextRunAt", "lastRunAt", "lastRunStatus", "lastRunError", "lastOutputName", "revision", "createdAt", "updatedAt"],
+          required: ["id", "houseId", ...scheduledDataExportInputRequired, "dayOfWeek", "dayOfMonth", "nextRunAt", "lastRunAt", "lastRunStatus", "lastRunError", "lastOutputName", "ownerEmail", "destination", "revision", "createdAt", "updatedAt"],
           properties: {
             id: { type: "string", format: "uuid" }, houseId: { type: "string" },
             ...scheduledDataExportInputProperties,
@@ -321,6 +321,8 @@ export const schemasPart07 = {
             lastRunAt: { type: ["string", "null"], format: "date-time" },
             lastRunStatus: { enum: ["never", "pending", "complete", "failed"] },
             lastRunError: { type: ["string", "null"] }, lastOutputName: { type: ["string", "null"] },
+            ownerEmail: { type: ["string", "null"], description: "The Owner/Admin who set the schedule up. Null for a schedule from before 0.62.0 or one whose owner was removed; those go to the shared NAS." },
+            destination: { enum: ["nas", "dropbox", "google-drive"], description: "Where the next run goes: the owner's current choice of the shared NAS or their own cloud drive." },
             revision: { type: "integer", minimum: 1 }, createdAt: { type: "string", format: "date-time" }, updatedAt: { type: "string", format: "date-time" },
           },
         },

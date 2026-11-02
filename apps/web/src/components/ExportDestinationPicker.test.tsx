@@ -1,14 +1,15 @@
+import { useCallback, useEffect, useState } from "react";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CloudExportAccount, ExportDestinationStatus } from "@climate-twin/contracts";
 import { api } from "../api";
-import { confirmAction } from "../components/ConfirmationProvider";
+import { confirmAction } from "./ConfirmationProvider";
 import { I18nProvider } from "../i18n";
 import { ExportDestinationPicker } from "./ExportDestinationPicker";
 
-vi.mock("../components/ConfirmationProvider", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../components/ConfirmationProvider")>();
+vi.mock("./ConfirmationProvider", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./ConfirmationProvider")>();
   return { ...actual, confirmAction: vi.fn().mockResolvedValue(true) };
 });
 
@@ -32,8 +33,16 @@ function status(overrides: Partial<ExportDestinationStatus> = {}): ExportDestina
   };
 }
 
+/** Owns the status the way the Scheduled exports panel does: one load, then whatever the picker reports. */
+function PickerHost() {
+  const [value, setValue] = useState<ExportDestinationStatus | null>(null);
+  const refresh = useCallback(() => { void api.exportDestinations().then(setValue); }, []);
+  useEffect(refresh, [refresh]);
+  return value && <ExportDestinationPicker status={value} onStatus={setValue} onRefresh={refresh} />;
+}
+
 function renderPicker() {
-  return render(<I18nProvider><ExportDestinationPicker nasConnected /></I18nProvider>);
+  return render(<I18nProvider><PickerHost /></I18nProvider>);
 }
 
 describe("ExportDestinationPicker", () => {
@@ -53,6 +62,17 @@ describe("ExportDestinationPicker", () => {
     expect(screen.getByText("Needs a one-time setup first")).toBeVisible();
     expect(screen.getByRole("radio", { name: /^iCloud Drive/u })).toBeDisabled();
     expect(screen.getByText("Coming later")).toBeVisible();
+    expect(screen.getByText("Shared by everyone on this installation")).toBeVisible();
+    expect(screen.getByText(/nobody else here sees it or saves to it/u)).toBeVisible();
+  });
+
+  it("sends a missing NAS to System, where the backup location is set", async () => {
+    vi.spyOn(api, "exportDestinations").mockResolvedValue(status({ ready: false, nasConnected: false }));
+
+    renderPicker();
+
+    expect(await screen.findByText("Set the NAS as the backup location under System › Storage first")).toBeVisible();
+    expect(screen.getByRole("link", { name: "Open System" })).toHaveAttribute("href", "/system");
   });
 
   it("sets up Dropbox with the owner's own app key and goes straight on to the sign-in", async () => {

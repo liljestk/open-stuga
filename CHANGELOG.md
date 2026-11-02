@@ -2,6 +2,18 @@
 
 All notable Stugu releases are recorded here.
 
+## 0.62.0
+
+Dropbox and Google Drive exports are now personal. Each Owner and Admin connects their own drive, and the choice lives with the scheduled exports instead of on the Set up page.
+
+- **Where your scheduled exports go** has moved to **Data & analytics → Scheduled exports**. It applies to the schedules you set up, in every Home: the shared NAS, or a Dropbox or Google Drive you connect yourself. It folds away once your exports have somewhere to go.
+- A drive belongs to the person who connected it. Nobody else sees it or its account name, and nobody else can disconnect it or save to it. Two Admins can each use their own Dropbox.
+- Each schedule now records who set it up, and every run goes where that person sends their exports. The schedule list says where each one saves and who set it up.
+- Removing someone from the workspace revokes and forgets their drives at once. Their schedules then save to the shared NAS, so Home data never keeps flowing to a former member's account.
+- The Dropbox app and Google client stay shared by the installation. **Change app** and **Remove app** now wait until nobody is connected through the app.
+- **Set up → Sensor mapping** no longer carries the *Backups and exports* panel. The NAS is set where it always was, as the backup location under **System → Storage**, and the NAS option links there until one is set.
+- Upgrade impact: application-only update. The scheduled exports table gains an `owner_user_id` column on start; schedules created earlier have no owner and save to the NAS. Releases 0.59.0–0.61.x kept one installation-wide Dropbox or Google Drive sign-in that can't be tied to a person, so 0.62.0 revokes it when the API starts and each person reconnects their own drive. `/system/export-destinations` now answers for the signed-in person, and each scheduled export includes `ownerEmail` and `destination`.
+
 ## 0.61.1
 
 - On a 320 px wide phone screen, the **Set up Google Drive** form under **Set up → Operations → Backups and exports** was wider than the screen: the **Open Google Cloud console** button didn't wrap, so the steps and fields ran off the right edge. Long button labels in the setup and sign-in steps now wrap, and the form fits the screen.

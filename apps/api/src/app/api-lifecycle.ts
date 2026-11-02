@@ -63,7 +63,8 @@ function backgroundServices(context: ApiRouteRegistrationContext): BackgroundSer
     { stop: () => context.notificationOutbox.stop() },
     { start: () => context.cloudflareAccess?.start(), stop: () => context.cloudflareAccess?.stop() },
     { stop: () => context.cloudflareSetup.stop() },
-    { stop: () => context.exportDestinations.stop() },
+    // Start revokes the drives of people who left and the unowned sign-ins from before 0.62.0.
+    { start: () => context.exportDestinations.start(), stop: () => context.exportDestinations.stop() },
     { stop: () => context.weatherRecovery.stop() },
     { start: () => context.notifySpatial((runtime) => runtime.start()), stop: () => context.spatialLayers?.stop() },
     {

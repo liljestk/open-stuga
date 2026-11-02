@@ -12,7 +12,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function renderPanel() {
+function renderPanel(viewerEmail: string | null = "owner@example.test") {
   const state = createDemoState();
   const house = state.houses[0]!;
   const sensors = state.sensors.filter((sensor) => sensor.houseId === house.id && sensor.enabled);
@@ -24,6 +24,7 @@ function renderPanel() {
     resolution="15m"
     aggregation="mean"
     configurationError={null}
+    viewerEmail={viewerEmail}
   /></I18nProvider>);
   return { house, sensors };
 }
@@ -49,6 +50,8 @@ function createdSchedule(houseId: string, overrides: Partial<ScheduledDataExport
     lastRunStatus: "never",
     lastRunError: null,
     lastOutputName: null,
+    ownerEmail: "owner@example.test",
+    destination: "nas",
     revision: 1,
     createdAt: "2026-08-02T12:00:00.000Z",
     updatedAt: "2026-08-02T12:00:00.000Z",
@@ -74,15 +77,58 @@ describe("ScheduledDataExportsPanel", () => {
     expect(screen.getByRole("button", { name: "Schedule weekly export" })).toBeEnabled();
   });
 
-  it("asks for a destination before an active schedule can be created", async () => {
+  it("opens the person's own destination choice before an active schedule can be created", async () => {
     vi.spyOn(api, "scheduledDataExports").mockResolvedValue([]);
     vi.spyOn(api, "exportDestinations").mockResolvedValue({ ...readyDestination, ready: false, nasConnected: false });
 
     renderPanel();
 
     expect(await screen.findByText("No destination connected")).toBeVisible();
-    expect(screen.getByRole("link", { name: "Choose destination" })).toHaveAttribute("href", "/setup/operations#nas-export-setup");
+    expect(screen.getByText("Where your scheduled exports go", { selector: "strong" }).closest("details")).toHaveAttribute("open");
+    expect(screen.getByRole("link", { name: "Open System" })).toHaveAttribute("href", "/system");
     expect(screen.getByRole("button", { name: "Schedule weekly export" })).toBeDisabled();
+  });
+
+  it("keeps a ready destination folded away and follows changes made in the picker", async () => {
+    vi.spyOn(api, "scheduledDataExports").mockResolvedValue([]);
+    vi.spyOn(api, "exportDestinations").mockResolvedValue({
+      ...readyDestination,
+      accounts: [{ provider: "dropbox", available: true, appSource: "environment", connected: true, accountLabel: "owner@example.test", connectedAt: "2026-10-31T12:00:00.000Z" }],
+    });
+    const select = vi.spyOn(api, "selectExportDestination").mockResolvedValue({
+      ...readyDestination,
+      selected: "dropbox",
+      accounts: [{ provider: "dropbox", available: true, appSource: "environment", connected: true, accountLabel: "owner@example.test", connectedAt: "2026-10-31T12:00:00.000Z" }],
+    });
+    const user = userEvent.setup();
+
+    renderPanel();
+
+    expect(await screen.findByText("Saving to NAS")).toBeVisible();
+    const summary = screen.getByText("Where your scheduled exports go", { selector: "strong" });
+    expect(summary.closest("details")).not.toHaveAttribute("open");
+    await user.click(summary);
+    await user.click(screen.getByRole("radio", { name: /^Dropbox/u }));
+
+    expect(select).toHaveBeenCalledWith("dropbox");
+    expect(await screen.findByText("Saving to Dropbox")).toBeVisible();
+  });
+
+  it("says where each schedule goes and who set it up", async () => {
+    const state = createDemoState();
+    const house = state.houses[0]!;
+    vi.spyOn(api, "scheduledDataExports").mockResolvedValue([
+      createdSchedule(house.id, { id: "11111111-1111-4111-8111-111111111111", name: "Mine", destination: "dropbox", ownerEmail: "Owner@Example.test" }),
+      createdSchedule(house.id, { id: "22222222-2222-4222-8222-222222222222", name: "Theirs", destination: "google-drive", ownerEmail: "admin@example.test" }),
+      createdSchedule(house.id, { id: "33333333-3333-4333-8333-333333333333", name: "Older", ownerEmail: null }),
+    ]);
+    vi.spyOn(api, "exportDestinations").mockResolvedValue(readyDestination);
+
+    renderPanel();
+
+    expect(await screen.findByText("Saves to Dropbox · set up by you")).toBeVisible();
+    expect(screen.getByText("Saves to Google Drive · set up by admin@example.test")).toBeVisible();
+    expect(screen.getByText("Saves to NAS · shared schedule")).toBeVisible();
   });
 
   it("shows schedules without waiting for the independent storage check", async () => {
@@ -141,6 +187,7 @@ describe("ScheduledDataExportsPanel", () => {
       resolution="15m"
       aggregation="mean"
       configurationError={null}
+      viewerEmail="owner@example.test"
     /></I18nProvider>;
     const view = render(panel(firstHouse));
     await waitFor(() => expect(schedules).toHaveBeenCalledTimes(1));

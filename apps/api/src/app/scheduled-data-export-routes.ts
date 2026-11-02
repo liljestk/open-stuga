@@ -1,6 +1,6 @@
 import { HttpError } from "../http-error.js";
 import { bodyObject } from "../request-fields.js";
-import { requireWorkspaceAdmin } from "./support/local-sessions.js";
+import { requestPrincipal, requireWorkspaceAdmin } from "./support/local-sessions.js";
 import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
 
 export type ScheduledDataExportRouteContext = Pick<
@@ -32,7 +32,8 @@ export function registerScheduledDataExportRoutes(context: ScheduledDataExportRo
   context.app.post(base, requireWorkspaceAdmin, (request, response) => {
     const houseId = request.params.houseId as string;
     visibleHome(context, response, houseId);
-    response.status(201).json({ export: context.scheduledDataExports.create(houseId, bodyObject(request.body)) });
+    const ownerUserId = requestPrincipal(response).userId;
+    response.status(201).json({ export: context.scheduledDataExports.create(houseId, bodyObject(request.body), ownerUserId) });
   });
 
   context.app.put(`${base}/:id`, requireWorkspaceAdmin, (request, response) => {
