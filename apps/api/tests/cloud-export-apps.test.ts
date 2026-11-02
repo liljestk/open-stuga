@@ -45,6 +45,8 @@ describe("cloud export app IDs", () => {
       dropboxAppKey: "builtinappkey",
       googleDriveClientId: "1111111111-builtin.apps.googleusercontent.com",
       googleDriveClientSecret: "builtin-client-secret",
+      dropboxAppSource: "built-in",
+      googleDriveAppSource: "built-in",
     });
     expect(readCloudExportApps({}, BUILT_IN).dropboxAppKey).toBe("builtinappkey");
   });
@@ -58,6 +60,8 @@ describe("cloud export app IDs", () => {
       dropboxAppKey: "deploymentkey",
       googleDriveClientId: DEPLOYMENT_CLIENT_ID,
       googleDriveClientSecret: "deployment-secret",
+      dropboxAppSource: "environment",
+      googleDriveAppSource: "environment",
     });
   });
 
@@ -67,8 +71,10 @@ describe("cloud export app IDs", () => {
       STUGU_GOOGLE_DRIVE_CLIENT_ID: DEPLOYMENT_CLIENT_ID,
       STUGU_GOOGLE_DRIVE_CLIENT_SECRET_FILE: secretFile("file-client-secret"),
     }, BUILT_IN);
-    expect(apps).toMatchObject({ googleDriveClientId: DEPLOYMENT_CLIENT_ID, googleDriveClientSecret: "file-client-secret" });
-    expect(apps.dropboxAppKey).toBe("builtinappkey");
+    expect(apps).toMatchObject({
+      googleDriveClientId: DEPLOYMENT_CLIENT_ID, googleDriveClientSecret: "file-client-secret", googleDriveAppSource: "environment",
+    });
+    expect(apps).toMatchObject({ dropboxAppKey: "builtinappkey", dropboxAppSource: "built-in" });
   });
 
   it("falls back to the built-in Google client when the configured secret file is missing", () => {
@@ -85,7 +91,9 @@ describe("cloud export app IDs", () => {
 
   it("keeps both providers unavailable when neither the deployment nor the project sets an ID", () => {
     const apps = readCloudExportApps(COMPOSE_EMPTY, NONE);
-    expect(apps).toEqual({ dropboxAppKey: null, googleDriveClientId: null, googleDriveClientSecret: null });
+    expect(apps).toEqual({
+      dropboxAppKey: null, googleDriveClientId: null, googleDriveClientSecret: null, dropboxAppSource: null, googleDriveAppSource: null,
+    });
     expect(availability(apps)).toEqual([["dropbox", false], ["google-drive", false]]);
     expect(availability(readCloudExportApps(COMPOSE_EMPTY, BUILT_IN))).toEqual([["dropbox", true], ["google-drive", true]]);
   });

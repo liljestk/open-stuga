@@ -1,4 +1,4 @@
-import { type CloudExportProvider, type CloudflareSetupStartInput, type ExportDestinationKind, type SystemStorageSettings, type SystemUpdateSettings, withSignal, type DataExportPrivacyLevel, type MockScenario, type ScheduledDataExportInput, type ScheduledDataExportUpdate } from "@climate-twin/contracts";
+import { type CloudExportAppInputs, type CloudExportProvider, type CloudflareSetupStartInput, type ExportDestinationKind, type SystemStorageSettings, type SystemUpdateSettings, withSignal, type DataExportPrivacyLevel, type MockScenario, type ScheduledDataExportInput, type ScheduledDataExportUpdate } from "@climate-twin/contracts";
 import { request } from "./support/request";
 import type { SystemUpdateOperationInput } from "./support/response-types";
 import { API_BASE } from "./support/client-state";
@@ -52,6 +52,12 @@ export const systemApi = {
   cancelExportDestinationConnection: () => request("/system/export-destinations/connection", exportDestinationStatusShape, { method: "DELETE" }),
   disconnectExportDestination: (provider: CloudExportProvider) => request(
       `/system/export-destinations/${provider}`, exportDestinationStatusShape, { method: "DELETE" },
+    ),
+  saveExportDestinationApp: <P extends CloudExportProvider>(provider: P, app: CloudExportAppInputs[P]) => request(
+      `/system/export-destinations/${provider}/app`, exportDestinationStatusShape, { method: "PUT", body: JSON.stringify(app) },
+    ),
+  removeExportDestinationApp: (provider: CloudExportProvider) => request(
+      `/system/export-destinations/${provider}/app`, exportDestinationStatusShape, { method: "DELETE" },
     ),
   cloudflareSetupStatus: () => request("/cloudflare/setup", cloudflareSetupStatusResponseShape),
   startCloudflareSetup: (input: CloudflareSetupStartInput) => request("/cloudflare/setup/start", cloudflareSetupStartResultShape, {

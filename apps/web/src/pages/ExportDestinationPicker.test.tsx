@@ -18,7 +18,7 @@ afterEach(() => {
 });
 
 function account(provider: CloudExportAccount["provider"], overrides: Partial<CloudExportAccount> = {}): CloudExportAccount {
-  return { provider, available: true, connected: false, accountLabel: null, connectedAt: null, ...overrides };
+  return { provider, available: true, appSource: "environment", connected: false, accountLabel: null, connectedAt: null, ...overrides };
 }
 
 function status(overrides: Partial<ExportDestinationStatus> = {}): ExportDestinationStatus {
@@ -39,7 +39,7 @@ function renderPicker() {
 describe("ExportDestinationPicker", () => {
   it("offers NAS, Dropbox and Google Drive, with iCloud marked as coming later", async () => {
     vi.spyOn(api, "exportDestinations").mockResolvedValue(status({
-      accounts: [account("dropbox"), account("google-drive", { available: false })],
+      accounts: [account("dropbox"), account("google-drive", { available: false, appSource: null })],
     }));
 
     renderPicker();
@@ -47,10 +47,83 @@ describe("ExportDestinationPicker", () => {
     expect(await screen.findByRole("radio", { name: /^NAS/u })).toBeChecked();
     expect(screen.getByRole("radio", { name: /^Dropbox/u })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Connect Dropbox" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "Change the Dropbox app" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Connect Google Drive" })).not.toBeInTheDocument();
-    expect(screen.getByText("Not enabled on this installation yet")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Set up Google Drive" })).toBeEnabled();
+    expect(screen.getByText("Needs a one-time setup first")).toBeVisible();
     expect(screen.getByRole("radio", { name: /^iCloud Drive/u })).toBeDisabled();
     expect(screen.getByText("Coming later")).toBeVisible();
+  });
+
+  it("sets up Dropbox with the owner's own app key and goes straight on to the sign-in", async () => {
+    const unavailable = status({ accounts: [account("dropbox", { available: false, appSource: null }), account("google-drive")] });
+    vi.spyOn(api, "exportDestinations").mockResolvedValue(unavailable);
+    const save = vi.spyOn(api, "saveExportDestinationApp").mockResolvedValue(status({
+      accounts: [account("dropbox", { appSource: "protected-file" }), account("google-drive")],
+    }));
+    const connect = vi.spyOn(api, "connectExportDestination").mockResolvedValue(status({
+      accounts: [account("dropbox", { appSource: "protected-file" }), account("google-drive")],
+      connection: {
+        id: "33333333-3333-4333-8333-333333333333",
+        provider: "dropbox",
+        method: "paste-code",
+        url: "https://www.dropbox.com/oauth2/authorize?client_id=ownerappkey1",
+        userCode: null,
+        expiresAt: "2026-10-31T12:10:00.000Z",
+        error: null,
+      },
+    }));
+    const user = userEvent.setup();
+
+    renderPicker();
+    const setUp = await screen.findByRole("button", { name: "Set up Dropbox" });
+    await user.click(setUp);
+
+    expect(setUp).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText("Set up Dropbox on this installation")).toBeVisible();
+    const consoleLink = screen.getByRole("link", { name: "Open Dropbox App Console" });
+    expect(consoleLink).toHaveAttribute("href", "https://www.dropbox.com/developers/apps");
+    expect(consoleLink).toHaveAttribute("rel", "noopener noreferrer");
+    expect(screen.queryByRole("button", { name: "Remove app" })).not.toBeInTheDocument();
+    const saveButton = screen.getByRole("button", { name: "Save and connect" });
+    expect(saveButton).toBeDisabled();
+    await user.type(screen.getByRole("textbox", { name: "App key from the Settings tab" }), " ownerappkey1 ");
+    await user.click(saveButton);
+
+    expect(save).toHaveBeenCalledWith("dropbox", { appKey: "ownerappkey1" });
+    expect(connect).toHaveBeenCalledWith("dropbox");
+    expect(await screen.findByRole("link", { name: "Open Dropbox" })).toHaveAttribute("href", "https://www.dropbox.com/oauth2/authorize?client_id=ownerappkey1");
+    expect(screen.queryByText("Set up Dropbox on this installation")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Change the Dropbox app" })).toBeEnabled();
+  });
+
+  it("takes a Google client ID and secret, and removes an app entered in Set up", async () => {
+    const entered = status({ accounts: [account("dropbox"), account("google-drive", { appSource: "protected-file" })] });
+    vi.spyOn(api, "exportDestinations").mockResolvedValue(entered);
+    const save = vi.spyOn(api, "saveExportDestinationApp").mockResolvedValue(entered);
+    vi.spyOn(api, "connectExportDestination").mockRejectedValue(new Error("Google Drive could not start the sign-in"));
+    const remove = vi.spyOn(api, "removeExportDestinationApp").mockResolvedValue(status({
+      accounts: [account("dropbox"), account("google-drive", { available: false, appSource: null })],
+    }));
+    const user = userEvent.setup();
+
+    renderPicker();
+    await user.click(await screen.findByRole("button", { name: "Change the Google Drive app" }));
+    await user.type(screen.getByRole("textbox", { name: "Client ID" }), "1234567890-owner.apps.googleusercontent.com");
+    const secret = screen.getByLabelText("Client secret");
+    expect(secret).toHaveAttribute("type", "password");
+    await user.type(secret, "owner-client-secret");
+    await user.click(screen.getByRole("button", { name: "Save and connect" }));
+
+    expect(save).toHaveBeenCalledWith("google-drive", { clientId: "1234567890-owner.apps.googleusercontent.com", clientSecret: "owner-client-secret" });
+    expect(await screen.findByRole("alert")).toHaveTextContent("Google Drive could not start the sign-in");
+
+    await user.click(screen.getByRole("button", { name: "Change the Google Drive app" }));
+    await user.click(screen.getByRole("button", { name: "Remove app" }));
+
+    expect(remove).toHaveBeenCalledWith("google-drive");
+    expect(await screen.findByRole("button", { name: "Set up Google Drive" })).toBeEnabled();
+    expect(screen.queryByText("Set up Google Drive on this installation")).not.toBeInTheDocument();
   });
 
   it("connects Dropbox by opening it in a new tab and pasting the code back", async () => {

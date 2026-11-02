@@ -116,6 +116,8 @@ export function createCoreDataServices(context: ApiConfigContext) {
       dropboxAppKey: config.dropboxAppKey ?? null,
       googleDriveClientId: config.googleDriveClientId ?? null,
       googleDriveClientSecret: config.googleDriveClientSecret ?? null,
+      dropboxAppSource: config.dropboxAppSource ?? null,
+      googleDriveAppSource: config.googleDriveAppSource ?? null,
       ...(context.options.exportDestinationFetcher ? { fetchImpl: context.options.exportDestinationFetcher } : {}),
     });
   const hostDatabaseMetrics = new HostDatabaseMetricsCollector(database, {

@@ -71,6 +71,46 @@ export const exportDestinationPaths = {
       },
     },
   },
+  "/system/export-destinations/{provider}/app": {
+    put: {
+      tags: ["Context"], operationId: "saveExportDestinationApp",
+      description: "Saves the provider app an Owner/Admin registered for this installation: a Dropbox app key, or a Google \"TVs and Limited Input devices\" client ID and secret. It replaces a built-in app, never one set by deployment environment variables, and is refused while an account is connected through the current app. The client secret is never returned.",
+      security: [{ localSession: [], csrfToken: [] }],
+      parameters: [providerParameter],
+      requestBody: jsonRequestBody({
+        oneOf: [
+          {
+            type: "object", additionalProperties: false, required: ["appKey"],
+            properties: { appKey: { type: "string", pattern: "^[A-Za-z0-9]{8,64}$", description: "Dropbox only." } },
+          },
+          {
+            type: "object", additionalProperties: false, required: ["clientId", "clientSecret"],
+            properties: {
+              clientId: { type: "string", pattern: "\\.apps\\.googleusercontent\\.com$", description: "Google Drive only." },
+              clientSecret: { type: "string", minLength: 8, maxLength: 512, writeOnly: true },
+            },
+          },
+        ],
+      }),
+      responses: {
+        "200": jsonResponse("Export destination status with the provider available.", statusReference),
+        "400": { description: "Missing or malformed app values" },
+        "404": { description: "Unknown provider" },
+        "409": { description: "Environment variables set this app, or an account is connected through it" },
+      },
+    },
+    delete: {
+      tags: ["Context"], operationId: "removeExportDestinationApp",
+      description: "Forgets the app entered in Set up. The provider falls back to the built-in app, or becomes unavailable. Refused while an account is connected through it.",
+      security: [{ localSession: [], csrfToken: [] }],
+      parameters: [providerParameter],
+      responses: {
+        "200": jsonResponse("Export destination status without the entered app.", statusReference),
+        "404": { description: "Unknown provider" },
+        "409": { description: "Environment variables set this app, or an account is connected through it" },
+      },
+    },
+  },
   "/system/export-destinations/{provider}": {
     delete: {
       tags: ["Context"], operationId: "disconnectExportDestination",
@@ -90,10 +130,14 @@ const timestamp = { type: ["string", "null"], format: "date-time" } as const;
 export const exportDestinationSchemas = {
   CloudExportAccount: {
     type: "object", additionalProperties: false,
-    required: ["provider", "available", "connected", "accountLabel", "connectedAt"],
+    required: ["provider", "available", "appSource", "connected", "accountLabel", "connectedAt"],
     properties: {
       provider: { enum: ["dropbox", "google-drive"] },
       available: { type: "boolean", description: "False until this installation has the provider's app ID." },
+      appSource: {
+        enum: ["environment", "protected-file", "built-in", null],
+        description: "Where the app ID comes from: deployment environment variables (not editable in Set up), an app an Owner/Admin entered in Set up, or the project's built-in app. Null while there is none.",
+      },
       connected: { type: "boolean" },
       accountLabel: { type: ["string", "null"], maxLength: 320 },
       connectedAt: timestamp,

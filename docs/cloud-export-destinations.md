@@ -15,6 +15,10 @@ password.
 Open **Set up → Operations → Backups and exports**. Under **Where scheduled
 exports go**:
 
+- **Needs a one-time setup first:** the installation has no app for that
+  provider yet. Choose **Set up** and follow
+  [Entering your own app in Set up](#entering-your-own-app-in-set-up). Stugu
+  then goes straight on to the sign-in below.
 - **Dropbox:** choose **Connect** next to Dropbox, then **Open Dropbox**. Sign in and
   choose **Allow**. Dropbox then shows a code. Paste it into Stugu and choose
   **Finish connecting**.
@@ -49,12 +53,39 @@ for example because access was removed in the account's security settings, the
 next scheduled run fails with *"… access was removed. Connect … again in Set
 up."*
 
-## Enabling the providers (one-time, by the maintainer)
+## Enabling the providers
 
-Each provider needs a registered app. Its ID is public and every installation
-can share it, so the project builds the IDs into the API and owners never see
-this step. Until an ID is set, that provider shows **Not enabled on this
-installation yet**.
+Each provider needs a registered app. An installation gets it from one of three
+places. When more than one is set, the first one wins:
+
+1. **Deployment variables.** The operator sets them; see
+   [Using a different app on one installation](#using-a-different-app-on-one-installation).
+2. **Set up.** An Owner or Admin registers an app and pastes its ID; see
+   [Entering your own app in Set up](#entering-your-own-app-in-set-up).
+3. **Built-in IDs.** The project's own app, compiled into the API; see
+   [Built-in IDs](#built-in-ids).
+
+Until one of them provides an app, that provider shows **Needs a one-time setup
+first** with a **Set up** button.
+
+### Entering your own app in Set up
+
+Choose **Set up** next to the provider. The form links to the provider's
+console and lists the steps below in short form. Paste the Dropbox app key, or
+the Google client ID and client secret, and choose **Save and connect**.
+
+- The values are stored in the protected integration secrets file
+  (`integration-secrets.json`, mode 0600) under `exportDestinations.apps`. The
+  API never returns the Google client secret.
+- This works on every installation, including the Raspberry Pi appliance, with
+  no host update or environment variable.
+- **Change app** and **Remove app** appear next to a provider whose app was
+  entered in Set up. They work only while no account is connected, because a
+  connected account's refresh token belongs to the app it signed in through.
+  **Disconnect** first, then change the app and connect again. **Remove app**
+  falls back to the built-in app, if there is one.
+- Set up doesn't offer to change an app that deployment variables set, and the
+  API refuses with `CLOUD_EXPORT_APP_ENVIRONMENT_OWNED`.
 
 ### Dropbox app
 
@@ -65,8 +96,9 @@ installation yet**.
 3. Under **Settings**, keep **Allow public clients (Implicit Grant & PKCE)**
    enabled. No redirect URI is needed: Stugu uses PKCE without a redirect, so
    Dropbox shows the code to paste.
-4. Put the app key in `dropboxAppKey` (see [Built-in IDs](#built-in-ids)). It
-   isn't a secret, and Stugu never uses an app secret.
+4. Paste the app key from **Settings** into Set up, or put it in
+   `dropboxAppKey` (see [Built-in IDs](#built-in-ids)). It isn't a secret, and
+   Stugu never uses an app secret.
 
 A new Dropbox app is in *development* status and accepts up to 500 users. Apply
 for production in the App Console before a wider rollout.
@@ -79,10 +111,11 @@ for production in the App Console before a wider rollout.
    and set the publishing status to **In production**. In *Testing* status,
    refresh tokens expire after seven days.
 3. Create an OAuth client ID of type **TVs and Limited Input devices**.
-4. Put the client ID (it ends in `.apps.googleusercontent.com`) in
-   `googleDriveClientId` and the client secret in `googleDriveClientSecret`
-   (see [Built-in IDs](#built-in-ids)). Google doesn't treat this installed-app
-   secret as confidential. Stugu still never returns it.
+4. Paste the client ID (it ends in `.apps.googleusercontent.com`) and the
+   client secret into Set up, or put them in `googleDriveClientId` and
+   `googleDriveClientSecret` (see [Built-in IDs](#built-in-ids)). Google
+   doesn't treat this installed-app secret as confidential. Stugu still never
+   returns it.
 
 ### Built-in IDs
 
@@ -115,7 +148,8 @@ Where to set them:
 
 - **Docker Compose:** add the variables to `.env`. Compose passes them to the
   API container.
-- **Raspberry Pi appliance:** use the built-in IDs. The appliance runs the
+- **Raspberry Pi appliance:** enter your own app in Set up, or use the
+  built-in IDs. Environment variables are unreliable there: the appliance runs the
   Compose file baked into its host image (`/opt/stugu/docker-compose.yml`), and
   an application update only swaps the pinned container images. Values in
   `/persistent/stugu/stugu.env` reach the API only when that Compose file

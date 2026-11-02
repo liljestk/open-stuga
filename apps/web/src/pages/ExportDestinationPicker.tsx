@@ -5,6 +5,7 @@ import { api } from "../api";
 import { confirmAction } from "../components/ConfirmationProvider";
 import { EXPORT_DESTINATION_NAME_KEYS } from "../components/exportDestinationNames";
 import { useI18n } from "../i18n";
+import { ExportDestinationAppSetup, type CloudExportAppInput } from "./ExportDestinationAppSetup";
 import "./ExportDestinationPicker.css";
 
 type Translate = ReturnType<typeof useI18n>["t"];
@@ -112,6 +113,7 @@ export function ExportDestinationPicker({ nasConnected }: Readonly<{ nasConnecte
   const [status, setStatus] = useState<ExportDestinationStatus | null>(null);
   const [busy, setBusy] = useState<string | null>("load");
   const [error, setError] = useState<string | null>(null);
+  const [appSetup, setAppSetup] = useState<CloudExportProvider | null>(null);
 
   const load = useCallback(async (quiet = false) => {
     try {
@@ -148,26 +150,59 @@ export function ExportDestinationPicker({ nasConnected }: Readonly<{ nasConnecte
   const select = (kind: ExportDestinationKind) => {
     if (kind !== status?.selected) void run("select", () => api.selectExportDestination(kind));
   };
+  // Saving the app goes straight on to the sign-in, so setting up a drive stays one flow.
+  const saveApp = async (provider: CloudExportProvider, app: CloudExportAppInput) => {
+    setBusy(`app-${provider}`);
+    setError(null);
+    try {
+      setStatus(await api.saveExportDestinationApp(provider, app));
+      setAppSetup(null);
+      setStatus(await api.connectExportDestination(provider));
+    } catch (actionError) {
+      setError(message(actionError, t("dataExport.destinationError")));
+    } finally {
+      setBusy(null);
+    }
+  };
+  const removeApp = (provider: CloudExportProvider) => void run(`app-${provider}`, async () => {
+    const next = await api.removeExportDestinationApp(provider);
+    setAppSetup(null);
+    return next;
+  });
   const disconnect = async (provider: CloudExportProvider) => {
     if (!await confirmAction(t("dataExport.destinationDisconnectConfirm", { provider: providerName(provider) }), t("dataExport.destinationDisconnect"), true)) return;
     await run(`disconnect-${provider}`, () => api.disconnectExportDestination(provider));
   };
 
-  const cloudAction = (account: CloudExportAccount) => {
+  const appButton = (provider: CloudExportProvider, change: boolean) => <button type="button" className={change ? "secondary-button" : "primary-button"}
+    aria-label={t(change ? "dataExport.destinationChangeAppProvider" : "dataExport.destinationSetUpProvider", { provider: providerName(provider) })}
+    aria-expanded={appSetup === provider} disabled={busy !== null} onClick={() => setAppSetup(appSetup === provider ? null : provider)}>
+    {t(change ? "dataExport.destinationChangeApp" : "dataExport.destinationSetUp")}
+  </button>;
+
+  const connectionButton = (account: CloudExportAccount) => {
     const label = account.connected ? t("dataExport.destinationDisconnect") : t("dataExport.destinationConnect");
     const name = providerName(account.provider);
     const accessibleLabel = account.connected
       ? t("dataExport.destinationDisconnectProvider", { provider: name })
       : t("dataExport.destinationConnectTitle", { provider: name });
     const working = busy === `connect-${account.provider}` || busy === `disconnect-${account.provider}`;
-    if (!account.connected && !account.available) return undefined;
     return <button type="button" className={account.connected ? "secondary-button" : "primary-button"} aria-label={accessibleLabel} disabled={busy !== null}
       onClick={() => account.connected ? void disconnect(account.provider) : connect(account.provider)}>
       {working && <LoaderCircle className="spin" size={15} aria-hidden="true" />}{label}
     </button>;
   };
 
+  // A provider without an app offers Set up; an app entered there can be changed while no account uses it.
+  const cloudAction = (account: CloudExportAccount) => {
+    if (!account.connected && !account.available) return appButton(account.provider, false);
+    const button = connectionButton(account);
+    if (account.connected || account.appSource !== "protected-file") return button;
+    return <div className="export-destination-actions">{button}{appButton(account.provider, true)}</div>;
+  };
+
   const connection = status?.connection ?? null;
+  const setupAccount = status?.accounts.find((account) => account.provider === appSetup && !account.connected && account.appSource !== "environment") ?? null;
   return <fieldset className="export-destinations">
     <legend>{t("dataExport.destinationTitle")}</legend>
     <p className="export-destinations-help">{t("dataExport.destinationHelp")}</p>
@@ -181,6 +216,9 @@ export function ExportDestinationPicker({ nasConnected }: Readonly<{ nasConnecte
         <label><input type="radio" name="export-destination" value="icloud" disabled /><span className="export-destination-name"><Cloud size={16} aria-hidden="true" />{t("dataExport.destinationIcloud")}</span><small>{t("dataExport.destinationComingLater")}</small></label>
       </div>
     </div>}
+    {setupAccount && <ExportDestinationAppSetup key={setupAccount.provider} provider={setupAccount.provider} providerName={providerName(setupAccount.provider)}
+      removable={setupAccount.appSource === "protected-file"} busy={busy !== null}
+      onSave={(app) => void saveApp(setupAccount.provider, app)} onRemove={() => removeApp(setupAccount.provider)} onCancel={() => setAppSetup(null)} />}
     {connection && <ConnectionSteps key={connection.id} connection={connection} providerName={providerName(connection.provider)} busy={busy !== null}
       onSubmitCode={(code) => void run("code", () => api.submitExportDestinationCode(connection.provider, connection.id, code))}
       onCancel={() => void run("cancel", () => api.cancelExportDestinationConnection())}

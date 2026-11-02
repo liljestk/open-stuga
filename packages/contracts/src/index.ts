@@ -49,7 +49,7 @@ export { BUG_REPORT_DESCRIPTION_MAX_LENGTH, BUG_REPORT_DIAGNOSTIC_MESSAGE_MAX_LE
 export type { BugReportDiagnostics, BugReportErrorSource, BugReportInput, BugReportReceipt, BugReportRecentError, BugReportRelayInput, BugReportRelayPayload, BugReportRelaySettings } from "./bug-reports.js";
 export type { SystemStorageLocationKind, SystemStorageLocation, SystemStorageSettings, SystemStorageOperationPhase, SystemStorageOperation, SystemStorageStatus } from "./system-storage.js";
 export { CLOUD_EXPORT_PROVIDERS, EXPORT_DESTINATION_KINDS } from "./export-destinations.js";
-export type { CloudExportAccount, CloudExportConnection, CloudExportProvider, ExportDestinationKind, ExportDestinationStatus } from "./export-destinations.js";
+export type { CloudExportAccount, CloudExportAppInputs, CloudExportAppSource, CloudExportConnection, CloudExportProvider, ExportDestinationKind, ExportDestinationStatus } from "./export-destinations.js";
 export type { CloudflareSetupMode, CloudflareSetupPhase, CloudflareSetupOperation, CloudflareSetupStatus, CloudflareSetupStatusResponse, CloudflareSetupStartInput, CloudflareSetupStartResult } from "./cloudflare-setup.js";
 export type { LocalMcpRuntimeState, LocalMcpRuntimeErrorCode, LocalMcpRuntimeStatus, LocalMcpRuntimeStartResult } from "./local-mcp-runtime.js";
 export { ASSISTANT_CONNECTOR_CONSENT_PATH, ASSISTANT_CONNECTOR_RESOURCE_PATH, ASSISTANT_CONNECTOR_SCOPE, ASSISTANT_KINDS, isAssistantKind } from "./assistant-connector.js";
