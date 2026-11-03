@@ -54,6 +54,9 @@ releasing it. The [README](../README.md) has screenshots and an overview, and
   precision, provenance, confidence, revisions and conflicts.
 - [Activity and maintenance work](maintenance.md): Home Activity, quick
   evidence capture and a Property work plan with verification history.
+- [Dropbox and Google Drive exports](cloud-export-destinations.md): send your
+  scheduled CSV exports to the shared NAS or a drive of your own, and register
+  the provider apps once per installation.
 - [Apple Notes bridge and Telegram alerts](apple-notes-telegram.md): Telegram
   bot pairing and per-rule delivery, plus revocable iOS Shortcut grants.
 - [Claude and ChatGPT](assistants.md): connect an AI assistant with one URL
@@ -95,6 +98,9 @@ releasing it. The [README](../README.md) has screenshots and an overview, and
 - [Raspberry Pi system-update recovery](system-update-recovery.md): diagnosis
   and recovery for unsupported updater safety states and blocked
   application-only updates.
+- [Keeping the update feed fresh](host-update-release.md#6-keeping-feed-metadata-fresh):
+  the daily `npm run host-tuf-renewal` task on the key-holding machine that
+  stops the appliance feed's signed metadata from expiring.
 - [Host system monitoring](host-system-monitoring.md): CPU, memory, storage,
   temperature, strain alerts and Prometheus scraping.
 - [Live system migration](live-migration.md): moving a running Compose install

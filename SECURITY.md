@@ -34,6 +34,12 @@ plans can reveal occupancy patterns and building details. Back up and share the
 to match the actual purpose, and remove uploaded plans before sharing demo
 databases.
 
+Scheduled exports can also go to a Dropbox or Google Drive that an Owner or
+Admin connects for themselves. Only the schedules that person set up save
+there, and removing them from the workspace revokes their drives. Recovery
+backups are not sent to these drives. See
+[cloud export destinations](docs/cloud-export-destinations.md).
+
 ## Stuguby federation
 
 Stuguby is available but shares nothing until an owner creates an explicit
@@ -67,6 +73,20 @@ routes behind Access and creates a more-specific Bypass only for
 Access logging; Stugu's signed-request verifier, active membership, replay
 window, body bounds, and origin rate limits are the security boundary there.
 Run `npm run cloudflare:verify-coordinator` after every edge-policy change.
+
+## Claude and ChatGPT connector
+
+Only an Owner or Admin can connect Claude or ChatGPT. Assistants get read-only
+tools: they cannot change anything, control equipment, or see accounts or
+credentials. Access tokens last one hour, refresh tokens rotate on every use,
+and a reused refresh token disconnects the assistant. Approvals and
+disconnections are recorded in the security audit log.
+
+With the Cloudflare setup, `/api/v1/mcp`, `/api/v1/oauth/*` and the two OAuth
+discovery documents bypass Access, because the assistants' servers cannot sign
+in there. Each of these paths authenticates the client itself, and the bundled
+proxy rate-limits them. The approval page and every other path stay behind
+Access. See [Claude and ChatGPT](docs/assistants.md).
 
 ## Reporting
 

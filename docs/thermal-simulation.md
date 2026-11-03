@@ -24,7 +24,7 @@ HVAC efficiency.
 
 ## Data and readiness
 
-Fresh FMI temperature observations requested for a house are stored in a
+Fresh FMI or Open-Meteo outdoor temperatures for a house are stored in a
 separate `outdoor_temperature_samples` boundary table. They are keyed by the
 house location using an opaque digest so moving the house cannot mix
 observations from two places. Changing or clearing the location deletes the
@@ -100,13 +100,20 @@ The Twin renders four distinct concepts:
 - an empirical model band;
 - a separate signed residual plot.
 
-The Data & analytics page also exposes a whole-home comparison:
+A whole-home comparison is also available on demand:
 
 ```http
 GET /api/v1/houses/{houseId}/thermal-isolation
     ?from={ISO timestamp}
     &to={ISO timestamp}
 ```
+
+The Data & analytics panel shows a saved result instead.
+`GET /api/v2/analytics/thermal-isolation?houseId=…&dataMode=…&windowDays=7`
+(1, 7 or 14 days) reads the latest saved analysis. **Recalculate** sends a
+`POST` to the same path, which queues a background update, and the panel checks
+for the new result every 5 seconds for up to two minutes.
+`/api/v2/analytics/moisture-response` works the same way.
 
 Each enabled temperature sensor is calibrated independently against the same
 outdoor boundary. A usable fitted time constant `tau` is converted into a

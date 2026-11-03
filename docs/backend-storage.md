@@ -37,6 +37,7 @@ All authoritative non-time-series application state is durable in SQLite. The co
 - Properties, Homes, complete floor-plan aggregates, map placement and orientation, areas, fixed assets, equipment, equipment attachments and links, notes, electricity contracts, and binary floor-plan assets;
 - sensors, measurement definitions, Home Assistant entity bindings, TP-Link device bindings, alert rules, alert history, the durable alert-evaluation queue, alert evaluation state, and the notification outbox;
 - observations and revision history, maintenance tasks and revision/evidence links, static parameters, weather-outage recovery state, operational latches, and selected demo state;
+- assistant connections: self-registered OAuth clients, Owner/Admin approvals, and SHA-256 digests of their access and refresh tokens;
 - non-secret integration identity, ownership, endpoint metadata, lifecycle state, and revision history.
 - Stuguby rosters, invitation hashes, Home publication/grant metadata, Property
   adoptions, Home projections, authority epochs/transfers, durable Property and
@@ -53,7 +54,7 @@ Spatial rows are partitioned by the core database's persisted, non-sensitive arc
 
 Legacy Home Assistant and TP-Link mapping files are bootstrap/update inputs, not the only durable copy. Each integration manager imports a valid configured file on start even when credentials are absent or every live connection is Home-scoped. It canonicalizes known fields with locale-independent key/member ordering and atomically stores the complete non-secret JSON aggregate in core SQLite with its integration kind, verified SHA-256 content hash, monotonic revision, and creation/update timestamps. Semantic key/member reordering is a no-op. A valid file also repairs malformed, non-canonical, or hash-mismatched stored content; without a file, verification fails closed instead of trusting a damaged row. If the configured file is later absent, the compatibility bridge revalidates and uses the last SQLite revision. Home Assistant `unit`, `scale`, and `offset` options are retained; unknown fields, credentials, and the source file path are not. Duplicate Home Assistant claims for one sensor/metric are rejected. Stale sensor references are retained in the audited aggregate but filtered before active ingestion and reported as a diagnostic. This compatibility state is global only to the single legacy environment-backed connection and is never applied to Home-scoped UI connections. Historical precedence is unchanged: a Home Assistant file mapping wins for the same sensor/metric, while a TP-Link binding saved on a sensor wins over the legacy child map. An explicit empty TP-Link `devices` array clears that compatibility set without removing current sensor bindings.
 
-Credential bytes are the deliberate exception. Home Assistant tokens, TP-Link and Telegram credentials, Tuya device IDs and local keys, complete webhook URLs/bearers/signing keys, and Apple Notes grant-token hashes remain in the owner-protected integration secrets file; putting credentials or capability-bearing URL query strings in the broad core database would weaken recovery and access boundaries. SQLite stores typed non-secret references, Home ownership, sanitized endpoints, safe display labels, provider-neutral connected-device state and placement, active/retired lifecycle state, and an append-only revision snapshot for each change. Existing version-1 secret files are reconciled on startup without rewriting live credentials. A validated file can soft-retire references that are no longer present; a missing, unreadable, or explicitly partial file never prunes last-known metadata. Records are not hard-deleted, including after a Home is removed.
+Credential bytes are the deliberate exception. Home Assistant tokens, TP-Link and Telegram credentials, Tuya device IDs and local keys, complete webhook URLs/bearers/signing keys, Dropbox and Google Drive refresh tokens and export apps, and Apple Notes grant-token hashes remain in the owner-protected integration secrets file; putting credentials or capability-bearing URL query strings in the broad core database would weaken recovery and access boundaries. SQLite stores typed non-secret references, Home ownership, sanitized endpoints, safe display labels, provider-neutral connected-device state and placement, active/retired lifecycle state, and an append-only revision snapshot for each change. Existing version-1 secret files are reconciled on startup without rewriting live credentials. A validated file can soft-retire references that are no longer present; a missing, unreadable, or explicitly partial file never prunes last-known metadata. Records are not hard-deleted, including after a Home is removed.
 
 Environment variables remain valid deployment overrides. An environment webhook destination set takes precedence and is mirrored atomically into the protected secrets file so a complete backup can restore it after the override is removed; SQLite receives only safe per-destination references and revisions. The legacy `primary` destination retains its `singleton` metadata reference for upgrade compatibility. If protected-file mirroring is unavailable, the environment configuration continues to operate but the backup must retain the deployment secrets separately. In-process caches, connection status, discovery results, SSE listeners, in-flight work, and replay position are reconstructible runtime state; browser storage contains presentation preferences, not authoritative Property data.
 
@@ -241,9 +242,9 @@ Network-attached storage is supported for recovery sets through
 `STUGA_SCHEDULED_BACKUP_SOURCE`; Cloudflare R2 remains an encrypted off-host
 recovery tier, not a query tier.
 
-Owners and Admins can connect the shared NAS under **Set up → Operations** or
-configure both locations under **System → Storage** when the trusted host
-update agent is connected. A host path must already exist below one of
+Owners and Admins configure both locations, including the shared NAS as the
+backup location, under **System → Storage** when the trusted host update agent
+is connected. A host path must already exist below one of
 `STUGA_STORAGE_ALLOWED_ROOTS`; Stugu never mounts a share or stores NAS
 credentials. **Mounted NAS is never primary telemetry storage.** It holds
 recovery sets and optional derived CSV exports. The agent verifies the network
@@ -260,8 +261,9 @@ byte count, and SHA-256 digest before copying to
 and returns a receipt to the API. The API container never receives writable
 access to the NAS mount.
 
-Owners can instead send scheduled exports to Dropbox or Google Drive. The API
-then uploads the same CSV directly to the connected drive's app-only folder and
+Each Owner or Admin can instead send the schedules they set up to their own
+Dropbox or Google Drive, chosen under **Data & analytics → Scheduled exports**.
+The API then uploads the same CSV directly to that person's app-only folder and
 prunes that schedule's older files there; recovery sets stay on the NAS or
 managed storage. See [Dropbox and Google Drive export
 destinations](cloud-export-destinations.md).

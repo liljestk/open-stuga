@@ -236,11 +236,14 @@ Stugu uses Home Assistant's authenticated WebSocket API and subscribes to
 2. Sign in as that user, open its profile, and create a **Long-Lived Access
    Token** named `Stugu`.
 3. Copy it immediately. Select the Home that owns this Home Assistant instance
-   and open its **Set up > Connections** page at
+   and open its **Set up > Where readings come from** page at
    `/properties/{propertyId}/homes/{homeId}/setup/connections`. Then select
    **Find devices**,
    choose Home Assistant (or enter its local URL manually), paste the token, and
    select **Save and connect**. Home Assistant does not display it again.
+
+Only an Owner or Admin can run discovery, save the token, or change the
+connection. A Member sees a note instead of the form.
 
 Home Assistant documents long-lived tokens as valid for up to ten years. Treat
 one like a password: never commit it, paste it into the entity-map JSON, or

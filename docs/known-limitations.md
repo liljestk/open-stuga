@@ -377,13 +377,19 @@ system described in the roadmap.
 - Neither v1 nor v2 SSE has a durable event ID/resume cursor. The bundled client
   subscribes before hydrating, buffers intervening events, and refreshes the
   relevant snapshot/history after reconnects. Other clients must do the same.
-- MCP authorization is either the ability to launch the local stdio process or
-  possession of the one-time bearer from an explicitly Web-started Streamable
-  HTTP runtime. It does not use browser account sessions or Guest grants. The
+- MCP authorization is the ability to launch the local stdio process,
+  possession of the one-time bearer an Owner or Admin creates in **Advanced →
+  API & MCP**, or an OAuth access token issued to an approved Claude or ChatGPT
+  connection. It does not use browser account sessions or Guest grants, so an
+  approved assistant reads every Home. The
   MCP surface is inspection-only, opens SQLite read-only, and queries
   TimeDB only for telemetry history. It cannot
   create, update, delete, import, migrate, share, synchronize, or control local
   state.
+- Claude and ChatGPT call Stugu from their own servers, so the assistant
+  connector needs a public HTTPS address, such as the Cloudflare Tunnel. An
+  installation reachable only on the LAN or over a VPN can connect only MCP
+  apps that run on that network. See [Claude and ChatGPT](assistants.md).
 - Raw JSON telemetry export and Stuguby historical/full-recovery publication do
   not yet stream directly from TimeDB. Raw JSON export requires a verified
   SQLite-plus-TimeDB backup whenever the archive owns history; Stuguby refuses
@@ -460,8 +466,12 @@ system described in the roadmap.
   opt-in full TimescaleDB dump. Restoration remains an explicit operator
   procedure, and each new recovery point still needs an isolated restore drill.
   The security ledger covers authentication, membership, integration credential,
-  and bridge-grant lifecycles. It is not yet a comprehensive audit of every
+  and Apple Notes, network MCP and assistant grant lifecycles. It is not yet a comprehensive audit of every
   Property, layout, observation, maintenance, export, or data-lifecycle mutation.
+- Scheduled CSV exports can go to a personal Dropbox or Google Drive, but
+  recovery backups stay on the NAS, or on this device when no NAS is connected.
+  iCloud Drive is not supported: Apple has no supported server API for it. See
+  [Dropbox and Google Drive export destinations](cloud-export-destinations.md).
 - Home Assistant and direct TP-Link configuration are Home-scoped. Several
   Homes may use independent credentials and local endpoints in one Stugu
   installation. A Home Assistant connection remains one URL/token per Home;

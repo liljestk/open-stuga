@@ -30,7 +30,11 @@ Target-specific bind addresses, browser ports, filesystem paths, and internal
 TimescaleDB credentials are not copied. The target keeps those values from its
 own appliance configuration. The migration environment allowlist is defined in
 `scripts/stugu-migration-common.mjs`; unknown settings fail closed instead of
-being injected into the target.
+being injected into the target. Personal Dropbox and Google Drive connections,
+and an export app entered in Stugu, travel in the integration-secrets file.
+`STUGU_DROPBOX_APP_KEY` and `STUGU_GOOGLE_DRIVE_CLIENT_*` are not portable
+settings; set them on the target yourself if the source used them (see
+[Dropbox and Google Drive export destinations](cloud-export-destinations.md#using-a-different-app-on-one-installation)).
 
 The transfer plan, chunks, staged backup, settings, and rollback state are all
 sensitive household and authentication data. SSH encrypts them in transit, but

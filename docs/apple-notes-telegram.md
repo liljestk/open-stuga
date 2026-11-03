@@ -18,7 +18,8 @@ scrape iCloud.com, or claim invisible live synchronization.
 
 Open **Alerts → Notification delivery → Telegram alerts**. Telegram is a
 Workspace-owned delivery channel, so this setup is available even when the
-Workspace contains a Property without a Home.
+Workspace contains a Property without a Home. Only an Owner or Admin can save,
+test, or disconnect it.
 
 1. In Telegram, open the verified [@BotFather](https://t.me/BotFather), run
    `/newbot`, and follow its prompts. Treat the returned bot token like a
@@ -27,10 +28,10 @@ Workspace contains a Property without a Home.
    method but never returns it after it is saved.
 3. Open the new bot in Telegram and send `/start` from the private chat that
    should receive alerts.
-4. Choose **Find my private chat**. Stugu reads recent bot updates and shows
+4. Choose **Find private chats**. Stugu reads recent bot updates and shows
    private chats only; choose the intended recipient. This avoids copying a
    numeric chat ID from raw API JSON.
-5. Save, then choose **Send test alert**. Set up is not complete until the test
+5. Save, then choose **Send test message**. Set up is not complete until the test
    reaches the intended chat.
 6. Open **Alerts**. For each new or existing rule that should leave Stugu,
    enable **Telegram**. The generic webhook and Telegram are separate options.
@@ -149,9 +150,10 @@ Then prepare the device:
 2. Use HTTPS whenever traffic crosses a network you do not fully trust.
 3. In Notes, create an **iCloud** folder named `Stugu`. Notes under **On My
    iPhone** do not appear on other Apple devices.
-4. Open **Set up → Automations → Apple Notes bridge**, select the Home, enter an
-   operator device label such as `Niklas iPhone`, and create a grant. The label
-   is an audit hint for the operator; it is not a device identity.
+4. Open **Set up → Automations → Apple Notes via Shortcuts**, select the Home,
+   enter an operator device label such as `Niklas iPhone`, and create a grant.
+   Only an Owner or Admin can create or revoke a grant. The label is an audit
+   hint for the operator; it is not a device identity.
 5. Copy the bearer token immediately. It is shown once. The revocable grant is
    restricted to the selected Home and the Notes bridge endpoints, but it is
    not bound to or authenticated by the labelled device. Stugu retains only

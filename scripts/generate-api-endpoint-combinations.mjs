@@ -294,7 +294,7 @@ Generation imports the source OpenAPI documents and reads repository source file
 
 For a test execution report, record case ID, operation/pair/workflow, synthetic fixture state, request variant, expected and actual status/body/state, and pass/fail/blocked/inapplicable. This document records a generated test catalogue; its execution status is **not run**.
 
-Sources: [versioned OpenAPI](../../apps/api/src/openapi.ts), [route registration](../../apps/api/src/app/main.ts), [authorization middleware](../../apps/api/src/app/part-06.ts), [OpenAPI parity test](../../apps/api/tests/openapi-parity.test.ts), [optional relay](../../apps/bug-report-relay/src/index.ts), and [shared report validator](../../packages/contracts/src/bug-reports.ts). Exact source-document and supplemental-source hashes are in the JSON matrix.
+Sources: [versioned OpenAPI](../../apps/api/src/openapi.ts), [route registration](../../apps/api/src/app/main.ts), [authorization middleware](../../apps/api/src/app/access-control.ts), [OpenAPI parity test](../../apps/api/tests/openapi-parity.test.ts), [optional relay](../../apps/bug-report-relay/src/index.ts), and [shared report validator](../../packages/contracts/src/bug-reports.ts). Exact source-document and supplemental-source hashes are in the JSON matrix.
 `;
 
 const ndjson = (records) => `${records.map((record) => JSON.stringify(record)).join("\n")}\n`;

@@ -23,11 +23,12 @@ defaults: the user decides whether to apply a search result, and the manual
 latitude, longitude, label, and timezone fields remain available under
 **Advanced**.
 
-Use **Set up > Homes** for the independent precise map placement and plan
-orientation. Map tiles are not loaded until the user explicitly opens the map.
-A calibrated home is drawn as a geographically scaled floor-plan footprint that
-grows and shrinks with map zoom; a home with only a weather location is shown as
-a pin. A home with neither value is absent from its Property map until one is set.
+Use **Property > Map** for the independent precise map placement and plan
+orientation (under **Advanced placement and orientation**). Map tiles are not
+loaded until the user explicitly opens the map. A calibrated home is drawn as a
+geographically scaled floor-plan footprint that grows and shrinks with map zoom;
+a home with only a weather location is shown as a pin. A home with neither
+value is absent from its Property map until one is set.
 Each saved home keeps its own location and timezone, so a single installation
 can monitor homes in different parts of the world. Home Assistant and direct
 TP-Link credentials and connections belong to the selected Home. Different
@@ -134,10 +135,10 @@ separate even when Stugu copies coordinates between them.
 The Home-scoped **Outdoor** page presents current context separately from
 **Set up** at `/properties/{propertyId}/homes/{homeId}/outdoor`.
 It requests a 48-hour forecast and divides it into four keyboard-operable
-12-hour windows: **Next 12 hours**, **+12–24 hours**, **+24–36 hours**, and
-**+36–48 hours**. The table and mobile cards use the selected home's timezone,
-including its UTC offset, and retain provider attribution, timestamps, partial
-availability, and stale state. Changing home resets the window safely; a manual
+12-hour windows: **Next 12h**, **+12–24h**, **+24–36h**, and **+36–48h**. The
+table and mobile cards use the selected home's timezone, including its UTC
+offset, and retain provider attribution, timestamps, partial availability, and
+stale state. Changing home resets the window safely; a manual
 refresh cheaply revalidates the local snapshot and never contacts the provider.
 
 The live Twin view can also load the home's current outdoor values and shows
@@ -145,7 +146,10 @@ outside temperature, relative humidity, wind speed, gust, source direction,
 source time, provenance, and stale state when those fields are available. FMI
 current conditions are recent station observations; Open-Meteo current
 conditions are modelled and are labelled as such. Missing values remain visibly
-unavailable rather than being replaced with zero.
+unavailable rather than being replaced with zero. The outdoor readings drawn
+around the house are labelled **Outdoor shell**, **Outdoor temperature**, and
+**Outdoor humidity** whichever provider supplies them; the **Outside now** card
+names the weather source.
 
 Wind direction is the direction the wind comes **from**. With a known house
 orientation, Stugu converts it into plan coordinates as
@@ -431,7 +435,7 @@ to load the map; Stugu does not proxy or store the tiles. Those
 requests disclose the browser's IP address, the Stugu web origin in the
 required HTTP `Referer`, and the requested tile coordinates (which imply the
 viewed map area and zoom) to OpenStreetMap infrastructure. Users who must not
-make that external request should not load the map in **Set up > Homes**;
+make that external request should not load the map in **Property > Map**;
 they can set coordinates through the API, or the deployment can replace the
 layer with an approved self-hosted/private provider before loading the picker.
 

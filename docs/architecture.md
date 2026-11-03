@@ -57,7 +57,9 @@ flowchart LR
 
     api -->|"local LAN polling"| devices["Tapo hubs, Tuya,<br/>Gree, Home Assistant"]
     api -->|"HTTPS"| providers["FMI, Open-Meteo,<br/>price feed"]
+    api -.->|"HTTPS, once someone<br/>connects a drive"| drives["Dropbox,<br/>Google Drive"]
     agent -->|"digest-pinned images"| ghcr["GitHub Releases<br/>+ GHCR"]
+    assistants["Claude, ChatGPT"] -.->|"HTTPS, OAuth +<br/>/api/v1/mcp"| cloudflared
 ```
 
 - The API container is private to the Compose network; only `web` publishes a
@@ -72,6 +74,14 @@ flowchart LR
   backups live on the shared persistent partition.
 - Cloudflare Tunnel and Access are an optional, operator-owned way in. See
   [Cloudflare Tunnel and Access](cloudflare-access.md).
+- Claude and ChatGPT connect from their own servers through a public HTTPS
+  address. Stugu's own OAuth 2.1 server lets an Owner or Admin approve each
+  one, and the assistant then reads the read-only MCP conversation tools at
+  `/api/v1/mcp`. See [Claude and ChatGPT](assistants.md).
+- Scheduled CSV exports go to the shared NAS, or to an Owner's or Admin's own
+  Dropbox or Google Drive, which the API uploads to directly. Recovery sets
+  stay on the NAS or managed storage. See
+  [Dropbox and Google Drive export destinations](cloud-export-destinations.md).
 
 ## Runtime view
 
@@ -134,6 +144,7 @@ flowchart LR
         E --> UI
         E --> IOSAPP
         MCP[Read-only MCP servers\nstdio and Streamable HTTP] --> Q
+        OA[OAuth assistant connector\nOwner/Admin approval] --> MCP
         HR --> K[Analytics kernel\nstatistics, kWh, calendar]
         K --> Q
         K --> P
@@ -149,6 +160,7 @@ flowchart LR
     LD -->|HTTPS geocoding + timezone| OM
     UI -->|attributed HTTPS tiles| OSM[OpenStreetMap tile service]
     CLIENT[Other clients] --> API
+    AI[Claude / ChatGPT] -->|HTTPS OAuth + MCP| OA
     IOS[iOS Shortcuts] <-->|scoped maintenance capture\n+ dated snapshot| API
     IOS --> NOTES[Apple Notes]
 ```
@@ -235,10 +247,11 @@ The web information architecture follows ownership. Workspace navigation holds
 land-only Properties. A selected Home owns **Home**, **Sensors**, and **Set up**;
 Activity and Outdoor are Home-scoped operational subviews. **Set up** has six
 deep-linkable, keyboard-operable sections: **Overview** for readiness,
-**Layout** for the floor-plan editor, **Connections** for that Home's TP-Link,
-Tuya, Gree, and Home Assistant connections, **Weather** for location/timezone
-and the automatic-provider summary, **Operations** for bulk source mapping and
-history work, and **Automations** for Home rules. The retired `/setup/homes`
+**Layout & rooms** for the floor-plan editor, **Where readings come from** for
+that Home's TP-Link, Tuya, Gree, and Home Assistant connections, and, under
+**Advanced setup**, **Weather** for location/timezone
+and the automatic-provider summary, **Sensor mapping** for bulk source mapping,
+and **Automations** for Home rules. The retired `/setup/homes`
 destination remains a compatibility redirect; Property map and placement tools
 own that work. Current conditions, warnings, and the 48-hour forecast belong on
 Outdoor rather than crowding **Set up**. Canonical URLs retain Property and

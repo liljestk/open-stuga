@@ -303,7 +303,7 @@ The rail follows ownership rather than feature categories:
 - **Property:** the Property workspace, Maintenance, and Electricity contracts.
 - **Home:** indoor status, Activity, Outdoor, Electricity use, Data & analytics,
   Sensors, and Set up for one Home.
-- **Advanced:** API & MCP compatibility and integration contracts.
+- **Advanced:** People & access, Stugubys, System, and API & MCP.
 
 Selecting a Home also selects its parent Property. Property-owned work remains
 available when a Property has no Home: use
@@ -314,15 +314,16 @@ source.
 ## Use the Home's Set up workspace
 
 Select a Property and Home, then open **Set up**. It is split into six sections
-so routine monitoring stays out of the configuration flow:
+so routine monitoring stays out of the configuration flow. The last three sit
+under **Advanced setup**:
 
 | Section | Purpose |
 | --- | --- |
 | **Overview** | readiness steps and a compact status summary |
-| **Layout** | the floor-plan editor: floors, walls, rooms and drawings |
-| **Connections** | discover and configure this Home's TP-Link, Tuya, Gree and Home Assistant connections |
+| **Layout & rooms** | the floor-plan editor: floors, walls, rooms and drawings |
+| **Where readings come from** | discover and configure this Home's TP-Link, Tuya, Gree and Home Assistant connections |
 | **Weather** | discover the Home's location and timezone, and review the automatic weather provider |
-| **Operations** | bulk source mapping, history import and recovery work |
+| **Sensor mapping** | match data sources to this Home's sensors in bulk |
 | **Automations** | rules for this Home |
 
 Map placement, footprint calibration and plan orientation belong to the
@@ -333,9 +334,9 @@ are still missing:
 
 ```mermaid
 flowchart LR
-    overview["Set up → Overview<br/>what is still missing"] --> layout["Layout<br/>draw floors and rooms"]
+    overview["Set up → Overview<br/>what is still missing"] --> layout["Layout & rooms<br/>draw floors and rooms"]
     overview --> weather["Weather<br/>location and timezone"]
-    layout --> connections["Connections<br/>scan the LAN, save a hub"]
+    layout --> connections["Where readings come from<br/>scan the LAN, save a hub"]
     connections --> sensors["Sensors<br/>add a discovered sensor,<br/>place it on the plan"]
     sensors --> live["Home<br/>live 2D/3D view"]
 ```
@@ -343,7 +344,7 @@ flowchart LR
 The section is encoded in the canonical
 `/properties/{propertyId}/homes/{homeId}/setup/{section}` route, so browser
 Back/Forward and direct links retain both scope and context. Opening
-**Connections** starts one best-effort LAN
+**Where readings come from** starts one best-effort LAN
 discovery scan; a retry button and manual address fields remain available. If
 TP-Link discovery fails or returns no hub, its manual host and credential fields
 open automatically. The other credential and manual-network controls remain
@@ -364,7 +365,7 @@ To connect a real hub (the mock workflow is not a prerequisite):
 1. Follow [direct TP-Link H100/H200/H500 setup](tp-link-direct.md).
 2. For local development, install
    `apps/api/python/requirements.txt`; the Docker image already includes it.
-3. Select the Home that owns the hub, open **Set up > Connections**, choose the
+3. Select the Home that owns the hub, open **Set up > Where readings come from**, choose the
    discovered H100/H200/H500 (or open the manual connection fields), and enter the
    same account used by the Tapo app.
 4. Open **Sensors**, choose **Add sensor**, and select a discovered T310/T315.
@@ -412,13 +413,13 @@ This service is intentionally opt-in because it drives a third-party mobile UI:
    Verify API/Appium separately, then set `TAPO_APPIUM_LOGS_HARDENED=true` only
    after protected filtered Appium logging is active.
 6. Set `TAPO_DEDICATED_ACCOUNT=true` as the explicit operator attestation, set
-   `TAPO_RUNNER_ENABLED=true`, and start one worker. Use **Set up > Connections**
+   `TAPO_RUNNER_ENABLED=true`, and start one worker. Use **Set up > Where readings come from**
    to complete a staged-only canary spanning at least eight export intervals and
    at most `max(7 days, 8 intervals)`. Ordinary jobs remain locked until its
    exact deployment/API/schema/target scope passes. Canary samples are not
    ingested or recorded as recovered gaps.
 
-Open **Set up > Connections > Automated Tapo history exports** to review job
+Open **Set up > Where readings come from > Automated Tapo history exports** to review job
 state, provider, device/range, attempts, and errors. Retry `failed` or
 `needs-attention` work only after correcting the cause and repeating the canary
 when selectors changed. Approval expires after 30 days and renews ahead of
@@ -435,7 +436,7 @@ prerequisite):
 2. Copy `config/home-assistant.entities.example.json` to the untracked
    `config/home-assistant.entities.json` and replace all entity IDs.
 3. Select the Home served by that Home Assistant instance, open
-   **Set up > Connections**, choose the discovered instance (or open the manual
+   **Set up > Where readings come from**, choose the discovered instance (or open the manual
    connection fields), and paste a long-lived access token.
 4. If this database is in demo mode, saving the Home Assistant credentials
    automatically and permanently disables and purges demo telemetry. No
@@ -489,7 +490,7 @@ No weather API key or environment variable is required.
    explicitly choose **Use this device's location**. Apply the suggestion only
    after confirming it represents the home. Use **Advanced** only when manual
    coordinate or timezone correction is necessary.
-3. If the home already has a precise placement from **Set up > Homes**, it can
+3. If the home already has a precise placement on the Property map, it can
    be reused as the weather reference. Set the true-north bearing of the top
    floor-plan edge there when it is known; leave it unknown rather than guessing.
 4. Open the Home-scoped **Outdoor** page for current conditions, warning status,
@@ -612,7 +613,7 @@ take precedence after restart.
 | `BUG_REPORT_RELAY_TOKEN` | empty | non-Compose inline relay credential; prefer the file form |
 | `BUG_REPORT_RELAY_TOKEN_FILE` | empty | non-Compose alternative file containing the relay credential |
 | `STUGA_BUG_REPORT_SECRET_DIR` | `./secrets/bug-report` | Compose-only host directory containing the relay credential as `relay-token` |
-| `STUGU_DROPBOX_APP_KEY` | built-in project app | overrides the public key of the Dropbox app (App-folder access) used for Dropbox scheduled exports; leave empty to use the project's app ([setup](cloud-export-destinations.md)) |
+| `STUGU_DROPBOX_APP_KEY` | built-in project app | overrides the public key of the Dropbox app (App-folder access) used for Dropbox scheduled exports; leave empty to use an app entered in Stugu, or else the project's app ([setup](cloud-export-destinations.md)) |
 | `STUGU_GOOGLE_DRIVE_CLIENT_ID` | built-in project client | overrides the Google "TVs and Limited Input devices" OAuth client ID used for Google Drive; set together with its client secret |
 | `STUGU_GOOGLE_DRIVE_CLIENT_SECRET` | built-in project client | that installed-app client's secret; `STUGU_GOOGLE_DRIVE_CLIENT_SECRET_FILE` is the file form |
 | `VITE_API_BASE_URL` | empty | compile-time web API base; empty uses same-origin `/api/v1` and `/api/v2` |

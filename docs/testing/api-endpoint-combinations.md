@@ -1,20 +1,20 @@
 # API endpoint combinations for testing
 
-This is a testing list for Stugu 0.51.1: **350 local API operations** (323 v1 and 27 v2), plus **one optional bug-report relay operation**. Each operation is a method and path, so GET and POST on the same path are separate entries.
+This is a testing list for Stugu 0.62.1: **365 local API operations** (338 v1 and 27 v2), plus **one optional bug-report relay operation**. Each operation is a method and path, so GET and POST on the same path are separate entries.
 
-The files cover endpoint inputs, applicable account/resource/runtime states, and multi-endpoint workflows. **All 123,201 ordered two-operation pairs are listed**, including repeats, reverse order, both versions and the relay. Arbitrary payload values, subsets of all endpoints and sequences of unrestricted length cannot be fully listed. These are proposed tests, not executed results.
+The files cover endpoint inputs, applicable account/resource/runtime states, and multi-endpoint workflows. **All 133,956 ordered two-operation pairs are listed**, including repeats, reverse order, both versions and the relay. Arbitrary payload values, subsets of all endpoints and sequences of unrestricted length cannot be fully listed. These are proposed tests, not executed results.
 
 ## Testing files
 
 | File | Contents |
 | --- | --- |
 | [api-endpoint-matrix.json](api-endpoint-matrix.json) | Every operation, resolved parameters, body schemas, response contracts, security alternatives, compact input factors and common profiles |
-| [api-input-cases.ndjson](api-input-cases.ndjson) | 18,834 individual schema, boundary, omission, null, enum, nested branch and invalid-input cases |
-| [api-query-combinations.ndjson](api-query-combinations.ndjson) | 1,407 combinations of query presence, enums and booleans; other values use synthetic fixtures |
-| [api-endpoint-pairs.ndjson](api-endpoint-pairs.ndjson) | 123,201 rows of [first operation key, second operation key] |
+| [api-input-cases.ndjson](api-input-cases.ndjson) | 19,311 individual schema, boundary, omission, null, enum, nested branch and invalid-input cases |
+| [api-query-combinations.ndjson](api-query-combinations.ndjson) | 1,437 combinations of query presence, enums and booleans; other values use synthetic fixtures |
+| [api-endpoint-pairs.ndjson](api-endpoint-pairs.ndjson) | 133,956 rows of [first operation key, second operation key] |
 | [api-workflows.json](api-workflows.json) | 40 ordered workflows with prerequisites, assertions and negative cases |
 
-Operation keys include the version because operationId alone is not unique across documents. Look up each key in the matrix to find its method, path and contract. Relay paths use their separate configured service origin. Local-only pair coverage is 122,500; filtering pairs to first key less than second key gives 61,425 distinct unordered pairs across all services.
+Operation keys include the version because operationId alone is not unique across documents. Look up each key in the matrix to find its method, path and contract. Relay paths use their separate configured service origin. Local-only pair coverage is 133,225; filtering pairs to first key less than second key gives 66,795 distinct unordered pairs across all services.
 
 ## How to use the combinations
 
@@ -154,7 +154,7 @@ Parameter markers: * required, ? optional. The JSON expands references and lists
 | `v1:listHouseSpatialContextEvents` | GET `/api/v1/houses/{id}/layers/context-events` | path:id*, query:from?, query:to? | — | localSession | 200, 503 |
 | `v1:createHouseSpatialContextEvents` | POST `/api/v1/houses/{id}/layers/context-events` | path:id* | SpatialContextEventInput | localSession | 201, 503 |
 | `v1:streamSpatialLayerSnapshots` | GET `/api/v1/layers/events` | query:scopeKind?="house"/"property", query:scopeId? | — | localSession | 200, 503 |
-| `v1:useLocalMcpOverHttp` | POST `/api/v1/mcp` | — | — | mcpBearer | 200, 401, 503 |
+| `v1:useLocalMcpOverHttp` | POST `/api/v1/mcp` | — | — | mcpBearer OR assistantOAuth | 200, 401, 503 |
 | `v1:getLocalMcpRuntimeStatus` | GET `/api/v1/system/mcp-runtime` | — | — | localSession | 200, 403 |
 | `v1:startLocalMcpRuntime` | POST `/api/v1/system/mcp-runtime/start` | — | — | localSession + csrfToken | 200, 403, 409, 503 |
 | `v1:stopLocalMcpRuntime` | POST `/api/v1/system/mcp-runtime/stop` | — | — | localSession + csrfToken | 200, 403, 503 |
@@ -426,6 +426,21 @@ Parameter markers: * required, ? optional. The JSON expands references and lists
 | `v1:createElectricityInvoice` | POST `/api/v1/properties/{id}/electricity/invoices` | path:id* | ElectricityInvoiceInput | localSession | 201, 400, 404, 409 |
 | `v1:deleteElectricityInvoice` | DELETE `/api/v1/properties/{id}/electricity/invoices/{invoiceId}` | path:id*, path:invoiceId* | — | localSession | 200, 404 |
 | `v1:reconcileElectricityInvoice` | GET `/api/v1/properties/{id}/electricity/invoices/{invoiceId}/reconciliation` | path:id*, path:invoiceId* | — | localSession | 200, 403, 404, 409, 503 |
+| `v1:registerAssistantClient` | POST `/api/v1/oauth/register` | — | AssistantClientMetadata | public | 201, 400, 429, 503 |
+| `v1:exchangeAssistantToken` | POST `/api/v1/oauth/token` | — | inline schema | public | 200, 400, 401, 429 |
+| `v1:revokeAssistantToken` | POST `/api/v1/oauth/revoke` | — | inline schema | public | 200, 400, 401 |
+| `v1:previewAssistantAuthorization` | GET `/api/v1/assistant-connector/authorization` | query:response_type*, query:client_id*, query:redirect_uri?, query:code_challenge*, query:code_challenge_method*, query:state?, query:scope?, query:resource? | — | localSession | 200, 400, 403 |
+| `v1:decideAssistantAuthorization` | POST `/api/v1/assistant-connector/authorization` | — | AssistantAuthorizationInput | localSession + csrfToken | 200, 400, 403 |
+| `v1:listAssistantConnections` | GET `/api/v1/assistant-connector/connections` | — | — | localSession | 200, 403 |
+| `v1:revokeAssistantConnection` | DELETE `/api/v1/assistant-connector/connections/{id}` | path:id* | — | localSession + csrfToken | 200, 403, 404 |
+| `v1:getExportDestinations` | GET `/api/v1/system/export-destinations` | — | — | localSession | 200, 403 |
+| `v1:selectExportDestination` | PUT `/api/v1/system/export-destinations` | — | inline schema | localSession + csrfToken | 200, 400, 409 |
+| `v1:cancelExportDestinationConnection` | DELETE `/api/v1/system/export-destinations/connection` | — | — | localSession + csrfToken | 200 |
+| `v1:connectExportDestination` | POST `/api/v1/system/export-destinations/{provider}/connect` | path:provider*="dropbox"/"google-drive" | — | localSession + csrfToken | 200, 404, 409, 502 |
+| `v1:submitExportDestinationCode` | POST `/api/v1/system/export-destinations/{provider}/code` | path:provider*="dropbox"/"google-drive" | inline schema | localSession + csrfToken | 200, 400, 409, 502 |
+| `v1:saveExportDestinationApp` | PUT `/api/v1/system/export-destinations/{provider}/app` | path:provider*="dropbox"/"google-drive" | 2 oneOf shapes | localSession + csrfToken | 200, 400, 404, 409 |
+| `v1:removeExportDestinationApp` | DELETE `/api/v1/system/export-destinations/{provider}/app` | path:provider*="dropbox"/"google-drive" | — | localSession + csrfToken | 200, 404, 409 |
+| `v1:disconnectExportDestination` | DELETE `/api/v1/system/export-destinations/{provider}` | path:provider*="dropbox"/"google-drive" | — | localSession + csrfToken | 200, 404 |
 | `v2:openApiDocument` | GET `/api/v2/openapi.json` | — | — | public | 200 |
 | `v2:listMeasurementDefinitions` | GET `/api/v2/measurement-definitions` | query:includeDisabled? | — | localSession | 200 |
 | `v2:createMeasurementDefinition` | POST `/api/v2/measurement-definitions` | — | MeasurementDefinitionInput | localSession | 201, 409 |
@@ -470,4 +485,4 @@ Generation imports the source OpenAPI documents and reads repository source file
 
 For a test execution report, record case ID, operation/pair/workflow, synthetic fixture state, request variant, expected and actual status/body/state, and pass/fail/blocked/inapplicable. This document records a generated test catalogue; its execution status is **not run**.
 
-Sources: [versioned OpenAPI](../../apps/api/src/openapi.ts), [route registration](../../apps/api/src/app/main.ts), [authorization middleware](../../apps/api/src/app/part-06.ts), [OpenAPI parity test](../../apps/api/tests/openapi-parity.test.ts), [optional relay](../../apps/bug-report-relay/src/index.ts), and [shared report validator](../../packages/contracts/src/bug-reports.ts). Exact source-document and supplemental-source hashes are in the JSON matrix.
+Sources: [versioned OpenAPI](../../apps/api/src/openapi.ts), [route registration](../../apps/api/src/app/main.ts), [authorization middleware](../../apps/api/src/app/access-control.ts), [OpenAPI parity test](../../apps/api/tests/openapi-parity.test.ts), [optional relay](../../apps/bug-report-relay/src/index.ts), and [shared report validator](../../packages/contracts/src/bug-reports.ts). Exact source-document and supplemental-source hashes are in the JSON matrix.

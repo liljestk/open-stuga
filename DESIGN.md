@@ -118,14 +118,16 @@ unchanged.
 Property, or Home. Keep it outside the selected Property and Home scope. Only
 Owners and Admins see it.
 
-A shared NAS connection is installation-owned and configured from **Set up**
-(with full storage controls still available under **System**). The data scope,
-format, and recurrence of an export are Home-owned choices under **Data &
-analytics**. Keep expert frequency and retention controls in a closed
-disclosure. Do not add a generic scheduled-jobs destination until multiple job
-types need one operational queue.
+A shared NAS connection is installation-owned and set as the backup location
+under **System → Storage**. A Dropbox or Google Drive is personal: each Owner
+and Admin connects their own and chooses where their scheduled exports go under
+**Data & analytics → Scheduled exports**. The data scope, format, and
+recurrence of an export are Home-owned choices under **Data & analytics**. Keep
+expert frequency and retention controls in a closed disclosure. Do not add a
+generic scheduled-jobs destination until multiple job types need one
+operational queue.
 
-Map & assets, Inventory, Notes, and Access are sections inside Property. Inventory
+Map, Inventory, Notes, and Access are sections inside Property. Inventory
 is the Property-wide catalogue for maintainable equipment; a saved Home, area,
 or map pin is the expected location, while optional tracking remains a separate,
 explicitly labelled estimate with freshness and uncertainty. A scanned
@@ -304,12 +306,15 @@ Cool blue-grey neutrals do most of the work. Fjord blue is the interaction
 colour. The lantern amber belongs to the identity and marks only the current
 place; status colours (positive, caution, critical) never borrow it.
 
+The iOS companion has not moved to Kaamos yet. It keeps its earlier palette and
+mark ([`StuguTheme.swift`](apps/ios/Stugu/Design/StuguTheme.swift)).
+
 ### Shell (both themes)
 
 | Token | Value | Purpose | Verified contrast |
 |---|---:|---|---:|
 | `--shell` | `#141E28` (`#0F1720` in dark) | Navigation rail and phone header | — |
-| `--shell-raised` | `#22303D` | Current page in the rail | 13.48:1 with white |
+| `--shell-raised` | `#22303D` (`#1F2C38` in dark) | Current page in the rail | 13.48:1 with white |
 | `--shell-ink` | `#E9EFF3` | Rail text | 14.53:1 on Shell |
 | `--shell-muted` | `#9FB0BE` | Rail labels and secondary text | 7.57:1 on Shell |
 | `--lantern` | `#F2B33D` | Mark window, current-page marker, page-title bar | 9.06:1 on Shell |
@@ -367,10 +372,10 @@ Use these perceptually ordered, colour-vision-safe ramps:
 - Air quality: `#E7F1F8` → `#D29B00` → `#8C2D04`.
 - Generic sequential: `#E7E0F3` → `#7B6AB5` → `#3F285F`.
 
-Experimental sensor-support volumes use the generic sequential endpoints through
-the `--coverage` and `--coverage-soft` tokens. In dark mode these become
-`#C4B5EC` and `#32294A`. The solid/dashed boundary and placement marker carry
-the meaning when colour is unavailable.
+Experimental sensor-support volumes use the `--coverage` and `--coverage-soft`
+tokens (`#3F2E66` and `#E6E2F3`), close to the generic sequential endpoints. In
+dark mode these become `#C7B9F0` and `#30294D`. The solid/dashed boundary and
+placement marker carry the meaning when colour is unavailable.
 
 Always show endpoints, units, numeric sensor values, and a text description near a visualised field. A heat map is supporting context, never the only way to retrieve a value.
 
@@ -472,6 +477,15 @@ name the Home or Property they will change.
 - Destructive: Critical fill or Critical text with an explicit confirmation.
 - Icon button: must have an accessible name and at least a 24 × 24 px target; aim for 40–44 px.
 - Disabled controls retain their label and must not be communicated by opacity alone.
+
+### Tabs
+
+Property, Set up, Activity, and the Outdoor forecast share one tab list
+([`Tabs.tsx`](apps/web/src/components/Tabs.tsx)) with one design. It follows the
+WAI-ARIA tabs pattern: one tab stop, arrow keys in either direction, Home and
+End for the first and last tab, and selection follows focus. While a section
+outside the list is open, such as an advanced Set up section, the list keeps
+its one tab stop.
 
 ### Confirmations
 
@@ -602,7 +616,7 @@ Automation cannot approve wording, focus order, chart comprehension, or whether 
 - Theme and component rules live in [`styles.css`](apps/web/src/styles.css).
 - Brand/product language lives in [`i18n.tsx`](apps/web/src/i18n.tsx).
 - Data ramps live in [`measurements.ts`](apps/web/src/measurements.ts).
-- The shell and lockup live in [`AppShell.tsx`](apps/web/src/components/AppShell.tsx).
+- The shell and lockup live in [`AppShell.tsx`](apps/web/src/App/AppShell.tsx).
 - `--pine*` variables are temporary compatibility aliases for the semantic `--action*` tokens. Do not use the legacy name in new components.
 - Referencing an undeclared design token is a build failure. Components use
   semantic tokens (`--bg`, `--panel-soft`, `--line-strong`, `--red`, and

@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
-  "projectVersion": "0.51.1",
+  "projectVersion": "0.62.1",
   "executionStatus": "not-run",
   "source": {
     "documents": {
       "v1": {
         "path": "apps/api/src/openapi.ts",
-        "sha256": "bc08b80b578bbeeffb34985d5d60c1f7839268c37c8aa71a4e3805365e446e39"
+        "sha256": "47f46c7969a24a8c67966545d0e445db7e40daf98910c7c53c7d5fe9152a1cbf"
       },
       "v2": {
         "path": "apps/api/src/openapi.ts",
-        "sha256": "fe4e78dc96c94f193af07b1d8b1a54e72a960b6d7365d748d269fa68f61bfb84"
+        "sha256": "437e92a957df030f210096066f57983863627b545e827ad62aff8713fdf85e6e"
       }
     },
     "supplementalSourceHashes": {
@@ -22,16 +22,16 @@
   },
   "scope": "All local documented method/path operations plus the optional report-relay operation. Endpoint pairs are exhaustive only for sequences of length two. Values and longer sequences are unbounded.",
   "counts": {
-    "localOperations": 350,
-    "v1": 323,
+    "localOperations": 365,
+    "v1": 338,
     "v2": 27,
     "supplementalRelayOperations": 1,
-    "allOperations": 351,
-    "orderedPairsIncludingSelf": 123201,
-    "localOrderedPairsIncludingSelf": 122500,
-    "unorderedDistinctPairs": 61425,
-    "queryCombinations": 1407,
-    "inputCases": 18834,
+    "allOperations": 366,
+    "orderedPairsIncludingSelf": 133956,
+    "localOrderedPairsIncludingSelf": 133225,
+    "unorderedDistinctPairs": 66795,
+    "queryCombinations": 1437,
+    "inputCases": 19311,
     "workflows": 40
   },
   "combinationRules": {
@@ -75,6 +75,20 @@
         "scheme": "bearer",
         "bearerFormat": "opaque",
         "description": "One-time-displayed token generated when an Owner/Admin starts the network MCP runtime."
+      },
+      "assistantOAuth": {
+        "type": "oauth2",
+        "description": "OAuth 2.1 with PKCE for Claude, ChatGPT and local MCP apps. An Owner or Admin approves each connection in the Stugu web app.",
+        "flows": {
+          "authorizationCode": {
+            "authorizationUrl": "/connect/assistant",
+            "tokenUrl": "/api/v1/oauth/token",
+            "refreshUrl": "/api/v1/oauth/token",
+            "scopes": {
+              "stugu.read": "Read-only conversation tools for the Homes in this Stugu"
+            }
+          }
+        }
       },
       "notesGrant": {
         "type": "http",
@@ -15359,6 +15373,8 @@
           "lastRunStatus",
           "lastRunError",
           "lastOutputName",
+          "ownerEmail",
+          "destination",
           "revision",
           "createdAt",
           "updatedAt"
@@ -15484,6 +15500,21 @@
               "string",
               "null"
             ]
+          },
+          "ownerEmail": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The Owner/Admin who set the schedule up. Null for a schedule from before 0.62.0 or one whose owner was removed; those go to the shared NAS."
+          },
+          "destination": {
+            "enum": [
+              "nas",
+              "dropbox",
+              "google-drive"
+            ],
+            "description": "Where the next run goes: the owner's current choice of the shared NAS or their own cloud drive."
           },
           "revision": {
             "type": "integer",
@@ -21043,6 +21074,411 @@
             ]
           }
         }
+      },
+      "AssistantOAuthError": {
+        "type": "object",
+        "required": [
+          "error",
+          "error_description"
+        ],
+        "properties": {
+          "error": {
+            "type": "string"
+          },
+          "error_description": {
+            "type": "string"
+          }
+        }
+      },
+      "AssistantClientMetadata": {
+        "type": "object",
+        "required": [
+          "redirect_uris"
+        ],
+        "properties": {
+          "redirect_uris": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 10,
+            "items": {
+              "type": "string",
+              "format": "uri"
+            }
+          },
+          "token_endpoint_auth_method": {
+            "enum": [
+              "none",
+              "client_secret_post",
+              "client_secret_basic"
+            ],
+            "default": "client_secret_basic"
+          },
+          "grant_types": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "authorization_code",
+                "refresh_token"
+              ]
+            }
+          },
+          "response_types": {
+            "type": "array",
+            "items": {
+              "const": "code"
+            }
+          },
+          "client_name": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "client_uri": {
+            "type": "string",
+            "maxLength": 2048
+          },
+          "scope": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "software_id": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "software_version": {
+            "type": "string",
+            "maxLength": 200
+          }
+        }
+      },
+      "AssistantClientRegistration": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/AssistantClientMetadata"
+          },
+          {
+            "type": "object",
+            "required": [
+              "client_id",
+              "client_id_issued_at",
+              "token_endpoint_auth_method",
+              "grant_types",
+              "response_types"
+            ],
+            "properties": {
+              "client_id": {
+                "type": "string"
+              },
+              "client_id_issued_at": {
+                "type": "integer"
+              },
+              "client_secret": {
+                "type": "string",
+                "readOnly": true
+              },
+              "client_secret_expires_at": {
+                "const": 0
+              }
+            }
+          }
+        ]
+      },
+      "AssistantTokenResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "access_token",
+          "token_type",
+          "expires_in",
+          "refresh_token",
+          "scope"
+        ],
+        "properties": {
+          "access_token": {
+            "type": "string",
+            "pattern": "^stugu_at_"
+          },
+          "token_type": {
+            "const": "Bearer"
+          },
+          "expires_in": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "refresh_token": {
+            "type": "string",
+            "pattern": "^stugu_rt_"
+          },
+          "scope": {
+            "const": "stugu.read"
+          }
+        }
+      },
+      "AssistantAuthorizationPreview": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "assistant",
+          "clientName",
+          "redirectOrigin",
+          "scope"
+        ],
+        "properties": {
+          "assistant": {
+            "enum": [
+              "claude",
+              "chatgpt",
+              "local"
+            ]
+          },
+          "clientName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "redirectOrigin": {
+            "type": "string",
+            "format": "uri"
+          },
+          "scope": {
+            "const": "stugu.read"
+          }
+        }
+      },
+      "AssistantAuthorizationInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "query",
+          "decision"
+        ],
+        "properties": {
+          "query": {
+            "type": "string",
+            "maxLength": 8192
+          },
+          "decision": {
+            "enum": [
+              "approve",
+              "deny"
+            ]
+          }
+        }
+      },
+      "AssistantAuthorizationRedirect": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "redirectUrl"
+        ],
+        "properties": {
+          "redirectUrl": {
+            "type": "string",
+            "format": "uri"
+          }
+        }
+      },
+      "AssistantConnection": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "assistant",
+          "clientName",
+          "approvedBy",
+          "createdAt",
+          "lastUsedAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "assistant": {
+            "enum": [
+              "claude",
+              "chatgpt",
+              "local"
+            ]
+          },
+          "clientName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "approvedBy": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "lastUsedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "AssistantConnectionsResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "connections"
+        ],
+        "properties": {
+          "connections": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AssistantConnection"
+            }
+          }
+        }
+      },
+      "CloudExportAccount": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "provider",
+          "available",
+          "appSource",
+          "connected",
+          "accountLabel",
+          "connectedAt"
+        ],
+        "properties": {
+          "provider": {
+            "enum": [
+              "dropbox",
+              "google-drive"
+            ]
+          },
+          "available": {
+            "type": "boolean",
+            "description": "False until this installation has the provider's app ID."
+          },
+          "appSource": {
+            "enum": [
+              "environment",
+              "protected-file",
+              "built-in",
+              null
+            ],
+            "description": "Where the app ID comes from: deployment environment variables (not editable in Stugu), an app an Owner/Admin entered in Stugu, or the project's built-in app. Null while there is none."
+          },
+          "connected": {
+            "type": "boolean"
+          },
+          "accountLabel": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 320
+          },
+          "connectedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "CloudExportConnection": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "provider",
+          "method",
+          "url",
+          "userCode",
+          "expiresAt",
+          "error"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "provider": {
+            "enum": [
+              "dropbox",
+              "google-drive"
+            ]
+          },
+          "method": {
+            "enum": [
+              "paste-code",
+              "enter-code"
+            ]
+          },
+          "url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "userCode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "ExportDestinationStatus": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "selected",
+          "ready",
+          "nasConnected",
+          "accounts",
+          "connection"
+        ],
+        "properties": {
+          "selected": {
+            "enum": [
+              "nas",
+              "dropbox",
+              "google-drive"
+            ]
+          },
+          "ready": {
+            "type": "boolean"
+          },
+          "nasConnected": {
+            "type": "boolean"
+          },
+          "accounts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CloudExportAccount"
+            }
+          },
+          "connection": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/CloudExportConnection"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
       }
     }
   },
@@ -26456,10 +26892,15 @@
         "Context"
       ],
       "summary": "useLocalMcpOverHttp",
-      "description": "Bearer-protected, read-only MCP Streamable HTTP endpoint for trusted local-network clients. Enable it through the Owner/Admin runtime controls first.",
+      "description": "Bearer-protected, read-only MCP Streamable HTTP endpoint. A manual token from the Owner/Admin runtime controls opens the full local inspection profile; an assistant connection's OAuth token opens the focused conversation profile and starts the server on demand. An unauthenticated request receives a WWW-Authenticate challenge naming the OAuth protected resource metadata.",
       "securityAlternatives": [
         {
           "mcpBearer": []
+        },
+        {
+          "assistantOAuth": [
+            "stugu.read"
+          ]
         }
       ],
       "parameters": [],
@@ -26481,7 +26922,7 @@
           "description": "Valid MCP access token required"
         },
         "503": {
-          "description": "Network MCP runtime is not running"
+          "description": "Network MCP runtime is not running or could not start"
         }
       },
       "successCodes": [
@@ -26528,7 +26969,8 @@
                   "startedAt",
                   "toolCount",
                   "serverVersion",
-                  "errorCode"
+                  "errorCode",
+                  "accessTokenIssued"
                 ],
                 "properties": {
                   "state": {
@@ -26578,6 +27020,10 @@
                       "stop_failed",
                       null
                     ]
+                  },
+                  "accessTokenIssued": {
+                    "type": "boolean",
+                    "description": "Whether a manual bearer token is live. Assistant connections can run the server without one."
                   }
                 }
               }
@@ -26633,6 +27079,7 @@
                   "toolCount",
                   "serverVersion",
                   "errorCode",
+                  "accessTokenIssued",
                   "accessToken"
                 ],
                 "properties": {
@@ -26684,6 +27131,10 @@
                       null
                     ]
                   },
+                  "accessTokenIssued": {
+                    "type": "boolean",
+                    "description": "Whether a manual bearer token is live. Assistant connections can run the server without one."
+                  },
                   "accessToken": {
                     "type": [
                       "string",
@@ -26726,7 +27177,7 @@
         "Context"
       ],
       "summary": "stopLocalMcpRuntime",
-      "description": "Stops the network MCP listener and immediately invalidates its bearer token.",
+      "description": "Stops the network MCP listener and immediately invalidates its manual bearer token. An assistant connection's next request starts it again.",
       "securityAlternatives": [
         {
           "localSession": [],
@@ -26752,7 +27203,8 @@
                   "startedAt",
                   "toolCount",
                   "serverVersion",
-                  "errorCode"
+                  "errorCode",
+                  "accessTokenIssued"
                 ],
                 "properties": {
                   "state": {
@@ -26802,6 +27254,10 @@
                       "stop_failed",
                       null
                     ]
+                  },
+                  "accessTokenIssued": {
+                    "type": "boolean",
+                    "description": "Whether a manual bearer token is live. Assistant connections can run the server without one."
                   }
                 }
               }
@@ -40786,7 +41242,7 @@
       "queryCombinationCount": "2",
       "responses": {
         "200": {
-          "description": "Web-compatible sensor snapshots",
+          "description": "Compatibility alias of /sensors/snapshots under the older snapshot key",
           "content": {
             "application/json": {
               "schema": {
@@ -42427,7 +42883,7 @@
       "queryCombinationCount": "2",
       "responses": {
         "200": {
-          "description": "Web-compatible server-sent event stream including provider-neutral weather snapshots, opening-state observations, Home-scoped heat-pump state, and final authorization changes.",
+          "description": "Compatibility alias of /stream, kept for the iOS companion: server-sent events including provider-neutral weather snapshots, opening-state observations, Home-scoped heat-pump state, and final authorization changes.",
           "content": {
             "text/event-stream": {}
           },
@@ -42709,7 +43165,15 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/AlertRule"
+                "type": "object",
+                "required": [
+                  "rule"
+                ],
+                "properties": {
+                  "rule": {
+                    "$ref": "#/components/schemas/AlertRule"
+                  }
+                }
               }
             }
           }
@@ -43228,7 +43692,7 @@
       "queryCombinationCount": "9",
       "responses": {
         "200": {
-          "description": "Web-compatible alert events",
+          "description": "Compatibility alias of /alert-events under the older alerts key, kept for the iOS companion",
           "content": {
             "application/json": {
               "schema": {
@@ -43285,7 +43749,7 @@
       "queryCombinationCount": "1",
       "responses": {
         "200": {
-          "description": "Acknowledged alert",
+          "description": "Compatibility alias of /alert-events/{id}/acknowledge answered with the bare event, kept for the iOS companion",
           "content": {
             "application/json": {
               "schema": {
@@ -43559,7 +44023,7 @@
       "queryCombinationCount": "1",
       "responses": {
         "200": {
-          "description": "Home-owned scheduled exports to the shared NAS destination.",
+          "description": "Home-owned scheduled exports. Each one goes where its owner sends their exports: the shared NAS or that person's own Dropbox or Google Drive.",
           "content": {
             "application/json": {
               "schema": {
@@ -43849,7 +44313,7 @@
           }
         },
         "409": {
-          "description": "A NAS destination must be configured first"
+          "description": "An export destination must be connected first"
         }
       },
       "successCodes": [
@@ -44141,7 +44605,7 @@
           }
         },
         "409": {
-          "description": "Revision conflict, active run, or missing NAS destination"
+          "description": "Revision conflict, active run, or missing export destination"
         }
       },
       "successCodes": [
@@ -44242,7 +44706,7 @@
       "queryCombinationCount": "1",
       "responses": {
         "202": {
-          "description": "CSV generation staged for the isolated NAS worker.",
+          "description": "CSV generated and staged for the NAS worker, or uploaded to the connected cloud drive.",
           "content": {
             "application/json": {
               "schema": {
@@ -44261,7 +44725,7 @@
           }
         },
         "409": {
-          "description": "The schedule is already running or the NAS is unavailable"
+          "description": "The schedule is already running or the export destination is unavailable"
         }
       },
       "successCodes": [
@@ -46590,7 +47054,7 @@
       "queryCombinationCount": "2",
       "responses": {
         "200": {
-          "description": "Web-compatible static parameters",
+          "description": "Compatibility alias of /parameters",
           "content": {
             "application/json": {
               "schema": {
@@ -54766,6 +55230,1634 @@
         "404",
         "409",
         "503"
+      ]
+    },
+    {
+      "key": "v1:registerAssistantClient",
+      "service": "local",
+      "version": "v1",
+      "operationId": "registerAssistantClient",
+      "method": "POST",
+      "path": "/api/v1/oauth/register",
+      "tags": [
+        "Security"
+      ],
+      "summary": "registerAssistantClient",
+      "description": "RFC 7591 dynamic client registration. Only Claude's and ChatGPT's own callback addresses and loopback addresses are accepted; registrations nobody approves are removed after a day.",
+      "securityAlternatives": [],
+      "parameters": [],
+      "requestBodies": [
+        {
+          "mediaType": "application/json",
+          "schema": {
+            "$ref": "#/components/schemas/AssistantClientMetadata"
+          },
+          "required": true,
+          "topLevelFactors": [
+            {
+              "field": "redirect_uris",
+              "required": true,
+              "choices": [
+                {
+                  "kind": "fixture",
+                  "description": "One schema-valid representative value"
+                }
+              ]
+            },
+            {
+              "field": "token_endpoint_auth_method",
+              "required": false,
+              "choices": [
+                {
+                  "kind": "omitted"
+                },
+                {
+                  "kind": "literal",
+                  "value": "none"
+                },
+                {
+                  "kind": "literal",
+                  "value": "client_secret_post"
+                },
+                {
+                  "kind": "literal",
+                  "value": "client_secret_basic"
+                }
+              ]
+            },
+            {
+              "field": "grant_types",
+              "required": false,
+              "choices": [
+                {
+                  "kind": "omitted"
+                },
+                {
+                  "kind": "fixture",
+                  "description": "One schema-valid representative value"
+                }
+              ]
+            },
+            {
+              "field": "response_types",
+              "required": false,
+              "choices": [
+                {
+                  "kind": "omitted"
+                },
+                {
+                  "kind": "fixture",
+                  "description": "One schema-valid representative value"
+                }
+              ]
+            },
+            {
+              "field": "client_name",
+              "required": false,
+              "choices": [
+                {
+                  "kind": "omitted"
+                },
+                {
+                  "kind": "fixture",
+                  "description": "One schema-valid representative value"
+                }
+              ]
+            },
+            {
+              "field": "client_uri",
+              "required": false,
+              "choices": [
+                {
+                  "kind": "omitted"
+                },
+                {
+                  "kind": "fixture",
+                  "description": "One schema-valid representative value"
+                }
+              ]
+            },
+            {
+              "field": "scope",
+              "required": false,
+              "choices": [
+                {
+                  "kind": "omitted"
+                },
+                {
+                  "kind": "fixture",
+                  "description": "One schema-valid representative value"
+                }
+              ]
+            },
+            {
+              "field": "software_id",
+              "required": false,
+              "choices": [
+                {
+                  "kind": "omitted"
+                },
+                {
+                  "kind": "fixture",
+                  "description": "One schema-valid representative value"
+                }
+              ]
+            },
+            {
+              "field": "software_version",
+              "required": false,
+              "choices": [
+                {
+                  "kind": "omitted"
+                },
+                {
+                  "kind": "fixture",
+                  "description": "One schema-valid representative value"
+                }
+              ]
+            }
+          ],
+          "topLevelCandidateCount": "512",
+          "constraints": {
+            "required": [
+              "redirect_uris"
+            ]
+          },
+          "expansion": "Cartesian product of the factors, with representative complex values. Validate against the full schema and runtime rules. Branch-only fields are enumerated in input-cases; topLevelCandidateCount is not a count of accepted requests."
+        }
+      ],
+      "queryFactors": [],
+      "queryCombinationCount": "1",
+      "responses": {
+        "201": {
+          "description": "Registered client. client_secret is returned only for confidential clients, once.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssistantClientRegistration"
+              }
+            }
+          }
+        },
+        "400": {
+          "description": "invalid_redirect_uri or invalid_client_metadata",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssistantOAuthError"
+              }
+            }
+          }
+        },
+        "429": {
+          "description": "Too many registrations from this address",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssistantOAuthError"
+              }
+            }
+          }
+        },
+        "503": {
+          "description": "Too many registrations are waiting for approval",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssistantOAuthError"
+              }
+            }
+          }
+        }
+      },
+      "successCodes": [
+        "201"
+      ],
+      "documentedErrorCodes": [
+        "400",
+        "429",
+        "503"
+      ]
+    },
+    {
+      "key": "v1:exchangeAssistantToken",
+      "service": "local",
+      "version": "v1",
+      "operationId": "exchangeAssistantToken",
+      "method": "POST",
+      "path": "/api/v1/oauth/token",
+      "tags": [
+        "Security"
+      ],
+      "summary": "exchangeAssistantToken",
+      "description": "Exchanges an approved authorization code (with its PKCE verifier) or a refresh token. Refresh tokens rotate on every use; reusing a spent one disconnects the assistant.",
+      "securityAlternatives": [],
+      "parameters": [],
+      "requestBodies": [
+        {
+          "mediaType": "application/x-www-form-urlencoded",
+          "schema": {
+            "type": "object",
+            "required": [
+              "grant_type"
+            ],
+            "properties": {
+              "grant_type": {
+                "enum": [
+                  "authorization_code",
+                  "refresh_token"
+                ]
+              },
+              "code": {
+                "type": "string"
+              },
+              "code_verifier": {
+                "type": "string",
+                "minLength": 43,
+                "maxLength": 128
+              },
+              "redirect_uri": {
+                "type": "string",
+                "format": "uri"
+              },
+              "refresh_token": {
+                "type": "string"
+              },
+              "scope": {
+                "type": "string"
+              },
+              "resource": {
+                "type": "string",
+                "format": "uri"
+              },
+              "client_id": {
+                "type": "string",
+                "description": "Required unless the client authenticates with HTTP Basic."
+              },
+              "client_secret": {
+                "type": "string",
+                "description": "client_secret_post clients only."
+              }
+            }
+          },
+          "required": true,
+          "topLevelFactors": [
+            {
+              "field": "grant_type",
+              "required": true,
+              "choices": [
+                {
+                  "kind": "literal",
+                  "value": "authorization_code"
+                },
+                {
+                  "kind": "literal",
+                  "value": "refresh_token"
+                }
+              ]
+            },
+            {
+              "field": "code",
+              "required": false,
+              "choices": [
+                {
+                  "kind": "omitted"
+                },
+                {
+                  "kind": "fixture",
+                  "description": "One schema-valid representative value"
+                }
+              ]
+            },
+            {
+              "field": "code_verifier",
+              "required": false,
+              "choices": [
+                {
+                  "kind": "omitted"
+                },
+                {
+                  "kind": "fixture",
+                  "description": "One schema-valid representative value"
+                }
+              ]
+            },
+            {
+              "field": "redirect_uri",
+              "required": false,
+              "choices": [
+                {
+                  "kind": "omitted"
+                },
+                {
+                  "kind": "fixture",
+                  "description": "One schema-valid representative value"
+                }
+              ]
+            },
+            {
+              "field": "refresh_token",
+              "required": false,
+              "choices": [
+                {
+                  "kind": "omitted"
+                },
+                {
+                  "kind": "fixture",
+                  "description": "One schema-valid representative value"
+                }
+              ]
+            },
+            {
+              "field": "scope",
+              "required": false,
+              "choices": [
+                {
+                  "kind": "omitted"
+                },
+                {
+                  "kind": "fixture",
+                  "description": "One schema-valid representative value"
+                }
+              ]
+            },
+            {
+              "field": "resource",
+              "required": false,
+              "choices": [
+                {
+                  "kind": "omitted"
+                },
+                {
+                  "kind": "fixture",
+                  "description": "One schema-valid representative value"
+                }
+              ]
+            },
+            {
+              "field": "client_id",
+              "required": false,
+              "choices": [
+                {
+                  "kind": "omitted"
+                },
+                {
+                  "kind": "fixture",
+                  "description": "One schema-valid representative value"
+                }
+              ]
+            },
+            {
+              "field": "client_secret",
+              "required": false,
+              "choices": [
+                {
+                  "kind": "omitted"
+                },
+                {
+                  "kind": "fixture",
+                  "description": "One schema-valid representative value"
+                }
+              ]
+            }
+          ],
+          "topLevelCandidateCount": "512",
+          "constraints": {
+            "required": [
+              "grant_type"
+            ]
+          },
+          "expansion": "Cartesian product of the factors, with representative complex values. Validate against the full schema and runtime rules. Branch-only fields are enumerated in input-cases; topLevelCandidateCount is not a count of accepted requests."
+        }
+      ],
+      "queryFactors": [],
+      "queryCombinationCount": "1",
+      "responses": {
+        "200": {
+          "description": "Issued access and refresh tokens.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssistantTokenResponse"
+              }
+            }
+          }
+        },
+        "400": {
+          "description": "invalid_request, invalid_grant, invalid_scope, invalid_target or unsupported_grant_type",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssistantOAuthError"
+              }
+            }
+          }
+        },
+        "401": {
+          "description": "invalid_client",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssistantOAuthError"
+              }
+            }
+          }
+        },
+        "429": {
+          "description": "Too many token requests from this address",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssistantOAuthError"
+              }
+            }
+          }
+        }
+      },
+      "successCodes": [
+        "200"
+      ],
+      "documentedErrorCodes": [
+        "400",
+        "401",
+        "429"
+      ]
+    },
+    {
+      "key": "v1:revokeAssistantToken",
+      "service": "local",
+      "version": "v1",
+      "operationId": "revokeAssistantToken",
+      "method": "POST",
+      "path": "/api/v1/oauth/revoke",
+      "tags": [
+        "Security"
+      ],
+      "summary": "revokeAssistantToken",
+      "description": "RFC 7009 revocation. A refresh token disconnects its whole connection; an access token revokes only itself. Unknown tokens are not an error.",
+      "securityAlternatives": [],
+      "parameters": [],
+      "requestBodies": [
+        {
+          "mediaType": "application/x-www-form-urlencoded",
+          "schema": {
+            "type": "object",
+            "required": [
+              "token"
+            ],
+            "properties": {
+              "token": {
+                "type": "string"
+              },
+              "token_type_hint": {
+                "enum": [
+                  "access_token",
+                  "refresh_token"
+                ]
+              },
+              "client_id": {
+                "type": "string",
+                "description": "Required unless the client authenticates with HTTP Basic."
+              },
+              "client_secret": {
+                "type": "string",
+                "description": "client_secret_post clients only."
+              }
+            }
+          },
+          "required": true,
+          "topLevelFactors": [
+            {
+              "field": "token",
+              "required": true,
+              "choices": [
+                {
+                  "kind": "fixture",
+                  "description": "One schema-valid representative value"
+                }
+              ]
+            },
+            {
+              "field": "token_type_hint",
+              "required": false,
+              "choices": [
+                {
+                  "kind": "omitted"
+                },
+                {
+                  "kind": "literal",
+                  "value": "access_token"
+                },
+                {
+                  "kind": "literal",
+                  "value": "refresh_token"
+                }
+              ]
+            },
+            {
+              "field": "client_id",
+              "required": false,
+              "choices": [
+                {
+                  "kind": "omitted"
+                },
+                {
+                  "kind": "fixture",
+                  "description": "One schema-valid representative value"
+                }
+              ]
+            },
+            {
+              "field": "client_secret",
+              "required": false,
+              "choices": [
+                {
+                  "kind": "omitted"
+                },
+                {
+                  "kind": "fixture",
+                  "description": "One schema-valid representative value"
+                }
+              ]
+            }
+          ],
+          "topLevelCandidateCount": "12",
+          "constraints": {
+            "required": [
+              "token"
+            ]
+          },
+          "expansion": "Cartesian product of the factors, with representative complex values. Validate against the full schema and runtime rules. Branch-only fields are enumerated in input-cases; topLevelCandidateCount is not a count of accepted requests."
+        }
+      ],
+      "queryFactors": [],
+      "queryCombinationCount": "1",
+      "responses": {
+        "200": {
+          "description": "Revoked, or already unknown.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {}
+              }
+            }
+          }
+        },
+        "400": {
+          "description": "invalid_request",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssistantOAuthError"
+              }
+            }
+          }
+        },
+        "401": {
+          "description": "invalid_client",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssistantOAuthError"
+              }
+            }
+          }
+        }
+      },
+      "successCodes": [
+        "200"
+      ],
+      "documentedErrorCodes": [
+        "400",
+        "401"
+      ]
+    },
+    {
+      "key": "v1:previewAssistantAuthorization",
+      "service": "local",
+      "version": "v1",
+      "operationId": "previewAssistantAuthorization",
+      "method": "GET",
+      "path": "/api/v1/assistant-connector/authorization",
+      "tags": [
+        "Security"
+      ],
+      "summary": "previewAssistantAuthorization",
+      "description": "Owner/Admin-only. Validates the OAuth authorization request the consent page was opened with and describes the assistant asking to connect.",
+      "securityAlternatives": [
+        {
+          "localSession": []
+        }
+      ],
+      "parameters": [
+        {
+          "name": "response_type",
+          "in": "query",
+          "required": true,
+          "schema": {
+            "const": "code"
+          }
+        },
+        {
+          "name": "client_id",
+          "in": "query",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "maxLength": 128
+          }
+        },
+        {
+          "name": "redirect_uri",
+          "in": "query",
+          "schema": {
+            "type": "string",
+            "format": "uri"
+          }
+        },
+        {
+          "name": "code_challenge",
+          "in": "query",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 43,
+            "maxLength": 128
+          }
+        },
+        {
+          "name": "code_challenge_method",
+          "in": "query",
+          "required": true,
+          "schema": {
+            "const": "S256"
+          }
+        },
+        {
+          "name": "state",
+          "in": "query",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "scope",
+          "in": "query",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "resource",
+          "in": "query",
+          "schema": {
+            "type": "string",
+            "format": "uri"
+          }
+        }
+      ],
+      "requestBodies": [],
+      "queryFactors": [
+        {
+          "field": "response_type",
+          "required": true,
+          "choices": [
+            {
+              "kind": "literal",
+              "value": "code"
+            }
+          ]
+        },
+        {
+          "field": "client_id",
+          "required": true,
+          "choices": [
+            {
+              "kind": "fixture",
+              "description": "One schema-valid representative value"
+            }
+          ]
+        },
+        {
+          "field": "redirect_uri",
+          "required": false,
+          "choices": [
+            {
+              "kind": "omitted"
+            },
+            {
+              "kind": "fixture",
+              "description": "One schema-valid representative value"
+            }
+          ]
+        },
+        {
+          "field": "code_challenge",
+          "required": true,
+          "choices": [
+            {
+              "kind": "fixture",
+              "description": "One schema-valid representative value"
+            }
+          ]
+        },
+        {
+          "field": "code_challenge_method",
+          "required": true,
+          "choices": [
+            {
+              "kind": "literal",
+              "value": "S256"
+            }
+          ]
+        },
+        {
+          "field": "state",
+          "required": false,
+          "choices": [
+            {
+              "kind": "omitted"
+            },
+            {
+              "kind": "fixture",
+              "description": "One schema-valid representative value"
+            }
+          ]
+        },
+        {
+          "field": "scope",
+          "required": false,
+          "choices": [
+            {
+              "kind": "omitted"
+            },
+            {
+              "kind": "fixture",
+              "description": "One schema-valid representative value"
+            }
+          ]
+        },
+        {
+          "field": "resource",
+          "required": false,
+          "choices": [
+            {
+              "kind": "omitted"
+            },
+            {
+              "kind": "fixture",
+              "description": "One schema-valid representative value"
+            }
+          ]
+        }
+      ],
+      "queryCombinationCount": "16",
+      "responses": {
+        "200": {
+          "description": "The assistant asking to connect.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssistantAuthorizationPreview"
+              }
+            }
+          }
+        },
+        "400": {
+          "description": "ASSISTANT_CLIENT_UNKNOWN when Stugu cannot answer the client; ASSISTANT_AUTHORIZATION_INVALID when the request must be returned to it"
+        },
+        "403": {
+          "description": "Owner or Admin role required"
+        }
+      },
+      "successCodes": [
+        "200"
+      ],
+      "documentedErrorCodes": [
+        "400",
+        "403"
+      ]
+    },
+    {
+      "key": "v1:decideAssistantAuthorization",
+      "service": "local",
+      "version": "v1",
+      "operationId": "decideAssistantAuthorization",
+      "method": "POST",
+      "path": "/api/v1/assistant-connector/authorization",
+      "tags": [
+        "Security"
+      ],
+      "summary": "decideAssistantAuthorization",
+      "description": "Owner/Admin-only. Approves or declines the connection request and returns the assistant callback the browser continues to.",
+      "securityAlternatives": [
+        {
+          "localSession": [],
+          "csrfToken": []
+        }
+      ],
+      "parameters": [],
+      "requestBodies": [
+        {
+          "mediaType": "application/json",
+          "schema": {
+            "$ref": "#/components/schemas/AssistantAuthorizationInput"
+          },
+          "required": true,
+          "topLevelFactors": [
+            {
+              "field": "query",
+              "required": true,
+              "choices": [
+                {
+                  "kind": "fixture",
+                  "description": "One schema-valid representative value"
+                }
+              ]
+            },
+            {
+              "field": "decision",
+              "required": true,
+              "choices": [
+                {
+                  "kind": "literal",
+                  "value": "approve"
+                },
+                {
+                  "kind": "literal",
+                  "value": "deny"
+                }
+              ]
+            }
+          ],
+          "topLevelCandidateCount": "2",
+          "constraints": {
+            "required": [
+              "query",
+              "decision"
+            ],
+            "additionalProperties": false
+          },
+          "expansion": "Cartesian product of the factors, with representative complex values. Validate against the full schema and runtime rules. Branch-only fields are enumerated in input-cases; topLevelCandidateCount is not a count of accepted requests."
+        }
+      ],
+      "queryFactors": [],
+      "queryCombinationCount": "1",
+      "responses": {
+        "200": {
+          "description": "The assistant callback carrying a code, or an OAuth error such as access_denied.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssistantAuthorizationRedirect"
+              }
+            }
+          }
+        },
+        "400": {
+          "description": "The request names no registered client or redirect address"
+        },
+        "403": {
+          "description": "Owner or Admin role required"
+        }
+      },
+      "successCodes": [
+        "200"
+      ],
+      "documentedErrorCodes": [
+        "400",
+        "403"
+      ]
+    },
+    {
+      "key": "v1:listAssistantConnections",
+      "service": "local",
+      "version": "v1",
+      "operationId": "listAssistantConnections",
+      "method": "GET",
+      "path": "/api/v1/assistant-connector/connections",
+      "tags": [
+        "Security"
+      ],
+      "summary": "listAssistantConnections",
+      "description": "Owner/Admin-only list of approved assistant connections.",
+      "securityAlternatives": [
+        {
+          "localSession": []
+        }
+      ],
+      "parameters": [],
+      "requestBodies": [],
+      "queryFactors": [],
+      "queryCombinationCount": "1",
+      "responses": {
+        "200": {
+          "description": "Approved connections, newest first.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssistantConnectionsResponse"
+              }
+            }
+          }
+        },
+        "403": {
+          "description": "Owner or Admin role required"
+        }
+      },
+      "successCodes": [
+        "200"
+      ],
+      "documentedErrorCodes": [
+        "403"
+      ]
+    },
+    {
+      "key": "v1:revokeAssistantConnection",
+      "service": "local",
+      "version": "v1",
+      "operationId": "revokeAssistantConnection",
+      "method": "DELETE",
+      "path": "/api/v1/assistant-connector/connections/{id}",
+      "tags": [
+        "Security"
+      ],
+      "summary": "revokeAssistantConnection",
+      "description": "Owner/Admin-only. Disconnects the assistant and invalidates every token it holds.",
+      "securityAlternatives": [
+        {
+          "localSession": [],
+          "csrfToken": []
+        }
+      ],
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "requestBodies": [],
+      "queryFactors": [],
+      "queryCombinationCount": "1",
+      "responses": {
+        "200": {
+          "description": "The connections that remain.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssistantConnectionsResponse"
+              }
+            }
+          }
+        },
+        "403": {
+          "description": "Owner or Admin role required"
+        },
+        "404": {
+          "description": "Connection not found"
+        }
+      },
+      "successCodes": [
+        "200"
+      ],
+      "documentedErrorCodes": [
+        "403",
+        "404"
+      ]
+    },
+    {
+      "key": "v1:getExportDestinations",
+      "service": "local",
+      "version": "v1",
+      "operationId": "getExportDestinations",
+      "method": "GET",
+      "path": "/api/v1/system/export-destinations",
+      "tags": [
+        "Context"
+      ],
+      "summary": "getExportDestinations",
+      "description": "The signed-in Owner/Admin's choice of where the scheduled CSV exports they set up go (the shared NAS, or a Dropbox or Google Drive of their own), the cloud drives they connected, and their sign-in in progress. Nobody sees another person's drives. Refresh tokens are never returned.",
+      "securityAlternatives": [
+        {
+          "localSession": []
+        }
+      ],
+      "parameters": [],
+      "requestBodies": [],
+      "queryFactors": [],
+      "queryCombinationCount": "1",
+      "responses": {
+        "200": {
+          "description": "Export destination status.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExportDestinationStatus"
+              }
+            }
+          }
+        },
+        "403": {
+          "description": "Owner or Admin role required"
+        }
+      },
+      "successCodes": [
+        "200"
+      ],
+      "documentedErrorCodes": [
+        "403"
+      ]
+    },
+    {
+      "key": "v1:selectExportDestination",
+      "service": "local",
+      "version": "v1",
+      "operationId": "selectExportDestination",
+      "method": "PUT",
+      "path": "/api/v1/system/export-destinations",
+      "tags": [
+        "Context"
+      ],
+      "summary": "selectExportDestination",
+      "description": "Chooses where the signed-in person's scheduled exports go, in every Home. A cloud drive must be connected first.",
+      "securityAlternatives": [
+        {
+          "localSession": [],
+          "csrfToken": []
+        }
+      ],
+      "parameters": [],
+      "requestBodies": [
+        {
+          "mediaType": "application/json",
+          "schema": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "selected"
+            ],
+            "properties": {
+              "selected": {
+                "enum": [
+                  "nas",
+                  "dropbox",
+                  "google-drive"
+                ]
+              }
+            }
+          },
+          "required": true,
+          "topLevelFactors": [
+            {
+              "field": "selected",
+              "required": true,
+              "choices": [
+                {
+                  "kind": "literal",
+                  "value": "nas"
+                },
+                {
+                  "kind": "literal",
+                  "value": "dropbox"
+                },
+                {
+                  "kind": "literal",
+                  "value": "google-drive"
+                }
+              ]
+            }
+          ],
+          "topLevelCandidateCount": "3",
+          "constraints": {
+            "required": [
+              "selected"
+            ],
+            "additionalProperties": false
+          },
+          "expansion": "Cartesian product of the factors, with representative complex values. Validate against the full schema and runtime rules. Branch-only fields are enumerated in input-cases; topLevelCandidateCount is not a count of accepted requests."
+        }
+      ],
+      "queryFactors": [],
+      "queryCombinationCount": "1",
+      "responses": {
+        "200": {
+          "description": "Updated export destination status.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExportDestinationStatus"
+              }
+            }
+          }
+        },
+        "400": {
+          "description": "Unknown destination"
+        },
+        "409": {
+          "description": "The cloud drive is not connected"
+        }
+      },
+      "successCodes": [
+        "200"
+      ],
+      "documentedErrorCodes": [
+        "400",
+        "409"
+      ]
+    },
+    {
+      "key": "v1:cancelExportDestinationConnection",
+      "service": "local",
+      "version": "v1",
+      "operationId": "cancelExportDestinationConnection",
+      "method": "DELETE",
+      "path": "/api/v1/system/export-destinations/connection",
+      "tags": [
+        "Context"
+      ],
+      "summary": "cancelExportDestinationConnection",
+      "description": "Abandons the signed-in person's cloud sign-in in progress, if any. Connected accounts are kept.",
+      "securityAlternatives": [
+        {
+          "localSession": [],
+          "csrfToken": []
+        }
+      ],
+      "parameters": [],
+      "requestBodies": [],
+      "queryFactors": [],
+      "queryCombinationCount": "1",
+      "responses": {
+        "200": {
+          "description": "Export destination status without a pending sign-in.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExportDestinationStatus"
+              }
+            }
+          }
+        }
+      },
+      "successCodes": [
+        "200"
+      ],
+      "documentedErrorCodes": []
+    },
+    {
+      "key": "v1:connectExportDestination",
+      "service": "local",
+      "version": "v1",
+      "operationId": "connectExportDestination",
+      "method": "POST",
+      "path": "/api/v1/system/export-destinations/{provider}/connect",
+      "tags": [
+        "Context"
+      ],
+      "summary": "connectExportDestination",
+      "description": "Starts a sign-in to the signed-in person's own account. Dropbox returns a page to open whose code is pasted back; Google Drive returns a short code to enter at Google's device page and finishes on its own once approved. Connecting also selects the drive for that person's exports.",
+      "securityAlternatives": [
+        {
+          "localSession": [],
+          "csrfToken": []
+        }
+      ],
+      "parameters": [
+        {
+          "name": "provider",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "enum": [
+              "dropbox",
+              "google-drive"
+            ]
+          }
+        }
+      ],
+      "requestBodies": [],
+      "queryFactors": [],
+      "queryCombinationCount": "1",
+      "responses": {
+        "200": {
+          "description": "Export destination status with the pending sign-in.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExportDestinationStatus"
+              }
+            }
+          }
+        },
+        "404": {
+          "description": "Unknown provider"
+        },
+        "409": {
+          "description": "The provider is not set up on this installation"
+        },
+        "502": {
+          "description": "The provider could not start a sign-in"
+        }
+      },
+      "successCodes": [
+        "200"
+      ],
+      "documentedErrorCodes": [
+        "404",
+        "409",
+        "502"
+      ]
+    },
+    {
+      "key": "v1:submitExportDestinationCode",
+      "service": "local",
+      "version": "v1",
+      "operationId": "submitExportDestinationCode",
+      "method": "POST",
+      "path": "/api/v1/system/export-destinations/{provider}/code",
+      "tags": [
+        "Context"
+      ],
+      "summary": "submitExportDestinationCode",
+      "description": "Finishes a Dropbox sign-in with the code Dropbox showed after Allow.",
+      "securityAlternatives": [
+        {
+          "localSession": [],
+          "csrfToken": []
+        }
+      ],
+      "parameters": [
+        {
+          "name": "provider",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "enum": [
+              "dropbox",
+              "google-drive"
+            ]
+          }
+        }
+      ],
+      "requestBodies": [
+        {
+          "mediaType": "application/json",
+          "schema": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "connectionId",
+              "code"
+            ],
+            "properties": {
+              "connectionId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "code": {
+                "type": "string",
+                "minLength": 8,
+                "maxLength": 512
+              }
+            }
+          },
+          "required": true,
+          "topLevelFactors": [
+            {
+              "field": "connectionId",
+              "required": true,
+              "choices": [
+                {
+                  "kind": "fixture",
+                  "description": "One schema-valid representative value"
+                }
+              ]
+            },
+            {
+              "field": "code",
+              "required": true,
+              "choices": [
+                {
+                  "kind": "fixture",
+                  "description": "One schema-valid representative value"
+                }
+              ]
+            }
+          ],
+          "topLevelCandidateCount": "1",
+          "constraints": {
+            "required": [
+              "connectionId",
+              "code"
+            ],
+            "additionalProperties": false
+          },
+          "expansion": "Cartesian product of the factors, with representative complex values. Validate against the full schema and runtime rules. Branch-only fields are enumerated in input-cases; topLevelCandidateCount is not a count of accepted requests."
+        }
+      ],
+      "queryFactors": [],
+      "queryCombinationCount": "1",
+      "responses": {
+        "200": {
+          "description": "Connected export destination status.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExportDestinationStatus"
+              }
+            }
+          }
+        },
+        "400": {
+          "description": "Missing, malformed, or rejected code"
+        },
+        "409": {
+          "description": "No matching sign-in is in progress"
+        },
+        "502": {
+          "description": "Dropbox could not be reached"
+        }
+      },
+      "successCodes": [
+        "200"
+      ],
+      "documentedErrorCodes": [
+        "400",
+        "409",
+        "502"
+      ]
+    },
+    {
+      "key": "v1:saveExportDestinationApp",
+      "service": "local",
+      "version": "v1",
+      "operationId": "saveExportDestinationApp",
+      "method": "PUT",
+      "path": "/api/v1/system/export-destinations/{provider}/app",
+      "tags": [
+        "Context"
+      ],
+      "summary": "saveExportDestinationApp",
+      "description": "Saves the provider app an Owner/Admin registered for this installation: a Dropbox app key, or a Google \"TVs and Limited Input devices\" client ID and secret. It is shared by everyone who signs in on this installation. It replaces a built-in app, never one set by deployment environment variables, and is refused while anyone's account is connected through the current app. The client secret is never returned.",
+      "securityAlternatives": [
+        {
+          "localSession": [],
+          "csrfToken": []
+        }
+      ],
+      "parameters": [
+        {
+          "name": "provider",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "enum": [
+              "dropbox",
+              "google-drive"
+            ]
+          }
+        }
+      ],
+      "requestBodies": [
+        {
+          "mediaType": "application/json",
+          "schema": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "appKey"
+                ],
+                "properties": {
+                  "appKey": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9]{8,64}$",
+                    "description": "Dropbox only."
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "clientId",
+                  "clientSecret"
+                ],
+                "properties": {
+                  "clientId": {
+                    "type": "string",
+                    "pattern": "\\.apps\\.googleusercontent\\.com$",
+                    "description": "Google Drive only."
+                  },
+                  "clientSecret": {
+                    "type": "string",
+                    "minLength": 8,
+                    "maxLength": 512,
+                    "writeOnly": true
+                  }
+                }
+              }
+            ]
+          },
+          "required": true,
+          "topLevelFactors": [],
+          "topLevelCandidateCount": null,
+          "constraints": {
+            "required": [],
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "appKey"
+                ],
+                "properties": {
+                  "appKey": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9]{8,64}$",
+                    "description": "Dropbox only."
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "clientId",
+                  "clientSecret"
+                ],
+                "properties": {
+                  "clientId": {
+                    "type": "string",
+                    "pattern": "\\.apps\\.googleusercontent\\.com$",
+                    "description": "Google Drive only."
+                  },
+                  "clientSecret": {
+                    "type": "string",
+                    "minLength": 8,
+                    "maxLength": 512,
+                    "writeOnly": true
+                  }
+                }
+              }
+            ]
+          },
+          "expansion": "Cartesian product of the factors, with representative complex values. Validate against the full schema and runtime rules. Branch-only fields are enumerated in input-cases; topLevelCandidateCount is not a count of accepted requests."
+        }
+      ],
+      "queryFactors": [],
+      "queryCombinationCount": "1",
+      "responses": {
+        "200": {
+          "description": "Export destination status with the provider available.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExportDestinationStatus"
+              }
+            }
+          }
+        },
+        "400": {
+          "description": "Missing or malformed app values"
+        },
+        "404": {
+          "description": "Unknown provider"
+        },
+        "409": {
+          "description": "Environment variables set this app, or someone's account is connected through it"
+        }
+      },
+      "successCodes": [
+        "200"
+      ],
+      "documentedErrorCodes": [
+        "400",
+        "404",
+        "409"
+      ]
+    },
+    {
+      "key": "v1:removeExportDestinationApp",
+      "service": "local",
+      "version": "v1",
+      "operationId": "removeExportDestinationApp",
+      "method": "DELETE",
+      "path": "/api/v1/system/export-destinations/{provider}/app",
+      "tags": [
+        "Context"
+      ],
+      "summary": "removeExportDestinationApp",
+      "description": "Forgets the app entered in Stugu. The provider falls back to the built-in app, or becomes unavailable. Refused while anyone's account is connected through it.",
+      "securityAlternatives": [
+        {
+          "localSession": [],
+          "csrfToken": []
+        }
+      ],
+      "parameters": [
+        {
+          "name": "provider",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "enum": [
+              "dropbox",
+              "google-drive"
+            ]
+          }
+        }
+      ],
+      "requestBodies": [],
+      "queryFactors": [],
+      "queryCombinationCount": "1",
+      "responses": {
+        "200": {
+          "description": "Export destination status without the entered app.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExportDestinationStatus"
+              }
+            }
+          }
+        },
+        "404": {
+          "description": "Unknown provider"
+        },
+        "409": {
+          "description": "Environment variables set this app, or someone's account is connected through it"
+        }
+      },
+      "successCodes": [
+        "200"
+      ],
+      "documentedErrorCodes": [
+        "404",
+        "409"
+      ]
+    },
+    {
+      "key": "v1:disconnectExportDestination",
+      "service": "local",
+      "version": "v1",
+      "operationId": "disconnectExportDestination",
+      "method": "DELETE",
+      "path": "/api/v1/system/export-destinations/{provider}",
+      "tags": [
+        "Context"
+      ],
+      "summary": "disconnectExportDestination",
+      "description": "Forgets the signed-in person's cloud account and revokes its access when the provider allows. That person's exports switch back to the NAS if this drive was selected; files already uploaded are kept.",
+      "securityAlternatives": [
+        {
+          "localSession": [],
+          "csrfToken": []
+        }
+      ],
+      "parameters": [
+        {
+          "name": "provider",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "enum": [
+              "dropbox",
+              "google-drive"
+            ]
+          }
+        }
+      ],
+      "requestBodies": [],
+      "queryFactors": [],
+      "queryCombinationCount": "1",
+      "responses": {
+        "200": {
+          "description": "Export destination status after disconnecting.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExportDestinationStatus"
+              }
+            }
+          }
+        },
+        "404": {
+          "description": "Unknown provider"
+        }
+      },
+      "successCodes": [
+        "200"
+      ],
+      "documentedErrorCodes": [
+        "404"
       ]
     },
     {
