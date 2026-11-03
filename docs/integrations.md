@@ -10,8 +10,9 @@ Stugu exposes one local workspace through four transports:
   provider-neutral weather snapshots, and integration state, plus
   `/api/v2/measurements/events` for per-metric live updates;
 - a local stdio MCP server for trusted same-host agent/tool clients;
-- an explicitly started, bearer-protected Streamable HTTP MCP server for
-  trusted network clients.
+- a bearer-protected Streamable HTTP MCP server at `/api/v1/mcp` for trusted
+  network clients and OAuth-connected assistants; an Owner or Admin starts it,
+  or a connected assistant's request starts it on demand.
 
 Browser HTTP requests use built-in local accounts and a server-managed HttpOnly
 session. The API enforces owner/administrator roles and read-only Guest scopes;
@@ -599,7 +600,7 @@ set-up, revocation and the internet-facing paths.
 ### Network Streamable HTTP server
 
 An Owner or Admin can open **Advanced → API & MCP** in Stugu and select
-**Start network MCP server**. The page displays the endpoint and a bearer token
+**Start MCP server**. The page displays the endpoint and a bearer token
 only for that successful start request. Configure the remote MCP client with
 the displayed URL and header:
 
@@ -609,8 +610,8 @@ Authorization: Bearer stugu_mcp_...
 
 The endpoint is `/api/v1/mcp` on the existing Stugu Web address, including the
 normal Compose/RPi published port; no second external port is needed. It accepts
-MCP Streamable HTTP `POST` requests and is available only while the Web-started
-runtime is running. Stopping it or restarting the API revokes the token. If an
+MCP Streamable HTTP `POST` requests and is available only while the runtime is
+running. Stopping it or restarting the API revokes the token. If an
 assistant connection started the server, **Create access token** issues one.
 Stopping the server does not disconnect assistants; their next request starts
 it again. Use TLS
@@ -798,8 +799,9 @@ Location search, coordinate defaults, and LAN discovery additionally carry
 when explicitly called.
 
 For stdio, the ability to launch the process is the authorization boundary. For
-Streamable HTTP, the dedicated bearer token is the authorization boundary;
-Stugu stores only its digest and shows the token once. Browser sessions and
+Streamable HTTP, the dedicated bearer token, or the OAuth access token of an
+approved assistant, is the authorization boundary; Stugu stores only digests
+and shows the manual token once. Browser sessions and
 Guest grants do not constrain MCP inspection results. Credentials cannot be configured through MCP, and
 connection and replay status are process-local: the MCP process cannot inspect
 a separately running API process's WebSocket, TP-Link poller, or event bus.

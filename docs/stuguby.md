@@ -22,7 +22,7 @@ Host explicitly connects the common Property; each Client explicitly chooses
 **Use Host Property** while its other local Properties remain separate. Shared
 Property editing is collaborative by default, while shared Homes are read-only
 by default. Local owners and administrators configure additional access in
-**Workspace > Stugubys**.
+**Advanced > Stugubys**.
 
 ## Create the secure coordinator
 
@@ -287,7 +287,7 @@ only to let an image arrive immediately before its signed event.
    Host and receive the recommended read-only overview grant.
 4. Create a time-limited, one-use invitation with the intended role. Transfer
    the invitation link through a trusted channel.
-5. On the joining Stugu, paste the invitation link into **Workspace > Stugubys**.
+5. On the joining Stugu, paste the invitation link into **Advanced > Stugubys**.
    The joining node proves possession of its private key and receives the roster
    and common-Property snapshot. Joining does not publish any Client Home.
 6. On a Client, choose **Use Host Property**. It appears beside local Properties
@@ -317,7 +317,7 @@ Client-owned Homes, and promotes only complete recovery Homes for which this
 Client is the designated successor. An internet outage never triggers this
 transition.
 
-Delete a closed Stuguby from **Workspace > Stugubys > Advanced**. A participant
+Delete a closed Stuguby from **Advanced > Stugubys > Advanced**. A participant
 must first be left or revoked; a coordinator must first mark every other member
 left or revoked. Every Home grant must also be revoked and all replica deletion
 acknowledgements must have arrived. Deletion removes federation records and

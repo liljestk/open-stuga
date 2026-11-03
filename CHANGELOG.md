@@ -2,6 +2,21 @@
 
 All notable Stugu releases are recorded here.
 
+## 0.62.1
+
+The README, screenshots and guides describe Stugu as it is in 0.62.0.
+
+- All twelve README and Getting started screenshots (Home, the 2D plan, the 3D building, Data & analytics, Electricity and the phone Home page, each in light and dark) were captured again from the synthetic sample home, at the same sizes and file names. The plan now shows the folded "Outside now" card beside the zoom controls, as it has since 0.56.3.
+- The README covers the Claude and ChatGPT connector, personal Dropbox and Google Drive scheduled exports, the Member role, and the Cloudflare Access exception the connector needs.
+- The documentation index lists the Dropbox and Google Drive export guide and the update feed's daily metadata renewal.
+- Guides use the labels the app shows: **Set up → Where readings come from** (not "Connections"), **Layout & rooms**, **Sensor mapping** (formerly "Operations"), **Advanced → Stugubys**, **Advanced → System** for software updates, **Property → Map** for placement and orientation, and the Telegram and Apple Notes button names.
+- Nothing describes the removed Set up *Backups and exports* panel any more: the NAS is set under **System → Storage**, and personal drives are chosen under **Data & analytics → Scheduled exports**.
+- Security, architecture, storage, integration and limitation pages describe the assistant connector: its Access-exempt paths, OAuth tokens stored as digests, the on-demand MCP server, its audit events, and disconnecting assistants during an incident. They also list the Dropbox and Google API hosts that Stugu contacts only after someone connects a drive, and that personal drive connections travel with the integration secrets during a live migration.
+- SECURITY.md has a section on the Claude and ChatGPT connector. DESIGN.md documents the shared tab pattern, the dark `--shell-raised` and coverage colours, and notes that the iOS companion still uses its earlier palette.
+- Thermal and analytics notes describe the saved v2 thermal-isolation and moisture-response results and the archive reads added in 0.52.13 and 0.59.1, and list verification test files that exist.
+- The [API testing catalogue](docs/testing/api-endpoint-combinations.md) was generated again for 0.62.1: 365 local operations instead of 0.51.1's 350, with the assistant connector and export destination endpoints. Its authorization source link points at `app/access-control.ts`, which replaced `app/part-06.ts`.
+- Upgrade impact: none. Only documentation changes; the API, web app, database, configuration, Compose and host trust are unchanged.
+
 ## 0.62.0
 
 Dropbox and Google Drive exports are now personal. Each Owner and Admin connects their own drive, and the choice lives with the scheduled exports instead of on the Set up page.

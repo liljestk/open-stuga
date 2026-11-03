@@ -441,7 +441,7 @@ The appliance enables its isolated update-agent container by default. A clean
 installation checks stable GitHub releases every 24 hours and installs during
 the Sunday 03:00 UTC maintenance window. Owners can change the days, time,
 timezone, release channel, or manual/automatic mode under **Advanced →
-System updates**.
+System**, in **Software updates**.
 
 Each installation creates a verified backup before pulling the exact release
 images. It replaces only the application containers, waits for health checks,

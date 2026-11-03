@@ -55,7 +55,7 @@ set `TP_LINK_PYTHON=python3`.
 Use the TP-Link account email and password that can authenticate to the hub.
 The credentials authenticate devices on the local network; they do not
 enumerate every device attached to the TP-Link cloud account.
-Select the owning Home and open **Set up > Connections** at
+Select the owning Home and open **Set up > Where readings come from** at
 `/properties/{propertyId}/homes/{homeId}/setup/connections`, then select
 **Find devices**. Choose an H100/H200/H500 hub or a supported energy device, or enter
 a reserved IP address manually if discovery is blocked by Wi-Fi isolation,
@@ -65,6 +65,9 @@ includes only devices that expose `Module.Energy`. Legacy Kasa energy devices
 such as HS110 can normally be verified over their older local protocol without
 credentials. Draft credentials used for discovery are not saved. Enter the same
 account used by the Tapo/Kasa app and select **Save and connect**.
+
+Only an Owner or Admin can run discovery, save TP-Link credentials, or change a
+connection. A Member sees a note instead of the form.
 
 These are two separate discovery stages. **Find devices** locates H100/H200/H500
 hubs, supported energy devices, and any Home Assistant instance; it does not

@@ -353,9 +353,11 @@ cadence so a lone old value cannot silently fill a long gap.
    the complete half-open range inside PostgreSQL and transfer only requested
    buckets to the API. The query preserves explicit quality filtering, inferred
    cadence, time-weighted rate means, and reset-aware counter deltas. A
-   standalone SQLite installation keeps the bounded raw fallback. Specialized
-   persisted semantic rollups are deferred until measured query volume
-   justifies their migration and late-data invalidation complexity.
+   standalone SQLite installation keeps the bounded raw fallback. Mean, sum,
+   minimum, maximum and last read whole buckets from the TimescaleDB continuous
+   aggregates and raw samples only at the range edges. Power and energy charts
+   and summaries read the archive's stored ordered states, including today's
+   finished 15-minute periods.
 2. **A server-side cache, never an HTTP cache.** The first slice had no cache.
    Since 0.48, identical queries are shared through a server cache whose key
    carries the request, the visible sensors, the house, registry and
@@ -426,8 +428,8 @@ Run:
 
 ```powershell
 npm run build:packages
-npm run test --workspace @climate-twin/api -- tests/analytics.test.ts tests/timeseries-read-facade.test.ts tests/measurements.test.ts tests/openapi-parity.test.ts tests/app.test.ts
-npm run test --workspace @climate-twin/web -- src/homePerformance.test.ts src/calendarComparison.test.ts src/calendarComparisonView.test.ts src/components/CalendarPeriodComparison.test.tsx src/pages/DataAnalyticsPage.test.tsx src/components/SensorAnalyticsChart.test.tsx src/chartGaps.test.ts src/measurements.test.ts
+npm run test --workspace @climate-twin/api -- tests/analytics.test.ts tests/timeseries-read-facade.test.ts tests/measurements.test.ts tests/openapi-parity.test.ts tests/app.test.ts tests/home-performance.test.ts tests/calendar-comparison-model.test.ts
+npm run test --workspace @climate-twin/web -- src/pages/DataAnalyticsPage/HomePerformancePanel.test.tsx src/calendarComparisonView.test.ts src/components/CalendarPeriodComparison.test.tsx src/pages/DataAnalyticsPage.test.tsx src/components/SensorAnalyticsChart.test.tsx src/chartGaps.test.ts src/measurements.test.ts
 npm run typecheck --workspace @climate-twin/api
 npm run typecheck --workspace @climate-twin/web
 ```

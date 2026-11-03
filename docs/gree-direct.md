@@ -37,9 +37,9 @@ promise that every Gree-derived model exposes the same fields.
 2. Select the owning Home and open **Set up**.
 3. For local-first operation, keep Stugu and the heat pump on the same trusted
    LAN. Stugu scans without binding and offers compatible units it finds.
-4. If LAN discovery is unavailable, open **EWPE Smart**, enter the account
-   credentials, and discover the account inventory. Discovery is transient and
-   does not save credentials.
+4. If LAN discovery is unavailable, open **Connect EWPE Smart**, enter the
+   account credentials, and discover the account inventory. Discovery is
+   transient and does not save credentials.
 5. Explicitly add one discovered unit. Only then does Stugu verify a live state
    read, create the Property equipment record, protect the required credential,
    and start monitoring.

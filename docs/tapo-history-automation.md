@@ -218,7 +218,7 @@ Then use Appium Inspector against the dedicated target:
    `CHANGE_ME` placeholders.
 8. Ensure the final action waits for a positive export confirmation. Reaching
    the form or tapping Submit is not success.
-9. Open **Set up > Connections > Automated Tapo history exports**, select the
+9. Open **Set up > Where readings come from > Automated Tapo history exports**, select the
    explicitly mapped sensor and metric, and run an acceptance canary. Its range
    must span at least eight configured intervals and no more than
    `max(7 days, 8 intervals)`. Verify the
@@ -363,7 +363,7 @@ still collide during the Appium session preflight that happens before a claim.
 | `completed` | CSV/private rows were validated and durably staged | The gap coordinator consumes them after measurement ingestion succeeds |
 | `cancelled` | Operator stopped an active request | Let a later gap attempt create/requeue work only after deciding the range is still needed |
 
-Open **Set up > Connections > Automated Tapo history exports** to see provider,
+Open **Set up > Where readings come from > Automated Tapo history exports** to see provider,
 device identity, range, attempts, lease-derived state, and the last error. Its
 health strip shows whether automation is operational, a pending canary, the
 waiting/max mailbox count, current mailbox error/failure count, last worker

@@ -20,7 +20,12 @@ adds an outer exact-email gate without replacing local authorization. Its
 runtime group token and Tunnel token are deployment secrets. At least one
 verified static Cloudflare operator must remain independent of the local owner
 login so first-owner setup, invitation cleanup, or a private local email cannot
-remove the recovery identity.
+remove the recovery identity. The setup also exempts `/api/v1/mcp`,
+`/api/v1/oauth/*`, `/.well-known/oauth-authorization-server` and
+`/.well-known/oauth-protected-resource/api/v1/mcp` from the Access login so
+Claude and ChatGPT can connect. Stugu authenticates each of those requests
+itself; the approval page and every other path stay behind Access. See
+[Claude and ChatGPT](assistants.md#what-is-reachable-from-the-internet).
 
 The local Node API has built-in owner, administrator, member, and Guest accounts
 in one workspace. Only an owner or administrator can save, test, move, rotate, or
@@ -73,6 +78,12 @@ is more important than using one recovery key for the fleet.
   once at grant creation. Only its SHA-256 hash is retained in the integration
   secrets file, so Stugu cannot reveal the original token later. Its operator
   device label is informational and does not bind or authenticate a device.
+- A Dropbox or Google Drive connected for scheduled exports belongs to the
+  Owner or Admin who connected it. Its refresh token is kept in the integration
+  secrets file and never returned; access tokens stay in memory. Nobody else
+  can use or disconnect it, and removing that person from the workspace revokes
+  it. Stugu's access is limited to its own app folder (Dropbox) or the files it
+  created (Google Drive `drive.file`).
 - Home Assistant and direct TP-Link credentials and connections belong to one
   Home. The **Set up** Home selector controls that persisted ownership; API
   authorization still enforces it server-side. Telegram credentials belong to
@@ -139,8 +150,11 @@ Owners and Administrators can inspect the newest append-only security events at
 `GET /api/v1/security/audit-events?limit=100&offset=0`. Guests and ordinary
 Members cannot read this Workspace-wide ledger. It records successful owner
 setup, invitation acceptance, login/logout, membership invitation/grant/removal
-changes, integration credential configuration/rotation/revocation, and Apple
-Notes grant issue/revocation. Rejected credential logins are recorded with a
+changes, integration credential configuration/rotation/revocation, and the
+issue and revocation of Apple Notes grants, the network MCP token, and
+assistant connections. It also records update settings and installation
+requests, storage and export-destination changes, and Cloudflare setup starts.
+Rejected credential logins are recorded with a
 bounded reason code and no actor identity.
 
 Each event contains a random event ID, event type, outcome, actor user ID and
@@ -178,6 +192,9 @@ Recommended flows are narrowly scoped:
 | Stugu API | `geocoding-api.open-meteo.com:443` | user-initiated place search |
 | Stugu API | configured webhook hosts | alert delivery only |
 | Stugu API | `api.telegram.org:443` | bot validation, private-chat discovery, test, and opted-in alert delivery |
+| Stugu API | `api.dropboxapi.com:443`, `content.dropboxapi.com:443` | Dropbox sign-in, scheduled CSV uploads, and revocation; only once someone connects Dropbox |
+| Stugu API | `oauth2.googleapis.com:443`, `www.googleapis.com:443` | Google Drive sign-in, scheduled CSV uploads, and revocation; only once someone connects Google Drive |
+| Claude and ChatGPT servers | Stugu's public HTTPS address | assistant OAuth and read-only MCP (`/api/v1/mcp`, `/api/v1/oauth/*`, `/.well-known/oauth-*`); only with a public address such as Cloudflare Tunnel |
 | User iPhone/iPad | authenticated Stugu bridge URL | user-run maintenance capture and generated Notes snapshots |
 | Home Assistant | H200 local address | official TP-Link local polling |
 
@@ -247,9 +264,10 @@ production rollout.
   bearer tokens alone do not provide body-level integrity.
 - MCP is a read-only inspection interface that bypasses browser sessions and
   Guest grants. Run stdio only for a trusted local MCP host. The optional
-  Streamable HTTP endpoint must be explicitly started by an Owner/Admin and
-  uses a separate high-entropy bearer token that is shown once, stored only as
-  a digest, and revoked on stop or process exit. It rejects browser-origin
+  Streamable HTTP endpoint starts when an Owner/Admin starts it, or on demand
+  when a connected assistant calls it. Its manual bearer token is issued only
+  to an Owner/Admin, is high-entropy, shown once, stored only as a digest, and
+  revoked on stop or process exit. It rejects browser-origin
   requests, but the bearer still requires TLS or a trusted VPN in transit.
   SQLite query-only enforcement and the fail-closed tool registry prevent
   mutations.
@@ -344,7 +362,8 @@ If a token or dataset is exposed:
 
 1. Isolate the service from the network.
 2. Revoke/rotate Home Assistant, ingestion, webhook, Telegram, and Apple Notes
-   bridge credentials.
+   bridge credentials. Stop the network MCP server and disconnect assistant
+   connections under **Advanced → API & MCP**.
 3. Preserve minimal logs needed to determine scope, without spreading secrets.
 4. Inspect access, exports, MCP clients, and outbound deliveries.
 5. Patch the cause, notify affected users where required, and restore from a

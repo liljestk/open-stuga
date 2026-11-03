@@ -363,16 +363,20 @@ docker compose up -d --build --force-recreate api web cloudflared
 npm run cloudflare:verify-coordinator
 ```
 
-Both verifier commands make unauthenticated probes and fail unless all five
+Both verifier commands make unauthenticated probes and fail unless all of these
 boundary conditions hold:
 
 1. `/` is challenged by Cloudflare Access;
 2. `/api/v1/stugbys` is challenged by Cloudflare Access;
 3. `/invite-bootstrap` is publicly reachable;
-4. `/invite-bootstrap.js` is publicly reachable; and
+4. `/invite-bootstrap.js` is publicly reachable;
 5. the machine-protocol path stays behind Access in remote-UI mode, or an
    intentionally invalid join reaches and is rejected by Stugu's application
-   verifier in coordinator mode.
+   verifier in coordinator mode; and
+6. when the deployment records the assistant application, `/connect/assistant`
+   is challenged by Cloudflare Access,
+   `/.well-known/oauth-authorization-server` returns Stugu's metadata with this
+   origin as `issuer`, and `/api/v1/mcp` answers with Stugu's OAuth challenge.
 
 Run the matching verifier after every Access, Tunnel, hostname, or reverse-proxy
 change. It sends no credential, invitation, Home data, or valid protocol

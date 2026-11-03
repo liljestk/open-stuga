@@ -199,13 +199,15 @@ The primary canonical destinations are:
 /properties/{propertyId}/homes/{homeId}/setup/{section}
 ```
 
-The Set up sections are `overview`, `homes`, `connections`, and `weather`.
+The Set up sections are `overview`, `layout`, `connections`, `weather`,
+`automations`, and `operations`. A legacy `setup/homes` link opens
+**Properties**.
 
 ## Guest accounts
 
 Every installation has one local workspace with built-in owner,
-administrator, and Guest accounts. An owner or administrator can grant a Guest
-any combination of:
+administrator, member, and Guest accounts. An owner or administrator can grant
+a Guest any combination of:
 
 - a Property, which includes all of its Homes, areas, and equipment;
 - an individual Home, which includes its sensors and Home-derived data; or

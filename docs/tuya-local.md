@@ -32,8 +32,8 @@ comparing the two paths.
    TinyTuya's setup wizard can retrieve the key through a temporary Tuya IoT
    authorization. Treat its generated device file as a secret and remove it
    after import.
-4. Open the owning Home in **Set up → Connections → Tuya Wi-Fi**. Tuya is not
-   included in Stugu's normal network search. Enter the device ID and local key,
+4. Open the owning Home in **Set up → Where readings come from → Tuya
+   Wi-Fi**. Tuya is not included in Stugu's normal network search. Enter the device ID and local key,
    then select **Enable discovery and find device**. Stugu returns only that
    matching device and verifies it locally before filling in its address and
    protocol version. If UDP discovery is blocked, enter those two network
@@ -41,7 +41,7 @@ comparing the two paths.
 5. Optionally name and place the verified device, then select **Verify and
    add**. The local key is not saved until this step succeeds.
 6. Open the Home's live view. The **Lights and switches** layer shows the
-   device in both 2D and 3D. Use **Layout** to drag it or move it with the
+   device in both 2D and 3D. Use **Edit layout** to drag it or move it with the
    arrow keys.
 
 Stugu does not save a Tuya cloud token or account password. A reset, removal,
