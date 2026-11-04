@@ -149,7 +149,8 @@ export function ScheduledDataExportsPanel(props: Readonly<ScheduledDataExportsPa
 
   useEffect(() => {
     setSchedules([]);
-    setDestination(null);
+    // The destination is the person's, not the Home's. It stays on screen while it reloads,
+    // because emptying it would close a drive setup form and lose what was typed there.
     setScheduleLoadError(null);
     setStorageLoadError(null);
     setActionError(null);

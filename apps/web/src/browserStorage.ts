@@ -110,8 +110,11 @@ export function activateAccountStorage(session: AppSession): void {
       // an authenticated account from reading an unscoped legacy value.
     }
   }
+  const scopeChanged = nextPrefix !== activeAccountPrefix;
   activeAccountPrefix = nextPrefix;
-  notifyScopeChange();
+  // Every workspace bootstrap lands here, including each return to the tab. Listeners
+  // reset their state on this signal, so the same account must not raise it again.
+  if (scopeChanged) notifyScopeChange();
 }
 
 /** Clears the active account's browser state during logout/session expiry. */

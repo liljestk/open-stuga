@@ -2,6 +2,17 @@
 
 All notable Stugu releases are recorded here.
 
+## 0.62.2
+
+Stepping away from the Stugu tab no longer throws away what you were typing.
+
+- Setting up Google Drive or Dropbox under **Data & analytics → Scheduled exports** means copying values from the provider's console. Back in Stugu, about a second later the form closed, what you had typed was gone and the page jumped. The form now stays open, with your text, cursor and scroll position intact.
+- The same return to the tab erased a maintenance task you were still writing. Its text now stays too.
+- Panels that load their own settings, such as Scheduled exports, no longer reload just because you came back. Stugu still refreshes the Home's data in the background.
+- Changing the language while a drive setup form is open keeps what you typed.
+- A language or unit change made in another open tab now applies when that tab reloads, instead of whenever you next return to it.
+- Upgrade impact: application-only update, web app only. The API, database, configuration, Compose and host trust are unchanged.
+
 ## 0.62.1
 
 The README, screenshots and guides describe Stugu as it is in 0.62.0.

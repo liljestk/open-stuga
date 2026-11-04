@@ -7,6 +7,7 @@ import {
   deactivateAccountStorage,
   readLocalStorage,
   removeLocalStorage,
+  subscribeToAccountStorageScope,
   writeLocalStorage,
 } from "./browserStorage";
 
@@ -97,6 +98,28 @@ describe("account-scoped browser storage", () => {
     expect(localStorage.getItem(accountScopedStorageKeyForTest(second, "future-key"))).toBeNull();
     expect(localStorage.getItem(accountScopedStorageKeyForTest(first, "climate-twin-units"))).toBe("imperial");
     expect(readLocalStorage("climate-twin-units")).toBeNull();
+  });
+
+  it("announces a storage scope only when the account actually changes", () => {
+    const first = session("first@example.test");
+    const listener = vi.fn();
+    const unsubscribe = subscribeToAccountStorageScope(listener);
+
+    activateAccountStorage(first);
+    expect(listener).toHaveBeenCalledTimes(1);
+    // Each return to the tab restarts the workspace bootstrap for the same account.
+    activateAccountStorage(session("first@example.test"));
+    expect(listener).toHaveBeenCalledTimes(1);
+
+    activateAccountStorage(session("second@example.test"));
+    expect(listener).toHaveBeenCalledTimes(2);
+    activateAccountStorage(session("second@example.test", "tenant-2"));
+    expect(listener).toHaveBeenCalledTimes(3);
+    deactivateAccountStorage();
+    expect(listener).toHaveBeenCalledTimes(4);
+    activateAccountStorage(first);
+    expect(listener).toHaveBeenCalledTimes(5);
+    unsubscribe();
   });
 
   it("keeps storage denial non-fatal", () => {

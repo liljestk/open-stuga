@@ -1,10 +1,12 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ExportDestinationStatus, ScheduledDataExport } from "@climate-twin/contracts";
+import type { AppSession, ExportDestinationStatus, ScheduledDataExport } from "@climate-twin/contracts";
 import { api } from "../api";
+import { activateAccountStorage } from "../browserStorage";
 import { createDemoState } from "../domain";
-import { I18nProvider } from "../i18n";
+import { I18nProvider, useI18n } from "../i18n";
+import { svOverrides } from "../locales/catalogs/sv";
 import { ScheduledDataExportsPanel } from "./ScheduledDataExportsPanel";
 
 afterEach(() => {
@@ -60,6 +62,28 @@ function createdSchedule(houseId: string, overrides: Partial<ScheduledDataExport
 }
 
 const readyDestination: ExportDestinationStatus = { selected: "nas", ready: true, nasConnected: true, accounts: [], connection: null };
+
+const googleAppEnteredHere: ExportDestinationStatus = {
+  selected: "nas",
+  ready: false,
+  nasConnected: false,
+  accounts: [{ provider: "google-drive", available: true, appSource: "protected-file", connected: false, accountLabel: null, connectedAt: null }],
+  connection: null,
+};
+
+const signedInOwner: AppSession = {
+  authenticated: true,
+  principal: { type: "local", email: "owner@example.test" },
+  tenant: { id: "local", name: "Local Stugu", role: "owner" },
+  availableTenants: [{ id: "local", name: "Local Stugu", role: "owner" }],
+  readOnly: false,
+  grants: [],
+};
+
+function LanguageSwitch() {
+  const { setLocale } = useI18n();
+  return <button type="button" onClick={() => setLocale("sv")}>switch language</button>;
+}
 
 function mockTarget() {
   vi.spyOn(api, "scheduledDataExports").mockResolvedValue([]);
@@ -197,6 +221,58 @@ describe("ScheduledDataExportsPanel", () => {
     await waitFor(() => expect(schedules).toHaveBeenCalledWith(secondHouse.id, expect.any(AbortSignal)));
     expect(firstSignal?.aborted).toBe(true);
     expect(firstStorageSignal?.aborted).toBe(true);
+  });
+
+  describe("while the Google Drive app form is open", () => {
+    async function openGoogleAppForm() {
+      vi.spyOn(api, "scheduledDataExports").mockResolvedValue([]);
+      const destinations = vi.spyOn(api, "exportDestinations").mockResolvedValue(googleAppEnteredHere);
+      const state = createDemoState();
+      const house = state.houses[0]!;
+      activateAccountStorage(signedInOwner);
+      const user = userEvent.setup();
+      render(<I18nProvider><LanguageSwitch /><ScheduledDataExportsPanel
+        house={house}
+        period="30d"
+        sensorIds={[]}
+        measurementIds={["temperature"]}
+        resolution="15m"
+        aggregation="mean"
+        configurationError={null}
+        viewerEmail="owner@example.test"
+      /></I18nProvider>);
+      await user.click(await screen.findByRole("button", { name: "Change the Google Drive app" }));
+      const clientId = screen.getByRole("textbox", { name: "Client ID" });
+      await user.type(clientId, "1234567890-owner.apps.googleusercontent.com");
+      return { clientId, destinations, user };
+    }
+
+    it("keeps what was typed when the workspace reloads on returning to the tab", async () => {
+      const { clientId, destinations } = await openGoogleAppForm();
+
+      // Coming back from the provider's console restarts the workspace bootstrap, which reactivates the same account.
+      await act(async () => { activateAccountStorage(signedInOwner); });
+
+      expect(clientId).toBeInTheDocument();
+      expect(clientId).toHaveValue("1234567890-owner.apps.googleusercontent.com");
+      expect(destinations).toHaveBeenCalledTimes(1);
+    });
+
+    it("keeps what was typed when the language changes", async () => {
+      const { clientId, destinations, user } = await openGoogleAppForm();
+      // The panel reloads behind the form once the new language arrives. Hold that reload open, as a real
+      // request would be, because an instant answer never lets an emptied panel reach the screen.
+      let finishReload!: (status: ExportDestinationStatus) => void;
+      destinations.mockImplementationOnce(() => new Promise((resolve) => { finishReload = resolve; }));
+
+      await user.click(screen.getByRole("button", { name: "switch language" }));
+      await waitFor(() => expect(destinations).toHaveBeenCalledTimes(2));
+      await screen.findByRole("textbox", { name: svOverrides["dataExport.appSetupGoogleClientId"] });
+      await act(async () => { finishReload(googleAppEnteredHere); });
+
+      expect(clientId).toBeInTheDocument();
+      expect(clientId).toHaveValue("1234567890-owner.apps.googleusercontent.com");
+    });
   });
 
   it("never overlaps refreshes while a pending export is still loading", async () => {
