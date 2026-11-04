@@ -1,7 +1,9 @@
+import type { AppSession } from "@climate-twin/contracts";
 import ts from "typescript";
 import { act, render, screen } from "@testing-library/react";
 import { useEffect } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { activateAccountStorage } from "./browserStorage";
 import { I18nProvider, SUPPORTED_LOCALES, useI18n, type TranslationKey } from "./i18n";
 import { en } from "./locales/catalogs/en";
 import { fiOverrides } from "./locales/catalogs/fi-overrides";
@@ -230,6 +232,29 @@ describe("localization coverage", () => {
     expect(screen.getByText("sv:Spara")).not.toBeNull();
     expect(localStorage.getItem("climate-twin-locale")).toBe("sv");
     expect(document.documentElement.lang).toBe("sv");
+  });
+
+  it("keeps the translator stable when the same account is activated again", async () => {
+    const translators: unknown[] = [];
+    const Probe = () => {
+      const { t } = useI18n();
+      translators.push(t);
+      return null;
+    };
+    const session: AppSession = {
+      authenticated: true,
+      principal: { type: "local", email: "owner@example.test" },
+      tenant: { id: "local", name: "Local Stugu", role: "owner" },
+      availableTenants: [{ id: "local", name: "Local Stugu", role: "owner" }],
+      readOnly: false,
+      grants: [],
+    };
+    activateAccountStorage(session);
+    render(<I18nProvider><Probe /></I18nProvider>);
+
+    await act(async () => { activateAccountStorage(session); });
+
+    expect(new Set(translators).size).toBe(1);
   });
 
   it("starts when browser privacy settings block persistent storage", () => {
