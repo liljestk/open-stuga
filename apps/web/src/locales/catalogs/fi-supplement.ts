@@ -1,3 +1,4 @@
+import { fiAdaptiveMonitoring } from "./fi-supplement/adaptive-monitoring";
 import { fiSupplementPart1 } from "./fi-supplement/01-stuguby-setup";
 import { fiSupplementPart2 } from "./fi-supplement/02-setup-historyImport";
 import { fiSupplementPart3 } from "./fi-supplement/03-historyImport-properties";
@@ -23,4 +24,5 @@ export const fiSupplement = {
   ...fiAnalyticsQuality,
   ...fiRequestErrors,
   ...fiAssistantConnector,
+  ...fiAdaptiveMonitoring,
 } satisfies Partial<Record<TranslationKey, string>>;

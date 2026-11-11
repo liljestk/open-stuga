@@ -1,3 +1,5 @@
+import { predictAdaptiveHour } from "../adaptive-monitoring/policy.js";
+import type { AdaptiveFitInput } from "../adaptive-monitoring/evidence.js";
 import { parentPort, workerData } from "node:worker_threads";
 import type { MoistureResponseInput } from "../thermal/moisture-response.js";
 import { runMoistureResponse } from "../thermal/moisture-response.js";
@@ -6,7 +8,8 @@ import { runThermalIsolation } from "../thermal/isolation.js";
 
 export type DerivedFitWorkerRequest =
   | { kind: "thermal-isolation"; input: ThermalIsolationInput }
-  | { kind: "moisture-response"; input: MoistureResponseInput };
+  | { kind: "moisture-response"; input: MoistureResponseInput }
+  | { kind: "adaptive"; input: AdaptiveFitInput };
 
 function errorPayload(error: unknown): {
   name: string;
@@ -28,7 +31,7 @@ if (!parentPort) throw new Error("Derived fit worker requires a parent port");
 
 try {
   const request = workerData as DerivedFitWorkerRequest;
-  const result = request.kind === "thermal-isolation"
+  const result = request.kind === "adaptive" ? predictAdaptiveHour(request.input) : request.kind === "thermal-isolation"
     ? runThermalIsolation(request.input)
     : runMoistureResponse(request.input);
   parentPort.postMessage({ ok: true, result });

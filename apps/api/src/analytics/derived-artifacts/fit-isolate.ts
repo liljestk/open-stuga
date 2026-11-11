@@ -1,3 +1,5 @@
+import { predictAdaptiveHour } from "../adaptive-monitoring/policy.js";
+import type { AdaptiveFitInput, AdaptiveFitResult } from "../adaptive-monitoring/evidence.js";
 import { withSignal } from "@climate-twin/contracts";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -13,7 +15,7 @@ import {
 } from "../thermal/isolation.js";
 import type { DerivedFitWorkerRequest } from "./fit-worker.js";
 
-type DerivedFitResult = ThermalIsolationResult | MoistureResponseResult;
+type DerivedFitResult = ThermalIsolationResult | MoistureResponseResult | AdaptiveFitResult;
 type WorkerReply =
   | { ok: true; result: DerivedFitResult }
   | { ok: false; error: { name: string; message: string; code?: string } };
@@ -42,6 +44,10 @@ async function sourceRuntimeFallback(
       code: "DERIVED_FIT_WORKER_MISSING",
     });
   }
+  if (request.kind === "adaptive") {
+    signal?.throwIfAborted();
+    return predictAdaptiveHour(request.input);
+  }
   if (request.kind === "thermal-isolation") {
     return runThermalIsolationAsync(request.input, {
       ...withSignal(signal),
@@ -62,7 +68,7 @@ function runWorker(
   return new Promise<DerivedFitResult>((resolve, reject) => {
     const worker = new Worker(FIT_WORKER_URL, {
       workerData: request,
-      resourceLimits: FIT_WORKER_RESOURCE_LIMITS,
+      resourceLimits: request.kind === "adaptive" ? { maxOldGenerationSizeMb: 96, maxYoungGenerationSizeMb: 16, stackSizeMb: 4 } : FIT_WORKER_RESOURCE_LIMITS,
       // `node --input-type=module --eval` is used by built-artifact smoke
       // checks, but that flag is invalid when the child has a file entrypoint.
       execArgv: process.execArgv.filter((argument) => !argument.startsWith("--input-type")),
@@ -121,4 +127,8 @@ export function runMoistureResponseIsolated(
   signal?: AbortSignal,
 ): Promise<MoistureResponseResult> {
   return runWorker({ kind: "moisture-response", input }, signal) as Promise<MoistureResponseResult>;
+}
+
+export function runAdaptiveFitIsolated(input: AdaptiveFitInput, signal?: AbortSignal): Promise<AdaptiveFitResult> {
+  return runWorker({ kind: "adaptive", input }, signal) as Promise<AdaptiveFitResult>;
 }

@@ -1,3 +1,4 @@
+import { adaptiveMonitoringPaths, adaptiveMonitoringSchemas } from "./adaptive-monitoring-paths.js";
 import { pathsPart01 } from "./paths-01.js";
 import { pathsPart02 } from "./paths-02.js";
 import { pathsPart03 } from "./paths-03.js";
@@ -49,6 +50,7 @@ export const combinedOpenApiDocument = {
     ...electricityTariffPaths,
     ...assistantConnectorPaths,
     ...exportDestinationPaths,
+    ...adaptiveMonitoringPaths,
   },
   components: {
     securitySchemes: {
@@ -92,6 +94,7 @@ export const combinedOpenApiDocument = {
       ...schemasPart12,
       ...assistantConnectorSchemas,
       ...exportDestinationSchemas,
+      ...adaptiveMonitoringSchemas,
     },
   },
 } as const;

@@ -55,3 +55,6 @@ export type { LocalMcpRuntimeState, LocalMcpRuntimeErrorCode, LocalMcpRuntimeSta
 export { ASSISTANT_CONNECTOR_CONSENT_PATH, ASSISTANT_CONNECTOR_RESOURCE_PATH, ASSISTANT_CONNECTOR_SCOPE, ASSISTANT_KINDS, isAssistantKind } from "./assistant-connector.js";
 export type { AssistantAuthorizationDecision, AssistantAuthorizationInput, AssistantAuthorizationPreview, AssistantAuthorizationRedirect, AssistantConnection, AssistantConnectionsResponse, AssistantKind } from "./assistant-connector.js";
 export type { StugubyAuthorityTransfer, StugubyHomeProjection, StugubyPropertyAdoption } from "./stuguby-local.js";
+
+export * from "./adaptive-monitoring.js";
+export * from "./adaptive-monitoring-guards.js";

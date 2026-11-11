@@ -267,6 +267,7 @@ export function createIntegrationBridges(context: SpatialLayerServices) {
       mock.stop();
       replay.reset();
       context.derivedAnalytics.handleDataModeActivated();
+      context.adaptiveMonitoringWorker.handleDataModeActivated();
       context.notifySpatial((runtime) => runtime.handleDataModeActivated("real"));
       context.telemetryArchive?.enforceRealDataBoundary();
       context.status.refreshDataMode();

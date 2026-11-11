@@ -134,6 +134,10 @@ its status and date; the guides above describe current behaviour.
 - [Modular roadmap](roadmap.md)
 - [Simple view plan](simple-view.md)
 - [Analytics and frontend data rewrite plan](analytics-frontend-rewrite-implementation-plan.md)
+- [Adaptive Home monitoring specification](adaptive-monitoring-spec.md) and
+  [implementation plan](adaptive-monitoring-plan.md), with the
+  [implementation record](adaptive-monitoring-implementation.md): local learning,
+  shadow evaluation, qualification gates and rollout.
 - [Lossless telemetry scale plan](telemetry-scale-plan.md)
 - [Signed Raspberry Pi host updater](signed-host-updater-plan.md), its
   [implementation review](host-updater-implementation-review.md),

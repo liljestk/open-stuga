@@ -1,3 +1,4 @@
+import { enAdaptiveMonitoring } from "./en/adaptive-monitoring";
 import { enPart1 } from "./en/01-app-bootstrap";
 import { enPart2 } from "./en/02-bootstrap-twin";
 import { enPart3 } from "./en/03-twin-simulation";
@@ -28,6 +29,7 @@ export const en = {
   ...enAnalyticsQuality,
   ...enRequestErrors,
   ...enAssistantConnector,
+  ...enAdaptiveMonitoring,
 } as const;
 
 export type TranslationKey = keyof typeof en;

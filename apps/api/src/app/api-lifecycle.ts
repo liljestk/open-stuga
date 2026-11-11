@@ -57,6 +57,7 @@ function backgroundServices(context: ApiRouteRegistrationContext): BackgroundSer
       start: () => { if (config.dailyAnalyticsFindingsEnabled) context.dailyAnalyticsFindings.start(); },
       stop: () => context.dailyAnalyticsFindings.stop(),
     },
+    { start: () => context.adaptiveMonitoringWorker.start(), stop: () => context.adaptiveMonitoringWorker.stop() },
     { start: () => context.derivedAnalytics.start(), stop: () => context.derivedAnalytics.stop() },
     { start: () => context.scheduledDataExports.start(), stop: () => context.scheduledDataExports.stop() },
     // The outbox starts with the runtime coordination, setup and recovery on demand.

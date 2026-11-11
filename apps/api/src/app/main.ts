@@ -1,3 +1,4 @@
+import { registerAdaptiveMonitoringRoutes } from "../analytics/adaptive-monitoring/routes.js";
 import type { ApiRuntime, CreateApiOptions } from "./support/api-runtime.js";
 import { resolveApiConfig } from "./api-config.js";
 import { createCoreDataServices } from "./core-data-services.js";
@@ -125,6 +126,7 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
   registerGreeRoutes(context);
   registerTuyaRoutes(context);
   context.disposers.releaseOnClose(registerAnalyticsRoutes(context));
+  registerAdaptiveMonitoringRoutes(context);
   registerStaticParameterRoutes(context);
   registerAssetRoutes(context);
   registerIntegrationStatusRoutes(context);
