@@ -3,7 +3,7 @@
 # `npm run host-tuf-renewal -- install`). python-tuf stays on 5.1.0, the
 # version the appliance's host updater runs, so the renewer's pre-publication
 # proof uses the same client; 6.0+ also needs symlink privileges on Windows.
-tuf==5.1.0
+tuf==7.0.0
 securesystemslib[crypto]==1.6.0
 cryptography==50.0.1
 cffi==2.0.0
