@@ -34,6 +34,13 @@ describe("adaptive monitoring storage, scope and settings", () => {
       const moved = f.service.store.streams(f.home.id, "live")[0]!;
       expect(moved.stream.epoch).not.toBe(f.stream.stream.epoch);
       expect(moved.stream.epochStartedAt).toBe(new Date(START + HOUR).toISOString());
+      f.database.updateHouse(f.home.id, { floors: [...f.home.floors,
+        { ...f.home.floors[0]!, id: "upper-floor", name: "Upper floor", elevation: 3 }] });
+      f.database.updateSensor("sensor-one", { floorId: "upper-floor" });
+      f.service.invalidate();
+      const upstairs = f.service.store.streams(f.home.id, "live")[0]!;
+      expect(upstairs.stream.epoch).not.toBe(moved.stream.epoch);
+      expect(upstairs.stream.floorId).toBe("upper-floor");
     } finally { f.database.close(); }
   });
   it("creates durable single-hour job claims and makes successful retries no-ops", () => {

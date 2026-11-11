@@ -103,6 +103,7 @@ export function synchronizeAdaptiveStreams(store: AdaptiveMonitoringStore, input
       stored = store.reset(stored, { mode: input.mode, fingerprint: candidate.fingerprint, now: input.now });
     }
     stored.stream.sensorName = candidate.stream.sensorName;
+    stored.stream.floorId = candidate.stream.floorId;
     stored.stream.room = candidate.stream.room;
     store.saveStream(stored, input.mode);
     existing.delete(stored.stream.id);
