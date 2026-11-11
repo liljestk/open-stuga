@@ -1,3 +1,4 @@
+import { svAdaptiveMonitoring } from "./sv/adaptive-monitoring";
 import { svPart1 } from "./sv/01-stuguby-analytics";
 import { svPart2 } from "./sv/02-analytics-decision";
 import { svPart3 } from "./sv/03-decision-simulation";
@@ -29,4 +30,5 @@ export const svOverrides = {
   ...svAnalyticsQuality,
   ...svRequestErrors,
   ...svAssistantConnector,
+  ...svAdaptiveMonitoring,
 } satisfies Record<TranslationKey, string>;

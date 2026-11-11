@@ -11,6 +11,7 @@ import type {
 } from "@climate-twin/contracts";
 import { useEffect, useMemo, useRef, useState, type Ref } from "react";
 import { useHomeMonitoringQuery } from "../../data/analytics/homeMonitoringQuery";
+import { useAdaptiveMonitoringQuery } from "../../data/analytics/adaptiveMonitoringQuery";
 import { useI18n, type Locale, type TranslationKey } from "../../i18n";
 import type { LatestMeasurements, MeasurementHistory } from "../../measurements";
 import { readLocalStorage, removeLocalStorage, subscribeToAccountStorageScope, writeLocalStorage } from "../../browserStorage";
@@ -37,6 +38,8 @@ interface HomePulsePanelProps {
   dataMode?: "demo" | "real" | "unknown";
   monitoring?: HomeMonitoringDetailResponse;
   monitoringRequestState?: MonitoringRequestState;
+  learnedChangeCount?: number;
+  learningIncomplete?: boolean;
   onOpenTarget: (floorId: string, sensorId: string) => void;
   onOpenSetup?: () => void;
   onAcknowledge?: (alertId: string) => Promise<void>;
@@ -248,6 +251,11 @@ function InsightCard({ insight, onOpen, onHide, onAcknowledge, summaryRef, allow
   );
 }
 
+function combinedPulseStatus(input: { measuredStatus: HomePulseStatus | undefined; complete: boolean; learnedChanges: number; learningIncomplete: boolean | undefined }): HomePulseStatus {
+  if (input.measuredStatus === "steady" && (!input.complete || input.learningIncomplete)) return "unknown";
+  if (input.measuredStatus === "steady" && input.learnedChanges > 0) return "watch";
+  return input.measuredStatus ?? "unknown";
+}
 export function HomePulsePanel(props: HomePulsePanelProps) {
   const { locale, t } = useI18n();
   const monitoring = props.monitoring;
@@ -264,10 +272,11 @@ export function HomePulsePanel(props: HomePulsePanelProps) {
   const monitoringSuccessful = monitoringEvidenceComplete
     && monitoring.house.status === "monitoring-ok"
     && monitoring.house.blockers.length === 0;
+  const learnedChangeCount = props.learnedChangeCount ?? 0;
+  const status = combinedPulseStatus({ measuredStatus: monitoring?.house.pulseStatus, complete: monitoringSuccessful,
+    learnedChanges: learnedChangeCount, learningIncomplete: props.learningIncomplete });
   const pulse = useMemo(() => ({
-    status: monitoring?.house.pulseStatus === "steady" && !monitoringSuccessful
-      ? "unknown" as HomePulseStatus
-      : monitoring?.house.pulseStatus ?? "unknown" as HomePulseStatus,
+    status,
     coverage: monitoring?.house.coverage ?? {
       enabledSensors: props.sensors.filter((sensor) => sensor.enabled).length,
       freshSensors: 0,
@@ -277,7 +286,7 @@ export function HomePulsePanel(props: HomePulsePanelProps) {
       sensorsWithoutData: props.sensors.filter((sensor) => sensor.enabled).length,
     },
     insights: monitoring?.insights ?? [],
-  }), [monitoring, monitoringSuccessful, props.sensors]);
+  }), [monitoring, status, props.sensors]);
   const [hiddenInsightFingerprints, setHiddenInsightFingerprints] = useState(() => readHiddenInsights(props.house.id));
   useEffect(() => subscribeToAccountStorageScope(() => {
     setHiddenInsightFingerprints(readHiddenInsights(props.house.id));
@@ -363,6 +372,9 @@ export function HomePulsePanel(props: HomePulsePanelProps) {
         const display = displayHomeInsight(insight, locale, t);
         return <li key={insight.id} className={insight.severity}><span>{t(`decision.severity.${insight.severity}`)}</span><strong>{display.title}</strong></li>;
       })}</ul> : pulse.insights.length === 0 ? monitoringSuccessful && pulse.status === "steady" ? <div className="pulse-calm"><CheckCircle2 size={18} aria-hidden="true" /><span><strong>{t("decision.pulseCalmTitle")}</strong></span></div> : <p className="home-pulse-explanation" data-pulse-empty-state={pulse.status} role="status"><PulseIcon status={pulse.status} /> <span>{t(`decision.pulse.${pulse.status}.body`)}</span></p> : null}
+      {learnedChangeCount > 0 && <p className="home-pulse-explanation"><a className="text-link"
+        href={`/properties/${encodeURIComponent(props.house.propertyId)}/homes/${encodeURIComponent(props.house.id)}/analytics?learning=1`}>
+        {t("adaptive.homeReview", { count: learnedChangeCount })}</a></p>}
       {showRemediation && props.onOpenSetup && <button type="button" className="secondary-button home-pulse-remediation" data-remediation={props.setupDestination ?? "sensors"} onClick={props.onOpenSetup}>{remediationLabel}<ArrowRight size={15} aria-hidden="true" /></button>}
       <details className="home-pulse-more">
         <summary><span>{t("home.moreInformation")}</span>{visibleInsights.length > 0 && <small>{visibleInsights.length}</small>}<ChevronDown size={15} aria-hidden="true" /></summary>
@@ -416,9 +428,18 @@ export function HomePulsePanelData(props: HomePulsePanelProps) {
     mode,
     props.dataMode !== "unknown",
   );
+  const adaptive = useAdaptiveMonitoringQuery({ houseId: props.house.id, dataMode: mode,
+    enabled: props.dataMode !== "unknown", findingId: null, includeHistory: false });
+  const learnedChangeCount = adaptive.data?.settings.mode === "advisory" && !adaptive.findings.isError
+    ? (adaptive.findings.data?.pages.flatMap(page => page.items) ?? [])
+      .filter(f => f.state === "presented" && f.freshness === "fresh").length : 0;
+  const learningIncomplete = adaptive.data?.settings.mode === "advisory"
+    && (adaptive.isError || adaptive.findings.isError || adaptive.data.state !== "ready");
   return <HomePulsePanel
     {...props}
     {...(monitoringQuery.data ? { monitoring: monitoringQuery.data } : {})}
+    learnedChangeCount={learnedChangeCount}
+    learningIncomplete={learningIncomplete}
     monitoringRequestState={props.dataMode === "unknown"
       ? "unknown"
       : monitoringQuery.isPending

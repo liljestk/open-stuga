@@ -12,12 +12,12 @@ export class ResponseShapeError extends Error {
   }
 }
 
-const isRecord = (value: unknown): value is Record<string, unknown> => (
+export const isRecord = (value: unknown): value is Record<string, unknown> => (
   typeof value === "object" && value !== null && !Array.isArray(value)
 );
-const isNumber = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
+export const isNumber = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
 const isNullableNumber = (value: unknown) => value === null || isNumber(value);
-const isString = (value: unknown): value is string => typeof value === "string";
+export const isString = (value: unknown): value is string => typeof value === "string";
 const oneOf = <T extends string>(value: unknown, options: readonly T[]): value is T => (
   typeof value === "string" && (options as readonly string[]).includes(value)
 );

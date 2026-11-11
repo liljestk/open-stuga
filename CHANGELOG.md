@@ -2,6 +2,17 @@
 
 All notable Stugu releases are recorded here.
 
+## 0.63.0
+
+Local learning can now collect Home-specific climate and thermometer-comparison evidence in an explicit shadow mode.
+
+- Data & analytics adds learning settings, coverage/readiness, reference thermometers, scoped finding history and reversible personal reviews. Qualified advisory findings share the same review surface on Home and Sensors.
+- Learning is off by default. Enable it per Home to record prospective hourly predictions; qualification needs at least 28 days in the current evidence epoch. Historical imports are not represented as earlier live forecasts.
+- Persistent departures hold their comparison baseline from the first breach. Sensor moves, source changes and explicit baseline resets start new epochs. Missing evidence never becomes recovery.
+- Optional work uses the existing analytics governor, bounded worker memory/time and durable job claims. Stale work is fenced across changes to settings, scope and data mode.
+- Advisory mode requires independently reviewed prospective evaluation and appliance resource evidence imported by a local operator. Synthetic evaluation reports cannot promote it. External learned notifications and actuator control remain deferred.
+- Upgrade impact: additive SQLite tables and five v2 API operations; new derived records are collected only after opt-in. Existing readings, threshold alerts and integration configuration retain their behaviour. No appliance installation or release publication is part of this change.
+
 ## 0.62.2
 
 Stepping away from the Stugu tab no longer throws away what you were typing.

@@ -1,3 +1,5 @@
+import { AdaptiveMonitoringService } from "../analytics/adaptive-monitoring/service.js";
+import { AdaptiveMonitoringWorker } from "../analytics/adaptive-monitoring/worker.js";
 import { timeseriesPoolConfig } from "../timeseries/pool-options.js";
 import { EnergyProjectionCache } from "../electricity/projection-cache.js";
 import { EnergySummaryCache } from "../electricity/summary-cache.js";
@@ -32,6 +34,7 @@ import {
   type TelemetryCascadeScope,
 } from "../db.js";
 import { HttpError } from "../http-error.js";
+import { reportBackgroundFailure } from "../system-error-log.js";
 import type { CoreDataServices } from "./core-data-services.js";
 /** Telemetry storage and readers, analytics workers, runtime status, energy caches, latest-value snapshot caches and the archive guards for destructive changes. */
 export function createTelemetryServices(context: CoreDataServices) {
@@ -101,6 +104,12 @@ export function createTelemetryServices(context: CoreDataServices) {
         ),
       },
     );
+  const adaptiveFailure = () => reportBackgroundFailure(context.systemErrorLog, { level: "warning", source: "adaptive-monitoring",
+    code: "ADAPTIVE_PROCESSING_FAILED", message: "Optional learning could not finish. Check learning status and retry after the next scheduled run." });
+  const adaptiveMonitoring = new AdaptiveMonitoringService({ database: context.database, telemetryReader, onError: adaptiveFailure,
+    canTrain: houseId => { try { context.stuguby.assertHouseWriteAllowed(houseId); return true; } catch { return false; } } });
+  const adaptiveMonitoringWorker = new AdaptiveMonitoringWorker({ service: adaptiveMonitoring, limiter: analyticsWorkLimiter,
+    bus: context.bus, admit: admitLowPriority, onError: adaptiveFailure });
   context.energyOptimizer.setTelemetryReader(telemetryReader);
   const dailyAnalyticsFindings = new DailyAnalyticsFindingsWorker({
       database: context.database,
@@ -138,7 +147,7 @@ export function createTelemetryServices(context: CoreDataServices) {
   const energySummaries = new EnergySummaryCache(context.database, energyCost, analyticsWorkLimiter);
   const energyProjections = new EnergyProjectionCache(context.database, telemetryReader, energySummaries, analyticsWorkLimiter);
   context.energyOptimizer.setSummaryCache(energySummaries);
-  const withTelemetry = Object.assign(context, { timeseries, heatPumpStates, connectedDevices, telemetryArchive, telemetryRetention, telemetryOrderedRollups, telemetryReader, analyticsWorkLimiter, admitLowPriority, derivedAnalytics, dailyAnalyticsFindings, scheduledDataExports, measurementSnapshotCache, readingSnapshotCache, status, setupDoctor, energyCost, energySummaries, energyProjections });
+  const withTelemetry = Object.assign(context, { timeseries, heatPumpStates, connectedDevices, telemetryArchive, telemetryRetention, telemetryOrderedRollups, telemetryReader, analyticsWorkLimiter, admitLowPriority, derivedAnalytics, adaptiveMonitoring, adaptiveMonitoringWorker, dailyAnalyticsFindings, scheduledDataExports, measurementSnapshotCache, readingSnapshotCache, status, setupDoctor, energyCost, energySummaries, energyProjections });
   const invalidateSnapshotCaches = (): void => {
       withTelemetry.measurementSnapshotCache.clear();
       withTelemetry.readingSnapshotCache.clear();

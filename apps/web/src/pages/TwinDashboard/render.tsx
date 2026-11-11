@@ -1,3 +1,4 @@
+import { AdaptiveMonitoringPanel } from "../../adaptive/AdaptiveMonitoringPanel";
 import { Suspense } from "react";
 import { Bolt, Box, Check, ChevronDown, DoorOpen, Edit3, Gauge, History, Home, Lightbulb, Map, MapPinPlus, Maximize2, Minimize2, Save, SlidersHorizontal, Snowflake, Sparkles, Thermometer, Wind } from "lucide-react";
 import { type ConfiguredOpeningState, type ManualObservation, type MockScenario, type ObservationConfidence, type ObservationSource, type ObservationTimePrecision, type Point } from "@climate-twin/contracts";
@@ -64,6 +65,7 @@ export function renderTwinDashboard(context: ReturnType<typeof useTwinDashboardP
               } : {})}
             />
           </div>
+          <AdaptiveMonitoringPanel key={house.id} state={state} house={house} dataMode={dataMode} units={units} readOnly={readOnly || !localAuthority} surface="home" />
           {hasUsableReadings && <section className="panel home-now" aria-label={t("twin.title")}>
             <span className={`home-now-icon measurement ${definition.colorScale}`}><MeasurementGlyph definition={definition} size={22} /></span>
             <div className="home-now-copy">

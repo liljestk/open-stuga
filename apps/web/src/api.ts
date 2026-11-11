@@ -1,3 +1,4 @@
+import { adaptiveMonitoringApi } from "./api/adaptive-monitoring";
 import { alertsApi } from "./api/alerts";
 import { assistantConnectorApi } from "./api/assistant-connector";
 import { analyticsApi } from "./api/analytics";
@@ -40,6 +41,7 @@ export const apiFamilies = {
   nexus433Api,
   bugReportApi,
   assistantConnectorApi,
+  adaptiveMonitoringApi,
 };
 
 export const api = {
@@ -61,4 +63,5 @@ export const api = {
   ...nexus433Api,
   ...bugReportApi,
   ...assistantConnectorApi,
+  ...adaptiveMonitoringApi,
 };

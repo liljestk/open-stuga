@@ -1,3 +1,4 @@
+import { AdaptiveMonitoringPanel } from "../adaptive/AdaptiveMonitoringPanel";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChartLine, ChevronDown, CloudSun, Database, DoorOpen, Download, Droplets, FileJson, FileSpreadsheet, Gauge, ShieldCheck, Table2, TriangleAlert } from "lucide-react";
 import type {
@@ -411,6 +412,8 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
         units={props.units}
         refreshRevision={refreshRevision}
       />
+
+      <AdaptiveMonitoringPanel key={props.house.id} state={props.state} house={props.house} dataMode={props.dataMode} units={props.units} readOnly={props.readOnly ?? false} />
 
       <DataExportPanel
         state={props.state}

@@ -21,10 +21,12 @@ const uiSources = import.meta.glob(
     "./App.tsx",
     "./components/*.tsx",
     "./pages/*.tsx",
+    "./adaptive/*.tsx",
     "!./components/*.test.tsx",
     "!./components/*TestSupport.tsx",
     "!./pages/*.test.tsx",
     "!./pages/*TestSupport.tsx",
+    "!./adaptive/*.test.tsx",
   ],
   { query: "?raw", import: "default", eager: true },
 ) as Record<string, string>;

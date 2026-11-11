@@ -38,7 +38,12 @@ export type HourlyLookup = (time: number) => number | null;
  * forecast uses every observation up to its own origin, so a model refitted
  * daily still starts each forecast from the current state.
  */
+export type ForecastParameters =
+  | { kind: "thermal-relaxation"; parameters: RelaxationParameters; persistence: number }
+  | { kind: "daily-profile"; alpha: number; beta: number; gamma: number; decay: number; shortBlend: number; longBlend: number };
+
 export interface Forecaster {
+  snapshot?: ForecastParameters;
   kind: ForecastModelKind;
   /** Values for origin + 1 h … origin + horizon h, starting from `originValue`. */
   forecast(origin: number, originValue: number, horizonHours: number): number[] | null;
@@ -123,6 +128,12 @@ export function fitThermalForecaster(
     denominator += residuals[index - 1]! * residuals[index - 1]!;
   }
   const persistence = denominator > 0 ? Math.max(0, Math.min(0.98, numerator / denominator)) : 0;
+  return restoreThermalForecaster(history, outdoor, { kind: "thermal-relaxation", parameters, persistence });
+}
+
+function restoreThermalForecaster(history: readonly HourlyValue[], outdoor: HourlyLookup,
+  snapshot: Extract<ForecastParameters, { kind: "thermal-relaxation" }>): Forecaster {
+  const { parameters, persistence } = snapshot;
   const observed = lookup(history);
   /** The model's last one-step error, measured on the hour ending at the origin. */
   const residualAt = (origin: number): number => {
@@ -141,7 +152,7 @@ export function fitThermalForecaster(
     return null;
   };
   return {
-    kind: "thermal-relaxation",
+    kind: "thermal-relaxation", snapshot,
     forecast(origin, originValue, horizonHours) {
       const values: number[] = [];
       const lastResidual = residualAt(origin);
@@ -291,10 +302,15 @@ export function fitProfileForecaster(history: readonly HourlyValue[], until: num
   if (!best) return null;
   // A state after hour t depends only on data up to t, so running the chosen
   // weights over all history lets each origin start from its own present.
-  const chosen = { ...best, states: holtWinters(history, best) };
+  const { alpha, beta, gamma, decay, shortBlend, longBlend } = best;
+  return restoreProfileForecaster(history, { kind: "daily-profile", alpha, beta, gamma, decay, shortBlend, longBlend });
+}
+
+function restoreProfileForecaster(history: readonly HourlyValue[], snapshot: Extract<ForecastParameters, { kind: "daily-profile" }>): Forecaster {
+  const chosen = { ...snapshot, states: holtWinters(history, snapshot) };
   const observed = lookup(history);
   return {
-    kind: "daily-profile",
+    kind: "daily-profile", snapshot,
     forecast(origin, originValue, horizonHours) {
       const state = chosen.states.get(hourStart(origin));
       if (!state) return null;
@@ -303,4 +319,10 @@ export function fitProfileForecaster(history: readonly HourlyValue[], until: num
       ));
     },
   };
+}
+
+/** Restore a daily fit against new observations without reselecting or refitting its parameters. */
+export function restoreForecaster(snapshot: ForecastParameters, history: readonly HourlyValue[], outdoor: HourlyLookup): Forecaster {
+  return snapshot.kind === "thermal-relaxation" ? restoreThermalForecaster(history, outdoor, snapshot)
+    : restoreProfileForecaster(history, snapshot);
 }

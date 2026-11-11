@@ -1,3 +1,4 @@
+import { AdaptiveMonitoringPanel } from "../adaptive/AdaptiveMonitoringPanel";
 import { Suspense, type ReactNode } from "react";
 import { hasLocalHouseAuthority } from "@climate-twin/contracts";
 import { AlertTriangle, LoaderCircle, RotateCcw, ShieldCheck, Wrench } from "lucide-react";
@@ -516,7 +517,7 @@ export function renderApp(context: ReturnType<typeof useAppPart03>) {
               : {})}
           />
         )}
-        {page === "sensors" && (
+        {page === "sensors" && (<>
           <SensorManagementPage
             state={state}
             house={house}
@@ -541,6 +542,8 @@ export function renderApp(context: ReturnType<typeof useAppPart03>) {
             onDeleteSensor={climate.deleteSensor}
             onImportHistoricalData={(samples, onProgress) => climate.importHistoricalMeasurements(house.id, samples, onProgress)}
           />
+          <AdaptiveMonitoringPanel key={house.id} state={state} house={house} dataMode={climate.dataMode} units={units} readOnly={readOnly || !houseLocalAuthority} surface="sensors" />
+          </>
         )}
         {page === "analytics" && (
           <DataAnalyticsPage

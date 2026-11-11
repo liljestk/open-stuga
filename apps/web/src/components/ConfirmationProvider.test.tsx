@@ -9,9 +9,11 @@ const productionUiSources = import.meta.glob(
   [
     "../components/**/*.tsx",
     "../pages/**/*.tsx",
+    "../adaptive/**/*.tsx",
     "!../components/**/*.test.tsx",
     "!../pages/**/*.test.tsx",
     "!../pages/**/*TestSupport.tsx",
+    "!../adaptive/**/*.test.tsx",
   ],
   { query: "?raw", import: "default", eager: true },
 ) as Record<string, string>;
@@ -58,7 +60,7 @@ describe("ConfirmationProvider", () => {
   it("routes every enumerated production confirmation through the shared dialog", () => {
     const source = Object.values(productionUiSources).join("\n");
     expect(source).not.toContain("window.confirm(");
-    expect(source.match(/confirmAction\(/g)).toHaveLength(44);
+    expect(source.match(/confirmAction\(/g)).toHaveLength(45);
   });
 
   it("fails closed without a mounted provider", async () => {

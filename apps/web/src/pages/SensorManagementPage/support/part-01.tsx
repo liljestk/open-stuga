@@ -156,17 +156,7 @@ export function sensorMeasurementEntityIds(sensor: Sensor): Record<string, strin
   };
 }
 
-export function sensorHasMetric(state: ClimateState, sensor: Sensor, metric: Metric): boolean {
-  return Boolean(
-    state.latestMeasurements[sensor.id]?.[metric]
-    || state.measurementHistory[sensor.id]?.[metric]?.length
-    || state.measurementForecasts[sensor.id]?.[metric]?.length
-    || sensor.recordedMeasurementIds?.includes(metric)
-    || sensor.measurementEntityIds?.[metric]
-    || (metric === "temperature" && sensor.temperatureEntityId)
-    || (metric === "humidity" && sensor.humidityEntityId),
-  );
-}
+export { sensorHasMetric } from "../../../measurements";
 
 export function mergeMetricSamples(...sampleGroups: MeasurementSample[][]): MeasurementSample[] {
   const byTimestamp = new Map<string, MeasurementSample>();
