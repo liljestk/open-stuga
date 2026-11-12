@@ -3,3 +3,4 @@ export * from "./calendar.js";
 export * from "./counters.js";
 export * from "./energy.js";
 export * from "./statistics.js";
+export * from "./distribution.js";

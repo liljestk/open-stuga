@@ -1,6 +1,6 @@
 {
   "name": "climate-twin",
-  "version": "0.62.2",
+  "version": "0.63.0",
   "private": true,
   "license": "MIT",
   "description": "A local-first digital twin for extensible whole-home environmental telemetry.",
@@ -70,6 +70,7 @@
     "mcp": "npm run build:packages && npm run mcp --workspace @climate-twin/api",
     "mcp:chatgpt": "npm run build:packages && npm run mcp:chatgpt --workspace @climate-twin/api",
     "tracking:simulate": "tsx apps/api/src/tracking/simulator.ts",
+    "evaluate:adaptive": "tsx scripts/evaluate-adaptive-monitoring.ts",
     "benchmark:home-performance": "node scripts/benchmark-home-performance.mjs"
   },
   "engines": {

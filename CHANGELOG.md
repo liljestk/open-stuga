@@ -2,6 +2,12 @@
 
 All notable Stugu releases are recorded here.
 
+## 0.63.0
+
+- Analytics API clients can request a distribution of the selected raw readings or displayed bucket values, with explicit weighting, missing-value counts, quartiles and bounded histogram bins. Existing requests and summaries keep their current behavior.
+- Adds an offline, synthetic baseline evaluator for planned adaptive Home monitoring. It checks evidence eligibility, chronological readiness, causal calibration, sustained departures and recovery. It cannot enable learned suggestions or qualify a Home for advisory use.
+- Upgrade impact: additive opt-in analytics response fields and development tooling. No database migration, new background job, UI, configuration, Compose or host-trust change. Adaptive monitoring persistence, learned models, pilot and review UI are not enabled by this foundation.
+
 ## 0.62.2
 
 Stepping away from the Stugu tab no longer throws away what you were typing.
