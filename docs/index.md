@@ -154,3 +154,11 @@ its status and date; the guides above describe current behaviour.
   shows the direct hub-child-to-sensor mapping format.
 - [`docker-compose.yml`](../docker-compose.yml) and [`Dockerfile`](../Dockerfile)
   define the web, API, TimescaleDB, backup and optional profile services.
+
+## Planned implementation work
+
+- [Analytics and adaptive monitoring delivery ledger](analytics-completeness-plan.md):
+  implemented foundations and outstanding staged work.
+- [Adaptive Home monitoring specification](adaptive-monitoring-spec.md) and
+  [implementation plan](adaptive-monitoring-plan.md): evidence gates, lifecycle,
+  privacy and the shadow-to-advisory rollout.

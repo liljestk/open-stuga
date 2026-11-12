@@ -11,9 +11,14 @@ system described in the roadmap.
   deterministic descriptive summaries, explicit evidence-query controls,
   rolling ranges through one year, and calendar day/week/month/year/decade
   comparisons over available history. It also has daily practical-effect
-  peer-period findings. Saved views, brush selection, distributions,
-  scientific derived metrics, statistical anomaly models, topology models,
-  validated forecasts, and predictive-maintenance signals remain deferred.
+  peer-period findings. The API can return explicitly requested, equally weighted
+  distributions of raw observations or display buckets; the distributions UI,
+  saved views and brush selection remain deferred. Additional scientific derived
+  metrics, qualified anomaly/topology models and predictive-maintenance signals
+  remain deferred. Backtested forecasts already exist with the limitations
+  described below. Adaptive monitoring currently has only offline evidence and
+  fixed-baseline evaluation foundations, not production learned suggestions.
+  Track remaining work in the [delivery ledger](analytics-completeness-plan.md).
 - Daily findings compare the completed month-to-date span with at most five
   matching prior years and retain only the latest snapshot per Home. A finding
   must pass a practical threshold and a false-discovery-controlled test against
