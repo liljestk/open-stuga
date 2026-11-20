@@ -1,18 +1,25 @@
-import type { DailyAnalyticsFindingsSnapshot } from "@climate-twin/contracts";
+import type { DailyAnalyticsFindingsSnapshot, DataMode } from "@climate-twin/contracts";
 import { StoredDailyAnalyticsFindings } from "../support/record-types.js";
 import { registerDatabaseMethods } from "../core.js";
+
+interface DailyFindingsFailure {
+  houseId: string;
+  dataMode: DataMode;
+  attemptedAt: string;
+  error: string;
+}
 
 declare module "../core.js" {
   interface DatabaseInternals {
     dailyAnalyticsFindings(houseId: string, dataMode: "live" | "demo"): StoredDailyAnalyticsFindings | null;
-    saveDailyAnalyticsFindings(snapshot: DailyAnalyticsFindingsSnapshot): void;
-    recordDailyAnalyticsFindingsFailure(houseId: string, dataMode: "live" | "demo", attemptedAt: string, error: string): void;
+    saveDailyAnalyticsFindings(snapshot: DailyAnalyticsFindingsSnapshot): boolean;
+    recordDailyAnalyticsFindingsFailure(failure: DailyFindingsFailure): void;
   }
 
   interface ClimateDatabaseCore {
     dailyAnalyticsFindings(houseId: string, dataMode: "live" | "demo"): StoredDailyAnalyticsFindings | null;
-    saveDailyAnalyticsFindings(snapshot: DailyAnalyticsFindingsSnapshot): void;
-    recordDailyAnalyticsFindingsFailure(houseId: string, dataMode: "live" | "demo", attemptedAt: string, error: string): void;
+    saveDailyAnalyticsFindings(snapshot: DailyAnalyticsFindingsSnapshot): boolean;
+    recordDailyAnalyticsFindingsFailure(failure: DailyFindingsFailure): void;
   }
 }
 
@@ -33,7 +40,9 @@ registerDatabaseMethods({
       }
       return { snapshot, lastAttemptAt: row.last_attempt_at, lastError: row.last_error };
     },
-  saveDailyAnalyticsFindings(snapshot: DailyAnalyticsFindingsSnapshot): void {
+  saveDailyAnalyticsFindings(snapshot: DailyAnalyticsFindingsSnapshot): boolean {
+    return this.immediateTransaction(() => {
+      if ((snapshot.dataMode === "live") !== this.isRealDataMode()) return false;
       if (!this.getHouse(snapshot.houseId)) throw new Error(`House ${snapshot.houseId} does not exist`);
       const snapshotJson = JSON.stringify(snapshot);
       if (Buffer.byteLength(snapshotJson, "utf8") > 1_000_000) throw new Error("Daily analytics snapshot exceeds 1 MB");
@@ -50,14 +59,12 @@ registerDatabaseMethods({
           last_error = NULL`)
         .run(snapshot.houseId, snapshot.dataMode, snapshot.evaluatedThrough, snapshot.generatedAt,
           snapshot.algorithmVersion, snapshotJson, snapshot.generatedAt);
-    },
-  recordDailyAnalyticsFindingsFailure(
-      houseId: string,
-      dataMode: "live" | "demo",
-      attemptedAt: string,
-      error: string,
-    ): void {
-      if (!this.getHouse(houseId)) return;
+      return true;
+    });
+  },
+  recordDailyAnalyticsFindingsFailure({ houseId, dataMode, attemptedAt, error }: DailyFindingsFailure): void {
+    this.immediateTransaction(() => {
+      if ((dataMode === "live") !== this.isRealDataMode() || !this.getHouse(houseId)) return;
       const detail = error.trim().slice(0, 1_000) || "Daily analytics run failed";
       this.db.prepare(`INSERT INTO analytics_daily_findings
           (house_id, data_mode, evaluated_through, generated_at, algorithm_version, snapshot_json, last_attempt_at, last_error)
@@ -75,5 +82,6 @@ registerDatabaseMethods({
           last_attempt_at = excluded.last_attempt_at,
           last_error = excluded.last_error`)
         .run(houseId, dataMode, attemptedAt, detail);
-    },
+    });
+  },
 });

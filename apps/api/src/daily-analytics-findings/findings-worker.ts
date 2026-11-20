@@ -143,16 +143,19 @@ export class DailyAnalyticsFindingsWorker {
         }
         try {
           const snapshot = await this.#generateHouse(house, dataMode, periods);
-          this.#database.saveDailyAnalyticsFindings(snapshot);
+          if (!this.#database.saveDailyAnalyticsFindings(snapshot)) {
+            summary.skipped += 1;
+            return;
+          }
           summary.generated += 1;
           summary.findings += snapshot.findings.length;
         } catch (error) {
           const detail = errorMessage(error);
           summary.failed += 1;
           summary.lastError = detail;
-          if (this.#database.getHouse(house.id)) {
-            this.#database.recordDailyAnalyticsFindingsFailure(house.id, dataMode, new Date(this.#now()).toISOString(), detail);
-          }
+          this.#database.recordDailyAnalyticsFindingsFailure({
+            houseId: house.id, dataMode, attemptedAt: new Date(this.#now()).toISOString(), error: detail,
+          });
         }
       });
     } catch (error) {

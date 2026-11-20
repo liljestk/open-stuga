@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import request from "supertest";
 import type { AppConfig } from "../src/config.js";
 import { createApi, type ApiRuntime } from "../src/app.js";
@@ -15,6 +15,31 @@ const config: AppConfig = {
   corsOrigin: null,
   localAuthTestBypass: true,
 };
+
+it.each(["success", "failure"])("discards a demo run that reaches %s after live activation", async (outcome) => {
+  const runtime = createApi({ config, startBackground: false, dailyAnalyticsNow: () => NOW });
+  try {
+    const house = runtime.database.listHouses()[0]!;
+    expect(runtime.database.isRealDataMode()).toBe(false);
+    const coverage = runtime.telemetryReader.measurementCoverage.bind(runtime.telemetryReader);
+    vi.spyOn(runtime.telemetryReader, "measurementCoverage").mockImplementationOnce(async (query) => {
+      runtime.database.activateRealDataMode();
+      if (outcome === "failure") throw new Error("Telemetry unavailable");
+      return coverage(query);
+    });
+
+    const run = await runtime.dailyAnalyticsFindings.runOnce();
+    expect(runtime.database.isRealDataMode()).toBe(true);
+    expect(run.generated).toBe(0);
+    expect(runtime.database.dailyAnalyticsFindings(house.id, "demo")).toBeNull();
+    expect(runtime.database.dailyAnalyticsFindings(house.id, "live")).toBeNull();
+
+    expect((await runtime.dailyAnalyticsFindings.runOnce()).generated).toBe(1);
+    expect(runtime.database.dailyAnalyticsFindings(house.id, "live")?.snapshot?.dataMode).toBe("live");
+  } finally {
+    await runtime.close();
+  }
+});
 
 describe("daily analytics findings", () => {
   let runtime: ApiRuntime;

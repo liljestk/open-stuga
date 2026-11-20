@@ -49,6 +49,10 @@ Review and verification evidence is tracked in the draft pull request.
 
 ## Milestone 3 — data isolation and invalidation
 
+Daily findings now check the active data mode when persisting both a result
+and an error. Work that started in demo mode cannot recreate a snapshot or
+failure record after the live-mode latch purges that data.
+
 Still to implement:
 
 - Inventory every SQLite/Timescale raw, current, outbox, aggregate, export and
