@@ -105,6 +105,7 @@ export function createTelemetryServices(context: CoreDataServices) {
   const dailyAnalyticsFindings = new DailyAnalyticsFindingsWorker({
       database: context.database,
       telemetryReader,
+      reconcileArchive: async () => { await telemetryArchive?.reconcileNow(); },
       ...(context.options.dailyAnalyticsNow ? { now: context.options.dailyAnalyticsNow } : {}),
     });
   const scheduledDataExports = new ScheduledDataExportService({

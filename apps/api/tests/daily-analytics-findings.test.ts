@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import request from "supertest";
 import type { AppConfig } from "../src/config.js";
 import { createApi, type ApiRuntime } from "../src/app.js";
-import { dailyFindingPeriods } from "../src/daily-analytics-findings.js";
+import { DailyAnalyticsFindingsWorker, dailyFindingPeriods } from "../src/daily-analytics-findings.js";
 import { outdoorLocationKey } from "../src/db.js";
 
 const NOW = Date.parse("2026-07-22T12:00:00.000Z");
@@ -131,6 +131,95 @@ describe("daily analytics findings", () => {
   });
 
   afterEach(async () => { await runtime.close(); });
+
+  function measurement(timestamp: string, sensorId = "finding-sensor") {
+    return {
+      sensorId, metric: "temperature", canonicalUnit: "°C", value: 22,
+      timestamp, quality: "good" as const, source: "api" as const,
+    };
+  }
+
+  it("refreshes only the affected Home when evidence lands in a current or peer window", async () => {
+    const worker = runtime.dailyAnalyticsFindings;
+    expect((await worker.runOnce()).generated).toBe(2);
+    const unrelatedSensor = runtime.database.listSensors("house-main")[0]!;
+    // A sparse batch straddles a peer window without adding evidence inside it.
+    runtime.database.insertMeasurementSamples([
+      measurement("2025-06-30T23:59:59.999Z"),
+      measurement("2025-07-22T00:00:00.000Z"),
+    ]);
+    expect((await worker.runOnce()).skipped).toBe(2);
+
+    for (const timestamp of ["2025-07-08T10:00:00.000Z", "2026-07-08T10:00:00.000Z"]) {
+      const coverage = vi.spyOn(runtime.telemetryReader, "measurementCoverage");
+      runtime.database.insertMeasurementSamples([measurement(timestamp)]);
+      expect(await worker.runOnce()).toMatchObject({ generated: 1, skipped: 1, failed: 0 });
+      expect(coverage).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+        sensorIds: ["finding-sensor"],
+      }));
+      coverage.mockRestore();
+      expect((await worker.runOnce()).skipped).toBe(2);
+    }
+
+    runtime.database.insertMeasurementSamples([measurement("2026-07-09T09:00:00.000Z", unrelatedSensor.id)]);
+    expect(await worker.runOnce()).toMatchObject({ generated: 1, skipped: 1, failed: 0 });
+  });
+
+  it("refreshes for a weather correction at the selected location and a late leading opening state", async () => {
+    const worker = runtime.dailyAnalyticsFindings;
+    expect((await worker.runOnce()).generated).toBe(2);
+    const timestamp = "2025-07-01T12:00:00.000Z";
+    const weather = {
+      houseId: "finding-house", locationKey: outdoorLocationKey({ latitude: 60.1699, longitude: 24.9384 }),
+      timestamp, source: "api", temperatureC: 17, fetchedAt: timestamp, stationId: "test", stationName: "Test station",
+    };
+    runtime.database.upsertOutdoorTemperatureSample(weather);
+    runtime.database.upsertOutdoorTemperatureSample({ ...weather, locationKey: "previous-location", temperatureC: 28 });
+    expect((await worker.runOnce()).skipped).toBe(2);
+
+    runtime.database.upsertOutdoorTemperatureSample({ ...weather, temperatureC: 28 });
+    expect(await worker.runOnce()).toMatchObject({ generated: 1, skipped: 1 });
+
+    const opening = {
+      floorId: "main", elementId: "front-door", state: "open" as const, source: "api" as const,
+      observedAt: "2025-06-30T22:00:00.000Z",
+    };
+    runtime.database.recordOpeningStateObservation("finding-house", { ...opening, validUntil: "2025-07-01T00:00:00.000Z" });
+    expect((await worker.runOnce()).skipped).toBe(2);
+    runtime.database.recordOpeningStateObservation("finding-house", { ...opening, validUntil: "2025-07-01T00:05:00.000Z" });
+    expect(await worker.runOnce()).toMatchObject({ generated: 1, skipped: 1 });
+  });
+
+  it("discards a calculation if its registered evidence changes while reads are in flight", async () => {
+    const worker = runtime.dailyAnalyticsFindings;
+    const coverage = runtime.telemetryReader.measurementCoverage.bind(runtime.telemetryReader);
+    const hook = vi.spyOn(runtime.telemetryReader, "measurementCoverage").mockImplementation(async (query) => {
+      if (query.sensorIds.includes("finding-sensor")) {
+        runtime.database.insertMeasurementSamples([measurement("2025-07-07T10:00:00.000Z")]);
+      }
+      return coverage(query);
+    });
+    expect(await worker.runOnce()).toMatchObject({ generated: 1, skipped: 1, failed: 0 });
+    expect(runtime.database.dailyAnalyticsFindings("finding-house", "live")).toBeNull();
+    hook.mockRestore();
+    expect(await worker.runOnce()).toMatchObject({ generated: 1, skipped: 1, failed: 0 });
+    expect(runtime.database.dailyAnalyticsFindings("finding-house", "live")?.snapshot?.evaluatedThrough).toBe("2026-07-21");
+  });
+
+  it("reconciles archive history before refreshing a dirty snapshot after worker restart", async () => {
+    expect((await runtime.dailyAnalyticsFindings.runOnce()).generated).toBe(2);
+    runtime.database.insertMeasurementSamples([measurement("2025-07-07T10:00:00.000Z")]);
+    const reconcileArchive = vi.fn(async () => undefined);
+    const coverage = vi.spyOn(runtime.telemetryReader, "measurementCoverage");
+    const worker = new DailyAnalyticsFindingsWorker({
+      database: runtime.database, telemetryReader: runtime.telemetryReader, reconcileArchive, now: () => NOW,
+    });
+    expect(await worker.runOnce()).toMatchObject({ generated: 1, skipped: 1, failed: 0 });
+    expect(reconcileArchive).toHaveBeenCalledExactlyOnceWith();
+    expect(reconcileArchive.mock.invocationCallOrder[0]).toBeLessThan(coverage.mock.invocationCallOrder[0]!);
+    expect((await worker.runOnce()).skipped).toBe(2);
+    expect(reconcileArchive).toHaveBeenCalledTimes(1);
+  });
 
   it("uses equal month-to-date windows across DST-aware local calendars", () => {
     const periods = dailyFindingPeriods(NOW, "Europe/Helsinki");

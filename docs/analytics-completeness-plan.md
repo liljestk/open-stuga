@@ -53,6 +53,13 @@ Daily findings now check the active data mode when persisting both a result
 and an error. Work that started in demo mode cannot recreate a snapshot or
 failure record after the live-mode latch purges that data.
 
+Daily findings also track the current and peer windows for each Home in SQLite.
+Overlapping measurement inserts, weather changes at the selected location,
+and opening observations that affect those windows invalidate the snapshot.
+The worker reconciles pending archive writes before calculation and discards
+results if the tracked evidence changes during its reads. Existing snapshots
+receive a fresh evaluation on the next worker run after upgrade.
+
 Still to implement:
 
 - Inventory every SQLite/Timescale raw, current, outbox, aggregate, export and
@@ -64,11 +71,9 @@ Still to implement:
   observations cannot contribute to live summaries, model calibration, exports
   or recovery imports, including an in-flight mode transition. Preserve real
   history and immutable ownership. Unknown legacy lineage must fail closed.
-- Audit late-data dependencies beyond the three durable analytics artifact
-  kinds. Existing generic query caches already include telemetry-history
-  revisions; do not replace that with a duplicate invalidation mechanism.
-  Add invalidation only for uncovered inputs and jobs; prove changed historical
-  evidence refreshes the affected result without refreshing unrelated windows.
+- Audit additional late-data dependencies, including archive-only restores.
+  Generic query caches already use telemetry-history revisions. Verify archive
+  recovery and late-data processing on a representative installation.
 - Record migration size/runtime, archive preparation behavior, backup/restore,
   cancellation and ingestion/foreground impact on a representative Pi.
 

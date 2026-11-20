@@ -9,16 +9,30 @@ interface DailyFindingsFailure {
   error: string;
 }
 
+interface DailyFindingsEvidenceScope {
+  houseId: string;
+  dataMode: DataMode;
+  locationKey: string | null;
+  windows: readonly { start: string; end: string }[];
+}
+
+interface DailyFindingsEvidence {
+  revision: number;
+  current: boolean;
+}
+
 declare module "../core.js" {
   interface DatabaseInternals {
     dailyAnalyticsFindings(houseId: string, dataMode: "live" | "demo"): StoredDailyAnalyticsFindings | null;
-    saveDailyAnalyticsFindings(snapshot: DailyAnalyticsFindingsSnapshot): boolean;
+    watchDailyFindingsEvidence(scope: DailyFindingsEvidenceScope): DailyFindingsEvidence;
+    saveDailyAnalyticsFindings(snapshot: DailyAnalyticsFindingsSnapshot, evidenceRevision: number): boolean;
     recordDailyAnalyticsFindingsFailure(failure: DailyFindingsFailure): void;
   }
 
   interface ClimateDatabaseCore {
     dailyAnalyticsFindings(houseId: string, dataMode: "live" | "demo"): StoredDailyAnalyticsFindings | null;
-    saveDailyAnalyticsFindings(snapshot: DailyAnalyticsFindingsSnapshot): boolean;
+    watchDailyFindingsEvidence(scope: DailyFindingsEvidenceScope): DailyFindingsEvidence;
+    saveDailyAnalyticsFindings(snapshot: DailyAnalyticsFindingsSnapshot, evidenceRevision: number): boolean;
     recordDailyAnalyticsFindingsFailure(failure: DailyFindingsFailure): void;
   }
 }
@@ -40,10 +54,34 @@ registerDatabaseMethods({
       }
       return { snapshot, lastAttemptAt: row.last_attempt_at, lastError: row.last_error };
     },
-  saveDailyAnalyticsFindings(snapshot: DailyAnalyticsFindingsSnapshot): boolean {
+  watchDailyFindingsEvidence({ houseId, dataMode, locationKey, windows }: DailyFindingsEvidenceScope): DailyFindingsEvidence {
+    return this.immediateTransaction(() => {
+      const windowsJson = JSON.stringify(windows.map(({ start, end }) => ({ start, end })));
+      this.db.prepare(`INSERT INTO daily_findings_evidence (house_id, data_mode, location_key, windows_json)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(house_id) DO UPDATE SET data_mode = excluded.data_mode,
+          location_key = excluded.location_key, windows_json = excluded.windows_json,
+          revision = daily_findings_evidence.revision + 1
+        WHERE daily_findings_evidence.windows_json <> excluded.windows_json
+          OR daily_findings_evidence.location_key IS NOT excluded.location_key
+          OR daily_findings_evidence.data_mode <> excluded.data_mode`).run(houseId, dataMode, locationKey, windowsJson);
+      // Once a worker has read this revision, the next overlapping change must
+      // advance it, even while the worker is still reading evidence.
+      this.db.prepare(`UPDATE daily_findings_evidence SET observed_revision = revision
+        WHERE house_id = ? AND observed_revision <> revision`).run(houseId);
+      const row = this.db.prepare(`SELECT revision, published_revision FROM daily_findings_evidence
+        WHERE house_id = ?`).get(houseId) as { revision: number; published_revision: number | null };
+      return { revision: row.revision, current: row.published_revision === row.revision };
+    });
+  },
+  saveDailyAnalyticsFindings(snapshot: DailyAnalyticsFindingsSnapshot, evidenceRevision: number): boolean {
     return this.immediateTransaction(() => {
       if ((snapshot.dataMode === "live") !== this.isRealDataMode()) return false;
-      if (!this.getHouse(snapshot.houseId)) throw new Error(`House ${snapshot.houseId} does not exist`);
+      if (!this.getHouse(snapshot.houseId)) return false;
+      const evidence = this.db.prepare(`UPDATE daily_findings_evidence SET published_revision = revision
+        WHERE house_id = ? AND data_mode = ? AND revision = ?`)
+        .run(snapshot.houseId, snapshot.dataMode, evidenceRevision);
+      if (Number(evidence.changes) === 0) return false;
       const snapshotJson = JSON.stringify(snapshot);
       if (Buffer.byteLength(snapshotJson, "utf8") > 1_000_000) throw new Error("Daily analytics snapshot exceeds 1 MB");
       this.db.prepare(`INSERT INTO analytics_daily_findings
