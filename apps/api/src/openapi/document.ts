@@ -1,3 +1,4 @@
+import { analyticsViewPaths } from "./analytics-view-paths.js";
 import { pathsPart01 } from "./paths-01.js";
 import { pathsPart02 } from "./paths-02.js";
 import { pathsPart03 } from "./paths-03.js";
@@ -44,6 +45,7 @@ export const combinedOpenApiDocument = {
     ...pathsPart04,
     ...deviceIntegrationPaths,
     ...homeAnalyticsPaths,
+    ...analyticsViewPaths,
     ...nexus433Paths,
     ...bugReportPaths,
     ...electricityTariffPaths,

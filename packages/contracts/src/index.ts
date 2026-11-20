@@ -57,3 +57,7 @@ export type { AssistantAuthorizationDecision, AssistantAuthorizationInput, Assis
 export type { StugubyAuthorityTransfer, StugubyHomeProjection, StugubyPropertyAdoption } from "./stuguby-local.js";
 export { ADAPTIVE_MONITORING_VERSION, ADAPTIVE_METRICS, ADAPTIVE_MATERIALITY } from "./adaptive-monitoring.js";
 export type { AdaptiveMetric, AdaptiveHourlyEvidence, AdaptiveAbstentionReason, AdaptiveResidualCalibration, AdaptiveReplayPoint, AdaptiveReplayResult } from "./adaptive-monitoring.js";
+
+export { ANALYTICS_RELATIVE_RANGES, isAnalyticsResolution, isAnalyticsViewDefinition, isAnalyticsViewRange, isSavedAnalyticsView } from "./analytics-views.js";
+export type { AnalyticsRelativeRange, AnalyticsViewRange, AnalyticsViewDefinition, SavedAnalyticsView } from "./analytics-views.js";
+export { isAnalyticsDistribution } from "./analytics-distribution.js";

@@ -1,3 +1,4 @@
+import { svAnalyticsViews } from "./sv/analytics-views";
 import { svPart1 } from "./sv/01-stuguby-analytics";
 import { svPart2 } from "./sv/02-analytics-decision";
 import { svPart3 } from "./sv/03-decision-simulation";
@@ -15,6 +16,7 @@ import { svAssistantConnector } from "./sv/assistant-connector";
 import type { TranslationKey } from "./en";
 
 export const svOverrides = {
+  ...svAnalyticsViews,
   ...svPart1,
   ...svPart2,
   ...svPart3,

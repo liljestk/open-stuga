@@ -34,23 +34,18 @@ endpoint, UI, or live pilot is enabled by this milestone.
 
 ## Milestone 2 — saved views, range selection and distributions UI
 
-Still to implement:
+Implemented in the 0.63.0 draft:
 
-- Home-owned saved query definitions, private to a durable signed-in principal;
-  preserve mode, metric, sensor selection, resolution, aggregation, quality and
-  relative/absolute range. Store definitions, not cached measurements. Recheck
-  Home/sensor visibility whenever a view is loaded or executed. Reject stale
-  revisions and cross-scope references. Account removal and Home retirement
-  must have explicit behavior. Do not silently reuse another person's browser state.
-- Pointer brush selection plus equivalent labelled start/end controls. A
-  committed selection becomes the canonical half-open query range in the URL;
-  refresh, Back/Forward, copied links and exports preserve it. Cancel retains
-  the prior range, and Home/mode changes cannot carry incompatible selections.
-- Distribution chart and accessible table using the server's declared basis,
-  units and bin boundaries, with explicit absence/partial-history states.
-  Histogram data must pass validation at the web request boundary.
-- Complete EN/FI/SV copy, role/mode tests and blocking visual acceptance for the
-  actual workflows and representative states under `DESIGN.md`.
+- Private saved definitions scoped to the signed-in account, Home and data mode.
+  List and write operations recheck visibility, revision conflicts prevent stale
+  changes, and removal of workspace membership deletes that account's views.
+- Pointer drag and labelled UTC fields select a half-open interval. The URL,
+  analytics query and evidence exports preserve its bounds.
+- Distribution charts and bin tables label raw readings and bucket values
+  separately. The web client validates distributions before rendering them.
+- English, Finnish and Swedish labels and recovery messages are included.
+
+Review and verification evidence is tracked in the draft pull request.
 
 ## Milestone 3 — data isolation and invalidation
 
@@ -99,4 +94,4 @@ maintenance retain their later, separately specified evidence gates.
 This ledger must distinguish source implementation, automated verification,
 visual acceptance, prospective model evidence and deployed verification. Record
 the exact verification receipt in the handoff; no UI acceptance or appliance
-pass can be inferred from backend tests. Milestones 2–5 remain incomplete.
+pass can be inferred from backend tests. Milestones 3–5 remain incomplete.

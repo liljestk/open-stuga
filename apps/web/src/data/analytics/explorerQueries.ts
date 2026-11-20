@@ -35,17 +35,18 @@ export interface ExplorerContext {
 export function useExplorerContextQuery(input: {
   houseId: string;
   rangeHours: number;
+  absoluteRange?: { start: string; end: string } | undefined;
   range: string;
   enabled: boolean;
   refreshRevision: number;
 }) {
-  const queryKey = queryKeys.analyticsExplorerContext(input.houseId, input.range);
+  const queryKey = queryKeys.analyticsExplorerContext(input.houseId, `${input.range}:${input.absoluteRange?.start ?? ""}:${input.absoluteRange?.end ?? ""}`);
   const query = useQuery({
     queryKey,
     queryFn: async ({ signal }): Promise<ExplorerContext> => {
       const previous = queryClient.getQueryData<ExplorerContext>(queryKey);
-      const to = new Date();
-      const from = new Date(to.getTime() - input.rangeHours * 3_600_000);
+      const to = input.absoluteRange ? new Date(input.absoluteRange.end) : new Date();
+      const from = input.absoluteRange ? new Date(input.absoluteRange.start) : new Date(to.getTime() - input.rangeHours * 3_600_000);
       const [outdoor, gaps, prices] = await Promise.allSettled([
         api.outdoorTemperatureHistory(input.houseId, { from: from.toISOString(), to: to.toISOString(), limit: 100_000, signal }),
         api.sensorDataGaps(input.houseId, 500, signal),

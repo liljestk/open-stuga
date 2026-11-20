@@ -1,3 +1,4 @@
+import { registerSavedAnalyticsViewRoutes } from "./saved-views/routes.js";
 import { withResponseSignal } from "../app/response-signal.js";
 import type express from "express";
 import type {
@@ -218,6 +219,7 @@ function calendarComparisonRequest(value: unknown): CalendarComparisonRequest {
 
 export function registerAnalyticsRoutes(context: AnalyticsRouteContext): () => void {
   const removeHomeMonitoringRoutes = registerHomeMonitoringRoutes(context);
+  registerSavedAnalyticsViewRoutes(context);
   const removeAnalyticsQueryRoutes = registerAnalyticsQueryRoutes(context);
   registerAnalyticsDiagnosticsRoutes(context);
   registerForecastRoutes(context);

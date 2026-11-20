@@ -36,7 +36,8 @@ export function routeAccessPolicy(prefix: string, v2Prefix: string): RouteAccess
     // Authentication, machine ingestion and observer evidence carry their own
     // signals; bug reports, analytics reads and the demo engines change no
     // workspace state.
-    quietMutation: (request) => request.path.startsWith(`${prefix}/auth/`)
+    quietMutation: (request) => request.path.startsWith(`${v2Prefix}/analytics/views`)
+      || request.path.startsWith(`${prefix}/auth/`)
       || ingestPaths.has(request.path)
       || analyticsReads.has(request.path)
       || request.path === `${prefix}/tracking/evidence:batch`

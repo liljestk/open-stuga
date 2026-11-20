@@ -12,8 +12,8 @@ system described in the roadmap.
   rolling ranges through one year, and calendar day/week/month/year/decade
   comparisons over available history. It also has daily practical-effect
   peer-period findings. The API can return explicitly requested, equally weighted
-  distributions of raw observations or display buckets; the distributions UI,
-  saved views and brush selection remain deferred. Additional scientific derived
+  distributions of raw observations or display buckets. The Home explorer
+  supports private saved views, selected intervals and distribution tables. Additional scientific derived
   metrics, qualified anomaly/topology models and predictive-maintenance signals
   remain deferred. Backtested forecasts already exist with the limitations
   described below. Adaptive monitoring currently has only offline evidence and

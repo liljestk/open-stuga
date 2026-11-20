@@ -1,3 +1,4 @@
+import { ANALYTICS_VIEWS_SCHEMA_SQL } from "./analytics-views-schema.js";
 import { CORE_SCHEMA_01 } from "./core-schema-01.js";
 import { CORE_SCHEMA_02 } from "./core-schema-02.js";
 import { DEMO_DATA_GUARD_SCHEMA_SQL } from "./demo-data-guard-schema.js";
@@ -31,4 +32,5 @@ export const CORE_SCHEMA_SQL = [
   WEATHER_SNAPSHOT_SCHEMA_SQL,
   DERIVED_ANALYTICS_SCHEMA_SQL,
   ASSISTANT_CONNECTOR_SCHEMA_SQL,
+  ANALYTICS_VIEWS_SCHEMA_SQL,
 ].join("");

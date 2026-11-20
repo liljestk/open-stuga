@@ -150,7 +150,7 @@
     "apps/web/src/pages/AutomationSetupPanel.tsx": [20],
     "apps/web/src/pages/BugReportRelayPanel.tsx": [26],
     "apps/web/src/pages/CloudflareSetupPanel.tsx": [19],
-    "apps/web/src/pages/DataAnalyticsPage.tsx": [34],
+    "apps/web/src/pages/DataAnalyticsPage.tsx": [33],
     "apps/web/src/pages/DataAnalyticsPage/HomePerformancePanel.tsx": [36],
     "apps/web/src/pages/DataAnalyticsPage/OpeningAnalyticsPanel.tsx": [28],
     "apps/web/src/pages/ElectricityHistory.tsx": [59],

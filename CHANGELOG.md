@@ -6,7 +6,8 @@ All notable Stugu releases are recorded here.
 
 - Analytics API clients can request a distribution of the selected raw readings or displayed bucket values, with explicit weighting, missing-value counts, quartiles and bounded histogram bins. Existing requests and summaries keep their current behavior.
 - Adds an offline, synthetic baseline evaluator for planned adaptive Home monitoring. It checks evidence eligibility, chronological readiness, causal calibration, sustained departures and recovery. It cannot enable learned suggestions or qualify a Home for advisory use.
-- Upgrade impact: additive opt-in analytics response fields and development tooling. No database migration, new background job, UI, configuration, Compose or host-trust change. Adaptive monitoring persistence, learned models, pilot and review UI are not enabled by this foundation.
+- In Home sensor analytics, save private views and select an exact historical interval using the chart or date fields. Selected intervals can be reopened from their links. Summary and source data shows distributions with quartiles and a bin table.
+- Upgrade impact: adds the saved-view SQLite table and four authenticated API operations. Existing installations create the table on startup. Adaptive monitoring is currently available as offline evaluation tooling.
 
 ## 0.62.2
 

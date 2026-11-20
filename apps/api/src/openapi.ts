@@ -15,6 +15,8 @@ const V2_PATHS = new Set([
   "/monitoring/houses/{houseId}",
   "/analytics/coverage",
   "/analytics/query",
+  "/analytics/views",
+  "/analytics/views/{id}",
   "/measurements",
   "/measurements/import",
   "/measurements/snapshot",

@@ -1,3 +1,4 @@
+import { analyticsViewsApi } from "./api/analytics-views";
 import { alertsApi } from "./api/alerts";
 import { assistantConnectorApi } from "./api/assistant-connector";
 import { analyticsApi } from "./api/analytics";
@@ -22,6 +23,7 @@ export * from "./apiRuntimeVersion";
 
 /** Each endpoint family's client; a method name belongs to exactly one of them (api.test.ts checks). */
 export const apiFamilies = {
+  analyticsViewsApi,
   sessionApi,
   systemApi,
   stugubyApi,
@@ -56,6 +58,7 @@ export const api = {
   ...integrationsApi,
   ...devicesApi,
   ...analyticsApi,
+  ...analyticsViewsApi,
   ...measurementsApi,
   ...spatialLayersApi,
   ...nexus433Api,
