@@ -104,6 +104,8 @@ export function timescaleDumpArguments(destination) {
     // aggregates do not silently become owned by the restore login.
     "--no-privileges",
     "--no-tablespaces",
+    // Restored archives receive a new generation before cached findings can be reused.
+    "--exclude-table-data=*.stugu_archive_generation",
     `--file=${destination}`,
   ];
 }

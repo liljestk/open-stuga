@@ -150,6 +150,11 @@ export function buildBaseSchemaSql(schemaName: string): string[] {
       description TEXT NOT NULL,
       applied_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp()
     )`,
+    `CREATE TABLE IF NOT EXISTS ${relation("stugu_archive_generation")} (
+      id INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+      generation UUID NOT NULL DEFAULT gen_random_uuid()
+    )`,
+    `INSERT INTO ${relation("stugu_archive_generation")} DEFAULT VALUES ON CONFLICT (id) DO NOTHING`,
     `CREATE TABLE IF NOT EXISTS ${relation("archive_checkpoints")} (
       source_id TEXT NOT NULL CHECK (length(source_id) > 0),
       table_name TEXT NOT NULL CHECK (table_name IN (

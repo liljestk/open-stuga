@@ -25,6 +25,7 @@ declare module "../core.js" {
   interface DatabaseInternals {
     dailyAnalyticsFindings(houseId: string, dataMode: "live" | "demo"): StoredDailyAnalyticsFindings | null;
     watchDailyFindingsEvidence(scope: DailyFindingsEvidenceScope): DailyFindingsEvidence;
+    adoptDailyFindingsArchiveGeneration(archiveGeneration: string): void;
     saveDailyAnalyticsFindings(snapshot: DailyAnalyticsFindingsSnapshot, evidenceRevision: number): boolean;
     recordDailyAnalyticsFindingsFailure(failure: DailyFindingsFailure): void;
   }
@@ -32,6 +33,7 @@ declare module "../core.js" {
   interface ClimateDatabaseCore {
     dailyAnalyticsFindings(houseId: string, dataMode: "live" | "demo"): StoredDailyAnalyticsFindings | null;
     watchDailyFindingsEvidence(scope: DailyFindingsEvidenceScope): DailyFindingsEvidence;
+    adoptDailyFindingsArchiveGeneration(archiveGeneration: string): void;
     saveDailyAnalyticsFindings(snapshot: DailyAnalyticsFindingsSnapshot, evidenceRevision: number): boolean;
     recordDailyAnalyticsFindingsFailure(failure: DailyFindingsFailure): void;
   }
@@ -72,6 +74,16 @@ registerDatabaseMethods({
       const row = this.db.prepare(`SELECT revision, published_revision FROM daily_findings_evidence
         WHERE house_id = ?`).get(houseId) as { revision: number; published_revision: number | null };
       return { revision: row.revision, current: row.published_revision === row.revision };
+    });
+  },
+  adoptDailyFindingsArchiveGeneration(archiveGeneration: string): void {
+    this.immediateTransaction(() => {
+      const result = this.db.prepare(`INSERT INTO metadata(key, value) VALUES ('daily_findings_archive_generation', ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value WHERE metadata.value <> excluded.value`).run(archiveGeneration);
+      if (Number(result.changes) === 0) return;
+      this.db.prepare("DELETE FROM analytics_daily_findings").run();
+      // Advance revisions so calculations started against the previous archive cannot publish.
+      this.db.prepare("UPDATE daily_findings_evidence SET revision = revision + 1, published_revision = NULL").run();
     });
   },
   saveDailyAnalyticsFindings(snapshot: DailyAnalyticsFindingsSnapshot, evidenceRevision: number): boolean {

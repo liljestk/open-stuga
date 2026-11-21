@@ -221,6 +221,27 @@ describe("daily analytics findings", () => {
     expect(reconcileArchive).toHaveBeenCalledTimes(1);
   });
 
+  it("refreshes stored findings when an archive changes even without new SQLite telemetry", async () => {
+    const worker = runtime.dailyAnalyticsFindings;
+    runtime.database.adoptDailyFindingsArchiveGeneration("first-archive");
+    expect((await worker.runOnce()).generated).toBe(2);
+    runtime.database.adoptDailyFindingsArchiveGeneration("first-archive");
+    expect((await worker.runOnce()).skipped).toBe(2);
+
+    const pending = vi.spyOn(runtime.telemetryReader, "measurementCoverage").mockImplementationOnce(async () => {
+      runtime.database.adoptDailyFindingsArchiveGeneration("restored-archive");
+      return { records: [], complete: true, archiveState: "not-configured" };
+    });
+    const interrupted = await worker.runOnce({ force: true });
+    expect(interrupted.skipped).toBeGreaterThan(0);
+    const waiting = await request(runtime.app).get("/api/v2/analytics/findings?houseId=finding-house").expect(200);
+    expect(waiting.body).toMatchObject({ snapshot: null, status: { state: "pending" } });
+    pending.mockRestore();
+
+    expect((await worker.runOnce()).generated).toBe(2);
+    expect((await worker.runOnce()).skipped).toBe(2);
+  });
+
   it("uses equal month-to-date windows across DST-aware local calendars", () => {
     const periods = dailyFindingPeriods(NOW, "Europe/Helsinki");
     expect(periods).toMatchObject({

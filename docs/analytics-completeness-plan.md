@@ -63,6 +63,11 @@ The worker reconciles pending archive writes before calculation and discards
 results if the tracked evidence changes during its reads. Existing snapshots
 receive a fresh evaluation on the next worker run after upgrade.
 
+Stugu logical archive backups omit the archive generation row. On startup
+after a restore, the archive creates a fresh generation. SQLite discards daily
+findings tied to the old generation and fences in-progress calculations.
+Restarting with the same archive preserves existing findings.
+
 Scheduled CSV runs bind the data mode at the start of the query. A transition
 before handoff requires a fresh run. NAS requests carry the mode and the
 worker routes them to the same separate demo and live folders used by cloud
@@ -81,9 +86,10 @@ Still to implement:
   observations cannot contribute to live summaries, model calibration, exports
   or recovery imports, including an in-flight mode transition. Preserve real
   history and immutable ownership. Unknown legacy lineage must fail closed.
-- Audit additional late-data dependencies, including archive-only restores.
-  Generic query caches already use telemetry-history revisions. Verify archive
-  recovery and late-data processing on a representative installation.
+- Audit additional late-data dependencies and third-party or physical restore
+  paths. Generic query caches already use telemetry-history revisions. Verify
+  logical archive recovery and late-data processing on a representative
+  installation.
 - Record migration size/runtime, archive preparation behavior, backup/restore,
   cancellation and ingestion/foreground impact on a representative Pi.
 

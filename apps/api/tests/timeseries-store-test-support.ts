@@ -68,6 +68,9 @@ export class FakePool {
       direct,
     };
     this.queries.push(query);
+    if (query.text.includes("AS archive_generation")) {
+      return Promise.resolve(queryResult([{ archive_generation: "00000000-0000-4000-8000-000000000001" }]));
+    }
     return Promise.resolve(this.handler(query));
   }
 }

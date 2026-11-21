@@ -420,6 +420,7 @@ export type ColdStorageMode = "columnstore" | "compression" | "none";
 
 export interface TelemetrySchemaInitResult {
   schema: string;
+  archiveGeneration: string;
   timescaleAvailable: boolean;
   timescaleVersion: string | null;
   hypertables: string[];

@@ -183,6 +183,7 @@ export class TelemetryArchiveWorker {
         throw new Error("Required TimescaleDB telemetry hypertables are unavailable");
       }
       if (this.#stopping) return;
+      this.#database.adoptDailyFindingsArchiveGeneration(schema.archiveGeneration);
       this.#status = {
         ...this.#status,
         phase: "syncing",

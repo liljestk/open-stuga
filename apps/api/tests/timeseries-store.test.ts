@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { PGlite } from "@electric-sql/pglite";
 import {
   buildBaseSchemaSql,
   buildContinuousAggregateSql,
@@ -8,6 +9,33 @@ import {
 import { FakePool, FROM, TO, queryResult, storeFor } from "./timeseries-store-test-support.js";
 
 describe("time-series schema", () => {
+  it("keeps the archive generation across startup and creates a fresh one when the marker row is omitted", async () => {
+    const database = new PGlite();
+    try {
+      const [schema, ...statements] = buildBaseSchemaSql("telemetry");
+      const generationSql = statements.filter((sql) => sql.includes('"stugu_archive_generation"'));
+      const initializeGeneration = async () => {
+        for (const statement of generationSql) await database.exec(statement);
+        const result = await database.query<{ generation: string }>(
+          "SELECT generation::text FROM telemetry.stugu_archive_generation WHERE id = 1",
+        );
+        return result.rows[0]?.generation;
+      };
+
+      await database.exec(schema!);
+      const original = await initializeGeneration();
+      expect(original).toMatch(/^[0-9a-f-]{36}$/u);
+      expect(await initializeGeneration()).toBe(original);
+      // Stugu's logical backup includes the table definition without its row.
+      await database.exec("DELETE FROM telemetry.stugu_archive_generation");
+      const restored = await initializeGeneration();
+      expect(restored).toMatch(/^[0-9a-f-]{36}$/u);
+      expect(restored).not.toBe(original);
+    } finally {
+      await database.close();
+    }
+  });
+
   it("creates append-only raw tables with time-inclusive idempotency keys and no data expiry", () => {
     const sql = buildBaseSchemaSql("telemetry").join("\n");
     expect(sql).toContain("PRIMARY KEY (sensor_id, metric, observed_at, source)");
