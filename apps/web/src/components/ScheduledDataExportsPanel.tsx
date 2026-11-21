@@ -93,7 +93,7 @@ export function ScheduledDataExportsPanel(props: Readonly<ScheduledDataExportsPa
   const [busy, setBusy] = useState<string | null>(null);
   const [scheduleLoadError, setScheduleLoadError] = useState<string | null>(null);
   const [storageLoadError, setStorageLoadError] = useState<string | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<{ detail: string; runScheduleId?: string } | null>(null);
   const [name, setName] = useState(`${props.house.name} export`);
   const [frequency, setFrequency] = useState<ScheduledDataExportFrequency>("weekly");
   const [timeLocal, setTimeLocal] = useState("02:00");
@@ -205,7 +205,7 @@ export function ScheduledDataExportsPanel(props: Readonly<ScheduledDataExportsPa
     ?? (props.period === "custom" ? t("dataExport.scheduleCustomPeriod") : null);
   const targetReady = destination === null ? null : destination.ready;
   const canCreate = targetReady === true && !selectionError && busy === null;
-  const error = actionError ?? scheduleLoadError ?? storageLoadError;
+  const error = actionError?.detail ?? scheduleLoadError ?? storageLoadError;
 
   const create = async (selectedFrequency: ScheduledDataExportFrequency, selectedName: string) => {
     const input = selectedInput(selectedFrequency, selectedName);
@@ -216,7 +216,7 @@ export function ScheduledDataExportsPanel(props: Readonly<ScheduledDataExportsPa
       const created = await api.createScheduledDataExport(props.house.id, input);
       setSchedules((current) => [...current, created]);
     } catch (createError) {
-      setActionError(message(createError, t("dataExport.scheduleSaveError")));
+      setActionError({ detail: message(createError, t("dataExport.scheduleSaveError")) });
     } finally {
       setBusy(null);
     }
@@ -229,7 +229,8 @@ export function ScheduledDataExportsPanel(props: Readonly<ScheduledDataExportsPa
       const updated = await api.runScheduledDataExport(props.house.id, schedule.id);
       setSchedules((current) => current.map((item) => item.id === updated.id ? updated : item));
     } catch (runError) {
-      setActionError(message(runError, t("dataExport.scheduleRunError")));
+      setActionError({ detail: message(runError, t("dataExport.scheduleRunError")), runScheduleId: schedule.id });
+      await loadSchedules(true);
     } finally {
       setBusy(null);
     }
@@ -245,7 +246,7 @@ export function ScheduledDataExportsPanel(props: Readonly<ScheduledDataExportsPa
       });
       setSchedules((current) => current.map((item) => item.id === updated.id ? updated : item));
     } catch (updateError) {
-      setActionError(message(updateError, t("dataExport.scheduleSaveError")));
+      setActionError({ detail: message(updateError, t("dataExport.scheduleSaveError")) });
     } finally {
       setBusy(null);
     }
@@ -259,7 +260,7 @@ export function ScheduledDataExportsPanel(props: Readonly<ScheduledDataExportsPa
       await api.deleteScheduledDataExport(props.house.id, schedule.id);
       setSchedules((current) => current.filter((item) => item.id !== schedule.id));
     } catch (deleteError) {
-      setActionError(message(deleteError, t("dataExport.scheduleDeleteError")));
+      setActionError({ detail: message(deleteError, t("dataExport.scheduleDeleteError")) });
     } finally {
       setBusy(null);
     }
@@ -315,7 +316,15 @@ export function ScheduledDataExportsPanel(props: Readonly<ScheduledDataExportsPa
 
     {error && <p className="inline-error" role="alert">{error}</p>}
     {loading && schedules.length === 0 ? <p className="scheduled-loading" role="status"><LoaderCircle className="spin" size={16} aria-hidden="true" />{t("dataExport.scheduleLoading")}</p> : schedules.length === 0 ? <p className="scheduled-empty">{t("dataExport.scheduleEmpty")}</p> : <ul className="scheduled-list">{schedules.map((schedule) => <li key={schedule.id}>
-      <div className="scheduled-list-main"><strong>{schedule.name}</strong><span>{recurrenceLabel(schedule)} · {schedule.timeLocal} · {schedule.period}</span><small>{scheduleRouteLabel(schedule, props.viewerEmail, t)}</small><small>{t("dataExport.scheduleNextRun")}: {schedule.enabled ? formatDate(schedule.nextRunAt) : t("dataExport.schedulePaused")} · {t("dataExport.scheduleLastRun")}: {statusLabel(schedule)}</small>{schedule.lastOutputName && <small>{t("dataExport.scheduleLastFile")}: <code>{schedule.lastOutputName}</code></small>}{schedule.lastRunError && <small className="scheduled-run-error">{schedule.lastRunError}</small>}</div>
+      <div className="scheduled-list-main">
+        <strong>{schedule.name}</strong>
+        <span>{recurrenceLabel(schedule)} · {schedule.timeLocal} · {schedule.period}</span>
+        <small>{scheduleRouteLabel(schedule, props.viewerEmail, t)}</small>
+        <small>{t("dataExport.scheduleNextRun")}: {schedule.enabled ? formatDate(schedule.nextRunAt) : t("dataExport.schedulePaused")} · {t("dataExport.scheduleLastRun")}: {statusLabel(schedule)}</small>
+        {schedule.lastOutputName && <small>{t("dataExport.scheduleLastFile")}: <code>{schedule.lastOutputName}</code></small>}
+        {schedule.lastRunError && !(actionError?.runScheduleId === schedule.id && actionError.detail === schedule.lastRunError) &&
+          <small className="scheduled-run-error">{schedule.lastRunError}</small>}
+      </div>
       <div className="scheduled-actions"><button type="button" className="icon-button" title={t("dataExport.scheduleRunNow")} aria-label={t("dataExport.scheduleRunNow")} disabled={busy !== null || schedule.lastRunStatus === "pending"} onClick={() => void run(schedule)}><Play size={15} aria-hidden="true" /></button><button type="button" className="icon-button" title={schedule.enabled ? t("dataExport.schedulePause") : t("dataExport.scheduleResume")} aria-label={schedule.enabled ? t("dataExport.schedulePause") : t("dataExport.scheduleResume")} disabled={busy !== null || schedule.lastRunStatus === "pending"} onClick={() => void toggle(schedule)}>{schedule.enabled ? <Pause size={15} aria-hidden="true" /> : <Play size={15} aria-hidden="true" />}</button><button type="button" className="icon-button danger" title={t("dataExport.scheduleDelete")} aria-label={t("dataExport.scheduleDelete")} disabled={busy !== null || schedule.lastRunStatus === "pending"} onClick={() => void remove(schedule)}><Trash2 size={15} aria-hidden="true" /></button></div>
     </li>)}</ul>}
   </section>;
