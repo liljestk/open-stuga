@@ -257,9 +257,11 @@ renders a bounded CSV in canonical units into the private operations directory
 and publishes a checksummed request only after the file is durable. The
 isolated backup scheduler validates the NAS sentinel, request schema, filename,
 byte count, and SHA-256 digest before copying to
-`data-exports/<schedule-id>/`; it then prunes only that schedule's older files
-and returns a receipt to the API. The API container never receives writable
-access to the NAS mount.
+`data-exports/<schedule-id>/` for live runs or
+`demo-data-exports/<schedule-id>/` for demo runs. It prunes only older files
+within the selected folder and returns a receipt to the API. Queued requests
+from earlier releases that lack a data mode require a fresh run. The API
+container never receives writable access to the NAS mount.
 
 Each Owner or Admin can instead send the schedules they set up to their own
 Dropbox or Google Drive, chosen under **Data & analytics → Scheduled exports**.

@@ -142,7 +142,7 @@ export const pathsPart03 = {
         post: {
           tags: ["Context"], operationId: "runScheduledDataExport",
           parameters: [{ name: "houseId", in: "path", required: true, schema: { type: "string" } }, { $ref: "#/components/parameters/Id" }],
-          responses: { "202": jsonResponse("CSV generated and staged for the NAS worker, or uploaded to the connected cloud drive.", { type: "object", additionalProperties: false, required: ["export"], properties: { export: { $ref: "#/components/schemas/ScheduledDataExport" } } }), "409": { description: "The schedule is already running or the export destination is unavailable" } },
+          responses: { "202": jsonResponse("CSV generated and staged for the NAS worker, or uploaded to the connected cloud drive.", { type: "object", additionalProperties: false, required: ["export"], properties: { export: { $ref: "#/components/schemas/ScheduledDataExport" } } }), "409": { description: "The schedule is already running, the destination is unavailable, or the data mode changed before handoff" } },
         },
       },
   "/backups/status": {

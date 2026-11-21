@@ -63,11 +63,12 @@ The worker reconciles pending archive writes before calculation and discards
 results if the tracked evidence changes during its reads. Existing snapshots
 receive a fresh evaluation on the next worker run after upgrade.
 
-The isolation audit traced scheduled CSV exports from the API query to the
-isolated NAS worker. Its v1 request and receipt carry run and schedule IDs.
-Those IDs provide completion tracking. A mode-aware migration must also
-account for staged files and retries that outlive the API process. Direct
-Timescale restore is a separate import path and needs its own lineage check.
+Scheduled CSV runs bind the data mode at the start of the query. A transition
+before handoff requires a fresh run. NAS requests carry the mode and the
+worker routes them to the same separate demo and live folders used by cloud
+delivery. A job already handed off may finish in its assigned folder.
+Legacy queued NAS requests require a fresh run because their mode is unknown.
+Direct Timescale restore still needs an independent lineage check.
 
 Still to implement:
 
