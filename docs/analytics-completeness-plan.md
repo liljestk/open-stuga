@@ -19,18 +19,21 @@ Implemented in the 0.63.0 candidate:
 - `npm run evaluate:adaptive` produces reproducible synthetic results for
   persistence and same-hour-yesterday. `-- --output PATH` writes a new receipt;
   store receipts outside Git. The fixed cases include daily rhythm, sustained
-  change, an isolated spike, an outage and delayed recovery. This is the start
-  of adaptive milestone B, not completion of its complete scenario/evidence matrix.
+  changes in temperature, humidity and CO₂, an isolated spike, an outage,
+  delayed recovery, partial archive evidence, a known opening and sensor
+  relocation. Receipts include counts by abstention reason. Adaptive milestone B
+  still requires the remaining scenario and evidence matrix.
 - Optional `include: ["distribution"]` on the existing analytics query returns
   equal-width histograms and quartiles per series. Raw observations and display
   buckets are labelled separately; missing/nonfinite values are excluded and
   counted. Bin counts describe equally weighted values, not elapsed time or
   independent physical measurements. Existing summaries remain unchanged.
 
-The synthetic step demonstrates limitations rather than a passing detector:
-persistence misses it; same-hour-yesterday detects it but also opens an
-unmatched episode the next day. No learned model, production job, adaptive
-endpoint, UI, or live pilot is enabled by this milestone.
+Persistence missed all three synthetic steps. Same-hour-yesterday detected all
+three and opened an unmatched episode after each. It also opened an unmatched
+episode after the guarded opening, when the prior day's cooling became the
+baseline. Learned models, production jobs, adaptive endpoints, UI and the
+live pilot remain in later milestones.
 
 ## Milestone 2 — saved views, range selection and distributions UI
 
@@ -59,6 +62,12 @@ and opening observations that affect those windows invalidate the snapshot.
 The worker reconciles pending archive writes before calculation and discards
 results if the tracked evidence changes during its reads. Existing snapshots
 receive a fresh evaluation on the next worker run after upgrade.
+
+The isolation audit traced scheduled CSV exports from the API query to the
+isolated NAS worker. Its v1 request and receipt carry run and schedule IDs.
+Those IDs provide completion tracking. A mode-aware migration must also
+account for staged files and retries that outlive the API process. Direct
+Timescale restore is a separate import path and needs its own lineage check.
 
 Still to implement:
 

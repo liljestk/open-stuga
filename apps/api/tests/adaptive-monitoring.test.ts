@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { AdaptiveHourlyEvidence } from "@climate-twin/contracts";
 import { auditAdaptiveReadiness, evidenceByHour } from "../src/analytics/adaptive-monitoring/evidence.js";
 import { replayAdaptiveBaseline } from "../src/analytics/adaptive-monitoring/replay.js";
+import { adaptiveEvaluationScenarios } from "../src/analytics/adaptive-monitoring/scenarios.js";
 import { advanceDeparture, calibrateResiduals, initialDepartureState, interruptDeparture } from "../src/analytics/adaptive-monitoring/residual-policy.js";
 
 const HOUR = 3_600_000;
@@ -142,5 +143,26 @@ describe("fixed-baseline replay", () => {
   it("bounds work instead of silently truncating evidence", () => {
     expect(() => replay(evidence(2), { to: 50_001 * HOUR })).toThrow(RangeError);
     expect(() => replay(evidence(2), { from: 1 })).toThrow(RangeError);
+  });
+
+  it("exposes the guarded-opening echo and withholds partial and relocated evidence", () => {
+    const scenarios = adaptiveEvaluationScenarios();
+    const run = (id: string) => {
+      const scenario = scenarios.find((candidate) => candidate.id === id)!;
+      return replayAdaptiveBaseline({
+        evidence: scenario.evidence, metric: scenario.metric,
+        policy: { ...policy, epochId: "synthetic-epoch" },
+        baseline: "same-hour-yesterday", from: 0, to: scenario.evidence.length * HOUR,
+        ...(scenario.contextTransitions ? { contextTransitions: scenario.contextTransitions } : {}),
+      });
+    };
+    const opening = run("known-opening");
+    expect(opening.points.slice(400, 402).map((point) => point.reason)).toEqual(["context-guard", "context-guard"]);
+    expect(opening.points[425]!.episode).toBe("candidate");
+    for (const id of ["partial-archive", "sensor-relocation"]) {
+      const replay = run(id);
+      expect(replay.points[400]!.reason).toBe("missing-target");
+      expect(replay.candidateEpisodes).toBe(0);
+    }
   });
 });
