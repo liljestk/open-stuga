@@ -527,6 +527,12 @@ export function buildBaseSchemaSql(schemaName: string): string[] {
     `INSERT INTO ${relation("schema_migrations")} (version, description)
       VALUES (9, 'Sealed ordered telemetry states for the active day')
       ON CONFLICT (version) DO NOTHING`,
+    ...(["measurement_samples", "legacy_readings", "outdoor_temperature_samples"] as const).map(
+      (table) => `ALTER TABLE ${relation(table)} ADD COLUMN IF NOT EXISTS data_mode TEXT`,
+    ),
+    `INSERT INTO ${relation("schema_migrations")} (version, description)
+      VALUES (10, 'Persist verified mode on archived sensor and outdoor telemetry')
+      ON CONFLICT (version) DO NOTHING`,
   ];
 }
 

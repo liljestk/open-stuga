@@ -1,4 +1,4 @@
-import type { HeatPumpState, MeasurementSample } from "@climate-twin/contracts";
+import type { DataMode, HeatPumpState, MeasurementSample } from "@climate-twin/contracts";
 import type {
   ClimateDatabase,
   TelemetryArchiveDirtyRow,
@@ -60,7 +60,7 @@ type CheckpointStore = TimeseriesStore & {
 
 interface QueuedMeasurement {
   id: number;
-  sample: MeasurementSample;
+  sample: MeasurementSample & { dataMode: DataMode | null };
 }
 
 function isSyntheticSample(sample: MeasurementSample): boolean {
@@ -312,9 +312,10 @@ export class TelemetryArchiveWorker {
       this.#status.droppedQueueSamples += 1;
       return;
     }
+    const dataMode = this.#database.measurementArchiveDataMode(sample);
     this.#status.caughtUp = false;
     if (this.#status.phase === "ready") this.#status.phase = "syncing";
-    this.#queue.push({ id: ++this.#nextQueueId, sample });
+    this.#queue.push({ id: ++this.#nextQueueId, sample: { ...sample, dataMode } });
     if (this.#queue.length > this.#maxQueuedSamples) {
       let remaining = this.#queue.length - this.#maxQueuedSamples;
       const retained = this.#queue.filter((queued) => {

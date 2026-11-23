@@ -1,4 +1,4 @@
-import type { AnalyticsResolution, HeatPumpState } from "@climate-twin/contracts";
+import type { AnalyticsResolution, DataMode, HeatPumpState } from "@climate-twin/contracts";
 import type { Pool, PoolConfig } from "pg";
 
 export type TelemetryQuality = "good" | "estimated" | "stale" | (string & {});
@@ -22,6 +22,7 @@ export interface HeatPumpStateHistoryQuery extends QueryControl {
 }
 
 export interface MeasurementSampleRecord {
+  dataMode?: DataMode | null;
   sensorId: string;
   metric: string;
   value: number;
@@ -40,6 +41,7 @@ export interface MeasurementCoverageRecord {
 }
 
 export interface LegacyReadingRecord {
+  dataMode?: DataMode | null;
   sensorId: string;
   timestamp: string;
   temperature: number;
@@ -51,6 +53,7 @@ export interface LegacyReadingRecord {
 }
 
 export interface OutdoorTemperatureRecord {
+  dataMode?: DataMode | null;
   houseId: string;
   locationKey: string;
   timestamp: string;

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { MeasurementSample, Reading, OutdoorTemperatureSample } from "@climate-twin/contracts";
+import type { DataMode, MeasurementSample, Reading, OutdoorTemperatureSample } from "@climate-twin/contracts";
 import { TelemetryArchiveTable, TelemetryArchiveWatermarks, ElectricityPriceArchiveRecord, OpeningStateArchiveRecord, TelemetryArchiveDirtyRow, TelemetryArchiveMutableTable, TelemetryArchiveRow, TelemetryCascadeScope } from "../support/record-types.js";
 import { ElectricityPricePointRow, OpeningStateObservationRow } from "../support/row-types.js";
 import { ClimateDataValidationError } from "../support/validation-errors.js";
@@ -8,6 +8,9 @@ import { registerDatabaseMethods } from "../core.js";
 import { MeasurementSampleRow, OutdoorTemperatureRow, ReadingRow } from "../support/row-types.js";
 import { outdoorTemperatureFromRow } from "../support/row-mappers.js";
 
+type WithDataMode<T> = T & { dataMode: DataMode | null };
+type DataModeColumn = { data_mode: DataMode | null };
+
 declare module "../core.js" {
   interface DatabaseInternals {
     telemetryArchiveSourceId(): string;
@@ -15,13 +18,14 @@ declare module "../core.js" {
     saveTelemetryArchiveCheckpoint(table: TelemetryArchiveTable, rowId: number): void;
     telemetryArchiveDirtyCount(): number;
     telemetryArchiveWatermarks(): TelemetryArchiveWatermarks;
-    measurementArchivePage(afterRowId: number, limit: number): TelemetryArchiveRow<MeasurementSample>[];
-    readingArchivePage(afterRowId: number, limit: number, since?: string): TelemetryArchiveRow<Reading>[];
-    outdoorTemperatureArchivePage(afterRowId: number, limit: number, since?: string): TelemetryArchiveRow<OutdoorTemperatureSample>[];
+    measurementArchiveDataMode(sample: MeasurementSample): DataMode | null;
+    measurementArchivePage(afterRowId: number, limit: number): TelemetryArchiveRow<WithDataMode<MeasurementSample>>[];
+    readingArchivePage(afterRowId: number, limit: number, since?: string): TelemetryArchiveRow<WithDataMode<Reading>>[];
+    outdoorTemperatureArchivePage(afterRowId: number, limit: number, since?: string): TelemetryArchiveRow<WithDataMode<OutdoorTemperatureSample>>[];
     electricityPriceArchivePage(afterRowId: number, limit: number, since?: string): TelemetryArchiveRow<ElectricityPriceArchiveRecord>[];
     openingStateArchivePage(afterRowId: number, limit: number, since?: string): TelemetryArchiveRow<OpeningStateArchiveRecord>[];
-    readingArchiveDirtyPage(limit: number): TelemetryArchiveDirtyRow<Reading>[];
-    outdoorTemperatureArchiveDirtyPage(limit: number): TelemetryArchiveDirtyRow<OutdoorTemperatureSample>[];
+    readingArchiveDirtyPage(limit: number): TelemetryArchiveDirtyRow<WithDataMode<Reading>>[];
+    outdoorTemperatureArchiveDirtyPage(limit: number): TelemetryArchiveDirtyRow<WithDataMode<OutdoorTemperatureSample>>[];
     electricityPriceArchiveDirtyPage(limit: number): TelemetryArchiveDirtyRow<ElectricityPriceArchiveRecord>[];
     acknowledgeTelemetryArchiveDirtyRows(table: TelemetryArchiveMutableTable, rows: Array<{
             dirtyId: number;
@@ -42,13 +46,14 @@ declare module "../core.js" {
     saveTelemetryArchiveCheckpoint(table: TelemetryArchiveTable, rowId: number): void;
     telemetryArchiveDirtyCount(): number;
     telemetryArchiveWatermarks(): TelemetryArchiveWatermarks;
-    measurementArchivePage(afterRowId: number, limit: number): TelemetryArchiveRow<MeasurementSample>[];
-    readingArchivePage(afterRowId: number, limit: number, since?: string): TelemetryArchiveRow<Reading>[];
-    outdoorTemperatureArchivePage(afterRowId: number, limit: number, since?: string): TelemetryArchiveRow<OutdoorTemperatureSample>[];
+    measurementArchiveDataMode(sample: MeasurementSample): DataMode | null;
+    measurementArchivePage(afterRowId: number, limit: number): TelemetryArchiveRow<WithDataMode<MeasurementSample>>[];
+    readingArchivePage(afterRowId: number, limit: number, since?: string): TelemetryArchiveRow<WithDataMode<Reading>>[];
+    outdoorTemperatureArchivePage(afterRowId: number, limit: number, since?: string): TelemetryArchiveRow<WithDataMode<OutdoorTemperatureSample>>[];
     electricityPriceArchivePage(afterRowId: number, limit: number, since?: string): TelemetryArchiveRow<ElectricityPriceArchiveRecord>[];
     openingStateArchivePage(afterRowId: number, limit: number, since?: string): TelemetryArchiveRow<OpeningStateArchiveRecord>[];
-    readingArchiveDirtyPage(limit: number): TelemetryArchiveDirtyRow<Reading>[];
-    outdoorTemperatureArchiveDirtyPage(limit: number): TelemetryArchiveDirtyRow<OutdoorTemperatureSample>[];
+    readingArchiveDirtyPage(limit: number): TelemetryArchiveDirtyRow<WithDataMode<Reading>>[];
+    outdoorTemperatureArchiveDirtyPage(limit: number): TelemetryArchiveDirtyRow<WithDataMode<OutdoorTemperatureSample>>[];
     electricityPriceArchiveDirtyPage(limit: number): TelemetryArchiveDirtyRow<ElectricityPriceArchiveRecord>[];
     acknowledgeTelemetryArchiveDirtyRows(table: TelemetryArchiveMutableTable, rows: Array<{
             dirtyId: number;
@@ -97,38 +102,47 @@ registerDatabaseMethods({
         heat_pump_state_samples: this.telemetryArchiveCheckpoint("heat_pump_state_samples"),
       };
     },
+  /** The live bus also carries transient replay samples that have no SQLite row. */
+  measurementArchiveDataMode(sample: MeasurementSample): DataMode | null {
+      const row = this.db.prepare(`SELECT data_mode FROM measurement_samples
+        WHERE sensor_id = ? AND metric = ? AND timestamp = ? AND source = ?
+          AND value = ? AND canonical_unit = ? AND quality = ?`)
+        .get(sample.sensorId, sample.metric, sample.timestamp, sample.source,
+          sample.value, sample.canonicalUnit, sample.quality) as DataModeColumn | undefined;
+      return row?.data_mode ?? null;
+    },
   /**
      * Monotonic pages for the optional durable telemetry archive. The SQLite
      * database remains the crash-safe local buffer until the remote checkpoint
      * has advanced beyond each row.
      */
-  measurementArchivePage(afterRowId: number, limit: number): TelemetryArchiveRow<MeasurementSample>[] {
+  measurementArchivePage(afterRowId: number, limit: number): TelemetryArchiveRow<WithDataMode<MeasurementSample>>[] {
       const pageSize = this.telemetryArchivePageSize(limit);
-      const rows = this.db.prepare(`SELECT id, sensor_id, metric, value, canonical_unit, timestamp, source, quality
+      const rows = this.db.prepare(`SELECT id, sensor_id, metric, value, canonical_unit, timestamp, source, quality, data_mode
         FROM measurement_samples WHERE id > ? ORDER BY id LIMIT ?`)
-        .all(afterRowId, pageSize) as unknown as (MeasurementSampleRow & { id: number })[];
-      return rows.map((row) => ({ rowId: row.id, record: measurementSampleFromRow(row) }));
+        .all(afterRowId, pageSize) as unknown as (MeasurementSampleRow & DataModeColumn & { id: number })[];
+      return rows.map((row) => ({ rowId: row.id, record: { ...measurementSampleFromRow(row), dataMode: row.data_mode } }));
     },
-  readingArchivePage(afterRowId: number, limit: number, since?: string): TelemetryArchiveRow<Reading>[] {
+  readingArchivePage(afterRowId: number, limit: number, since?: string): TelemetryArchiveRow<WithDataMode<Reading>>[] {
       const pageSize = this.telemetryArchivePageSize(limit);
       const recentClause = since ? "AND timestamp >= ?" : "";
       const parameters = since ? [afterRowId, since, pageSize] : [afterRowId, pageSize];
-      const rows = this.db.prepare(`SELECT id, sensor_id, timestamp, temperature, humidity, battery, source, quality
+      const rows = this.db.prepare(`SELECT id, sensor_id, timestamp, temperature, humidity, battery, source, quality, data_mode
         FROM readings WHERE id > ? ${recentClause} ORDER BY id LIMIT ?`)
-        .all(...parameters) as unknown as (ReadingRow & { id: number })[];
-      return rows.map((row) => ({ rowId: row.id, record: readingFromRow(row) }));
+        .all(...parameters) as unknown as (ReadingRow & DataModeColumn & { id: number })[];
+      return rows.map((row) => ({ rowId: row.id, record: { ...readingFromRow(row), dataMode: row.data_mode } }));
     },
   outdoorTemperatureArchivePage(
       afterRowId: number,
       limit: number,
       since?: string,
-    ): TelemetryArchiveRow<OutdoorTemperatureSample>[] {
+    ): TelemetryArchiveRow<WithDataMode<OutdoorTemperatureSample>>[] {
       const pageSize = this.telemetryArchivePageSize(limit);
       const recentClause = since ? "AND sample.timestamp >= ?" : "";
       const parameters = since ? [afterRowId, since, pageSize] : [afterRowId, pageSize];
       const rows = this.db.prepare(`SELECT archive.archive_id AS archive_row_id, sample.house_id,
           sample.location_key, sample.timestamp, sample.temperature_c, sample.source, sample.fetched_at,
-          sample.station_id, sample.station_name, sample.conditions_json
+          sample.station_id, sample.station_name, sample.conditions_json, sample.data_mode
         FROM telemetry_archive_row_ids AS archive
         JOIN outdoor_temperature_samples AS sample
           ON sample.house_id = json_extract(archive.natural_key, '$[0]')
@@ -138,8 +152,8 @@ registerDatabaseMethods({
         WHERE archive.table_name = 'outdoor_temperature_samples'
           AND archive.archive_id > ? ${recentClause}
         ORDER BY archive.archive_id LIMIT ?`)
-        .all(...parameters) as unknown as (OutdoorTemperatureRow & { archive_row_id: number })[];
-      return rows.map((row) => ({ rowId: row.archive_row_id, record: outdoorTemperatureFromRow(row) }));
+        .all(...parameters) as unknown as (OutdoorTemperatureRow & DataModeColumn & { archive_row_id: number })[];
+      return rows.map((row) => ({ rowId: row.archive_row_id, record: { ...outdoorTemperatureFromRow(row), dataMode: row.data_mode } }));
     },
   electricityPriceArchivePage(
       afterRowId: number,
@@ -209,24 +223,25 @@ registerDatabaseMethods({
         },
       }));
     },
-  readingArchiveDirtyPage(limit: number): TelemetryArchiveDirtyRow<Reading>[] {
+  readingArchiveDirtyPage(limit: number): TelemetryArchiveDirtyRow<WithDataMode<Reading>>[] {
       const pageSize = this.telemetryArchivePageSize(limit);
       const rows = this.db.prepare(`SELECT dirty.dirty_id, dirty.version, reading.sensor_id, reading.timestamp,
-          reading.temperature, reading.humidity, reading.battery, reading.source, reading.quality
+          reading.temperature, reading.humidity, reading.battery, reading.source, reading.quality, reading.data_mode
         FROM telemetry_archive_dirty_rows AS dirty
         JOIN readings AS reading
           ON reading.sensor_id = json_extract(dirty.natural_key, '$[0]')
           AND reading.timestamp = json_extract(dirty.natural_key, '$[1]')
           AND reading.source = json_extract(dirty.natural_key, '$[2]')
         WHERE dirty.table_name = 'legacy_readings'
-        ORDER BY dirty.dirty_id LIMIT ?`).all(pageSize) as unknown as (ReadingRow & { dirty_id: number; version: number })[];
-      return rows.map((row) => ({ dirtyId: row.dirty_id, version: row.version, record: readingFromRow(row) }));
+        ORDER BY dirty.dirty_id LIMIT ?`)
+        .all(pageSize) as unknown as (ReadingRow & DataModeColumn & { dirty_id: number; version: number })[];
+      return rows.map((row) => ({ dirtyId: row.dirty_id, version: row.version, record: { ...readingFromRow(row), dataMode: row.data_mode } }));
     },
-  outdoorTemperatureArchiveDirtyPage(limit: number): TelemetryArchiveDirtyRow<OutdoorTemperatureSample>[] {
+  outdoorTemperatureArchiveDirtyPage(limit: number): TelemetryArchiveDirtyRow<WithDataMode<OutdoorTemperatureSample>>[] {
       const pageSize = this.telemetryArchivePageSize(limit);
       const rows = this.db.prepare(`SELECT dirty.dirty_id, dirty.version, sample.house_id, sample.location_key,
           sample.timestamp, sample.temperature_c, sample.source, sample.fetched_at, sample.station_id, sample.station_name,
-          sample.conditions_json
+          sample.conditions_json, sample.data_mode
         FROM telemetry_archive_dirty_rows AS dirty
         JOIN outdoor_temperature_samples AS sample
           ON sample.house_id = json_extract(dirty.natural_key, '$[0]')
@@ -234,8 +249,9 @@ registerDatabaseMethods({
           AND sample.timestamp = json_extract(dirty.natural_key, '$[2]')
           AND sample.source = json_extract(dirty.natural_key, '$[3]')
         WHERE dirty.table_name = 'outdoor_temperature_samples'
-        ORDER BY dirty.dirty_id LIMIT ?`).all(pageSize) as unknown as (OutdoorTemperatureRow & { dirty_id: number; version: number })[];
-      return rows.map((row) => ({ dirtyId: row.dirty_id, version: row.version, record: outdoorTemperatureFromRow(row) }));
+        ORDER BY dirty.dirty_id LIMIT ?`)
+        .all(pageSize) as unknown as (OutdoorTemperatureRow & DataModeColumn & { dirty_id: number; version: number })[];
+      return rows.map((row) => ({ dirtyId: row.dirty_id, version: row.version, record: { ...outdoorTemperatureFromRow(row), dataMode: row.data_mode } }));
     },
   electricityPriceArchiveDirtyPage(limit: number): TelemetryArchiveDirtyRow<ElectricityPriceArchiveRecord>[] {
       const pageSize = this.telemetryArchivePageSize(limit);

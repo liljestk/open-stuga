@@ -82,6 +82,56 @@ describe("time-series schema", () => {
 });
 
 describe("TimeseriesStore", () => {
+  it("preserves verified mode on archive retries and enriches rows from old writers", async () => {
+    const database = new PGlite();
+    try {
+      const schemaSql = buildBaseSchemaSql("telemetry");
+      for (const sql of schemaSql.filter((sql) => !sql.includes("data_mode") && !sql.includes("Persist verified mode"))) {
+        await database.exec(sql);
+      }
+      await database.exec(`INSERT INTO telemetry.measurement_samples
+        (sensor_id, metric, observed_at, source, value, canonical_unit, quality)
+        VALUES ('sensor-1', 'temperature', '${FROM}', 'api', 21, '°C', 'good')`);
+      for (const sql of schemaSql) await database.exec(sql);
+      const pool = new FakePool(async ({ text, values }) => {
+        const result = await database.query<Record<string, unknown>>(text, values);
+        return queryResult(result.rows, result.affectedRows);
+      });
+      const store = storeFor(pool);
+      const key = { sensorId: "sensor-1", timestamp: FROM, source: "api", quality: "good" };
+      const measurement = { ...key, metric: "temperature", value: 21, canonicalUnit: "°C" };
+      const reading = { ...key, temperature: 21, humidity: 42, battery: null };
+      const outdoor = {
+        houseId: "house-1", locationKey: "location-1", timestamp: FROM, source: "mock",
+        temperatureC: 5, fetchedAt: TO, stationId: null, stationName: null,
+      };
+      const modes = async () => (await database.query(`
+        SELECT data_mode FROM telemetry.measurement_samples
+        UNION ALL SELECT data_mode FROM telemetry.legacy_readings
+        UNION ALL SELECT data_mode FROM telemetry.outdoor_temperature_samples
+      `)).rows;
+
+      expect(await modes()).toEqual([{ data_mode: null }]);
+      expect(await store.upsertMeasurementSamples([{ ...measurement, dataMode: "live" }]))
+        .toMatchObject({ affected: 1 });
+      expect(await store.upsertMeasurementSamples([measurement])).toMatchObject({ affected: 0 });
+      expect(await store.upsertMeasurementSamples([{ ...measurement, value: 29, dataMode: "demo" }]))
+        .toMatchObject({ affected: 0 });
+      await store.upsertLegacyReadings([{ ...reading, dataMode: "live" }]);
+      await store.upsertLegacyReadings([{ ...reading, temperature: 22 }]);
+      await store.upsertOutdoorTemperatureSamples([{ ...outdoor, dataMode: "demo" }]);
+      await store.upsertOutdoorTemperatureSamples([{ ...outdoor, temperatureC: 6 }]);
+      expect(await modes()).toEqual([{ data_mode: "live" }, { data_mode: "live" }, { data_mode: "demo" }]);
+      expect((await database.query("SELECT value FROM telemetry.measurement_samples")).rows).toEqual([{ value: 21 }]);
+      expect((await database.query("SELECT temperature_c FROM telemetry.legacy_readings")).rows)
+        .toEqual([{ temperature_c: 22 }]);
+      expect((await database.query("SELECT temperature_c FROM telemetry.outdoor_temperature_samples")).rows)
+        .toEqual([{ temperature_c: 6 }]);
+    } finally {
+      await database.close();
+    }
+  });
+
   it("initializes a complete plain-PostgreSQL fallback when Timescale is unavailable", async () => {
     const pool = new FakePool();
     const store = storeFor(pool);
@@ -328,19 +378,19 @@ describe("TimeseriesStore", () => {
 
     expect(result).toEqual({ attempted: 2, affected: 2 });
     const insert = pool.queries.find(({ text }) => text.includes("INSERT INTO"))!;
-    expect(insert.text).toContain("VALUES ($1, $2, $3, $4, $5, $6, $7, $8), ($9, $10, $11, $12, $13, $14, $15, $16)");
+    expect(insert.text).toContain("VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9), ($10, $11, $12, $13, $14, $15, $16, $17, $18)");
     expect(insert.text).toContain('ON CONFLICT ("sensor_id", "metric", "observed_at", "source") DO UPDATE');
     expect(insert.text).toContain("IS DISTINCT FROM");
     expect(insert.text).toContain("measurement_ordered_rollup_generations");
     expect(insert.text).toContain("GREATEST(dirty.current_seq, generation.current_seq)");
-    expect(insert.text).toContain("day.metric = ANY($17::TEXT[])");
+    expect(insert.text).toContain("day.metric = ANY($19::TEXT[])");
     expect(insert.text).toContain("dirty.day_start = day.day_start");
     expect(insert.text).not.toContain("sensor-1");
-    expect(insert.values).toHaveLength(17);
+    expect(insert.values).toHaveLength(19);
     expect(insert.values.slice(0, 7)).toEqual([
       "sensor-1", "temperature", "2026-07-18T08:00:00.000Z", "home-assistant", 20.5, "°C", "good",
     ]);
-    expect(insert.values[16]).toEqual([]);
+    expect(insert.values[18]).toEqual([]);
   });
 
   it("maps timestamps consistently and bounds latest/history queries with parameters", async () => {

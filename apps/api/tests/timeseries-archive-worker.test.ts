@@ -15,6 +15,7 @@ function fixtures(overrides: Partial<Record<string, unknown>> = {}) {
     adoptDailyFindingsArchiveGeneration: vi.fn(),
     isRealDataMode: () => false,
     realDataModeActivatedAt: () => null,
+    measurementArchiveDataMode: () => null,
     measurementArchivePage: (cursor: number) => cursor === 0 ? [{
       rowId: 1,
       record: {
@@ -121,7 +122,8 @@ describe("TelemetryArchiveWorker", () => {
   it("uses the live queue as a low-latency path without relying on it for checkpoints", async () => {
     const archiveStore = store();
     const bus = new TelemetryBus();
-    const worker = new TelemetryArchiveWorker(fixtures(), bus, archiveStore, { batchSize: 10 });
+    const database = fixtures({ measurementArchiveDataMode: vi.fn(() => "live") });
+    const worker = new TelemetryArchiveWorker(database, bus, archiveStore, { batchSize: 10 });
     await worker.start();
     await worker.reconcileNow();
     vi.mocked(archiveStore.upsertMeasurementSamples).mockClear();
@@ -133,7 +135,7 @@ describe("TelemetryArchiveWorker", () => {
     await worker.reconcileNow();
 
     expect(archiveStore.upsertMeasurementSamples).toHaveBeenCalledWith([
-      expect.objectContaining({ metric: "humidity", value: 45 }),
+      expect.objectContaining({ metric: "humidity", value: 45, dataMode: "live" }),
     ]);
     await worker.stop();
   });

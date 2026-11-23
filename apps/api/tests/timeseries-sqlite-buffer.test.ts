@@ -42,6 +42,19 @@ describe("SQLite telemetry archive buffer", () => {
 
   afterEach(() => database.close());
 
+  it("exports the exact persisted measurement's mode through both archive paths", () => {
+    const sample = {
+      sensorId, metric: "temperature", value: 22, canonicalUnit: "°C", source: "api",
+      timestamp: "2024-02-02T08:00:00.000Z", quality: "good",
+    } as const;
+    expect(database.measurementArchiveDataMode(sample)).toBeNull();
+    expect(database.insertMeasurementSamples([sample])).toHaveLength(1);
+    expect(database.measurementArchiveDataMode(sample)).toBe("live");
+    expect(database.measurementArchiveDataMode({ ...sample, value: 23 })).toBeNull();
+    expect(database.measurementArchivePage(0, 10_000)
+      .find(({ record }) => record.timestamp === sample.timestamp)?.record.dataMode).toBe("live");
+  });
+
   it("uses explicit monotonic IDs for rowid-less archive tables across delete and VACUUM", () => {
     addArchiveDoor(database, "archive-opening-house");
     database.upsertOutdoorTemperatureSample({
@@ -227,7 +240,9 @@ describe("SQLite telemetry archive buffer", () => {
     database.upsertLegacyReading(reading);
     database.upsertLegacyReading({ ...reading, temperature: 21 });
     const first = database.readingArchiveDirtyPage(10).at(0)!;
-    expect(first.record.temperature).toBe(21);
+    expect(first.record).toMatchObject({ temperature: 21, dataMode: "live" });
+    expect(database.readingArchivePage(0, 10_000)
+      .find(({ record }) => record.timestamp === reading.timestamp)?.record.dataMode).toBe("live");
 
     database.upsertLegacyReading({ ...reading, temperature: 22 });
     const second = database.readingArchiveDirtyPage(10).at(0)!;
@@ -351,6 +366,9 @@ describe("SQLite telemetry archive buffer", () => {
       .find(({ record }) => record.locationKey === "metadata-dirty-location")!;
     expect(dirty.record.conditions).toStrictEqual(updatedConditions);
     expect(dirty.record.conditions).not.toEqual(initialConditions);
+    expect(dirty.record.dataMode).toBe("live");
+    expect(database.outdoorTemperatureArchivePage(0, 10_000)
+      .find(({ record }) => record.locationKey === base.locationKey)?.record.dataMode).toBe("live");
   });
 
   it("never prunes rows newer than the durable archive watermarks", () => {
