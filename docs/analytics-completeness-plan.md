@@ -93,7 +93,11 @@ Existing Analytics queries retain their current behavior during the migration.
 Verified mode supports query-time display and summary aggregates, including
 counter deltas and time-weighted means. It scopes observations, rejected
 quality counts, and consumption boundary samples to the requested mode.
-Stored aggregates still need mode-specific identities before production cutover.
+Timescale can explicitly refresh a bounded range into separate verified
+continuous aggregates. They group by mode and index each mode's series
+independently. Compatibility reads and startup policies retain their existing
+behavior. Verified reads still compute from raw observations while refresh
+freshness, persisted ordered states and appliance cost are validated.
 
 Still to implement:
 

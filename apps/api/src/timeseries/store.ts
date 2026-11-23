@@ -1,3 +1,4 @@
+import "./store/methods/aggregate-refresh.js";
 import "./store/methods/analytics-rollup.js";
 import "./store/methods/archive-checkpoints.js";
 import "./store/methods/connection.js";

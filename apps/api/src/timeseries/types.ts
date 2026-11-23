@@ -390,10 +390,10 @@ export interface OpeningStateSnapshotQuery extends QueryControl {
   limit?: number;
 }
 
-export interface AggregateRefreshQuery extends QueryControl {
-  from?: string;
-  to?: string;
-}
+export type AggregateRefreshQuery = QueryControl & (
+  | { scope?: "compatibility"; from?: string; to?: string }
+  | { scope: "verified"; from: string; to: string }
+);
 
 export interface TelemetryStoreOptions {
   connectionString?: string;

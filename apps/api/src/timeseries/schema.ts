@@ -121,9 +121,14 @@ export const MEASUREMENT_ANALYTICS_BUCKETS = {
 } as const;
 
 export type MeasurementAnalyticsBaseBucket = keyof typeof MEASUREMENT_ANALYTICS_BUCKETS;
+export type MeasurementAnalyticsAggregateScope = "compatibility" | "verified";
 
-export function measurementAnalyticsAggregateName(bucket: MeasurementAnalyticsBaseBucket): string {
-  return `measurement_analytics_v2_${MEASUREMENT_ANALYTICS_BUCKETS[bucket].suffix}`;
+export function measurementAnalyticsAggregateName(
+  bucket: MeasurementAnalyticsBaseBucket,
+  scope: MeasurementAnalyticsAggregateScope = "compatibility",
+): string {
+  const prefix = scope === "verified" ? "measurement_analytics_verified_v1" : "measurement_analytics_v2";
+  return `${prefix}_${MEASUREMENT_ANALYTICS_BUCKETS[bucket].suffix}`;
 }
 
 export function buildBaseSchemaSql(schemaName: string): string[] {
@@ -583,15 +588,19 @@ export function buildFallbackAggregateSql(schemaName: string, bucket: Measuremen
 export function buildMeasurementAnalyticsAggregateSql(
   schemaName: string,
   bucket: MeasurementAnalyticsBaseBucket,
+  scope: MeasurementAnalyticsAggregateScope = "compatibility",
 ): string {
   const schema = validateSchemaName(schemaName);
   const interval = MEASUREMENT_ANALYTICS_BUCKETS[bucket].interval;
-  const aggregate = qualifiedName(schema, measurementAnalyticsAggregateName(bucket));
+  const aggregate = qualifiedName(schema, measurementAnalyticsAggregateName(bucket, scope));
   const measurements = qualifiedName(schema, "measurement_samples");
-  return `CREATE MATERIALIZED VIEW ${aggregate}
+  const verified = scope === "verified";
+  const modeDimension = verified ? "data_mode, " : "";
+  const modeFilter = verified ? "WHERE data_mode IN ('demo', 'live')" : "";
+  return `CREATE MATERIALIZED VIEW ${verified ? "IF NOT EXISTS " : ""}${aggregate}
     WITH (timescaledb.continuous, timescaledb.materialized_only = true)
     AS SELECT
-      sensor_id,
+      ${modeDimension}sensor_id,
       metric,
       source,
       quality,
@@ -606,7 +615,8 @@ export function buildMeasurementAnalyticsAggregateSql(
       last(value, observed_at)::DOUBLE PRECISION AS last_value,
       max(observed_at) AS last_at
     FROM ${measurements}
-    GROUP BY sensor_id, metric, source, quality, canonical_unit,
+    ${modeFilter}
+    GROUP BY ${modeDimension}sensor_id, metric, source, quality, canonical_unit,
       time_bucket(INTERVAL '${interval}', observed_at)
     WITH NO DATA`;
 }
