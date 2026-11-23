@@ -83,9 +83,11 @@ existing tags when replaying unclassified rows. Workspaces still use the
 irreversible mode latch for production reads until the query and aggregate
 migration is ready.
 
-Internal raw measurement reads can now request an explicit verified mode.
-SQLite and Timescale filter before limiting results, and the hybrid reader
-discards an in-flight demo read if the workspace activates live mode.
+Internal raw measurement and coverage reads can now request an explicit
+verified mode. SQLite and Timescale filter before selecting limited results
+or coverage boundaries. The hybrid reader discards an in-flight demo read if
+the workspace activates live mode. Coverage shows the first and last verified
+observations for each series. Gaps can still exist inside those bounds.
 Existing Analytics queries retain their current behavior during the migration.
 
 Still to implement:

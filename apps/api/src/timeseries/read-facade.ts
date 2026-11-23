@@ -11,6 +11,7 @@ import type {
   Sensor,
 } from "@climate-twin/contracts";
 import type {
+  ArchiveMeasurementCoverageRecord,
   EnergyCostAggregateQuery,
   EnergyCostAggregateRecord,
   ElectricityPriceHistoryQuery,
@@ -38,7 +39,7 @@ import type {
   ThermalMeasurementHistoryQuery,
 } from "./types.js";
 import { bucketLegacyReadings, bucketMeasurementSamples } from "./read-buckets.js";
-import { archivedElectricityPrice, archivedMeasurement, archivedOpeningState, archivedOutdoor, archivedReading, compareElectricityPrices, compareMeasurements, compareOpeningStates, compareOutdoor, compareReadings, electricityPriceKey, measurementCoverageKey, measurementKey, openingStateIdentityKey, openingStateKey, outdoorKey, readingKey } from "./read-records.js";
+import { archivedElectricityPrice, archivedMeasurement, archivedOpeningState, archivedOutdoor, archivedReading, compareElectricityPrices, compareMeasurements, compareOpeningStates, compareOutdoor, compareReadings, electricityPriceKey, measurementKey, mergeMeasurementCoverage, openingStateIdentityKey, openingStateKey, outdoorKey, readingKey } from "./read-records.js";
 import {
   DEFAULT_HISTORY_LIMIT,
   DEFAULT_WINDOW_LIMIT,
@@ -61,7 +62,6 @@ import { readMeasurementAnalyticsRollup, type HybridMeasurementAnalyticsRollupRe
 import { readCostAggregate } from "./read-energy-cost.js";
 import { withTariffPrice } from "../electricity/tariff-cost.js";
 import { readPowerProfile, type LocalPowerProfileQuery, type PowerProfile } from "./read-power-profile.js";
-import { compareCodeUnits } from "../text-order.js";
 import { HttpError } from "../http-error.js";
 
 export { bucketLegacyReadings, bucketMeasurementSamples };
@@ -87,6 +87,7 @@ export interface LocalTelemetryReader {
   measurementHistoryBucketedAsync(query: MeasurementHistoryBucketedQuery & { toExclusive?: boolean }): Promise<MeasurementSample[]>;
   measurementBoundarySamples(query: MeasurementBoundaryQuery): MeasurementSample[];
   measurementCoverage(sensorIds: string[], metrics: string[]): MeasurementCoverageRecord[];
+  measurementCoverageAsync(query: MeasurementCoverageQuery): Promise<MeasurementCoverageRecord[]>;
   measurementSampleGaps(
     sensorId: string,
     metric: string,
@@ -137,7 +138,7 @@ export interface LocalTelemetryReader {
 /** Structural archive methods used by the hybrid reader. */
 export interface ArchiveTelemetryReader {
   measurementBoundarySamples?(query: MeasurementBoundaryQuery): Promise<MeasurementSampleRecord[]>;
-  measurementCoverage?(query: MeasurementCoverageQuery): Promise<MeasurementCoverageRecord[]>;
+  measurementCoverage?(query: MeasurementCoverageQuery): Promise<ArchiveMeasurementCoverageRecord[]>;
   measurementSampleGaps?(query: MeasurementGapQuery): Promise<MeasurementGapRecord[]>;
   measurementHistory(query: MeasurementHistoryQuery): Promise<MeasurementSampleRecord[]>;
   measurementHistoryBucketed?(query: MeasurementHistoryBucketedQuery): Promise<MeasurementSampleRecord[]>;
@@ -608,7 +609,7 @@ export class HybridTelemetryReader {
     const cancellation = aborted(query.signal);
     if (cancellation) throw cancellation;
     const { dataMode } = query;
-    this.#assertWindowDataMode(dataMode);
+    this.#assertReadDataMode(dataMode);
     const windowQuery = { ...query, sensorIds, metrics, limit };
     const result = await this.#read({
       family: "measurement",
@@ -644,7 +645,7 @@ export class HybridTelemetryReader {
       key: measurementKey,
       compare: compareMeasurements,
     });
-    this.#assertWindowDataMode(dataMode);
+    this.#assertReadDataMode(dataMode);
     return result;
   }
 
@@ -660,11 +661,18 @@ export class HybridTelemetryReader {
   }
 
   async measurementCoverage(query: MeasurementCoverageQuery): Promise<HybridMeasurementCoverageResult> {
-    const cancellation = aborted(query.signal);
+    const { dataMode, signal } = query;
+    const cancellation = aborted(signal);
     if (cancellation) throw cancellation;
+    this.#assertReadDataMode(dataMode);
     const sensorIds = unique(query.sensorIds);
     const metrics = unique(query.metrics);
-    const local = this.#local.measurementCoverage(sensorIds, metrics);
+    const scoped = { ...query, sensorIds, metrics };
+    const local = dataMode === undefined
+      ? this.#local.measurementCoverage(sensorIds, metrics)
+      : await this.#local.measurementCoverageAsync(scoped);
+    signal?.throwIfAborted();
+    this.#assertReadDataMode(dataMode);
     const localComplete = this.#localHistoryComplete === true;
     if (!this.#archive) return { records: local, archiveState: "not-configured", complete: localComplete };
     const phase = this.#archivePhase ? this.#safeArchivePhase() : "ready";
@@ -674,34 +682,28 @@ export class HybridTelemetryReader {
     if (!this.#archive.measurementCoverage) {
       return { records: local, archiveState: "failed", complete: localComplete };
     }
+    let archived: ArchiveMeasurementCoverageRecord[];
     try {
-      const archived = await this.#archive.measurementCoverage({
-        ...query,
-        sensorIds,
-        metrics,
+      archived = await this.#archive.measurementCoverage({
+        ...scoped,
         excludeSynthetic: this.#local.isRealDataMode(),
       });
-      const merged = new Map<string, MeasurementCoverageRecord>();
-      for (const record of [...archived, ...local]) {
-        const key = measurementCoverageKey(record);
-        const current = merged.get(key);
-        merged.set(key, current ? {
-          ...current,
-          start: current.start < record.start ? current.start : record.start,
-          end: current.end > record.end ? current.end : record.end,
-        } : record);
+      if (dataMode !== undefined && archived.some((record) => record.dataMode !== dataMode)) {
+        throw new Error("Archive coverage returned a series without the requested verified data mode");
       }
-      return {
-        records: [...merged.values()].sort((left, right) => compareCodeUnits(left.sensorId, right.sensorId) || compareCodeUnits(left.metric, right.metric)),
-        archiveState: "merged",
-        complete: true,
-      };
-    } catch (error) {
-      const afterFailureCancellation = aborted(query.signal);
-      if (afterFailureCancellation) throw afterFailureCancellation;
+    } catch {
+      signal?.throwIfAborted();
+      this.#assertReadDataMode(dataMode);
       this.#requestReconciliation();
       return { records: local, archiveState: "failed", complete: localComplete };
     }
+    signal?.throwIfAborted();
+    this.#assertReadDataMode(dataMode);
+    return {
+      records: mergeMeasurementCoverage([...archived, ...local]),
+      archiveState: "merged",
+      complete: true,
+    };
   }
 
   async legacyReadingHistory(query: LegacyReadingHistoryQuery): Promise<HybridTelemetryReadResult<Reading>> {
@@ -857,7 +859,7 @@ export class HybridTelemetryReader {
     });
   }
 
-  #assertWindowDataMode(dataMode: DataMode | undefined): void {
+  #assertReadDataMode(dataMode: DataMode | undefined): void {
     if (dataMode === undefined) return;
     const activeMode = this.#local.isRealDataMode() ? "live" : "demo";
     if (dataMode !== activeMode) {

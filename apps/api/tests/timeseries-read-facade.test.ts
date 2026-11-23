@@ -122,6 +122,7 @@ function localReader(overrides: Partial<LocalTelemetryReader> = {}): LocalTeleme
   const reader: LocalTelemetryReader = {
     isRealDataMode: vi.fn(() => false),
     measurementCoverage: vi.fn(() => []),
+    measurementCoverageAsync: vi.fn(async () => []),
     measurementHistory: vi.fn(() => []),
     measurementHistoryBucketed: vi.fn(() => []),
     measurementWindow: vi.fn(() => []),

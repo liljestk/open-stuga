@@ -2,7 +2,7 @@ import { Worker } from "node:worker_threads";
 import { fileURLToPath } from "node:url";
 import type { MeasurementSample } from "@climate-twin/contracts";
 import { AnalyticsWorkLimiter } from "../analytics/work-limiter.js";
-import type { EnergyCostAggregateQuery, EnergyCostAggregateRecord, MeasurementWindowQuery, ThermalMeasurementHistoryQuery } from "./types.js";
+import type { EnergyCostAggregateQuery, EnergyCostAggregateRecord, MeasurementCoverageQuery, MeasurementCoverageRecord, MeasurementWindowQuery, ThermalMeasurementHistoryQuery } from "./types.js";
 import type { LocalBucketQuery, LocalSensorPageQuery, LocalTelemetryWorkerOperation, LocalTelemetryWorkerRequest } from "./local-telemetry-worker-thread.js";
 import type { ExportTable, DatabaseIntegrityResult } from "../db/inspection.js";
 import type { LocalPowerProfileQuery, PowerProfile } from "./read-power-profile.js";
@@ -55,6 +55,10 @@ export class LocalTelemetryWorker {
   readWindow(query: MeasurementWindowQuery): Promise<MeasurementSample[]> {
     const { signal, ...serializableQuery } = query;
     return this.#run({ metric: "window", query: serializableQuery }, signal);
+  }
+  readCoverage(query: MeasurementCoverageQuery): Promise<MeasurementCoverageRecord[]> {
+    const { signal, ...serializableQuery } = query;
+    return this.#run({ metric: "coverage", query: serializableQuery }, signal);
   }
   readPowerProfile(query: LocalPowerProfileQuery): Promise<PowerProfile> {
     const { signal, ...serializableQuery } = query;

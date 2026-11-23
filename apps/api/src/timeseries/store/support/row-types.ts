@@ -156,6 +156,7 @@ export interface MeasurementBucketRow extends QueryResultRow {
 }
 
 export interface MeasurementCoverageRow extends QueryResultRow {
+  data_mode?: DataMode;
   sensor_id: string;
   metric: string;
   coverage_start: string | Date;

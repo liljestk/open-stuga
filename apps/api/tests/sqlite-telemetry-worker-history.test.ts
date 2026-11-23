@@ -27,7 +27,7 @@ function fixture(count: number) {
 }
 
 describe("isolated local history reads", () => {
-  it("applies the persisted mode before limiting a raw window in the SQLite worker", async () => {
+  it("uses persisted mode for raw windows and coverage in the SQLite worker", async () => {
     const context = fixture(24);
     try {
       const { database } = context;
@@ -40,6 +40,11 @@ describe("isolated local history reads", () => {
       expect(await database.measurementWindowAsync({ ...window, dataMode: "live" })).toEqual([verified]);
       expect(await database.measurementWindowAsync({ ...window, dataMode: "demo" })).toEqual([]);
       expect(await database.measurementWindowAsync(window)).toMatchObject([{ timestamp: to, value: 25 }]);
+      const syncCoverage = vi.spyOn(database, "measurementCoverage");
+      expect(await database.measurementCoverageAsync({ ...window, dataMode: "live" })).toEqual([{
+        sensorId: query.sensorId, metric: query.metric, start: verified.timestamp, end: verified.timestamp,
+      }]);
+      expect(syncCoverage).not.toHaveBeenCalled();
     } finally { context.close(); }
   }, 30000);
 

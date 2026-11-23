@@ -40,6 +40,8 @@ export interface MeasurementCoverageRecord {
   end: string;
 }
 
+export type ArchiveMeasurementCoverageRecord = MeasurementCoverageRecord & { dataMode?: DataMode };
+
 export interface LegacyReadingRecord {
   dataMode?: DataMode | null;
   sensorId: string;
@@ -341,6 +343,8 @@ export interface MeasurementCoverageQuery extends QueryControl {
   metrics: readonly string[];
   /** Real-data mode must not let archived mock/replay rows widen the visible range. */
   excludeSynthetic?: boolean;
+  /** Bounds of verified observations in this mode. Omit for compatibility reads. */
+  dataMode?: DataMode;
 }
 
 export interface MeasurementBucketQuery extends MeasurementHistoryQuery {

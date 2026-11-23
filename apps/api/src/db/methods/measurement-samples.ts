@@ -38,7 +38,7 @@ declare module "../core.js" {
             id: number;
         } | null;
     };
-    measurementCoverage(sensorIds: string[], metrics: string[]): MeasurementCoverageRecord[];
+    measurementCoverage(sensorIds: readonly string[], metrics: readonly string[], dataMode?: DataMode): MeasurementCoverageRecord[];
     measurementHistoryBucketed(query: LocalBucketQuery): MeasurementSample[];
     measurementHistoryBucketedMulti(query: MeasurementHistoryBucketedMultiQuery): MeasurementSample[];
     sensorMeasurementPage(sensorId: string, before: {
@@ -74,7 +74,7 @@ declare module "../core.js" {
             id: number;
         } | null;
     };
-    measurementCoverage(sensorIds: string[], metrics: string[]): MeasurementCoverageRecord[];
+    measurementCoverage(sensorIds: readonly string[], metrics: readonly string[], dataMode?: DataMode): MeasurementCoverageRecord[];
     measurementHistoryBucketed(query: LocalBucketQuery): MeasurementSample[];
     measurementHistoryBucketedMulti(query: MeasurementHistoryBucketedMultiQuery): MeasurementSample[];
     sensorMeasurementPage(sensorId: string, before: {
@@ -267,7 +267,7 @@ registerDatabaseMethods({
         next: hasMore && last ? { timestamp: last.timestamp, id: last.id } : null,
       };
     },
-  measurementCoverage(sensorIds: string[], metrics: string[]): MeasurementCoverageRecord[] {
+  measurementCoverage(sensorIds: readonly string[], metrics: readonly string[], dataMode?: DataMode): MeasurementCoverageRecord[] {
       const visibleSensorIds = [...new Set(sensorIds)].filter((id) => Boolean(this.getSensor(id))).sort(compareCodeUnits);
       const requestedMetrics = [...new Set(metrics)].sort(compareCodeUnits);
       if (visibleSensorIds.length === 0 || requestedMetrics.length === 0) return [];
@@ -275,19 +275,23 @@ registerDatabaseMethods({
       // entry, so its runtime grows with retained history and the statement
       // blocks the event loop for the whole scan. Probing each boundary
       // separately keeps every statement a single covering-index descent, so
-      // the call stays O(pairs) regardless of how much telemetry is retained.
+      // compatibility reads stay O(pairs). Verified-mode probes can walk
+      // unclassified history, so the hybrid reader runs them on the worker.
+      const seriesFilter = "WHERE sensor_id = ? AND metric = ?";
+      const modeFilter = dataMode === undefined ? "" : " AND data_mode = ?";
+      const modeParameters = dataMode === undefined ? [] : [dataMode];
       const earliest = this.db.prepare(
-        "SELECT MIN(timestamp) AS boundary FROM measurement_samples WHERE sensor_id = ? AND metric = ?",
+        `SELECT MIN(timestamp) AS boundary FROM measurement_samples ${seriesFilter}${modeFilter}`,
       );
       const latest = this.db.prepare(
-        "SELECT MAX(timestamp) AS boundary FROM measurement_samples WHERE sensor_id = ? AND metric = ?",
+        `SELECT MAX(timestamp) AS boundary FROM measurement_samples ${seriesFilter}${modeFilter}`,
       );
       const records: MeasurementCoverageRecord[] = [];
       for (const sensorId of visibleSensorIds) {
         for (const metric of requestedMetrics) {
-          const start = (earliest.get(sensorId, metric) as { boundary: string | null }).boundary;
+          const start = (earliest.get(sensorId, metric, ...modeParameters) as { boundary: string | null }).boundary;
           if (start === null) continue;
-          const end = (latest.get(sensorId, metric) as { boundary: string | null }).boundary;
+          const end = (latest.get(sensorId, metric, ...modeParameters) as { boundary: string | null }).boundary;
           records.push({ sensorId, metric, start, end: end ?? start });
         }
       }
