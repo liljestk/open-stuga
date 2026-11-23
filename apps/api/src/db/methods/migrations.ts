@@ -1,6 +1,7 @@
 import type { Floor } from "@climate-twin/contracts";
 import { parseJson } from "../support/json-values.js";
 import { registerDatabaseMethods } from "../core.js";
+import { migrateLocalTelemetryMode } from "../migrations/local-telemetry-mode.js";
 
 declare module "../core.js" {
   interface DatabaseInternals {
@@ -106,6 +107,7 @@ registerDatabaseMethods({
         this.migrateMaintenanceOwnership();
         this.migratePropertyAndObservationIntegrity();
         this.migrateMeasurementAndActionSchema();
+        migrateLocalTelemetryMode(this.db);
       });
     },
   /**

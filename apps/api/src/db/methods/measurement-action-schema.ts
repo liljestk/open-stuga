@@ -362,11 +362,11 @@ registerDatabaseMethods({
         if (this.db.prepare("SELECT value FROM metadata WHERE key = 'measurement_eav_v2'").get()) return;
         this.db.exec(`
           INSERT OR IGNORE INTO measurement_samples
-            (sensor_id, metric, value, canonical_unit, timestamp, source, quality)
-          SELECT sensor_id, 'temperature', temperature, '°C', timestamp, source, quality FROM readings;
+            (sensor_id, metric, value, canonical_unit, timestamp, source, quality, data_mode)
+          SELECT sensor_id, 'temperature', temperature, '°C', timestamp, source, quality, data_mode FROM readings;
           INSERT OR IGNORE INTO measurement_samples
-            (sensor_id, metric, value, canonical_unit, timestamp, source, quality)
-          SELECT sensor_id, 'humidity', humidity, '%', timestamp, source, quality FROM readings;
+            (sensor_id, metric, value, canonical_unit, timestamp, source, quality, data_mode)
+          SELECT sensor_id, 'humidity', humidity, '%', timestamp, source, quality, data_mode FROM readings;
           INSERT OR IGNORE INTO sensor_recorded_measurements(sensor_id, metric)
             SELECT DISTINCT sensor_id, metric FROM measurement_samples
             WHERE source NOT IN ('mock', 'replay');
@@ -395,8 +395,8 @@ registerDatabaseMethods({
           const tauHours = 8;
           const liftC = 16;
           const insert = this.db.prepare(`INSERT OR IGNORE INTO outdoor_temperature_samples
-            (house_id, location_key, timestamp, temperature_c, source, fetched_at, station_id, station_name)
-            VALUES (?, ?, ?, ?, 'mock', ?, NULL, ?)`);
+            (house_id, location_key, timestamp, temperature_c, source, fetched_at, station_id, station_name, data_mode)
+            VALUES (?, ?, ?, ?, 'mock', ?, NULL, ?, 'demo')`);
           let lastOutdoorC = readings[0]?.temperature ?? 0;
           for (let index = 0; index < readings.length - 1; index += 1) {
             const current = readings[index];

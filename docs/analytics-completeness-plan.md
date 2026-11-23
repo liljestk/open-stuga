@@ -75,11 +75,16 @@ delivery. A job already handed off may finish in its assigned folder.
 Legacy queued NAS requests require a fresh run because their mode is unknown.
 Direct Timescale restore still needs an independent lineage check.
 
+SQLite now records immutable mode for new local measurements, legacy
+readings, and outdoor temperatures. The additive migration leaves older rows
+unclassified and preserves existing row IDs. Today the irreversible workspace
+mode still gates production reads. Archive writers and aggregate identities
+will consume the new provenance after the coordinated migration.
+
 Still to implement:
 
-- Inventory every SQLite/Timescale raw, current, outbox, aggregate, export and
-  derived store before changing schemas. Write one coordinated, versioned
-  migration for explicit per-record data mode and mode-scoped identities/indexes.
+- Finish the SQLite/Timescale inventory and coordinated migration for explicit
+  per-record data mode and mode-scoped identities and indexes.
   Existing database-wide demo-to-real isolation remains the production boundary
   until that migration and restore/rollback checks pass.
 - Rebuild and validate affected aggregate identities and queries; prove demo

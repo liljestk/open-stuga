@@ -1,4 +1,4 @@
-import type { MeasurementSample, SensorDataGapSource } from "@climate-twin/contracts";
+import type { DataMode, MeasurementSample, SensorDataGapSource } from "@climate-twin/contracts";
 import { DEMO_TELEMETRY_SOURCES } from "../support/domain-limits.js";
 import { MeasurementSampleRow } from "../support/row-types.js";
 import { ClimateDataValidationError } from "../support/validation-errors.js";
@@ -8,14 +8,16 @@ import type { LocalBucketQuery } from "../../timeseries/local-telemetry-worker-t
 import type { MeasurementHistoryBucketedMultiQuery, MeasurementWindowQuery, ThermalHistoryWindowQuery, MeasurementCoverageRecord } from "../../timeseries/types.js";
 import { compareCodeUnits } from "../../text-order.js";
 
+interface MeasurementInsertOptions {
+  dataMode: DataMode | null;
+  deduplicateAcrossSources?: boolean;
+  enqueueAlertEvaluation?: boolean;
+  deferDerivedInvalidation?: boolean;
+}
+
 declare module "../core.js" {
   interface DatabaseInternals {
-    insertMeasurementSample(
-        sample: MeasurementSample,
-        deduplicateAcrossSources?: boolean,
-        enqueueAlertEvaluation?: boolean,
-        deferDerivedInvalidation?: boolean,
-      ): boolean;
+    insertMeasurementSample(sample: MeasurementSample, options: MeasurementInsertOptions): boolean;
     insertMeasurementSamples(samples: MeasurementSample[], options?: {
             deduplicateAcrossSources?: boolean;
             enqueueAlertEvaluation?: boolean;
@@ -91,9 +93,7 @@ declare module "../core.js" {
 registerDatabaseMethods({
   insertMeasurementSample(
       sample: MeasurementSample,
-      deduplicateAcrossSources = false,
-      enqueueAlertEvaluation = false,
-      deferDerivedInvalidation = false,
+      { dataMode, deduplicateAcrossSources, enqueueAlertEvaluation, deferDerivedInvalidation }: MeasurementInsertOptions,
     ): boolean {
       const sensor = this.getSensor(sample.sensorId);
       if (!sensor) return false;
@@ -101,8 +101,8 @@ registerDatabaseMethods({
         WHERE sensor_id = ? AND metric = ? AND timestamp = ? LIMIT 1`)
         .get(sample.sensorId, sample.metric, sample.timestamp)) return false;
       const result = this.db.prepare(`INSERT OR IGNORE INTO measurement_samples
-        (sensor_id, metric, value, canonical_unit, timestamp, source, quality) VALUES (?, ?, ?, ?, ?, ?, ?)`)
-        .run(sample.sensorId, sample.metric, sample.value, sample.canonicalUnit, sample.timestamp, sample.source, sample.quality);
+        (sensor_id, metric, value, canonical_unit, timestamp, source, quality, data_mode) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run(sample.sensorId, sample.metric, sample.value, sample.canonicalUnit, sample.timestamp, sample.source, sample.quality, dataMode);
       if (Number(result.changes) === 0) return false;
       if (!DEMO_TELEMETRY_SOURCES.has(sample.source)) {
         this.db.prepare("INSERT OR IGNORE INTO sensor_recorded_measurements(sensor_id, metric) VALUES (?, ?)")
@@ -122,15 +122,11 @@ registerDatabaseMethods({
       options: { deduplicateAcrossSources?: boolean; enqueueAlertEvaluation?: boolean } = {},
     ): MeasurementSample[] {
       return this.immediateTransaction(() => {
-        this.prepareTelemetrySources(samples.map((sample) => sample.source));
+        const dataMode = this.prepareTelemetrySources(samples.map((sample) => sample.source));
+        const insertOptions = { ...options, dataMode, deferDerivedInvalidation: true };
         const inserted: MeasurementSample[] = [];
         for (const sample of samples) {
-          if (this.insertMeasurementSample(
-            sample,
-            options.deduplicateAcrossSources,
-            options.enqueueAlertEvaluation,
-            true,
-          )) inserted.push(sample);
+          if (this.insertMeasurementSample(sample, insertOptions)) inserted.push(sample);
         }
         const intervals = new Map<string, { from: string; to: string }>();
         for (const sample of inserted) {

@@ -11,6 +11,7 @@ All notable Stugu releases are recorded here.
 - Restoring a Stugu logical archive backup also refreshes daily findings, even if the SQLite evidence has no new writes.
 - Scheduled demo CSVs use separate NAS and cloud folders. An export whose data mode changes before handoff requires a fresh run.
 - Upgrade impact. SQLite creates the saved-view and daily findings evidence tables on startup. The worker refreshes existing daily findings on its next run. The API adds four authenticated saved-view operations. Adaptive monitoring is currently available as offline evaluation tooling.
+- SQLite also records data mode for newly ingested local measurements, legacy readings, and outdoor samples. Older records retain unknown provenance.
 - Update the API and backup scheduler together. NAS requests queued by an earlier version require a fresh run.
 
 ## 0.62.2

@@ -1,4 +1,4 @@
-import type { Reading } from "@climate-twin/contracts";
+import type { DataMode, Reading } from "@climate-twin/contracts";
 import { TelemetryArchiveWatermarks } from "../support/record-types.js";
 import { ReadingRow } from "../support/row-types.js";
 import { readingFromRow } from "../support/row-mappers.js";
@@ -7,10 +7,10 @@ import { ClimateDataValidationError } from "../support/validation-errors.js";
 
 declare module "../core.js" {
   interface DatabaseInternals {
-    insertReading(reading: Reading, enqueueAlertEvaluation?: boolean): boolean;
+    insertReading(reading: Reading, enqueueAlertEvaluation?: boolean, dataMode?: DataMode | null): boolean;
     insertLegacyReading(reading: Reading): boolean;
     upsertLegacyReading(reading: Reading): boolean;
-    insertLegacyReadingUnchecked(reading: Reading): boolean;
+    insertLegacyReadingUnchecked(reading: Reading, dataMode: DataMode | null): boolean;
     insertReadings(readings: Reading[], options?: { enqueueAlertEvaluation?: boolean }): Reading[];
     latestReadings(sensorIds?: string[]): Reading[];
     getLatestReading(sensorId: string): Reading | null;
@@ -32,8 +32,8 @@ declare module "../core.js" {
 }
 
 registerDatabaseMethods({
-  insertReading(reading: Reading, enqueueAlertEvaluation = false): boolean {
-      const inserted = this.insertLegacyReadingUnchecked(reading);
+  insertReading(reading: Reading, enqueueAlertEvaluation = false, dataMode: DataMode | null = null): boolean {
+      const inserted = this.insertLegacyReadingUnchecked(reading, dataMode);
       if (inserted) {
         const values: Record<string, number> = {
           ...(reading.measurements ?? {}),
@@ -51,45 +51,45 @@ registerDatabaseMethods({
             timestamp: reading.timestamp,
             source: reading.source,
             quality: reading.quality,
-          }, false, enqueueAlertEvaluation);
+          }, { dataMode, enqueueAlertEvaluation });
         }
       }
       return inserted;
     },
   insertLegacyReading(reading: Reading): boolean {
       return this.immediateTransaction(() => {
-        this.prepareTelemetrySources([reading.source]);
-        return this.insertLegacyReadingUnchecked(reading);
+        const dataMode = this.prepareTelemetrySources([reading.source]);
+        return this.insertLegacyReadingUnchecked(reading, dataMode);
       });
     },
   upsertLegacyReading(reading: Reading): boolean {
       if (!this.getSensor(reading.sensorId)) return false;
       return this.immediateTransaction(() => {
-        this.prepareTelemetrySources([reading.source]);
+        const dataMode = this.prepareTelemetrySources([reading.source]);
         const result = this.db.prepare(`INSERT INTO readings
-          (sensor_id, timestamp, temperature, humidity, battery, source, quality) VALUES (?, ?, ?, ?, ?, ?, ?)
+          (sensor_id, timestamp, temperature, humidity, battery, source, quality, data_mode) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(sensor_id, timestamp, source) DO UPDATE SET
             temperature = excluded.temperature,
             humidity = excluded.humidity,
             battery = excluded.battery,
             quality = excluded.quality`)
-          .run(reading.sensorId, reading.timestamp, reading.temperature, reading.humidity, reading.battery, reading.source, reading.quality);
+          .run(reading.sensorId, reading.timestamp, reading.temperature, reading.humidity, reading.battery, reading.source, reading.quality, dataMode);
         return Number(result.changes) > 0;
       });
     },
-  insertLegacyReadingUnchecked(reading: Reading): boolean {
+  insertLegacyReadingUnchecked(reading: Reading, dataMode: DataMode | null): boolean {
       if (!this.getSensor(reading.sensorId)) return false;
       const result = this.db.prepare(`INSERT OR IGNORE INTO readings
-        (sensor_id, timestamp, temperature, humidity, battery, source, quality) VALUES (?, ?, ?, ?, ?, ?, ?)`)
-        .run(reading.sensorId, reading.timestamp, reading.temperature, reading.humidity, reading.battery, reading.source, reading.quality);
+        (sensor_id, timestamp, temperature, humidity, battery, source, quality, data_mode) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run(reading.sensorId, reading.timestamp, reading.temperature, reading.humidity, reading.battery, reading.source, reading.quality, dataMode);
       return Number(result.changes) > 0;
     },
   insertReadings(readings: Reading[], options: { enqueueAlertEvaluation?: boolean } = {}): Reading[] {
       return this.immediateTransaction(() => {
-        this.prepareTelemetrySources(readings.map((reading) => reading.source));
+        const dataMode = this.prepareTelemetrySources(readings.map((reading) => reading.source));
         const inserted: Reading[] = [];
         for (const reading of readings) {
-          if (this.insertReading(reading, options.enqueueAlertEvaluation)) inserted.push(reading);
+          if (this.insertReading(reading, options.enqueueAlertEvaluation, dataMode)) inserted.push(reading);
         }
         return inserted;
       });
