@@ -214,7 +214,7 @@ export interface MeasurementAnalyticsRollupQuery extends QueryControl {
   qualities: readonly TelemetryQuality[];
   /** Real-data mode excludes archived demo/replay rows before all calculations. */
   excludeSynthetic?: boolean;
-  /** Restricts mergeable analytics to observations with this verified mode. */
+  /** Restricts analytics to observations with this verified mode. */
   dataMode?: DataMode;
   /**
    * Read alongside the display buckets. Ordered series whose stored variant

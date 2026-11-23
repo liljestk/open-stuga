@@ -218,6 +218,7 @@ async function executeOrderedRollup(
   { query, series, summary }: OrderedRollupRead,
 ): Promise<OrderedRollupRecords> {
   if (series.length === 0) return { series: [], summary: [] };
+  const { dataMode } = query;
   const mask = qualityMask(query.qualities);
   const sourceScope = query.excludeSynthetic === true ? "real" : "all";
   const orderedSeconds = orderedSecondsFor(query.resolution, series);
@@ -230,25 +231,27 @@ async function executeOrderedRollup(
     orderedSeconds,
     query,
   );
-  const result = await store.__query<MeasurementAnalyticsRow>(orderedAnalyticsSql(store.schema), [
+  const result = await store.__query<MeasurementAnalyticsRow>(orderedAnalyticsSql(store.schema, dataMode !== undefined), [
     requestRows(series, summary),
     query.from,
     query.to,
     [...query.qualities],
     analyticsInterval(query.resolution),
     query.excludeSynthetic === true,
-    mask,
+    dataMode ?? mask,
     orderedSeconds,
   ], query).catch(async (error: unknown) => {
     // Without the read's plan, prepare the variants anyway so a read that
     // keeps failing still lets the worker materialize them.
-    if (!query.signal?.aborted) await enqueue(series).catch(() => undefined);
+    if (dataMode === undefined && !query.signal?.aborted) await enqueue(series).catch(() => undefined);
     throw error;
   });
   // Reads write only when their stored variants are missing or not clean.
   const unprepared = new Set(result.rows.filter((row) => row.preparation_required === true)
     .map((row) => JSON.stringify([row.sensor_id, row.metric])));
-  if (unprepared.size > 0) await enqueue(series.filter((item) => unprepared.has(seriesKey(item))));
+  if (dataMode === undefined && unprepared.size > 0) {
+    await enqueue(series.filter((item) => unprepared.has(seriesKey(item))));
+  }
   assertReadableRows(result.rows, true);
   return {
     series: seriesRecords(result.rows, series, false),
@@ -331,9 +334,6 @@ registerTimeseriesStoreMethods({
     }
     assertSummarySubset(query);
     const ordered = query.series.filter(isOrdered);
-    if (query.dataMode !== undefined && ordered.length > 0) {
-      throw new RangeError("Verified mode is not available on ordered analytics rollups");
-    }
     const orderedSummary = query.summary?.series.filter(isOrdered) ?? [];
     // Display and summary buckets share one ordered pass when both read the
     // same stored variant; only the re-bucketing width differs.

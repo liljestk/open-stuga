@@ -223,8 +223,9 @@ describe("analytics kernel parity between raw aggregation and archive rollups", 
     for (const sql of buildBaseSchemaSql("telemetry")) await archive.exec(sql);
     const rows = cases.flatMap((scenario) => scenario.samples);
     await archive.query(`INSERT INTO telemetry.measurement_samples
-      (sensor_id, metric, observed_at, source, value, canonical_unit, quality)
-      SELECT * FROM unnest($1::TEXT[], $2::TEXT[], $3::TIMESTAMPTZ[], $4::TEXT[], $5::DOUBLE PRECISION[], $6::TEXT[], $7::TEXT[])`, [
+      (sensor_id, metric, observed_at, source, value, canonical_unit, quality, data_mode)
+      SELECT fixture.*, 'live' FROM unnest($1::TEXT[], $2::TEXT[], $3::TIMESTAMPTZ[], $4::TEXT[],
+        $5::DOUBLE PRECISION[], $6::TEXT[], $7::TEXT[]) fixture`, [
       rows.map((row) => row.sensorId), rows.map((row) => row.metric), rows.map((row) => row.timestamp),
       rows.map((row) => row.source), rows.map((row) => row.value), rows.map((row) => row.canonicalUnit),
       rows.map((row) => row.quality),
@@ -275,7 +276,7 @@ describe("analytics kernel parity between raw aggregation and archive rollups", 
   const expectedComparisons = () => cases.reduce((total, scenario) => total + scenario.aggregations.length, 0)
     * RESOLUTIONS.length * QUALITY_FILTERS.length;
 
-  async function compare(scenario: Scenario, variant: string): Promise<number> {
+  async function compare(scenario: Scenario, variant: string, verified = false): Promise<number> {
     const definition = definitions.get(scenario.metric)!;
     const entities = [{ id: scenario.sensorId, label: scenario.sensorId }];
     let compared = 0;
@@ -309,7 +310,9 @@ describe("analytics kernel parity between raw aggregation and archive rollups", 
           // As the executor does: time-weighted summaries come from base
           // buckets read with the display buckets.
           const summary = planSummaryRollup(plan);
-          const rollup = await archiveRollup({ ...plan, ...(summary ? { summary } : {}), excludeSynthetic: true });
+          const rollup = await archiveRollup({
+            ...plan, ...(summary ? { summary } : {}), excludeSynthetic: true, ...(verified ? { dataMode: "live" } : {}),
+          });
           expect(rollup.summary === undefined, label).toBe(summary === null);
           const fromArchive = buildAnalyticsResponseFromRollup({
             request, definitions: [definition], entities, plan, rollup, summaryRollup: rollup.summary ?? null,
@@ -334,6 +337,16 @@ describe("analytics kernel parity between raw aggregation and archive rollups", 
     } finally {
       clock = null;
     }
+  }, 180_000);
+
+  it("matches kernel deltas, time-weighted values and consumption for verified mode", async () => {
+    let compared = 0;
+    for (const scenario of cases.filter(({ metric }) => metric !== "temperature")) {
+      const aggregations = scenario.aggregations.filter((aggregation) =>
+        aggregation === "delta" || aggregation === "time_weighted_mean");
+      compared += await compare({ ...scenario, aggregations }, "verified archive", true);
+    }
+    expect(compared).toBeGreaterThanOrEqual(18);
   }, 180_000);
 
   it("agrees once continuous aggregates and ordered day rollups are materialized", async () => {

@@ -129,11 +129,6 @@ it("calculates verified display and summary buckets without reading compatibilit
     assert.equal(demo.series[0]?.excludedSampleCount, 0);
     assert.equal(demo.series[0]?.buckets[0]?.value, 99);
 
-    const queryCount = pool.queries.length;
-    await assert.rejects(store.measurementAnalyticsRollup({
-      ...query, series: [{ ...series[0], aggregation: "time_weighted_mean" }],
-    }), /Verified mode is not available/);
-    assert.equal(pool.queries.length, queryCount);
   } finally {
     await db.close();
   }
