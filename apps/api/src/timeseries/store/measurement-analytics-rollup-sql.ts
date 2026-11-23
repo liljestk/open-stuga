@@ -2,32 +2,13 @@ import { measurementAnalyticsAggregateName, qualifiedName, type MeasurementAnaly
 import { measurementSeriesBoundsSql } from "./measurement-series-bounds-sql.js";
 import { MEASUREMENT_ORDERED_ROLLUP_VERSION } from "./methods/measurement-ordered-rollups.js";
 
-/**
- * Bound parameters, referenced by position across every CTE below:
- *
- * - `$1` JSONB array of `{ sensor_id, metric, aggregation }` request rows
- * - `$2` inclusive range start (TIMESTAMPTZ)
- * - `$3` exclusive range end (TIMESTAMPTZ)
- * - `$4` accepted quality states (TEXT[])
- * - `$5` target output bucket width (INTERVAL)
- * - `$6` exclude synthetic sources when true (BOOLEAN)
- * - `$7` width of the pre-materialized base aggregate (INTERVAL)
- *
- * Note that `$5` and `$7` are both intervals and are easy to transpose: `$7`
- * bounds which rows may come from the continuous aggregate, while `$5` is the
- * bucket the caller asked for.
- */
-export function mergeableAnalyticsSql(schema: string, base: MeasurementAnalyticsBaseBucket): string {
+function cachedAnalyticsSources(schema: string, base: MeasurementAnalyticsBaseBucket): string {
   const measurements = qualifiedName(schema, "measurement_samples");
   const aggregate = qualifiedName(schema, measurementAnalyticsAggregateName(base));
   // Redundant with the exact windows below, but constant, so the planner
   // skips chunks outside the request instead of planning the whole history.
   const inRange = (column: string) => `AND sample.${column} >= $2::TIMESTAMPTZ AND sample.${column} < $3::TIMESTAMPTZ`;
-  return `WITH requested_series AS (
-      SELECT DISTINCT sensor_id, metric, aggregation
-      FROM jsonb_to_recordset($1::JSONB)
-        AS requested(sensor_id TEXT, metric TEXT, aggregation TEXT)
-    ), bounds AS (
+  return `bounds AS (
       SELECT date_bin($7::INTERVAL, $2::TIMESTAMPTZ, TIMESTAMPTZ '1970-01-01 00:00:00+00') AS from_bucket,
         date_bin($7::INTERVAL, $3::TIMESTAMPTZ, TIMESTAMPTZ '1970-01-01 00:00:00+00') AS to_bucket
     ), limits AS (
@@ -111,7 +92,53 @@ export function mergeableAnalyticsSql(schema: string, base: MeasurementAnalytics
         OFFSET 0
       ) sample
       WHERE boundary.raw_from < boundary.raw_to
-    ), series_counts AS (
+    )`;
+}
+
+function verifiedAnalyticsSources(schema: string): string {
+  const measurements = qualifiedName(schema, "measurement_samples");
+  return `source_rows AS (
+      SELECT sample.sensor_id, sample.metric,
+        date_bin($7::INTERVAL, sample.observed_at, TIMESTAMPTZ '1970-01-01 00:00:00+00') AS observed_bucket,
+        sample.source, sample.quality, sample.canonical_unit,
+        1::BIGINT AS sample_count, sample.value AS sum_value, sample.value AS minimum, sample.value AS maximum,
+        sample.value AS last_value, sample.observed_at AS last_at
+      FROM requested_series requested
+      JOIN ${measurements} sample USING (sensor_id, metric)
+      WHERE sample.observed_at >= $2::TIMESTAMPTZ AND sample.observed_at < $3::TIMESTAMPTZ
+        AND (NOT $6::BOOLEAN OR sample.source NOT IN ('mock', 'replay'))
+        AND sample.data_mode = $8::TEXT
+    )`;
+}
+
+/**
+ * Bound parameters, referenced by position across every CTE below:
+ *
+ * - `$1` JSONB array of `{ sensor_id, metric, aggregation }` request rows
+ * - `$2` inclusive range start (TIMESTAMPTZ)
+ * - `$3` exclusive range end (TIMESTAMPTZ)
+ * - `$4` accepted quality states (TEXT[])
+ * - `$5` target output bucket width (INTERVAL)
+ * - `$6` exclude synthetic sources when true (BOOLEAN)
+ * - `$7` width of the pre-materialized base aggregate (INTERVAL)
+ * - `$8` explicit verified mode when reading raw observations (TEXT)
+ *
+ * Note that `$5` and `$7` are both intervals and are easy to transpose: `$7`
+ * bounds which rows may come from the continuous aggregate, while `$5` is the
+ * bucket the caller asked for.
+ */
+export function mergeableAnalyticsSql(
+  schema: string,
+  base: MeasurementAnalyticsBaseBucket,
+  verifiedMode = false,
+): string {
+  // Compatibility aggregates may already include unclassified observations.
+  const sourceRows = verifiedMode ? verifiedAnalyticsSources(schema) : cachedAnalyticsSources(schema, base);
+  return `WITH requested_series AS (
+      SELECT DISTINCT sensor_id, metric, aggregation
+      FROM jsonb_to_recordset($1::JSONB)
+        AS requested(sensor_id TEXT, metric TEXT, aggregation TEXT)
+    ), ${sourceRows}, series_counts AS (
       SELECT requested.sensor_id, requested.metric, requested.aggregation,
         COALESCE(min(source.canonical_unit) FILTER (WHERE source.quality = ANY($4::TEXT[])), '') AS canonical_unit,
         COALESCE(max(source.canonical_unit) FILTER (WHERE source.quality = ANY($4::TEXT[])), '') AS canonical_unit_max,
@@ -121,7 +148,6 @@ export function mergeableAnalyticsSql(schema: string, base: MeasurementAnalytics
           / GREATEST(1, COALESCE(sum(source.sample_count) FILTER (WHERE source.quality = ANY($4::TEXT[])), 0)))::DOUBLE PRECISION AS cadence_seconds,
         TRUE AS coverage_complete
       FROM requested_series requested
-      JOIN coverage USING (sensor_id, metric)
       LEFT JOIN source_rows source
         ON source.sensor_id = requested.sensor_id AND source.metric = requested.metric
       GROUP BY requested.sensor_id, requested.metric, requested.aggregation

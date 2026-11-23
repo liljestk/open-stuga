@@ -652,12 +652,18 @@ export class HybridTelemetryReader {
   async measurementAnalyticsRollup(
     query: Omit<MeasurementAnalyticsRollupQuery, "excludeSynthetic">,
   ): Promise<HybridMeasurementAnalyticsRollupResult | null> {
-    return readMeasurementAnalyticsRollup({
+    const { dataMode } = query;
+    this.#assertReadDataMode(dataMode);
+    const result = await readMeasurementAnalyticsRollup({
       archive: this.#archive,
       archivePhase: this.#archivePhase,
       reconcile: this.#reconcile,
       realDataMode: this.#local.isRealDataMode(),
     }, query);
+    query.signal?.throwIfAborted();
+    this.#assertReadDataMode(dataMode);
+    if (dataMode !== undefined && result?.result.dataMode !== dataMode) return null;
+    return result;
   }
 
   async measurementCoverage(query: MeasurementCoverageQuery): Promise<HybridMeasurementCoverageResult> {

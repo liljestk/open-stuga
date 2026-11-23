@@ -185,7 +185,9 @@ async function executeMergeableRollup(
 ): Promise<MeasurementAnalyticsSeriesRecord[]> {
   if (series.length === 0) return [];
   const base = baseBucket(query.resolution);
-  const result = await store.__query<MeasurementAnalyticsRow>(mergeableAnalyticsSql(store.schema, base), [
+  const { dataMode } = query;
+  const modeParameters = dataMode === undefined ? [] : [dataMode];
+  const result = await store.__query<MeasurementAnalyticsRow>(mergeableAnalyticsSql(store.schema, base, dataMode !== undefined), [
     requestRows(series),
     query.from,
     query.to,
@@ -193,6 +195,7 @@ async function executeMergeableRollup(
     analyticsInterval(query.resolution),
     query.excludeSynthetic === true,
     MEASUREMENT_ANALYTICS_BUCKETS[base].interval,
+    ...modeParameters,
   ], query);
   assertReadableRows(result.rows, false);
   return seriesRecords(result.rows, series, false);
@@ -311,7 +314,8 @@ registerTimeseriesStoreMethods({
     this: TimeseriesStoreInternals,
     query: MeasurementAnalyticsRollupQuery,
   ): Promise<MeasurementAnalyticsRollupResult> {
-    if (query.series.length === 0) return { series: [] };
+    const scope = query.dataMode === undefined ? {} : { dataMode: query.dataMode };
+    if (query.series.length === 0) return { series: [], ...scope };
     if (query.series.length > 400) throw new RangeError("analytics rollups support at most 400 series");
     if (query.qualities.length === 0 || query.qualities.length > 3 || qualityMask(query.qualities) === 0) {
       throw new RangeError("analytics rollups require between 1 and 3 known quality values");
@@ -327,6 +331,9 @@ registerTimeseriesStoreMethods({
     }
     assertSummarySubset(query);
     const ordered = query.series.filter(isOrdered);
+    if (query.dataMode !== undefined && ordered.length > 0) {
+      throw new RangeError("Verified mode is not available on ordered analytics rollups");
+    }
     const orderedSummary = query.summary?.series.filter(isOrdered) ?? [];
     // Display and summary buckets share one ordered pass when both read the
     // same stored variant; only the re-bucketing width differs.
@@ -340,7 +347,7 @@ registerTimeseriesStoreMethods({
     ]);
     const records = new Map([...mergeableRecords, ...orderedRecords.series].map((record) => [seriesKey(record), record]));
     const series = query.series.map((item) => records.get(seriesKey(item))!);
-    if (!query.summary) return { series };
-    return { series, summary: await readRemainingSummary(this, { ...query, summary: query.summary }, orderedRecords.summary) };
+    if (!query.summary) return { series, ...scope };
+    return { series, ...scope, summary: await readRemainingSummary(this, { ...query, summary: query.summary }, orderedRecords.summary) };
   },
 });

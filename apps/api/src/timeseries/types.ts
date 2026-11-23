@@ -214,6 +214,8 @@ export interface MeasurementAnalyticsRollupQuery extends QueryControl {
   qualities: readonly TelemetryQuality[];
   /** Real-data mode excludes archived demo/replay rows before all calculations. */
   excludeSynthetic?: boolean;
+  /** Restricts mergeable analytics to observations with this verified mode. */
+  dataMode?: DataMode;
   /**
    * Read alongside the display buckets. Ordered series whose stored variant
    * matches are re-bucketed from the same states in one statement.
@@ -252,6 +254,8 @@ export interface MeasurementAnalyticsSummaryResult {
 
 export interface MeasurementAnalyticsRollupResult {
   series: MeasurementAnalyticsSeriesRecord[];
+  /** Echoed only after a verified-mode calculation. */
+  dataMode?: DataMode;
   /**
    * Present when the query asked for summary buckets. Summaries are supporting
    * statistics, so null means that read is still materializing or failed.

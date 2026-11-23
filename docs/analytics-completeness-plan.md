@@ -90,6 +90,11 @@ the workspace activates live mode. Coverage shows the first and last verified
 observations for each series. Gaps can still exist inside those bounds.
 Existing Analytics queries retain their current behavior during the migration.
 
+Verified mode also supports query-time mean, sum, min, max, and last-value
+aggregates for display and summary buckets. They use only verified raw
+observations. Stored aggregates and order-dependent calculations still need
+mode-specific identities before production cutover.
+
 Still to implement:
 
 - Finish the SQLite/Timescale inventory and coordinated migration for explicit
