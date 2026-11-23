@@ -1,6 +1,7 @@
 import { PGlite } from "@electric-sql/pglite";
 import { describe, expect, it } from "vitest";
 import { FakePool, queryResult, storeFor } from "./timeseries-store-test-support.js";
+import { verifiedAggregateFreshnessSql } from "../src/timeseries/store/verified-aggregate-freshness.js";
 
 const from = "2026-07-18T12:01:30.000Z";
 const to = "2026-07-18T12:04:00.000Z";
@@ -70,4 +71,57 @@ describe("verified Timescale aggregate maintenance", () => {
     await expect(store.refreshMeasurementAggregates({ scope: "verified", from: "invalid", to })).rejects.toThrow(RangeError);
     expect(pool.queries).toEqual([]);
   });
+
+  it("joins certified days with raw gaps and stops using stored rows after corrections or restore", async () => {
+    const postgres = new PGlite();
+    try {
+      await postgres.exec(`CREATE SCHEMA telemetry;
+        CREATE TABLE telemetry.stugu_archive_generation (id INT PRIMARY KEY, generation UUID NOT NULL);
+        INSERT INTO telemetry.stugu_archive_generation VALUES (1, gen_random_uuid());
+        CREATE TABLE telemetry.measurement_samples (
+          sensor_id TEXT, metric TEXT, observed_at TIMESTAMPTZ, source TEXT, quality TEXT,
+          canonical_unit TEXT, value DOUBLE PRECISION, data_mode TEXT
+        );
+        CREATE TABLE telemetry.measurement_analytics_verified_v1_1d (
+          sensor_id TEXT, metric TEXT, bucket_start TIMESTAMPTZ, source TEXT, quality TEXT, canonical_unit TEXT,
+          data_mode TEXT, sample_count BIGINT, sum_value DOUBLE PRECISION, minimum DOUBLE PRECISION,
+          maximum DOUBLE PRECISION, last_value DOUBLE PRECISION, last_at TIMESTAMPTZ
+        );`);
+      await postgres.exec(verifiedAggregateFreshnessSql("telemetry"));
+      await postgres.exec(`INSERT INTO telemetry.measurement_samples VALUES
+        ('sensor','temperature','2026-07-17T14:00Z','api','good','C',1,'live'),
+        ('sensor','temperature','2026-07-18T12:00Z','api','good','C',10,'live'),
+        ('sensor','temperature','2026-07-19T10:00Z','api','good','C',3,'live');
+        INSERT INTO telemetry.measurement_analytics_verified_v1_1d VALUES
+        ('sensor','temperature','2026-07-18T00:00Z','api','good','C','live',1,100,100,100,100,'2026-07-18T12:00Z'),
+        ('sensor','temperature','2026-07-18T00:00Z','mock','good','C','demo',1,200,200,200,200,'2026-07-18T12:00Z');`);
+      const certify = () => postgres.exec(`UPDATE telemetry.verified_measurement_aggregate_days SET
+        archive_generation = (SELECT generation FROM telemetry.stugu_archive_generation),
+        delete_epoch = (SELECT revision FROM telemetry.verified_measurement_aggregate_epoch)
+        WHERE day_start = '2026-07-18'`);
+      await certify();
+      const pool = new FakePool(async ({ text, values }) =>
+        queryResult((await postgres.query<Record<string, unknown>>(text, values)).rows));
+      const store = storeFor(pool);
+      const window = {
+        from: "2026-07-17T12:00Z", to: "2026-07-19T12:00Z", dataMode: "live",
+        resolution: "1d", qualities: ["good"], series: [{ sensorId: "sensor", metric: "temperature", aggregation: "sum" }],
+      } as const;
+      const values = async () => (await store.measurementAnalyticsRollup(window)).series[0]!.buckets.map((bucket) => bucket.value);
+      // A distinct value identifies the materialized branch in this fixture.
+      await expect(values()).resolves.toEqual([1, 100, 3]);
+      await postgres.exec("BEGIN; UPDATE telemetry.measurement_samples SET value = 12 WHERE value = 10; ROLLBACK;");
+      await expect(values()).resolves.toEqual([1, 100, 3]);
+      await postgres.exec("UPDATE telemetry.measurement_samples SET value = 12 WHERE value = 10");
+      await expect(values()).resolves.toEqual([1, 12, 3]);
+      await certify();
+      await postgres.exec("UPDATE telemetry.stugu_archive_generation SET generation = gen_random_uuid()");
+      await expect(values()).resolves.toEqual([1, 12, 3]);
+      await certify();
+      await postgres.exec("DELETE FROM telemetry.measurement_samples WHERE value = 12");
+      await expect(values()).resolves.toEqual([1, 3]);
+    } finally {
+      await postgres.close();
+    }
+  }, 30_000);
 });

@@ -97,7 +97,11 @@ Timescale can explicitly refresh a bounded range into separate verified
 continuous aggregates. They group by mode and index each mode's series
 independently. Compatibility reads and startup policies retain their existing
 behavior. Verified reads still compute from raw observations while refresh
-freshness, persisted ordered states and appliance cost are validated.
+coverage is missing. Mergeable reads can use stored full UTC days after a
+bounded refresh certifies them against the current archive generation.
+Late inserts and corrections invalidate affected dates in the same write
+transaction. Deletions and truncation invalidate the archive's certificates.
+Scheduled refresh, persisted ordered states, and appliance cost still need work.
 
 Still to implement:
 

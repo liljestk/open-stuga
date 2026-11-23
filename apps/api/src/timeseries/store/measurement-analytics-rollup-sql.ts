@@ -94,21 +94,74 @@ function cachedAnalyticsSources(schema: string, base: MeasurementAnalyticsBaseBu
     )`;
 }
 
-function verifiedAnalyticsSources(schema: string): string {
-  const measurements = qualifiedName(schema, "measurement_samples");
-  return `source_rows AS (
-      SELECT sample.sensor_id, sample.metric,
+const verifiedSourceProjection = `sample.sensor_id, sample.metric,
         date_bin($7::INTERVAL, sample.observed_at, TIMESTAMPTZ '1970-01-01 00:00:00+00') AS observed_bucket,
         sample.source, sample.quality, sample.canonical_unit,
         1::BIGINT AS sample_count, sample.value AS sum_value, sample.value AS minimum, sample.value AS maximum,
-        sample.value AS last_value, sample.observed_at AS last_at
+        sample.value AS last_value, sample.observed_at AS last_at`;
+
+const verifiedSourceFilter = `AND (NOT $6::BOOLEAN OR sample.source NOT IN ('mock', 'replay'))
+        AND sample.data_mode = $8::TEXT`;
+
+function verifiedAnalyticsSources(schema: string): string {
+  const measurements = qualifiedName(schema, "measurement_samples");
+  return `source_rows AS (
+      SELECT ${verifiedSourceProjection}
       FROM requested_series requested
       JOIN ${measurements} sample USING (sensor_id, metric)
       WHERE sample.observed_at >= $2::TIMESTAMPTZ AND sample.observed_at < $3::TIMESTAMPTZ
-        AND (NOT $6::BOOLEAN OR sample.source NOT IN ('mock', 'replay'))
-        AND sample.data_mode = $8::TEXT
+        ${verifiedSourceFilter}
     )`;
 }
+
+function cachedVerifiedAnalyticsSources(schema: string, base: MeasurementAnalyticsBaseBucket): string {
+  const measurements = qualifiedName(schema, "measurement_samples");
+  const aggregate = qualifiedName(schema, measurementAnalyticsAggregateName(base, "verified"));
+  const freshness = qualifiedName(schema, "verified_measurement_aggregate_days");
+  const generation = qualifiedName(schema, "stugu_archive_generation");
+  const epoch = qualifiedName(schema, "verified_measurement_aggregate_epoch");
+  return `fresh_days AS MATERIALIZED (
+      SELECT day.day_start::TIMESTAMP AT TIME ZONE 'UTC' AS start_at,
+        (day.day_start + 1)::TIMESTAMP AT TIME ZONE 'UTC' AS end_at
+      FROM ${freshness} day JOIN ${generation} archive ON archive.id = 1 AND archive.generation = day.archive_generation
+      JOIN ${epoch} epoch ON epoch.id = 1 AND epoch.revision = day.delete_epoch
+      WHERE day.day_start >= ($2::TIMESTAMPTZ AT TIME ZONE 'UTC')::DATE
+        AND day.day_start < ($3::TIMESTAMPTZ AT TIME ZONE 'UTC')::DATE
+        AND day.day_start::TIMESTAMP AT TIME ZONE 'UTC' >= $2::TIMESTAMPTZ
+    ), raw_ranges AS (
+      SELECT lag(end_at, 1, $2::TIMESTAMPTZ) OVER (ORDER BY start_at) AS raw_from, start_at AS raw_to
+      FROM fresh_days
+      UNION ALL
+      SELECT COALESCE(max(end_at), $2::TIMESTAMPTZ), $3::TIMESTAMPTZ FROM fresh_days
+    ), source_rows AS (
+      SELECT sample.sensor_id, sample.metric, sample.bucket_start AS observed_bucket,
+        sample.source, sample.quality, sample.canonical_unit,
+        sample.sample_count, sample.sum_value, sample.minimum, sample.maximum, sample.last_value, sample.last_at
+      FROM fresh_days CROSS JOIN requested_series requested
+      CROSS JOIN LATERAL (
+        SELECT sample.* FROM ${aggregate} sample
+        WHERE sample.sensor_id = requested.sensor_id AND sample.metric = requested.metric
+          AND sample.bucket_start >= fresh_days.start_at AND sample.bucket_start < fresh_days.end_at
+          AND sample.bucket_start >= $2::TIMESTAMPTZ AND sample.bucket_start < $3::TIMESTAMPTZ
+          ${verifiedSourceFilter}
+        OFFSET 0
+      ) sample
+      UNION ALL
+      SELECT ${verifiedSourceProjection}
+      FROM raw_ranges CROSS JOIN requested_series requested
+      CROSS JOIN LATERAL (
+        SELECT sample.* FROM ${measurements} sample
+        WHERE sample.sensor_id = requested.sensor_id AND sample.metric = requested.metric
+          AND sample.observed_at >= raw_ranges.raw_from AND sample.observed_at < raw_ranges.raw_to
+          AND sample.observed_at >= $2::TIMESTAMPTZ AND sample.observed_at < $3::TIMESTAMPTZ
+          ${verifiedSourceFilter}
+        OFFSET 0
+      ) sample
+      WHERE raw_ranges.raw_from < raw_ranges.raw_to
+    )`;
+}
+
+export type MergeableAnalyticsSource = "compatibility" | "verified-raw" | "verified-cached";
 
 /**
  * Bound parameters, referenced by position across every CTE below:
@@ -129,10 +182,11 @@ function verifiedAnalyticsSources(schema: string): string {
 export function mergeableAnalyticsSql(
   schema: string,
   base: MeasurementAnalyticsBaseBucket,
-  verifiedMode = false,
+  source: MergeableAnalyticsSource = "compatibility",
 ): string {
   // Compatibility aggregates may already include unclassified observations.
-  const sourceRows = verifiedMode ? verifiedAnalyticsSources(schema) : cachedAnalyticsSources(schema, base);
+  const sourceRows = source === "compatibility" ? cachedAnalyticsSources(schema, base)
+    : source === "verified-cached" ? cachedVerifiedAnalyticsSources(schema, base) : verifiedAnalyticsSources(schema);
   return `WITH requested_series AS (
       SELECT DISTINCT sensor_id, metric, aggregation
       FROM jsonb_to_recordset($1::JSONB)
