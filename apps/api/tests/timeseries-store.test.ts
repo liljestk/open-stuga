@@ -117,12 +117,21 @@ describe("TimeseriesStore", () => {
       expect(await store.upsertMeasurementSamples([measurement])).toMatchObject({ affected: 0 });
       expect(await store.upsertMeasurementSamples([{ ...measurement, value: 29, dataMode: "demo" }]))
         .toMatchObject({ affected: 0 });
+      await store.upsertMeasurementSamples([
+        { ...measurement, timestamp: TO, source: "mock", value: 15, dataMode: "demo" },
+        { ...measurement, timestamp: TO, value: 30 },
+      ]);
+      const window = { sensorIds: [key.sensorId], metrics: [measurement.metric], from: FROM, to: TO, limit: 1 };
+      expect(await store.measurementWindow({ ...window, dataMode: "live" }))
+        .toMatchObject([{ timestamp: FROM, value: 21, dataMode: "live" }]);
+      expect(await store.measurementWindow({ ...window, dataMode: "demo" }))
+        .toMatchObject([{ timestamp: TO, value: 15, dataMode: "demo" }]);
       await store.upsertLegacyReadings([{ ...reading, dataMode: "live" }]);
       await store.upsertLegacyReadings([{ ...reading, temperature: 22 }]);
       await store.upsertOutdoorTemperatureSamples([{ ...outdoor, dataMode: "demo" }]);
       await store.upsertOutdoorTemperatureSamples([{ ...outdoor, temperatureC: 6 }]);
-      expect(await modes()).toEqual([{ data_mode: "live" }, { data_mode: "live" }, { data_mode: "demo" }]);
-      expect((await database.query("SELECT value FROM telemetry.measurement_samples")).rows).toEqual([{ value: 21 }]);
+      expect((await modes()).map(({ data_mode }) => data_mode).sort())
+        .toEqual(["demo", "demo", "live", "live", null]);
       expect((await database.query("SELECT temperature_c FROM telemetry.legacy_readings")).rows)
         .toEqual([{ temperature_c: 22 }]);
       expect((await database.query("SELECT temperature_c FROM telemetry.outdoor_temperature_samples")).rows)

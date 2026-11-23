@@ -1,4 +1,5 @@
 import type { QueryResultRow } from "pg";
+import type { DataMode } from "@climate-twin/contracts";
 import type { ArchiveTableName, HeatPumpStateRecord, OpeningStateRecord, QueryControl } from "../../types.js";
 
 export type SqlValue = string | number | boolean | null | readonly string[] | Readonly<Record<string, unknown>>;
@@ -22,6 +23,7 @@ export interface ContinuousAggregateRow extends QueryResultRow {
 }
 
 export interface MeasurementRow extends QueryResultRow {
+  data_mode?: DataMode | null;
   sensor_id: string;
   metric: string;
   value: number;

@@ -209,7 +209,7 @@ registerDatabaseMethods({
      * It deliberately returns the existing sparse metric contract rather than
      * manufacturing paired climate readings in the core repository.
      */
-  measurementWindow({ sensorIds, metrics, from, to, limit = 100_000 }: MeasurementWindowQuery): MeasurementSample[] {
+  measurementWindow({ sensorIds, metrics, from, to, limit = 100_000, dataMode }: MeasurementWindowQuery): MeasurementSample[] {
       const visibleSensorIds = sensorIds.filter((id) => Boolean(this.getSensor(id)));
       if (visibleSensorIds.length === 0 || metrics.length === 0) return [];
       if (!Number.isInteger(limit) || limit < 1 || limit > 250_000) {
@@ -217,14 +217,17 @@ registerDatabaseMethods({
       }
       const sensorPlaceholders = visibleSensorIds.map(() => "?").join(",");
       const metricPlaceholders = metrics.map(() => "?").join(",");
+      const modeFilter = dataMode === undefined ? "" : "AND data_mode = ?";
+      const modeParameters = dataMode === undefined ? [] : [dataMode];
       const rows = this.db.prepare(`SELECT sensor_id, metric, value, canonical_unit, timestamp, source, quality FROM (
         SELECT id, sensor_id, metric, value, canonical_unit, timestamp, source, quality
         FROM measurement_samples
         WHERE sensor_id IN (${sensorPlaceholders}) AND metric IN (${metricPlaceholders})
           AND timestamp >= ? AND timestamp <= ?
+          ${modeFilter}
         ORDER BY timestamp DESC, id DESC LIMIT ?
       ) ORDER BY timestamp ASC, id ASC`)
-        .all(...visibleSensorIds, ...metrics, from, to, limit) as unknown as MeasurementSampleRow[];
+        .all(...visibleSensorIds, ...metrics, from, to, ...modeParameters, limit) as unknown as MeasurementSampleRow[];
       return rows.map(measurementSampleFromRow);
     },
   /**

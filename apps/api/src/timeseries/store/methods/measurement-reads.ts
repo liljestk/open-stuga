@@ -298,13 +298,18 @@ registerTimeseriesStoreMethods({
   async measurementWindow(this: TimeseriesStoreInternals, query: MeasurementWindowQuery): Promise<MeasurementSampleRecord[]> {
       if (query.sensorIds.length === 0 || query.metrics.length === 0) return [];
       const limit = positiveInteger(query.limit, 100_000, MAX_MEASUREMENT_WINDOW_LIMIT);
+      const verified = query.dataMode !== undefined;
+      const modeColumn = verified ? ", data_mode" : "";
+      const modeFilter = verified ? "AND data_mode = $6" : "";
+      const modeParameters = query.dataMode === undefined ? [] : [query.dataMode];
       const result = await this.__query<MeasurementRow>(`SELECT sensor_id, metric, value, canonical_unit,
-          observed_at, source, quality, metadata
+          observed_at, source, quality, metadata${modeColumn}
         FROM (
-          SELECT sensor_id, metric, value, canonical_unit, observed_at, source, quality, metadata
+          SELECT sensor_id, metric, value, canonical_unit, observed_at, source, quality, metadata${modeColumn}
           FROM ${qualifiedName(this.schema, "measurement_samples")}
           WHERE sensor_id = ANY($1::TEXT[]) AND metric = ANY($2::TEXT[])
             AND observed_at >= $3::TIMESTAMPTZ AND observed_at <= $4::TIMESTAMPTZ
+            ${modeFilter}
           ORDER BY observed_at DESC, sensor_id DESC, metric DESC, source DESC
           LIMIT $5
         ) recent
@@ -314,6 +319,7 @@ registerTimeseriesStoreMethods({
         query.from,
         query.to,
         limit,
+        ...modeParameters,
       ], query);
       return result.rows.map(measurementFromRow);
     },

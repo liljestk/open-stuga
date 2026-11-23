@@ -332,6 +332,8 @@ export interface MeasurementWindowQuery extends QueryControl {
   from: string;
   to: string;
   limit?: number;
+  /** Selects only verified rows of this mode. Omit for compatibility reads. */
+  dataMode?: DataMode;
 }
 
 export interface MeasurementCoverageQuery extends QueryControl {

@@ -1,6 +1,7 @@
 import type { LocalBucketQuery } from "./local-telemetry-worker-thread.js";
 import { withSignal } from "@climate-twin/contracts";
 import type {
+  DataMode,
   MeasurementSample,
   OpeningStateObservation,
   OutdoorTemperatureSample,
@@ -61,6 +62,7 @@ import { readCostAggregate } from "./read-energy-cost.js";
 import { withTariffPrice } from "../electricity/tariff-cost.js";
 import { readPowerProfile, type LocalPowerProfileQuery, type PowerProfile } from "./read-power-profile.js";
 import { compareCodeUnits } from "../text-order.js";
+import { HttpError } from "../http-error.js";
 
 export { bucketLegacyReadings, bucketMeasurementSamples };
 export { IncompleteTelemetryHistoryError, isLocalTelemetryHistoryComplete } from "./read-support.js";
@@ -526,14 +528,10 @@ export class HybridTelemetryReader {
         });
       }
       return bucketMeasurementSamples(
-        (await this.#localMeasurementWindow(
-          [query.sensorId],
-          metrics,
-          query.from,
-          query.to,
-          MAX_WINDOW_LIMIT,
-          query.signal,
-        )).filter((sample) => sample.quality !== "stale" && sample.source !== "replay"),
+        (await this.#local.measurementWindowAsync({
+          sensorIds: [query.sensorId], metrics, from: query.from, to: query.to,
+          limit: MAX_WINDOW_LIMIT, ...withSignal(query.signal),
+        })).filter((sample) => sample.quality !== "stale" && sample.source !== "replay"),
         bucketMinutes * 60,
       );
     };
@@ -609,18 +607,26 @@ export class HybridTelemetryReader {
     const metrics = unique(query.metrics);
     const cancellation = aborted(query.signal);
     if (cancellation) throw cancellation;
-    return this.#read({
+    const { dataMode } = query;
+    this.#assertWindowDataMode(dataMode);
+    const windowQuery = { ...query, sensorIds, metrics, limit };
+    const result = await this.#read({
       family: "measurement",
       from: query.from,
       to: query.to,
       limit,
-      local: () => this.#localMeasurementWindow(sensorIds, metrics, query.from, query.to, limit, query.signal),
+      local: () => this.#local.measurementWindowAsync(windowQuery),
       signal: query.signal,
       archiveRead: async () => {
         if (sensorIds.length === 0 || metrics.length === 0) return [];
         if (this.#archive!.measurementWindow) {
-          return (await this.#archive!.measurementWindow({ ...query, sensorIds, metrics, limit })).map(archivedMeasurement);
+          const records = await this.#archive!.measurementWindow(windowQuery);
+          if (dataMode !== undefined && records.some((record) => record.dataMode !== dataMode)) {
+            throw new Error("Archive read returned measurements without the requested verified data mode");
+          }
+          return records.map(archivedMeasurement);
         }
+        if (dataMode !== undefined) throw new Error("Mode-scoped archive windows are unavailable");
         const series = sensorIds.flatMap((sensorId) => metrics.map((metric) => ({ sensorId, metric })));
         const pages = await mapWithConcurrency(series, this.#archiveWindowConcurrency, async ({ sensorId, metric }) => (
           this.#archive!.measurementHistory({
@@ -638,6 +644,8 @@ export class HybridTelemetryReader {
       key: measurementKey,
       compare: compareMeasurements,
     });
+    this.#assertWindowDataMode(dataMode);
+    return result;
   }
 
   async measurementAnalyticsRollup(
@@ -849,21 +857,12 @@ export class HybridTelemetryReader {
     });
   }
 
-  /**
-   * Assembles a local window from bounded keyset pages, yielding between
-   * pages, so a quarter-million-row window can no longer monopolize the event
-   * loop for the whole read. Falls back to the one-shot local read for
-   * stores that do not page.
-   */
-  async #localMeasurementWindow(
-    sensorIds: string[],
-    metrics: string[],
-    from: string,
-    to: string,
-    limit: number,
-    signal: AbortSignal | undefined,
-  ): Promise<MeasurementSample[]> {
-    return this.#local.measurementWindowAsync({ sensorIds, metrics, from, to, limit, ...withSignal(signal) });
+  #assertWindowDataMode(dataMode: DataMode | undefined): void {
+    if (dataMode === undefined) return;
+    const activeMode = this.#local.isRealDataMode() ? "live" : "demo";
+    if (dataMode !== activeMode) {
+      throw new HttpError(409, "ANALYTICS_DATA_MODE_MISMATCH", `This local database is in ${activeMode} mode`);
+    }
   }
 
   async #read<T extends { source: string }>(input: {

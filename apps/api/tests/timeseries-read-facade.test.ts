@@ -707,6 +707,50 @@ describe("HybridTelemetryReader", () => {
     expect(result.provenance.duplicateRecordCount).toBe(1);
   });
 
+  it("uses only verified records from a mode-scoped archive window", async () => {
+    const local = localReader({ isRealDataMode: () => true });
+    const legacyHistory = vi.fn(async () => [measurement(FROM, 50)]);
+    const window = { sensorIds: ["sensor-a"], metrics: ["temperature"], from: FROM, to: TO, dataMode: "live" } as const;
+    const legacyArchive = { ...archiveReader(), measurementHistory: legacyHistory };
+    const reader = new HybridTelemetryReader({ local, archive: legacyArchive });
+    await expect(reader.measurementWindow(window)).resolves.toMatchObject({
+      records: [], provenance: { archiveState: "failed" },
+    });
+    expect(legacyHistory).not.toHaveBeenCalled();
+
+    const batch = vi.fn()
+      .mockResolvedValueOnce([measurement(FROM, 50)])
+      .mockResolvedValueOnce([{ ...measurement(FROM, 21), dataMode: "live" }]);
+    const scoped = new HybridTelemetryReader({
+      local, archive: { ...legacyArchive, measurementWindow: batch },
+    });
+    await expect(scoped.measurementWindow(window)).resolves.toMatchObject({
+      records: [], provenance: { archiveState: "failed" },
+    });
+    await expect(scoped.measurementWindow(window)).resolves.toMatchObject({
+      records: [measurement(FROM, 21)], provenance: { archiveState: "merged" },
+    });
+    expect(batch).toHaveBeenCalledWith(expect.objectContaining({ dataMode: "live" }));
+    expect(local.measurementWindow).toHaveBeenCalledWith(expect.objectContaining({ dataMode: "live" }));
+  });
+
+  it("discards a verified demo window when live mode activates during the archive read", async () => {
+    let live = false;
+    const batch = vi.fn(async () => {
+      await Promise.resolve();
+      live = true;
+      return [{ ...measurement(FROM, 21, "mock"), dataMode: "demo" as const }];
+    });
+    const reader = new HybridTelemetryReader({
+      local: localReader({ isRealDataMode: () => live }),
+      archive: { ...archiveReader(), measurementWindow: batch },
+    });
+    const window = { sensorIds: ["sensor-a"], metrics: ["temperature"], from: FROM, to: TO, dataMode: "demo" } as const;
+    await expect(reader.measurementWindow(window)).rejects.toMatchObject({ status: 409, code: "ANALYTICS_DATA_MODE_MISMATCH" });
+    await expect(reader.measurementWindow(window)).rejects.toMatchObject({ status: 409, code: "ANALYTICS_DATA_MODE_MISMATCH" });
+    expect(batch).toHaveBeenCalledOnce();
+  });
+
   it("serves the archive when the synchronous local window read itself fails", async () => {
     // The regression this guards: a 30-day window sort exhausted the hardened
     // container's SQLite spill space and the raw SQLITE_FULL error ended the
