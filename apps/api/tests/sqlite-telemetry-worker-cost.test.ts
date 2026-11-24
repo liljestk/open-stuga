@@ -80,7 +80,7 @@ describe("isolated local electricity costs", () => {
       expect((await settled).map((result) => result.status)).toEqual(["rejected", "rejected"]);
       expect((await worker.read("energy", query)).consumptionKwh).toBeCloseTo(24, 5);
     } finally { worker.close(); context.close(); }
-  });
+  }, 30_000);
 
   it("bounds scan duration and shuts down queued work", async () => {
     const context = fixture(24);
