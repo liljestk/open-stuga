@@ -58,6 +58,7 @@ function backgroundServices(context: ApiRouteRegistrationContext): BackgroundSer
       stop: () => context.dailyAnalyticsFindings.stop(),
     },
     { start: () => context.derivedAnalytics.start(), stop: () => context.derivedAnalytics.stop() },
+    { start: () => context.adaptiveCollection.start(), stop: () => context.adaptiveCollection.stop() },
     { start: () => context.scheduledDataExports.start(), stop: () => context.scheduledDataExports.stop() },
     // The outbox starts with the runtime coordination, setup and recovery on demand.
     { stop: () => context.notificationOutbox.stop() },
@@ -137,6 +138,7 @@ export function buildApiRuntime(
     weather: context.weather,
     weatherMonitor: context.weatherMonitor,
     dailyAnalyticsFindings: context.dailyAnalyticsFindings,
+    adaptiveCollection: context.adaptiveCollection,
     scheduledDataExports: context.scheduledDataExports,
     weatherRecovery: context.weatherRecovery,
     sensorGapRecovery: context.sensorGapRecovery,

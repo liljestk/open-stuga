@@ -7,7 +7,7 @@ import type {
 import type { ClimateDatabase } from "../../db.js";
 import type { HybridTelemetryReader } from "../../timeseries/read-facade.js";
 import { zonedParts } from "../../daily-analytics-findings.js";
-import type { AnalyticsLowPriorityLease, AnalyticsWorkLimiter } from "../work-limiter.js";
+import { BACKGROUND_ANALYTICS_STARTUP_GRACE_MS, type AnalyticsLowPriorityLease, type AnalyticsWorkLimiter } from "../work-limiter.js";
 import {
   DERIVED_ANALYTICS_ALGORITHM_VERSIONS,
   DerivedAnalyticsComputer,
@@ -19,7 +19,6 @@ import type { DerivedResult, StoredDerivedJob } from "./types.js";
 
 const IDLE_POLL_MS = 60_000;
 const BETWEEN_JOBS_MS = 30_000;
-const STARTUP_GRACE_MS = 2 * 60_000;
 const MAX_BACKGROUND_CANDIDATES = 256;
 
 interface DerivedAnalyticsCoordinatorBaseOptions {
@@ -91,8 +90,8 @@ export class DerivedAnalyticsCoordinator {
     // Appliance startup already has database reconciliation, integrations,
     // and health checks competing for a small CPU. Persisted analytics wait
     // through a fixed grace period; opening/refreshing a panel cannot shorten it.
-    this.#startupGuardUntil = Date.now() + STARTUP_GRACE_MS;
-    this.#schedule(STARTUP_GRACE_MS);
+    this.#startupGuardUntil = Date.now() + BACKGROUND_ANALYTICS_STARTUP_GRACE_MS;
+    this.#schedule(BACKGROUND_ANALYTICS_STARTUP_GRACE_MS);
   }
 
   async stop(): Promise<void> {

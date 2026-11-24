@@ -6,6 +6,7 @@ import { migrateMeasurementRecordingTime } from "../migrations/measurement-recor
 import { migrateAdaptiveSettings } from "../migrations/adaptive-settings-schema.js";
 import { migrateAdaptiveEvidence } from "../migrations/adaptive-evidence-schema.js";
 import { adaptiveHourlyEvidenceSchema } from "../migrations/adaptive-hourly-evidence-schema.js";
+import { adaptiveCollectionSchema } from "../migrations/adaptive-collection-schema.js";
 
 declare module "../core.js" {
   interface DatabaseInternals {
@@ -116,6 +117,7 @@ registerDatabaseMethods({
         migrateAdaptiveSettings(this.db);
         migrateAdaptiveEvidence(this.db);
         this.db.exec(adaptiveHourlyEvidenceSchema);
+        this.db.exec(adaptiveCollectionSchema);
       });
     },
   /**

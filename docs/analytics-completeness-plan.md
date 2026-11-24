@@ -156,7 +156,10 @@ recording times, validates units and source quality, and measures coverage
 against occupied reporting intervals. An epoch keeps a consistent observed
 producer. SQLite retention marks pruned history so the collector can withhold
 an incomplete hour. A late write cannot revise an already sealed hour.
-Scheduling these captures and building models from them remain open.
+A background pass now collects opted-in streams under the shared analytics
+governor after startup grace. It rotates across Homes, limits catch-up to 48
+hours, checkpoints each stream in SQLite, and pauses on host pressure. Model
+fitting and review still need to consume the collected evidence.
 
 Continue milestones A–F in the adaptive plan: authorized evidence audit,
 complete causal evaluation matrix, models, predictions,

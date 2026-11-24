@@ -228,6 +228,7 @@ registerDatabaseMethods({
         this.db.prepare("DELETE FROM derived_analytics_jobs WHERE data_mode = 'demo'").run();
         this.db.prepare("DELETE FROM derived_analytics_artifacts WHERE data_mode = 'demo'").run();
         this.db.prepare("DELETE FROM adaptive_evidence_epochs WHERE data_mode = 'demo'").run();
+        this.db.prepare("DELETE FROM adaptive_collection_cursors WHERE data_mode = 'demo'").run();
         this.db.prepare("DELETE FROM adaptive_settings_revisions WHERE data_mode = 'demo'").run();
         this.db.prepare(`INSERT INTO metadata(key, value) VALUES ('data_mode', 'real')
           ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run();
@@ -255,6 +256,7 @@ registerDatabaseMethods({
         this.db.prepare("DELETE FROM derived_analytics_jobs WHERE data_mode = 'demo'").run();
         this.db.prepare("DELETE FROM derived_analytics_artifacts WHERE data_mode = 'demo'").run();
         this.db.prepare("DELETE FROM adaptive_evidence_epochs WHERE data_mode = 'demo'").run();
+        this.db.prepare("DELETE FROM adaptive_collection_cursors WHERE data_mode = 'demo'").run();
         this.db.prepare("DELETE FROM adaptive_settings_revisions WHERE data_mode = 'demo'").run();
       });
     },

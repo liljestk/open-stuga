@@ -26,6 +26,7 @@ import { TelemetryRetentionWorker } from "../timeseries/retention-worker.js";
 import { TelemetryOrderedRollupWorker } from "../timeseries/ordered-rollup-worker.js";
 import { AnalyticsWorkLimiter } from "../analytics/work-limiter.js";
 import { DerivedAnalyticsCoordinator } from "../analytics/derived-artifacts/coordinator.js";
+import { AdaptiveCollectionWorker } from "../analytics/adaptive-monitoring/collection-worker.js";
 import { configuredHeatPumpConnectionIds } from "../analytics/heat-pump-evidence.js";
 import { hostAllowsBackgroundWork } from "../analytics/background-admission.js";
 import {
@@ -88,6 +89,9 @@ export function createTelemetryServices(context: CoreDataServices) {
       : async (): Promise<boolean> => hostAllowsBackgroundWork(
           await context.hostSystem.snapshot(),
         ));
+  const adaptiveCollection = new AdaptiveCollectionWorker({
+    database: context.database, limiter: analyticsWorkLimiter, admit: admitLowPriority, systemErrorLog: context.systemErrorLog,
+  });
   const telemetryOrderedRollups = timeseries ? new TelemetryOrderedRollupWorker(timeseries, {
     ready: () => ["syncing", "ready"].includes(telemetryArchive!.status().phase),
     refreshVerified: (signal) => analyticsWorkLimiter.runLowPriority("verified-aggregate-refresh", async () => {
@@ -146,7 +150,7 @@ export function createTelemetryServices(context: CoreDataServices) {
   const energySummaries = new EnergySummaryCache(context.database, energyCost, analyticsWorkLimiter);
   const energyProjections = new EnergyProjectionCache(context.database, telemetryReader, energySummaries, analyticsWorkLimiter);
   context.energyOptimizer.setSummaryCache(energySummaries);
-  const withTelemetry = Object.assign(context, { timeseries, heatPumpStates, connectedDevices, telemetryArchive, telemetryRetention, telemetryOrderedRollups, telemetryReader, analyticsWorkLimiter, admitLowPriority, derivedAnalytics, dailyAnalyticsFindings, scheduledDataExports, measurementSnapshotCache, readingSnapshotCache, status, setupDoctor, energyCost, energySummaries, energyProjections });
+  const withTelemetry = Object.assign(context, { timeseries, heatPumpStates, connectedDevices, telemetryArchive, telemetryRetention, telemetryOrderedRollups, telemetryReader, analyticsWorkLimiter, admitLowPriority, adaptiveCollection, derivedAnalytics, dailyAnalyticsFindings, scheduledDataExports, measurementSnapshotCache, readingSnapshotCache, status, setupDoctor, energyCost, energySummaries, energyProjections });
   const invalidateSnapshotCaches = (): void => {
       withTelemetry.measurementSnapshotCache.clear();
       withTelemetry.readingSnapshotCache.clear();

@@ -2,6 +2,8 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { withSignal } from "@climate-twin/contracts";
 import type { CacheStats } from "../cache.js";
 
+export const BACKGROUND_ANALYTICS_STARTUP_GRACE_MS = 2 * 60_000;
+
 export class AnalyticsCapacityError extends Error {
   readonly code = "ANALYTICS_BUSY";
   readonly retryAfterSeconds = 1;
