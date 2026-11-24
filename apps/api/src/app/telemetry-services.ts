@@ -61,7 +61,6 @@ export function createTelemetryServices(context: CoreDataServices) {
   const telemetryRetention = telemetryArchive && config.retentionDays > 0
       ? new TelemetryRetentionWorker(context.database, telemetryArchive, config.retentionDays)
       : null;
-  const telemetryOrderedRollups = timeseries ? new TelemetryOrderedRollupWorker(timeseries, { ready: () => ["syncing", "ready"].includes(telemetryArchive!.status().phase) }) : null;
   const telemetryReader = context.options.telemetryReader ?? new HybridTelemetryReader({
       local: context.database,
       archive: timeseries,
@@ -89,6 +88,14 @@ export function createTelemetryServices(context: CoreDataServices) {
       : async (): Promise<boolean> => hostAllowsBackgroundWork(
           await context.hostSystem.snapshot(),
         ));
+  const telemetryOrderedRollups = timeseries ? new TelemetryOrderedRollupWorker(timeseries, {
+    ready: () => ["syncing", "ready"].includes(telemetryArchive!.status().phase),
+    refreshVerified: (signal) => analyticsWorkLimiter.runLowPriority("verified-aggregate-refresh", async () => {
+      if (!telemetryArchive!.status().caughtUp || !await admitLowPriority()) return;
+      signal.throwIfAborted();
+      await timeseries.refreshNextVerifiedMeasurementDay({ signal, timeoutMs: 15_000 });
+    }, signal),
+  }) : null;
   const derivedAnalytics = new DerivedAnalyticsCoordinator(
       context.database,
       telemetryReader,

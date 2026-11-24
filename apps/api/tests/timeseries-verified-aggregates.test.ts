@@ -1,5 +1,5 @@
 import { PGlite } from "@electric-sql/pglite";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { FakePool, queryResult, storeFor } from "./timeseries-store-test-support.js";
 import { verifiedAggregateFreshnessSql } from "../src/timeseries/store/verified-aggregate-freshness.js";
 
@@ -120,6 +120,46 @@ describe("verified Timescale aggregate maintenance", () => {
       await certify();
       await postgres.exec("DELETE FROM telemetry.measurement_samples WHERE value = 12");
       await expect(values()).resolves.toEqual([1, 3]);
+    } finally {
+      await postgres.close();
+    }
+  }, 30_000);
+
+  it("selects the latest closed day first, then resumes dirty historical days", async () => {
+    const postgres = new PGlite();
+    try {
+      await postgres.exec(`CREATE SCHEMA telemetry;
+        CREATE TABLE telemetry.stugu_archive_generation (id INT PRIMARY KEY, generation UUID);
+        INSERT INTO telemetry.stugu_archive_generation VALUES (1, gen_random_uuid());
+        CREATE TABLE telemetry.measurement_samples (observed_at TIMESTAMPTZ, data_mode TEXT);`);
+      const pool = new FakePool(async ({ text, values }) =>
+        queryResult((await postgres.query<Record<string, unknown>>(
+          text.replaceAll("clock_timestamp()", "TIMESTAMPTZ '2026-07-20T01:00:00Z'"), values,
+        )).rows));
+      const store = storeFor(pool);
+      const refresh = vi.spyOn(store, "refreshMeasurementAggregates").mockResolvedValue(4);
+      await expect(store.refreshNextVerifiedMeasurementDay()).resolves.toBe(true);
+      expect(refresh).toHaveBeenLastCalledWith({
+        scope: "verified", from: "2026-07-19T00:00:00.000Z", to: "2026-07-20T00:00:00.000Z",
+      });
+
+      await postgres.exec(verifiedAggregateFreshnessSql("telemetry"));
+      await postgres.exec(`INSERT INTO telemetry.measurement_samples VALUES
+        ('2026-07-17T03:00Z', 'live'), ('2026-07-19T03:00Z', 'demo'), ('2026-07-20T00:30Z','live');
+        UPDATE telemetry.verified_measurement_aggregate_days SET
+          archive_generation = (SELECT generation FROM telemetry.stugu_archive_generation),
+          delete_epoch = (SELECT revision FROM telemetry.verified_measurement_aggregate_epoch)
+        WHERE day_start = '2026-07-19';`);
+      await expect(store.refreshNextVerifiedMeasurementDay()).resolves.toBe(true);
+      expect(refresh).toHaveBeenLastCalledWith({
+        scope: "verified", from: "2026-07-17T00:00:00.000Z", to: "2026-07-18T00:00:00.000Z",
+      });
+      await postgres.exec(`UPDATE telemetry.verified_measurement_aggregate_days SET
+        archive_generation = (SELECT generation FROM telemetry.stugu_archive_generation),
+        delete_epoch = (SELECT revision FROM telemetry.verified_measurement_aggregate_epoch)
+        WHERE day_start = '2026-07-17';`);
+      await expect(store.refreshNextVerifiedMeasurementDay()).resolves.toBe(false);
+      expect(refresh).toHaveBeenCalledTimes(2);
     } finally {
       await postgres.close();
     }

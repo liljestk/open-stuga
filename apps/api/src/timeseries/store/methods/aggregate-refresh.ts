@@ -9,7 +9,7 @@ import {
   quoteIdentifier,
   type MeasurementAnalyticsBaseBucket,
 } from "../../schema.js";
-import type { AggregateRefreshQuery } from "../../types.js";
+import type { AggregateRefreshQuery, QueryControl } from "../../types.js";
 import type { ExtensionRow } from "../support/row-types.js";
 import { abortError, timestamp } from "../support/query-values.js";
 import { registerTimeseriesStoreMethods, type TimeseriesStoreInternals } from "../core.js";
@@ -138,17 +138,47 @@ async function refreshVerifiedAggregates(store: TimeseriesStoreInternals, query:
   }
 }
 
+async function nextVerifiedDay(store: TimeseriesStoreInternals, control: QueryControl): Promise<string> {
+  const days = qualifiedName(store.schema, "verified_measurement_aggregate_days");
+  const archive = qualifiedName(store.schema, "stugu_archive_generation");
+  const epoch = qualifiedName(store.schema, "verified_measurement_aggregate_epoch");
+  const today = "(clock_timestamp() AT TIME ZONE 'UTC')::DATE";
+  const yesterday = `SELECT ${today} - 1 AS day_start`;
+  const latest = await freshnessReady(store, control)
+    ? `SELECT candidate.day_start
+      FROM (SELECT day_start FROM ${days} WHERE day_start < ${today} UNION ${yesterday}) candidate
+      LEFT JOIN ${days} day USING (day_start)
+      CROSS JOIN ${archive} archive CROSS JOIN ${epoch} epoch
+      WHERE archive.id = 1 AND epoch.id = 1 AND (
+        day.archive_generation IS DISTINCT FROM archive.generation OR day.delete_epoch IS DISTINCT FROM epoch.revision
+      ) ORDER BY candidate.day_start DESC LIMIT 1`
+    : yesterday;
+  const result = await store.__query<{ day: string }>(
+    `SELECT to_char(day_start, 'YYYY-MM-DD') AS day FROM (${latest}) selected`, [], control,
+  );
+  return result.rows[0]?.day ?? "";
+}
+
 declare module "../core.js" {
   interface TimeseriesStoreInternals {
     refreshMeasurementAggregates(query?: AggregateRefreshQuery): Promise<number>;
+    refreshNextVerifiedMeasurementDay(control?: QueryControl): Promise<boolean>;
   }
 
   interface TimeseriesStoreCore {
     refreshMeasurementAggregates(query?: AggregateRefreshQuery): Promise<number>;
+    refreshNextVerifiedMeasurementDay(control?: QueryControl): Promise<boolean>;
   }
 }
 
 registerTimeseriesStoreMethods({
+  async refreshNextVerifiedMeasurementDay(this: TimeseriesStoreInternals, control: QueryControl = {}): Promise<boolean> {
+    const day = await nextVerifiedDay(this, control);
+    if (!day) return false;
+    const from = `${day}T00:00:00.000Z`;
+    const to = new Date(Date.parse(from) + 86_400_000).toISOString();
+    return (await this.refreshMeasurementAggregates({ ...control, scope: "verified", from, to })) > 0;
+  },
   /** Refresh compatibility rollups or explicitly prepare and refresh verified aggregates. */
   async refreshMeasurementAggregates(this: TimeseriesStoreInternals, query: AggregateRefreshQuery = {}): Promise<number> {
     if (query.scope === "verified") {

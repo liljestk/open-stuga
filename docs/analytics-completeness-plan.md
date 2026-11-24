@@ -101,7 +101,11 @@ coverage is missing. Mergeable reads can use stored full UTC days after a
 bounded refresh certifies them against the current archive generation.
 Late inserts and corrections invalidate affected dates in the same write
 transaction. Deletions and truncation invalidate the archive's certificates.
-Scheduled refresh, persisted ordered states, and appliance cost still need work.
+Archive maintenance prepares and refreshes at most one closed UTC day per
+five-minute pass when the archive is caught up and the host admits background
+work. It prioritizes the latest closed day and subsequently refreshes tracked
+days changed by late observations. Persisted ordered states and appliance cost
+still need work.
 
 Still to implement:
 
