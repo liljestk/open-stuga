@@ -227,6 +227,7 @@ registerDatabaseMethods({
         // so no process can claim or publish demo work after activation.
         this.db.prepare("DELETE FROM derived_analytics_jobs WHERE data_mode = 'demo'").run();
         this.db.prepare("DELETE FROM derived_analytics_artifacts WHERE data_mode = 'demo'").run();
+        this.db.prepare("DELETE FROM adaptive_settings_revisions WHERE data_mode = 'demo'").run();
         this.db.prepare(`INSERT INTO metadata(key, value) VALUES ('data_mode', 'real')
           ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run();
         this.db.prepare("INSERT OR IGNORE INTO metadata(key, value) VALUES ('real_data_mode_activated_at', ?)").run(activatedAt);
@@ -252,6 +253,7 @@ registerDatabaseMethods({
         this.db.prepare("DELETE FROM analytics_daily_findings WHERE data_mode = 'demo'").run();
         this.db.prepare("DELETE FROM derived_analytics_jobs WHERE data_mode = 'demo'").run();
         this.db.prepare("DELETE FROM derived_analytics_artifacts WHERE data_mode = 'demo'").run();
+        this.db.prepare("DELETE FROM adaptive_settings_revisions WHERE data_mode = 'demo'").run();
       });
     },
   /** Removes every local producer/runtime artifact from active remote Homes. */
@@ -264,6 +266,17 @@ registerDatabaseMethods({
           WHERE json_extract(house.stugby_json, '$.ownership') = 'shared'
             AND json_extract(house.stugby_json, '$.syncState') <> 'detached' ${houseFilter}`;
         const parameters = houseId ? [houseId] : [];
+        this.db.prepare(`INSERT INTO adaptive_settings_revisions
+          (house_id, data_mode, revision, mode, updated_at)
+          SELECT head.house_id, head.data_mode, head.revision + 1, 'off', ?
+          FROM adaptive_settings_revisions head JOIN houses house ON house.id = head.house_id
+          WHERE head.mode = 'shadow'
+            AND json_extract(house.stugby_json, '$.ownership') = 'shared'
+            AND json_extract(house.stugby_json, '$.syncState') <> 'detached' ${houseFilter}
+            AND NOT EXISTS (
+              SELECT 1 FROM adaptive_settings_revisions newer
+              WHERE newer.house_id = head.house_id AND newer.data_mode = head.data_mode AND newer.revision > head.revision
+            )`).run(new Date().toISOString(), ...parameters);
         this.db.prepare(`DELETE FROM alert_evaluation_state WHERE sensor_id IN (${sharedSensorIds})`).run(...parameters);
         this.db.prepare(`DELETE FROM alert_events WHERE sensor_id IN (${sharedSensorIds})`).run(...parameters);
         this.db.prepare(`DELETE FROM alert_rules WHERE sensor_id IN (${sharedSensorIds})`).run(...parameters);

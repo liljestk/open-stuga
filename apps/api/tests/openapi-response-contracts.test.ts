@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import request from "supertest";
 import { afterEach, describe, expect, it } from "vitest";
-import { SECURITY_AUDIT_EVENT_TYPES, SECURITY_AUDIT_SUBJECT_TYPES } from "@climate-twin/contracts";
+import { isAdaptiveMonitoringSettings, SECURITY_AUDIT_EVENT_TYPES, SECURITY_AUDIT_SUBJECT_TYPES } from "@climate-twin/contracts";
 import { createApi, type ApiRuntime } from "../src/app.js";
 import { loadConfig } from "../src/config.js";
 import { openApiV1Document, openApiV2Document } from "../src/openapi.js";
@@ -58,6 +58,25 @@ describe("served response contracts", () => {
     const check = validate(schema, body);
     expect(check({ ...body, accessToken: null })).toBe(true);
     expect(check({ ...body, unintended: true })).toBe(false);
+  });
+
+  it("validates the Adaptive Home settings response from both admin methods", async () => {
+    const api = boot({ LOCAL_AUTH_TEST_BYPASS: "false" });
+    const owner = request.agent(api.app);
+    const setup = await owner.post("/api/v1/auth/setup")
+      .send({ email: "owner@example.test", password: "Synthetic-password-2026" }).expect(201);
+    const path = "/monitoring/houses/{houseId}/adaptive/settings";
+    const url = `/api/v2${path.replace("{houseId}", "house-main")}`;
+    const initial = (await owner.get(`${url}?dataMode=demo`).expect(200)).body;
+    validateResponse(path, initial, "v2");
+    expect(isAdaptiveMonitoringSettings(initial)).toBe(true);
+    const operation = documents.v2.paths[path]!.patch;
+    const body = { dataMode: "demo", action: "set-mode", mode: "shadow", baseRevision: 0 };
+    validate(operation.requestBody.content["application/json"].schema, body, "v2");
+    const enabled = (await owner.patch(url).set("x-csrf-token", setup.body.csrfToken).send(body).expect(200)).body;
+    validate(operation.responses["200"].content["application/json"].schema, enabled, "v2");
+    expect(isAdaptiveMonitoringSettings(enabled)).toBe(true);
+    expect(isAdaptiveMonitoringSettings({ ...enabled, baseline: null })).toBe(false);
   });
 
   it("returns the public backup projection and retains the worker's persisted version", async () => {

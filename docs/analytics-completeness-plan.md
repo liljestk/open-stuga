@@ -133,6 +133,13 @@ cannot inherit the old value's recording time. Earlier rows remain unknown.
 Recording time alone cannot establish when a transaction or complete hour
 became visible to the prospective detector.
 
+Owner and Admin accounts can read and change revisioned Home monitoring
+settings through the v2 settings route. Shadow opt-in starts a new Home
+baseline, resets retain their actor and reason, and duplicate retries return
+the original revision. Live activation purges demo settings. A transition to
+shared authority disables the local opt-in. Advisory promotion, sensor
+reference groups, stream epochs, and the worker remain outstanding.
+
 Continue milestones A–F in the adaptive plan: authorized evidence audit,
 complete causal evaluation matrix, revisioned settings/epochs/reference groups,
 models, predictions, episodes and reviews; governed worker; canonical routes

@@ -3,6 +3,7 @@ import { parseJson } from "../support/json-values.js";
 import { registerDatabaseMethods } from "../core.js";
 import { migrateLocalTelemetryMode } from "../migrations/local-telemetry-mode.js";
 import { migrateMeasurementRecordingTime } from "../migrations/measurement-recording-time.js";
+import { adaptiveSettingsSchema } from "../migrations/adaptive-settings-schema.js";
 
 declare module "../core.js" {
   interface DatabaseInternals {
@@ -110,6 +111,7 @@ registerDatabaseMethods({
         this.migrateMeasurementAndActionSchema();
         migrateLocalTelemetryMode(this.db);
         migrateMeasurementRecordingTime(this.db);
+        this.db.exec(adaptiveSettingsSchema);
       });
     },
   /**
