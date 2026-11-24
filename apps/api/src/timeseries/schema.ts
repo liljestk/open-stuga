@@ -538,6 +538,30 @@ export function buildBaseSchemaSql(schemaName: string): string[] {
     `INSERT INTO ${relation("schema_migrations")} (version, description)
       VALUES (10, 'Persist verified mode on archived sensor and outdoor telemetry')
       ON CONFLICT (version) DO NOTHING`,
+    `ALTER TABLE ${relation("measurement_samples")} ADD COLUMN IF NOT EXISTS recorded_at TIMESTAMPTZ`,
+    `CREATE OR REPLACE FUNCTION ${relation("clear_unproven_measurement_recording")}() RETURNS trigger LANGUAGE plpgsql AS $recording$
+      BEGIN
+        IF NEW.recorded_at IS NOT DISTINCT FROM OLD.recorded_at AND
+          ROW(NEW.sensor_id, NEW.metric, NEW.observed_at, NEW.source, NEW.value, NEW.canonical_unit, NEW.quality)
+          IS DISTINCT FROM
+          ROW(OLD.sensor_id, OLD.metric, OLD.observed_at, OLD.source, OLD.value, OLD.canonical_unit, OLD.quality)
+        THEN NEW.recorded_at := NULL;
+        END IF;
+        RETURN NEW;
+      END;
+      $recording$`,
+    `DO $recording$ BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = '${relation("measurement_samples")}'::REGCLASS
+        AND tgname = 'measurement_recording_payload_changes') THEN
+        CREATE TRIGGER measurement_recording_payload_changes
+          BEFORE UPDATE OF sensor_id, metric, observed_at, source, value, canonical_unit, quality
+          ON ${relation("measurement_samples")} FOR EACH ROW
+          EXECUTE FUNCTION ${relation("clear_unproven_measurement_recording")}();
+      END IF;
+      END $recording$`,
+    `INSERT INTO ${relation("schema_migrations")} (version, description)
+      VALUES (11, 'Preserve the originating SQLite recording time for measurement evidence')
+      ON CONFLICT (version) DO NOTHING`,
   ];
 }
 

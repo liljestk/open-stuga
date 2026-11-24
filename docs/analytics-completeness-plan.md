@@ -126,6 +126,13 @@ Still to implement:
 
 ## Milestone 4 — adaptive persistence, execution and review
 
+New local measurements record the originating SQLite write time. Both
+checkpoint and queued archive copies preserve it independently of the
+measurement and archive-ingest times. A correction with unknown lineage
+cannot inherit the old value's recording time. Earlier rows remain unknown.
+Recording time alone cannot establish when a transaction or complete hour
+became visible to the prospective detector.
+
 Continue milestones A–F in the adaptive plan: authorized evidence audit,
 complete causal evaluation matrix, revisioned settings/epochs/reference groups,
 models, predictions, episodes and reviews; governed worker; canonical routes

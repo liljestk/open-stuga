@@ -299,7 +299,7 @@ registerTimeseriesStoreMethods({
       if (query.sensorIds.length === 0 || query.metrics.length === 0) return [];
       const limit = positiveInteger(query.limit, 100_000, MAX_MEASUREMENT_WINDOW_LIMIT);
       const verified = query.dataMode !== undefined;
-      const modeColumn = verified ? ", data_mode" : "";
+      const modeColumn = verified ? ", data_mode, recorded_at" : "";
       const modeFilter = verified ? "AND data_mode = $6" : "";
       const modeParameters = query.dataMode === undefined ? [] : [query.dataMode];
       const result = await this.__query<MeasurementRow>(`SELECT sensor_id, metric, value, canonical_unit,

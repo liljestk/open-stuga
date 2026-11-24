@@ -4,6 +4,16 @@ import { SqlValue } from "../support/row-types.js";
 import { timestamp } from "../support/query-values.js";
 import { registerTimeseriesStoreMethods, timeseriesStoreState, type TimeseriesStoreInternals } from "../core.js";
 
+function incomingSampleColumn(column: string): string {
+  switch (column) {
+    case "data_mode": return "COALESCE(current_row.data_mode, EXCLUDED.data_mode)";
+    case "recorded_at": return `CASE WHEN ROW(current_row.value, current_row.canonical_unit, current_row.quality)
+      IS NOT DISTINCT FROM ROW(EXCLUDED.value, EXCLUDED.canonical_unit, EXCLUDED.quality)
+      THEN COALESCE(current_row.recorded_at, EXCLUDED.recorded_at) ELSE EXCLUDED.recorded_at END`;
+    default: return `EXCLUDED.${quoteIdentifier(column)}`;
+  }
+}
+
 declare module "../core.js" {
   interface TimeseriesStoreInternals {
     upsertMeasurementSamples(samples: readonly MeasurementSampleRecord[], control?: QueryControl): Promise<BatchWriteResult>;
@@ -45,13 +55,13 @@ registerTimeseriesStoreMethods({
     ): Promise<BatchWriteResult> {
       return this.__writeBatches(
         "measurement_samples",
-        ["sensor_id", "metric", "observed_at", "source", "value", "canonical_unit", "quality", "metadata", "data_mode"],
+        ["sensor_id", "metric", "observed_at", "source", "value", "canonical_unit", "quality", "metadata", "data_mode", "recorded_at"],
         ["sensor_id", "metric", "observed_at", "source"],
-        ["value", "canonical_unit", "quality", "metadata", "data_mode"],
+        ["value", "canonical_unit", "quality", "metadata", "data_mode", "recorded_at"],
         samples,
         (sample) => [
           sample.sensorId, sample.metric, sample.timestamp, sample.source, sample.value,
-          sample.canonicalUnit, sample.quality, sample.metadata ?? {}, sample.dataMode ?? null,
+          sample.canonicalUnit, sample.quality, sample.metadata ?? {}, sample.dataMode ?? null, sample.recordedAt ?? null,
         ],
         control,
         true,
@@ -210,9 +220,7 @@ registerTimeseriesStoreMethods({
         });
         // A checkpoint replay may supply a missing tag, but old writers and
         // transient bus events cannot clear an already verified mode.
-        const incoming = updateColumns.map((column) => column === "data_mode"
-          ? "COALESCE(current_row.data_mode, EXCLUDED.data_mode)"
-          : `EXCLUDED.${quoteIdentifier(column)}`);
+        const incoming = updateColumns.map(incomingSampleColumn);
         const assignments = updateColumns.map((column, index) => (
           `${quoteIdentifier(column)} = ${incoming[index]}`
         ));

@@ -23,6 +23,8 @@ export interface HeatPumpStateHistoryQuery extends QueryControl {
 
 export interface MeasurementSampleRecord {
   dataMode?: DataMode | null;
+  /** Wall clock at the originating SQLite write. A null value has unknown timing. */
+  recordedAt?: string | null;
   sensorId: string;
   metric: string;
   value: number;

@@ -101,7 +101,8 @@ registerDatabaseMethods({
         WHERE sensor_id = ? AND metric = ? AND timestamp = ? LIMIT 1`)
         .get(sample.sensorId, sample.metric, sample.timestamp)) return false;
       const result = this.db.prepare(`INSERT OR IGNORE INTO measurement_samples
-        (sensor_id, metric, value, canonical_unit, timestamp, source, quality, data_mode) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+        (sensor_id, metric, value, canonical_unit, timestamp, source, quality, data_mode, recorded_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`)
         .run(sample.sensorId, sample.metric, sample.value, sample.canonicalUnit, sample.timestamp, sample.source, sample.quality, dataMode);
       if (Number(result.changes) === 0) return false;
       if (!DEMO_TELEMETRY_SOURCES.has(sample.source)) {

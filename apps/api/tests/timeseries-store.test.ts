@@ -112,7 +112,7 @@ describe("TimeseriesStore", () => {
       `)).rows;
 
       expect(await modes()).toEqual([{ data_mode: null }]);
-      expect(await store.upsertMeasurementSamples([{ ...measurement, dataMode: "live" }]))
+      expect(await store.upsertMeasurementSamples([{ ...measurement, dataMode: "live", recordedAt: TO }]))
         .toMatchObject({ affected: 1 });
       expect(await store.upsertMeasurementSamples([measurement])).toMatchObject({ affected: 0 });
       expect(await store.upsertMeasurementSamples([{ ...measurement, value: 29, dataMode: "demo" }]))
@@ -123,7 +123,7 @@ describe("TimeseriesStore", () => {
       ]);
       const window = { sensorIds: [key.sensorId], metrics: [measurement.metric], from: FROM, to: TO, limit: 1 };
       expect(await store.measurementWindow({ ...window, dataMode: "live" }))
-        .toMatchObject([{ timestamp: FROM, value: 21, dataMode: "live" }]);
+        .toMatchObject([{ timestamp: FROM, value: 21, dataMode: "live", recordedAt: TO }]);
       expect(await store.measurementWindow({ ...window, dataMode: "demo" }))
         .toMatchObject([{ timestamp: TO, value: 15, dataMode: "demo" }]);
       await store.upsertLegacyReadings([{ ...reading, dataMode: "live" }]);
@@ -136,6 +136,9 @@ describe("TimeseriesStore", () => {
         .toEqual([{ temperature_c: 22 }]);
       expect((await database.query("SELECT temperature_c FROM telemetry.outdoor_temperature_samples")).rows)
         .toEqual([{ temperature_c: 6 }]);
+      await database.query(`UPDATE telemetry.measurement_samples SET value = 22 WHERE observed_at = $1::TIMESTAMPTZ`, [FROM]);
+      expect(await store.measurementWindow({ ...window, dataMode: "live" }))
+        .toMatchObject([{ timestamp: FROM, value: 22, recordedAt: null }]);
     } finally {
       await database.close();
     }
@@ -387,19 +390,19 @@ describe("TimeseriesStore", () => {
 
     expect(result).toEqual({ attempted: 2, affected: 2 });
     const insert = pool.queries.find(({ text }) => text.includes("INSERT INTO"))!;
-    expect(insert.text).toContain("VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9), ($10, $11, $12, $13, $14, $15, $16, $17, $18)");
+    expect(insert.text).toContain("VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10), ($11, $12, $13, $14, $15, $16, $17, $18, $19, $20)");
     expect(insert.text).toContain('ON CONFLICT ("sensor_id", "metric", "observed_at", "source") DO UPDATE');
     expect(insert.text).toContain("IS DISTINCT FROM");
     expect(insert.text).toContain("measurement_ordered_rollup_generations");
     expect(insert.text).toContain("GREATEST(dirty.current_seq, generation.current_seq)");
-    expect(insert.text).toContain("day.metric = ANY($19::TEXT[])");
+    expect(insert.text).toContain("day.metric = ANY($21::TEXT[])");
     expect(insert.text).toContain("dirty.day_start = day.day_start");
     expect(insert.text).not.toContain("sensor-1");
-    expect(insert.values).toHaveLength(19);
+    expect(insert.values).toHaveLength(21);
     expect(insert.values.slice(0, 7)).toEqual([
       "sensor-1", "temperature", "2026-07-18T08:00:00.000Z", "home-assistant", 20.5, "°C", "good",
     ]);
-    expect(insert.values[18]).toEqual([]);
+    expect(insert.values[20]).toEqual([]);
   });
 
   it("maps timestamps consistently and bounds latest/history queries with parameters", async () => {

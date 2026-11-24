@@ -10,6 +10,8 @@ import { outdoorTemperatureFromRow } from "../support/row-mappers.js";
 
 type WithDataMode<T> = T & { dataMode: DataMode | null };
 type DataModeColumn = { data_mode: DataMode | null };
+type MeasurementRecordingColumns = DataModeColumn & { recorded_at: string | null };
+type MeasurementRecording = { dataMode: DataMode | null; recordedAt: string | null };
 
 declare module "../core.js" {
   interface DatabaseInternals {
@@ -18,8 +20,8 @@ declare module "../core.js" {
     saveTelemetryArchiveCheckpoint(table: TelemetryArchiveTable, rowId: number): void;
     telemetryArchiveDirtyCount(): number;
     telemetryArchiveWatermarks(): TelemetryArchiveWatermarks;
-    measurementArchiveDataMode(sample: MeasurementSample): DataMode | null;
-    measurementArchivePage(afterRowId: number, limit: number): TelemetryArchiveRow<WithDataMode<MeasurementSample>>[];
+    measurementArchiveRecording(sample: MeasurementSample): MeasurementRecording | null;
+    measurementArchivePage(afterRowId: number, limit: number): TelemetryArchiveRow<MeasurementSample & MeasurementRecording>[];
     readingArchivePage(afterRowId: number, limit: number, since?: string): TelemetryArchiveRow<WithDataMode<Reading>>[];
     outdoorTemperatureArchivePage(afterRowId: number, limit: number, since?: string): TelemetryArchiveRow<WithDataMode<OutdoorTemperatureSample>>[];
     electricityPriceArchivePage(afterRowId: number, limit: number, since?: string): TelemetryArchiveRow<ElectricityPriceArchiveRecord>[];
@@ -46,8 +48,8 @@ declare module "../core.js" {
     saveTelemetryArchiveCheckpoint(table: TelemetryArchiveTable, rowId: number): void;
     telemetryArchiveDirtyCount(): number;
     telemetryArchiveWatermarks(): TelemetryArchiveWatermarks;
-    measurementArchiveDataMode(sample: MeasurementSample): DataMode | null;
-    measurementArchivePage(afterRowId: number, limit: number): TelemetryArchiveRow<WithDataMode<MeasurementSample>>[];
+    measurementArchiveRecording(sample: MeasurementSample): MeasurementRecording | null;
+    measurementArchivePage(afterRowId: number, limit: number): TelemetryArchiveRow<MeasurementSample & MeasurementRecording>[];
     readingArchivePage(afterRowId: number, limit: number, since?: string): TelemetryArchiveRow<WithDataMode<Reading>>[];
     outdoorTemperatureArchivePage(afterRowId: number, limit: number, since?: string): TelemetryArchiveRow<WithDataMode<OutdoorTemperatureSample>>[];
     electricityPriceArchivePage(afterRowId: number, limit: number, since?: string): TelemetryArchiveRow<ElectricityPriceArchiveRecord>[];
@@ -103,25 +105,28 @@ registerDatabaseMethods({
       };
     },
   /** The live bus also carries transient replay samples that have no SQLite row. */
-  measurementArchiveDataMode(sample: MeasurementSample): DataMode | null {
-      const row = this.db.prepare(`SELECT data_mode FROM measurement_samples
+  measurementArchiveRecording(sample: MeasurementSample): MeasurementRecording | null {
+      const row = this.db.prepare(`SELECT data_mode, recorded_at FROM measurement_samples
         WHERE sensor_id = ? AND metric = ? AND timestamp = ? AND source = ?
           AND value = ? AND canonical_unit = ? AND quality = ?`)
         .get(sample.sensorId, sample.metric, sample.timestamp, sample.source,
-          sample.value, sample.canonicalUnit, sample.quality) as DataModeColumn | undefined;
-      return row?.data_mode ?? null;
+          sample.value, sample.canonicalUnit, sample.quality) as MeasurementRecordingColumns | undefined;
+      return row ? { dataMode: row.data_mode, recordedAt: row.recorded_at } : null;
     },
   /**
      * Monotonic pages for the optional durable telemetry archive. The SQLite
      * database remains the crash-safe local buffer until the remote checkpoint
      * has advanced beyond each row.
      */
-  measurementArchivePage(afterRowId: number, limit: number): TelemetryArchiveRow<WithDataMode<MeasurementSample>>[] {
+  measurementArchivePage(afterRowId: number, limit: number): TelemetryArchiveRow<MeasurementSample & MeasurementRecording>[] {
       const pageSize = this.telemetryArchivePageSize(limit);
-      const rows = this.db.prepare(`SELECT id, sensor_id, metric, value, canonical_unit, timestamp, source, quality, data_mode
+      const rows = this.db.prepare(`SELECT id, sensor_id, metric, value, canonical_unit, timestamp, source, quality, data_mode, recorded_at
         FROM measurement_samples WHERE id > ? ORDER BY id LIMIT ?`)
-        .all(afterRowId, pageSize) as unknown as (MeasurementSampleRow & DataModeColumn & { id: number })[];
-      return rows.map((row) => ({ rowId: row.id, record: { ...measurementSampleFromRow(row), dataMode: row.data_mode } }));
+        .all(afterRowId, pageSize) as unknown as (MeasurementSampleRow & MeasurementRecordingColumns & { id: number })[];
+      return rows.map((row) => ({
+        rowId: row.id,
+        record: { ...measurementSampleFromRow(row), dataMode: row.data_mode, recordedAt: row.recorded_at },
+      }));
     },
   readingArchivePage(afterRowId: number, limit: number, since?: string): TelemetryArchiveRow<WithDataMode<Reading>>[] {
       const pageSize = this.telemetryArchivePageSize(limit);

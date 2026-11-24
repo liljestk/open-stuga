@@ -24,6 +24,7 @@ export interface ContinuousAggregateRow extends QueryResultRow {
 
 export interface MeasurementRow extends QueryResultRow {
   data_mode?: DataMode | null;
+  recorded_at?: string | Date | null;
   sensor_id: string;
   metric: string;
   value: number;
