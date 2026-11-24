@@ -75,6 +75,24 @@ export function isAdaptiveMonitoringSettings(value: unknown): value is AdaptiveM
 }
 export const ADAPTIVE_METRICS = ["temperature", "humidity", "co2"] as const;
 export type AdaptiveMetric = (typeof ADAPTIVE_METRICS)[number];
+export type AdaptiveEvidencePurpose = "climate" | "sensor-comparison";
+
+export interface AdaptiveEvidenceScope extends AdaptiveSettingsScope {
+  sensorId: string;
+  metric: AdaptiveMetric;
+  purpose: AdaptiveEvidencePurpose;
+}
+
+/** A prospective boundary. Configuration time and the time the epoch was persisted are separate. */
+export interface AdaptiveEvidenceEpoch extends AdaptiveEvidenceScope {
+  id: string;
+  propertyId: string;
+  baselineId: string;
+  configurationDigest: string;
+  effectiveAt: string;
+  recordedAt: string;
+}
+
 export const ADAPTIVE_MATERIALITY: Readonly<Record<AdaptiveMetric, number>> = Object.freeze({
   temperature: 1,
   humidity: 7,

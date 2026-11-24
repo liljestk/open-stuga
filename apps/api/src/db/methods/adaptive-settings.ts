@@ -5,6 +5,7 @@ import {
 } from "@climate-twin/contracts";
 import { registerDatabaseMethods, type DatabaseInternals } from "../core.js";
 import { ClimateDataValidationError } from "../support/validation-errors.js";
+import { approveReferencePlacements } from "../support/adaptive-configuration.js";
 import { assertReferenceMembership, normalizeReferenceGroups } from "./adaptive-reference-groups.js";
 
 interface SettingsRevision {
@@ -16,6 +17,7 @@ interface SettingsRevision {
   actor_user_id: string | null;
   change_digest: string | null;
   reference_groups_json: string;
+  reference_placement_digests: string | null;
 }
 
 interface SettingsWrite {
@@ -30,7 +32,8 @@ function readRevision(database: DatabaseInternals, scope: AdaptiveSettingsScope,
       WHERE revoked.house_id = settings.house_id AND revoked.data_mode = settings.data_mode
       AND revoked.revision > settings.revision AND revoked.actor_user_id IS NULL)`;
   return database.db.prepare(`SELECT revision, mode, baseline_id, baseline_started_at,
-    updated_at, actor_user_id, change_digest, reference_groups_json FROM adaptive_settings_revisions settings
+    updated_at, actor_user_id, change_digest, reference_groups_json, reference_placement_digests
+    FROM adaptive_settings_revisions settings
     WHERE house_id = ? AND data_mode = ? ${filter} ORDER BY revision DESC LIMIT 1`)
     .get(scope.houseId, scope.dataMode, ...(revision === undefined ? [] : [revision])) as SettingsRevision | undefined;
 }
@@ -108,7 +111,8 @@ registerDatabaseMethods({
         : request;
       const scope = { houseId, dataMode: change.dataMode };
       assertScope(this, scope);
-      const current = toSettings(scope, readRevision(this, scope));
+      const previous = readRevision(this, scope);
+      const current = toSettings(scope, previous);
       const digest = actionDigest(change);
       const revision = change.baseRevision + 1;
       if (current.revision !== change.baseRevision) {
@@ -118,12 +122,15 @@ registerDatabaseMethods({
       }
       if (change.action === "set-reference-groups") assertReferenceMembership(this, houseId, change.referenceGroups);
       const next = nextSettings(current, change);
+      const placements = change.action === "set-reference-groups"
+        ? approveReferencePlacements(this.db, next.referenceGroups, previous?.reference_placement_digests)
+        : previous?.reference_placement_digests ?? null;
       this.db.prepare(`INSERT INTO adaptive_settings_revisions
         (house_id, data_mode, revision, mode, baseline_id, baseline_started_at, updated_at, actor_user_id,
-         change_digest, reset_reason, reference_groups_json)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(houseId, change.dataMode, revision, next.mode,
+         change_digest, reset_reason, reference_groups_json, reference_placement_digests)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(houseId, change.dataMode, revision, next.mode,
         next.baseline?.id ?? null, next.baseline?.startedAt ?? null, next.updatedAt, actorUserId, digest,
-        change.action === "reset-baseline" ? change.reason : null, JSON.stringify(next.referenceGroups));
+        change.action === "reset-baseline" ? change.reason : null, JSON.stringify(next.referenceGroups), placements);
       return next;
     });
   },

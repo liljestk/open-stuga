@@ -12,6 +12,7 @@ const adaptiveSettingsSchema = `CREATE TABLE IF NOT EXISTS adaptive_settings_rev
   change_digest TEXT,
   reset_reason TEXT,
   reference_groups_json TEXT NOT NULL DEFAULT '[]',
+  reference_placement_digests TEXT,
   CHECK ((mode = 'shadow') = (baseline_id IS NOT NULL)),
   CHECK ((baseline_id IS NULL) = (baseline_started_at IS NULL)),
   PRIMARY KEY (house_id, data_mode, revision)
@@ -19,10 +20,11 @@ const adaptiveSettingsSchema = `CREATE TABLE IF NOT EXISTS adaptive_settings_rev
 
 export function migrateAdaptiveSettings(database: DatabaseSync): void {
   database.exec(adaptiveSettingsSchema);
-  const column = database.prepare(
-    "SELECT name FROM pragma_table_info('adaptive_settings_revisions') WHERE name = 'reference_groups_json'",
-  ).get();
-  if (!column) {
+  const column = database.prepare("SELECT name FROM pragma_table_info('adaptive_settings_revisions') WHERE name = ?");
+  if (!column.get("reference_groups_json")) {
     database.exec("ALTER TABLE adaptive_settings_revisions ADD COLUMN reference_groups_json TEXT NOT NULL DEFAULT '[]'");
+  }
+  if (!column.get("reference_placement_digests")) {
+    database.exec("ALTER TABLE adaptive_settings_revisions ADD COLUMN reference_placement_digests TEXT");
   }
 }

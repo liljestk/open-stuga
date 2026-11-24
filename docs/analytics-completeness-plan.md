@@ -145,8 +145,16 @@ purges demo settings, and a transition to shared authority revokes opt-in and
 reference approvals. The detector still needs to qualify the references against
 prospective evidence.
 
+Prospective stream epochs now persist the Property, Home, sensor, metric, data
+mode, effective boundary and recording time. Configuration changes invalidate
+the current epoch even if values change back before the detector reads them.
+Moving or rebinding a comparison sensor requires fresh placement approval. An
+older opt-in cannot backdate an epoch past the start of configuration tracking.
+The worker still needs to establish availability and eligibility for each
+hourly observation.
+
 Continue milestones A–F in the adaptive plan: authorized evidence audit,
-complete causal evaluation matrix, stream epochs, models, predictions,
+complete causal evaluation matrix, models, predictions,
 episodes and reviews; governed worker; canonical routes
 and access controls; then review/settings UI with visual acceptance.
 

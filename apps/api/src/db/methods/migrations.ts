@@ -4,6 +4,7 @@ import { registerDatabaseMethods } from "../core.js";
 import { migrateLocalTelemetryMode } from "../migrations/local-telemetry-mode.js";
 import { migrateMeasurementRecordingTime } from "../migrations/measurement-recording-time.js";
 import { migrateAdaptiveSettings } from "../migrations/adaptive-settings-schema.js";
+import { migrateAdaptiveEvidence } from "../migrations/adaptive-evidence-schema.js";
 
 declare module "../core.js" {
   interface DatabaseInternals {
@@ -112,6 +113,7 @@ registerDatabaseMethods({
         migrateLocalTelemetryMode(this.db);
         migrateMeasurementRecordingTime(this.db);
         migrateAdaptiveSettings(this.db);
+        migrateAdaptiveEvidence(this.db);
       });
     },
   /**

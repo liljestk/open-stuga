@@ -56,6 +56,7 @@ export { ASSISTANT_CONNECTOR_CONSENT_PATH, ASSISTANT_CONNECTOR_RESOURCE_PATH, AS
 export type { AssistantAuthorizationDecision, AssistantAuthorizationInput, AssistantAuthorizationPreview, AssistantAuthorizationRedirect, AssistantConnection, AssistantConnectionsResponse, AssistantKind } from "./assistant-connector.js";
 export type { StugubyAuthorityTransfer, StugubyHomeProjection, StugubyPropertyAdoption } from "./stuguby-local.js";
 export { ADAPTIVE_MONITORING_VERSION, ADAPTIVE_METRICS, ADAPTIVE_MATERIALITY } from "./adaptive-monitoring.js";
+export type { AdaptiveEvidencePurpose, AdaptiveEvidenceScope, AdaptiveEvidenceEpoch } from "./adaptive-monitoring.js";
 export {
   ADAPTIVE_SETTINGS_MODES, ADAPTIVE_BASELINE_REASON_LIMIT, ADAPTIVE_REFERENCE_GROUP_LIMIT,
   ADAPTIVE_REFERENCE_PEER_LIMIT, ADAPTIVE_REFERENCE_SENSOR_ID_LIMIT, isAdaptiveMonitoringSettings, isAdaptiveReferenceGroups,

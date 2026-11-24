@@ -227,6 +227,7 @@ registerDatabaseMethods({
         // so no process can claim or publish demo work after activation.
         this.db.prepare("DELETE FROM derived_analytics_jobs WHERE data_mode = 'demo'").run();
         this.db.prepare("DELETE FROM derived_analytics_artifacts WHERE data_mode = 'demo'").run();
+        this.db.prepare("DELETE FROM adaptive_evidence_epochs WHERE data_mode = 'demo'").run();
         this.db.prepare("DELETE FROM adaptive_settings_revisions WHERE data_mode = 'demo'").run();
         this.db.prepare(`INSERT INTO metadata(key, value) VALUES ('data_mode', 'real')
           ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run();
@@ -253,6 +254,7 @@ registerDatabaseMethods({
         this.db.prepare("DELETE FROM analytics_daily_findings WHERE data_mode = 'demo'").run();
         this.db.prepare("DELETE FROM derived_analytics_jobs WHERE data_mode = 'demo'").run();
         this.db.prepare("DELETE FROM derived_analytics_artifacts WHERE data_mode = 'demo'").run();
+        this.db.prepare("DELETE FROM adaptive_evidence_epochs WHERE data_mode = 'demo'").run();
         this.db.prepare("DELETE FROM adaptive_settings_revisions WHERE data_mode = 'demo'").run();
       });
     },
@@ -277,6 +279,11 @@ registerDatabaseMethods({
               SELECT 1 FROM adaptive_settings_revisions newer
               WHERE newer.house_id = head.house_id AND newer.data_mode = head.data_mode AND newer.revision > head.revision
             )`).run(new Date().toISOString(), ...parameters);
+        this.db.prepare(`DELETE FROM adaptive_evidence_epochs WHERE house_id IN (
+          SELECT house.id FROM houses house
+          WHERE json_extract(house.stugby_json, '$.ownership') = 'shared'
+            AND json_extract(house.stugby_json, '$.syncState') <> 'detached' ${houseFilter}
+        )`).run(...parameters);
         this.db.prepare(`DELETE FROM alert_evaluation_state WHERE sensor_id IN (${sharedSensorIds})`).run(...parameters);
         this.db.prepare(`DELETE FROM alert_events WHERE sensor_id IN (${sharedSensorIds})`).run(...parameters);
         this.db.prepare(`DELETE FROM alert_rules WHERE sensor_id IN (${sharedSensorIds})`).run(...parameters);
