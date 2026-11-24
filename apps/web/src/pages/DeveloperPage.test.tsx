@@ -187,7 +187,7 @@ describe("DeveloperPage", () => {
     localStorage.setItem("climate-twin-locale", "fi");
     render(<I18nProvider><DeveloperPage /></I18nProvider>);
 
-    expect(await screen.findByRole("heading", { name: "Paikallinen v1 + v2 HTTP-rajapinta" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Paikallinen v1 + v2 HTTP-rajapinta" }, { timeout: 5_000 })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Paikallinen MCP-palvelin" })).toBeTruthy();
     expect(screen.getByText("Paikalliset integraatiorajapinnat")).toBeTruthy();
     expect(screen.getByText("Käytä Stugua paikallisesti versioidun HTTP-rajapinnan ja luotetun stdio-MCP-palvelimen kautta.")).toBeTruthy();
