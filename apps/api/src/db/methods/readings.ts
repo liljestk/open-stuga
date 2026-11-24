@@ -200,7 +200,15 @@ registerDatabaseMethods({
           const parameters = archivedThrough
             ? [timestamp, archivedThrough[archiveTable], batchSize]
             : [timestamp, batchSize];
-          const changes = Number(statement.run(...parameters).changes);
+          const changes = table === "measurement_samples" && deleted === 0
+            ? this.immediateTransaction(() => {
+              const removed = Number(statement.run(...parameters).changes);
+              if (removed > 0) this.db.prepare(`INSERT INTO metadata (key, value)
+                VALUES ('adaptive_local_measurements_pruned_through', ?)
+                ON CONFLICT (key) DO UPDATE SET value = max(value, excluded.value)`).run(timestamp);
+              return removed;
+            })
+            : Number(statement.run(...parameters).changes);
           deleted += changes;
           if (changes < batchSize) return deleted;
         }

@@ -150,8 +150,13 @@ mode, effective boundary and recording time. Configuration changes invalidate
 the current epoch even if values change back before the detector reads them.
 Moving or rebinding a comparison sensor requires fresh placement approval. An
 older opt-in cannot backdate an epoch past the start of configuration tracking.
-The worker still needs to establish availability and eligibility for each
-hourly observation.
+Closed-hour captures now record each eligible observation or evidence gap at
+the SQLite snapshot time. The capture uses mode-verified readings with known
+recording times, validates units and source quality, and measures coverage
+against occupied reporting intervals. An epoch keeps a consistent observed
+producer. SQLite retention marks pruned history so the collector can withhold
+an incomplete hour. A late write cannot revise an already sealed hour.
+Scheduling these captures and building models from them remain open.
 
 Continue milestones A–F in the adaptive plan: authorized evidence audit,
 complete causal evaluation matrix, models, predictions,
