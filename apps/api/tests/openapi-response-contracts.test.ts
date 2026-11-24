@@ -77,6 +77,24 @@ describe("served response contracts", () => {
     validate(operation.responses["200"].content["application/json"].schema, enabled, "v2");
     expect(isAdaptiveMonitoringSettings(enabled)).toBe(true);
     expect(isAdaptiveMonitoringSettings({ ...enabled, baseline: null })).toBe(false);
+    const floorId = api.database.getHouse("house-main")!.floors[0]!.id;
+    for (const id of ["test-target", "test-reference"]) {
+      api.database.createSensor({
+        id, houseId: "house-main", floorId, name: id, model: "Test", room: "", x: 1, y: 1, z: 1,
+        tags: [], enabled: true, temperatureEntityId: `sensor.${id}`,
+      });
+    }
+    const change = {
+      dataMode: "demo", action: "set-reference-groups", baseRevision: 1,
+      referenceGroups: [{
+        targetSensorId: "test-target", kind: "reference-thermometer",
+        referenceSensorIds: ["test-reference"], placement: "Same shelf",
+      }],
+    };
+    validate(operation.requestBody.content["application/json"].schema, change, "v2");
+    const configured = (await owner.patch(url).set("x-csrf-token", setup.body.csrfToken).send(change).expect(200)).body;
+    validate(operation.responses["200"].content["application/json"].schema, configured, "v2");
+    expect(isAdaptiveMonitoringSettings(configured)).toBe(true);
   });
 
   it("returns the public backup projection and retains the worker's persisted version", async () => {

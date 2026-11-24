@@ -6,6 +6,17 @@ export const ADAPTIVE_MONITORING_VERSION = "adaptive-monitoring/v1" as const;
 export const ADAPTIVE_SETTINGS_MODES = ["off", "shadow"] as const;
 export type AdaptiveSettingsMode = (typeof ADAPTIVE_SETTINGS_MODES)[number];
 export const ADAPTIVE_BASELINE_REASON_LIMIT = 500;
+export const ADAPTIVE_REFERENCE_GROUP_LIMIT = 100;
+export const ADAPTIVE_REFERENCE_PEER_LIMIT = 8;
+export const ADAPTIVE_REFERENCE_SENSOR_ID_LIMIT = 200;
+
+/** Comparable placement is approved explicitly for one target temperature stream. */
+export interface AdaptiveReferenceGroup {
+  targetSensorId: string;
+  kind: "peers" | "reference-thermometer";
+  referenceSensorIds: string[];
+  placement: string;
+}
 
 export interface AdaptiveSettingsScope { houseId: string; dataMode: DataMode }
 
@@ -13,20 +24,48 @@ export interface AdaptiveMonitoringSettings extends AdaptiveSettingsScope {
   mode: AdaptiveSettingsMode;
   revision: number;
   baseline: { id: string; startedAt: string } | null;
+  referenceGroups: AdaptiveReferenceGroup[];
   updatedAt: string | null;
 }
 
 export type AdaptiveSettingsChange = {
   dataMode: DataMode;
   baseRevision: number;
-} & ({ action: "set-mode"; mode: AdaptiveSettingsMode } | { action: "reset-baseline"; reason: string });
+} & (
+  | { action: "set-mode"; mode: AdaptiveSettingsMode }
+  | { action: "reset-baseline"; reason: string }
+  | { action: "set-reference-groups"; referenceGroups: AdaptiveReferenceGroup[] }
+);
+
+function isReferenceSensorId(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0 && value.length <= ADAPTIVE_REFERENCE_SENSOR_ID_LIMIT
+    && value.trim() === value;
+}
+
+function isReferenceGroup(value: unknown): value is AdaptiveReferenceGroup {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const { targetSensorId, kind, referenceSensorIds, placement } = value as Record<string, unknown>;
+  if (!isReferenceSensorId(targetSensorId) || typeof placement !== "string"
+    || !placement.trim() || placement.length > ADAPTIVE_BASELINE_REASON_LIMIT
+    || !Array.isArray(referenceSensorIds) || !referenceSensorIds.every(isReferenceSensorId)) return false;
+  const count = referenceSensorIds.length;
+  if (new Set(referenceSensorIds).size !== count || referenceSensorIds.includes(targetSensorId)) return false;
+  return kind === "reference-thermometer" ? count === 1
+    : kind === "peers" && count >= 2 && count <= ADAPTIVE_REFERENCE_PEER_LIMIT;
+}
+
+export function isAdaptiveReferenceGroups(value: unknown): value is AdaptiveReferenceGroup[] {
+  return Array.isArray(value) && value.length <= ADAPTIVE_REFERENCE_GROUP_LIMIT
+    && value.every(isReferenceGroup) && new Set(value.map((group) => group.targetSensorId)).size === value.length;
+}
 
 export function isAdaptiveMonitoringSettings(value: unknown): value is AdaptiveMonitoringSettings {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const { houseId, dataMode, mode, revision, baseline, updatedAt } = value as Record<string, unknown>;
+  const { houseId, dataMode, mode, revision, baseline, updatedAt, referenceGroups } = value as Record<string, unknown>;
   if (typeof houseId !== "string" || !houseId || !isOneOf(dataMode, ["demo", "live"])
     || !isOneOf(mode, ADAPTIVE_SETTINGS_MODES) || !Number.isSafeInteger(revision) || Number(revision) < 0) return false;
-  if (revision === 0) return mode === "off" && baseline === null && updatedAt === null;
+  if (!isAdaptiveReferenceGroups(referenceGroups)) return false;
+  if (revision === 0) return mode === "off" && baseline === null && updatedAt === null && referenceGroups.length === 0;
   if (typeof updatedAt !== "string" || !Number.isFinite(Date.parse(updatedAt))) return false;
   if (mode === "off") return baseline === null;
   if (!baseline || typeof baseline !== "object" || Array.isArray(baseline)) return false;

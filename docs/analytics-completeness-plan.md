@@ -136,13 +136,18 @@ became visible to the prospective detector.
 Owner and Admin accounts can read and change revisioned Home monitoring
 settings through the v2 settings route. Shadow opt-in starts a new Home
 baseline, resets retain their actor and reason, and duplicate retries return
-the original revision. Live activation purges demo settings. A transition to
-shared authority disables the local opt-in. Advisory promotion, sensor
-reference groups, stream epochs, and the worker remain outstanding.
+the original revision. Owners and Admins can also set temperature reference
+groups for a target, using two or more comparable peers or one designated
+reference thermometer. Approval records the comparable placement. Settings
+reject sensors outside the Home, disabled sensors and known source aliases.
+Changing the groups renews the Home baseline in shadow mode. Live activation
+purges demo settings, and a transition to shared authority revokes opt-in and
+reference approvals. The detector still needs to qualify the references against
+prospective evidence.
 
 Continue milestones A–F in the adaptive plan: authorized evidence audit,
-complete causal evaluation matrix, revisioned settings/epochs/reference groups,
-models, predictions, episodes and reviews; governed worker; canonical routes
+complete causal evaluation matrix, stream epochs, models, predictions,
+episodes and reviews; governed worker; canonical routes
 and access controls; then review/settings UI with visual acceptance.
 
 Reuse the existing forecasters and reliability rules. Their six-hour forecast

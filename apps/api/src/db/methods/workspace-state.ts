@@ -270,7 +270,7 @@ registerDatabaseMethods({
           (house_id, data_mode, revision, mode, updated_at)
           SELECT head.house_id, head.data_mode, head.revision + 1, 'off', ?
           FROM adaptive_settings_revisions head JOIN houses house ON house.id = head.house_id
-          WHERE head.mode = 'shadow'
+          WHERE (head.mode = 'shadow' OR head.reference_groups_json <> '[]')
             AND json_extract(house.stugby_json, '$.ownership') = 'shared'
             AND json_extract(house.stugby_json, '$.syncState') <> 'detached' ${houseFilter}
             AND NOT EXISTS (

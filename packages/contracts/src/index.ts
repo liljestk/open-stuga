@@ -56,8 +56,13 @@ export { ASSISTANT_CONNECTOR_CONSENT_PATH, ASSISTANT_CONNECTOR_RESOURCE_PATH, AS
 export type { AssistantAuthorizationDecision, AssistantAuthorizationInput, AssistantAuthorizationPreview, AssistantAuthorizationRedirect, AssistantConnection, AssistantConnectionsResponse, AssistantKind } from "./assistant-connector.js";
 export type { StugubyAuthorityTransfer, StugubyHomeProjection, StugubyPropertyAdoption } from "./stuguby-local.js";
 export { ADAPTIVE_MONITORING_VERSION, ADAPTIVE_METRICS, ADAPTIVE_MATERIALITY } from "./adaptive-monitoring.js";
-export { ADAPTIVE_SETTINGS_MODES, ADAPTIVE_BASELINE_REASON_LIMIT, isAdaptiveMonitoringSettings } from "./adaptive-monitoring.js";
-export type { AdaptiveSettingsMode, AdaptiveSettingsScope, AdaptiveMonitoringSettings, AdaptiveSettingsChange } from "./adaptive-monitoring.js";
+export {
+  ADAPTIVE_SETTINGS_MODES, ADAPTIVE_BASELINE_REASON_LIMIT, ADAPTIVE_REFERENCE_GROUP_LIMIT,
+  ADAPTIVE_REFERENCE_PEER_LIMIT, ADAPTIVE_REFERENCE_SENSOR_ID_LIMIT, isAdaptiveMonitoringSettings, isAdaptiveReferenceGroups,
+} from "./adaptive-monitoring.js";
+export type {
+  AdaptiveSettingsMode, AdaptiveSettingsScope, AdaptiveMonitoringSettings, AdaptiveSettingsChange, AdaptiveReferenceGroup,
+} from "./adaptive-monitoring.js";
 export type { AdaptiveMetric, AdaptiveHourlyEvidence, AdaptiveAbstentionReason, AdaptiveResidualCalibration, AdaptiveReplayPoint, AdaptiveReplayResult } from "./adaptive-monitoring.js";
 
 export { ANALYTICS_RELATIVE_RANGES, isAnalyticsResolution, isAnalyticsViewDefinition, isAnalyticsViewRange, isSavedAnalyticsView } from "./analytics-views.js";

@@ -25,7 +25,7 @@ export const homeAnalyticsPaths = {
       servers: [{ url: "/api/v2" }],
       tags: ["Measurements"],
       operationId: "updateAdaptiveMonitoringSettings",
-      description: "Owner or Admin opt-in to shadow monitoring, disabling, or explicit baseline reset for an active local Home.",
+      description: "An Owner or Admin can enable shadow monitoring, disable it, reset its baseline, or replace approved temperature reference groups for an active local Home.",
       parameters: [{
         name: "houseId", in: "path", required: true, schema: { type: "string", minLength: 1, maxLength: 200 },
       }],

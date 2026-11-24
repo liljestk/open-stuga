@@ -1,4 +1,7 @@
-import { ADAPTIVE_BASELINE_REASON_LIMIT, ADAPTIVE_SETTINGS_MODES, ANALYTICS_AGGREGATIONS } from "@climate-twin/contracts";
+import {
+  ADAPTIVE_BASELINE_REASON_LIMIT, ADAPTIVE_REFERENCE_GROUP_LIMIT, ADAPTIVE_REFERENCE_PEER_LIMIT,
+  ADAPTIVE_REFERENCE_SENSOR_ID_LIMIT, ADAPTIVE_SETTINGS_MODES, ANALYTICS_AGGREGATIONS,
+} from "@climate-twin/contracts";
 const dateTime = { type: "string", format: "date-time" } as const;
 const nullableDateTime = { type: ["string", "null"], format: "date-time" } as const;
 const archiveState = { enum: ["not-configured", "not-ready", "merged", "failed"] } as const;
@@ -11,6 +14,24 @@ const calendarUnit = { enum: ["day", "week", "month", "year", "decade"] } as con
 const adaptiveScope = {
   dataMode: { enum: ["demo", "live"] },
   baseRevision: { type: "integer", minimum: 0, maximum: Number.MAX_SAFE_INTEGER - 1 },
+} as const;
+const referenceSensorId = { type: "string", minLength: 1, maxLength: ADAPTIVE_REFERENCE_SENSOR_ID_LIMIT } as const;
+const referenceGroups = {
+  type: "array", maxItems: ADAPTIVE_REFERENCE_GROUP_LIMIT,
+  items: {
+    type: "object", additionalProperties: false,
+    required: ["targetSensorId", "kind", "referenceSensorIds", "placement"],
+    properties: {
+      targetSensorId: referenceSensorId,
+      kind: { enum: ["peers", "reference-thermometer"] },
+      referenceSensorIds: { type: "array", uniqueItems: true, items: referenceSensorId },
+      placement: { type: "string", minLength: 1, maxLength: ADAPTIVE_BASELINE_REASON_LIMIT },
+    },
+    oneOf: [
+      { properties: { kind: { const: "peers" }, referenceSensorIds: { minItems: 2, maxItems: ADAPTIVE_REFERENCE_PEER_LIMIT } } },
+      { properties: { kind: { const: "reference-thermometer" }, referenceSensorIds: { minItems: 1, maxItems: 1 } } },
+    ],
+  },
 } as const;
 const qualityFilter = {
   type: "object",
@@ -40,11 +61,15 @@ export const homeAnalyticsSchemas = {
         ...adaptiveScope, action: { const: "reset-baseline" },
         reason: { type: "string", minLength: 1, maxLength: ADAPTIVE_BASELINE_REASON_LIMIT },
       },
+    }, {
+      type: "object", additionalProperties: false,
+      required: ["dataMode", "baseRevision", "action", "referenceGroups"],
+      properties: { ...adaptiveScope, action: { const: "set-reference-groups" }, referenceGroups },
     }],
   },
   AdaptiveMonitoringSettings: {
     type: "object", additionalProperties: false,
-    required: ["houseId", "dataMode", "mode", "revision", "baseline", "updatedAt"],
+    required: ["houseId", "dataMode", "mode", "revision", "baseline", "updatedAt", "referenceGroups"],
     properties: {
       houseId: { type: "string" }, dataMode: adaptiveScope.dataMode,
       mode: { enum: ADAPTIVE_SETTINGS_MODES }, revision: { type: "integer", minimum: 0 },
@@ -53,6 +78,7 @@ export const homeAnalyticsSchemas = {
         properties: { id: { type: "string", format: "uuid" }, startedAt: dateTime },
       }] },
       updatedAt: nullableDateTime,
+      referenceGroups,
     },
   },
   HomePulseCoverage: {

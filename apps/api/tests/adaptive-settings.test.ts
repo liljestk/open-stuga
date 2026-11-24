@@ -5,6 +5,12 @@ import { authRuntime, setupOwner } from "./local-authTestSupport.js";
 
 const path = "/api/v2/monitoring/houses/house-main/adaptive/settings";
 const enable = { dataMode: "demo", action: "set-mode", mode: "shadow", baseRevision: 0 } as const;
+const peers = {
+  targetSensorId: "target-temperature",
+  kind: "peers",
+  referenceSensorIds: ["peer-b", "peer-a"],
+  placement: "Same interior wall and height",
+};
 
 describe("Adaptive Home settings", () => {
   let runtime: ApiRuntime;
@@ -16,7 +22,7 @@ describe("Adaptive Home settings", () => {
   it("defaults to off, retains reset history, and returns the original result on retry", async () => {
     const original = await owner.agent.get(`${path}?dataMode=demo`).expect(200);
     expect(original.body).toEqual({
-      houseId: "house-main", dataMode: "demo", mode: "off", revision: 0, baseline: null, updatedAt: null,
+      houseId: "house-main", dataMode: "demo", mode: "off", revision: 0, baseline: null, updatedAt: null, referenceGroups: [],
     });
     expect(original.headers["cache-control"]).toBe("private, no-store");
     const enabled = await patch(enable).expect(200);
@@ -71,8 +77,78 @@ describe("Adaptive Home settings", () => {
     runtime.database.purgeSharedHomeLocalState("house-main");
     await patch({ ...enable, baseRevision: 1 }).expect(404);
     runtime.database.setHouseStugubyLink("house-main", null);
+    await patch(enable).expect(409);
     expect((await owner.agent.get(`${path}?dataMode=demo`).expect(200)).body)
       .toMatchObject({ mode: "off", revision: 2, baseline: null });
     expect((await patch({ ...enable, baseRevision: 2 }).expect(200)).body).toMatchObject({ revision: 3, mode: "shadow" });
+  });
+
+  function addTemperatureSensor(id: string, options: { enabled?: boolean; houseId?: string } = {}) {
+    const houseId = options.houseId ?? "house-main";
+    runtime.database.createSensor({
+      id, houseId, floorId: runtime.database.getHouse(houseId)!.floors[0]!.id,
+      room: "", name: id, model: "Test", x: 1, y: 1, z: 1,
+      tags: [], enabled: options.enabled ?? true, temperatureEntityId: `sensor.${id}`,
+    });
+  }
+
+  it("versions approved placements and only resets the baseline when the group changes", async () => {
+    for (const id of ["target-temperature", "peer-a", "peer-b"]) addTemperatureSensor(id);
+    const enabled = await patch(enable).expect(200);
+    const change = { action: "set-reference-groups", dataMode: "demo", baseRevision: 1, referenceGroups: [peers] };
+    const approved = await patch(change).expect(200);
+    const canonical = { ...peers, referenceSensorIds: ["peer-a", "peer-b"] };
+    expect(approved.body.referenceGroups).toEqual([canonical]);
+    expect(approved.body.baseline.id).not.toBe(enabled.body.baseline.id);
+    expect((await patch({ ...change, referenceGroups: [canonical] }).expect(200)).body).toEqual(approved.body);
+    const unchanged = await patch({ ...change, baseRevision: 2 }).expect(200);
+    expect(unchanged.body.baseline).toEqual(approved.body.baseline);
+    const thermometer = { ...peers, kind: "reference-thermometer", referenceSensorIds: ["peer-b"] };
+    const replaced = await patch({ ...change, baseRevision: 3, referenceGroups: [thermometer] }).expect(200);
+    expect(replaced.body.referenceGroups).toEqual([thermometer]);
+    const cleared = await patch({ ...change, baseRevision: 4, referenceGroups: [] }).expect(200);
+    expect(cleared.body.referenceGroups).toEqual([]);
+    expect(cleared.body.baseline.id).not.toBe(replaced.body.baseline.id);
+  });
+
+  it("rejects ambiguous references, known aliases, and unavailable sensors", async () => {
+    addTemperatureSensor("target-temperature");
+    addTemperatureSensor("peer-a");
+    addTemperatureSensor("peer-b");
+    addTemperatureSensor("disabled", { enabled: false });
+    const floors = runtime.database.getHouse("house-main")!.floors;
+    runtime.database.createHouse({ id: "other-home", name: "Other Home", timezone: "UTC", floors });
+    addTemperatureSensor("cross-home", { houseId: "other-home" });
+    runtime.database.db.prepare("UPDATE sensors SET tp_link_device_id = ?, tp_link_connection_id = id WHERE id IN (?, ?)")
+      .run("legacy-shared-device", "peer-a", "peer-b");
+    const change = { action: "set-reference-groups", dataMode: "demo", baseRevision: 0 };
+    for (const ids of [["peer-a"], ["peer-a", "peer-a"], ["target-temperature", "peer-a"],
+      ["peer-a", "missing"], ["peer-a", "disabled"], ["peer-a", "cross-home"], ["peer-a", "peer-b"]]) {
+      await patch({ ...change, referenceGroups: [{ ...peers, referenceSensorIds: ids }] }).expect(400);
+    }
+    await patch({ ...change, referenceGroups: [peers, peers] }).expect(400);
+    await patch({ ...change, referenceGroups: [{ ...peers, placement: " " }] }).expect(400);
+    expect((await owner.agent.get(`${path}?dataMode=demo`).expect(200)).body.revision).toBe(0);
+  });
+
+  it("revokes approved groups on shared authority even while monitoring is off", async () => {
+    for (const id of ["target-temperature", "peer-a", "peer-b"]) addTemperatureSensor(id);
+    const change = { action: "set-reference-groups", dataMode: "demo", baseRevision: 0, referenceGroups: [peers] };
+    await patch(change).expect(200);
+    runtime.database.db.prepare("UPDATE houses SET stugby_json = ? WHERE id = ?").run(
+      JSON.stringify({ ownership: "shared", syncState: "active" }), "house-main",
+    );
+    runtime.database.purgeSharedHomeLocalState("house-main");
+    runtime.database.setHouseStugubyLink("house-main", null);
+    await patch(change).expect(409);
+    expect((await owner.agent.get(`${path}?dataMode=demo`).expect(200)).body)
+      .toMatchObject({ revision: 2, mode: "off", referenceGroups: [] });
+  });
+
+  it("retains the prior baseline when migrating existing revisions", async () => {
+    const enabled = await patch(enable).expect(200);
+    runtime.database.db.exec("ALTER TABLE adaptive_settings_revisions DROP COLUMN reference_groups_json");
+    runtime.database.migrate();
+    expect((await owner.agent.get(`${path}?dataMode=demo`).expect(200)).body).toEqual(enabled.body);
   });
 });
