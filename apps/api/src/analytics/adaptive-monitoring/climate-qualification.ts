@@ -7,6 +7,7 @@ import {
 } from "./climate-prediction.js";
 import { auditAdaptiveReadiness, evidenceByHour, type EvidencePolicy } from "./evidence.js";
 import { calibrateResiduals, type ResidualEvidence } from "./residual-policy.js";
+import { contextGuardWindow } from "./context-window.js";
 
 export const ADAPTIVE_CLIMATE_QUALIFICATION_VERSION = "adaptive-climate-qualification/v1";
 
@@ -79,8 +80,8 @@ function guardAvailability(transitions: readonly ContextTransition[]): Map<numbe
   for (const event of transitions) {
     if (!Number.isSafeInteger(event.occurredAt) || !Number.isSafeInteger(event.availableAt)
       || event.availableAt < event.occurredAt) throw new RangeError("Invalid adaptive context transition");
-    const first = Math.ceil(event.occurredAt / HOUR_MS) * HOUR_MS;
-    for (const time of [first, first + HOUR_MS]) {
+    const { from, to } = contextGuardWindow(event.occurredAt);
+    for (let time = from; time < to; time += HOUR_MS) {
       guarded.set(time, Math.min(event.availableAt, guarded.get(time) ?? Number.POSITIVE_INFINITY));
     }
   }

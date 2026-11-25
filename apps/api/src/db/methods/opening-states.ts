@@ -7,7 +7,7 @@ import { registerDatabaseMethods } from "../core.js";
 import { isSqliteFailure } from "../sqlite-failure.js";
 import { randomUUID } from "node:crypto";
 
-const MAX_OPENING_PROVIDER_STALE_MS = 30 * 86_400_000;
+export const MAX_OPENING_PROVIDER_STALE_MS = 30 * 86_400_000;
 
 const OPENING_CANDIDATE_CHECKPOINT_BATCH_ROWS = 256;
 
@@ -253,11 +253,12 @@ registerDatabaseMethods({
         this.immediateTransaction(() => {
           const recordedAt = new Date().toISOString();
           const inserted = this.db.prepare(`INSERT INTO opening_state_observations
-            (id, house_id, floor_id, element_id, state, open_fraction, source, observed_at, valid_until, external_id, connection_id, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+            (id, house_id, floor_id, element_id, state, open_fraction, source, observed_at, valid_until, external_id, connection_id,
+             created_at, adaptive_context_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
             .run(observation.id, houseId, floor.id, element.id, observation.state, observation.openFraction ?? null,
               observation.source, observation.observedAt, observation.validUntil ?? null, observation.externalId ?? null,
-              observation.connectionId ?? null, recordedAt);
+              observation.connectionId ?? null, recordedAt, this.isRealDataMode() ? recordedAt : null);
           this.db.prepare(`INSERT INTO metadata(key, value)
               VALUES ('opening_state_current_candidates_rowid_v2', ?)
               ON CONFLICT(key) DO UPDATE SET value = excluded.value

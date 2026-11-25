@@ -178,8 +178,12 @@ The shadow detector now calibrates against prior prospectively recorded
 forecast errors, persists its decision cursor and episode revisions, and
 freezes the profile and calibration on the first breach. Missing evidence
 marks an active episode stale. Recovery requires three consecutive usable
-hours and a seven-day freeze expires the model. The detector remains
-indoor-only. Independently timed weather and opening or heating context, the
+hours and a seven-day freeze expires the model. The detector now records
+two-hour guards for same-Home opening and heating-setting changes known
+when the target was sealed. The guard interrupts the detection sequence
+and excludes the error from calibration. Historical rows without recording
+provenance and uncertain equipment reports do not create guards. The
+production profile still uses indoor measurements. Weather inputs, the
 reference detector, review surfaces, and advisory evidence remain open.
 
 Continue milestones A–F in the adaptive plan: authorized evidence audit,

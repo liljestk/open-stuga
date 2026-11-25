@@ -4,6 +4,7 @@ import { HOUR_MS, hourStart } from "../forecast/models.js";
 import { ADAPTIVE_CAPTURE_HORIZON_MS, ADAPTIVE_HOUR_RETENTION_MS } from "./closed-hour.js";
 import { detectProspectiveDeparture, initialDetectorState, type DetectorHour, type DetectorState } from "./prospective-departure.js";
 import type { ResidualEvidence } from "./residual-policy.js";
+import { AdaptiveClimateContext, type ClimateContextGuard } from "./climate-context.js";
 
 const CAPTURE_GRACE_MS = 2 * HOUR_MS;
 const MAX_DECISIONS_PER_PASS = 8;
@@ -14,6 +15,7 @@ interface DecisionRow {
   issued_at: number;
   frozen_at: number | null;
   outcome: number | null;
+  observed_at: number | null;
   observed: number | null;
   prediction: number;
 }
@@ -27,7 +29,11 @@ function hourInput(hour: number, row: DecisionRow | undefined): DetectorHour {
 }
 
 export class AdaptiveClimateDetector {
-  constructor(private readonly database: ClimateDatabase) {}
+  readonly #context: AdaptiveClimateContext;
+
+  constructor(private readonly database: ClimateDatabase) {
+    this.#context = new AdaptiveClimateContext(database);
+  }
 
   #history(epochId: string, issuedAt: number): ResidualEvidence[] {
     return this.database.db.prepare(`SELECT target_hour AS time, decided_at AS availableAt, error
@@ -49,7 +55,7 @@ export class AdaptiveClimateDetector {
     const to = Math.min(hourStart(now), from + MAX_DECISIONS_PER_PASS * HOUR_MS);
     if (from >= to) return state;
     const rows = this.database.db.prepare(`SELECT prediction.target_hour, prediction.issued_at, prediction.frozen_at,
-        prediction.prediction, outcome.scored_at AS outcome, outcome.observed
+        prediction.prediction, outcome.scored_at AS outcome, outcome.observed_at, outcome.observed
       FROM adaptive_climate_predictions prediction
       LEFT JOIN adaptive_climate_outcomes outcome USING (epoch_id, target_hour)
       WHERE prediction.epoch_id = ? AND prediction.target_hour >= ? AND prediction.target_hour < ?`)
@@ -59,9 +65,7 @@ export class AdaptiveClimateDetector {
     for (let hour = from; hour < to; hour += HOUR_MS) {
       const row = byHour.get(hour);
       if (row && (row.outcome === null || row.outcome > now) && now < hour + HOUR_MS + CAPTURE_GRACE_MS) break;
-      const available = row && row.outcome !== null && row.outcome <= now ? row : undefined;
-      const sample = hourInput(hour, row && !available ? { ...row, observed: null } : available);
-      this.#record(epoch, { sample, state, now });
+      this.#recordHour(epoch, { hour, row, state, now });
       through = hour;
     }
     if (through >= from) {
@@ -72,15 +76,30 @@ export class AdaptiveClimateDetector {
     return state;
   }
 
-  #record(epoch: AdaptiveEvidenceEpoch, { sample, state, now }: { sample: DetectorHour; state: DetectorState; now: number }): void {
+  #recordHour(epoch: AdaptiveEvidenceEpoch, { hour, row, state, now }: {
+    hour: number; row: DecisionRow | undefined; state: DetectorState; now: number;
+  }): void {
+    const available = row && row.outcome !== null && row.outcome <= now ? row : undefined;
+    const sample = hourInput(hour, row && !available ? { ...row, observed: null } : available);
+    const guard = available?.observed_at != null && available.observed !== null
+      ? this.#context.forHour(epoch, { hour, knownAt: available.observed_at })
+      : null;
+    this.#record(epoch, { sample, state, now, guard });
+  }
+
+  #record(epoch: AdaptiveEvidenceEpoch, { sample, state, now, guard }: {
+    sample: DetectorHour; state: DetectorState; now: number; guard: ClimateContextGuard | null;
+  }): void {
     const decision = detectProspectiveDeparture({
       state, sample, now, metric: epoch.metric,
       history: state.frozen || sample.issuedAt === null ? [] : this.#history(epoch.id, sample.issuedAt),
+      ...(guard ? { guard } : {}),
     });
     this.database.db.prepare(`INSERT INTO adaptive_climate_detector_hours
-        (epoch_id, target_hour, decided_at, error, calibration_json, admitted, reason)
-      VALUES (?, ?, ?, ?, ?, ?, ?)`).run(epoch.id, sample.hour, now, sample.error,
-      decision.calibration ? JSON.stringify(decision.calibration) : null, Number(decision.admitted), decision.reason);
+        (epoch_id, target_hour, decided_at, error, calibration_json, admitted, reason, context_guard_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(epoch.id, sample.hour, now, sample.error,
+      decision.calibration ? JSON.stringify(decision.calibration) : null, Number(decision.admitted), decision.reason,
+      guard ? JSON.stringify(guard) : null);
     if (decision.revision) {
       const { direction, state: status } = decision.revision;
       this.database.db.prepare(`INSERT INTO adaptive_climate_episode_revisions

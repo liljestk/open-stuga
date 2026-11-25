@@ -7,6 +7,7 @@ import {
   type AdaptiveResidualCalibration,
 } from "@climate-twin/contracts";
 import { HOUR_MS } from "../forecast/models.js";
+import { contextGuardWindow } from "./context-window.js";
 import { evidenceByHour, type EvidencePolicy } from "./evidence.js";
 import {
   advanceDeparture, calibrateResiduals, initialDepartureState, interruptDeparture,
@@ -106,9 +107,8 @@ function contextGuardHours(transitions: readonly number[]): Set<number> {
   const guarded = new Set<number>();
   for (const transition of transitions) {
     if (!Number.isSafeInteger(transition)) throw new RangeError("Context transitions must be finite timestamp integers");
-    const first = Math.ceil(transition / HOUR_MS) * HOUR_MS;
-    guarded.add(first);
-    guarded.add(first + HOUR_MS);
+    const { from, to } = contextGuardWindow(transition);
+    for (let hour = from; hour < to; hour += HOUR_MS) guarded.add(hour);
   }
   return guarded;
 }

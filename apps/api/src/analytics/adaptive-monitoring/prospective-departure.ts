@@ -1,6 +1,7 @@
 import type { AdaptiveMetric, AdaptiveResidualCalibration } from "@climate-twin/contracts";
 import { HOUR_MS } from "../forecast/models.js";
 import { advanceDeparture, calibrateResiduals, initialDepartureState, interruptDeparture, type ResidualEvidence } from "./residual-policy.js";
+import type { ClimateContextGuard } from "./climate-context.js";
 
 export const FROZEN_MODEL_LIFETIME_MS = 168 * HOUR_MS;
 
@@ -40,12 +41,18 @@ export function detectProspectiveDeparture(input: {
   now: number;
   metric: AdaptiveMetric;
   history: readonly ResidualEvidence[];
+  guard?: ClimateContextGuard;
 }) {
   const { state, sample, now, metric, history } = input;
   if (state.expired || (state.departure.frozenAt !== null && sample.hour - state.departure.frozenAt >= FROZEN_MODEL_LIFETIME_MS)) {
     state.expired = true;
     return { calibration: state.frozen?.calibration ?? null, admitted: false, reason: "expired-model",
       revision: transitionEpisode(state, state.departure.direction, "expired") };
+  }
+  if (input.guard) {
+    interruptDeparture(state.departure);
+    return { calibration: state.frozen?.calibration ?? null, admitted: false, reason: "context-guard",
+      revision: transitionEpisode(state, state.departure.direction, "stale") };
   }
   const inconsistentFreeze = state.frozen && sample.issuedAt !== null && sample.issuedAt >= state.frozen.detectedAt
     && sample.frozenAt !== state.frozen.issuedAt;
