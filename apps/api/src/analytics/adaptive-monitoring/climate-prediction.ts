@@ -1,6 +1,6 @@
 import type { AdaptiveHourlyEvidence, AdaptiveMetric } from "@climate-twin/contracts";
 import {
-  fitThermalForecastParameters, HOUR_MS, lookup, profileForecaster, thermalForecaster, tuneProfileForecast,
+  fitThermalForecastParameters, HOUR_MS, hourStart, lookup, profileForecaster, thermalForecaster, tuneProfileForecast,
   type HourlyValue, type ProfileForecastParameters, type ThermalForecastParameters,
 } from "../forecast/models.js";
 
@@ -104,9 +104,19 @@ export class CausalClimatePredictor {
 
   predict(at: number, knownAt = at): number | null {
     if (knownAt > at) return null;
-    const origin = recentKnownTarget(this.input.target, at, knownAt);
+    return this.#predict({ at, knownAt, anchor: at });
+  }
+
+  /** Forecast from the original pre-breach state with no observations admitted since then. */
+  predictFrozen(at: number, cutoff: number): number | null {
+    const anchor = hourStart(cutoff) + HOUR_MS;
+    return at >= anchor ? this.#predict({ at, knownAt: cutoff, anchor }) : null;
+  }
+
+  #predict({ at, knownAt, anchor }: { at: number; knownAt: number; anchor: number }): number | null {
+    const origin = recentKnownTarget(this.input.target, anchor, knownAt);
     if (!origin) return null;
-    const window = { at: knownAt, from: at - CLIMATE_FIT_WINDOW_MS, to: at };
+    const window = { at: knownAt, from: anchor - CLIMATE_FIT_WINDOW_MS, to: anchor };
     const history = visibleHours(this.input.target, window);
     const steps = (at - origin.time) / HOUR_MS;
     return this.#forecast(history, window)?.forecast(origin.time, origin.value, steps)?.at(-1) ?? null;

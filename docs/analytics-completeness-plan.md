@@ -174,8 +174,13 @@ immutable next-hour shadow predictions, with both fixed baselines and the
 input digest, before the target hour starts. Sealed observations or gaps
 produce separate immutable outcome rows. The ledger records expired captures
 explicitly, rolls off after 90 days, and follows epoch and mode cleanup.
-Independently timed weather and context inputs, residual calibration from
-prospective errors, and findings remain open.
+The shadow detector now calibrates against prior prospectively recorded
+forecast errors, persists its decision cursor and episode revisions, and
+freezes the profile and calibration on the first breach. Missing evidence
+marks an active episode stale. Recovery requires three consecutive usable
+hours and a seven-day freeze expires the model. The detector remains
+indoor-only. Independently timed weather and opening or heating context, the
+reference detector, review surfaces, and advisory evidence remain open.
 
 Continue milestones A–F in the adaptive plan: authorized evidence audit,
 complete causal evaluation matrix, models, predictions,
