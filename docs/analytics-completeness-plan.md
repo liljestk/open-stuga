@@ -158,8 +158,15 @@ producer. SQLite retention marks pruned history so the collector can withhold
 an incomplete hour. A late write cannot revise an already sealed hour.
 A background pass now collects opted-in streams under the shared analytics
 governor after startup grace. It rotates across Homes, limits catch-up to 48
-hours, checkpoints each stream in SQLite, and pauses on host pressure. Model
-fitting and review still need to consume the collected evidence.
+hours, checkpoints each stream in SQLite, and pauses on host pressure.
+The offline climate screen uses four chronological weeks to fit the existing
+daily-profile and thermal candidates, compare them on matching selection
+hours, calibrate residuals, and report skill and range coverage on a held-out
+week. It requires a 5% MAE improvement against the stronger fixed baseline
+and 95% empirical range coverage. Weather and indoor readings must have been
+available at the forecast cutoff. Run `npm run evaluate:adaptive -- --climate-qualification`
+for a synthetic receipt. Persisting model results and making prospective
+predictions still need to be wired into shadow collection.
 
 Continue milestones A–F in the adaptive plan: authorized evidence audit,
 complete causal evaluation matrix, models, predictions,

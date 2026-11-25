@@ -36,16 +36,19 @@ export function auditAdaptiveReadiness(input: {
   evidence: readonly AdaptiveHourlyEvidence[];
   policy: EvidencePolicy;
   evaluatedAt: number;
+  /** Evidence used to advance a qualification stage must already be sealed at its boundary. */
+  byBlockBoundary?: boolean;
 }) {
   const byHour = evidenceByHour(input.evidence, input.policy);
   const start = Math.ceil(input.policy.trustworthyFrom / HOUR_MS) * HOUR_MS;
   const blocks = ["fit", "selection", "calibration", "evaluation"].map((name, index) => {
     const from = start + index * 168 * HOUR_MS;
     const to = from + 168 * HOUR_MS;
+    const availableBy = input.byBlockBoundary ? Math.min(to, input.evaluatedAt) : input.evaluatedAt;
     let usableHours = 0;
     for (let time = from; time < to; time += HOUR_MS) {
       const point = byHour.get(time);
-      if (point && point.availableAt <= input.evaluatedAt) usableHours += 1;
+      if (point && point.availableAt <= availableBy) usableHours += 1;
     }
     return { name, from, to, usableHours, coverage: usableHours / 168, closed: to <= input.evaluatedAt };
   });

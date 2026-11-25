@@ -4,10 +4,17 @@ import { resolve } from "node:path";
 import { ADAPTIVE_MONITORING_VERSION, type AdaptiveAbstentionReason } from "@climate-twin/contracts";
 import { replayAdaptiveBaseline } from "../apps/api/src/analytics/adaptive-monitoring/replay.js";
 import { adaptiveEvaluationScenarios } from "../apps/api/src/analytics/adaptive-monitoring/scenarios.js";
+import { ADAPTIVE_CLIMATE_QUALIFICATION_VERSION, qualifyAdaptiveClimateModel } from "../apps/api/src/analytics/adaptive-monitoring/climate-qualification.js";
+import { HOUR_MS } from "../apps/api/src/analytics/forecast/models.js";
 
-const HOUR_MS = 3_600_000;
+const args = process.argv.slice(2);
+const qualifyClimate = args[0] === "--climate-qualification";
+if (qualifyClimate) args.shift();
+if (args.length && (args.length !== 2 || args[0] !== "--output" || !args[1])) {
+  throw new Error("Usage: npm run evaluate:adaptive -- [--climate-qualification] [--output PATH]");
+}
 const scenarios = adaptiveEvaluationScenarios();
-const results = scenarios.flatMap((scenario) => (["persistence", "same-hour-yesterday"] as const).map((baseline) => {
+const results = (qualifyClimate ? [] : scenarios).flatMap((scenario) => (["persistence", "same-hour-yesterday"] as const).map((baseline) => {
   const replay = replayAdaptiveBaseline({
     evidence: scenario.evidence,
     policy: { epochId: "synthetic-epoch", dataMode: "live", trustworthyFrom: 0 },
@@ -33,7 +40,7 @@ const results = scenarios.flatMap((scenario) => (["persistence", "same-hour-yest
   };
 }));
 
-const receipt = {
+const baselineReceipt = {
   algorithmVersion: ADAPTIVE_MONITORING_VERSION,
   fixtureVersion: "adaptive-scenarios/v2",
   datasetDigest: createHash("sha256").update(JSON.stringify(scenarios)).digest("hex"),
@@ -44,10 +51,37 @@ const receipt = {
   results,
 };
 
-const args = process.argv.slice(2);
-if (args.length && (args.length !== 2 || args[0] !== "--output" || !args[1])) {
-  throw new Error("Usage: npm run evaluate:adaptive -- [--output PATH]");
+function climateReceipt() {
+  const drift = {
+    ...scenarios[0]!,
+    id: "gradual-trend",
+    evidence: scenarios[0]!.evidence.map((point, index) => ({
+      ...point, value: point.value + index / 48, availableAt: point.availableAt + 2_000,
+    })),
+  };
+  const fixtures = [...scenarios, drift];
+  return {
+    algorithmVersion: ADAPTIVE_CLIMATE_QUALIFICATION_VERSION,
+    fixtureVersion: "adaptive-climate-scenarios/v1",
+    datasetDigest: createHash("sha256").update(JSON.stringify(fixtures)).digest("hex"),
+    purpose: "synthetic-climate-technical-screen",
+    advisoryEligible: false,
+    limitations: ["Synthetic point forecasts and reference ranges only. Event utility and prospective rollout require independent evidence."],
+    results: fixtures.map((scenario) => ({
+      scenario: scenario.id,
+      metric: scenario.metric,
+      ...qualifyAdaptiveClimateModel({
+        evidence: scenario.evidence, metric: scenario.metric, evaluatedAt: scenario.evidence.length * HOUR_MS,
+        policy: { epochId: "synthetic-epoch", dataMode: "live", trustworthyFrom: 0 },
+        ...(scenario.contextTransitions ? {
+          contextTransitions: scenario.contextTransitions.map((occurredAt) => ({ occurredAt, availableAt: occurredAt })),
+        } : {}),
+      }),
+    })),
+  };
 }
+
+const receipt = qualifyClimate ? climateReceipt() : baselineReceipt;
 const serialized = `${JSON.stringify(receipt, null, 2)}\n`;
 if (args[1]) writeFileSync(resolve(args[1]), serialized, { flag: "wx" });
 process.stdout.write(serialized);
