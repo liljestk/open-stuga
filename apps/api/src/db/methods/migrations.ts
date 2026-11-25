@@ -7,6 +7,7 @@ import { migrateAdaptiveSettings } from "../migrations/adaptive-settings-schema.
 import { migrateAdaptiveEvidence } from "../migrations/adaptive-evidence-schema.js";
 import { adaptiveHourlyEvidenceSchema } from "../migrations/adaptive-hourly-evidence-schema.js";
 import { adaptiveCollectionSchema } from "../migrations/adaptive-collection-schema.js";
+import { adaptiveClimateArtifactsSchema } from "../migrations/adaptive-climate-artifacts-schema.js";
 
 declare module "../core.js" {
   interface DatabaseInternals {
@@ -118,6 +119,7 @@ registerDatabaseMethods({
         migrateAdaptiveEvidence(this.db);
         this.db.exec(adaptiveHourlyEvidenceSchema);
         this.db.exec(adaptiveCollectionSchema);
+        this.db.exec(adaptiveClimateArtifactsSchema);
       });
     },
   /**

@@ -7,6 +7,13 @@ export interface EvidencePolicy {
   trustworthyFrom: number;
 }
 
+const WEEK_MS = 168 * HOUR_MS;
+
+export function adaptiveQualificationWindow(trustworthyFrom: number): { from: number; to: number } {
+  const from = Math.ceil(trustworthyFrom / HOUR_MS) * HOUR_MS;
+  return { from, to: from + 4 * WEEK_MS };
+}
+
 export function eligibleHourlyEvidence(point: AdaptiveHourlyEvidence, policy: EvidencePolicy): boolean {
   return Number.isSafeInteger(point.time) && point.time % HOUR_MS === 0
     && Number.isFinite(point.availableAt) && point.availableAt >= point.time + HOUR_MS
@@ -40,10 +47,10 @@ export function auditAdaptiveReadiness(input: {
   byBlockBoundary?: boolean;
 }) {
   const byHour = evidenceByHour(input.evidence, input.policy);
-  const start = Math.ceil(input.policy.trustworthyFrom / HOUR_MS) * HOUR_MS;
+  const { from: start } = adaptiveQualificationWindow(input.policy.trustworthyFrom);
   const blocks = ["fit", "selection", "calibration", "evaluation"].map((name, index) => {
-    const from = start + index * 168 * HOUR_MS;
-    const to = from + 168 * HOUR_MS;
+    const from = start + index * WEEK_MS;
+    const to = from + WEEK_MS;
     const availableBy = input.byBlockBoundary ? Math.min(to, input.evaluatedAt) : input.evaluatedAt;
     let usableHours = 0;
     for (let time = from; time < to; time += HOUR_MS) {

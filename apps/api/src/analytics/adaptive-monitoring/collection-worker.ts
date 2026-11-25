@@ -10,6 +10,7 @@ import {
 } from "../work-limiter.js";
 import { ADAPTIVE_CAPTURE_HORIZON_MS } from "./closed-hour.js";
 import { AdaptiveCollectionStore } from "./collection-store.js";
+import { AdaptiveClimateArtifacts } from "./climate-artifacts.js";
 
 const BETWEEN_PASSES_MS = 60_000;
 const DEADLINE_MS = 30_000;
@@ -24,6 +25,7 @@ interface CollectionProgress {
   gaps: number;
   unavailableHours: number;
   scopeChanges: number;
+  qualifications: number;
 }
 
 type CollectionState =
@@ -38,7 +40,7 @@ interface Options {
 }
 
 function emptyProgress(): CollectionProgress {
-  return { streams: 0, observations: 0, gaps: 0, unavailableHours: 0, scopeChanges: 0 };
+  return { streams: 0, observations: 0, gaps: 0, unavailableHours: 0, scopeChanges: 0, qualifications: 0 };
 }
 
 function scopeWasRevoked(error: unknown): boolean {
@@ -61,6 +63,7 @@ async function admitUntilCancelled(admit: Options["admit"], signal: AbortSignal)
 
 export class AdaptiveCollectionWorker {
   readonly #store: AdaptiveCollectionStore;
+  readonly #climateArtifacts: AdaptiveClimateArtifacts;
   #timer: ReturnType<typeof setTimeout> | null = null;
   #active: Promise<void> | null = null;
   #controller: AbortController | null = null;
@@ -70,6 +73,7 @@ export class AdaptiveCollectionWorker {
 
   constructor(private readonly options: Options) {
     this.#store = new AdaptiveCollectionStore(options.database);
+    this.#climateArtifacts = new AdaptiveClimateArtifacts(options.database);
   }
 
   status(): CollectionState & CollectionProgress {
@@ -192,6 +196,9 @@ export class AdaptiveCollectionWorker {
       if (outcome === "gap") this.#progress.gaps += 1;
       if (outcome === "unavailable") this.#progress.unavailableHours += 1;
       await yieldToEventLoop();
+    }
+    if (this.#progress.qualifications === 0 && await this.#climateArtifacts.evaluate(epoch, signal)) {
+      this.#progress.qualifications = 1;
     }
   }
 }

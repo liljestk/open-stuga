@@ -165,8 +165,12 @@ hours, calibrate residuals, and report skill and range coverage on a held-out
 week. It requires a 5% MAE improvement against the stronger fixed baseline
 and 95% empirical range coverage. Weather and indoor readings must have been
 available at the forecast cutoff. Run `npm run evaluate:adaptive -- --climate-qualification`
-for a synthetic receipt. Persisting model results and making prospective
-predictions still need to be wired into shadow collection.
+for a synthetic receipt. The shadow worker now runs the indoor-only screen
+in its governed fit worker after a complete four-week cohort has elapsed.
+It stores immutable reports with an input digest, rejects publication if
+the epoch or evidence changed, and uses fresh cohorts after insufficient
+coverage or rejection. Prospective predictions, independently timed weather
+and context inputs, and findings remain open.
 
 Continue milestones A–F in the adaptive plan: authorized evidence audit,
 complete causal evaluation matrix, models, predictions,

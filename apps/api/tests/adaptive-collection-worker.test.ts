@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DataMode } from "@climate-twin/contracts";
 import { AdaptiveCollectionWorker } from "../src/analytics/adaptive-monitoring/collection-worker.js";
+import { AdaptiveClimateArtifacts } from "../src/analytics/adaptive-monitoring/climate-artifacts.js";
+import { adaptiveQualificationWindow } from "../src/analytics/adaptive-monitoring/evidence.js";
+import { qualifyAdaptiveClimateModel, type QualificationInput } from "../src/analytics/adaptive-monitoring/climate-qualification.js";
 import { HOUR_MS } from "../src/analytics/forecast/models.js";
 import { AnalyticsWorkLimiter, BACKGROUND_ANALYTICS_STARTUP_GRACE_MS } from "../src/analytics/work-limiter.js";
 import { ClimateDatabase } from "../src/db.js";
@@ -139,5 +142,65 @@ describe("Adaptive Home shadow collection", () => {
     await run;
     expect(limiter.snapshot()).toMatchObject({ active: 0, lowPriorityActive: 0, queued: 0 });
     expect(captured().count).toBe(0);
+  });
+
+  it("automatically evaluates a mature cohort once and preserves the report across worker restarts", async () => {
+    createHome();
+    addStream("model-target");
+    enable("demo");
+    const scope = { houseId: homeId, sensorId: "model-target", dataMode: "demo", metric: "temperature", purpose: "climate" } as const;
+    const epoch = database.ensureAdaptiveEvidenceEpoch(scope)!;
+    const window = adaptiveQualificationWindow(Date.parse(epoch.effectiveAt));
+    const insert = database.db.prepare(`INSERT INTO adaptive_hourly_evidence
+      (epoch_id, hour, captured_at, value, coverage, observation_source) VALUES (?, ?, ?, ?, 1, 'mock')`);
+    for (let time = window.from; time < window.to; time += HOUR_MS) {
+      const index = (time - window.from) / HOUR_MS;
+      insert.run(epoch.id, time, time + HOUR_MS + 2_000, 18 + index / 48 + 4 * Math.sin(index * Math.PI / 12));
+    }
+    vi.setSystemTime(window.to - 1);
+    await worker.runOnce();
+    const artifacts = new AdaptiveClimateArtifacts(database);
+    expect(artifacts.read(scope)).toBeNull();
+    vi.setSystemTime(window.to + 5_000);
+    await worker.runOnce();
+    const stored = artifacts.read(scope);
+    expect(worker.status().qualifications).toBe(1);
+    expect(stored).toMatchObject({
+      epochId: epoch.id, evaluatedThrough: window.to, inputDigest: expect.stringMatching(/^[a-f0-9]{64}$/),
+      report: { state: "technical-pass", advisoryEligible: false },
+    });
+    const restarted = new AdaptiveCollectionWorker({ database, limiter, admit });
+    await restarted.runOnce();
+    await restarted.stop();
+    expect(restarted.status().qualifications).toBe(0);
+    expect(artifacts.read(scope)).toEqual(stored);
+    database.activateRealDataMode();
+    expect(database.db.prepare("SELECT count(*) AS count FROM adaptive_climate_artifacts").get()).toEqual({ count: 0 });
+  });
+
+  it("discards a calculation whose epoch changes before publication and can evaluate a new cohort after low coverage", async () => {
+    createHome();
+    addStream("changed-target");
+    enable("demo");
+    const scope = { houseId: homeId, sensorId: "changed-target", dataMode: "demo", metric: "temperature", purpose: "climate" } as const;
+    const old = database.ensureAdaptiveEvidenceEpoch(scope)!;
+    vi.setSystemTime(adaptiveQualificationWindow(Date.parse(old.effectiveAt)).to);
+    const staleWriter = new AdaptiveClimateArtifacts(database, async (input: QualificationInput) => {
+      database.updateSensor(scope.sensorId, { x: 2 });
+      return qualifyAdaptiveClimateModel(input);
+    });
+    const signal = new AbortController().signal;
+    expect(await staleWriter.evaluate(old, signal)).toBe(false);
+    expect(staleWriter.read(scope)).toBeNull();
+    const epoch = database.ensureAdaptiveEvidenceEpoch(scope)!;
+    const window = adaptiveQualificationWindow(Date.parse(epoch.effectiveAt));
+    const artifacts = new AdaptiveClimateArtifacts(database);
+    vi.setSystemTime(window.to);
+    expect(await artifacts.evaluate(epoch, signal)).toBe(true);
+    expect(artifacts.read(scope)?.report.state).toBe("collecting");
+    vi.setSystemTime(window.to + (window.to - window.from));
+    expect(await artifacts.evaluate(epoch, signal)).toBe(true);
+    expect(artifacts.read(scope)?.evaluatedThrough).toBe(Date.now());
+    expect(await artifacts.evaluate(epoch, signal)).toBe(false);
   });
 });

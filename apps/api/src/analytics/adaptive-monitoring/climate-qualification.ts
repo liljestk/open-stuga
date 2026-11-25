@@ -20,7 +20,7 @@ interface ContextTransition {
   availableAt: number;
 }
 
-interface QualificationInput {
+export interface QualificationInput {
   evidence: readonly AdaptiveHourlyEvidence[];
   outdoor?: readonly AdaptiveOutdoorHour[];
   contextTransitions?: readonly ContextTransition[];
@@ -29,6 +29,8 @@ interface QualificationInput {
   evaluatedAt: number;
   signal?: AbortSignal;
 }
+
+export type ClimateQualificationResult = ReturnType<typeof qualifyAdaptiveClimateModel>;
 
 interface AnalysisHours {
   climate: ClimateInputs;
