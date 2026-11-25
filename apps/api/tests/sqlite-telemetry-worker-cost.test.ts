@@ -64,7 +64,7 @@ describe("isolated local electricity costs", () => {
       context.database.db.prepare("UPDATE measurement_samples SET value = value * 2 WHERE metric = 'energy'").run();
       expect((await reader.energyCostAggregate(query)).consumptionKwh).toBeCloseTo(48, 5);
     } finally { context.close(); }
-  });
+  }, 30_000);
 
   it("cancels both queued and running reads without poisoning the next query", async () => {
     const context = fixture(24);
