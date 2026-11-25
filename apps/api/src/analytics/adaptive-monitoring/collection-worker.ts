@@ -11,6 +11,7 @@ import {
 import { ADAPTIVE_CAPTURE_HORIZON_MS } from "./closed-hour.js";
 import { AdaptiveCollectionStore } from "./collection-store.js";
 import { AdaptiveClimateArtifacts } from "./climate-artifacts.js";
+import { AdaptiveClimateLedger } from "./climate-ledger.js";
 
 const BETWEEN_PASSES_MS = 60_000;
 const DEADLINE_MS = 30_000;
@@ -26,6 +27,8 @@ interface CollectionProgress {
   unavailableHours: number;
   scopeChanges: number;
   qualifications: number;
+  predictions: number;
+  outcomes: number;
 }
 
 type CollectionState =
@@ -40,7 +43,7 @@ interface Options {
 }
 
 function emptyProgress(): CollectionProgress {
-  return { streams: 0, observations: 0, gaps: 0, unavailableHours: 0, scopeChanges: 0, qualifications: 0 };
+  return { streams: 0, observations: 0, gaps: 0, unavailableHours: 0, scopeChanges: 0, qualifications: 0, predictions: 0, outcomes: 0 };
 }
 
 function scopeWasRevoked(error: unknown): boolean {
@@ -64,6 +67,7 @@ async function admitUntilCancelled(admit: Options["admit"], signal: AbortSignal)
 export class AdaptiveCollectionWorker {
   readonly #store: AdaptiveCollectionStore;
   readonly #climateArtifacts: AdaptiveClimateArtifacts;
+  readonly #climateLedger: AdaptiveClimateLedger;
   #timer: ReturnType<typeof setTimeout> | null = null;
   #active: Promise<void> | null = null;
   #controller: AbortController | null = null;
@@ -74,6 +78,7 @@ export class AdaptiveCollectionWorker {
   constructor(private readonly options: Options) {
     this.#store = new AdaptiveCollectionStore(options.database);
     this.#climateArtifacts = new AdaptiveClimateArtifacts(options.database);
+    this.#climateLedger = new AdaptiveClimateLedger(options.database, this.#climateArtifacts);
   }
 
   status(): CollectionState & CollectionProgress {
@@ -123,7 +128,7 @@ export class AdaptiveCollectionWorker {
     try {
       const dataMode = this.#store.dataMode();
       const optedIn = this.#store.hasOptIn(dataMode);
-      if (!optedIn && !this.#store.hasExpiredEvidence()) {
+      if (!optedIn && !this.#store.hasExpiredEvidence() && !this.#climateLedger.hasExpired()) {
         this.#state = { state: "idle" };
         return;
       }
@@ -140,6 +145,7 @@ export class AdaptiveCollectionWorker {
         await this.#collect(dataMode, signal);
         signal.throwIfAborted();
         this.options.database.pruneAdaptiveHours();
+        this.#climateLedger.pruneExpired();
       } finally {
         await lease.release();
       }
@@ -200,5 +206,9 @@ export class AdaptiveCollectionWorker {
     if (this.#progress.qualifications === 0 && await this.#climateArtifacts.evaluate(epoch, signal)) {
       this.#progress.qualifications = 1;
     }
+    signal.throwIfAborted();
+    const { predictions, outcomes } = this.#climateLedger.advance(epoch);
+    this.#progress.predictions += predictions;
+    this.#progress.outcomes += outcomes;
   }
 }

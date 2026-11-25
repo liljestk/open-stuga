@@ -34,6 +34,7 @@ export class AdaptiveClimateArtifacts {
       const row = this.#latest(epoch.id);
       return row ? {
         epochId: epoch.id,
+        algorithmVersion: ADAPTIVE_CLIMATE_QUALIFICATION_VERSION,
         evaluatedThrough: row.evaluated_through,
         recordedAt: row.recorded_at,
         inputDigest: row.input_digest,

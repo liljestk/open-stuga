@@ -5,7 +5,7 @@ import {
 } from "../forecast/models.js";
 
 const DAY_MS = 24 * HOUR_MS;
-const FIT_WINDOW_MS = 14 * DAY_MS;
+export const CLIMATE_FIT_WINDOW_MS = 14 * DAY_MS;
 const MAX_ORIGIN_AGE_HOURS = 3;
 
 export type ClimateModelPolicy =
@@ -62,10 +62,10 @@ export function tuneClimatePolicies(input: ClimateInputs, metric: AdaptiveMetric
   return candidates;
 }
 
-function recentKnownTarget(target: ClimateInputs["target"], at: number): AdaptiveHourlyEvidence | null {
+function recentKnownTarget(target: ClimateInputs["target"], at: number, knownAt: number): AdaptiveHourlyEvidence | null {
   for (let lag = 1; lag <= MAX_ORIGIN_AGE_HOURS; lag++) {
     const point = target.get(at - lag * HOUR_MS);
-    if (point && point.availableAt <= at) return point;
+    if (point && point.availableAt <= knownAt) return point;
   }
   return null;
 }
@@ -75,11 +75,11 @@ export interface ClimateBaselinePredictions {
   seasonal: number | null;
 }
 
-export function climateBaselines(target: ClimateInputs["target"], at: number): ClimateBaselinePredictions {
+export function climateBaselines(target: ClimateInputs["target"], at: number, knownAt = at): ClimateBaselinePredictions {
   const seasonal = target.get(at - DAY_MS);
   return {
-    persistence: recentKnownTarget(target, at)?.value ?? null,
-    seasonal: seasonal && seasonal.availableAt <= at ? seasonal.value : null,
+    persistence: recentKnownTarget(target, at, knownAt)?.value ?? null,
+    seasonal: seasonal && seasonal.availableAt <= knownAt ? seasonal.value : null,
   };
 }
 
@@ -94,7 +94,7 @@ export class CausalClimatePredictor {
     const day = Math.floor(at / DAY_MS) * DAY_MS;
     if (day !== this.#fitAt) {
       this.#fitAt = day;
-      const window = { at: day, from: day - FIT_WINDOW_MS, to: day };
+      const window = { at: day, from: day - CLIMATE_FIT_WINDOW_MS, to: day };
       this.#thermal = fitThermalForecastParameters(visibleHours(this.input.target, window), {
         outdoor: lookup(visibleHours(this.input.outdoor, window)), until: day - HOUR_MS, fixedTauHours: tauHours,
       });
@@ -102,10 +102,11 @@ export class CausalClimatePredictor {
     return this.#thermal;
   }
 
-  predict(at: number): number | null {
-    const origin = recentKnownTarget(this.input.target, at);
+  predict(at: number, knownAt = at): number | null {
+    if (knownAt > at) return null;
+    const origin = recentKnownTarget(this.input.target, at, knownAt);
     if (!origin) return null;
-    const window = { at, from: at - FIT_WINDOW_MS, to: at };
+    const window = { at: knownAt, from: at - CLIMATE_FIT_WINDOW_MS, to: at };
     const history = visibleHours(this.input.target, window);
     const steps = (at - origin.time) / HOUR_MS;
     return this.#forecast(history, window)?.forecast(origin.time, origin.value, steps)?.at(-1) ?? null;

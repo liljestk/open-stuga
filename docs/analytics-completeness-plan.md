@@ -169,8 +169,13 @@ for a synthetic receipt. The shadow worker now runs the indoor-only screen
 in its governed fit worker after a complete four-week cohort has elapsed.
 It stores immutable reports with an input digest, rejects publication if
 the epoch or evidence changed, and uses fresh cohorts after insufficient
-coverage or rejection. Prospective predictions, independently timed weather
-and context inputs, and findings remain open.
+coverage or rejection. Technically qualified indoor profiles now write
+immutable next-hour shadow predictions, with both fixed baselines and the
+input digest, before the target hour starts. Sealed observations or gaps
+produce separate immutable outcome rows. The ledger records expired captures
+explicitly, rolls off after 90 days, and follows epoch and mode cleanup.
+Independently timed weather and context inputs, residual calibration from
+prospective errors, and findings remain open.
 
 Continue milestones A–F in the adaptive plan: authorized evidence audit,
 complete causal evaluation matrix, models, predictions,

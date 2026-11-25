@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DataMode } from "@climate-twin/contracts";
 import { AdaptiveCollectionWorker } from "../src/analytics/adaptive-monitoring/collection-worker.js";
 import { AdaptiveClimateArtifacts } from "../src/analytics/adaptive-monitoring/climate-artifacts.js";
+import { AdaptiveClimateLedger } from "../src/analytics/adaptive-monitoring/climate-ledger.js";
 import { adaptiveQualificationWindow } from "../src/analytics/adaptive-monitoring/evidence.js";
 import { qualifyAdaptiveClimateModel, type QualificationInput } from "../src/analytics/adaptive-monitoring/climate-qualification.js";
 import { HOUR_MS } from "../src/analytics/forecast/models.js";
@@ -161,6 +162,10 @@ describe("Adaptive Home shadow collection", () => {
     await worker.runOnce();
     const artifacts = new AdaptiveClimateArtifacts(database);
     expect(artifacts.read(scope)).toBeNull();
+    const target = window.to + HOUR_MS;
+    const ledger = new AdaptiveClimateLedger(database, artifacts);
+    const targetWindow = { from: target, to: target + HOUR_MS };
+    expect(ledger.read(scope, targetWindow)).toEqual([]);
     vi.setSystemTime(window.to + 5_000);
     await worker.runOnce();
     const stored = artifacts.read(scope);
@@ -169,13 +174,43 @@ describe("Adaptive Home shadow collection", () => {
       epochId: epoch.id, evaluatedThrough: window.to, inputDigest: expect.stringMatching(/^[a-f0-9]{64}$/),
       report: { state: "technical-pass", advisoryEligible: false },
     });
+    const [prediction] = ledger.read(scope, targetWindow);
+    expect(prediction).toMatchObject({
+      target_hour: target, issued_at: Date.now(), recorded_at: Date.now(), artifact_cutoff: window.to,
+      persistence: expect.any(Number), seasonal: expect.any(Number), prediction: expect.any(Number), observed: null,
+    });
     const restarted = new AdaptiveCollectionWorker({ database, limiter, admit });
     await restarted.runOnce();
     await restarted.stop();
     expect(restarted.status().qualifications).toBe(0);
     expect(artifacts.read(scope)).toEqual(stored);
+    expect(ledger.read(scope, targetWindow)).toEqual([prediction]);
+    vi.setSystemTime(target + HOUR_MS - 1);
+    expect(ledger.advance(epoch).outcomes).toBe(0);
+    const availableAt = target + HOUR_MS + 2_000;
+    vi.setSystemTime(availableAt);
+    insert.run(epoch.id, target, availableAt, 22.5);
+    await worker.runOnce();
+    const [scored] = ledger.read(scope, targetWindow);
+    expect(scored).toMatchObject({ ...prediction, scored_at: availableAt, observed_at: availableAt, observed: 22.5, gap_reason: null });
+    expect(ledger.advance(epoch).outcomes).toBe(0);
+    expect(ledger.read(scope, targetWindow)).toEqual([scored]);
+    const nextHour = target + HOUR_MS;
+    const gapAt = nextHour + HOUR_MS + 2_000;
+    vi.setSystemTime(gapAt);
+    database.db.prepare(`INSERT INTO adaptive_hourly_evidence
+      (epoch_id, hour, captured_at, coverage, gap_reason) VALUES (?, ?, ?, 0, 'missing')`)
+      .run(epoch.id, nextHour, gapAt);
+    expect(ledger.advance(epoch).outcomes).toBe(1);
+    expect(ledger.read(scope, { from: nextHour, to: nextHour + HOUR_MS })).toMatchObject([
+      { observed: null, observed_at: gapAt, gap_reason: "missing" },
+    ]);
+    expect(() => database.db.prepare("UPDATE adaptive_climate_predictions SET prediction = 0").run()).toThrow("immutable");
+    expect(() => database.db.prepare("UPDATE adaptive_climate_outcomes SET observed = 0").run()).toThrow("immutable");
     database.activateRealDataMode();
     expect(database.db.prepare("SELECT count(*) AS count FROM adaptive_climate_artifacts").get()).toEqual({ count: 0 });
+    expect(database.db.prepare("SELECT count(*) AS count FROM adaptive_climate_predictions").get()).toEqual({ count: 0 });
+    expect(database.db.prepare("SELECT count(*) AS count FROM adaptive_climate_outcomes").get()).toEqual({ count: 0 });
   });
 
   it("discards a calculation whose epoch changes before publication and can evaluate a new cohort after low coverage", async () => {
