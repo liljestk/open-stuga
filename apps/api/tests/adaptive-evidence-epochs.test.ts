@@ -111,6 +111,8 @@ describe("Adaptive Home evidence epochs", () => {
     enable();
     database.db.prepare("UPDATE adaptive_settings_revisions SET baseline_started_at = ? WHERE house_id = ?")
       .run("2020-01-01T00:00:00.000Z", houseId);
+    // A sensor already present at upgrade has no observed configuration changes yet.
+    database.db.prepare("DELETE FROM adaptive_configuration_generations").run();
     const trackedFrom = new Date().toISOString();
     database.db.prepare("UPDATE metadata SET value = ? WHERE key = 'adaptive_evidence_observed_from'").run(trackedFrom);
     expect(database.ensureAdaptiveEvidenceEpoch(climate)).toMatchObject({ effectiveAt: trackedFrom });
