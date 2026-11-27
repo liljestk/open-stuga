@@ -11,11 +11,11 @@ import { ANALYTICS_TIME_RANGES, type TimeRange } from "../../domain";
 import { compareCodeUnits } from "../../textOrder";
 
 export type QualityPreset = "good" | "reliable" | "all";
-export type AnalyticsTool = "performance" | "openings" | "sensors";
+export type AnalyticsTool = "performance" | "openings" | "sensors" | "adaptive";
 
 export const ANALYTICS_RESOLUTIONS = ["auto", "raw", "1m", "5m", "15m", "30m", "1h", "1d"] as const satisfies readonly AnalyticsResolution[];
 const QUALITY_PRESETS = ["good", "reliable", "all"] as const satisfies readonly QualityPreset[];
-const ANALYTICS_TOOLS = ["performance", "openings", "sensors"] as const satisfies readonly AnalyticsTool[];
+const ANALYTICS_TOOLS = ["performance", "openings", "sensors", "adaptive"] as const satisfies readonly AnalyticsTool[];
 const ANALYTICS_CHART_PARAMS = ["range", "resolution", "aggregation", "quality", "metric", "sensors", "weather", "from", "to"];
 const DEFAULT_ANALYTICS_STATE = {
   range: "24h",

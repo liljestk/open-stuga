@@ -1,0 +1,134 @@
+.adaptive-home {
+  display: grid;
+  gap: 16px;
+  padding: 16px clamp(12px, 2vw, 20px) 20px;
+  border-top: 1px solid var(--line);
+  overflow-wrap: anywhere;
+}
+
+.adaptive-home h3,
+.adaptive-home h4,
+.adaptive-home p,
+.adaptive-home dl,
+.adaptive-home dd {
+  margin: 0;
+}
+
+.adaptive-home p + p {
+  margin-top: 4px;
+}
+
+.adaptive-heading,
+.adaptive-actions {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.adaptive-heading {
+  justify-content: space-between;
+}
+
+.adaptive-section,
+.adaptive-form,
+.adaptive-message {
+  min-width: 0;
+}
+
+.adaptive-section {
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+
+.adaptive-section > * + *,
+.adaptive-settings-form > * + *,
+.adaptive-message > * + * {
+  margin-top: 8px;
+}
+
+.adaptive-home summary {
+  display: list-item;
+  min-height: 28px;
+  padding-block: 3px;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.adaptive-items {
+  display: grid;
+  gap: 8px;
+  list-style: none;
+  padding: 0;
+}
+
+.adaptive-items > li {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+}
+
+.adaptive-items > li > * + * {
+  margin-top: 6px;
+}
+
+.adaptive-home .adaptive-values {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 9rem), 1fr));
+  gap: 6px 12px;
+  margin: 8px 0;
+}
+
+.adaptive-values dt {
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+
+.adaptive-form {
+  display: grid;
+  gap: 10px;
+  max-width: 34rem;
+}
+
+.adaptive-form label {
+  display: grid;
+  gap: 4px;
+}
+
+.adaptive-form select,
+.adaptive-form textarea {
+  width: 100%;
+  min-width: 0;
+}
+
+.adaptive-form textarea {
+  min-height: 5em;
+}
+
+.adaptive-form fieldset {
+  min-inline-size: 0;
+  margin: 0;
+  border: 1px solid var(--line);
+}
+
+.adaptive-form .adaptive-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+}
+
+.adaptive-form .adaptive-checkbox input {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  min-height: 0;
+  margin: 0;
+  accent-color: var(--action);
+}
+
+.adaptive-note {
+  white-space: pre-wrap;
+}

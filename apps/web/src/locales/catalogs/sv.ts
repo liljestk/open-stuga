@@ -1,3 +1,4 @@
+import { svAdaptiveHome } from "./sv/adaptive-home";
 import { svAnalyticsViews } from "./sv/analytics-views";
 import { svPart1 } from "./sv/01-stuguby-analytics";
 import { svPart2 } from "./sv/02-analytics-decision";
@@ -17,6 +18,7 @@ import type { TranslationKey } from "./en";
 
 export const svOverrides = {
   ...svAnalyticsViews,
+  ...svAdaptiveHome,
   ...svPart1,
   ...svPart2,
   ...svPart3,

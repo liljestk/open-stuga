@@ -1,3 +1,4 @@
+import { fiAdaptiveHome } from "./fi-supplement/adaptive-home";
 import { fiAnalyticsViews } from "./fi-supplement/analytics-views";
 import { fiSupplementPart1 } from "./fi-supplement/01-stuguby-setup";
 import { fiSupplementPart2 } from "./fi-supplement/02-setup-historyImport";
@@ -14,6 +15,7 @@ import type { TranslationKey } from "./en";
 
 export const fiSupplement = {
   ...fiAnalyticsViews,
+  ...fiAdaptiveHome,
   ...fiSupplementPart1,
   ...fiSupplementPart2,
   ...fiSupplementPart3,

@@ -183,8 +183,8 @@ two-hour guards for same-Home opening and heating-setting changes known
 when the target was sealed. The guard interrupts the detection sequence
 and excludes the error from calibration. Historical rows without recording
 provenance and uncertain equipment reports do not create guards. The
-production profile still uses indoor measurements. Weather inputs, review
-surfaces, and advisory evidence remain open.
+production profile still uses indoor measurements. Weather inputs and advisory
+evidence remain open.
 
 Approved temperature reference groups now build a same-Home shadow baseline
 from independently sealed paired hours. Four chronological weeks qualify the
@@ -193,7 +193,7 @@ decisions require day-level paired coverage, withhold comparisons during
 opening or heating guards and peer disagreement, and retain candidate,
 stale, and resolved episode revisions. The detector treats late captures as
 missing for the original decision. Its comparisons describe a changed
-relationship between sensors. Review and real-Home qualification remain open.
+relationship between sensors. Real-Home qualification remains open.
 
 Signed-in Owners and Admins can retrieve stored shadow episodes and their
 revision history through the v2 findings routes. Requests are scoped to an
@@ -206,12 +206,19 @@ The combined snapshot reports visible stream readiness and scope-wide counts,
 with separate snapshot-bound cursors for streams and findings. Finding detail
 pages the retained observations or reference offsets, their calibrated ranges,
 and the recorded context and model references. Later observations do not
-rewrite the evidence shown for an earlier decision. Review screens remain open.
+rewrite the evidence shown for an earlier decision.
+
+Data & analytics now gives signed-in Owners and Admins a private Adaptive Home
+panel for the active local Home and data mode. It shows readiness, retained
+findings, recorded evidence and revision history. Finding links restore on
+reload and browser Back. Reviewers can record a disposition, note and reported
+recovery. Learning settings support enabling private evaluation, approved
+temperature reference groups and starting a new baseline with a reason.
 
 Continue milestones A–F in the adaptive plan: authorized evidence audit,
-complete causal evaluation matrix, models, predictions,
-episodes and reviews; governed worker; canonical routes
-and access controls; then review/settings UI with visual acceptance.
+complete causal evaluation matrix and prospective weather-aware models.
+Use the private review UI to gather reviewed events from consenting Homes
+under the pilot's evidence and resource gates.
 
 Reuse the existing forecasters and reliability rules. Their six-hour forecast
 display gate is not a qualification gate for one-hour anomaly detection. Freeze

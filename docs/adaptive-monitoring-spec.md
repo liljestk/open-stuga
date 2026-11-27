@@ -1,8 +1,8 @@
 # Adaptive Home monitoring specification
 
-Status: target specification; offline foundations are partially implemented in 0.63.0.
-Production persistence, execution, review UI and appliance enablement remain
-incomplete; see the [delivery ledger](analytics-completeness-plan.md).
+Status: the 0.63.0 draft includes persisted shadow evaluation, private diagnostics
+and review in Data & analytics. Weather-driven prospective evaluation and the
+advisory pilot remain open. See the [delivery ledger](analytics-completeness-plan.md).
 
 Date: 11 November 2026.
 

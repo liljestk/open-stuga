@@ -33,7 +33,7 @@ import { chartGapThresholdMs, detectSeriesGaps } from "../chartGaps";
 import { formatInTimeZone } from "../dateTime";
 import { useHouseWeather } from "../useHouseWeather";
 import { useI18n } from "../i18n";
-import { formatMeasurement, measurementLabel, type MeasurementForecasts } from "../measurements";
+import { formatMeasurement, measurementLabel, sensorHasMetric, type MeasurementForecasts } from "../measurements";
 import { useNow } from "../useNow";
 import { compareCodeUnits } from "../textOrder";
 import {
@@ -53,6 +53,7 @@ import {
 import { analyticsCsv, downloadText } from "./DataAnalyticsPage/analyticsExport";
 import { useExplorerAnalyticsQuery, useExplorerContextQuery, useExplorerForecastsQuery } from "../data/analytics/explorerQueries";
 import { RefreshButton } from "../components/RefreshButton";
+import { AdaptiveHomePanel } from "./DataAnalyticsPage/AdaptiveHomePanel";
 
 interface DataAnalyticsPageProps {
   state: ClimateState;
@@ -60,6 +61,7 @@ interface DataAnalyticsPageProps {
   units: UnitSystem;
   dataMode: "demo" | "real" | "unknown";
   readOnly?: boolean;
+  canManageAdaptive?: boolean;
   onLoadSeries: (sensorId: string, metric: Metric, range: TimeRange, forecastSupported: boolean) => void;
 }
 
@@ -521,6 +523,19 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
       </section>
 
       <div className="analytics-tool-stack">
+        {props.canManageAdaptive && props.dataMode !== "unknown" &&
+          <details className="analytics-tool" open={openTools.has("adaptive")} onToggle={(event) => toggleTool("adaptive", event.currentTarget.open)}>
+            <summary>
+              <span className="analytics-tool-icon"><ShieldCheck size={18} aria-hidden="true" /></span>
+              <span className="analytics-tool-copy"><strong>{t("adaptive.title")}</strong><small>{t("adaptive.description")}</small></span>
+              <ChevronDown className="analytics-tool-chevron" size={18} aria-hidden="true" />
+            </summary>
+            {openTools.has("adaptive") && <AdaptiveHomePanel
+              scope={{ houseId: props.house.id, dataMode: analyticsDataMode }}
+              timeZone={props.house.timezone} sensors={sensors} definitions={definitions} units={props.units}
+              temperatureSensors={sensors.filter((sensor) => sensor.enabled && sensorHasMetric(props.state, sensor, "temperature"))}
+            />}
+          </details>}
         <details className="analytics-tool" onToggle={(event) => setIsolationOpen(event.currentTarget.open)}>
           <summary>
             <span className="analytics-tool-icon"><ShieldCheck size={18} aria-hidden="true" /></span>
