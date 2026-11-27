@@ -1,4 +1,7 @@
+import { adaptiveFindingsPaths } from "./adaptive-findings.js";
+
 export const homeAnalyticsPaths = {
+  ...adaptiveFindingsPaths,
   "/monitoring/houses/{houseId}/adaptive/settings": {
     get: {
       servers: [{ url: "/api/v2" }],

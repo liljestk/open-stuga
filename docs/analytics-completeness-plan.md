@@ -195,6 +195,12 @@ stale, and resolved episode revisions. The detector treats late captures as
 missing for the original decision. Its comparisons describe a changed
 relationship between sensors. Review and real-Home qualification remain open.
 
+Signed-in Owners and Admins can retrieve stored shadow episodes and their
+revision history through the v2 findings routes. Requests are scoped to an
+active local Home and explicit data mode. Historical epochs are marked on the
+response, and findings remain private to the diagnostics routes. The combined
+snapshot, evidence details, review writes, and review screens remain open.
+
 Continue milestones A–F in the adaptive plan: authorized evidence audit,
 complete causal evaluation matrix, models, predictions,
 episodes and reviews; governed worker; canonical routes

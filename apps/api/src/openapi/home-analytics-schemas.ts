@@ -49,6 +49,7 @@ const qualityFilter = {
 } as const;
 
 export const homeAnalyticsSchemas = {
+  ...adaptiveFindingsSchemas,
   AdaptiveSettingsChange: {
     oneOf: [{
       type: "object", additionalProperties: false,
@@ -508,3 +509,4 @@ export const homeAnalyticsSchemas = {
     },
   },
 } as const;
+import { adaptiveFindingsSchemas } from "./adaptive-findings.js";
