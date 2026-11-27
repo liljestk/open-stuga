@@ -11,6 +11,7 @@ import { adaptiveClimateArtifactsSchema } from "../migrations/adaptive-climate-a
 import { adaptiveClimateLedgerSchema } from "../migrations/adaptive-climate-ledger-schema.js";
 import { migrateAdaptiveClimateDetection } from "../migrations/adaptive-climate-detection-schema.js";
 import { migrateAdaptiveContext } from "../migrations/adaptive-context-schema.js";
+import { adaptiveReferenceDetectorSchema } from "../migrations/adaptive-reference-detector-schema.js";
 
 declare module "../core.js" {
   interface DatabaseInternals {
@@ -126,6 +127,7 @@ registerDatabaseMethods({
         this.db.exec(adaptiveClimateLedgerSchema);
         migrateAdaptiveClimateDetection(this.db);
         migrateAdaptiveContext(this.db);
+        this.db.exec(adaptiveReferenceDetectorSchema);
       });
     },
   /**

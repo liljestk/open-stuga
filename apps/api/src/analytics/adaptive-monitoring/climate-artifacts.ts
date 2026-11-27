@@ -4,7 +4,7 @@ import type { ClimateDatabase } from "../../db.js";
 import { runAdaptiveClimateIsolated } from "../derived-artifacts/fit-isolate.js";
 import { ADAPTIVE_HOUR_RETENTION_MS } from "./closed-hour.js";
 import { ADAPTIVE_CLIMATE_QUALIFICATION_VERSION, type ClimateQualificationResult } from "./climate-qualification.js";
-import { adaptiveQualificationWindow } from "./evidence.js";
+import { latestClosedQualificationWindow } from "./evidence.js";
 
 interface StoredRow {
   evaluated_through: number;
@@ -60,12 +60,9 @@ export class AdaptiveClimateArtifacts {
   async evaluate(epoch: AdaptiveEvidenceEpoch, signal: AbortSignal): Promise<boolean> {
     if (epoch.purpose !== "climate") return false;
     const trustworthyFrom = Date.parse(epoch.effectiveAt);
-    const initial = adaptiveQualificationWindow(trustworthyFrom);
     const now = Date.now();
-    if (now < initial.to) return false;
-    const length = initial.to - initial.from;
-    const cohort = Math.floor((now - initial.to) / length);
-    const window = { from: initial.from + cohort * length, to: initial.to + cohort * length };
+    const window = latestClosedQualificationWindow(trustworthyFrom, now);
+    if (!window) return false;
     const previous = this.#latest(epoch.id);
     if (previous && (previous.evaluated_through >= window.to || JSON.parse(previous.report_json).state === "technical-pass")) return false;
     if (window.from < now - ADAPTIVE_HOUR_RETENTION_MS) return false;

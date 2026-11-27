@@ -12,6 +12,7 @@ import { ADAPTIVE_CAPTURE_HORIZON_MS } from "./closed-hour.js";
 import { AdaptiveCollectionStore } from "./collection-store.js";
 import { AdaptiveClimateArtifacts } from "./climate-artifacts.js";
 import { AdaptiveClimateLedger } from "./climate-ledger.js";
+import { AdaptiveReferenceDetector } from "./reference-detector.js";
 
 const BETWEEN_PASSES_MS = 60_000;
 const DEADLINE_MS = 30_000;
@@ -29,6 +30,7 @@ interface CollectionProgress {
   qualifications: number;
   predictions: number;
   outcomes: number;
+  referenceQualifications: number;
 }
 
 type CollectionState =
@@ -43,7 +45,8 @@ interface Options {
 }
 
 function emptyProgress(): CollectionProgress {
-  return { streams: 0, observations: 0, gaps: 0, unavailableHours: 0, scopeChanges: 0, qualifications: 0, predictions: 0, outcomes: 0 };
+  return { streams: 0, observations: 0, gaps: 0, unavailableHours: 0, scopeChanges: 0, qualifications: 0,
+    predictions: 0, outcomes: 0, referenceQualifications: 0 };
 }
 
 function scopeWasRevoked(error: unknown): boolean {
@@ -68,6 +71,7 @@ export class AdaptiveCollectionWorker {
   readonly #store: AdaptiveCollectionStore;
   readonly #climateArtifacts: AdaptiveClimateArtifacts;
   readonly #climateLedger: AdaptiveClimateLedger;
+  readonly #references: AdaptiveReferenceDetector;
   #timer: ReturnType<typeof setTimeout> | null = null;
   #active: Promise<void> | null = null;
   #controller: AbortController | null = null;
@@ -79,6 +83,7 @@ export class AdaptiveCollectionWorker {
     this.#store = new AdaptiveCollectionStore(options.database);
     this.#climateArtifacts = new AdaptiveClimateArtifacts(options.database);
     this.#climateLedger = new AdaptiveClimateLedger(options.database, this.#climateArtifacts);
+    this.#references = new AdaptiveReferenceDetector(options.database);
   }
 
   status(): CollectionState & CollectionProgress {
@@ -128,7 +133,7 @@ export class AdaptiveCollectionWorker {
     try {
       const dataMode = this.#store.dataMode();
       const optedIn = this.#store.hasOptIn(dataMode);
-      if (!optedIn && !this.#store.hasExpiredEvidence() && !this.#climateLedger.hasExpired()) {
+      if (!optedIn && !this.#store.hasExpiredEvidence() && !this.#climateLedger.hasExpired() && !this.#references.hasExpiredEvidence()) {
         this.#state = { state: "idle" };
         return;
       }
@@ -146,6 +151,7 @@ export class AdaptiveCollectionWorker {
         signal.throwIfAborted();
         this.options.database.pruneAdaptiveHours();
         this.#climateLedger.pruneExpired();
+        this.#references.pruneExpired();
       } finally {
         await lease.release();
       }
@@ -210,5 +216,8 @@ export class AdaptiveCollectionWorker {
     const { predictions, outcomes } = this.#climateLedger.advance(epoch);
     this.#progress.predictions += predictions;
     this.#progress.outcomes += outcomes;
+    if (await this.#references.advance(scope, { signal, allowQualification: this.#progress.referenceQualifications === 0 })) {
+      this.#progress.referenceQualifications = 1;
+    }
   }
 }

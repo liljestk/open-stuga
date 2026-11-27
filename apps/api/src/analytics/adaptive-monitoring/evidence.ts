@@ -14,6 +14,14 @@ export function adaptiveQualificationWindow(trustworthyFrom: number): { from: nu
   return { from, to: from + 4 * WEEK_MS };
 }
 
+export function latestClosedQualificationWindow(trustworthyFrom: number, now: number): { from: number; to: number } | null {
+  const initial = adaptiveQualificationWindow(trustworthyFrom);
+  if (now < initial.to) return null;
+  const length = initial.to - initial.from;
+  const elapsed = Math.floor((now - initial.to) / length) * length;
+  return { from: initial.from + elapsed, to: initial.to + elapsed };
+}
+
 export function eligibleHourlyEvidence(point: AdaptiveHourlyEvidence, policy: EvidencePolicy): boolean {
   return Number.isSafeInteger(point.time) && point.time % HOUR_MS === 0
     && Number.isFinite(point.availableAt) && point.availableAt >= point.time + HOUR_MS
