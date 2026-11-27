@@ -202,7 +202,9 @@ response, and findings remain private to the diagnostics routes. Owners and
 Admins can save a private disposition, note, or reported recovery against the
 current finding revision. Reviews are append-only, exact retries return the
 original record, and finding detail returns the caller's latest review.
-The combined snapshot, evidence details, and review screens remain open.
+The combined snapshot reports visible stream readiness and scope-wide counts,
+with separate snapshot-bound cursors for streams and findings. Evidence
+details and review screens remain open.
 
 Continue milestones A–F in the adaptive plan: authorized evidence audit,
 complete causal evaluation matrix, models, predictions,

@@ -14,6 +14,7 @@ const V2_PATHS = new Set([
   "/monitoring/houses",
   "/monitoring/houses/{houseId}",
   "/monitoring/houses/{houseId}/adaptive/settings",
+  "/monitoring/houses/{houseId}/adaptive",
   "/monitoring/houses/{houseId}/adaptive/findings",
   "/monitoring/houses/{houseId}/adaptive/findings/{findingId}",
   "/monitoring/houses/{houseId}/adaptive/findings/{findingId}/reviews",

@@ -9,6 +9,8 @@ import type { Request, Response } from "express";
 import type { AnalyticsQueryRouteContext } from "../query/routes.js";
 import { adaptiveFindingDetail, adaptiveFindingsPage, readVisibleAdaptiveFinding } from "./findings-reader.js";
 import { recordAdaptiveReview } from "./finding-reviews.js";
+import { adaptiveHomeSnapshot } from "./snapshot-reader.js";
+import type { AdaptiveCollectionWorker } from "./collection-worker.js";
 
 function parseReview(input: unknown): AdaptiveFindingReviewWrite {
   const body = bodyObject(input);
@@ -36,8 +38,9 @@ function queryInt(query: Request["query"], key: string, fallback: number, max: n
   return value;
 }
 
-export function registerAdaptiveFindingsRoutes(context: AnalyticsQueryRouteContext): void {
-  const path = `${context.v2Prefix}/monitoring/houses/:houseId/adaptive/findings`;
+export function registerAdaptiveFindingsRoutes(context: AnalyticsQueryRouteContext, worker: Pick<AdaptiveCollectionWorker, "status">): void {
+  const base = `${context.v2Prefix}/monitoring/houses/:houseId/adaptive`;
+  const path = `${base}/findings`;
   function authorize(request: Request, response: Response) {
     const principal = requestPrincipal(response);
     if (principal.bootstrap) throw new HttpError(403, "ADAPTIVE_ACCOUNT_REQUIRED", "Sign in to read Adaptive Home diagnostics");
@@ -48,6 +51,20 @@ export function registerAdaptiveFindingsRoutes(context: AnalyticsQueryRouteConte
     response.setHeader("cache-control", "private, no-store");
     return { scope: { houseId, dataMode }, visible: (sensorId: string) => visibility.sensor(sensorId), actor: principal.userId };
   }
+  context.app.get(base, requireWorkspaceAdmin, (request, response) => {
+    rejectUnknownFields(request.query, ["dataMode", "limit", "streamCursor", "findingCursor", "state", "metric"], "adaptive snapshot query");
+    const { scope, visible, actor } = authorize(request, response);
+    const { streamCursor, findingCursor, state, metric } = request.query;
+    const execution = worker.status().state;
+    response.json(adaptiveHomeSnapshot(context.database, scope, {
+      visible, actor, worker: execution === "failed" || execution === "paused" ? execution : null,
+      limit: queryInt(request.query, "limit", 50, 100),
+      ...(streamCursor === undefined ? {} : { streamCursor: requiredString(request.query, "streamCursor", 2400) }),
+      ...(findingCursor === undefined ? {} : { findingCursor: requiredString(request.query, "findingCursor", 2400) }),
+      ...(state === undefined ? {} : { state: enumValue(state, ADAPTIVE_FINDING_STATES, "state") }),
+      ...(metric === undefined ? {} : { metric: enumValue(metric, ADAPTIVE_METRICS, "metric") }),
+    }));
+  });
   context.app.get(path, requireWorkspaceAdmin, (request, response) => {
     rejectUnknownFields(request.query, ["dataMode", "limit", "cursor", "state", "metric"], "adaptive findings query");
     const { scope, visible, actor } = authorize(request, response);

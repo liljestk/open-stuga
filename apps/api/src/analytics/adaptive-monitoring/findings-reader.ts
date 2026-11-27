@@ -31,6 +31,13 @@ const revisionsFrom = `WITH revisions AS (
   WHERE e.house_id = ? AND e.data_mode = ?
 )`;
 
+export function adaptiveFindingHistoryStamp(database: ClimateDatabase, scope: AdaptiveSettingsScope): string {
+  const row = database.db.prepare(`${revisionsFrom}
+    SELECT count(*) AS revisions, max(recorded_at) AS latest FROM revisions`)
+    .get(scope.houseId, scope.dataMode, scope.houseId, scope.dataMode);
+  return JSON.stringify(row);
+}
+
 interface PageOptions {
   actor: string;
   limit: number;

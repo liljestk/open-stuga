@@ -10,6 +10,14 @@ const LOCAL_ELIGIBLE = `house.deleted_at IS NULL AND (
     SELECT max(newest.revision) FROM adaptive_settings_revisions newest
     WHERE newest.house_id = house.id AND newest.data_mode = settings.data_mode)`;
 const METRIC_PARAMETERS = ADAPTIVE_METRICS.map(() => "?").join(", ");
+const SUPPORTED_STREAM = `(
+  EXISTS (SELECT 1 FROM sensor_measurement_bindings binding
+    WHERE binding.sensor_id = sensor.id AND binding.metric = definition.id)
+  OR EXISTS (SELECT 1 FROM sensor_recorded_measurements recorded
+    WHERE recorded.sensor_id = sensor.id AND recorded.metric = definition.id)
+  OR (? = 'demo' AND EXISTS (SELECT 1 FROM measurement_samples sample
+    WHERE sample.sensor_id = sensor.id AND sample.metric = definition.id AND sample.data_mode = 'demo'))
+)`;
 
 interface Cursor { house_id: string; sensor_id: string; metric: AdaptiveMetric }
 type CollectionHourOutcome = "observation" | "gap" | "unavailable" | "scope-changed";
@@ -43,16 +51,9 @@ export class AdaptiveCollectionStore {
       JOIN sensors sensor ON sensor.house_id = house.id
       JOIN measurement_definitions definition ON definition.id IN (${METRIC_PARAMETERS}) AND definition.enabled = 1
       WHERE settings.data_mode = ? AND ${LOCAL_ELIGIBLE} AND sensor.enabled = 1 ${after}
-        AND (
-          EXISTS (SELECT 1 FROM sensor_measurement_bindings binding
-            WHERE binding.sensor_id = sensor.id AND binding.metric = definition.id)
-          OR EXISTS (SELECT 1 FROM sensor_recorded_measurements recorded
-            WHERE recorded.sensor_id = sensor.id AND recorded.metric = definition.id)
-          OR (settings.data_mode = 'demo' AND EXISTS (SELECT 1 FROM measurement_samples sample
-            WHERE sample.sensor_id = sensor.id AND sample.metric = definition.id AND sample.data_mode = 'demo'))
-        )
+        AND ${SUPPORTED_STREAM}
       ORDER BY sensor.house_id, sensor.id, definition.id LIMIT ?`)
-      .all(...ADAPTIVE_METRICS, dataMode, ...cursor, options.limit) as unknown as Cursor[];
+      .all(...ADAPTIVE_METRICS, dataMode, ...cursor, dataMode, options.limit) as unknown as Cursor[];
   }
 
   streams(dataMode: DataMode, limit: number): AdaptiveEvidenceScope[] {
@@ -63,6 +64,15 @@ export class AdaptiveCollectionStore {
     return page.map(({ house_id, sensor_id, metric }) => ({
       houseId: house_id, sensorId: sensor_id, metric, dataMode, purpose: "climate",
     }));
+  }
+
+  houseStreams({ houseId, dataMode }: { houseId: string; dataMode: DataMode }): AdaptiveEvidenceScope[] {
+    const rows = this.database.db.prepare(`SELECT sensor.id AS sensor_id, definition.id AS metric
+      FROM sensors sensor JOIN measurement_definitions definition
+        ON definition.id IN (${METRIC_PARAMETERS}) AND definition.enabled = 1
+      WHERE sensor.house_id = ? AND sensor.enabled = 1 AND ${SUPPORTED_STREAM}
+      ORDER BY sensor.id, definition.id`).all(...ADAPTIVE_METRICS, houseId, dataMode) as unknown as Omit<Cursor, "house_id">[];
+    return rows.map(({ sensor_id, metric }) => ({ houseId, dataMode, sensorId: sensor_id, metric, purpose: "climate" }));
   }
 
   checkpointStream(scope: AdaptiveEvidenceScope): void {

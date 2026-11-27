@@ -1,4 +1,4 @@
-import { isAdaptiveFindingDetail, isAdaptiveFindingReview, isAdaptiveFindingsPage } from "@climate-twin/contracts";
+import { isAdaptiveFindingDetail, isAdaptiveFindingReview, isAdaptiveFindingsPage, isAdaptiveHomeSnapshot } from "@climate-twin/contracts";
 import request from "supertest";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ApiRuntime } from "../src/app.js";
@@ -6,6 +6,8 @@ import { authRuntime, setupOwner } from "./local-authTestSupport.js";
 
 const houseId = "house-main";
 const path = "/api/v2/monitoring/houses/house-main/adaptive/findings";
+const snapshotPath = "/api/v2/monitoring/houses/house-main/adaptive";
+const hour = 3_600_000;
 
 describe("Adaptive Home shadow findings routes", () => {
   let runtime: ApiRuntime;
@@ -21,6 +23,7 @@ describe("Adaptive Home shadow findings routes", () => {
     db.createSensor({
       id: sensorId, houseId, floorId: db.getHouse(houseId)!.floors[0]!.id, name: "Fixture", model: "Test",
       room: "", x: 1, y: 1, z: 1, tags: [], enabled: true,
+      temperatureEntityId: "sensor.fixture_shadow",
     });
     const epoch = db.ensureAdaptiveEvidenceEpoch({ houseId, sensorId, metric: "temperature", dataMode: "demo", purpose: "climate" })!;
     const insert = db.db.prepare(`INSERT INTO adaptive_climate_episode_revisions
@@ -67,6 +70,7 @@ describe("Adaptive Home shadow findings routes", () => {
       .send({ token: invite.body.registrationToken, password: "synthetic guest password only" }).expect(201);
     await guest.get(`${path}?dataMode=demo`).expect(403);
     await guest.get(`${path}/${epochId}.higher?dataMode=demo`).expect(403);
+    await guest.get(`${snapshotPath}?dataMode=demo`).expect(403);
   });
 
   it("records private review revisions, handles exact retries and fences stale finding revisions", async () => {
@@ -108,5 +112,46 @@ describe("Adaptive Home shadow findings routes", () => {
     runtime.database.activateRealDataMode();
     await post(repeat).expect(409);
     expect(runtime.database.db.prepare("SELECT count(*) AS count FROM adaptive_finding_reviews").get()).toEqual({ count: 0 });
+  });
+
+  it("combines stream states and findings, with scope counts and independently bound snapshot cursors", async () => {
+    const off = await owner.agent.get(`${snapshotPath}?dataMode=demo`).expect(200);
+    expect(isAdaptiveHomeSnapshot(off.body)).toBe(true);
+    expect(off.body.state).toBe("disabled");
+    const epochId = seedFindings();
+    const db = runtime.database;
+    db.createSensor({ id: "snapshot-warming", houseId, floorId: db.getHouse(houseId)!.floors[0]!.id, name: "Warming",
+      model: "Test", room: "", x: 1, y: 1, z: 1, tags: [], enabled: true, temperatureEntityId: "sensor.fixture_warming" });
+    const closedThrough = Math.floor(Date.now() / hour) * hour;
+    db.db.prepare(`INSERT INTO adaptive_climate_detector_hours
+      (epoch_id, target_hour, decided_at, error, calibration_json, admitted, reason)
+      VALUES (?, ?, ?, 0, '{}', 1, 'calibrated')`).run(epochId, closedThrough - hour, Date.now());
+    const all = await owner.agent.get(snapshotPath).query({ dataMode: "demo" }).expect(200);
+    expect(isAdaptiveHomeSnapshot(all.body)).toBe(true);
+    expect(all.headers["cache-control"]).toBe("private, no-store");
+    expect(all.body.streams.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ sensorId: "shadow-fixture", state: "ready", evaluatedThrough: new Date(closedThrough).toISOString() }),
+      expect.objectContaining({ sensorId: "snapshot-warming", state: "collecting" }),
+    ]));
+    const first = (await owner.agent.get(snapshotPath).query({ dataMode: "demo", limit: 1 }).expect(200)).body;
+    expect(first.snapshotId).toBe(all.body.snapshotId);
+    expect(first.counts).toEqual(all.body.counts);
+    expect(first.streams.items).toHaveLength(1);
+    expect(first.findings.items).toHaveLength(1);
+    const cursors = { streamCursor: first.streams.nextCursor, findingCursor: first.findings.nextCursor };
+    expect(cursors.streamCursor).toBeTypeOf("string");
+    expect(cursors.findingCursor).toBeTypeOf("string");
+    const next = (await owner.agent.get(snapshotPath).query({ dataMode: "demo", limit: 1, ...cursors }).expect(200)).body;
+    expect(next.streams.items[0]).not.toEqual(first.streams.items[0]);
+    expect(next.findings.items[0].id).not.toEqual(first.findings.items[0].id);
+    await owner.agent.get(snapshotPath).query({ dataMode: "demo", streamCursor: cursors.findingCursor }).expect(400);
+    await owner.agent.get(snapshotPath).query({ dataMode: "demo", metric: "humidity", ...cursors }).expect(409);
+    db.db.prepare(`INSERT INTO adaptive_climate_episode_revisions
+      (epoch_id, direction, revision, state, target_hour, recorded_at) VALUES (?, 'higher', 3, 'resolved', ?, ?)`)
+      .run(epochId, closedThrough - hour, Date.now());
+    await owner.agent.get(snapshotPath).query({ dataMode: "demo", ...cursors }).expect(409);
+    db.updateSensor("shadow-fixture", { x: 2 });
+    const fresh = (await owner.agent.get(snapshotPath).query({ dataMode: "demo" }).expect(200)).body;
+    expect(fresh.findings.items).toEqual(expect.arrayContaining([expect.objectContaining({ epochId, epochCurrent: false })]));
   });
 });

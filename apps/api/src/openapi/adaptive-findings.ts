@@ -1,5 +1,6 @@
 import {
-  ADAPTIVE_FINDING_STATES, ADAPTIVE_METRICS, ADAPTIVE_REVIEW_DISPOSITIONS, ADAPTIVE_REVIEW_KEY_LIMIT, ADAPTIVE_REVIEW_NOTE_LIMIT,
+  ADAPTIVE_FINDING_STATES, ADAPTIVE_METRICS, ADAPTIVE_MONITORING_STATES, ADAPTIVE_REVIEW_DISPOSITIONS,
+  ADAPTIVE_REVIEW_KEY_LIMIT, ADAPTIVE_REVIEW_NOTE_LIMIT, ADAPTIVE_STREAM_REASONS,
 } from "@climate-twin/contracts";
 
 const integer = { type: "integer", minimum: 1 };
@@ -19,8 +20,31 @@ const reviewFields = {
   note: { type: ["string", "null"], maxLength: ADAPTIVE_REVIEW_NOTE_LIMIT }, reportedRecovery: { type: "boolean" },
   supersedesReviewId: { type: ["string", "null"] }, recordedAt: { type: "string", format: "date-time" },
 };
+const dateTime = { type: "string", format: "date-time" };
+const optionalDateTime = { type: ["string", "null"], format: "date-time" };
+const streamFields = {
+  sensorId: string, metric: { enum: ADAPTIVE_METRICS }, purpose: { enum: ["climate", "sensor-comparison"] },
+  epochId: { type: ["string", "null"] }, state: { enum: ADAPTIVE_MONITORING_STATES }, reason: { enum: ADAPTIVE_STREAM_REASONS },
+  evaluatedThrough: optionalDateTime, coverage: { type: ["number", "null"], minimum: 0, maximum: 1 },
+};
+const countFields = Object.fromEntries([...ADAPTIVE_MONITORING_STATES, "total"].map((key) => [key, { type: "integer", minimum: 0 }]));
+const snapshotFields = {
+  apiVersion: { const: "1.0" }, dataMode: { enum: ["live", "demo"] }, houseId: string, snapshotId: string,
+  generatedAt: dateTime, evaluatedAt: dateTime, evaluatedThrough: optionalDateTime,
+  completeness: { enum: ["complete", "partial", "unavailable"] },
+  warnings: { type: "array", items: ref("DerivedAnalyticsWarning") }, provenance: ref("DerivedAnalyticsProvenance"),
+  settings: ref("AdaptiveMonitoringSettings"), state: { enum: ADAPTIVE_MONITORING_STATES },
+  counts: { type: "object", additionalProperties: false, required: Object.keys(countFields), properties: countFields },
+  streams: {
+    type: "object", additionalProperties: false, required: ["items", "nextCursor"],
+    properties: { items: { type: "array", items: ref("AdaptiveStreamStatus") }, nextCursor: { type: ["string", "null"] } },
+  },
+  findings: ref("AdaptiveFindingsPage"),
+};
 
 export const adaptiveFindingsSchemas = {
+  AdaptiveHomeSnapshot: { type: "object", additionalProperties: false, properties: snapshotFields, required: Object.keys(snapshotFields) },
+  AdaptiveStreamStatus: { type: "object", additionalProperties: false, properties: streamFields, required: Object.keys(streamFields) },
   AdaptiveFindingRevision: { type: "object", additionalProperties: false, properties: revisionFields, required: Object.keys(revisionFields) },
   AdaptiveShadowFinding: { type: "object", additionalProperties: false, properties: findingFields, required: Object.keys(findingFields) },
   AdaptiveFindingsPage: {
@@ -68,6 +92,21 @@ const errors = {
 const route = { servers: [{ url: "/api/v2" }], tags: ["Measurements"] };
 
 export const adaptiveFindingsPaths = {
+  "/monitoring/houses/{houseId}/adaptive": {
+    get: {
+      ...route, operationId: "getAdaptiveHomeSnapshot",
+      description: "Reads the current settings, scope-wide stream status and separate pages of streams and shadow findings.",
+      parameters: [...scopeParameters,
+        { name: "streamCursor", in: "query", schema: { ...string, maxLength: 2400 } },
+        { name: "findingCursor", in: "query", schema: { ...string, maxLength: 2400 } },
+        { name: "state", in: "query", schema: { enum: ADAPTIVE_FINDING_STATES } },
+        { name: "metric", in: "query", schema: { enum: ADAPTIVE_METRICS } }],
+      responses: {
+        ...errors, "409": { description: "Data mode mismatch or snapshot changed. Read again without a cursor." },
+        "200": { description: "Current private Adaptive Home snapshot", content: { "application/json": { schema: ref("AdaptiveHomeSnapshot") } } },
+      },
+    },
+  },
   "/monitoring/houses/{houseId}/adaptive/findings": {
     get: {
       ...route, operationId: "listAdaptiveShadowFindings",

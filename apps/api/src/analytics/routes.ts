@@ -1,6 +1,7 @@
 import { registerSavedAnalyticsViewRoutes } from "./saved-views/routes.js";
 import { registerAdaptiveSettingsRoute } from "./adaptive-monitoring/settings-route.js";
 import { registerAdaptiveFindingsRoutes } from "./adaptive-monitoring/findings-routes.js";
+import type { AdaptiveCollectionWorker } from "./adaptive-monitoring/collection-worker.js";
 import { withResponseSignal } from "../app/response-signal.js";
 import type express from "express";
 import type {
@@ -46,6 +47,7 @@ interface AnalyticsRouteContext
   weatherEvents: WeatherEventBroker;
   analyticsWorkLimiter: AnalyticsWorkLimiter;
   derivedAnalytics: DerivedAnalyticsCoordinator;
+  adaptiveCollection: AdaptiveCollectionWorker;
   visibility(response: express.Response): {
     house(houseId: string): boolean;
     sensor(sensorId: string): boolean;
@@ -221,7 +223,7 @@ function calendarComparisonRequest(value: unknown): CalendarComparisonRequest {
 
 export function registerAnalyticsRoutes(context: AnalyticsRouteContext): () => void {
   registerAdaptiveSettingsRoute(context);
-  registerAdaptiveFindingsRoutes(context);
+  registerAdaptiveFindingsRoutes(context, context.adaptiveCollection);
   const removeHomeMonitoringRoutes = registerHomeMonitoringRoutes(context);
   registerSavedAnalyticsViewRoutes(context);
   const removeAnalyticsQueryRoutes = registerAnalyticsQueryRoutes(context);
