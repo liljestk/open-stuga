@@ -65,8 +65,14 @@ export type {
   AdaptiveSettingsMode, AdaptiveSettingsScope, AdaptiveMonitoringSettings, AdaptiveSettingsChange, AdaptiveReferenceGroup,
 } from "./adaptive-monitoring.js";
 export type { AdaptiveMetric, AdaptiveHourlyEvidence, AdaptiveAbstentionReason, AdaptiveResidualCalibration, AdaptiveReplayPoint, AdaptiveReplayResult } from "./adaptive-monitoring.js";
-export { ADAPTIVE_FINDING_STATES, isAdaptiveFindingsPage, isAdaptiveFindingDetail } from "./adaptive-findings.js";
-export type { AdaptiveFindingState, AdaptiveFindingRevision, AdaptiveShadowFinding, AdaptiveFindingsPage, AdaptiveFindingDetail } from "./adaptive-findings.js";
+export {
+  ADAPTIVE_FINDING_STATES, ADAPTIVE_REVIEW_DISPOSITIONS, ADAPTIVE_REVIEW_KEY_LIMIT, ADAPTIVE_REVIEW_NOTE_LIMIT,
+  isAdaptiveFindingsPage, isAdaptiveFindingDetail, isAdaptiveFindingReview,
+} from "./adaptive-findings.js";
+export type {
+  AdaptiveFindingState, AdaptiveFindingRevision, AdaptiveShadowFinding, AdaptiveFindingsPage, AdaptiveFindingDetail,
+  AdaptiveFindingReview, AdaptiveFindingReviewWrite, AdaptiveReviewDisposition,
+} from "./adaptive-findings.js";
 
 export { ANALYTICS_RELATIVE_RANGES, isAnalyticsResolution, isAnalyticsViewDefinition, isAnalyticsViewRange, isSavedAnalyticsView } from "./analytics-views.js";
 export type { AnalyticsRelativeRange, AnalyticsViewRange, AnalyticsViewDefinition, SavedAnalyticsView } from "./analytics-views.js";

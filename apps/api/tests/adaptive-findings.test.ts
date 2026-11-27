@@ -1,4 +1,4 @@
-import { isAdaptiveFindingDetail, isAdaptiveFindingsPage } from "@climate-twin/contracts";
+import { isAdaptiveFindingDetail, isAdaptiveFindingReview, isAdaptiveFindingsPage } from "@climate-twin/contracts";
 import request from "supertest";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ApiRuntime } from "../src/app.js";
@@ -67,5 +67,46 @@ describe("Adaptive Home shadow findings routes", () => {
       .send({ token: invite.body.registrationToken, password: "synthetic guest password only" }).expect(201);
     await guest.get(`${path}?dataMode=demo`).expect(403);
     await guest.get(`${path}/${epochId}.higher?dataMode=demo`).expect(403);
+  });
+
+  it("records private review revisions, handles exact retries and fences stale finding revisions", async () => {
+    const epochId = seedFindings();
+    const detailPath = `${path}/${epochId}.higher`;
+    const reviewPath = `${detailPath}/reviews?dataMode=demo`;
+    const initial = { baseRevision: 2, idempotencyKey: "first-review", disposition: "useful", note: "  Fixture note  ", reportedRecovery: true };
+    const post = (body: object) => owner.agent.post(reviewPath).set("x-csrf-token", owner.csrf).send(body);
+    await owner.agent.post(reviewPath).send(initial).expect(403);
+    await post({ ...initial, note: "x".repeat(1001) }).expect(400);
+    await post({ ...initial, unknown: true }).expect(400);
+    await post({ ...initial, baseRevision: 1 }).expect(409);
+    const first = (await post(initial).expect(200)).body;
+    expect(isAdaptiveFindingReview(first)).toBe(true);
+    expect(first).toMatchObject({ findingRevision: 2, note: "Fixture note", reportedRecovery: true, supersedesReviewId: null });
+    expect((await post(initial).expect(200)).body).toEqual(first);
+    await post({ ...initial, disposition: "not-useful" }).expect(409);
+
+    const repeat = { baseRevision: 2, idempotencyKey: "second-review", disposition: "uncertain" };
+    const revised = (await post(repeat).expect(200)).body;
+    expect(revised).toMatchObject({ supersedesReviewId: first.id, disposition: "uncertain", note: null, reportedRecovery: false });
+    const detail = (await owner.agent.get(`${detailPath}?dataMode=demo`).expect(200)).body;
+    expect(detail.finding).toMatchObject({ state: "stale", revision: 2 });
+    expect(detail.latestReview).toEqual(revised);
+
+    const invite = await owner.agent.post("/api/v1/tenant/members").set("x-csrf-token", owner.csrf)
+      .send({ email: "other-admin@example.test", role: "admin" }).expect(201);
+    const admin = request.agent(runtime.app);
+    await admin.post("/api/v1/auth/register")
+      .send({ token: invite.body.registrationToken, password: "synthetic admin password only" }).expect(201);
+    expect((await admin.get(`${detailPath}?dataMode=demo`).expect(200)).body.latestReview).toBeNull();
+
+    runtime.database.db.prepare(`INSERT INTO adaptive_climate_episode_revisions
+      (epoch_id, direction, revision, state, target_hour, recorded_at) VALUES (?, 'higher', 3, 'resolved', ?, ?)`)
+      .run(epochId, 1700007200000, 1700010800000);
+    await post({ ...repeat, idempotencyKey: "stale-review" }).expect(409);
+    expect((await post(repeat).expect(200)).body).toEqual(revised);
+    expect(runtime.database.db.prepare("SELECT count(*) AS count FROM adaptive_finding_reviews").get()).toEqual({ count: 2 });
+    runtime.database.activateRealDataMode();
+    await post(repeat).expect(409);
+    expect(runtime.database.db.prepare("SELECT count(*) AS count FROM adaptive_finding_reviews").get()).toEqual({ count: 0 });
   });
 });

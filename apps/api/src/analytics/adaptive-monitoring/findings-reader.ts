@@ -4,6 +4,7 @@ import type {
 } from "@climate-twin/contracts";
 import type { ClimateDatabase } from "../../db.js";
 import { HttpError } from "../../http-error.js";
+import { latestAdaptiveReview } from "./finding-reviews.js";
 
 interface EpisodeRow {
   epoch_id: string;
@@ -102,29 +103,43 @@ export function adaptiveFindingsPage(database: ClimateDatabase, scope: AdaptiveS
   });
 }
 
-interface DetailOptions {
+interface EpisodeAccess {
   id: string;
+  visible: (id: string) => boolean;
+}
+
+interface DetailOptions extends EpisodeAccess {
   before: number;
   limit: number;
-  visible: (id: string) => boolean;
+  actor: string;
+}
+
+function visibleEpisode(database: ClimateDatabase, scope: AdaptiveSettingsScope, options: EpisodeAccess) {
+  database.adaptiveMonitoringSettings(scope);
+  const parts = episodeParts(options.id);
+  if (!parts) return null;
+  const parameters = [scope.houseId, scope.dataMode, scope.houseId, scope.dataMode, ...parts];
+  const prefix = `${revisionsFrom} SELECT * FROM revisions WHERE epoch_id = ? AND direction = ?`;
+  const latest = database.db.prepare(`${prefix} ORDER BY revision DESC LIMIT 1`).get(...parameters) as unknown as EpisodeRow | undefined;
+  if (!latest || !options.visible(latest.sensor_id)) return null;
+  return { prefix, parameters, current: finding(database, scope, latest) };
+}
+
+export function readVisibleAdaptiveFinding(database: ClimateDatabase, scope: AdaptiveSettingsScope, options: EpisodeAccess): AdaptiveShadowFinding | null {
+  return visibleEpisode(database, scope, options)?.current ?? null;
 }
 
 export function adaptiveFindingDetail(database: ClimateDatabase, scope: AdaptiveSettingsScope, options: DetailOptions): AdaptiveFindingDetail | null {
   return database.transaction(() => {
-    database.adaptiveMonitoringSettings(scope);
-    const parts = episodeParts(options.id);
-    if (!parts) return null;
-    const [epochId, direction] = parts;
-    const parameters = [scope.houseId, scope.dataMode, scope.houseId, scope.dataMode, epochId, direction];
-    const prefix = `${revisionsFrom} SELECT * FROM revisions WHERE epoch_id = ? AND direction = ?`;
-    const latest = database.db.prepare(`${prefix} ORDER BY revision DESC LIMIT 1`).get(...parameters) as
-      unknown as EpisodeRow | undefined;
-    if (!latest || !options.visible(latest.sensor_id)) return null;
+    const episode = visibleEpisode(database, scope, options);
+    if (!episode) return null;
+    const { prefix, parameters, current } = episode;
     const rows = database.db.prepare(`${prefix} AND revision < ? ORDER BY revision DESC LIMIT ?`)
       .all(...parameters, options.before, options.limit + 1) as unknown as EpisodeRow[];
     const items = rows.slice(0, options.limit).map(revision);
     return {
-      finding: finding(database, scope, latest),
+      finding: current,
+      latestReview: latestAdaptiveReview(database, current, options.actor),
       revisions: { items, nextBeforeRevision: rows.length > options.limit ? items.at(-1)!.revision : null },
     };
   });

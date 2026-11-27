@@ -3,6 +3,29 @@ import { isOneOf } from "./literal-values.js";
 
 export const ADAPTIVE_FINDING_STATES = ["candidate", "stale", "resolved", "expired"] as const;
 export type AdaptiveFindingState = (typeof ADAPTIVE_FINDING_STATES)[number];
+export const ADAPTIVE_REVIEW_DISPOSITIONS = ["useful", "not-useful", "expected-change", "uncertain"] as const;
+export const ADAPTIVE_REVIEW_NOTE_LIMIT = 1000;
+export const ADAPTIVE_REVIEW_KEY_LIMIT = 128;
+export type AdaptiveReviewDisposition = (typeof ADAPTIVE_REVIEW_DISPOSITIONS)[number];
+
+export interface AdaptiveFindingReviewWrite {
+  baseRevision: number;
+  idempotencyKey: string;
+  disposition: AdaptiveReviewDisposition;
+  note?: string;
+  reportedRecovery?: boolean;
+}
+
+export interface AdaptiveFindingReview {
+  id: string;
+  findingId: string;
+  findingRevision: number;
+  disposition: AdaptiveReviewDisposition;
+  note: string | null;
+  reportedRecovery: boolean;
+  supersedesReviewId: string | null;
+  recordedAt: string;
+}
 
 export interface AdaptiveFindingRevision {
   revision: number;
@@ -32,6 +55,7 @@ export interface AdaptiveFindingsPage {
 export interface AdaptiveFindingDetail {
   finding: AdaptiveShadowFinding;
   revisions: { items: AdaptiveFindingRevision[]; nextBeforeRevision: number | null };
+  latestReview: AdaptiveFindingReview | null;
 }
 
 function record(value: unknown): value is Record<string, unknown> {
@@ -68,5 +92,14 @@ export function isAdaptiveFindingDetail(value: unknown): value is AdaptiveFindin
   if (!record(value) || !record(value.revisions)) return false;
   const { items, nextBeforeRevision } = value.revisions;
   return isFinding(value.finding) && Array.isArray(items) && items.every(isRevision)
-    && (nextBeforeRevision === null || positiveInteger(nextBeforeRevision));
+    && (nextBeforeRevision === null || positiveInteger(nextBeforeRevision))
+    && (value.latestReview === null || isAdaptiveFindingReview(value.latestReview));
+}
+
+export function isAdaptiveFindingReview(value: unknown): value is AdaptiveFindingReview {
+  return record(value) && typeof value.id === "string" && typeof value.findingId === "string"
+    && positiveInteger(value.findingRevision) && isOneOf(value.disposition, ADAPTIVE_REVIEW_DISPOSITIONS)
+    && (value.note === null || (typeof value.note === "string" && value.note.length <= ADAPTIVE_REVIEW_NOTE_LIMIT))
+    && typeof value.reportedRecovery === "boolean" && date(value.recordedAt)
+    && (value.supersedesReviewId === null || typeof value.supersedesReviewId === "string");
 }

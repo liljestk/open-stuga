@@ -198,8 +198,11 @@ relationship between sensors. Review and real-Home qualification remain open.
 Signed-in Owners and Admins can retrieve stored shadow episodes and their
 revision history through the v2 findings routes. Requests are scoped to an
 active local Home and explicit data mode. Historical epochs are marked on the
-response, and findings remain private to the diagnostics routes. The combined
-snapshot, evidence details, review writes, and review screens remain open.
+response, and findings remain private to the diagnostics routes. Owners and
+Admins can save a private disposition, note, or reported recovery against the
+current finding revision. Reviews are append-only, exact retries return the
+original record, and finding detail returns the caller's latest review.
+The combined snapshot, evidence details, and review screens remain open.
 
 Continue milestones A–F in the adaptive plan: authorized evidence audit,
 complete causal evaluation matrix, models, predictions,

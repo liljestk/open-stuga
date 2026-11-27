@@ -1,4 +1,6 @@
-import { ADAPTIVE_FINDING_STATES, ADAPTIVE_METRICS } from "@climate-twin/contracts";
+import {
+  ADAPTIVE_FINDING_STATES, ADAPTIVE_METRICS, ADAPTIVE_REVIEW_DISPOSITIONS, ADAPTIVE_REVIEW_KEY_LIMIT, ADAPTIVE_REVIEW_NOTE_LIMIT,
+} from "@climate-twin/contracts";
 
 const integer = { type: "integer", minimum: 1 };
 const string = { type: "string", minLength: 1 };
@@ -12,6 +14,11 @@ const findingFields = {
   direction: { enum: ["higher", "lower"] }, severity: { const: "notice" },
 };
 const ref = (name: string) => ({ $ref: `#/components/schemas/${name}` });
+const reviewFields = {
+  id: string, findingId: string, findingRevision: integer, disposition: { enum: ADAPTIVE_REVIEW_DISPOSITIONS },
+  note: { type: ["string", "null"], maxLength: ADAPTIVE_REVIEW_NOTE_LIMIT }, reportedRecovery: { type: "boolean" },
+  supersedesReviewId: { type: ["string", "null"] }, recordedAt: { type: "string", format: "date-time" },
+};
 
 export const adaptiveFindingsSchemas = {
   AdaptiveFindingRevision: { type: "object", additionalProperties: false, properties: revisionFields, required: Object.keys(revisionFields) },
@@ -21,9 +28,10 @@ export const adaptiveFindingsSchemas = {
     properties: { items: { type: "array", items: ref("AdaptiveShadowFinding") }, nextCursor: { type: ["string", "null"] } },
   },
   AdaptiveFindingDetail: {
-    type: "object", additionalProperties: false, required: ["finding", "revisions"],
+    type: "object", additionalProperties: false, required: ["finding", "revisions", "latestReview"],
     properties: {
       finding: ref("AdaptiveShadowFinding"),
+      latestReview: { anyOf: [ref("AdaptiveFindingReview"), { type: "null" }] },
       revisions: {
         type: "object", additionalProperties: false, required: ["items", "nextBeforeRevision"],
         properties: {
@@ -31,6 +39,16 @@ export const adaptiveFindingsSchemas = {
           nextBeforeRevision: { type: ["integer", "null"], minimum: 1 },
         },
       },
+    },
+  },
+  AdaptiveFindingReview: { type: "object", additionalProperties: false, properties: reviewFields, required: Object.keys(reviewFields) },
+  AdaptiveFindingReviewWrite: {
+    type: "object", additionalProperties: false, required: ["baseRevision", "idempotencyKey", "disposition"],
+    properties: {
+      baseRevision: { ...integer, maximum: Number.MAX_SAFE_INTEGER },
+      idempotencyKey: { ...string, maxLength: ADAPTIVE_REVIEW_KEY_LIMIT, pattern: "^[A-Za-z0-9._~-]+$" },
+      disposition: reviewFields.disposition, note: { type: "string", maxLength: ADAPTIVE_REVIEW_NOTE_LIMIT },
+      reportedRecovery: reviewFields.reportedRecovery,
     },
   },
 };
@@ -67,6 +85,18 @@ export const adaptiveFindingsPaths = {
       parameters: [...scopeParameters, { name: "findingId", in: "path", required: true, schema: { ...string, maxLength: 80 } },
         { name: "beforeRevision", in: "query", schema: integer }],
       responses: { "200": { description: "Stored shadow episode and revision page", content: { "application/json": { schema: ref("AdaptiveFindingDetail") } } }, ...errors },
+    },
+  },
+  "/monitoring/houses/{houseId}/adaptive/findings/{findingId}/reviews": {
+    post: {
+      ...route, operationId: "recordAdaptiveFindingReview",
+      description: "Records a private review for the signed-in Owner or Admin against the current finding revision. The same key and review content return the original review.",
+      parameters: [...scopeParameters.slice(0, 2), { name: "findingId", in: "path", required: true, schema: { ...string, maxLength: 80 } }],
+      requestBody: { required: true, content: { "application/json": { schema: ref("AdaptiveFindingReviewWrite") } } },
+      responses: {
+        ...errors, "409": { description: "Data mode, finding revision or idempotency key conflicts with the request" },
+        "200": { description: "Recorded review", content: { "application/json": { schema: ref("AdaptiveFindingReview") } } },
+      },
     },
   },
 };
