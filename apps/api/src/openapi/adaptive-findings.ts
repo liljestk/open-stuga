@@ -22,6 +22,19 @@ const reviewFields = {
 };
 const dateTime = { type: "string", format: "date-time" };
 const optionalDateTime = { type: ["string", "null"], format: "date-time" };
+const optionalNumber = { type: ["number", "null"] };
+const closedObject = (properties: Record<string, unknown>) => ({
+  type: "object", additionalProperties: false, properties, required: Object.keys(properties),
+});
+const evidenceFields = {
+  hour: dateTime, recordedAt: dateTime, availableAt: optionalDateTime, observed: optionalNumber, expected: optionalNumber,
+  range: { anyOf: [{ type: "null" }, closedObject({ lower: { type: "number" }, upper: { type: "number" } })] },
+  coverage: { ...optionalNumber, minimum: 0, maximum: 1 }, reason: string,
+  contextGuard: { anyOf: [{ type: "null" }, closedObject({
+    reason: { enum: ["opening-state-change", "heating-setting-change"] }, sourceId: string, until: dateTime,
+  })] },
+  model: { anyOf: [{ type: "null" }, closedObject({ version: string, evaluatedThrough: dateTime })] },
+};
 const streamFields = {
   sensorId: string, metric: { enum: ADAPTIVE_METRICS }, purpose: { enum: ["climate", "sensor-comparison"] },
   epochId: { type: ["string", "null"] }, state: { enum: ADAPTIVE_MONITORING_STATES }, reason: { enum: ADAPTIVE_STREAM_REASONS },
@@ -52,10 +65,11 @@ export const adaptiveFindingsSchemas = {
     properties: { items: { type: "array", items: ref("AdaptiveShadowFinding") }, nextCursor: { type: ["string", "null"] } },
   },
   AdaptiveFindingDetail: {
-    type: "object", additionalProperties: false, required: ["finding", "revisions", "latestReview"],
+    type: "object", additionalProperties: false, required: ["finding", "revisions", "latestReview", "evidence"],
     properties: {
       finding: ref("AdaptiveShadowFinding"),
       latestReview: { anyOf: [ref("AdaptiveFindingReview"), { type: "null" }] },
+      evidence: ref("AdaptiveFindingEvidencePage"),
       revisions: {
         type: "object", additionalProperties: false, required: ["items", "nextBeforeRevision"],
         properties: {
@@ -65,6 +79,12 @@ export const adaptiveFindingsSchemas = {
       },
     },
   },
+  AdaptiveFindingEvidenceHour: closedObject(evidenceFields),
+  AdaptiveFindingEvidencePage: closedObject({
+    quantity: { enum: ["measurement", "temperature-offset"] }, availability: { enum: ["available", "unavailable"] },
+    referenceSensorIds: { type: "array", items: string }, items: { type: "array", items: ref("AdaptiveFindingEvidenceHour") },
+    nextBefore: optionalDateTime,
+  }),
   AdaptiveFindingReview: { type: "object", additionalProperties: false, properties: reviewFields, required: Object.keys(reviewFields) },
   AdaptiveFindingReviewWrite: {
     type: "object", additionalProperties: false, required: ["baseRevision", "idempotencyKey", "disposition"],
@@ -120,9 +140,10 @@ export const adaptiveFindingsPaths = {
   "/monitoring/houses/{houseId}/adaptive/findings/{findingId}": {
     get: {
       ...route, operationId: "getAdaptiveShadowFinding",
-      description: "Reads a stored shadow episode and its recorded revisions.",
+      description: "Reads a stored shadow episode, its recorded revisions and its recorded evidence. Older evidence may be unavailable.",
       parameters: [...scopeParameters, { name: "findingId", in: "path", required: true, schema: { ...string, maxLength: 80 } },
-        { name: "beforeRevision", in: "query", schema: integer }],
+        { name: "beforeRevision", in: "query", schema: integer },
+        { name: "beforeEvidenceAt", in: "query", schema: dateTime }],
       responses: { "200": { description: "Stored shadow episode and revision page", content: { "application/json": { schema: ref("AdaptiveFindingDetail") } } }, ...errors },
     },
   },

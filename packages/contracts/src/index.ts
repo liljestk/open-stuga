@@ -75,6 +75,7 @@ export type {
 } from "./adaptive-findings.js";
 export { ADAPTIVE_MONITORING_STATES, ADAPTIVE_STREAM_REASONS, isAdaptiveHomeSnapshot } from "./adaptive-snapshot.js";
 export type { AdaptiveHomeSnapshot, AdaptiveStreamStatus, AdaptiveMonitoringState, AdaptiveStreamReason } from "./adaptive-snapshot.js";
+export type { AdaptiveEvidenceRange, AdaptiveFindingEvidenceHour, AdaptiveFindingEvidencePage } from "./adaptive-finding-evidence.js";
 
 export { ANALYTICS_RELATIVE_RANGES, isAnalyticsResolution, isAnalyticsViewDefinition, isAnalyticsViewRange, isSavedAnalyticsView } from "./analytics-views.js";
 export type { AnalyticsRelativeRange, AnalyticsViewRange, AnalyticsViewDefinition, SavedAnalyticsView } from "./analytics-views.js";

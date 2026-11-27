@@ -203,8 +203,10 @@ Admins can save a private disposition, note, or reported recovery against the
 current finding revision. Reviews are append-only, exact retries return the
 original record, and finding detail returns the caller's latest review.
 The combined snapshot reports visible stream readiness and scope-wide counts,
-with separate snapshot-bound cursors for streams and findings. Evidence
-details and review screens remain open.
+with separate snapshot-bound cursors for streams and findings. Finding detail
+pages the retained observations or reference offsets, their calibrated ranges,
+and the recorded context and model references. Later observations do not
+rewrite the evidence shown for an earlier decision. Review screens remain open.
 
 Continue milestones A–F in the adaptive plan: authorized evidence audit,
 complete causal evaluation matrix, models, predictions,

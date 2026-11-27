@@ -5,6 +5,7 @@ import type {
 import type { ClimateDatabase } from "../../db.js";
 import { HttpError } from "../../http-error.js";
 import { latestAdaptiveReview } from "./finding-reviews.js";
+import { adaptiveFindingEvidence } from "./finding-evidence-reader.js";
 
 interface EpisodeRow {
   epoch_id: string;
@@ -119,6 +120,7 @@ interface DetailOptions extends EpisodeAccess {
   before: number;
   limit: number;
   actor: string;
+  beforeEvidence: number;
 }
 
 function visibleEpisode(database: ClimateDatabase, scope: AdaptiveSettingsScope, options: EpisodeAccess) {
@@ -129,7 +131,7 @@ function visibleEpisode(database: ClimateDatabase, scope: AdaptiveSettingsScope,
   const prefix = `${revisionsFrom} SELECT * FROM revisions WHERE epoch_id = ? AND direction = ?`;
   const latest = database.db.prepare(`${prefix} ORDER BY revision DESC LIMIT 1`).get(...parameters) as unknown as EpisodeRow | undefined;
   if (!latest || !options.visible(latest.sensor_id)) return null;
-  return { prefix, parameters, current: finding(database, scope, latest) };
+  return { prefix, parameters, current: finding(database, scope, latest), latestHour: latest.target_hour };
 }
 
 export function readVisibleAdaptiveFinding(database: ClimateDatabase, scope: AdaptiveSettingsScope, options: EpisodeAccess): AdaptiveShadowFinding | null {
@@ -140,14 +142,18 @@ export function adaptiveFindingDetail(database: ClimateDatabase, scope: Adaptive
   return database.transaction(() => {
     const episode = visibleEpisode(database, scope, options);
     if (!episode) return null;
-    const { prefix, parameters, current } = episode;
+    const { prefix, parameters, current, latestHour } = episode;
     const rows = database.db.prepare(`${prefix} AND revision < ? ORDER BY revision DESC LIMIT ?`)
       .all(...parameters, options.before, options.limit + 1) as unknown as EpisodeRow[];
     const items = rows.slice(0, options.limit).map(revision);
+    const first = database.db.prepare(`${prefix} ORDER BY revision LIMIT 1`).get(...parameters) as { target_hour: number };
     return {
       finding: current,
       latestReview: latestAdaptiveReview(database, current, options.actor),
       revisions: { items, nextBeforeRevision: rows.length > options.limit ? items.at(-1)!.revision : null },
+      evidence: adaptiveFindingEvidence(database, current, {
+        firstHour: first.target_hour, lastHour: latestHour, before: options.beforeEvidence, limit: options.limit, visible: options.visible,
+      }),
     };
   });
 }

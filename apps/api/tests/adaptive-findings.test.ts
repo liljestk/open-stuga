@@ -15,7 +15,7 @@ describe("Adaptive Home shadow findings routes", () => {
   beforeEach(async () => { runtime = authRuntime(); owner = await setupOwner(runtime); });
   afterEach(async () => runtime.close());
 
-  function seedFindings() {
+  function seedFindings(start = 1700000000000) {
     const db = runtime.database;
     db.changeAdaptiveMonitoringSettings({ houseId, actorUserId: "fixture-owner",
       change: { action: "set-mode", mode: "shadow", baseRevision: 0, dataMode: "demo" } });
@@ -28,9 +28,9 @@ describe("Adaptive Home shadow findings routes", () => {
     const epoch = db.ensureAdaptiveEvidenceEpoch({ houseId, sensorId, metric: "temperature", dataMode: "demo", purpose: "climate" })!;
     const insert = db.db.prepare(`INSERT INTO adaptive_climate_episode_revisions
       (epoch_id, direction, revision, state, target_hour, recorded_at) VALUES (?, ?, ?, ?, ?, ?)`);
-    insert.run(epoch.id, "higher", 1, "candidate", 1700000000000, 1700003600000);
-    insert.run(epoch.id, "higher", 2, "stale", 1700003600000, 1700007200000);
-    insert.run(epoch.id, "lower", 1, "candidate", 1700000000000, 1700003600000);
+    insert.run(epoch.id, "higher", 1, "candidate", start, start + hour);
+    insert.run(epoch.id, "higher", 2, "stale", start + hour, start + 2 * hour);
+    insert.run(epoch.id, "lower", 1, "candidate", start, start + hour);
     return epoch.id;
   }
 
@@ -49,6 +49,7 @@ describe("Adaptive Home shadow findings routes", () => {
     expect(filtered.body.items).toMatchObject([{ id: `${epochId}.lower` }]);
     const detail = await owner.agent.get(`${path}/${epochId}.higher`).query({ dataMode: "demo", limit: 1 }).expect(200);
     expect(isAdaptiveFindingDetail(detail.body)).toBe(true);
+    expect(detail.body.evidence).toMatchObject({ availability: "unavailable", items: [] });
     expect(detail.body.revisions).toMatchObject({ items: [{ revision: 2, state: "stale" }], nextBeforeRevision: 2 });
     const previous = await owner.agent.get(`${path}/${epochId}.higher`).query({ dataMode: "demo", beforeRevision: 2 }).expect(200);
     expect(previous.body.revisions).toMatchObject({ items: [{ revision: 1, state: "candidate" }], nextBeforeRevision: null });
@@ -153,5 +154,76 @@ describe("Adaptive Home shadow findings routes", () => {
     db.updateSensor("shadow-fixture", { x: 2 });
     const fresh = (await owner.agent.get(snapshotPath).query({ dataMode: "demo" }).expect(200)).body;
     expect(fresh.findings.items).toEqual(expect.arrayContaining([expect.objectContaining({ epochId, epochCurrent: false })]));
+  });
+
+  it("pages the evidence seen by the detector without substituting a later observation", async () => {
+    const start = Math.floor(Date.now() / hour) * hour - 4 * hour;
+    const epochId = seedFindings(start);
+    const db = runtime.database.db;
+    db.prepare(`INSERT INTO adaptive_climate_artifacts
+      (epoch_id, algorithm_version, evaluated_through, recorded_at, input_digest, report_json)
+      VALUES (?, 'fixture/v1', ?, ?, 'fixture', '{}')`).run(epochId, start - hour, start - hour);
+    const predict = db.prepare(`INSERT INTO adaptive_climate_predictions
+      (epoch_id, target_hour, issued_at, recorded_at, artifact_version, artifact_cutoff, input_digest, prediction)
+      VALUES (?, ?, ?, ?, 'fixture/v1', ?, 'fixture', 20)`);
+    const observe = db.prepare(`INSERT INTO adaptive_climate_outcomes
+      (epoch_id, target_hour, scored_at, observed_at, observed) VALUES (?, ?, ?, ?, 23)`);
+    const decide = db.prepare(`INSERT INTO adaptive_climate_detector_hours
+      (epoch_id, target_hour, decided_at, calibration_json, admitted, reason, context_guard_json)
+      VALUES (?, ?, ?, '{"bias":1,"threshold":1.5}', 0, ?, ?)`);
+    for (const target of [start, start + hour]) predict.run(epochId, target, target - 2_000, target - 1_000, start - hour);
+    observe.run(epochId, start, start + hour + 1_000, start + hour + 500);
+    decide.run(epochId, start, start + hour + 1_000, "frozen-calibration", null);
+    decide.run(epochId, start + hour, start + 2 * hour, "missing-observation", null);
+    observe.run(epochId, start + hour, start + 2 * hour + 2_000, start + 2 * hour + 1_000);
+    const detail = `${path}/${epochId}.higher`;
+    const fresh = (await owner.agent.get(detail).query({ dataMode: "demo", limit: 1 }).expect(200)).body;
+    expect(isAdaptiveFindingDetail(fresh)).toBe(true);
+    expect(fresh.evidence).toMatchObject({
+      quantity: "measurement", availability: "available", nextBefore: new Date(start + hour).toISOString(),
+      items: [{ reason: "missing-observation", observed: null, availableAt: null, expected: 21, range: { lower: 19.5, upper: 22.5 } }],
+    });
+    const older = (await owner.agent.get(detail).query({ dataMode: "demo", limit: 1, beforeEvidenceAt: fresh.evidence.nextBefore }).expect(200)).body;
+    expect(older.evidence).toMatchObject({
+      items: [{ hour: new Date(start).toISOString(), observed: 23, expected: 21, model: { version: "fixture/v1" } }], nextBefore: null,
+    });
+    await owner.agent.get(detail).query({ dataMode: "demo", beforeEvidenceAt: "invalid" }).expect(400);
+  });
+
+  it("labels reference offsets and withholds evidence when a reference is outside current visibility", async () => {
+    seedFindings();
+    const db = runtime.database;
+    const reference = "reference-fixture";
+    db.createSensor({
+      id: reference, houseId, floorId: db.getHouse(houseId)!.floors[0]!.id, name: "Reference", model: "Test",
+      room: "", x: 1, y: 1, z: 1, tags: [], enabled: true,
+    });
+    db.changeAdaptiveMonitoringSettings({ houseId, actorUserId: "fixture-owner", change: {
+      action: "set-reference-groups", dataMode: "demo", baseRevision: 1,
+      referenceGroups: [{ targetSensorId: "shadow-fixture", kind: "reference-thermometer", referenceSensorIds: [reference], placement: "Same room" }],
+    } });
+    const epoch = db.ensureAdaptiveEvidenceEpoch({ houseId, sensorId: "shadow-fixture", metric: "temperature", dataMode: "demo", purpose: "sensor-comparison" })!;
+    const target = Math.floor(Date.now() / hour) * hour - 2 * hour;
+    db.db.prepare(`INSERT INTO adaptive_reference_artifacts
+      (epoch_id, algorithm_version, evaluated_through, recorded_at, input_digest, result_json)
+      VALUES (?, 'fixture/v1', ?, ?, 'fixture', ?)`).run(
+      epoch.id, target - hour, target - hour, JSON.stringify({ references: [reference], calibration: { offset: 1, threshold: 0.7 } }),
+    );
+    db.db.prepare(`INSERT INTO adaptive_reference_episode_revisions
+      (epoch_id, direction, revision, state, target_hour, recorded_at) VALUES (?, 'higher', 1, 'candidate', ?, ?)`)
+      .run(epoch.id, target, target + hour);
+    db.db.prepare(`INSERT INTO adaptive_reference_decisions
+      (epoch_id, target_hour, recorded_at, state, direction, pair_offset, pair_available_at, paired_hours, reason)
+      VALUES (?, ?, ?, 'candidate', 'higher', 2.3, ?, 20, 'paired')`).run(epoch.id, target, target + hour, target + hour);
+    const detail = `${path}/${epoch.id}.higher?dataMode=demo`;
+    const response = (await owner.agent.get(detail).expect(200)).body;
+    expect(isAdaptiveFindingDetail(response)).toBe(true);
+    expect(response.evidence).toMatchObject({
+      quantity: "temperature-offset", referenceSensorIds: [reference],
+      items: [{ expected: 1, observed: 2.3, coverage: 20 / 24 }],
+    });
+    db.deleteSensor(reference);
+    const historic = (await owner.agent.get(detail).expect(200)).body;
+    expect(historic.evidence).toMatchObject({ availability: "unavailable", referenceSensorIds: [], items: [] });
   });
 });

@@ -56,6 +56,7 @@ export interface AdaptiveFindingDetail {
   finding: AdaptiveShadowFinding;
   revisions: { items: AdaptiveFindingRevision[]; nextBeforeRevision: number | null };
   latestReview: AdaptiveFindingReview | null;
+  evidence: AdaptiveFindingEvidencePage;
 }
 
 function record(value: unknown): value is Record<string, unknown> {
@@ -93,7 +94,7 @@ export function isAdaptiveFindingDetail(value: unknown): value is AdaptiveFindin
   const { items, nextBeforeRevision } = value.revisions;
   return isFinding(value.finding) && Array.isArray(items) && items.every(isRevision)
     && (nextBeforeRevision === null || positiveInteger(nextBeforeRevision))
-    && (value.latestReview === null || isAdaptiveFindingReview(value.latestReview));
+    && (value.latestReview === null || isAdaptiveFindingReview(value.latestReview)) && isAdaptiveFindingEvidencePage(value.evidence);
 }
 
 export function isAdaptiveFindingReview(value: unknown): value is AdaptiveFindingReview {
@@ -103,3 +104,4 @@ export function isAdaptiveFindingReview(value: unknown): value is AdaptiveFindin
     && typeof value.reportedRecovery === "boolean" && date(value.recordedAt)
     && (value.supersedesReviewId === null || typeof value.supersedesReviewId === "string");
 }
+import { isAdaptiveFindingEvidencePage, type AdaptiveFindingEvidencePage } from "./adaptive-finding-evidence.js";

@@ -38,6 +38,14 @@ function queryInt(query: Request["query"], key: string, fallback: number, max: n
   return value;
 }
 
+function evidenceBefore(query: Request["query"]): number {
+  if (query.beforeEvidenceAt === undefined) return Number.POSITIVE_INFINITY;
+  const raw = requiredString(query, "beforeEvidenceAt", 40);
+  const before = Date.parse(raw);
+  if (!Number.isFinite(before)) throw new HttpError(400, "INVALID_FIELD", "beforeEvidenceAt must be an ISO date-time");
+  return before;
+}
+
 export function registerAdaptiveFindingsRoutes(context: AnalyticsQueryRouteContext, worker: Pick<AdaptiveCollectionWorker, "status">): void {
   const base = `${context.v2Prefix}/monitoring/houses/:houseId/adaptive`;
   const path = `${base}/findings`;
@@ -77,11 +85,12 @@ export function registerAdaptiveFindingsRoutes(context: AnalyticsQueryRouteConte
     }));
   });
   context.app.get(`${path}/:findingId`, requireWorkspaceAdmin, (request, response) => {
-    rejectUnknownFields(request.query, ["dataMode", "limit", "beforeRevision"], "adaptive finding query");
+    rejectUnknownFields(request.query, ["dataMode", "limit", "beforeRevision", "beforeEvidenceAt"], "adaptive finding query");
     const { scope, visible, actor } = authorize(request, response);
     const detail = adaptiveFindingDetail(context.database, scope, {
       visible, actor, id: requiredString(request.params, "findingId", 80), limit: queryInt(request.query, "limit", 50, 100),
       before: queryInt(request.query, "beforeRevision", Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER),
+      beforeEvidence: evidenceBefore(request.query),
     });
     if (!detail) throw new HttpError(404, "ADAPTIVE_FINDING_NOT_FOUND", "Adaptive Home finding not found");
     response.json(detail);
