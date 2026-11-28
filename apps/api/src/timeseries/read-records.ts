@@ -9,6 +9,7 @@ import type {
 import type {
   ElectricityPriceRecord,
   LegacyReadingRecord,
+  MeasurementCoverageRecord,
   MeasurementSampleRecord,
   OpeningStateRecord,
   OutdoorTemperatureRecord,
@@ -48,9 +49,21 @@ export function compareOpeningStates(left: OpeningStateObservation, right: Openi
 export const measurementKey = (record: MeasurementSample): string => (
   JSON.stringify([record.sensorId, record.metric, record.timestamp, record.source])
 );
-export const measurementCoverageKey = (record: { sensorId: string; metric: string }): string => (
-  JSON.stringify([record.sensorId, record.metric])
-);
+export function mergeMeasurementCoverage(records: readonly MeasurementCoverageRecord[]): MeasurementCoverageRecord[] {
+  const merged = new Map<string, MeasurementCoverageRecord>();
+  for (const { sensorId, metric, start, end } of records) {
+    const key = JSON.stringify([sensorId, metric]);
+    const current = merged.get(key);
+    merged.set(key, current ? {
+      sensorId,
+      metric,
+      start: current.start < start ? current.start : start,
+      end: current.end > end ? current.end : end,
+    } : { sensorId, metric, start, end });
+  }
+  return [...merged.values()].sort((left, right) =>
+    compareCodeUnits(left.sensorId, right.sensorId) || compareCodeUnits(left.metric, right.metric));
+}
 export const readingKey = (record: Reading): string => (
   JSON.stringify([record.sensorId, record.timestamp, record.source])
 );

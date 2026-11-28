@@ -166,6 +166,25 @@ describe("ScheduledDataExportsPanel", () => {
     expect(await screen.findByText("Weekly export")).toBeVisible();
   });
 
+  it("updates the last run status after a failed manual export", async () => {
+    const house = createDemoState().houses[0]!;
+    const error = "The data mode changed during export. Run the export again.";
+    const complete = createdSchedule(house.id, { lastRunStatus: "complete" });
+    vi.spyOn(api, "scheduledDataExports").mockResolvedValueOnce([complete]).mockResolvedValue([
+      { ...complete, lastRunStatus: "failed", lastRunError: error },
+    ]);
+    vi.spyOn(api, "exportDestinations").mockResolvedValue(readyDestination);
+    vi.spyOn(api, "runScheduledDataExport").mockRejectedValue(new Error(error));
+    const user = userEvent.setup();
+    renderPanel();
+    expect(await screen.findByText(/Last run: Complete/)).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Run now" }));
+    expect(await screen.findByText(/Last run: Failed/)).toBeVisible();
+    expect(screen.getByRole("alert")).toHaveTextContent(error);
+    expect(screen.getAllByText(error)).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "Run now" })).toBeEnabled();
+  });
+
   it("polls pending schedules without waiting for a slow storage check", async () => {
     vi.useFakeTimers();
     const state = createDemoState();

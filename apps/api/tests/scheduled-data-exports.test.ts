@@ -20,7 +20,7 @@ describe("scheduled data exports", () => {
   });
 
   /** `destination` is where the owner, owner-1, sends exports; schedules without an owner always go to the NAS. */
-  function fixture(options: { ready?: boolean; destination?: "nas" | "dropbox" } = {}) {
+  function fixture(options: { ready?: boolean; destination?: "nas" | "dropbox"; demo?: boolean } = {}) {
     const ready = options.ready ?? true;
     const destination = options.destination ?? "nas";
     const members = new Map([["owner-1", { email: "owner@example.test", role: "owner" as const }]]);
@@ -29,28 +29,29 @@ describe("scheduled data exports", () => {
     directories.push(operationsDirectory);
     const database = new ClimateDatabase(":memory:", true);
     databases.push(database);
-    database.activateRealDataMode();
+    if (!options.demo) database.activateRealDataMode();
     database.insertMeasurementSamples([{
       sensorId: "sensor-01",
       metric: "temperature",
       value: 21.25,
       canonicalUnit: "°C",
       timestamp: "2026-08-02T10:15:00.000Z",
-      source: "api",
+      source: options.demo ? "mock" : "api",
       quality: "good",
     }]);
     const audit = vi.fn();
     const deliver = vi.fn(async (_userId: string | null) => "dropbox" as const);
+    const telemetryReader = new HybridTelemetryReader({ local: database });
     const service = new ScheduledDataExportService({
       database,
-      telemetryReader: new HybridTelemetryReader({ local: database }),
+      telemetryReader,
       destinations: { selectedFor, readyFor: () => ready, deliver },
       people: { member: (userId: string) => members.get(userId) ?? null },
       dataOperations: { audit } as never,
       operationsDirectory,
       now: () => new Date("2026-08-02T12:00:00.000Z"),
     });
-    return { service, operationsDirectory, audit, deliver, members };
+    return { service, operationsDirectory, audit, deliver, members, database, telemetryReader };
   }
 
   const input = {
@@ -81,9 +82,9 @@ describe("scheduled data exports", () => {
     expect(requestName).toBeTruthy();
     const request = JSON.parse(readFileSync(join(operationsDirectory, requestName!), "utf8")) as Record<string, unknown>;
     expect(request).toMatchObject({
-      schema: "stugu-data-export-request/v1",
+      schema: "stugu-data-export-request/v2",
       scheduleId: schedule.id,
-      relativeDirectory: `data-exports/${schedule.id}`,
+      dataMode: "live",
       retentionCount: 12,
     });
     const csv = readFileSync(join(operationsDirectory, request.payloadName as string), "utf8");
@@ -141,6 +142,39 @@ describe("scheduled data exports", () => {
     expect(service.get(schedule.id)).toMatchObject({
       lastRunStatus: "failed",
       lastRunError: "Dropbox access was removed. Connect Dropbox again in Set up.",
+    });
+  });
+
+  it("keeps a demo cloud upload in its own folder if live mode starts during delivery", async () => {
+    const { service, deliver, database } = fixture({ destination: "dropbox", demo: true });
+    deliver.mockImplementationOnce(async () => {
+      database.activateRealDataMode();
+      return "dropbox";
+    });
+    const schedule = service.create("house-main", input, "owner-1");
+    await expect(service.runNow(schedule.id)).resolves.toMatchObject({ lastRunStatus: "complete" });
+    expect(deliver).toHaveBeenCalledExactlyOnceWith("owner-1", expect.objectContaining({
+      folder: ["demo-data-exports", schedule.id],
+      name: expect.stringMatching(/^stugu-demo-/u),
+      content: expect.stringContaining("21.3"),
+    }));
+  });
+
+  it.each(["nas", "dropbox"] as const)("discards an export that crosses into live mode during its read (%s)", async (destination) => {
+    const { service, operationsDirectory, deliver, database, telemetryReader } = fixture({ destination, demo: true });
+    const read = telemetryReader.measurementWindow.bind(telemetryReader);
+    vi.spyOn(telemetryReader, "measurementWindow").mockImplementationOnce(async (query) => {
+      const result = await read(query);
+      database.activateRealDataMode();
+      return result;
+    });
+    const schedule = service.create("house-main", input, "owner-1");
+    await expect(service.runNow(schedule.id)).rejects.toMatchObject({ code: "SCHEDULED_EXPORT_MODE_CHANGED" });
+    expect(service.get(schedule.id)).toMatchObject({ lastRunStatus: "failed" });
+    expect(deliver).not.toHaveBeenCalled();
+    expect(readdirSync(operationsDirectory)).toEqual([]);
+    await expect(service.runNow(schedule.id)).resolves.toMatchObject({
+      lastRunStatus: destination === "nas" ? "pending" : "complete",
     });
   });
 

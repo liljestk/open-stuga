@@ -251,9 +251,10 @@ export class HeatPumpStateStore {
       `).run(state.connectionId, state.houseId, state.observedAt, state.receivedAt, encoded);
       const historyInsert = this.database.db.prepare(`
         INSERT OR IGNORE INTO heat_pump_state_history
-          (connection_id, house_id, observed_at, received_at, state_json)
-        VALUES (?, ?, ?, ?, ?)
-      `).run(state.connectionId, state.houseId, state.observedAt, state.receivedAt, encoded);
+          (connection_id, house_id, observed_at, received_at, state_json, adaptive_context_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(state.connectionId, state.houseId, state.observedAt, state.receivedAt, encoded,
+        this.database.isRealDataMode() ? new Date().toISOString() : null);
       if (Number(historyInsert.changes) > 0) {
         const influence = heatPumpEvidenceInfluenceRange(state.observedAt);
         this.database.invalidateDerivedAnalyticsHistory(

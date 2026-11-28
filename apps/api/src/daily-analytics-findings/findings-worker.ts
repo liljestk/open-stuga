@@ -71,6 +71,7 @@ export async function mapWithConcurrency<T, R>(
 export class DailyAnalyticsFindingsWorker {
   readonly #database: ClimateDatabase;
   readonly #telemetryReader: HybridTelemetryReader;
+  readonly #reconcileArchive: DailyAnalyticsFindingsWorkerOptions["reconcileArchive"];
   readonly #intervalMs: number;
   readonly #startupJitterMs: number;
   readonly #now: () => number;
@@ -83,6 +84,7 @@ export class DailyAnalyticsFindingsWorker {
   constructor(options: DailyAnalyticsFindingsWorkerOptions) {
     this.#database = options.database;
     this.#telemetryReader = options.telemetryReader;
+    this.#reconcileArchive = options.reconcileArchive;
     this.#intervalMs = Math.max(60_000, Math.trunc(options.intervalMs ?? DEFAULT_INTERVAL_MS));
     this.#startupJitterMs = Math.max(0, Math.trunc(options.startupJitterMs ?? DEFAULT_STARTUP_JITTER_MS));
     this.#now = options.now ?? Date.now;
@@ -136,23 +138,34 @@ export class DailyAnalyticsFindingsWorker {
         const dataMode: DataMode = this.#database.isRealDataMode() ? "live" : "demo";
         const periods = dailyFindingPeriods(this.#now(), house.timezone);
         const stored = this.#database.dailyAnalyticsFindings(house.id, dataMode);
-        if (!force && stored?.snapshot?.evaluatedThrough === periods.evaluatedThrough
-          && stored.snapshot.algorithmVersion === DAILY_ANALYTICS_ALGORITHM_VERSION) {
-          summary.skipped += 1;
-          return;
-        }
         try {
+          const evidence = this.#database.watchDailyFindingsEvidence({
+            houseId: house.id,
+            dataMode,
+            locationKey: house.location ? outdoorLocationKey(house.location) : null,
+            windows: [periods.current, ...periods.baseline],
+          });
+          if (!force && evidence.current && this.#isCurrentSnapshot(stored?.snapshot, periods)) {
+            summary.skipped += 1;
+            return;
+          }
+          // Flush archive-bound history before a ready aggregate or hot-tail
+          // shortcut can hide a late insert from this calculation.
+          await this.#reconcileArchive?.().catch(() => undefined);
           const snapshot = await this.#generateHouse(house, dataMode, periods);
-          this.#database.saveDailyAnalyticsFindings(snapshot);
+          if (!this.#database.saveDailyAnalyticsFindings(snapshot, evidence.revision)) {
+            summary.skipped += 1;
+            return;
+          }
           summary.generated += 1;
           summary.findings += snapshot.findings.length;
         } catch (error) {
           const detail = errorMessage(error);
           summary.failed += 1;
           summary.lastError = detail;
-          if (this.#database.getHouse(house.id)) {
-            this.#database.recordDailyAnalyticsFindingsFailure(house.id, dataMode, new Date(this.#now()).toISOString(), detail);
-          }
+          this.#database.recordDailyAnalyticsFindingsFailure({
+            houseId: house.id, dataMode, attemptedAt: new Date(this.#now()).toISOString(), error: detail,
+          });
         }
       });
     } catch (error) {
@@ -163,6 +176,12 @@ export class DailyAnalyticsFindingsWorker {
       this.#status.lastRun = { ...summary };
     }
     return { ...summary };
+  }
+
+  #isCurrentSnapshot(snapshot: DailyAnalyticsFindingsSnapshot | null | undefined, periods: FindingPeriods): boolean {
+    return snapshot?.evaluatedThrough === periods.evaluatedThrough
+      && snapshot.algorithmVersion === DAILY_ANALYTICS_ALGORITHM_VERSION
+      && !snapshot.warnings.includes("archive-incomplete");
   }
 
   async #generateHouse(house: House, dataMode: DataMode, periods: FindingPeriods): Promise<DailyAnalyticsFindingsSnapshot> {

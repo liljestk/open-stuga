@@ -1,4 +1,4 @@
-.scheduled-data-exports { margin-top: 20px; padding: 18px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel-soft); display: grid; gap: 14px; }
+.scheduled-data-exports { margin-top: 20px; padding: 18px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel-soft); display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
 .scheduled-data-exports > header { display: flex; justify-content: space-between; gap: 18px; align-items: flex-start; }
 .scheduled-data-exports h3, .scheduled-data-exports p { margin: 0; }
 .scheduled-data-exports header p { color: var(--muted); margin-top: 4px; }
@@ -19,6 +19,7 @@
 .scheduled-list li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 0; border-top: 1px solid var(--line); }
 .scheduled-list-main { min-width: 0; display: grid; gap: 2px; }
 .scheduled-list-main span, .scheduled-list-main small { color: var(--muted); }
+.scheduled-list-main code { overflow-wrap: anywhere; }
 .scheduled-list-main .scheduled-run-error { color: var(--red); }
 .scheduled-actions { display: flex; gap: 5px; }
 .scheduled-actions .danger { color: var(--red); }

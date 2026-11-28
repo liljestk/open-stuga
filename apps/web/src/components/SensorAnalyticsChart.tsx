@@ -1,3 +1,4 @@
+import { explorerWindow } from "../analyticsWindow";
 import { maximum, minimum } from "@climate-twin/analytics-kernel";
 import { useId, useMemo, useState } from "react";
 import { Activity, BrainCircuit, ChevronDown, CloudSun, GitCompareArrows, TriangleAlert, X } from "lucide-react";
@@ -14,7 +15,7 @@ import type {
   SensorDataGap,
   UnitSystem,
 } from "@climate-twin/contracts";
-import { ANALYTICS_TIME_RANGES, timeRangeHours, type TimeRange } from "../domain";
+import { ANALYTICS_TIME_RANGES, type TimeRange } from "../domain";
 import { formatInTimeZone } from "../dateTime";
 import { useI18n } from "../i18n";
 import {
@@ -56,6 +57,8 @@ interface SensorAnalyticsChartProps {
   forecasts: MeasurementForecasts;
   analyticsSeries?: readonly AnalyticsSeries[] | null;
   analyticsRangeEnd?: string | null;
+  absoluteRange?: { start: string; end: string } | undefined;
+  onRangeSelection?: ((range: { start: string; end: string }) => void) | undefined;
   loading?: boolean;
   latestMeasurements: LatestMeasurements;
   definitions: MeasurementDefinition[];
@@ -241,7 +244,8 @@ export function aggregateForecastSeries(
 
 export function SensorAnalyticsChart(props: Readonly<SensorAnalyticsChartProps>) {
   const { locale, t } = useI18n();
-  const now = useNow();
+  const liveNow = useNow();
+  const { from, end: now } = explorerWindow({ absoluteRange: props.absoluteRange, now: liveNow, range: props.range });
   const summaryId = useId();
   const rangeLabelId = `${summaryId}-range`;
   const [exactDataOpen, setExactDataOpen] = useState(false);
@@ -265,7 +269,6 @@ export function SensorAnalyticsChart(props: Readonly<SensorAnalyticsChartProps>)
     if (!definition) return {
       observed: [], predicted: [], aggregate: [], aggregateForecast: [], outdoorObserved: [], outdoorForecast: [], electricityPrice: [],
     };
-    const from = now - timeRangeHours(props.range) * 60 * 60_000;
     const observed = activeSensors.map((sensor) => ({
       sensor,
       points: observedSeries(
@@ -276,9 +279,9 @@ export function SensorAnalyticsChart(props: Readonly<SensorAnalyticsChartProps>)
         from,
         props.analyticsSeries,
         props.analyticsRangeEnd,
-      ),
+      ).filter((point) => !props.absoluteRange || point.timestamp < now),
     }));
-    const predicted = definition.forecastSupported ? activeSensors.filter((sensor) => sensor.enabled).map((sensor) => ({
+    const predicted = !props.absoluteRange && definition.forecastSupported ? activeSensors.filter((sensor) => sensor.enabled).map((sensor) => ({
       sensor,
       points: forecastSeries(sensor.id, definition.id, props.forecasts, now),
     })) : [];
@@ -288,7 +291,7 @@ export function SensorAnalyticsChart(props: Readonly<SensorAnalyticsChartProps>)
       ? [...new Map([
         ...(props.outdoorHistory ?? []).flatMap((sample) => {
           const timestamp = validTimestamp(sample.timestamp);
-          return timestamp === null || timestamp < from || !Number.isFinite(sample.temperatureC)
+          return timestamp === null || timestamp < from || (props.absoluteRange && timestamp >= now) || !Number.isFinite(sample.temperatureC)
             ? []
             : [[timestamp, { timestamp, value: sample.temperatureC }] as const];
         }),
@@ -300,7 +303,7 @@ export function SensorAnalyticsChart(props: Readonly<SensorAnalyticsChartProps>)
         }),
       ]).values()].sort((left, right) => left.timestamp - right.timestamp)
       : [];
-    const outdoorForecast = definition.id === "temperature" && props.weatherForecastVisible
+    const outdoorForecast = definition.id === "temperature" && !props.absoluteRange && props.weatherForecastVisible
       ? (props.weather?.forecast ?? []).flatMap((point) => {
         const timestamp = validTimestamp(point.timestamp);
         return timestamp === null || timestamp < now || !Number.isFinite(point.temperatureC)
@@ -313,7 +316,7 @@ export function SensorAnalyticsChart(props: Readonly<SensorAnalyticsChartProps>)
         const rows = (props.electricityPrices ?? []).filter((point) => {
           const start = validTimestamp(point.startAt);
           const end = validTimestamp(point.endAt);
-          return start !== null && end !== null && end >= from && Number.isFinite(point.effectivePriceEurPerKwh);
+          return start !== null && end !== null && end >= from && (!props.absoluteRange || start < now) && Number.isFinite(point.effectivePriceEurPerKwh);
         }).sort((left, right) => left.startAt.localeCompare(right.startAt));
         const points = rows.map((point) => ({
           timestamp: Math.max(from, Date.parse(point.startAt)),
@@ -333,15 +336,14 @@ export function SensorAnalyticsChart(props: Readonly<SensorAnalyticsChartProps>)
       outdoorForecast,
       electricityPrice,
     };
-  }, [activeSensors, definition, now, props.analyticsRangeEnd, props.analyticsSeries, props.electricityPrices, props.forecasts, props.history, props.latestMeasurements, props.outdoorHistory, props.range, props.weather, props.weatherForecastVisible, props.weatherObservationsVisible]);
+  }, [activeSensors, definition, from, now, props.analyticsRangeEnd, props.analyticsSeries, props.absoluteRange, props.electricityPrices, props.forecasts, props.history, props.latestMeasurements, props.outdoorHistory, props.range, props.weather, props.weatherForecastVisible, props.weatherObservationsVisible]);
 
   if (!definition) return null;
 
-  const from = now - timeRangeHours(props.range) * 60 * 60_000;
   const gapThresholdMs = chartGapThresholdMs(props.range);
   const forecastGapThresholdMs = Math.max(gapThresholdMs, 2 * 60 * 60_000);
   const forecastEnd = Math.max(data.aggregateForecast.at(-1)?.timestamp ?? now, data.electricityPrice.at(-1)?.timestamp ?? now);
-  const timeMax = Math.max(now, forecastEnd);
+  const timeMax = analyticsTimeMaximum({ absolute: Boolean(props.absoluteRange), now, forecastEnd });
   const values = [
     ...data.observed.flatMap((series) => series.points.map((point) => point.value)),
     ...data.aggregate.flatMap((point) => [point.low, point.value, point.high]),
@@ -598,7 +600,7 @@ export function SensorAnalyticsChart(props: Readonly<SensorAnalyticsChartProps>)
           <div className="field sensor-analytics-range-field">
             <span id={rangeLabelId}>{t("chart.history")}</span>
             <div className="segmented compact" role="group" aria-labelledby={rangeLabelId}>
-              {ANALYTICS_TIME_RANGES.map((range) => <button key={range} type="button" aria-pressed={props.range === range} onClick={() => props.onRange(range)}>{t(`chart.range${range}`)}</button>)}
+              {ANALYTICS_TIME_RANGES.map((range) => <button key={range} type="button" aria-pressed={rollingRangeSelected(props.absoluteRange, props.range, range)} onClick={() => props.onRange(range)}>{t(`chart.range${range}`)}</button>)}
             </div>
           </div>
         </div>
@@ -628,6 +630,7 @@ export function SensorAnalyticsChart(props: Readonly<SensorAnalyticsChartProps>)
       </div>
 
       {domain && (data.aggregate.length > 0 || data.outdoorObserved.length > 0 || data.outdoorForecast.length > 0 || data.electricityPrice.length > 0) ? <SensorAnalyticsPlot
+        onRangeSelection={props.onRangeSelection}
         data={data}
         definition={definition}
         units={props.units}
@@ -675,4 +678,12 @@ export function SensorAnalyticsChart(props: Readonly<SensorAnalyticsChartProps>)
       />
     </section>
   );
+}
+
+function analyticsTimeMaximum(input: { absolute: boolean; now: number; forecastEnd: number }): number {
+  return input.absolute ? input.now : Math.max(input.now, input.forecastEnd);
+}
+
+function rollingRangeSelected(absolute: { start: string; end: string } | undefined, current: TimeRange, range: TimeRange): boolean {
+  return !absolute && current === range;
 }

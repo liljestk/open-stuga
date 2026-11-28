@@ -6,7 +6,8 @@ import type { ClimateDatabase } from "../db.js";
 import { compareCodeUnits } from "../text-order.js";
 
 const MINUTE_MS = 60_000;
-const MAX_STATE_GAP_MS = 5 * MINUTE_MS;
+export const MAX_HEAT_PUMP_STATE_GAP_MS = 5 * MINUTE_MS;
+const MAX_STATE_GAP_MS = MAX_HEAT_PUMP_STATE_GAP_MS;
 const PADDING_BEFORE_MS = 5 * MINUTE_MS;
 const PADDING_AFTER_MS = 30 * MINUTE_MS;
 const MIN_CLASSIFIED_PERCENT = 90;

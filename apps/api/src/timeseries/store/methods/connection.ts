@@ -13,6 +13,15 @@ export function postgresErrorCode(error: unknown): string | null {
     : null;
 }
 
+type StoreQueryControl = QueryControl & { client?: PoolClient };
+
+interface StoreQuery {
+  sql: string;
+  values: readonly SqlValue[];
+  signal: AbortSignal | undefined;
+  client: PoolClient | undefined;
+}
+
 declare module "../core.js" {
   interface TimeseriesStoreInternals {
     health(control?: QueryControl): Promise<TelemetryHealth>;
@@ -23,13 +32,9 @@ declare module "../core.js" {
     __query<Row extends QueryResultRow = QueryResultRow>(
         sql: string,
         values?: readonly SqlValue[] ,
-        control?: QueryControl ,
+        control?: StoreQueryControl,
       ): Promise<QueryResult<Row>>;
-    __runQuery<Row extends QueryResultRow>(
-        sql: string,
-        values: readonly SqlValue[],
-        signal: AbortSignal | undefined,
-      ): Promise<QueryResult<Row>>;
+    __runQuery<Row extends QueryResultRow>(query: StoreQuery): Promise<QueryResult<Row>>;
     __connect(signal: AbortSignal | undefined): Promise<PoolClient>;
     __cancelBackendQuery(client: PoolClient, token: string): Promise<void>;
   }
@@ -176,7 +181,7 @@ registerTimeseriesStoreMethods({
   async __query<Row extends QueryResultRow = QueryResultRow>(this: TimeseriesStoreInternals,
       sql: string,
       values: readonly SqlValue[] = [],
-      control: QueryControl = {},
+      control: StoreQueryControl = {},
     ): Promise<QueryResult<Row>> {
       const state = this[timeseriesStoreState];
       if (state.closed) throw new Error("TimeseriesStore is closed");
@@ -198,7 +203,7 @@ registerTimeseriesStoreMethods({
       metrics.active += 1;
       metrics.started += 1;
       try {
-        const result = await this.__runQuery<Row>(sql, values, signal);
+        const result = await this.__runQuery<Row>({ sql, values, signal, client: control.client });
         metrics.succeeded += 1;
         return result;
       } catch (error) {
@@ -213,14 +218,13 @@ registerTimeseriesStoreMethods({
       }
     },
   async __runQuery<Row extends QueryResultRow>(this: TimeseriesStoreInternals,
-      sql: string,
-      values: readonly SqlValue[],
-      signal: AbortSignal | undefined,
+      { sql, values, signal, client: borrowedClient }: StoreQuery,
     ): Promise<QueryResult<Row>> {
       if (signal?.aborted) throw abortError(signal);
-      const client = await this.__connect(signal);
+      const client = borrowedClient ?? await this.__connect(signal);
+      const release = () => { if (!borrowedClient) client.release(); };
       if (signal?.aborted) {
-        client.release();
+        release();
         throw abortError(signal);
       }
 
@@ -259,16 +263,13 @@ registerTimeseriesStoreMethods({
       } catch (error) {
         if (signal?.aborted && !settled) {
           releaseDeferred = true;
-          void query.then(
-            () => client.release(),
-            () => client.release(),
-          );
+          void query.then(release, release);
           throw abortError(signal);
         }
         throw error;
       } finally {
         if (abortListener && signal) signal.removeEventListener("abort", abortListener);
-        if (!releaseDeferred) client.release();
+        if (!releaseDeferred) release();
       }
     },
   async __connect(this: TimeseriesStoreInternals, signal: AbortSignal | undefined): Promise<PoolClient> {

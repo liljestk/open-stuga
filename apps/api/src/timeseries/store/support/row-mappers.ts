@@ -12,6 +12,8 @@ export function measurementFromRow(row: MeasurementRow): MeasurementSampleRecord
     source: row.source,
     quality: row.quality,
     metadata: row.metadata,
+    ...(row.data_mode === undefined ? {} : { dataMode: row.data_mode }),
+    ...(row.recorded_at === undefined ? {} : { recordedAt: row.recorded_at === null ? null : timestamp(row.recorded_at) }),
   };
 }
 

@@ -1,4 +1,5 @@
 import type { MeasurementBucket } from "./types.js";
+import { buildArchiveModeProtectionSql } from "./archive-mode-schema.js";
 
 export const TELEMETRY_TABLES = [
   "measurement_samples",
@@ -121,9 +122,14 @@ export const MEASUREMENT_ANALYTICS_BUCKETS = {
 } as const;
 
 export type MeasurementAnalyticsBaseBucket = keyof typeof MEASUREMENT_ANALYTICS_BUCKETS;
+export type MeasurementAnalyticsAggregateScope = "compatibility" | "verified";
 
-export function measurementAnalyticsAggregateName(bucket: MeasurementAnalyticsBaseBucket): string {
-  return `measurement_analytics_v2_${MEASUREMENT_ANALYTICS_BUCKETS[bucket].suffix}`;
+export function measurementAnalyticsAggregateName(
+  bucket: MeasurementAnalyticsBaseBucket,
+  scope: MeasurementAnalyticsAggregateScope = "compatibility",
+): string {
+  const prefix = scope === "verified" ? "measurement_analytics_verified_v1" : "measurement_analytics_v2";
+  return `${prefix}_${MEASUREMENT_ANALYTICS_BUCKETS[bucket].suffix}`;
 }
 
 export function buildBaseSchemaSql(schemaName: string): string[] {
@@ -150,6 +156,11 @@ export function buildBaseSchemaSql(schemaName: string): string[] {
       description TEXT NOT NULL,
       applied_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp()
     )`,
+    `CREATE TABLE IF NOT EXISTS ${relation("stugu_archive_generation")} (
+      id INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+      generation UUID NOT NULL DEFAULT gen_random_uuid()
+    )`,
+    `INSERT INTO ${relation("stugu_archive_generation")} DEFAULT VALUES ON CONFLICT (id) DO NOTHING`,
     `CREATE TABLE IF NOT EXISTS ${relation("archive_checkpoints")} (
       source_id TEXT NOT NULL CHECK (length(source_id) > 0),
       table_name TEXT NOT NULL CHECK (table_name IN (
@@ -522,6 +533,40 @@ export function buildBaseSchemaSql(schemaName: string): string[] {
     `INSERT INTO ${relation("schema_migrations")} (version, description)
       VALUES (9, 'Sealed ordered telemetry states for the active day')
       ON CONFLICT (version) DO NOTHING`,
+    ...(["measurement_samples", "legacy_readings", "outdoor_temperature_samples"] as const).map(
+      (table) => `ALTER TABLE ${relation(table)} ADD COLUMN IF NOT EXISTS data_mode TEXT`,
+    ),
+    `INSERT INTO ${relation("schema_migrations")} (version, description)
+      VALUES (10, 'Persist verified mode on archived sensor and outdoor telemetry')
+      ON CONFLICT (version) DO NOTHING`,
+    `ALTER TABLE ${relation("measurement_samples")} ADD COLUMN IF NOT EXISTS recorded_at TIMESTAMPTZ`,
+    `CREATE OR REPLACE FUNCTION ${relation("clear_unproven_measurement_recording")}() RETURNS trigger LANGUAGE plpgsql AS $recording$
+      BEGIN
+        IF NEW.recorded_at IS NOT DISTINCT FROM OLD.recorded_at AND
+          ROW(NEW.sensor_id, NEW.metric, NEW.observed_at, NEW.source, NEW.value, NEW.canonical_unit, NEW.quality)
+          IS DISTINCT FROM
+          ROW(OLD.sensor_id, OLD.metric, OLD.observed_at, OLD.source, OLD.value, OLD.canonical_unit, OLD.quality)
+        THEN NEW.recorded_at := NULL;
+        END IF;
+        RETURN NEW;
+      END;
+      $recording$`,
+    `DO $recording$ BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = '${relation("measurement_samples")}'::REGCLASS
+        AND tgname = 'measurement_recording_payload_changes') THEN
+        CREATE TRIGGER measurement_recording_payload_changes
+          BEFORE UPDATE OF sensor_id, metric, observed_at, source, value, canonical_unit, quality
+          ON ${relation("measurement_samples")} FOR EACH ROW
+          EXECUTE FUNCTION ${relation("clear_unproven_measurement_recording")}();
+      END IF;
+      END $recording$`,
+    `INSERT INTO ${relation("schema_migrations")} (version, description)
+      VALUES (11, 'Preserve the originating SQLite recording time for measurement evidence')
+      ON CONFLICT (version) DO NOTHING`,
+    ...buildArchiveModeProtectionSql(relation),
+    `INSERT INTO ${relation("schema_migrations")} (version, description)
+      VALUES (12, 'Protect verified telemetry mode and source on archive writes')
+      ON CONFLICT (version) DO NOTHING`,
   ];
 }
 
@@ -572,15 +617,19 @@ export function buildFallbackAggregateSql(schemaName: string, bucket: Measuremen
 export function buildMeasurementAnalyticsAggregateSql(
   schemaName: string,
   bucket: MeasurementAnalyticsBaseBucket,
+  scope: MeasurementAnalyticsAggregateScope = "compatibility",
 ): string {
   const schema = validateSchemaName(schemaName);
   const interval = MEASUREMENT_ANALYTICS_BUCKETS[bucket].interval;
-  const aggregate = qualifiedName(schema, measurementAnalyticsAggregateName(bucket));
+  const aggregate = qualifiedName(schema, measurementAnalyticsAggregateName(bucket, scope));
   const measurements = qualifiedName(schema, "measurement_samples");
-  return `CREATE MATERIALIZED VIEW ${aggregate}
+  const verified = scope === "verified";
+  const modeDimension = verified ? "data_mode, " : "";
+  const modeFilter = verified ? "WHERE data_mode IN ('demo', 'live')" : "";
+  return `CREATE MATERIALIZED VIEW ${verified ? "IF NOT EXISTS " : ""}${aggregate}
     WITH (timescaledb.continuous, timescaledb.materialized_only = true)
     AS SELECT
-      sensor_id,
+      ${modeDimension}sensor_id,
       metric,
       source,
       quality,
@@ -595,7 +644,8 @@ export function buildMeasurementAnalyticsAggregateSql(
       last(value, observed_at)::DOUBLE PRECISION AS last_value,
       max(observed_at) AS last_at
     FROM ${measurements}
-    GROUP BY sensor_id, metric, source, quality, canonical_unit,
+    ${modeFilter}
+    GROUP BY ${modeDimension}sensor_id, metric, source, quality, canonical_unit,
       time_bucket(INTERVAL '${interval}', observed_at)
     WITH NO DATA`;
 }

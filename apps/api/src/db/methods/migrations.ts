@@ -1,6 +1,19 @@
 import type { Floor } from "@climate-twin/contracts";
 import { parseJson } from "../support/json-values.js";
 import { registerDatabaseMethods } from "../core.js";
+import { migrateLocalTelemetryMode } from "../migrations/local-telemetry-mode.js";
+import { migrateMeasurementRecordingTime } from "../migrations/measurement-recording-time.js";
+import { migrateAdaptiveSettings } from "../migrations/adaptive-settings-schema.js";
+import { migrateAdaptiveEvidence } from "../migrations/adaptive-evidence-schema.js";
+import { adaptiveHourlyEvidenceSchema } from "../migrations/adaptive-hourly-evidence-schema.js";
+import { migrateAdaptiveWeather } from "../migrations/adaptive-weather-schema.js";
+import { adaptiveCollectionSchema } from "../migrations/adaptive-collection-schema.js";
+import { adaptiveClimateArtifactsSchema } from "../migrations/adaptive-climate-artifacts-schema.js";
+import { adaptiveClimateLedgerSchema } from "../migrations/adaptive-climate-ledger-schema.js";
+import { migrateAdaptiveClimateDetection } from "../migrations/adaptive-climate-detection-schema.js";
+import { migrateAdaptiveContext } from "../migrations/adaptive-context-schema.js";
+import { adaptiveReferenceDetectorSchema } from "../migrations/adaptive-reference-detector-schema.js";
+import { adaptiveFindingsReviewSchema } from "../migrations/adaptive-findings-review-schema.js";
 
 declare module "../core.js" {
   interface DatabaseInternals {
@@ -106,6 +119,19 @@ registerDatabaseMethods({
         this.migrateMaintenanceOwnership();
         this.migratePropertyAndObservationIntegrity();
         this.migrateMeasurementAndActionSchema();
+        migrateLocalTelemetryMode(this.db);
+        migrateMeasurementRecordingTime(this.db);
+        migrateAdaptiveSettings(this.db);
+        migrateAdaptiveEvidence(this.db);
+        this.db.exec(adaptiveHourlyEvidenceSchema);
+        migrateAdaptiveWeather(this.db);
+        this.db.exec(adaptiveCollectionSchema);
+        this.db.exec(adaptiveClimateArtifactsSchema);
+        this.db.exec(adaptiveClimateLedgerSchema);
+        migrateAdaptiveClimateDetection(this.db);
+        migrateAdaptiveContext(this.db);
+        this.db.exec(adaptiveReferenceDetectorSchema);
+        this.db.exec(adaptiveFindingsReviewSchema);
       });
     },
   /**

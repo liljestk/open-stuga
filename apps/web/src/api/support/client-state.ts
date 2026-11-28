@@ -28,6 +28,9 @@ export function trackApiRequestController(controller: AbortController): () => vo
   return () => activeRequestControllers.delete(controller);
 }
 
+let authorizationRevision = 0;
+export function authorizationStateRevision(): number { return authorizationRevision; }
+
 export type ApiAuthorizationChange = "changed" | "expired";
 
 export const authorizationListeners = new Set<(change: ApiAuthorizationChange) => void>();
@@ -38,6 +41,7 @@ export function subscribeToApiAuthorizationChanges(listener: (change: ApiAuthori
 }
 
 export function notifyAuthorizationChange(change: ApiAuthorizationChange): void {
+  authorizationRevision += 1;
   // A session/authorization transition makes the old synchronizer token
   // untrustworthy. The next authenticated /session response supplies a fresh
   // token; unsafe mutations are never retried automatically.

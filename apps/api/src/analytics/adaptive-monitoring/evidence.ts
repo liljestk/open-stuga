@@ -1,0 +1,75 @@
+import type { AdaptiveHourlyEvidence } from "@climate-twin/contracts";
+import { HOUR_MS } from "../forecast/models.js";
+
+export interface EvidencePolicy {
+  epochId: string;
+  dataMode: "live" | "demo";
+  trustworthyFrom: number;
+}
+
+const WEEK_MS = 168 * HOUR_MS;
+
+export function adaptiveQualificationWindow(trustworthyFrom: number): { from: number; to: number } {
+  const from = Math.ceil(trustworthyFrom / HOUR_MS) * HOUR_MS;
+  return { from, to: from + 4 * WEEK_MS };
+}
+
+export function latestClosedQualificationWindow(trustworthyFrom: number, now: number): { from: number; to: number } | null {
+  const initial = adaptiveQualificationWindow(trustworthyFrom);
+  if (now < initial.to) return null;
+  const length = initial.to - initial.from;
+  const elapsed = Math.floor((now - initial.to) / length) * length;
+  return { from: initial.from + elapsed, to: initial.to + elapsed };
+}
+
+export function eligibleHourlyEvidence(point: AdaptiveHourlyEvidence, policy: EvidencePolicy): boolean {
+  return Number.isSafeInteger(point.time) && point.time % HOUR_MS === 0
+    && Number.isFinite(point.availableAt) && point.availableAt >= point.time + HOUR_MS
+    && Number.isFinite(point.value) && point.coverage >= 0.8 && point.coverage <= 1
+    && point.quality === "good" && point.archiveComplete
+    && point.source === (policy.dataMode === "live" ? "observed" : "demo")
+    && point.epochId === policy.epochId && point.time >= policy.trustworthyFrom;
+}
+
+/** Conflicting or repeated hours are withheld; physical-source deduplication is upstream. */
+export function evidenceByHour(points: readonly AdaptiveHourlyEvidence[], policy: EvidencePolicy) {
+  const seen = new Set<number>();
+  const result = new Map<number, AdaptiveHourlyEvidence>();
+  for (const point of points) {
+    if (seen.has(point.time)) {
+      result.delete(point.time);
+      continue;
+    }
+    seen.add(point.time);
+    if (eligibleHourlyEvidence(point, policy)) result.set(point.time, point);
+  }
+  return result;
+}
+
+/** Four fixed chronological weeks, with no borrowing coverage between blocks. */
+export function auditAdaptiveReadiness(input: {
+  evidence: readonly AdaptiveHourlyEvidence[];
+  policy: EvidencePolicy;
+  evaluatedAt: number;
+  /** Evidence used to advance a qualification stage must already be sealed at its boundary. */
+  byBlockBoundary?: boolean;
+}) {
+  const byHour = evidenceByHour(input.evidence, input.policy);
+  const { from: start } = adaptiveQualificationWindow(input.policy.trustworthyFrom);
+  const blocks = ["fit", "selection", "calibration", "evaluation"].map((name, index) => {
+    const from = start + index * WEEK_MS;
+    const to = from + WEEK_MS;
+    const availableBy = input.byBlockBoundary ? Math.min(to, input.evaluatedAt) : input.evaluatedAt;
+    let usableHours = 0;
+    for (let time = from; time < to; time += HOUR_MS) {
+      const point = byHour.get(time);
+      if (point && point.availableAt <= availableBy) usableHours += 1;
+    }
+    return { name, from, to, usableHours, coverage: usableHours / 168, closed: to <= input.evaluatedAt };
+  });
+  return {
+    state: blocks.every((block) => block.closed && block.coverage >= 0.8) ? "evaluation-ready" as const : "collecting" as const,
+    advisoryEligible: false as const,
+    blocks,
+  };
+}

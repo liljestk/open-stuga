@@ -1,4 +1,7 @@
 import "./db/methods/action-playbooks.js";
+import "./db/methods/adaptive-evidence.js";
+import "./db/methods/adaptive-hourly-evidence.js";
+import "./db/methods/adaptive-settings.js";
 import "./db/methods/alerts.js";
 import "./db/methods/analytics-latency.js";
 import "./db/methods/area-equipment.js";

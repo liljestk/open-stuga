@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
-import type { MeasurementSample, Reading, SecurityAuditEvent, Floor, Sensor } from "@climate-twin/contracts";
+import type { DataMode, MeasurementSample, Reading, SecurityAuditEvent, Floor, Sensor } from "@climate-twin/contracts";
 import { DEMO_TELEMETRY_SOURCES, boundedCollectionLimit, boundedCollectionOffset, DEFAULT_PROPERTY_ID } from "../support/domain-limits.js";
 import { DemoTelemetryPurgeResult, IntegrationMappingKind, IntegrationMappingSet, SecurityAuditEventInput } from "../support/record-types.js";
 import { IntegrationMappingSetRow, SecurityAuditEventRow } from "../support/row-types.js";
@@ -40,7 +40,7 @@ declare module "../core.js" {
     activateRealDataMode(): DemoTelemetryPurgeResult;
     purgeSourceLabelledDemoTelemetry(): void;
     purgeSharedHomeLocalState(houseId?: string): void;
-    prepareTelemetrySources(sources: Array<MeasurementSample["source"] | Reading["source"]>): void;
+    prepareTelemetrySources(sources: Array<MeasurementSample["source"] | Reading["source"]>): DataMode;
     seed(): void;
     close(): void;
   }
@@ -227,6 +227,9 @@ registerDatabaseMethods({
         // so no process can claim or publish demo work after activation.
         this.db.prepare("DELETE FROM derived_analytics_jobs WHERE data_mode = 'demo'").run();
         this.db.prepare("DELETE FROM derived_analytics_artifacts WHERE data_mode = 'demo'").run();
+        this.db.prepare("DELETE FROM adaptive_evidence_epochs WHERE data_mode = 'demo'").run();
+        this.db.prepare("DELETE FROM adaptive_collection_cursors WHERE data_mode = 'demo'").run();
+        this.db.prepare("DELETE FROM adaptive_settings_revisions WHERE data_mode = 'demo'").run();
         this.db.prepare(`INSERT INTO metadata(key, value) VALUES ('data_mode', 'real')
           ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run();
         this.db.prepare("INSERT OR IGNORE INTO metadata(key, value) VALUES ('real_data_mode_activated_at', ?)").run(activatedAt);
@@ -252,6 +255,9 @@ registerDatabaseMethods({
         this.db.prepare("DELETE FROM analytics_daily_findings WHERE data_mode = 'demo'").run();
         this.db.prepare("DELETE FROM derived_analytics_jobs WHERE data_mode = 'demo'").run();
         this.db.prepare("DELETE FROM derived_analytics_artifacts WHERE data_mode = 'demo'").run();
+        this.db.prepare("DELETE FROM adaptive_evidence_epochs WHERE data_mode = 'demo'").run();
+        this.db.prepare("DELETE FROM adaptive_collection_cursors WHERE data_mode = 'demo'").run();
+        this.db.prepare("DELETE FROM adaptive_settings_revisions WHERE data_mode = 'demo'").run();
       });
     },
   /** Removes every local producer/runtime artifact from active remote Homes. */
@@ -264,6 +270,22 @@ registerDatabaseMethods({
           WHERE json_extract(house.stugby_json, '$.ownership') = 'shared'
             AND json_extract(house.stugby_json, '$.syncState') <> 'detached' ${houseFilter}`;
         const parameters = houseId ? [houseId] : [];
+        this.db.prepare(`INSERT INTO adaptive_settings_revisions
+          (house_id, data_mode, revision, mode, updated_at)
+          SELECT head.house_id, head.data_mode, head.revision + 1, 'off', ?
+          FROM adaptive_settings_revisions head JOIN houses house ON house.id = head.house_id
+          WHERE (head.mode = 'shadow' OR head.reference_groups_json <> '[]')
+            AND json_extract(house.stugby_json, '$.ownership') = 'shared'
+            AND json_extract(house.stugby_json, '$.syncState') <> 'detached' ${houseFilter}
+            AND NOT EXISTS (
+              SELECT 1 FROM adaptive_settings_revisions newer
+              WHERE newer.house_id = head.house_id AND newer.data_mode = head.data_mode AND newer.revision > head.revision
+            )`).run(new Date().toISOString(), ...parameters);
+        this.db.prepare(`DELETE FROM adaptive_evidence_epochs WHERE house_id IN (
+          SELECT house.id FROM houses house
+          WHERE json_extract(house.stugby_json, '$.ownership') = 'shared'
+            AND json_extract(house.stugby_json, '$.syncState') <> 'detached' ${houseFilter}
+        )`).run(...parameters);
         this.db.prepare(`DELETE FROM alert_evaluation_state WHERE sensor_id IN (${sharedSensorIds})`).run(...parameters);
         this.db.prepare(`DELETE FROM alert_events WHERE sensor_id IN (${sharedSensorIds})`).run(...parameters);
         this.db.prepare(`DELETE FROM alert_rules WHERE sensor_id IN (${sharedSensorIds})`).run(...parameters);
@@ -314,7 +336,7 @@ registerDatabaseMethods({
           )`).run(...parameters);
       });
     },
-  prepareTelemetrySources(sources: Array<MeasurementSample["source"] | Reading["source"]>): void {
+  prepareTelemetrySources(sources: Array<MeasurementSample["source"] | Reading["source"]>): DataMode {
       const hasDemo = sources.some((source) => DEMO_TELEMETRY_SOURCES.has(source));
       const hasReal = sources.some((source) => !DEMO_TELEMETRY_SOURCES.has(source));
       if (hasDemo && hasReal) {
@@ -324,6 +346,7 @@ registerDatabaseMethods({
         throw new ClimateDataValidationError(409, "DEMO_DATA_DISABLED", "Demo telemetry is permanently disabled after a real integration or real sample is accepted");
       }
       if (hasReal && !this.isRealDataMode()) this.activateRealDataMode();
+      return hasReal ? "live" : "demo";
     },
   seed(): void {
       const seeded = this.db.prepare("SELECT value FROM metadata WHERE key = 'seed_version'").get() as { value: string } | undefined;
@@ -410,7 +433,8 @@ registerDatabaseMethods({
             sensor.x, sensor.y, sensor.z, null, null, null, JSON.stringify(sensor.tags), 1);
         }
         const readingStatement = this.db.prepare(`INSERT INTO readings
-          (sensor_id, timestamp, temperature, humidity, battery, source, quality) VALUES (?, ?, ?, ?, ?, ?, ?)`);
+          (sensor_id, timestamp, temperature, humidity, battery, source, quality, data_mode)
+          VALUES (?, ?, ?, ?, ?, ?, ?, 'demo')`);
         const end = Date.now();
         for (let step = 288; step >= 0; step -= 1) {
           const timestamp = new Date(end - step * 5 * 60_000).toISOString();

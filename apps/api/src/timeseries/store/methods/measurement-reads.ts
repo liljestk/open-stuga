@@ -1,6 +1,6 @@
 import type { QueryResultRow } from "pg";
 import { MEASUREMENT_ANALYTICS_BUCKETS, measurementAnalyticsAggregateName, measurementAggregateName, qualifiedName, type MeasurementAnalyticsBaseBucket } from "../../schema.js";
-import type { MeasurementBucketQuery, MeasurementBucketRecord, MeasurementCoverageQuery, MeasurementCoverageRecord, MeasurementGapQuery, MeasurementGapRecord, MeasurementHistoryBucketedQuery, MeasurementHistoryQuery, MeasurementSampleRecord, MeasurementWindowQuery, ThermalMeasurementHistoryQuery, QueryControl } from "../../types.js";
+import type { ArchiveMeasurementCoverageRecord, MeasurementBucketQuery, MeasurementBucketRecord, MeasurementCoverageQuery, MeasurementGapQuery, MeasurementGapRecord, MeasurementHistoryBucketedQuery, MeasurementHistoryQuery, MeasurementSampleRecord, MeasurementWindowQuery, ThermalMeasurementHistoryQuery, QueryControl } from "../../types.js";
 import { LatestMeasurementFilter, MeasurementBucketRow, MeasurementCoverageRow, MeasurementRow, SqlValue } from "../support/row-types.js";
 import { MAX_HISTORY_LIMIT, MAX_MEASUREMENT_WINDOW_LIMIT } from "../support/store-limits.js";
 import { measurementBucketFromRow, measurementFromRow } from "../support/row-mappers.js";
@@ -36,7 +36,7 @@ declare module "../core.js" {
     measurementSampleGaps(query: MeasurementGapQuery): Promise<MeasurementGapRecord[]>;
     thermalMeasurementHistory(query: ThermalMeasurementHistoryQuery): Promise<MeasurementSampleRecord[]>;
     measurementWindow(query: MeasurementWindowQuery): Promise<MeasurementSampleRecord[]>;
-    measurementCoverage(query: MeasurementCoverageQuery): Promise<MeasurementCoverageRecord[]>;
+    measurementCoverage(query: MeasurementCoverageQuery): Promise<ArchiveMeasurementCoverageRecord[]>;
     measurementBuckets(query: MeasurementBucketQuery): Promise<MeasurementBucketRecord[]>;
   }
 
@@ -48,7 +48,7 @@ declare module "../core.js" {
     measurementSampleGaps(query: MeasurementGapQuery): Promise<MeasurementGapRecord[]>;
     thermalMeasurementHistory(query: ThermalMeasurementHistoryQuery): Promise<MeasurementSampleRecord[]>;
     measurementWindow(query: MeasurementWindowQuery): Promise<MeasurementSampleRecord[]>;
-    measurementCoverage(query: MeasurementCoverageQuery): Promise<MeasurementCoverageRecord[]>;
+    measurementCoverage(query: MeasurementCoverageQuery): Promise<ArchiveMeasurementCoverageRecord[]>;
     measurementBuckets(query: MeasurementBucketQuery): Promise<MeasurementBucketRecord[]>;
   }
 }
@@ -298,13 +298,18 @@ registerTimeseriesStoreMethods({
   async measurementWindow(this: TimeseriesStoreInternals, query: MeasurementWindowQuery): Promise<MeasurementSampleRecord[]> {
       if (query.sensorIds.length === 0 || query.metrics.length === 0) return [];
       const limit = positiveInteger(query.limit, 100_000, MAX_MEASUREMENT_WINDOW_LIMIT);
+      const verified = query.dataMode !== undefined;
+      const modeColumn = verified ? ", data_mode, recorded_at" : "";
+      const modeFilter = verified ? "AND data_mode = $6" : "";
+      const modeParameters = query.dataMode === undefined ? [] : [query.dataMode];
       const result = await this.__query<MeasurementRow>(`SELECT sensor_id, metric, value, canonical_unit,
-          observed_at, source, quality, metadata
+          observed_at, source, quality, metadata${modeColumn}
         FROM (
-          SELECT sensor_id, metric, value, canonical_unit, observed_at, source, quality, metadata
+          SELECT sensor_id, metric, value, canonical_unit, observed_at, source, quality, metadata${modeColumn}
           FROM ${qualifiedName(this.schema, "measurement_samples")}
           WHERE sensor_id = ANY($1::TEXT[]) AND metric = ANY($2::TEXT[])
             AND observed_at >= $3::TIMESTAMPTZ AND observed_at <= $4::TIMESTAMPTZ
+            ${modeFilter}
           ORDER BY observed_at DESC, sensor_id DESC, metric DESC, source DESC
           LIMIT $5
         ) recent
@@ -314,37 +319,43 @@ registerTimeseriesStoreMethods({
         query.from,
         query.to,
         limit,
+        ...modeParameters,
       ], query);
       return result.rows.map(measurementFromRow);
     },
-  async measurementCoverage(this: TimeseriesStoreInternals, query: MeasurementCoverageQuery): Promise<MeasurementCoverageRecord[]> {
+  async measurementCoverage(this: TimeseriesStoreInternals, query: MeasurementCoverageQuery): Promise<ArchiveMeasurementCoverageRecord[]> {
       if (query.sensorIds.length === 0 || query.metrics.length === 0) return [];
       // Energy summaries need the two boundaries, not an aggregate over every
       // retained sample. Separate ordered probes use the existing series/time
       // index and stop at the first qualifying row in each direction.
       const sourceFilter = query.excludeSynthetic ? "AND source NOT IN ('mock', 'replay')" : "";
+      const { dataMode } = query;
+      const modeFilter = dataMode === undefined ? "" : "AND sample.data_mode = $3::TEXT";
+      const modeColumn = dataMode === undefined ? "" : ", $3::TEXT AS data_mode";
+      const modeParameters = dataMode === undefined ? [] : [dataMode];
       const result = await this.__query<MeasurementCoverageRow>(`SELECT sensor_id, metric,
-          first_sample.observed_at AS coverage_start, last_sample.observed_at AS coverage_end
+          first_sample.observed_at AS coverage_start, last_sample.observed_at AS coverage_end${modeColumn}
         FROM unnest($1::TEXT[]) AS sensors(sensor_id)
         CROSS JOIN unnest($2::TEXT[]) AS metrics(metric)
         CROSS JOIN LATERAL (
           SELECT observed_at FROM ${qualifiedName(this.schema, "measurement_samples")} sample
           WHERE sample.sensor_id = sensors.sensor_id AND sample.metric = metrics.metric
-            ${sourceFilter}
+            ${sourceFilter} ${modeFilter}
           ORDER BY observed_at ASC LIMIT 1
         ) first_sample
         CROSS JOIN LATERAL (
           SELECT observed_at FROM ${qualifiedName(this.schema, "measurement_samples")} sample
           WHERE sample.sensor_id = sensors.sensor_id AND sample.metric = metrics.metric
-            ${sourceFilter}
+            ${sourceFilter} ${modeFilter}
           ORDER BY observed_at DESC LIMIT 1
         ) last_sample
-        ORDER BY sensor_id, metric`, [[...new Set(query.sensorIds)], [...new Set(query.metrics)]], query);
+        ORDER BY sensor_id, metric`, [[...new Set(query.sensorIds)], [...new Set(query.metrics)], ...modeParameters], query);
       return result.rows.map((row) => ({
         sensorId: row.sensor_id,
         metric: row.metric,
         start: timestamp(row.coverage_start),
         end: timestamp(row.coverage_end),
+        ...(row.data_mode === undefined ? {} : { dataMode: row.data_mode }),
       }));
     },
   async measurementBuckets(this: TimeseriesStoreInternals, query: MeasurementBucketQuery): Promise<MeasurementBucketRecord[]> {

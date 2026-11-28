@@ -73,6 +73,17 @@ describe("archive coverage boundary probes", () => {
       expect(originalRows).toBeGreaterThanOrEqual(100_000);
       expect(await explain(coverageSql, coverageValues)).toBeLessThanOrEqual(24);
       await expect(store.measurementCoverage({ sensorIds: [], metrics: ["power"] })).resolves.toEqual([]);
+
+      await db.exec(`UPDATE telemetry.measurement_samples SET data_mode = 'demo' WHERE source IN ('mock', 'replay');
+        UPDATE telemetry.measurement_samples SET data_mode = 'live'
+          WHERE sensor_id = 'meter' AND metric = 'power'
+            AND observed_at BETWEEN '2026-01-10T00:00:00Z' AND '2026-01-11T00:00:00Z';`);
+      expect(await store.measurementCoverage({ ...input, dataMode: "live" })).toEqual([{
+        sensorId: "meter", metric: "power", start: "2026-01-10T00:00:00.000Z", end: "2026-01-11T00:00:00.000Z", dataMode: "live",
+      }]);
+      expect(await store.measurementCoverage({ ...input, dataMode: "demo" })).toEqual([
+        { ...all[1], dataMode: "demo" }, { ...all[3], dataMode: "demo" },
+      ]);
     } finally { await db.close(); }
   }, 30_000);
 });

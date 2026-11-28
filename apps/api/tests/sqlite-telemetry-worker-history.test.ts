@@ -27,6 +27,27 @@ function fixture(count: number) {
 }
 
 describe("isolated local history reads", () => {
+  it("uses persisted mode for raw windows and coverage in the SQLite worker", async () => {
+    const context = fixture(24);
+    try {
+      const { database } = context;
+      const verified = {
+        sensorId: query.sensorId, metric: "power", canonicalUnit: "W", value: 35,
+        timestamp: "2026-09-01T00:30:00.000Z", source: "api", quality: "good",
+      } as const;
+      database.insertMeasurementSamples([verified]);
+      const window = { sensorIds: [query.sensorId], metrics: [query.metric], from, to, limit: 1 };
+      expect(await database.measurementWindowAsync({ ...window, dataMode: "live" })).toEqual([verified]);
+      expect(await database.measurementWindowAsync({ ...window, dataMode: "demo" })).toEqual([]);
+      expect(await database.measurementWindowAsync(window)).toMatchObject([{ timestamp: to, value: 25 }]);
+      const syncCoverage = vi.spyOn(database, "measurementCoverage");
+      expect(await database.measurementCoverageAsync({ ...window, dataMode: "live" })).toEqual([{
+        sensorId: query.sensorId, metric: query.metric, start: verified.timestamp, end: verified.timestamp,
+      }]);
+      expect(syncCoverage).not.toHaveBeenCalled();
+    } finally { context.close(); }
+  }, 30000);
+
   it("serves dense hybrid hot tails without running SQLite on the API thread", async () => {
     const context = fixture(43200);
     try {

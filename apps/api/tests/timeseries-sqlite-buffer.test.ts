@@ -42,6 +42,32 @@ describe("SQLite telemetry archive buffer", () => {
 
   afterEach(() => database.close());
 
+  it("exports the measurement's mode and local recording time through both archive paths", () => {
+    const sample = {
+      sensorId, metric: "temperature", value: 22, canonicalUnit: "°C", source: "api",
+      timestamp: "2024-02-02T08:00:00.000Z", quality: "good",
+    } as const;
+    expect(database.measurementArchiveRecording(sample)).toBeNull();
+    const before = Date.now();
+    expect(database.insertMeasurementSamples([sample])).toHaveLength(1);
+    const recording = database.measurementArchiveRecording(sample)!;
+    expect(recording.dataMode).toBe("live");
+    expect(Date.parse(recording.recordedAt!)).toBeGreaterThanOrEqual(before);
+    expect(Date.parse(recording.recordedAt!)).toBeLessThanOrEqual(Date.now());
+    expect(database.insertMeasurementSamples([sample])).toHaveLength(0);
+    expect(database.measurementArchiveRecording(sample)).toEqual(recording);
+    expect(database.measurementArchiveRecording({ ...sample, value: 23 })).toBeNull();
+    expect(database.measurementArchivePage(0, 10_000)
+      .find(({ record }) => record.timestamp === sample.timestamp)?.record).toMatchObject(recording);
+    expect(() => database.db.prepare("UPDATE measurement_samples SET value = 23 WHERE timestamp = ?").run(sample.timestamp))
+      .toThrow("Recorded measurements are immutable");
+    const legacy = { ...sample, timestamp: "2024-02-03T08:00:00.000Z" };
+    database.db.prepare(`INSERT INTO measurement_samples (sensor_id, metric, value, canonical_unit, timestamp, source, quality)
+      VALUES (?, ?, ?, ?, ?, ?, ?)`).run(legacy.sensorId, legacy.metric, legacy.value, legacy.canonicalUnit,
+      legacy.timestamp, legacy.source, legacy.quality);
+    expect(database.measurementArchiveRecording(legacy)).toEqual({ dataMode: null, recordedAt: null });
+  });
+
   it("uses explicit monotonic IDs for rowid-less archive tables across delete and VACUUM", () => {
     addArchiveDoor(database, "archive-opening-house");
     database.upsertOutdoorTemperatureSample({
@@ -227,7 +253,9 @@ describe("SQLite telemetry archive buffer", () => {
     database.upsertLegacyReading(reading);
     database.upsertLegacyReading({ ...reading, temperature: 21 });
     const first = database.readingArchiveDirtyPage(10).at(0)!;
-    expect(first.record.temperature).toBe(21);
+    expect(first.record).toMatchObject({ temperature: 21, dataMode: "live" });
+    expect(database.readingArchivePage(0, 10_000)
+      .find(({ record }) => record.timestamp === reading.timestamp)?.record.dataMode).toBe("live");
 
     database.upsertLegacyReading({ ...reading, temperature: 22 });
     const second = database.readingArchiveDirtyPage(10).at(0)!;
@@ -351,6 +379,9 @@ describe("SQLite telemetry archive buffer", () => {
       .find(({ record }) => record.locationKey === "metadata-dirty-location")!;
     expect(dirty.record.conditions).toStrictEqual(updatedConditions);
     expect(dirty.record.conditions).not.toEqual(initialConditions);
+    expect(dirty.record.dataMode).toBe("live");
+    expect(database.outdoorTemperatureArchivePage(0, 10_000)
+      .find(({ record }) => record.locationKey === base.locationKey)?.record.dataMode).toBe("live");
   });
 
   it("never prunes rows newer than the durable archive watermarks", () => {

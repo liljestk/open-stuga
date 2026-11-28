@@ -1,5 +1,7 @@
+import { ANALYTICS_VIEWS_SCHEMA_SQL } from "./analytics-views-schema.js";
 import { CORE_SCHEMA_01 } from "./core-schema-01.js";
 import { CORE_SCHEMA_02 } from "./core-schema-02.js";
+import { DAILY_FINDINGS_EVIDENCE_SCHEMA_SQL } from "./daily-findings-evidence-schema.js";
 import { DEMO_DATA_GUARD_SCHEMA_SQL } from "./demo-data-guard-schema.js";
 import { HEAT_PUMP_SCHEMA_SQL } from "./heat-pump-schema.js";
 import { CONNECTED_DEVICE_SCHEMA_SQL } from "./connected-device-schema.js";
@@ -30,5 +32,7 @@ export const CORE_SCHEMA_SQL = [
   ANALYTICS_LATENCY_SCHEMA_SQL,
   WEATHER_SNAPSHOT_SCHEMA_SQL,
   DERIVED_ANALYTICS_SCHEMA_SQL,
+  DAILY_FINDINGS_EVIDENCE_SCHEMA_SQL,
   ASSISTANT_CONNECTOR_SCHEMA_SQL,
+  ANALYTICS_VIEWS_SCHEMA_SQL,
 ].join("");

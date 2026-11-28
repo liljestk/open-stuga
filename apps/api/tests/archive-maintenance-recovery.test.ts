@@ -54,4 +54,33 @@ describe("archive maintenance recovery", () => {
     await vi.advanceTimersByTimeAsync(60_000);
     expect(rebuild).toHaveBeenCalledTimes(2);
   });
+
+  it("spaces verified refreshes, waits for archive readiness, and aborts on shutdown", async () => {
+    let ready = false;
+    const refreshVerified = vi.fn<(signal: AbortSignal) => Promise<void>>()
+      .mockResolvedValueOnce(undefined)
+      .mockImplementationOnce(async (signal) => {
+        await new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }));
+      });
+    const ordered = new TelemetryOrderedRollupWorker({
+      rebuildNextMeasurementOrderedRollup: async () => ({ processed: false }),
+    } as unknown as TimeseriesStore, { ready: () => ready, refreshVerified });
+    ordered.start();
+    try {
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(refreshVerified).not.toHaveBeenCalled();
+      ready = true;
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(refreshVerified).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(295_000);
+      expect(refreshVerified).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(refreshVerified).toHaveBeenCalledTimes(2);
+    } finally {
+      await ordered.stop();
+    }
+    expect(refreshVerified.mock.calls[1]?.[0].aborted).toBe(true);
+    await vi.advanceTimersByTimeAsync(300_000);
+    expect(refreshVerified).toHaveBeenCalledTimes(2);
+  });
 });

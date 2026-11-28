@@ -4,6 +4,14 @@ import { ContinuousAggregateRow, ExtensionRow, ProcedureFeatureRow, RelationKind
 import { abortError, describeError } from "../support/query-values.js";
 import { registerTimeseriesStoreMethods, timeseriesStoreState, type TimeseriesStoreInternals } from "../core.js";
 
+async function readArchiveGeneration(store: TimeseriesStoreInternals, control: QueryControl): Promise<string> {
+  const result = await store.__query<{ archive_generation: string }>(`SELECT generation::text AS archive_generation
+    FROM ${qualifiedName(store.schema, "stugu_archive_generation")} WHERE id = 1`, [], control);
+  const generation = result.rows[0]?.archive_generation;
+  if (!generation) throw new Error("The telemetry archive generation is unavailable");
+  return generation;
+}
+
 declare module "../core.js" {
   interface TimeseriesStoreInternals {
     initialize(control?: QueryControl): Promise<TelemetrySchemaInitResult>;
@@ -60,6 +68,7 @@ registerTimeseriesStoreMethods({
     },
   async __initialize(this: TimeseriesStoreInternals, control: QueryControl): Promise<TelemetrySchemaInitResult> {
       for (const sql of buildBaseSchemaSql(this.schema)) await this.__query(sql, [], control);
+      const archiveGeneration = await readArchiveGeneration(this, control);
 
       const warnings: string[] = [];
       try {
@@ -133,6 +142,7 @@ registerTimeseriesStoreMethods({
 
       return {
         schema: this.schema,
+        archiveGeneration,
         timescaleAvailable: timescaleVersion !== null,
         timescaleVersion,
         hypertables,

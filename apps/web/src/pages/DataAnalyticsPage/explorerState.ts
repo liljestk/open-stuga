@@ -1,5 +1,6 @@
-import { ANALYTICS_AGGREGATIONS, isOneOf } from "@climate-twin/contracts";
+import { ANALYTICS_AGGREGATIONS, isAnalyticsResolution, isAnalyticsViewRange, isOneOf } from "@climate-twin/contracts";
 import type {
+  DataMode,
   AnalyticsAggregation,
   AnalyticsResolution,
   AnalyticsSampleQuality,
@@ -10,12 +11,12 @@ import { ANALYTICS_TIME_RANGES, type TimeRange } from "../../domain";
 import { compareCodeUnits } from "../../textOrder";
 
 export type QualityPreset = "good" | "reliable" | "all";
-export type AnalyticsTool = "performance" | "openings" | "sensors";
+export type AnalyticsTool = "performance" | "openings" | "sensors" | "adaptive";
 
 export const ANALYTICS_RESOLUTIONS = ["auto", "raw", "1m", "5m", "15m", "30m", "1h", "1d"] as const satisfies readonly AnalyticsResolution[];
 const QUALITY_PRESETS = ["good", "reliable", "all"] as const satisfies readonly QualityPreset[];
-const ANALYTICS_TOOLS = ["performance", "openings", "sensors"] as const satisfies readonly AnalyticsTool[];
-const ANALYTICS_CHART_PARAMS = ["range", "resolution", "aggregation", "quality", "metric", "sensors", "weather"];
+const ANALYTICS_TOOLS = ["performance", "openings", "sensors", "adaptive"] as const satisfies readonly AnalyticsTool[];
+const ANALYTICS_CHART_PARAMS = ["range", "resolution", "aggregation", "quality", "metric", "sensors", "weather", "from", "to"];
 const DEFAULT_ANALYTICS_STATE = {
   range: "24h",
   resolution: "auto",
@@ -27,7 +28,10 @@ const DEFAULT_ANALYTICS_STATE = {
   weatherForecastVisible: true,
 } as const satisfies AnalyticsLocationState;
 
+export interface ScopedAnalyticsWindow { start: string; end: string; houseId: string; dataMode: DataMode }
+
 export interface AnalyticsLocationState {
+  absoluteRange?: ScopedAnalyticsWindow | undefined;
   range: TimeRange;
   resolution: AnalyticsResolution;
   aggregation: AnalyticsAggregation;
@@ -75,7 +79,7 @@ export function defaultAnalyticsMetric(metricIds: readonly Metric[]): Metric {
   return metricIds.includes("temperature") ? "temperature" : metricIds[0] ?? "temperature";
 }
 
-export function analyticsStateFromLocation(metricIds: readonly Metric[], sensorIds: readonly string[]): AnalyticsLocationState {
+export function analyticsStateFromLocation(metricIds: readonly Metric[], sensorIds: readonly string[], scope?: { houseId: string; dataMode: string }): AnalyticsLocationState {
   const defaultMetric = defaultAnalyticsMetric(metricIds);
   if (typeof window === "undefined") return { ...DEFAULT_ANALYTICS_STATE, metric: defaultMetric };
   const params = new URLSearchParams(window.location.search);
@@ -89,10 +93,12 @@ export function analyticsStateFromLocation(metricIds: readonly Metric[], sensorI
   const validRequestedSensors = requestedSensors && requestedSensors !== "none"
     ? [...new Set(requestedSensors.split(",").filter((sensorId) => sensorIds.includes(sensorId)))].sort(compareCodeUnits)
     : [];
-  const resolution = ANALYTICS_RESOLUTIONS.some((option) => option === requestedResolution)
-    ? requestedResolution as AnalyticsResolution
+  const resolution = isAnalyticsResolution(requestedResolution)
+    ? requestedResolution
     : DEFAULT_ANALYTICS_STATE.resolution;
+  const absoluteRangeState = absoluteRangeFromParams(params, scope);
   return {
+    ...absoluteRangeState,
     range: isOneOf(requestedRange, ANALYTICS_TIME_RANGES) ? requestedRange : DEFAULT_ANALYTICS_STATE.range,
     resolution,
     aggregation: resolution !== "raw" && isOneOf(requestedAggregation, ANALYTICS_AGGREGATIONS)
@@ -115,6 +121,13 @@ export function writeAnalyticsStateToLocation(state: AnalyticsLocationState, mod
     if (value === defaultValue) url.searchParams.delete(key);
     else url.searchParams.set(key, value);
   };
+  for (const parameter of ["from", "to", "rangeHome", "rangeMode"]) url.searchParams.delete(parameter);
+  if (state.absoluteRange) {
+    url.searchParams.set("from", state.absoluteRange.start);
+    url.searchParams.set("to", state.absoluteRange.end);
+    url.searchParams.set("rangeHome", state.absoluteRange.houseId);
+    url.searchParams.set("rangeMode", state.absoluteRange.dataMode);
+  }
   write("range", state.range, DEFAULT_ANALYTICS_STATE.range);
   write("resolution", state.resolution, DEFAULT_ANALYTICS_STATE.resolution);
   write("aggregation", state.resolution === "raw" ? "default" : state.aggregation, DEFAULT_ANALYTICS_STATE.aggregation);
@@ -172,4 +185,12 @@ export function durationLabel(milliseconds: number, locale: string): string {
   if (minutes < 60) return new Intl.NumberFormat(locale, { style: "unit", unit: "minute", unitDisplay: "short" }).format(minutes);
   const hours = minutes / 60;
   return new Intl.NumberFormat(locale, { maximumFractionDigits: hours < 10 ? 1 : 0, style: "unit", unit: "hour", unitDisplay: "short" }).format(hours);
+}
+
+function absoluteRangeFromParams(params: URLSearchParams, scope?: { houseId: string; dataMode: string }): Pick<AnalyticsLocationState, "absoluteRange"> {
+  if (!scope || scope.houseId !== params.get("rangeHome") || scope.dataMode !== params.get("rangeMode")) return {};
+  if (scope.dataMode !== "live" && scope.dataMode !== "demo") return {};
+  const range = { kind: "absolute", start: params.get("from"), end: params.get("to") };
+  if (!isAnalyticsViewRange(range) || range.kind !== "absolute") return {};
+  return { absoluteRange: { start: range.start, end: range.end, houseId: scope.houseId, dataMode: scope.dataMode } };
 }

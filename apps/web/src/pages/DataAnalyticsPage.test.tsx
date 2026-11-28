@@ -138,6 +138,7 @@ describe("DataAnalyticsPage", () => {
     // Explorer data lives in the shared query cache; each test starts without it.
     queryClient.clear();
     vi.restoreAllMocks();
+    vi.spyOn(api, "savedAnalyticsViews").mockResolvedValue({ views: [] });
     refreshWeather.mockReset();
     window.history.replaceState(null, "", "/");
   });

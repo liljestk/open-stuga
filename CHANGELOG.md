@@ -2,6 +2,18 @@
 
 All notable Stugu releases are recorded here.
 
+## 0.63.0
+
+- Analytics API clients can request a distribution of the selected raw readings or displayed bucket values, with explicit weighting, missing-value counts, quartiles and bounded histogram bins. Existing requests and summaries keep their current behavior.
+- Adds an offline, synthetic baseline evaluator for planned adaptive Home monitoring. It checks evidence eligibility, chronological readiness, causal calibration, sustained departures and recovery. The fixtures cover temperature, humidity and CO₂ and report why the baselines abstain. It cannot enable learned suggestions or qualify a Home for advisory use.
+- In Home sensor analytics, save private views and select an exact historical interval using the chart or date fields. Selected intervals can be reopened from their links. Summary and source data shows distributions with quartiles and a bin table.
+- Daily findings recalculate when late measurements, weather corrections or opening observations affect the Home's current or comparison periods.
+- Restoring a Stugu logical archive backup also refreshes daily findings, even if the SQLite evidence has no new writes.
+- Scheduled demo CSVs use separate NAS and cloud folders. An export whose data mode changes before handoff requires a fresh run.
+- Upgrade impact. SQLite creates the saved-view and daily findings evidence tables on startup. The worker refreshes existing daily findings on its next run. The API adds four authenticated saved-view operations. Adaptive monitoring is currently available as offline evaluation tooling.
+- SQLite also records data mode for newly ingested local measurements, legacy readings, and outdoor samples. Older records retain unknown provenance.
+- Update the API and backup scheduler together. NAS requests queued by an earlier version require a fresh run.
+
 ## 0.62.2
 
 Stepping away from the Stugu tab no longer throws away what you were typing.

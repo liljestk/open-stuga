@@ -1,4 +1,4 @@
-import type { AnalyticsResolution, HeatPumpState } from "@climate-twin/contracts";
+import type { AnalyticsResolution, DataMode, HeatPumpState } from "@climate-twin/contracts";
 import type { Pool, PoolConfig } from "pg";
 
 export type TelemetryQuality = "good" | "estimated" | "stale" | (string & {});
@@ -22,6 +22,9 @@ export interface HeatPumpStateHistoryQuery extends QueryControl {
 }
 
 export interface MeasurementSampleRecord {
+  dataMode?: DataMode | null;
+  /** Wall clock at the originating SQLite write. A null value has unknown timing. */
+  recordedAt?: string | null;
   sensorId: string;
   metric: string;
   value: number;
@@ -39,7 +42,10 @@ export interface MeasurementCoverageRecord {
   end: string;
 }
 
+export type ArchiveMeasurementCoverageRecord = MeasurementCoverageRecord & { dataMode?: DataMode };
+
 export interface LegacyReadingRecord {
+  dataMode?: DataMode | null;
   sensorId: string;
   timestamp: string;
   temperature: number;
@@ -51,6 +57,7 @@ export interface LegacyReadingRecord {
 }
 
 export interface OutdoorTemperatureRecord {
+  dataMode?: DataMode | null;
   houseId: string;
   locationKey: string;
   timestamp: string;
@@ -209,6 +216,8 @@ export interface MeasurementAnalyticsRollupQuery extends QueryControl {
   qualities: readonly TelemetryQuality[];
   /** Real-data mode excludes archived demo/replay rows before all calculations. */
   excludeSynthetic?: boolean;
+  /** Restricts analytics to observations with this verified mode. */
+  dataMode?: DataMode;
   /**
    * Read alongside the display buckets. Ordered series whose stored variant
    * matches are re-bucketed from the same states in one statement.
@@ -247,6 +256,8 @@ export interface MeasurementAnalyticsSummaryResult {
 
 export interface MeasurementAnalyticsRollupResult {
   series: MeasurementAnalyticsSeriesRecord[];
+  /** Echoed only after a verified-mode calculation. */
+  dataMode?: DataMode;
   /**
    * Present when the query asked for summary buckets. Summaries are supporting
    * statistics, so null means that read is still materializing or failed.
@@ -329,6 +340,8 @@ export interface MeasurementWindowQuery extends QueryControl {
   from: string;
   to: string;
   limit?: number;
+  /** Selects only verified rows of this mode. Omit for compatibility reads. */
+  dataMode?: DataMode;
 }
 
 export interface MeasurementCoverageQuery extends QueryControl {
@@ -336,6 +349,8 @@ export interface MeasurementCoverageQuery extends QueryControl {
   metrics: readonly string[];
   /** Real-data mode must not let archived mock/replay rows widen the visible range. */
   excludeSynthetic?: boolean;
+  /** Bounds of verified observations in this mode. Omit for compatibility reads. */
+  dataMode?: DataMode;
 }
 
 export interface MeasurementBucketQuery extends MeasurementHistoryQuery {
@@ -377,10 +392,10 @@ export interface OpeningStateSnapshotQuery extends QueryControl {
   limit?: number;
 }
 
-export interface AggregateRefreshQuery extends QueryControl {
-  from?: string;
-  to?: string;
-}
+export type AggregateRefreshQuery = QueryControl & (
+  | { scope?: "compatibility"; from?: string; to?: string }
+  | { scope: "verified"; from: string; to: string }
+);
 
 export interface TelemetryStoreOptions {
   connectionString?: string;
@@ -420,6 +435,7 @@ export type ColdStorageMode = "columnstore" | "compression" | "none";
 
 export interface TelemetrySchemaInitResult {
   schema: string;
+  archiveGeneration: string;
   timescaleAvailable: boolean;
   timescaleVersion: string | null;
   hypertables: string[];

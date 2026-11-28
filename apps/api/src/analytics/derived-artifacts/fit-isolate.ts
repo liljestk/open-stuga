@@ -12,8 +12,9 @@ import {
   type ThermalIsolationInput,
 } from "../thermal/isolation.js";
 import type { DerivedFitWorkerRequest } from "./fit-worker.js";
+import { qualifyAdaptiveClimateModel, type ClimateQualificationResult, type QualificationInput } from "../adaptive-monitoring/climate-qualification.js";
 
-type DerivedFitResult = ThermalIsolationResult | MoistureResponseResult;
+type DerivedFitResult = ThermalIsolationResult | MoistureResponseResult | ClimateQualificationResult;
 type WorkerReply =
   | { ok: true; result: DerivedFitResult }
   | { ok: false; error: { name: string; message: string; code?: string } };
@@ -48,6 +49,7 @@ async function sourceRuntimeFallback(
       yieldEvery: 1,
     });
   }
+  if (request.kind === "adaptive-climate") return qualifyAdaptiveClimateModel({ ...request.input, ...withSignal(signal) });
   return runMoistureResponseAsync(request.input, withSignal(signal));
 }
 
@@ -121,4 +123,11 @@ export function runMoistureResponseIsolated(
   signal?: AbortSignal,
 ): Promise<MoistureResponseResult> {
   return runWorker({ kind: "moisture-response", input }, signal) as Promise<MoistureResponseResult>;
+}
+
+export function runAdaptiveClimateIsolated(
+  input: Omit<QualificationInput, "signal">,
+  signal: AbortSignal,
+): Promise<ClimateQualificationResult> {
+  return runWorker({ kind: "adaptive-climate", input }, signal) as Promise<ClimateQualificationResult>;
 }

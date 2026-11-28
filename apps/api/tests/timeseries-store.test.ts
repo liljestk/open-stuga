@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { PGlite } from "@electric-sql/pglite";
 import {
   buildBaseSchemaSql,
   buildContinuousAggregateSql,
@@ -8,6 +9,33 @@ import {
 import { FakePool, FROM, TO, queryResult, storeFor } from "./timeseries-store-test-support.js";
 
 describe("time-series schema", () => {
+  it("keeps the archive generation across startup and creates a fresh one when the marker row is omitted", async () => {
+    const database = new PGlite();
+    try {
+      const [schema, ...statements] = buildBaseSchemaSql("telemetry");
+      const generationSql = statements.filter((sql) => sql.includes('"stugu_archive_generation"'));
+      const initializeGeneration = async () => {
+        for (const statement of generationSql) await database.exec(statement);
+        const result = await database.query<{ generation: string }>(
+          "SELECT generation::text FROM telemetry.stugu_archive_generation WHERE id = 1",
+        );
+        return result.rows[0]?.generation;
+      };
+
+      await database.exec(schema!);
+      const original = await initializeGeneration();
+      expect(original).toMatch(/^[0-9a-f-]{36}$/u);
+      expect(await initializeGeneration()).toBe(original);
+      // Stugu's logical backup includes the table definition without its row.
+      await database.exec("DELETE FROM telemetry.stugu_archive_generation");
+      const restored = await initializeGeneration();
+      expect(restored).toMatch(/^[0-9a-f-]{36}$/u);
+      expect(restored).not.toBe(original);
+    } finally {
+      await database.close();
+    }
+  });
+
   it("creates append-only raw tables with time-inclusive idempotency keys and no data expiry", () => {
     const sql = buildBaseSchemaSql("telemetry").join("\n");
     expect(sql).toContain("PRIMARY KEY (sensor_id, metric, observed_at, source)");
@@ -54,6 +82,82 @@ describe("time-series schema", () => {
 });
 
 describe("TimeseriesStore", () => {
+  it("preserves verified payload and mode on archive retries and enriches rows from old writers", async () => {
+    const database = new PGlite();
+    try {
+      const schemaSql = buildBaseSchemaSql("telemetry");
+      for (const sql of schemaSql.filter((sql) => !sql.includes("data_mode") && !sql.includes("Persist verified mode"))) {
+        await database.exec(sql);
+      }
+      await database.exec(`INSERT INTO telemetry.measurement_samples
+        (sensor_id, metric, observed_at, source, value, canonical_unit, quality)
+        VALUES ('sensor-1', 'temperature', '${FROM}', 'api', 21, '°C', 'good')`);
+      for (const sql of schemaSql) await database.exec(sql);
+      const pool = new FakePool(async ({ text, values }) => {
+        const result = await database.query<Record<string, unknown>>(text, values);
+        return queryResult(result.rows, result.affectedRows);
+      });
+      const store = storeFor(pool);
+      const key = { sensorId: "sensor-1", timestamp: FROM, source: "api", quality: "good" };
+      const measurement = { ...key, metric: "temperature", value: 21, canonicalUnit: "°C" };
+      const reading = { ...key, temperature: 21, humidity: 42, battery: null };
+      const outdoor = {
+        houseId: "house-1", locationKey: "location-1", timestamp: FROM, source: "mock",
+        temperatureC: 5, fetchedAt: TO, stationId: null, stationName: null,
+      };
+      const modes = async () => (await database.query(`
+        SELECT data_mode FROM telemetry.measurement_samples
+        UNION ALL SELECT data_mode FROM telemetry.legacy_readings
+        UNION ALL SELECT data_mode FROM telemetry.outdoor_temperature_samples
+      `)).rows;
+
+      expect(await modes()).toEqual([{ data_mode: null }]);
+      expect(await store.upsertMeasurementSamples([{ ...measurement, dataMode: "live", recordedAt: TO }]))
+        .toMatchObject({ affected: 1 });
+      expect(await store.upsertMeasurementSamples([measurement])).toMatchObject({ affected: 0 });
+      expect(await store.upsertMeasurementSamples([{ ...measurement, value: 29 }]))
+        .toMatchObject({ affected: 0 });
+      await expect(store.upsertMeasurementSamples([{ ...measurement, value: 29, dataMode: "demo" }]))
+        .rejects.toThrow("Invalid archive data mode for telemetry source");
+      await store.upsertMeasurementSamples([
+        { ...measurement, timestamp: TO, source: "mock", value: 15, dataMode: "demo" },
+        { ...measurement, timestamp: TO, value: 30 },
+      ]);
+      const window = { sensorIds: [key.sensorId], metrics: [measurement.metric], from: FROM, to: TO, limit: 1 };
+      expect(await store.measurementWindow({ ...window, dataMode: "live" }))
+        .toMatchObject([{ timestamp: FROM, value: 21, dataMode: "live", recordedAt: TO }]);
+      expect(await store.measurementWindow({ ...window, dataMode: "demo" }))
+        .toMatchObject([{ timestamp: TO, value: 15, dataMode: "demo" }]);
+      await store.upsertLegacyReadings([{ ...reading, dataMode: "live" }]);
+      expect(await store.upsertLegacyReadings([{ ...reading, temperature: 29 }])).toMatchObject({ affected: 0 });
+      await store.upsertLegacyReadings([{ ...reading, temperature: 22, dataMode: "live" }]);
+      await store.upsertOutdoorTemperatureSamples([{ ...outdoor, dataMode: "demo" }]);
+      expect(await store.upsertOutdoorTemperatureSamples([{ ...outdoor, temperatureC: 29 }])).toMatchObject({ affected: 0 });
+      await store.upsertOutdoorTemperatureSamples([{ ...outdoor, temperatureC: 6, dataMode: "demo" }]);
+      expect((await modes()).map(({ data_mode }) => data_mode).sort())
+        .toEqual(["demo", "demo", "live", "live", null]);
+      expect((await database.query("SELECT temperature_c FROM telemetry.legacy_readings")).rows)
+        .toEqual([{ temperature_c: 22 }]);
+      expect((await database.query("SELECT temperature_c FROM telemetry.outdoor_temperature_samples")).rows)
+        .toEqual([{ temperature_c: 6 }]);
+      await expect(database.exec("UPDATE telemetry.legacy_readings SET data_mode = NULL"))
+        .rejects.toThrow("Verified archive telemetry mode and source are immutable");
+      await expect(database.exec("UPDATE telemetry.outdoor_temperature_samples SET source = 'api'"))
+        .rejects.toThrow("Verified archive telemetry mode and source are immutable");
+      const correctionRecordedAt = "2024-01-02T00:15:00.000Z";
+      expect(await store.upsertMeasurementSamples([{
+        ...measurement, value: 23, dataMode: "live", recordedAt: correctionRecordedAt,
+      }])).toMatchObject({ affected: 1 });
+      expect(await store.measurementWindow({ ...window, dataMode: "live" }))
+        .toMatchObject([{ timestamp: FROM, value: 23, recordedAt: correctionRecordedAt }]);
+      await database.query(`UPDATE telemetry.measurement_samples SET value = 22 WHERE observed_at = $1::TIMESTAMPTZ`, [FROM]);
+      expect(await store.measurementWindow({ ...window, dataMode: "live" }))
+        .toMatchObject([{ timestamp: FROM, value: 22, recordedAt: null }]);
+    } finally {
+      await database.close();
+    }
+  });
+
   it("initializes a complete plain-PostgreSQL fallback when Timescale is unavailable", async () => {
     const pool = new FakePool();
     const store = storeFor(pool);
@@ -300,19 +404,19 @@ describe("TimeseriesStore", () => {
 
     expect(result).toEqual({ attempted: 2, affected: 2 });
     const insert = pool.queries.find(({ text }) => text.includes("INSERT INTO"))!;
-    expect(insert.text).toContain("VALUES ($1, $2, $3, $4, $5, $6, $7, $8), ($9, $10, $11, $12, $13, $14, $15, $16)");
+    expect(insert.text).toContain("VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10), ($11, $12, $13, $14, $15, $16, $17, $18, $19, $20)");
     expect(insert.text).toContain('ON CONFLICT ("sensor_id", "metric", "observed_at", "source") DO UPDATE');
     expect(insert.text).toContain("IS DISTINCT FROM");
     expect(insert.text).toContain("measurement_ordered_rollup_generations");
     expect(insert.text).toContain("GREATEST(dirty.current_seq, generation.current_seq)");
-    expect(insert.text).toContain("day.metric = ANY($17::TEXT[])");
+    expect(insert.text).toContain("day.metric = ANY($21::TEXT[])");
     expect(insert.text).toContain("dirty.day_start = day.day_start");
     expect(insert.text).not.toContain("sensor-1");
-    expect(insert.values).toHaveLength(17);
+    expect(insert.values).toHaveLength(21);
     expect(insert.values.slice(0, 7)).toEqual([
       "sensor-1", "temperature", "2026-07-18T08:00:00.000Z", "home-assistant", 20.5, "°C", "good",
     ]);
-    expect(insert.values[16]).toEqual([]);
+    expect(insert.values[20]).toEqual([]);
   });
 
   it("maps timestamps consistently and bounds latest/history queries with parameters", async () => {

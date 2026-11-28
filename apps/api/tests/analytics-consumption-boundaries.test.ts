@@ -5,12 +5,58 @@ import { analyticsConsumptionBuckets } from "../src/analytics/query/consumption.
 import { buildBaseSchemaSql } from "../src/timeseries/schema.js";
 import { orderedAnalyticsSql } from "../src/timeseries/store/measurement-analytics-rollup-sql.js";
 import type { MeasurementSample } from "@climate-twin/contracts";
+import { FakePool, queryResult, storeFor } from "./timeseries-store-test-support.js";
 
 const day = "2026-09-01T00:00:00.000Z";
 const base = Date.parse(day);
 const at = (minute: number) => new Date(base + minute * 60_000).toISOString();
 
 describe("consumption range anchors", () => {
+  it.each(["energy", "power"] as const)("limits ordered %s samples and consumption anchors to verified mode", async (metric) => {
+    const db = new PGlite();
+    try {
+      // Deliberately omit the compatibility aggregates and ordered cache.
+      await db.exec(`CREATE SCHEMA telemetry;
+        CREATE TABLE telemetry.measurement_samples (
+          sensor_id text, metric text, observed_at timestamptz, source text, quality text, canonical_unit text,
+          value double precision, data_mode text, ingested_at timestamptz NOT NULL DEFAULT clock_timestamp()
+        );`);
+      const values = metric === "energy" ? [100, 102, 0.5, 1.5] : [1000, 2000, 0, 0];
+      const rows: MeasurementSample[] = [0, 10, 20, 35].map((minute, index) => ({
+        sensorId: "meter", metric, value: values[index]!, canonicalUnit: metric === "energy" ? "kWh" : "W",
+        timestamp: at(minute), source: "api", quality: "good",
+      }));
+      for (const row of rows) await db.query(`INSERT INTO telemetry.measurement_samples
+        (sensor_id,metric,observed_at,source,quality,canonical_unit,value,data_mode)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,'live')`, [row.sensorId, row.metric, row.timestamp, row.source, row.quality, row.canonicalUnit, row.value]);
+      const unit = rows[0]!.canonicalUnit;
+      await db.query(`INSERT INTO telemetry.measurement_samples
+        (sensor_id,metric,observed_at,source,quality,canonical_unit,value,data_mode) VALUES
+        ('meter',$1,$3,'tp-link','good',$2,600,NULL),
+        ('meter',$1,$4,'tp-link','good',$2,600,NULL),
+        ('meter',$1,$5,'tp-link','good',$2,600,NULL),
+        ('meter',$1,$6,'mock','stale',$2,600,'demo'),
+        ('meter',$1,$7,'api','stale',$2,600,'live')`, [metric, unit, at(4), at(10), at(35), at(22), at(23)]);
+      const pool = new FakePool(async ({ text, values: args }) => queryResult(
+        (await db.query<Record<string, unknown>>(text, args)).rows,
+      ));
+      const store = storeFor(pool);
+      const aggregation = metric === "energy" ? "delta" : "time_weighted_mean";
+      const series = [{ sensorId: "meter", metric, aggregation }] as const;
+      const query = { series, from: at(5), to: at(35), resolution: "15m",
+        qualities: ["good", "estimated"], dataMode: "live" } as const;
+      const read = await store.measurementAnalyticsRollup({ ...query, summary: { resolution: "1h", series } });
+      const expected = [...analyticsConsumptionBuckets(rows, metric, 900_000, base + 35 * 60_000, base + 5 * 60_000)];
+      expect(read.dataMode).toBe("live");
+      expect(read.series[0]).toMatchObject({ sampleCount: 2, excludedSampleCount: 1 });
+      expect(read.series[0]!.buckets.map((bucket) => [Date.parse(bucket.bucketStart), bucket.consumptionKwh])).toEqual(expected);
+      expect(read.summary?.series[0]?.sampleCount).toBe(2);
+      const demo = await store.measurementAnalyticsRollup({ ...query, dataMode: "demo" });
+      expect(demo.series[0]).toMatchObject({ sampleCount: 0, excludedSampleCount: 1, buckets: [] });
+      expect(pool.queries.every(({ text }) => !/measurement_ordered_rollup|measurement_analytics_v2/u.test(text))).toBe(true);
+    } finally { await db.close(); }
+  }, 30_000);
+
   it("uses indexed scoped seeks, excludes stale/synthetic anchors and retains simultaneous conflicts", () => {
     const database = new ClimateDatabase(":memory:");
     try {

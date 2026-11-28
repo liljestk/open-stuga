@@ -60,6 +60,11 @@ Environment variables remain valid deployment overrides. An environment webhook 
 
 Ingestion commits to SQLite first. A reconciliation worker pages six telemetry families from that crash-safe outbox and UPSERTs them into TimescaleDB: measurements/readings, complete observed weather, electricity-price intervals with their contract-margin snapshot, door/window/vent state events, and every timestamped direct heat-pump observation. Each table has both a remote Timescale cursor and a local cursor stored inside SQLite. Reconciliation starts from the lower of the two; after a remote batch succeeds, it advances the remote cursor and only then the local cursor. A crash between those steps causes an idempotent replay rather than a gap, and a restored or rewound SQLite backup safely replays from its older local cursor even if TimescaleDB remembers a later position. A live wake-up path reduces normal archive latency, but checkpointed reconciliation remains the source of truth. SQLite history is compacted only after a stable pass and durable per-family acknowledgement.
 
+Stugu logical backups omit the archive generation row. When the API starts
+after a logical restore, the archive creates a new generation and the API clears
+cached daily findings calculated against the previous archive. The scheduled
+worker recalculates them when enabled.
+
 Raw-history APIs, MCP, forecasting, energy/thermal analytics, recovery workers, daily findings, and experimental spatial inference share `HybridTelemetryReader` rather than copying historical data between subsystems. It merges the SQLite outbox/current tail with matching Timescale rows by natural key, deterministically orders and bounds results, and filters synthetic `mock`/`replay` rows in real-data mode. Exact local duplicates win; opening snapshots choose the newest state across both stores. If a requested range predates the bounded local cache and TimeDB cannot answer, the read fails closed instead of silently returning a shortened series.
 
 The archive query starts before the synchronous SQLite read, so the two overlap. When a reconcile pass finished within the last 15 minutes, everything older than the 24-hour hot tail is known to be archived, so raw and bucketed measurement reads ask SQLite only for that tail. If the archive read then fails, SQLite is read again over the whole window before answering with `archiveState: "failed"`.
@@ -257,9 +262,11 @@ renders a bounded CSV in canonical units into the private operations directory
 and publishes a checksummed request only after the file is durable. The
 isolated backup scheduler validates the NAS sentinel, request schema, filename,
 byte count, and SHA-256 digest before copying to
-`data-exports/<schedule-id>/`; it then prunes only that schedule's older files
-and returns a receipt to the API. The API container never receives writable
-access to the NAS mount.
+`data-exports/<schedule-id>/` for live runs or
+`demo-data-exports/<schedule-id>/` for demo runs. It prunes only older files
+within the selected folder and returns a receipt to the API. Queued requests
+from earlier releases that lack a data mode require a fresh run. The API
+container never receives writable access to the NAS mount.
 
 Each Owner or Admin can instead send the schedules they set up to their own
 Dropbox or Google Drive, chosen under **Data & analytics → Scheduled exports**.
@@ -301,7 +308,9 @@ Use short connection and statement timeouts so an archive fault does not exhaust
 
 ## Migration
 
-The migration tool reads SQLite in read-only mode, checks its integrity and schema, creates a committed-WAL-aware snapshot for a real run, and migrates in transactional batches. Before the first batch it requires/enables TimescaleDB, converts all six destination tables to validated hypertables with the canonical time columns and chunk intervals, and uses a dedicated maintenance timeout rather than the API's 15-second statement timeout. Optional outdoor `conditions_json` and typed heat-pump state JSON are syntax-validated and preserved; older SQLite schemas without conditions, price margins, opening observations, or heat-pump observations remain supported. It writes a checkpoint after each committed batch. Inserts use natural keys with `ON CONFLICT DO NOTHING`: an older snapshot can never overwrite an existing destination row, and exact post-import verification includes the resulting metadata and fails if a colliding destination payload differs. It never deletes source or destination rows.
+The migration tool reads SQLite in read-only mode, checks its integrity and schema, creates a committed-WAL-aware snapshot for a real run, and migrates in transactional batches. Before the first batch it requires/enables TimescaleDB, converts all six destination tables to validated hypertables with the canonical time columns and chunk intervals, and uses a dedicated maintenance timeout. Optional outdoor `conditions_json` and typed heat-pump state JSON are syntax-validated and preserved. Older SQLite schemas remain supported.
+
+The importer carries explicit demo/live tags on sensor readings, measurements and outdoor temperatures, along with originating measurement recording timestamps. Rows with no data-mode tag remain unclassified. On a natural-key collision, the importer can fill missing lineage if the telemetry payload matches and every existing lineage value agrees. It preserves existing payload and lineage and fails verification on a conflict. It writes a checkpoint after each committed batch and preserves all source and destination rows. Resuming an older checkpoint replays affected tables from the retained snapshot to check and fill lineage. Use the same migration version or a later version on subsequent retries.
 
 Run migration as single-writer maintenance: stop the API, archive worker, and every other process that can write the target schema for the full import and verification window. The tool acquires the destination/schema PostgreSQL advisory lock before its checkpoint-file lock, for both migration and verify-only runs. A lock records a random owner token and the durable database fingerprint. If a one-off container is killed, a replacement may remove its foreign-host lock only after acquiring the same database advisory lock and matching that fingerprint; delayed cleanup from the old owner cannot remove the replacement lock. This prevents concurrent CLI writers while allowing automatic recovery across changing container hostnames. The advisory lock cannot prevent ordinary application writes. After raw-table verification succeeds, the tool creates or validates the fixed measurement continuous aggregates and refreshes the imported historical range at 5-minute, 1-hour, and 1-day resolutions under the same maintenance timeout.
 
@@ -330,6 +339,37 @@ By default the tool places a consistent `*.timescale-migration.snapshot.sqlite` 
 `--verify-only` compares the existing destination with the consistent snapshot; it does not update PostgreSQL. If the live SQLite database has changed since migration, verify against the migration snapshot rather than assuming live row counts must be identical. Preflight normalizes timestamp keys to PostgreSQL `timestamptz` semantics, so two textual offsets that identify the same instant are rejected as a collision before import.
 
 Treat one target schema as one logical deployment. Import multiple historical SQLite databases into the same schema only after confirming that their natural keys and identities belong together: a collision retains the existing destination row, and verification rejects the import if the payloads differ. Preserve unrelated development databases as verified backups or migrate them to deliberately separate schemas.
+
+### Verified-mode lookup indexes
+
+After both stores have the telemetry mode columns, the existing migration service can prepare partial lookup indexes for measurements, legacy readings and outdoor temperatures. It indexes rows with a recorded mode by series, mode and time. Existing row identifiers, data-mode tags and primary keys are preserved.
+
+Run preparation during the same stopped-writer maintenance window as bulk migration. Index builds can scan retained history and allocate space in both stores. Each store commits independently, so rerun the same command after an interruption. Verification checks both index catalogs and opens SQLite read-only.
+
+```powershell
+docker compose --profile maintenance run --rm telemetry-migrate `
+  node /app/scripts/migrate-telemetry-to-timescale.mjs --prepare-mode-indexes
+docker compose --profile maintenance run --rm telemetry-migrate `
+  node /app/scripts/migrate-telemetry-to-timescale.mjs --prepare-mode-indexes --verify-only
+```
+
+### Stage SQLite measurement identities
+
+The compiled migration tool can stage a fresh SQLite snapshot with separate
+measurement keys for each verified mode and for unclassified history. It
+preserves row IDs, archive watermarks, alert queue references, triggers and
+indexes. A matching live measurement can coexist with an unclassified row
+and appear in verified reads. The source is opened read-only.
+
+Run from a built API checkout or the maintenance image. Choose a new
+snapshot path in a protected backup directory. The staged file targets the
+coordinated cutover once archive storage and compatibility reads support the
+same identities.
+
+```powershell
+node scripts/migrate-telemetry-to-timescale.mjs --source ./data/climate-twin.sqlite `
+  --stage-measurement-mode-identities --snapshot ./backup/measurement-mode-staging.sqlite
+```
 
 ## Backup and restore
 

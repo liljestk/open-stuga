@@ -12,8 +12,10 @@ function fixtures(overrides: Partial<Record<string, unknown>> = {}) {
     telemetryArchiveCheckpoint: () => 0,
     saveTelemetryArchiveCheckpoint: () => undefined,
     telemetryArchiveStateToken: () => "stable",
+    adoptDailyFindingsArchiveGeneration: vi.fn(),
     isRealDataMode: () => false,
     realDataModeActivatedAt: () => null,
+    measurementArchiveRecording: () => null,
     measurementArchivePage: (cursor: number) => cursor === 0 ? [{
       rowId: 1,
       record: {
@@ -37,7 +39,7 @@ function store(overrides: Partial<Record<string, unknown>> = {}) {
   const checkpoints = new Map<string, number>();
   const implementation = {
     initialize: vi.fn(async () => ({
-      schema: "telemetry", timescaleAvailable: true, timescaleVersion: "2.test", hypertables: [],
+      schema: "telemetry", archiveGeneration: "archive-test", timescaleAvailable: true, timescaleVersion: "2.test", hypertables: [],
       aggregateMode: "continuous", coldStorageMode: "columnstore", warnings: [],
     })),
     archiveCheckpoint: vi.fn(async (sourceId: string, table: TelemetryTableName) => checkpoints.get(`${sourceId}:${table}`) ?? 0),
@@ -64,7 +66,8 @@ function store(overrides: Partial<Record<string, unknown>> = {}) {
 describe("TelemetryArchiveWorker", () => {
   it("advances a durable checkpoint only after an idempotent page write", async () => {
     const archiveStore = store();
-    const worker = new TelemetryArchiveWorker(fixtures(), new TelemetryBus(), archiveStore, {
+    const database = fixtures();
+    const worker = new TelemetryArchiveWorker(database, new TelemetryBus(), archiveStore, {
       batchSize: 10,
       reconcileIntervalMs: 60_000,
     });
@@ -74,6 +77,7 @@ describe("TelemetryArchiveWorker", () => {
 
     expect(archiveStore.upsertMeasurementSamples).toHaveBeenCalledOnce();
     expect(archiveStore.saveArchiveCheckpoint).toHaveBeenCalledWith("sqlite-source", "measurement_samples", 1);
+    expect(database.adoptDailyFindingsArchiveGeneration).toHaveBeenCalledExactlyOnceWith("archive-test");
     expect(worker.status()).toMatchObject({ phase: "ready", caughtUp: true, timescaleAvailable: true });
     await worker.stop();
   });
@@ -98,7 +102,7 @@ describe("TelemetryArchiveWorker", () => {
   it("fails closed when required Timescale hypertables are unavailable", async () => {
     const archiveStore = store({
       initialize: vi.fn(async () => ({
-        schema: "telemetry", timescaleAvailable: true, timescaleVersion: "2.test",
+        schema: "telemetry", archiveGeneration: "archive-test", timescaleAvailable: true, timescaleVersion: "2.test",
         hypertables: ["measurement_samples"], aggregateMode: "continuous",
         coldStorageMode: "columnstore", warnings: ["missing hypertables"],
       })),
@@ -118,7 +122,9 @@ describe("TelemetryArchiveWorker", () => {
   it("uses the live queue as a low-latency path without relying on it for checkpoints", async () => {
     const archiveStore = store();
     const bus = new TelemetryBus();
-    const worker = new TelemetryArchiveWorker(fixtures(), bus, archiveStore, { batchSize: 10 });
+    const recordedAt = "2026-07-18T00:02:00.000Z";
+    const database = fixtures({ measurementArchiveRecording: vi.fn(() => ({ dataMode: "live", recordedAt })) });
+    const worker = new TelemetryArchiveWorker(database, bus, archiveStore, { batchSize: 10 });
     await worker.start();
     await worker.reconcileNow();
     vi.mocked(archiveStore.upsertMeasurementSamples).mockClear();
@@ -130,7 +136,7 @@ describe("TelemetryArchiveWorker", () => {
     await worker.reconcileNow();
 
     expect(archiveStore.upsertMeasurementSamples).toHaveBeenCalledWith([
-      expect.objectContaining({ metric: "humidity", value: 45 }),
+      expect.objectContaining({ metric: "humidity", value: 45, dataMode: "live", recordedAt }),
     ]);
     await worker.stop();
   });
@@ -501,6 +507,7 @@ describe("TelemetryArchiveWorker", () => {
     const archiveStore = store({
       initialize: vi.fn(async () => ({
         schema: "telemetry",
+        archiveGeneration: "archive-test",
         timescaleAvailable: true,
         timescaleVersion: "2.test",
         hypertables: [...TELEMETRY_TABLES],
@@ -553,6 +560,7 @@ describe("TelemetryArchiveWorker", () => {
     const archiveStore = store({
       initialize: vi.fn(async () => ({
         schema: "telemetry",
+        archiveGeneration: "archive-test",
         timescaleAvailable: true,
         timescaleVersion: "2.test",
         hypertables: [...TELEMETRY_TABLES],

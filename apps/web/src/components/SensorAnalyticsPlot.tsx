@@ -1,3 +1,4 @@
+import { useAnalyticsBrush } from "./useAnalyticsBrush";
 import { useEffect, useId, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent, type PointerEvent } from "react";
 import type { MeasurementDefinition, UnitSystem } from "@climate-twin/contracts";
 import { splitSeriesAtGaps, type DisplayDataGap } from "../chartGaps";
@@ -34,6 +35,7 @@ export interface SensorAnalyticsPlotData {
 interface SensorAnalyticsPlotProps {
   data: SensorAnalyticsPlotData;
   fitContainer?: boolean;
+  onRangeSelection?: ((range: { start: string; end: string }) => void) | undefined;
   definition: MeasurementDefinition;
   units: UnitSystem;
   range: TimeRange;
@@ -180,6 +182,7 @@ export function SensorAnalyticsPlot(props: Readonly<SensorAnalyticsPlotProps>) {
   }, [props.fitContainer]);
   const plotWidth = width - margin.left - margin.right;
   const plotHeight = height - margin.top - margin.bottom;
+  const brush = useAnalyticsBrush({ from: props.from, to: props.timeMax, endLimit: props.now, width, left: margin.left, right: margin.right, onSelect: props.onRangeSelection });
   const x = (timestamp: number) => margin.left + (timestamp - props.from) / Math.max(props.timeMax - props.from, 1) * plotWidth;
   const y = (value: number) => margin.top + (props.domain.max - value) / Math.max(props.domain.max - props.domain.min, Number.EPSILON) * plotHeight;
   const tickCount = width < 480 ? 2 : width < 760 ? 3 : 5;
@@ -347,7 +350,7 @@ export function SensorAnalyticsPlot(props: Readonly<SensorAnalyticsPlotProps>) {
     tabIndex={0}
     onFocus={handleFocus}
     onBlur={() => setHover(null)}
-    onKeyDown={handleKeyDown}
+    onKeyDown={(event) => { if (event.key === "Escape") brush.cancel(); handleKeyDown(event); }}
   >
     <p id={props.summaryId} className="sr-only">{props.summary}</p>
     <p id={hintId} className="sr-only">{t("analytics.chartInteractionHint")}</p>
@@ -358,11 +361,12 @@ export function SensorAnalyticsPlot(props: Readonly<SensorAnalyticsPlotProps>) {
       role="img"
       aria-label={props.chartLabel}
       aria-describedby={props.summaryId}
-      onPointerMove={handlePointer}
-      onPointerDown={handlePointer}
+      data-brush={Boolean(props.onRangeSelection)}
+      {...analyticsPointerHandlers({ enabled: Boolean(props.onRangeSelection), brush, hover: handlePointer })}
       onPointerLeave={() => setHover((current) => current?.origin === "pointer" ? null : current)}
     >
       <title>{props.chartLabel}</title>
+      <AnalyticsBrushRegion draft={brush.draft} x={x} top={margin.top} height={plotHeight} />
       <defs>
         <clipPath id={clipId}><rect x={margin.left} y={margin.top} width={plotWidth} height={plotHeight} /></clipPath>
         <pattern id={gapPatternId} width="8" height="8" patternUnits="userSpaceOnUse"><path className="sensor-data-gap-hatch" d="M-2 2 L2 -2 M0 8 L8 0 M6 10 L10 6" /></pattern>
@@ -403,4 +407,16 @@ export function SensorAnalyticsPlot(props: Readonly<SensorAnalyticsPlotProps>) {
       </g>}
     </svg>
   </div>;
+}
+
+function AnalyticsBrushRegion(props: { draft: { start: number; end: number } | null; x: (time: number) => number; top: number; height: number }) {
+  if (!props.draft) return null;
+  return <rect className="analytics-brush-region" x={props.x(Math.min(props.draft.start, props.draft.end))} y={props.top}
+    width={Math.abs(props.x(props.draft.end) - props.x(props.draft.start))} height={props.height} />;
+}
+
+function analyticsPointerHandlers(input: { enabled: boolean; brush: ReturnType<typeof useAnalyticsBrush>; hover: (event: PointerEvent<SVGSVGElement>) => void }) {
+  return { onPointerMove: input.enabled ? input.brush.move : input.hover,
+    onPointerDown: input.enabled ? input.brush.down : input.hover,
+    onPointerUp: input.brush.up, onPointerCancel: input.brush.cancel };
 }

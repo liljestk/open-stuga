@@ -50,6 +50,39 @@ describe("analytics query API", () => {
 
   afterEach(async () => { await runtime.close(); });
 
+  it("returns opt-in raw distributions and preserves the existing response when omitted", async () => {
+    const legacy = await request(runtime.app).post("/api/v2/analytics/query").send(query({ resolution: "raw" })).expect(200);
+    expect(legacy.body.series[0]).not.toHaveProperty("distribution");
+    const result = await request(runtime.app).post("/api/v2/analytics/query").send(query({ resolution: "raw", include: ["distribution"] })).expect(200);
+    expect(result.body.series[0].distribution).toMatchObject({
+      basis: "raw-observations", weighting: "equal-values", count: 3, minimum: 20, median: 21, maximum: 22,
+    });
+    expect(result.body.series[0].distribution.bins.reduce((count: number, bin: { count: number }) => count + bin.count, 0)).toBe(3);
+  });
+
+  it("labels bucket distributions and excludes absent buckets without inventing zeros", async () => {
+    const result = await request(runtime.app).post("/api/v2/analytics/query").send(query({
+      include: ["series", "summary", "quality", "provenance", "distribution"],
+      range: { start: "2026-07-19T10:00:00.000Z", end: "2026-07-19T10:30:00.000Z", timezone: "UTC" },
+    })).expect(200);
+    expect(result.body.series[0].distribution).toMatchObject({ basis: "display-buckets", count: 3, excludedCount: 3, minimum: 20 });
+  });
+
+  it("respects source quality filtering in a distribution and caches include independently", async () => {
+    runtime.database.insertMeasurementSamples([{
+      sensorId: "sensor-01", metric: "temperature", value: 90, canonicalUnit: "°C",
+      timestamp: "2026-07-19T10:01:00.000Z", source: "api", quality: "estimated",
+    }]);
+    const onlyGood = await request(runtime.app).post("/api/v2/analytics/query").send(query({
+      resolution: "raw", include: ["distribution"], qualityFilter: { include: ["good"] },
+    })).expect(200);
+    expect(onlyGood.body.series[0].distribution.maximum).toBe(22);
+    const all = await request(runtime.app).post("/api/v2/analytics/query").send(query({ resolution: "raw", include: ["distribution"] })).expect(200);
+    expect(all.body.series[0].distribution.maximum).toBe(90);
+    const plain = await request(runtime.app).post("/api/v2/analytics/query").send(query({ resolution: "raw" })).expect(200);
+    expect(plain.body.series[0]).not.toHaveProperty("distribution");
+  });
+
   it.each(["energy", "power"] as const)("matches %s summary consumption at both range boundaries without counting anchors as observations", async (metric) => {
     const start = "2026-07-19T10:05:00.000Z";
     const end = "2026-07-19T10:35:00.000Z";

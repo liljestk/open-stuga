@@ -27,7 +27,7 @@ import {
   quoteSqliteIdentifier,
 } from ".././sqlite-snapshot-utils.mjs";
 
-export const MANIFEST_VERSION = 4;
+export const MANIFEST_VERSION = 5;
 
 export const DEFAULT_BATCH_SIZE = 1_000;
 
@@ -41,7 +41,15 @@ export const MAX_MAINTENANCE_TIMEOUT_MS = 24 * 60 * 60 * 1_000;
 
 export const DESTINATION_TIMESTAMP_KEY_FUNCTION = "stuga_destination_timestamptz_key";
 
-export const PREFLIGHT_SEMANTICS_VERSION = 5;
+export const PREFLIGHT_SEMANTICS_VERSION = 6;
+
+export const TRANSFER_LINEAGE_VERSION = 1;
+
+export const SOURCE_LINEAGE = Object.freeze({
+  measurement_samples: { demoSources: ["mock", "replay"], columns: ["data_mode", "recorded_at"] },
+  readings: { demoSources: ["mock", "replay"], columns: ["data_mode"] },
+  outdoor_temperature_samples: { demoSources: ["mock"], columns: ["data_mode"] },
+});
 
 export const DESTINATION_FINGERPRINT_VERSION = 3;
 
@@ -166,13 +174,19 @@ Options:
   --snapshot <file>        Consistent SQLite snapshot (default: <source>.timescale-migration.snapshot.sqlite)
   --dry-run                Read-only source checks and inventory; no files or destination writes
   --verify-only            Compare an existing destination with the consistent source snapshot; no destination writes
+  --prepare-mode-indexes   Prepare verified-mode lookup indexes on both existing stores
+                           (combine with --verify-only to inspect without writing)
+  --stage-measurement-mode-identities
+                           Rebuild measurement keys on a new SQLite copy at --snapshot
   -h, --help               Show this help
 
 Safety and recovery:
-  * The source is always opened read-only. A committed-WAL-aware VACUUM INTO
-    snapshot is used for real migrations, then checked with PRAGMA integrity_check.
-  * Batches insert by natural key and use ON CONFLICT DO NOTHING. Existing rows
-    are never overwritten; exact verification rejects any payload mismatch.
+  * Bulk migration opens the source read-only and uses a committed-WAL-aware
+    VACUUM INTO snapshot checked with PRAGMA integrity_check.
+  * Batches insert by natural key. A matching destination row can receive
+    absent verified lineage; verification rejects conflicting payload or lineage.
+  * Mode-index preparation updates lookup indexes on the named SQLite database
+    and archive. An interrupted preparation can be rerun safely.
   * The checkpoint is written after every committed batch. Re-running the same
     command resumes safely; replaying a committed batch is idempotent.
   * A PostgreSQL advisory lock is acquired before the checkpoint file lock.
@@ -196,6 +210,8 @@ Examples:
   $env:TIMESCALE_DATABASE_URL='postgresql://user:password@localhost:5432/stugu'
   node scripts/migrate-telemetry-to-timescale.mjs --source ./data/climate-twin.sqlite
   node scripts/migrate-telemetry-to-timescale.mjs --source ./data/climate-twin.sqlite --verify-only
+  node scripts/migrate-telemetry-to-timescale.mjs --source ./data/climate-twin.sqlite \\
+    --stage-measurement-mode-identities --snapshot ./backup/measurement-mode-staging.sqlite
 `;
 }
 
@@ -230,6 +246,8 @@ export function parseMigrationArgs(argv, env = process.env) {
   const parsed = {
     dryRun: false,
     verifyOnly: false,
+    prepareModeIndexes: false,
+    stageMeasurementModeIdentities: false,
     help: false,
     sourceProvided: false,
     snapshotProvided: false,
@@ -239,6 +257,8 @@ export function parseMigrationArgs(argv, env = process.env) {
     if (argument === "-h" || argument === "--help") parsed.help = true;
     else if (argument === "--dry-run") parsed.dryRun = true;
     else if (argument === "--verify-only") parsed.verifyOnly = true;
+    else if (argument === "--prepare-mode-indexes") parsed.prepareModeIndexes = true;
+    else if (argument === "--stage-measurement-mode-identities") parsed.stageMeasurementModeIdentities = true;
     else if (argument === "--source") {
       parsed.source = readValue(argv, index, argument);
       parsed.sourceProvided = true;
@@ -268,6 +288,13 @@ export function parseMigrationArgs(argv, env = process.env) {
   }
 
   if (parsed.dryRun && parsed.verifyOnly) throw new Error("--dry-run and --verify-only are mutually exclusive");
+  if (parsed.prepareModeIndexes && (parsed.dryRun || parsed.snapshotProvided || parsed.checkpoint || parsed.batchSize !== undefined)) {
+    throw new Error("--prepare-mode-indexes does not accept --dry-run, --snapshot, --checkpoint or --batch-size");
+  }
+  if (parsed.stageMeasurementModeIdentities && (
+    !parsed.snapshotProvided || parsed.prepareModeIndexes || parsed.verifyOnly || parsed.dryRun
+    || parsed.checkpoint || parsed.batchSize !== undefined || parsed.postgresUrl
+  )) throw new Error("--stage-measurement-mode-identities requires --snapshot and runs as a separate SQLite operation");
   const sourceValue = parsed.source ?? env.DATABASE_PATH ?? "./data/climate-twin.sqlite";
   if (sourceValue === ":memory:") throw new Error("An in-memory SQLite database cannot be migrated");
   parsed.source = resolve(sourceValue);
@@ -289,6 +316,7 @@ export function parseMigrationArgs(argv, env = process.env) {
   }
   parsed.checkpoint = resolve(parsed.checkpoint ?? `${parsed.source}.timescale-migration.json`);
   parsed.snapshot = resolve(parsed.snapshot ?? `${parsed.source}.timescale-migration.snapshot.sqlite`);
+  if (parsed.stageMeasurementModeIdentities) return parsed;
   parsed.postgresUrl ??= env.TIMESCALE_DATABASE_URL ?? env.DATABASE_URL;
   if (parsed.postgresUrl) {
     parsed.pgClientConfig = { connectionString: parsed.postgresUrl };

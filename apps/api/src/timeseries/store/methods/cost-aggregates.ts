@@ -1,13 +1,11 @@
 import { hourlyUsageFromRows } from "../../../electricity/hourly-usage.js";
 import type { QueryResultRow } from "pg";
-import { MEASUREMENT_ANALYTICS_BUCKETS, MEASUREMENT_BUCKETS, measurementAnalyticsAggregateName, measurementAggregateName, qualifiedName } from "../../schema.js";
-import type { AggregateRefreshQuery, EnergyCostAggregateQuery, EnergyCostAggregateRecord, MeasurementAnalyticsSeriesQuery, PowerCostAggregateQuery } from "../../types.js";
+import type { EnergyCostAggregateQuery, EnergyCostAggregateRecord, MeasurementAnalyticsSeriesQuery, PowerCostAggregateQuery } from "../../types.js";
 import { RollupsMaterializingError } from "../../read-support.js";
-import { EnergyCostAggregateRow, ExtensionRow } from "../support/row-types.js";
-import { abortError, timestamp } from "../support/query-values.js";
+import { EnergyCostAggregateRow } from "../support/row-types.js";
+import { timestamp } from "../support/query-values.js";
 import { registerTimeseriesStoreMethods, timeseriesStoreState, type TimeseriesStoreInternals } from "../core.js";
 import { measurementCostRollupRequirementsSql, measurementCostRollupSql } from "../measurement-cost-rollup-sql.js";
-import { postgresErrorCode } from "./connection.js";
 
 const DAY_MS = 86_400_000;
 
@@ -15,38 +13,6 @@ interface CostRollupRequirementRow extends QueryResultRow {
   day_start: string | Date;
   bucket_seconds: string | number;
   ready: boolean;
-}
-
-async function refreshContinuousAggregate(
-  store: TimeseriesStoreInternals,
-  aggregate: string,
-  query: AggregateRefreshQuery,
-): Promise<void> {
-  for (let attempt = 0; ; attempt += 1) {
-    try {
-      await store.__query(
-        "CALL refresh_continuous_aggregate($1::REGCLASS, $2::TIMESTAMPTZ, $3::TIMESTAMPTZ)",
-        [qualifiedName(store.schema, aggregate), query.from ?? null, query.to ?? null],
-        query,
-      );
-      return;
-    } catch (error) {
-      if (postgresErrorCode(error) !== "55P03" || attempt >= 6) throw error;
-      await new Promise<void>((resolve, reject) => {
-        const finish = (): void => {
-          query.signal?.removeEventListener("abort", cancel);
-          resolve();
-        };
-        const cancel = (): void => {
-          clearTimeout(timer);
-          reject(abortError(query.signal!));
-        };
-        const timer = setTimeout(finish, Math.min(2_000, 100 * 2 ** attempt));
-        timer.unref();
-        query.signal?.addEventListener("abort", cancel, { once: true });
-      });
-    }
-  }
 }
 
 /**
@@ -143,13 +109,11 @@ declare module "../core.js" {
   interface TimeseriesStoreInternals {
     energyCostAggregate(query: EnergyCostAggregateQuery): Promise<EnergyCostAggregateRecord>;
     powerCostAggregate(query: PowerCostAggregateQuery): Promise<EnergyCostAggregateRecord>;
-    refreshMeasurementAggregates(query?: AggregateRefreshQuery): Promise<number>;
   }
 
   interface TimeseriesStoreCore {
     energyCostAggregate(query: EnergyCostAggregateQuery): Promise<EnergyCostAggregateRecord>;
     powerCostAggregate(query: PowerCostAggregateQuery): Promise<EnergyCostAggregateRecord>;
-    refreshMeasurementAggregates(query?: AggregateRefreshQuery): Promise<number>;
   }
 }
 
@@ -173,27 +137,5 @@ registerTimeseriesStoreMethods({
         () => orderedCostAggregate(this, query, "power"),
         query.signal,
       );
-    },
-  /** Refreshes mergeable Timescale rollups after a historical import. */
-  async refreshMeasurementAggregates(this: TimeseriesStoreInternals, query: AggregateRefreshQuery = {}): Promise<number> {
-      const extension = await this.__query<ExtensionRow>(`SELECT (
-        SELECT extversion FROM pg_extension WHERE extname = 'timescaledb'
-      ) AS timescale_version`, [], query);
-      if (!extension.rows[0]?.timescale_version) return 0;
-
-      let refreshed = 0;
-      for (const bucket of Object.keys(MEASUREMENT_BUCKETS) as Array<keyof typeof MEASUREMENT_BUCKETS>) {
-        const aggregate = measurementAggregateName(bucket);
-        if (!await this.__isContinuousAggregate(aggregate, query)) continue;
-        await refreshContinuousAggregate(this, aggregate, query);
-        refreshed += 1;
-      }
-      for (const bucket of Object.keys(MEASUREMENT_ANALYTICS_BUCKETS) as Array<keyof typeof MEASUREMENT_ANALYTICS_BUCKETS>) {
-        const aggregate = measurementAnalyticsAggregateName(bucket);
-        if (!await this.__isContinuousAggregate(aggregate, query)) continue;
-        await refreshContinuousAggregate(this, aggregate, query);
-        refreshed += 1;
-      }
-      return refreshed;
     },
 });

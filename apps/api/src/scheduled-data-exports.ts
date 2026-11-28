@@ -20,6 +20,7 @@ import type {
   AnalyticsAggregation,
   AnalyticsQueryResponse,
   AnalyticsResolution,
+  DataMode,
   MeasurementDefinition,
   ScheduledDataExport,
   ScheduledDataExportFrequency,
@@ -91,6 +92,7 @@ interface ExportRun {
   timeZone: string;
   runId: string;
   endedAt: Date;
+  dataMode: DataMode;
 }
 
 interface PreparedExport {
@@ -542,7 +544,10 @@ export class ScheduledDataExportService {
           runId, started.toISOString(), started.toISOString(), nextRunAt, started.toISOString(), id,
         );
       if (Number(claimed.changes) !== 1) throw new ScheduledDataExportError(409, "SCHEDULED_EXPORT_RUNNING", "This export is already running");
-      const run: ExportRun = { schedule, ownerUserId: row.owner_user_id, houseName: house.name, timeZone: house.timezone, runId, endedAt: started };
+      const run: ExportRun = {
+        schedule, ownerUserId: row.owner_user_id, houseName: house.name, timeZone: house.timezone,
+        runId, endedAt: started, dataMode: this.#activeDataMode(),
+      };
       await this.#send(destination, run, await this.#prepareCsv(run));
     } catch (error) {
       const message = error instanceof Error ? error.message.slice(0, 2_000) : "Scheduled export failed";
@@ -562,7 +567,11 @@ export class ScheduledDataExportService {
     }
   }
 
-  async #prepareCsv({ schedule, houseName, timeZone, runId, endedAt }: ExportRun): Promise<PreparedExport> {
+  #activeDataMode(): DataMode {
+    return this.#database.isRealDataMode() ? "live" : "demo";
+  }
+
+  async #prepareCsv({ schedule, houseName, timeZone, runId, endedAt, dataMode }: ExportRun): Promise<PreparedExport> {
     const sensorsById = new Map(this.#database.listSensors(schedule.houseId).filter((sensor) => sensor.enabled)
       .map((sensor) => [sensor.id, sensor]));
     const sensors = schedule.sensorIds.map((sensorId) => sensorsById.get(sensorId)).filter((sensor) => sensor !== undefined);
@@ -574,7 +583,7 @@ export class ScheduledDataExportService {
     const response = await executeAnalyticsQuery({
       request: {
         apiVersion: "1.0",
-        dataMode: this.#database.isRealDataMode() ? "live" : "demo",
+        dataMode,
         scope: { kind: "house", id: schedule.houseId, entityIds: schedule.sensorIds },
         measurementIds: schedule.measurementIds,
         range: { start, end, timezone: timeZone },
@@ -595,21 +604,25 @@ export class ScheduledDataExportService {
     if (Buffer.byteLength(csv, "utf8") > MAX_EXPORT_BYTES) {
       throw new Error("The scheduled export exceeds the 64 MiB export limit");
     }
+    const prefix = dataMode === "demo" ? "stugu-demo" : "stugu";
     return {
       csv,
-      outputName: `stugu-${slug(houseName)}-${start.slice(0, 10)}-${end.slice(0, 10)}-${schedule.resolution}-${schedule.aggregation}-${runId.slice(0, 8)}.csv`,
+      outputName: `${prefix}-${slug(houseName)}-${start.slice(0, 10)}-${end.slice(0, 10)}-${schedule.resolution}-${schedule.aggregation}-${runId.slice(0, 8)}.csv`,
       rows: response.quality.sampleCount,
     };
   }
 
   async #send(destination: ExportDestinationKind, run: ExportRun, prepared: PreparedExport): Promise<void> {
+    if (run.dataMode !== this.#activeDataMode()) {
+      throw new ScheduledDataExportError(409, "SCHEDULED_EXPORT_MODE_CHANGED", "The data mode changed during export. Run the export again.");
+    }
     if (destination === "nas") {
       this.#handOffToNasWorker(run, prepared);
       return;
     }
     const { schedule, runId } = run;
     const provider = await this.#destinations.deliver(run.ownerUserId, {
-      folder: ["data-exports", schedule.id],
+      folder: [run.dataMode === "demo" ? "demo-data-exports" : "data-exports", schedule.id],
       name: prepared.outputName,
       content: prepared.csv,
       retentionCount: schedule.retentionCount,
@@ -626,7 +639,7 @@ export class ScheduledDataExportService {
     }
   }
 
-  #handOffToNasWorker({ schedule, runId, endedAt }: ExportRun, prepared: PreparedExport): void {
+  #handOffToNasWorker({ schedule, runId, endedAt, dataMode }: ExportRun, prepared: PreparedExport): void {
     const { csv, outputName } = prepared;
     const payloadName = `data-export-${runId}.csv`;
     const requestName = `data-export-${runId}.request.json`;
@@ -635,13 +648,13 @@ export class ScheduledDataExportService {
       durableFile(payloadPath, csv);
       const bytes = Buffer.byteLength(csv, "utf8");
       atomicJson(join(this.#operationsDirectory!, requestName), {
-        schema: "stugu-data-export-request/v1",
+        schema: "stugu-data-export-request/v2",
         runId,
         scheduleId: schedule.id,
         requestedAt: endedAt.toISOString(),
         payloadName,
         outputName,
-        relativeDirectory: `data-exports/${schedule.id}`,
+        dataMode,
         bytes,
         sha256: createHash("sha256").update(csv).digest("hex"),
         retentionCount: schedule.retentionCount,

@@ -1,3 +1,4 @@
+import { analyticsDistributionSchema } from "./analytics-distribution-schema.js";
 import { ANALYTICS_AGGREGATIONS } from "@climate-twin/contracts";
 import { localAuthSchemas, spatialLayerSchemas } from "./support/index.js";
 
@@ -103,7 +104,7 @@ export const schemasPart01 = {
               type: "object", additionalProperties: false, required: ["include"],
               properties: { include: { type: "array", minItems: 1, maxItems: 3, uniqueItems: true, items: { enum: ["good", "estimated", "stale"] } } },
             },
-            include: { type: "array", maxItems: 4, uniqueItems: true, items: { enum: ["series", "summary", "provenance", "quality"] } },
+            include: { type: "array", minItems: 1, maxItems: 5, uniqueItems: true, items: { enum: ["series", "summary", "provenance", "quality", "distribution"] } },
             maxPointsPerSeries: { type: "integer", minimum: 100, maximum: 5000, default: 800 },
             requestId: { type: "string", minLength: 1, maxLength: 200 },
           },
@@ -358,6 +359,7 @@ export const schemasPart01 = {
                     timestamp: { type: "string", format: "date-time" }, value: { type: ["number", "null"] }, minimum: { type: ["number", "null"] }, maximum: { type: ["number", "null"] },
                     sampleCount: { type: "integer", minimum: 0 }, coverage: { type: "number", minimum: 0, maximum: 1 }, qualityFlags: { type: "array", items: { type: "string" } },
                   } } },
+                  distribution: analyticsDistributionSchema,
                   summary: { $ref: "#/components/schemas/AnalyticsSummary" }, provenance: { $ref: "#/components/schemas/AnalyticsProvenance" },
                 },
               },

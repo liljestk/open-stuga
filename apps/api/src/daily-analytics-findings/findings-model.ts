@@ -115,6 +115,7 @@ export interface DailyAnalyticsFindingsWorkerStatus {
 export interface DailyAnalyticsFindingsWorkerOptions {
   database: ClimateDatabase;
   telemetryReader: HybridTelemetryReader;
+  reconcileArchive?: () => Promise<void>;
   intervalMs?: number;
   startupJitterMs?: number;
   now?: () => number;

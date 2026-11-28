@@ -28,6 +28,17 @@ import {
 } from ".././sqlite-snapshot-utils.mjs";
 
 import { MANIFEST_VERSION, SOURCE_TABLES, duplicateKeyRows, normalizedTimestampExpression, registerDestinationTimestampKey, tableExists } from "./configuration.mjs";
+import { lineageInventory, lineageInventoryExpressions } from "./lineage.mjs";
+
+export async function acquireTelemetryMigrationLock(client, schema) {
+  const advisory = await client.query(
+    "SELECT pg_try_advisory_lock(hashtext('stugu-telemetry-migration'), hashtext($1)) AS acquired",
+    [schema],
+  );
+  if (!advisory.rows[0]?.acquired) {
+    throw new Error("Another telemetry migration or verification is active on this destination schema");
+  }
+}
 
 export function inventoryTelemetrySource(database) {
   registerDestinationTimestampKey(database);
@@ -94,6 +105,7 @@ export function inventoryTelemetrySource(database) {
              ${invalidJsonTerms.length === 0 ? "0" : `SUM(${invalidJsonTerms.join(" + ")})`} AS invalid_json_values,
              ${populatedJsonTerms.length === 0 ? "0" : `SUM(${populatedJsonTerms.join(" + ")})`} AS populated_json_values,
              ${invalidInterval} AS invalid_intervals
+             ${lineageInventoryExpressions(table, columns)}
       FROM ${quoteSqliteIdentifier(table)}
     `).get();
     result[table] = {
@@ -110,6 +122,7 @@ export function inventoryTelemetrySource(database) {
       invalidIntervals: Number(summary.invalid_intervals ?? 0),
       duplicateKeyRows: duplicateKeyRows(database, table, specification.keyColumns, specification.timeColumn),
       sourceKey: specification.keyColumns,
+      ...lineageInventory(summary),
       ...(optionalJsonColumns.length === 0 ? {} : {
         optionalJsonColumns: Object.fromEntries(optionalJsonColumns.map((column) => [
           column,
@@ -147,6 +160,12 @@ export function sourceBlockers(inventory) {
     if ((details.invalidIntervals ?? 0) > 0) {
       blockers.push(`${table} has ${details.invalidIntervals} interval(s) whose end is not after its start`);
     }
+    if (details.lineage?.invalidModes > 0) {
+      blockers.push(`${table} has ${details.lineage.invalidModes} invalid data mode value(s)`);
+    }
+    if (details.lineage?.invalidRecordingTimes > 0) {
+      blockers.push(`${table} has ${details.lineage.invalidRecordingTimes} invalid recording timestamp(s)`);
+    }
     if ((details.duplicateKeyRows ?? 0) > 0) {
       blockers.push(`${table} has ${details.duplicateKeyRows} row(s) that duplicate the destination natural key`);
     }
@@ -162,6 +181,10 @@ export function printInventory(inventory) {
     else {
       const range = details.rows === 0 ? "empty" : `${details.minimumTime} .. ${details.maximumTime}`;
       console.log(`  ${table}: ${details.rows} row(s), ${range}`);
+      if (details.lineage) {
+        const { demoRows, liveRows, unclassifiedRows, recordedRows } = details.lineage;
+        console.log(`    Data mode: ${demoRows} demo, ${liveRows} live, ${unclassifiedRows} unclassified. Recorded times: ${recordedRows}`);
+      }
     }
   }
 }

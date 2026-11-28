@@ -1,0 +1,24 @@
+.analytics-explorer-controls { padding-inline: var(--space-5); min-width: 0; }
+.analytics-view-controls { border-top: 1px solid var(--line); padding: var(--space-4) 0; min-width: 0; }
+.analytics-view-controls p, .analytics-distributions p { max-width: 70ch; }
+.analytics-view-controls summary { cursor: pointer; font-weight: 600; }
+.analytics-view-controls form { margin-top: var(--space-3); }
+.analytics-view-controls .field { min-width: 0; margin-bottom: var(--space-3); }
+.analytics-view-controls input, .analytics-view-controls select { max-width: 100%; min-width: 0; width: 100%; box-sizing: border-box; }
+.analytics-view-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); }
+.analytics-view-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin: var(--space-3) 0; }
+.analytics-brush-toggle { display: flex; gap: var(--space-2); align-items: center; }
+.analytics-brush-toggle input { width: auto; }
+.analytics-distributions { min-width: 0; }
+.analytics-distributions article { border-top: 1px solid var(--line); padding: var(--space-4) 0; }
+.analytics-distribution-chart { display: block; width: 100%; height: auto; }
+.analytics-distribution-chart rect { fill: var(--action); }
+.analytics-distributions .analytics-data-table :is(th, td) { white-space: normal; overflow-wrap: anywhere; padding-inline: var(--space-2); }
+.analytics-view-axis { display: flex; justify-content: space-between; gap: var(--space-2); }
+.sensor-analytics-chart[data-brush="true"] { cursor: crosshair; touch-action: none; }
+.analytics-brush-region { fill: var(--panel-soft); fill-opacity: 0.7; stroke: var(--action); stroke-width: 2; stroke-dasharray: 5 3; pointer-events: none; }
+@media (max-width: 680px) {
+  .analytics-explorer-controls { padding-inline: var(--space-4); }
+  .analytics-view-fields { grid-template-columns: minmax(0, 1fr); }
+  .analytics-view-actions > button { flex: 1 1 auto; }
+}

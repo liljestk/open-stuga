@@ -441,3 +441,18 @@ coverage matched exactly. This is a directional implementation check, not a CI
 performance gate. Formal overview/30-day/multi-year benchmarks, archive-I/O
 measurements, and persisted-rollup comparisons are still required before
 raising the interactive output limits.
+
+## Opt-in numeric distributions
+
+Add `"distribution"` to the existing query's `include` array. Each series then
+contains `distribution` with up to 20 equal-width bins, quartiles, minimum and
+maximum, counts, and explicit `basis`/`weighting`. With raw resolution, values
+are equally weighted source observations; with a bucketed resolution, they are
+equally weighted displayed aggregates. Neither is an elapsed-time distribution,
+and a bucket distribution does not reconstruct the original samples. Missing
+values are excluded and counted, not filled with zero. Bins include their lower
+endpoint and exclude their upper endpoint except for the final bin. Existing
+quality filters, authorization, data-mode checks and query budgets apply.
+
+This API addition does not change existing summary statistics or add a UI. See
+the [delivery ledger](analytics-completeness-plan.md) for staged remaining work.

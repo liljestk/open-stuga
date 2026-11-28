@@ -18,3 +18,5 @@
 @import "./styles/tuya-connected-devices.css";
 @import "./styles/heat-pumps.css";
 @import "./styles/nexus433.css";
+
+@import "./styles/analytics-views.css";

@@ -1,3 +1,5 @@
+import { enAdaptiveHome } from "./en/adaptive-home";
+import { enAnalyticsViews } from "./en/analytics-views";
 import { enPart1 } from "./en/01-app-bootstrap";
 import { enPart2 } from "./en/02-bootstrap-twin";
 import { enPart3 } from "./en/03-twin-simulation";
@@ -14,6 +16,8 @@ import { enRequestErrors } from "./en/request-errors";
 import { enAssistantConnector } from "./en/assistant-connector";
 
 export const en = {
+  ...enAnalyticsViews,
+  ...enAdaptiveHome,
   ...enPart1,
   ...enPart2,
   ...enPart3,

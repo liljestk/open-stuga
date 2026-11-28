@@ -1,7 +1,7 @@
 {
   "rule": "sonarjs/cognitive-complexity (S3776)",
   "threshold": 15,
-  "functions": 288,
+  "functions": 286,
   "files": {
     "apps/api/src/analytics/calendar-comparison/model.ts": [34, 22, 19],
     "apps/api/src/analytics/forecast/backtest.ts": [21],
@@ -92,9 +92,8 @@
     "apps/api/src/tapo-history-export/support/history-csv.ts": [32],
     "apps/api/src/tapo-history-export/support/private-history-client.ts": [24],
     "apps/api/src/timeseries/archive-worker.ts": [16],
-    "apps/api/src/timeseries/local-telemetry-worker-thread.ts": [42],
     "apps/api/src/timeseries/read-energy-cost.ts": [20],
-    "apps/api/src/timeseries/read-facade.ts": [32, 23, 18, 16],
+    "apps/api/src/timeseries/read-facade.ts": [32, 23, 16],
     "apps/api/src/timeseries/store/methods/schema-setup.ts": [37, 31, 30],
     "apps/api/src/tp-link/core.ts": [23, 18, 16],
     "apps/api/src/tp-link/support/01-tp-link-local-climate-history-capability-revision-to.ts": [17],
@@ -150,7 +149,7 @@
     "apps/web/src/pages/AutomationSetupPanel.tsx": [20],
     "apps/web/src/pages/BugReportRelayPanel.tsx": [26],
     "apps/web/src/pages/CloudflareSetupPanel.tsx": [19],
-    "apps/web/src/pages/DataAnalyticsPage.tsx": [34],
+    "apps/web/src/pages/DataAnalyticsPage.tsx": [33],
     "apps/web/src/pages/DataAnalyticsPage/HomePerformancePanel.tsx": [36],
     "apps/web/src/pages/DataAnalyticsPage/OpeningAnalyticsPanel.tsx": [28],
     "apps/web/src/pages/ElectricityHistory.tsx": [59],

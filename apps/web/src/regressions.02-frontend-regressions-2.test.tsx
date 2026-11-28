@@ -333,7 +333,10 @@ describe("frontend regressions", () => {
 
     localStorage.setItem("climate-twin-locale", "fi");
     render(withI18n(dashboard("imperial")));
-    const finnishLiveViewButton = screen.queryByRole("button", { name: "Avaa kodin reaaliaikainen näkymä" });
+    const finnishLiveViewButton = await waitFor(() => {
+      if (screen.queryByRole("combobox", { name: "Mittari" })) return null;
+      return screen.getByRole("button", { name: "Avaa kodin reaaliaikainen näkymä" });
+    }, { timeout: 5_000 });
     if (finnishLiveViewButton) await user.click(finnishLiveViewButton);
     const finnishPicker = await screen.findByRole("combobox", { name: "Mittari" });
     expect(within(finnishPicker).getByRole("option", { name: /Hiilidioksidi.*ppm/ })).not.toBeNull();

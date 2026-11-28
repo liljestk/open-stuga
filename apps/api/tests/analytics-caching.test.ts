@@ -25,6 +25,7 @@ function readers(local: Partial<LocalTelemetryReader>, archive: Partial<ArchiveT
     local: {
       isRealDataMode: vi.fn(() => false),
       measurementCoverage: vi.fn(() => []),
+      measurementCoverageAsync: vi.fn(async () => []),
       measurementHistory: vi.fn(() => []),
       measurementHistoryBucketed: vi.fn(() => []),
       measurementWindow: vi.fn(() => []),

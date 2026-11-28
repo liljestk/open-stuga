@@ -67,8 +67,9 @@ The provider apps those sign-ins run through stay installation-wide; see
 | Dropbox | A scoped *App folder* app: Stugu sees only its own folder | `Apps/<app name>/data-exports/<schedule-id>/` |
 | Google Drive | `drive.file`: Stugu sees only files and folders it created | `My Drive/Stugu/data-exports/<schedule-id>/` |
 
-Each schedule keeps its newest *Files to keep* in its folder and removes older
-files that Stugu itself created. The API uploads the CSV directly, so cloud
+The paths above are for live data. Demo CSVs use `demo-data-exports/<schedule-id>/`
+under the same app folder. Each schedule keeps its newest *Files to keep* in
+each folder and removes older files that Stugu itself created. The API uploads the CSV directly, so cloud
 destinations don't need the NAS worker or the host storage agent.
 
 Each person's long-lived refresh token is stored in the protected integration

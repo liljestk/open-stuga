@@ -422,8 +422,12 @@ registerDatabaseMethods({
           energy_meter_role = ?, tags_json = ?, enabled = ? WHERE id = ?`)
           .run(...values);
       }
-      this.db.prepare("DELETE FROM sensor_measurement_bindings WHERE sensor_id = ?").run(sensor.id);
-      const insertBinding = this.db.prepare("INSERT INTO sensor_measurement_bindings(sensor_id, metric, entity_id) VALUES (?, ?, ?)");
+      this.db.prepare(`DELETE FROM sensor_measurement_bindings
+        WHERE sensor_id = ? AND metric NOT IN (SELECT value FROM json_each(?))`)
+        .run(sensor.id, JSON.stringify(Object.keys(bindings)));
+      const insertBinding = this.db.prepare(`INSERT INTO sensor_measurement_bindings(sensor_id, metric, entity_id)
+        VALUES (?, ?, ?) ON CONFLICT (sensor_id, metric) DO UPDATE SET entity_id = excluded.entity_id
+        WHERE entity_id IS NOT excluded.entity_id`);
       for (const [metric, entityId] of Object.entries(bindings)) insertBinding.run(sensor.id, metric, entityId);
     },
   deleteSensor(id: string): boolean {

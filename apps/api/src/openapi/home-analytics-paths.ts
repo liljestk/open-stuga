@@ -1,4 +1,54 @@
+import { adaptiveFindingsPaths } from "./adaptive-findings.js";
+
 export const homeAnalyticsPaths = {
+  ...adaptiveFindingsPaths,
+  "/monitoring/houses/{houseId}/adaptive/settings": {
+    get: {
+      servers: [{ url: "/api/v2" }],
+      tags: ["Measurements"],
+      operationId: "getAdaptiveMonitoringSettings",
+      description: "Reads the current settings revision for an Owner or Admin.",
+      parameters: [
+        { name: "houseId", in: "path", required: true, schema: { type: "string", minLength: 1, maxLength: 200 } },
+        { name: "dataMode", in: "query", required: true, schema: { enum: ["live", "demo"] } },
+      ],
+      responses: {
+        "200": {
+          description: "Current Adaptive Home settings",
+          content: { "application/json": { schema: { $ref: "#/components/schemas/AdaptiveMonitoringSettings" } } },
+        },
+        "400": { description: "The data mode is missing or invalid" },
+        "401": { description: "A session is required" },
+        "403": { description: "Owner or Admin permission is required" },
+        "404": { description: "The Home is unavailable or outside local authority" },
+        "409": { description: "The requested data mode does not match the workspace mode" },
+      },
+    },
+    patch: {
+      servers: [{ url: "/api/v2" }],
+      tags: ["Measurements"],
+      operationId: "updateAdaptiveMonitoringSettings",
+      description: "An Owner or Admin can enable shadow monitoring, disable it, reset its baseline, or replace approved temperature reference groups for an active local Home.",
+      parameters: [{
+        name: "houseId", in: "path", required: true, schema: { type: "string", minLength: 1, maxLength: 200 },
+      }],
+      requestBody: {
+        required: true,
+        content: { "application/json": { schema: { $ref: "#/components/schemas/AdaptiveSettingsChange" } } },
+      },
+      responses: {
+        "200": {
+          description: "Updated Adaptive Home settings",
+          content: { "application/json": { schema: { $ref: "#/components/schemas/AdaptiveMonitoringSettings" } } },
+        },
+        "400": { description: "The settings change is invalid" },
+        "401": { description: "A session is required" },
+        "403": { description: "Owner or Admin permission is required" },
+        "404": { description: "The Home is unavailable or outside local authority" },
+        "409": { description: "The revision, workspace data mode, or monitoring state conflicts with the request" },
+      },
+    },
+  },
   "/analytics/calendar-comparison": {
     post: {
       servers: [{ url: "/api/v2" }],

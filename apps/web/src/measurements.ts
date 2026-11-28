@@ -6,12 +6,26 @@ import type {
   MeasurementSample,
   Metric,
   Reading,
+  Sensor,
   UnitSystem,
 } from "@climate-twin/contracts";
+import type { ClimateState } from "./domain";
 
 export type LatestMeasurements = Record<string, Record<Metric, MeasurementSample>>;
 export type MeasurementHistory = Record<string, Record<Metric, MeasurementSample[]>>;
 export type MeasurementForecasts = Record<string, Record<Metric, MeasurementForecastPoint[]>>;
+
+export function sensorHasMetric(state: ClimateState, sensor: Sensor, metric: Metric): boolean {
+  return Boolean(
+    state.latestMeasurements[sensor.id]?.[metric]
+    || state.measurementHistory[sensor.id]?.[metric]?.length
+    || state.measurementForecasts[sensor.id]?.[metric]?.length
+    || sensor.recordedMeasurementIds?.includes(metric)
+    || sensor.measurementEntityIds?.[metric]
+    || (metric === "temperature" && sensor.temperatureEntityId)
+    || (metric === "humidity" && sensor.humidityEntityId),
+  );
+}
 
 const clampValue = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 

@@ -81,6 +81,19 @@ export function fitThermalForecaster(
   outdoor: HourlyLookup,
   until: number,
 ): Forecaster | null {
+  const model = fitThermalForecastParameters(history, { outdoor, until });
+  return model ? thermalForecaster(history, outdoor, model) : null;
+}
+
+export interface ThermalForecastParameters extends RelaxationParameters {
+  persistence: number;
+}
+
+/** A supplied time constant fixes the policy while coefficients can be refitted. */
+export function fitThermalForecastParameters(
+  history: readonly HourlyValue[],
+  { outdoor, until, fixedTauHours }: { outdoor: HourlyLookup; until: number; fixedTauHours?: number },
+): ThermalForecastParameters | null {
   const series = history.filter((point) => point.time <= until);
   const transitions: RelaxationTransition[] = [];
   for (let index = 1; index < series.length; index += 1) {
@@ -104,14 +117,14 @@ export function fitThermalForecaster(
   const split = Math.floor(transitions.length * 0.75);
   const training = transitions.slice(0, split);
   const tuning = transitions.slice(split);
-  const search = searchTimeConstant((tauHours) => {
+  const tauHours = fixedTauHours ?? searchTimeConstant((tauHours) => {
     const coefficients = fitCoefficients(training, tauHours, 0.02);
     return coefficients ? meanAbsolute(rollout(tuning, { tauHours, coefficients }).residuals) : null;
-  }, 2, 1_000, 24);
-  if (!search) return null;
-  const coefficients = fitCoefficients(transitions, search.tauHours, 0.02);
+  }, 2, 1_000, 24)?.tauHours;
+  if (tauHours === undefined) return null;
+  const coefficients = fitCoefficients(transitions, tauHours, 0.02);
   if (!coefficients) return null;
-  const parameters: RelaxationParameters = { tauHours: search.tauHours, coefficients };
+  const parameters: RelaxationParameters = { tauHours, coefficients };
   // AR(1) on recent one-step errors: what the model keeps missing right now
   // (heating, an open window) fades out with the fitted persistence.
   const recent = transitions.filter((transition) => transition.toTime > until - AR_WINDOW_HOURS * HOUR_MS);
@@ -123,6 +136,14 @@ export function fitThermalForecaster(
     denominator += residuals[index - 1]! * residuals[index - 1]!;
   }
   const persistence = denominator > 0 ? Math.max(0, Math.min(0.98, numerator / denominator)) : 0;
+  return { ...parameters, persistence };
+}
+
+export function thermalForecaster(
+  history: readonly HourlyValue[],
+  outdoor: HourlyLookup,
+  parameters: ThermalForecastParameters,
+): Forecaster {
   const observed = lookup(history);
   /** The model's last one-step error, measured on the hour ending at the origin. */
   const residualAt = (origin: number): number => {
@@ -153,7 +174,7 @@ export function fitThermalForecaster(
         if (drive === null) return null;
         held = drive;
         state = relaxationStep(state, { knownDrive: drive, regressors: [1, ...dailyHarmonics(time)], dtHours: 1 }, parameters)
-          + lastResidual * persistence ** step;
+          + lastResidual * parameters.persistence ** step;
         values.push(state);
       }
       return values;
@@ -212,8 +233,7 @@ function holtWinters(
   return states;
 }
 
-interface ProfileChoice {
-  states: Map<number, SeasonalState>;
+export interface ProfileForecastParameters {
   alpha: number;
   beta: number;
   gamma: number;
@@ -222,8 +242,10 @@ interface ProfileChoice {
   longBlend: number;
 }
 
+type ProfileChoice = ProfileForecastParameters & { states: Map<number, SeasonalState> };
+
 function profileForecast(
-  choice: ProfileChoice,
+  choice: ProfileForecastParameters,
   state: SeasonalState,
   { values, origin, originValue, step }: { values: HourlyLookup; origin: number; originValue: number; step: number },
 ): number {
@@ -244,6 +266,11 @@ function profileForecast(
  * up to the last five days of origins.
  */
 export function fitProfileForecaster(history: readonly HourlyValue[], until: number): Forecaster | null {
+  const parameters = tuneProfileForecast(history, until);
+  return parameters ? profileForecaster(history, parameters) : null;
+}
+
+export function tuneProfileForecast(history: readonly HourlyValue[], until: number): ProfileForecastParameters | null {
   const series = history.filter((point) => point.time <= until);
   if (!series.length || (until - series[0]!.time) / (DAY_HOURS * HOUR_MS) < MIN_PROFILE_DAYS) return null;
   const values = lookup(series);
@@ -289,17 +316,22 @@ export function fitProfileForecaster(history: readonly HourlyValue[], until: num
     }
   }
   if (!best) return null;
+  const { alpha, beta, gamma, decay, shortBlend, longBlend } = best;
+  return { alpha, beta, gamma, decay, shortBlend, longBlend };
+}
+
+export function profileForecaster(history: readonly HourlyValue[], parameters: ProfileForecastParameters): Forecaster {
   // A state after hour t depends only on data up to t, so running the chosen
   // weights over all history lets each origin start from its own present.
-  const chosen = { ...best, states: holtWinters(history, best) };
+  const states = history.length ? holtWinters(history, parameters) : new Map<number, SeasonalState>();
   const observed = lookup(history);
   return {
     kind: "daily-profile",
     forecast(origin, originValue, horizonHours) {
-      const state = chosen.states.get(hourStart(origin));
+      const state = states.get(hourStart(origin));
       if (!state) return null;
       return Array.from({ length: horizonHours }, (_, index) => (
-        profileForecast(chosen, state, { values: observed, origin: hourStart(origin), originValue, step: index + 1 })
+        profileForecast(parameters, state, { values: observed, origin: hourStart(origin), originValue, step: index + 1 })
       ));
     },
   };

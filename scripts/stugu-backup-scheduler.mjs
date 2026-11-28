@@ -78,18 +78,21 @@ function sha256(value) {
 
 function validatedDataExportRequest(value, requestName) {
   const runId = /^data-export-([0-9a-f-]{36})\.request\.json$/iu.exec(requestName)?.[1] ?? "";
-  if (!value || value.schema !== "stugu-data-export-request/v1" || value.runId !== runId
+  if (value?.schema === "stugu-data-export-request/v1") {
+    throw new Error("This queued export predates data-mode isolation. Run the export again.");
+  }
+  if (!value || value.schema !== "stugu-data-export-request/v2" || value.runId !== runId
     || !/^[0-9a-f-]{36}$/iu.test(value.scheduleId)
     || typeof value.requestedAt !== "string" || !Number.isFinite(Date.parse(value.requestedAt))
     || value.payloadName !== `data-export-${runId}.csv`
     || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,239}\.csv$/u.test(value.outputName)
-    || value.relativeDirectory !== `data-exports/${value.scheduleId}`
+    || (value.dataMode !== "demo" && value.dataMode !== "live")
     || !Number.isSafeInteger(value.bytes) || value.bytes < 0 || value.bytes > 64 * 1024 * 1024
     || typeof value.sha256 !== "string" || !/^[0-9a-f]{64}$/u.test(value.sha256)
     || !Number.isSafeInteger(value.retentionCount) || value.retentionCount < 1 || value.retentionCount > 365
     || Object.keys(value).some((key) => ![
       "schema", "runId", "scheduleId", "requestedAt", "payloadName", "outputName",
-      "relativeDirectory", "bytes", "sha256", "retentionCount",
+      "dataMode", "bytes", "sha256", "retentionCount",
     ].includes(key))) {
     throw new Error("Scheduled data export request is invalid");
   }
@@ -135,16 +138,16 @@ export function processDataExportRequests(
     const requestPath = join(sourceDirectory, requestName);
     const fallbackRunId = /^data-export-([0-9a-f-]{36})/iu.exec(requestName)?.[1] ?? "";
     let request = null;
-    let payloadPath = null;
+    const payloadPath = join(sourceDirectory, `data-export-${fallbackRunId}.csv`);
     try {
       request = validatedDataExportRequest(readJson(requestPath), requestName);
-      payloadPath = join(sourceDirectory, request.payloadName);
       if (!existsSync(payloadPath) || statSync(payloadPath).size !== request.bytes) {
         throw new Error("Scheduled data export payload is missing or incomplete");
       }
       const content = readFileSync(payloadPath);
       if (sha256(content) !== request.sha256) throw new Error("Scheduled data export payload checksum does not match");
-      const directory = resolve(destinationRoot, request.relativeDirectory);
+      const namespace = request.dataMode === "demo" ? "demo-data-exports" : "data-exports";
+      const directory = resolve(destinationRoot, namespace, request.scheduleId);
       const root = resolve(destinationRoot);
       if (!directory.startsWith(`${root}${sep}`)) throw new Error("Scheduled data export destination escaped its root");
       mkdirSync(directory, { recursive: true, mode: 0o700 });
@@ -189,7 +192,7 @@ export function processDataExportRequests(
       atomicJson(join(sourceDirectory, `data-export-${fallbackRunId}.receipt.json`), receipt);
       receipts.push(receipt);
     } finally {
-      if (payloadPath) rmSync(payloadPath, { force: true });
+      rmSync(payloadPath, { force: true });
       rmSync(requestPath, { force: true });
     }
   }

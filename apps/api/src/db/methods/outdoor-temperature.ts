@@ -40,18 +40,21 @@ registerDatabaseMethods({
           throw new ClimateDataValidationError(409, "DEMO_DATA_DISABLED", "Synthetic outdoor samples are permanently disabled in real-data mode");
         }
         if (sample.source !== "mock" && !this.isRealDataMode()) this.activateRealDataMode();
+        const dataMode = sample.source === "mock" ? "demo" : "live";
+        const recordedAt = new Date().toISOString();
         this.db.prepare(`INSERT INTO outdoor_temperature_samples
-          (house_id, location_key, timestamp, temperature_c, source, fetched_at, station_id, station_name, conditions_json)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          (house_id, location_key, timestamp, temperature_c, source, fetched_at, station_id, station_name, conditions_json, data_mode, recorded_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(house_id, location_key, timestamp, source) DO UPDATE SET
             temperature_c = excluded.temperature_c,
             fetched_at = excluded.fetched_at,
             station_id = excluded.station_id,
             station_name = excluded.station_name,
-            conditions_json = excluded.conditions_json`)
+            conditions_json = excluded.conditions_json,
+            recorded_at = excluded.recorded_at`)
           .run(sample.houseId, sample.locationKey, sample.timestamp, sample.temperatureC, sample.source,
             sample.fetchedAt, sample.stationId, sample.stationName,
-            sample.conditions ? JSON.stringify(sample.conditions) : null);
+            sample.conditions ? JSON.stringify(sample.conditions) : null, dataMode, recordedAt);
         if (!options.deferDerivedInvalidation) {
           this.invalidateDerivedAnalyticsHistory(sample.houseId, sample.timestamp, sample.timestamp);
         }

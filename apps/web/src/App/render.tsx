@@ -550,6 +550,7 @@ export function renderApp(context: ReturnType<typeof useAppPart03>) {
             units={units}
             dataMode={climate.dataMode}
             readOnly={readOnly}
+            canManageAdaptive={state.session.authenticated && canManagePeople && houseLocalAuthority && !readOnly}
             onLoadSeries={loadSeriesInBackground}
           />
         )}

@@ -4,6 +4,16 @@ import { SqlValue } from "../support/row-types.js";
 import { timestamp } from "../support/query-values.js";
 import { registerTimeseriesStoreMethods, timeseriesStoreState, type TimeseriesStoreInternals } from "../core.js";
 
+function incomingSampleColumn(column: string): string {
+  switch (column) {
+    case "data_mode": return "COALESCE(current_row.data_mode, EXCLUDED.data_mode)";
+    case "recorded_at": return `CASE WHEN ROW(current_row.value, current_row.canonical_unit, current_row.quality)
+      IS NOT DISTINCT FROM ROW(EXCLUDED.value, EXCLUDED.canonical_unit, EXCLUDED.quality)
+      THEN COALESCE(current_row.recorded_at, EXCLUDED.recorded_at) ELSE EXCLUDED.recorded_at END`;
+    default: return `EXCLUDED.${quoteIdentifier(column)}`;
+  }
+}
+
 declare module "../core.js" {
   interface TimeseriesStoreInternals {
     upsertMeasurementSamples(samples: readonly MeasurementSampleRecord[], control?: QueryControl): Promise<BatchWriteResult>;
@@ -45,13 +55,13 @@ registerTimeseriesStoreMethods({
     ): Promise<BatchWriteResult> {
       return this.__writeBatches(
         "measurement_samples",
-        ["sensor_id", "metric", "observed_at", "source", "value", "canonical_unit", "quality", "metadata"],
+        ["sensor_id", "metric", "observed_at", "source", "value", "canonical_unit", "quality", "metadata", "data_mode", "recorded_at"],
         ["sensor_id", "metric", "observed_at", "source"],
-        ["value", "canonical_unit", "quality", "metadata"],
+        ["value", "canonical_unit", "quality", "metadata", "data_mode", "recorded_at"],
         samples,
         (sample) => [
           sample.sensorId, sample.metric, sample.timestamp, sample.source, sample.value,
-          sample.canonicalUnit, sample.quality, sample.metadata ?? {},
+          sample.canonicalUnit, sample.quality, sample.metadata ?? {}, sample.dataMode ?? null, sample.recordedAt ?? null,
         ],
         control,
         true,
@@ -65,14 +75,14 @@ registerTimeseriesStoreMethods({
         "legacy_readings",
         [
           "sensor_id", "observed_at", "source", "temperature_c", "relative_humidity_pct",
-          "battery_pct", "quality", "metadata",
+          "battery_pct", "quality", "metadata", "data_mode",
         ],
         ["sensor_id", "observed_at", "source"],
-        ["temperature_c", "relative_humidity_pct", "battery_pct", "quality", "metadata"],
+        ["temperature_c", "relative_humidity_pct", "battery_pct", "quality", "metadata", "data_mode"],
         readings,
         (reading) => [
           reading.sensorId, reading.timestamp, reading.source, reading.temperature, reading.humidity,
-          reading.battery, reading.quality, reading.metadata ?? {},
+          reading.battery, reading.quality, reading.metadata ?? {}, reading.dataMode ?? null,
         ],
         control,
       );
@@ -85,14 +95,14 @@ registerTimeseriesStoreMethods({
         "outdoor_temperature_samples",
         [
           "house_id", "location_key", "observed_at", "source", "temperature_c", "fetched_at",
-          "station_id", "station_name", "metadata",
+          "station_id", "station_name", "metadata", "data_mode",
         ],
         ["house_id", "location_key", "observed_at", "source"],
-        ["temperature_c", "fetched_at", "station_id", "station_name", "metadata"],
+        ["temperature_c", "fetched_at", "station_id", "station_name", "metadata", "data_mode"],
         samples,
         (sample) => [
           sample.houseId, sample.locationKey, sample.timestamp, sample.source, sample.temperatureC,
-          sample.fetchedAt, sample.stationId, sample.stationName, sample.metadata ?? {},
+          sample.fetchedAt, sample.stationId, sample.stationName, sample.metadata ?? {}, sample.dataMode ?? null,
         ],
         control,
       );
@@ -208,18 +218,24 @@ registerTimeseriesStoreMethods({
           });
           return `(${placeholders.join(", ")})`;
         });
-        const assignments = updateColumns.map((column) => (
-          `${quoteIdentifier(column)} = EXCLUDED.${quoteIdentifier(column)}`
+        // A verified checkpoint may enrich an old row. An untagged replay
+        // cannot supply new payload under a mode established by another write.
+        const incoming = updateColumns.map(incomingSampleColumn);
+        const assignments = updateColumns.map((column, index) => (
+          `${quoteIdentifier(column)} = ${incoming[index]}`
         ));
         assignments.push(`${quoteIdentifier("ingested_at")} = clock_timestamp()`);
         const distinctCurrent = updateColumns.map((column) => `current_row.${quoteIdentifier(column)}`).join(", ");
-        const distinctIncoming = updateColumns.map((column) => `EXCLUDED.${quoteIdentifier(column)}`).join(", ");
+        const distinctIncoming = incoming.join(", ");
+        const modeGuard = updateColumns.includes("data_mode")
+          ? " AND (current_row.data_mode IS NULL OR current_row.data_mode = EXCLUDED.data_mode)"
+          : "";
         const insertSql = `INSERT INTO ${qualifiedName(this.schema, table)} AS current_row
           (${columns.map(quoteIdentifier).join(", ")})
           VALUES ${tuples.join(", ")}
           ON CONFLICT (${conflictColumns.map(quoteIdentifier).join(", ")}) DO UPDATE SET
             ${assignments.join(", ")}
-          WHERE ROW(${distinctCurrent}) IS DISTINCT FROM ROW(${distinctIncoming})`;
+          WHERE ROW(${distinctCurrent}) IS DISTINCT FROM ROW(${distinctIncoming})${modeGuard}`;
         let sql = insertSql;
         if (markOrderedRollups) {
           values.push([...state.orderedMetrics]);

@@ -55,7 +55,7 @@ export type AggregationSemantic =
   | "custom";
 
 /** Product release version. Pre-1.0 minor releases may contain breaking changes. */
-export const SYSTEM_VERSION = "0.62.2" as const;
+export const SYSTEM_VERSION = "0.63.0" as const;
 
 export interface MeasurementDefinition {
   id: Metric;
@@ -194,7 +194,7 @@ export interface AnalyticsQueryRequest {
   resolution: AnalyticsResolution;
   aggregation: AnalyticsAggregation;
   qualityFilter?: AnalyticsQualityFilter;
-  include?: Array<"series" | "summary" | "provenance" | "quality">;
+  include?: Array<"series" | "summary" | "provenance" | "quality" | "distribution">;
   maxPointsPerSeries?: number;
   requestId: string;
 }
@@ -290,6 +290,23 @@ export interface AnalyticsSummary {
   p95: number | null;
 }
 
+/** Unweighted distribution of returned values; bucket distributions are not raw-sample distributions. */
+export interface AnalyticsDistribution {
+  basis: "raw-observations" | "display-buckets";
+  weighting: "equal-values";
+  count: number;
+  excludedCount: number;
+  minimum: number | null;
+  maximum: number | null;
+  p05: number | null;
+  p25: number | null;
+  median: number | null;
+  p75: number | null;
+  p95: number | null;
+  /** Half-open bins, except that the final bin includes its upper endpoint. */
+  bins: Array<{ lower: number; upper: number; count: number }>;
+}
+
 export interface AnalyticsSeries {
   entityId: string;
   entityLabel: string;
@@ -301,6 +318,8 @@ export interface AnalyticsSeries {
   resolution: Exclude<AnalyticsResolution, "auto">;
   points: AnalyticsPoint[];
   summary: AnalyticsSummary;
+  /** Present only when explicitly requested through include. Missing values are excluded, never zero-filled. */
+  distribution?: AnalyticsDistribution;
   provenance: AnalyticsProvenance;
 }
 

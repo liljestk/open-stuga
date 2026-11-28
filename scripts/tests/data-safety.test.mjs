@@ -479,6 +479,7 @@ test("Timescale recovery preserves roles and records fail-closed ownership valid
   const dumpArguments = timescaleDumpArguments(dump);
   assert.equal(dumpArguments.includes("--no-owner"), false);
   assert.equal(dumpArguments.includes("--no-privileges"), true);
+  assert.equal(dumpArguments.includes("--exclude-table-data=*.stugu_archive_generation"), true);
 
   const plan = timescaleRestorePlan(options, dump, validator);
   assert.equal(plan.ownershipMode, "preserve-source-roles");

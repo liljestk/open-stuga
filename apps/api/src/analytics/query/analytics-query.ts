@@ -6,6 +6,7 @@ import {
   mean,
   median,
   medianAbsoluteDeviation,
+  numericDistribution,
   minimum,
   quantileSorted,
   sampleStandardDeviation,
@@ -182,8 +183,8 @@ export function parseAnalyticsQueryRequest(value: unknown, now = Date.now()): An
 
   const includes = body.include === undefined
     ? ["series", "summary", "provenance", "quality"] as const
-    : stringList(body.include, "include", 4);
-  const allowedIncludes = new Set(["series", "summary", "provenance", "quality"]);
+    : stringList(body.include, "include", 5);
+  const allowedIncludes = new Set(["series", "summary", "provenance", "quality", "distribution"]);
   if (includes.some((item) => !allowedIncludes.has(item))) {
     throw new AnalyticsQueryError(400, "INVALID_ANALYTICS_INCLUDE", "include contains an unsupported section");
   }
@@ -577,7 +578,14 @@ export function finalizeAnalyticsResponse(input: {
     dataMode: input.request.dataMode,
     resolvedRange: input.request.range,
     resolution: input.resolution,
-    series: input.series,
+    series: input.request.include?.includes("distribution") ? input.series.map((series) => ({
+      ...series,
+      distribution: {
+        ...numericDistribution(series.points.map((point) => point.value ?? Number.NaN)),
+        basis: series.resolution === "raw" ? "raw-observations" as const : "display-buckets" as const,
+        weighting: "equal-values" as const,
+      },
+    })) : input.series,
     summaries,
     quality: {
       coverage,

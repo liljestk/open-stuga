@@ -67,6 +67,7 @@ export interface ApiRuntime {
   weather: WeatherService;
   weatherMonitor: WeatherMonitor;
   dailyAnalyticsFindings: DailyAnalyticsFindingsWorker;
+  adaptiveCollection: import("../../analytics/adaptive-monitoring/collection-worker.js").AdaptiveCollectionWorker;
   derivedAnalytics: import("../../analytics/derived-artifacts/coordinator.js").DerivedAnalyticsCoordinator;
   scheduledDataExports: ScheduledDataExportService;
   weatherRecovery: WeatherRecoveryCoordinator;

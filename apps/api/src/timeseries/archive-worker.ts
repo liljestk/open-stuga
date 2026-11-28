@@ -9,6 +9,7 @@ import type { TelemetryBus } from "../events.js";
 import { TELEMETRY_TABLES, type TelemetryTableName } from "./schema.js";
 import type { TimeseriesStore } from "./store.js";
 import type {
+  MeasurementSampleRecord,
   TelemetrySchemaInitResult,
 } from "./types.js";
 
@@ -60,7 +61,7 @@ type CheckpointStore = TimeseriesStore & {
 
 interface QueuedMeasurement {
   id: number;
-  sample: MeasurementSample;
+  sample: MeasurementSample & Pick<MeasurementSampleRecord, "dataMode" | "recordedAt">;
 }
 
 function isSyntheticSample(sample: MeasurementSample): boolean {
@@ -183,6 +184,7 @@ export class TelemetryArchiveWorker {
         throw new Error("Required TimescaleDB telemetry hypertables are unavailable");
       }
       if (this.#stopping) return;
+      this.#database.adoptDailyFindingsArchiveGeneration(schema.archiveGeneration);
       this.#status = {
         ...this.#status,
         phase: "syncing",
@@ -311,9 +313,10 @@ export class TelemetryArchiveWorker {
       this.#status.droppedQueueSamples += 1;
       return;
     }
+    const recording = this.#database.measurementArchiveRecording(sample);
     this.#status.caughtUp = false;
     if (this.#status.phase === "ready") this.#status.phase = "syncing";
-    this.#queue.push({ id: ++this.#nextQueueId, sample });
+    this.#queue.push({ id: ++this.#nextQueueId, sample: { ...sample, dataMode: null, ...recording } });
     if (this.#queue.length > this.#maxQueuedSamples) {
       let remaining = this.#queue.length - this.#maxQueuedSamples;
       const retained = this.#queue.filter((queued) => {

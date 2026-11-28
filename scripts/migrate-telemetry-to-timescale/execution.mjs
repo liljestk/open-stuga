@@ -27,13 +27,15 @@ import {
   quoteSqliteIdentifier,
 } from ".././sqlite-snapshot-utils.mjs";
 
-import { acquireCheckpointLock, destinationFingerprint, inventoryTelemetrySource, legacyDestinationFingerprint, loadPgClient, printInventory, redactConnectionText, sourceBlockers, writeManifest } from "./source-state.mjs";
+import { acquireCheckpointLock, acquireTelemetryMigrationLock, destinationFingerprint, inventoryTelemetrySource, legacyDestinationFingerprint, loadPgClient, printInventory, redactConnectionText, sourceBlockers, writeManifest } from "./source-state.mjs";
 
 import { buildOrLoadManifest, migrateTables, verifyAllTables } from "./transfer.mjs";
 
 import { DESTINATION_FINGERPRINT_VERSION, help, parseMigrationArgs } from "./configuration.mjs";
 
 import { ensureAndRefreshMeasurementAggregates, provisionDestination, requireTimescaleDestination, validateDestinationSchema } from "./destination-schema.mjs";
+import { runModeIndexMaintenance } from "./mode-indexes.mjs";
+import { stageLocalMeasurementModeIdentities } from "./local-mode-identities.mjs";
 
 export async function runDryMigration(options) {
   if (!existsSync(options.source)) throw new Error(`SQLite source does not exist: ${options.source}`);
@@ -53,6 +55,8 @@ export async function runDryMigration(options) {
 }
 
 export async function runMigration(options) {
+  if (options.stageMeasurementModeIdentities) return stageLocalMeasurementModeIdentities(options);
+  if (options.prepareModeIndexes) return runModeIndexMaintenance(options);
   if (options.dryRun) return runDryMigration(options);
   let releaseLock = () => undefined;
   let client;
@@ -65,13 +69,7 @@ export async function runMigration(options) {
   try {
     client = await loadPgClient(options.pgClientConfig);
     const fingerprint = await destinationFingerprint(client, options.schema);
-    const advisory = await client.query(
-      "SELECT pg_try_advisory_lock(hashtext('stugu-telemetry-migration'), hashtext($1)) AS acquired",
-      [options.schema],
-    );
-    if (!advisory.rows[0]?.acquired) {
-      throw new Error("Another telemetry migration or verification is active on this destination schema");
-    }
+    await acquireTelemetryMigrationLock(client, options.schema);
     advisoryLockHeld = true;
     releaseLock = acquireCheckpointLock(options.checkpoint, {
       destinationFingerprint: fingerprint,

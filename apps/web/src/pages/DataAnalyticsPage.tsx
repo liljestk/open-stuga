@@ -1,6 +1,14 @@
+import { AnalyticsResolutionControl } from "./DataAnalyticsPage/AnalyticsResolutionControl";
+import { useExplorerWindow } from "./DataAnalyticsPage/useExplorerWindow";
+import { AnalyticsSummaryCards } from "./DataAnalyticsPage/AnalyticsSummaryCards";
+import { AnalyticsExplorerControls } from "./DataAnalyticsPage/AnalyticsExplorerControls";
+import { explorerWindow, analyticsPointsInWindow } from "../analyticsWindow";
+import { applySavedAnalyticsView, scopedAnalyticsWindow, explorerLocationScope, explorerForecastAllowed, explorerAnalyticsRequest, explorerBrushCallback } from "./DataAnalyticsPage/explorerViews";
+import { AnalyticsDistributions } from "./DataAnalyticsPage/AnalyticsDistributions";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChartLine, ChevronDown, CloudSun, Database, DoorOpen, Download, Droplets, FileJson, FileSpreadsheet, Gauge, ShieldCheck, Table2, TriangleAlert } from "lucide-react";
 import type {
+  AnalyticsViewDefinition,
   AnalyticsAggregation,
   AnalyticsResolution,
   House,
@@ -25,11 +33,10 @@ import { chartGapThresholdMs, detectSeriesGaps } from "../chartGaps";
 import { formatInTimeZone } from "../dateTime";
 import { useHouseWeather } from "../useHouseWeather";
 import { useI18n } from "../i18n";
-import { formatMeasurement, measurementLabel, type MeasurementForecasts } from "../measurements";
+import { formatMeasurement, measurementLabel, sensorHasMetric, type MeasurementForecasts } from "../measurements";
 import { useNow } from "../useNow";
 import { compareCodeUnits } from "../textOrder";
 import {
-  ANALYTICS_RESOLUTIONS,
   analyticsToolsFromLocation,
   writeAnalyticsToolsToLocation,
   evidenceIsDeepLinked,
@@ -37,8 +44,6 @@ import {
   analyticsStateFromLocation,
   writeAnalyticsStateToLocation,
   aggregationOptions,
-  qualitiesForPreset,
-  analyticsPointBudget,
   analyticsIdentityToken,
   durationLabel,
   type AnalyticsLocationState,
@@ -48,6 +53,7 @@ import {
 import { analyticsCsv, downloadText } from "./DataAnalyticsPage/analyticsExport";
 import { useExplorerAnalyticsQuery, useExplorerContextQuery, useExplorerForecastsQuery } from "../data/analytics/explorerQueries";
 import { RefreshButton } from "../components/RefreshButton";
+import { AdaptiveHomePanel } from "./DataAnalyticsPage/AdaptiveHomePanel";
 
 interface DataAnalyticsPageProps {
   state: ClimateState;
@@ -55,6 +61,7 @@ interface DataAnalyticsPageProps {
   units: UnitSystem;
   dataMode: "demo" | "real" | "unknown";
   readOnly?: boolean;
+  canManageAdaptive?: boolean;
   onLoadSeries: (sensorId: string, metric: Metric, range: TimeRange, forecastSupported: boolean) => void;
 }
 
@@ -79,7 +86,9 @@ export { analyticsCsv } from "./DataAnalyticsPage/analyticsExport";
 
 export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
   const { locale, t } = useI18n();
-  const now = useNow();
+  const liveNow = useNow();
+  const analyticsDataMode: "live" | "demo" = props.dataMode === "real" ? "live" : "demo";
+  const locationScope = explorerLocationScope({ houseId: props.house.id, dataMode: props.dataMode, analyticsDataMode });
   const sensors = useMemo(
     () => props.state.sensors.filter((sensor) => sensor.houseId === props.house.id),
     [props.house.id, props.state.sensors],
@@ -90,7 +99,9 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
   const metricIdsKey = metricIds.join("\u0000");
   const sensorIdsKey = sensorIds.join("\u0000");
   const defaultMetric = defaultAnalyticsMetric(metricIds);
-  const initialLocationState = analyticsStateFromLocation(metricIds, sensorIds);
+  const initialLocationState = analyticsStateFromLocation(metricIds, sensorIds, locationScope);
+  const { absoluteRange, setAbsoluteRange, brush, setBrush, brushSelection, setBrushSelection } = useExplorerWindow({ ...locationScope, initial: initialLocationState.absoluteRange });
+  const { end: now } = explorerWindow({ absoluteRange, now: liveNow, range: initialLocationState.range });
   const [metric, setMetric] = useState<Metric>(initialLocationState.metric);
   const [selectedSensorIds, setSelectedSensorIds] = useState<string[] | null>(initialLocationState.selectedSensorIds);
   const [weatherObservationsVisible, setWeatherObservationsVisible] = useState(initialLocationState.weatherObservationsVisible);
@@ -112,6 +123,7 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
     houseId: props.house.id,
     range,
     rangeHours: timeRangeHours(range),
+    absoluteRange,
     enabled: auxiliaryHistoryVisible,
     refreshRevision,
   });
@@ -141,7 +153,6 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
   const selectedSensorKey = selectedSensors.map((sensor) => sensor.id).sort(compareCodeUnits).join("\u0000");
   const sensorsOpen = openTools.has("sensors");
   const analyticsNeeded = sensorsOpen || evidenceOpen || continuityOpen;
-  const analyticsDataMode = props.dataMode === "real" ? "live" : "demo";
   const forecastCacheScope = [props.dataMode, props.house.id, refreshRevision, selectedSensorKey].join("\u0001");
   const analyticsBatchIdentity = [
     forecastCacheScope,
@@ -151,6 +162,7 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
     aggregation,
     qualityPreset,
     props.house.timezone,
+    absoluteRange?.start, absoluteRange?.end,
   ].join("\u0001");
   const analyticsRequestId = `explorer-${analyticsIdentityToken(analyticsBatchIdentity)}`;
   const analyticsRetentionIdentity = [
@@ -163,10 +175,11 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
     aggregation,
     qualityPreset,
     props.house.timezone,
+    absoluteRange?.start, absoluteRange?.end,
   ].join("\u0001");
 
   const writeLocationPatch = (patch: Partial<AnalyticsLocationState>, mode: "push" | "replace") => {
-    const current = analyticsStateFromLocation(metricIds, sensorIds);
+    const current = analyticsStateFromLocation(metricIds, sensorIds, locationScope);
     writeAnalyticsStateToLocation({ ...current, ...patch }, mode, defaultMetric);
   };
 
@@ -183,7 +196,9 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
     const expectedPathname = window.location.pathname;
     const restoreState = () => {
       if (window.location.pathname !== expectedPathname) return;
-      const next = analyticsStateFromLocation(metricIds, sensorIds);
+      const next = analyticsStateFromLocation(metricIds, sensorIds, locationScope);
+      setAbsoluteRange(next.absoluteRange);
+      setBrush(false); setBrushSelection(null);
       setMetric(next.metric);
       setSelectedSensorIds(next.selectedSensorIds);
       setWeatherObservationsVisible(next.weatherObservationsVisible);
@@ -199,12 +214,21 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
     restoreState();
     window.addEventListener("popstate", restoreState);
     return () => window.removeEventListener("popstate", restoreState);
-  }, [defaultMetric, metricIdsKey, props.house.id, sensorIdsKey]);
+  }, [defaultMetric, metricIdsKey, props.house.id, props.dataMode, sensorIdsKey]);
 
   const selectRange = (next: TimeRange) => {
+    setAbsoluteRange(undefined); setBrushSelection(null); setBrush(false);
     setRange(next);
-    writeLocationPatch({ range: next }, "push");
+    writeLocationPatch({ range: next, absoluteRange: undefined }, "push");
   };
+  const applyWindow = (window: { start: string; end: string }) => {
+    const scoped = scopedAnalyticsWindow({ window, houseId: props.house.id, dataMode: analyticsDataMode });
+    setAbsoluteRange(scoped); setBrushSelection(null); setBrush(false);
+    writeLocationPatch({ absoluteRange: scoped }, "push");
+  };
+  const applyView = (definition: AnalyticsViewDefinition): boolean => applySavedAnalyticsView({
+    definition, houseId: props.house.id, dataMode: analyticsDataMode, range, metricIds, sensorIds, defaultMetric,
+  });
   const selectResolution = (next: AnalyticsResolution) => {
     const nextAggregation = next === "raw" ? "default" : aggregation;
     setResolution(next);
@@ -272,32 +296,17 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
     void weather.refresh();
   }, [weather.refresh]);
 
-  const fromMs = now - timeRangeHours(range) * 3_600_000;
+  const { from: fromMs } = explorerWindow({ absoluteRange, now, range });
   const analyticsEnabled = analyticsNeeded && props.dataMode !== "unknown" && Boolean(selectedDefinition) && selectedSensors.length > 0;
   const { query: analyticsQuery, data: analyticsData } = useExplorerAnalyticsQuery({
     houseId: props.house.id,
     retentionIdentity: analyticsRetentionIdentity,
     requestId: analyticsRequestId,
     enabled: analyticsEnabled,
-    request: () => {
-      // Minute-aligned so a reopened panel or a second tab reuses the API's
-      // cached answer for the same window instead of recomputing it.
-      const end = new Date(Math.floor(Date.now() / 60_000) * 60_000);
-      const start = new Date(end.getTime() - timeRangeHours(range) * 3_600_000);
-      return {
-        apiVersion: "1.0",
-        dataMode: analyticsDataMode,
-        scope: { kind: "house", id: props.house.id, entityIds: selectedSensors.map((sensor) => sensor.id) },
-        measurementIds: [metric],
-        range: { start: start.toISOString(), end: end.toISOString(), timezone: props.house.timezone },
-        resolution,
-        aggregation: resolution === "raw" ? "default" : aggregation,
-        qualityFilter: { include: qualitiesForPreset(qualityPreset) },
-        include: ["series", "summary", "quality", "provenance"],
-        maxPointsPerSeries: analyticsPointBudget(range),
-        requestId: analyticsRequestId,
-      };
-    },
+    request: () => explorerAnalyticsRequest({ houseId: props.house.id, dataMode: analyticsDataMode,
+      sensorIds: selectedSensors.map((sensor) => sensor.id), timeZone: props.house.timezone, requestId: analyticsRequestId,
+      state: { metric, selectedSensorIds, range, absoluteRange, resolution, aggregation, qualityPreset, weatherObservationsVisible, weatherForecastVisible },
+    }),
   });
   const analytics = analyticsData ?? null;
   const analyticsError = analyticsEnabled && analyticsQuery.error
@@ -308,8 +317,7 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
     .filter((detail): detail is string => Boolean(detail)))];
 
   // Optional forecasts start only once the observed batch for this exact selection has arrived.
-  const forecastsEnabled = sensorsOpen && analytics !== null && analytics.requestId === analyticsRequestId
-    && Boolean(selectedDefinition?.forecastSupported);
+  const forecastsEnabled = explorerForecastAllowed({ absolute: Boolean(absoluteRange), sensorsOpen, analytics, requestId: analyticsRequestId, definition: selectedDefinition });
   const forecastQuery = useExplorerForecastsQuery({
     houseId: props.house.id,
     scope: forecastCacheScope,
@@ -325,7 +333,7 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
     if (!analytics) return [];
     const points = observedSeries(sensor.id, metric, props.state.measurementHistory,
       props.state.latestMeasurements, fromMs, analytics.series, analytics.resolvedRange.end);
-    return detectSeriesGaps(points, thresholdMs, { startedAt: fromMs, endedAt: now })
+    return detectSeriesGaps(analyticsPointsInWindow(points, { from: fromMs, to: now }), thresholdMs, { startedAt: fromMs, endedAt: now })
       .map((gap) => ({ sensor, gap }));
   }), [analytics, fromMs, metric, now, props.state.measurementHistory, props.state.latestMeasurements, selectedSensors, thresholdMs]);
   const visibleOutdoorGaps = useMemo(() => detectSeriesGaps(
@@ -474,7 +482,13 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
                 <span>{t("chart.loadError")}</span>
                 {sensorRecoveryErrors.map((detail) => <span key={detail}><br />{detail}</span>)}
               </p>}
+              <AnalyticsExplorerControls key={`views:${props.house.id}:${analyticsDataMode}`} houseId={props.house.id} dataMode={analyticsDataMode}
+                enabled={props.dataMode !== "unknown"} readOnly={Boolean(props.readOnly)} state={{ metric, selectedSensorIds, range, absoluteRange,
+                  resolution, aggregation, qualityPreset, weatherObservationsVisible, weatherForecastVisible }} from={fromMs} to={now}
+                brush={brush} selection={brushSelection} onApplyView={applyView} onBrush={setBrush} onApplyWindow={applyWindow} onReset={() => selectRange(range)} />
               {definitions.length > 0 && sensors.length > 0 ? <SensorAnalyticsChart
+                absoluteRange={absoluteRange}
+                onRangeSelection={explorerBrushCallback(brush, (selection) => { setBrushSelection(selection); setBrush(false); })}
                 houseId={props.house.id}
                 dataMode={props.dataMode}
                 sensors={metricSensors}
@@ -509,6 +523,19 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
       </section>
 
       <div className="analytics-tool-stack">
+        {props.canManageAdaptive && props.dataMode !== "unknown" &&
+          <details className="analytics-tool" open={openTools.has("adaptive")} onToggle={(event) => toggleTool("adaptive", event.currentTarget.open)}>
+            <summary>
+              <span className="analytics-tool-icon"><ShieldCheck size={18} aria-hidden="true" /></span>
+              <span className="analytics-tool-copy"><strong>{t("adaptive.title")}</strong><small>{t("adaptive.description")}</small></span>
+              <ChevronDown className="analytics-tool-chevron" size={18} aria-hidden="true" />
+            </summary>
+            {openTools.has("adaptive") && <AdaptiveHomePanel
+              scope={{ houseId: props.house.id, dataMode: analyticsDataMode }}
+              timeZone={props.house.timezone} sensors={sensors} definitions={definitions} units={props.units}
+              temperatureSensors={sensors.filter((sensor) => sensor.enabled && sensorHasMetric(props.state, sensor, "temperature"))}
+            />}
+          </details>}
         <details className="analytics-tool" onToggle={(event) => setIsolationOpen(event.currentTarget.open)}>
           <summary>
             <span className="analytics-tool-icon"><ShieldCheck size={18} aria-hidden="true" /></span>
@@ -544,9 +571,7 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
             )}><FileJson size={14} aria-hidden="true" />{t("analytics.exportJson")}</button>
           </div>}
         <div className="analytics-query-controls" role="group" aria-label={t("analytics.queryControls")}>
-          <label className="field"><span>{t("analytics.resolution")}</span><select value={resolution} onChange={(event) => selectResolution(event.target.value as AnalyticsResolution)}>
-            {ANALYTICS_RESOLUTIONS.map((option) => <option key={option} value={option}>{t(`analytics.resolution_${option}`)}</option>)}
-          </select></label>
+          <AnalyticsResolutionControl resolution={resolution} onChange={selectResolution} />
           <label className="field"><span>{t("analytics.aggregation")}</span><select value={resolution === "raw" ? "default" : aggregation} disabled={resolution === "raw"} onChange={(event) => selectAggregation(event.target.value as AnalyticsAggregation)}>
             {availableAggregations.map((option) => <option key={option} value={option}>{t(`analytics.aggregation_${option}`)}</option>)}
           </select></label>
@@ -562,24 +587,8 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
           : analyticsError}</p>}
         {analytics && selectedDefinition && <>
           {analytics.warnings.length > 0 && <ul className="analytics-query-warnings">{analytics.warnings.map((warning) => <li key={warning.code}>{warning.message}</li>)}</ul>}
-          <div className="analytics-summary-grid">{analytics.summaries.map((summary) => {
-            const matchingSeries = analytics.series.find((series) => series.entityId === summary.entityId && series.measurementId === summary.measurementId);
-            const label = matchingSeries?.entityLabel ?? summary.entityId;
-            return <article key={`${summary.entityId}-${summary.measurementId}`} className="analytics-summary-card">
-              <div className="analytics-summary-title"><strong>{label}</strong>{matchingSeries && <span className={`analytics-truth-class ${matchingSeries.truthClass}`}>{t(`analytics.truth_${matchingSeries.truthClass}`)}</span>}</div>
-              <dl>
-                <div><dt>{t("analytics.median")}</dt><dd>{summary.median === null ? "—" : formatMeasurement(summary.median, selectedDefinition, props.units)}</dd></div>
-                <div><dt>{t("analytics.minimum")}</dt><dd>{summary.minimum === null ? "—" : formatMeasurement(summary.minimum, selectedDefinition, props.units)}</dd></div>
-                <div><dt>{t("analytics.maximum")}</dt><dd>{summary.maximum === null ? "—" : formatMeasurement(summary.maximum, selectedDefinition, props.units)}</dd></div>
-                <div><dt>{t("analytics.coverageLabel")}</dt><dd>{Math.round(summary.coverage * 100)}%</dd></div>
-              </dl>
-              <small>{t("analytics.sampleCount", { count: summary.count })}</small>
-              {summary.basis && <small className="analytics-summary-basis">{summary.basis.statistics === "display-points"
-                ? t("analytics.summaryBasis.display")
-                : t("analytics.summaryBasis.base", { resolution: t(`analytics.resolution_${summary.basis.baseResolution}`) })}</small>}
-              {summary.expectedIntervalSeconds ? <small className="analytics-summary-basis">{t("analytics.summaryBasis.expectedInterval", { seconds: summary.expectedIntervalSeconds })}</small> : null}
-            </article>;
-          })}</div>
+          <AnalyticsSummaryCards analytics={analytics} definition={selectedDefinition} units={props.units} />
+          <AnalyticsDistributions series={analytics.series} definition={selectedDefinition} units={props.units} />
           <details className="analytics-data-details">
             <summary>{t("analytics.showDataTable", { count: analytics.series.reduce((sum, series) => sum + series.points.length, 0) })}</summary>
             <div className="analytics-data-table-wrap" role="region" aria-label={t("analytics.dataTable")} tabIndex={0}><table className="analytics-data-table">

@@ -13,7 +13,7 @@ import {
 import { LocalTelemetryWorker } from "../timeseries/local-telemetry-worker.js";
 import type { LocalBucketQuery, LocalSensorPageQuery } from "../timeseries/local-telemetry-worker-thread.js";
 import { databaseIntegrity, exportTableCounts, type ExportTable, type DatabaseIntegrityResult } from "./inspection.js";
-import type { MeasurementWindowQuery, ThermalMeasurementHistoryQuery } from "../timeseries/types.js";
+import type { MeasurementCoverageQuery, MeasurementCoverageRecord, MeasurementWindowQuery, ThermalMeasurementHistoryQuery } from "../timeseries/types.js";
 import type { LocalPowerProfileQuery, PowerProfile } from "../timeseries/read-power-profile.js";
 import { localPowerProfile } from "./local-power-profile.js";
 
@@ -28,6 +28,7 @@ export interface DatabaseInternals {
   exportTableCountsAsync(tables: readonly ExportTable[], signal?: AbortSignal): Promise<Record<string, number>>;
   integrityAsync(signal?: AbortSignal): Promise<DatabaseIntegrityResult>;
   measurementWindowAsync(query: MeasurementWindowQuery): Promise<MeasurementSample[]>;
+  measurementCoverageAsync(query: MeasurementCoverageQuery): Promise<MeasurementCoverageRecord[]>;
   optimizerPowerProfileAsync(query: LocalPowerProfileQuery): Promise<PowerProfile>;
   thermalMeasurementHistoryAsync(query: ThermalMeasurementHistoryQuery): Promise<MeasurementSample[]>;
   transaction<T>(operation: () => T): T;
@@ -147,6 +148,14 @@ export class ClimateDatabaseCore {
       this.#telemetryWorker ??= new LocalTelemetryWorker(this.#databasePath);
       return this.#telemetryWorker.readWindow(query);
     }
+  async measurementCoverageAsync(query: MeasurementCoverageQuery): Promise<MeasurementCoverageRecord[]> {
+    query.signal?.throwIfAborted();
+    if (this.#databasePath === ":memory:") {
+      return this.measurementCoverage(query.sensorIds, query.metrics, query.dataMode);
+    }
+    this.#telemetryWorker ??= new LocalTelemetryWorker(this.#databasePath);
+    return this.#telemetryWorker.readCoverage(query);
+  }
   async optimizerPowerProfileAsync(query: LocalPowerProfileQuery): Promise<PowerProfile> {
       query.signal?.throwIfAborted();
       if (this.#databasePath === ":memory:") return localPowerProfile(this, query);

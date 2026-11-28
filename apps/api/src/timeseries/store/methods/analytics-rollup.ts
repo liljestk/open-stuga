@@ -1,7 +1,7 @@
 import type { QueryResultRow } from "pg";
 import { orderedStateSeconds } from "@climate-twin/analytics-kernel";
 import { RollupsMaterializingError } from "../../read-support.js";
-import { MEASUREMENT_ANALYTICS_BUCKETS, type MeasurementAnalyticsBaseBucket } from "../../schema.js";
+import { MEASUREMENT_ANALYTICS_BUCKETS, measurementAnalyticsAggregateName, type MeasurementAnalyticsBaseBucket } from "../../schema.js";
 import type {
   MeasurementAnalyticsAggregation,
   MeasurementAnalyticsBucketRecord,
@@ -16,6 +16,8 @@ import type {
 import { timestamp } from "../support/query-values.js";
 import { registerTimeseriesStoreMethods, type TimeseriesStoreInternals } from "../core.js";
 import { mergeableAnalyticsSql, orderedAnalyticsSql } from "../measurement-analytics-rollup-sql.js";
+import { freshnessReady } from "../verified-aggregate-freshness.js";
+import { postgresErrorCode } from "./connection.js";
 
 function analyticsInterval(resolution: MeasurementAnalyticsResolution): string {
   if (resolution === "1h") return "1 hour";
@@ -185,7 +187,9 @@ async function executeMergeableRollup(
 ): Promise<MeasurementAnalyticsSeriesRecord[]> {
   if (series.length === 0) return [];
   const base = baseBucket(query.resolution);
-  const result = await store.__query<MeasurementAnalyticsRow>(mergeableAnalyticsSql(store.schema, base), [
+  const { dataMode } = query;
+  const modeParameters = dataMode === undefined ? [] : [dataMode];
+  const params = [
     requestRows(series),
     query.from,
     query.to,
@@ -193,7 +197,19 @@ async function executeMergeableRollup(
     analyticsInterval(query.resolution),
     query.excludeSynthetic === true,
     MEASUREMENT_ANALYTICS_BUCKETS[base].interval,
-  ], query);
+    ...modeParameters,
+  ];
+  const source = dataMode === undefined ? "compatibility" : "verified-raw";
+  const cached = dataMode !== undefined
+    && Date.parse(query.to) - Date.parse(query.from) >= 86_400_000
+    && await freshnessReady(store, query, measurementAnalyticsAggregateName(base, "verified"));
+  const read = (selected: typeof source | "verified-cached") => store.__query<MeasurementAnalyticsRow>(
+    mergeableAnalyticsSql(store.schema, base, selected), params, query,
+  );
+  const result = cached ? await read("verified-cached").catch((error: unknown) => {
+    if (postgresErrorCode(error) !== "42P01") throw error;
+    return read(source);
+  }) : await read(source);
   assertReadableRows(result.rows, false);
   return seriesRecords(result.rows, series, false);
 }
@@ -215,6 +231,7 @@ async function executeOrderedRollup(
   { query, series, summary }: OrderedRollupRead,
 ): Promise<OrderedRollupRecords> {
   if (series.length === 0) return { series: [], summary: [] };
+  const { dataMode } = query;
   const mask = qualityMask(query.qualities);
   const sourceScope = query.excludeSynthetic === true ? "real" : "all";
   const orderedSeconds = orderedSecondsFor(query.resolution, series);
@@ -227,25 +244,27 @@ async function executeOrderedRollup(
     orderedSeconds,
     query,
   );
-  const result = await store.__query<MeasurementAnalyticsRow>(orderedAnalyticsSql(store.schema), [
+  const result = await store.__query<MeasurementAnalyticsRow>(orderedAnalyticsSql(store.schema, dataMode !== undefined), [
     requestRows(series, summary),
     query.from,
     query.to,
     [...query.qualities],
     analyticsInterval(query.resolution),
     query.excludeSynthetic === true,
-    mask,
+    dataMode ?? mask,
     orderedSeconds,
   ], query).catch(async (error: unknown) => {
     // Without the read's plan, prepare the variants anyway so a read that
     // keeps failing still lets the worker materialize them.
-    if (!query.signal?.aborted) await enqueue(series).catch(() => undefined);
+    if (dataMode === undefined && !query.signal?.aborted) await enqueue(series).catch(() => undefined);
     throw error;
   });
   // Reads write only when their stored variants are missing or not clean.
   const unprepared = new Set(result.rows.filter((row) => row.preparation_required === true)
     .map((row) => JSON.stringify([row.sensor_id, row.metric])));
-  if (unprepared.size > 0) await enqueue(series.filter((item) => unprepared.has(seriesKey(item))));
+  if (dataMode === undefined && unprepared.size > 0) {
+    await enqueue(series.filter((item) => unprepared.has(seriesKey(item))));
+  }
   assertReadableRows(result.rows, true);
   return {
     series: seriesRecords(result.rows, series, false),
@@ -311,7 +330,8 @@ registerTimeseriesStoreMethods({
     this: TimeseriesStoreInternals,
     query: MeasurementAnalyticsRollupQuery,
   ): Promise<MeasurementAnalyticsRollupResult> {
-    if (query.series.length === 0) return { series: [] };
+    const scope = query.dataMode === undefined ? {} : { dataMode: query.dataMode };
+    if (query.series.length === 0) return { series: [], ...scope };
     if (query.series.length > 400) throw new RangeError("analytics rollups support at most 400 series");
     if (query.qualities.length === 0 || query.qualities.length > 3 || qualityMask(query.qualities) === 0) {
       throw new RangeError("analytics rollups require between 1 and 3 known quality values");
@@ -340,7 +360,7 @@ registerTimeseriesStoreMethods({
     ]);
     const records = new Map([...mergeableRecords, ...orderedRecords.series].map((record) => [seriesKey(record), record]));
     const series = query.series.map((item) => records.get(seriesKey(item))!);
-    if (!query.summary) return { series };
-    return { series, summary: await readRemainingSummary(this, { ...query, summary: query.summary }, orderedRecords.summary) };
+    if (!query.summary) return { series, ...scope };
+    return { series, ...scope, summary: await readRemainingSummary(this, { ...query, summary: query.summary }, orderedRecords.summary) };
   },
 });
