@@ -340,6 +340,19 @@ By default the tool places a consistent `*.timescale-migration.snapshot.sqlite` 
 
 Treat one target schema as one logical deployment. Import multiple historical SQLite databases into the same schema only after confirming that their natural keys and identities belong together: a collision retains the existing destination row, and verification rejects the import if the payloads differ. Preserve unrelated development databases as verified backups or migrate them to deliberately separate schemas.
 
+### Verified-mode lookup indexes
+
+After both stores have the telemetry mode columns, the existing migration service can prepare partial lookup indexes for measurements, legacy readings and outdoor temperatures. It indexes rows with a recorded mode by series, mode and time. Existing row identifiers, data-mode tags and primary keys are preserved.
+
+Run preparation during the same stopped-writer maintenance window as bulk migration. Index builds can scan retained history and allocate space in both stores. Each store commits independently, so rerun the same command after an interruption. Verification checks both index catalogs and opens SQLite read-only.
+
+```powershell
+docker compose --profile maintenance run --rm telemetry-migrate `
+  node /app/scripts/migrate-telemetry-to-timescale.mjs --prepare-mode-indexes
+docker compose --profile maintenance run --rm telemetry-migrate `
+  node /app/scripts/migrate-telemetry-to-timescale.mjs --prepare-mode-indexes --verify-only
+```
+
 ## Backup and restore
 
 Back up both authoritative stores. A PostgreSQL dump alone omits control-plane data and integration configuration; a SQLite snapshot alone omits the durable archive. Every backup is sensitive: core SQLite contains authentication/session hashes and household state, assets may reveal the home, and Timescale contains occupancy-adjacent telemetry. Keep sets outside Docker volumes on a protected, encrypted destination and encrypt every off-host copy, whether or not integration secrets are included.

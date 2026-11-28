@@ -115,10 +115,15 @@ demo/live tags and measurement recording times. It leaves unclassified history
 unclassified. Older checkpoints replay affected tables and fill absent lineage
 only when the destination payload and existing lineage agree.
 
+The migration service can prepare and verify partial mode-scoped lookup
+indexes for measurements, legacy readings and outdoor temperatures in both
+stores. Existing keys and unclassified rows are preserved. Index work runs in
+explicit maintenance so startup can avoid scanning historical data.
+
 Still to implement:
 
-- Finish the SQLite/Timescale inventory and coordinated migration for explicit
-  per-record data mode and mode-scoped identities and indexes.
+- Finish the SQLite/Timescale inventory and coordinated migration of
+  mode-scoped storage identities. Verify index preparation on an appliance.
   Existing database-wide demo-to-real isolation remains the production boundary
   until that migration and restore/rollback checks pass.
 - Rebuild and validate affected aggregate identities and queries; prove demo

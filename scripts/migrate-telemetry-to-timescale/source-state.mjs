@@ -30,6 +30,16 @@ import {
 import { MANIFEST_VERSION, SOURCE_TABLES, duplicateKeyRows, normalizedTimestampExpression, registerDestinationTimestampKey, tableExists } from "./configuration.mjs";
 import { lineageInventory, lineageInventoryExpressions } from "./lineage.mjs";
 
+export async function acquireTelemetryMigrationLock(client, schema) {
+  const advisory = await client.query(
+    "SELECT pg_try_advisory_lock(hashtext('stugu-telemetry-migration'), hashtext($1)) AS acquired",
+    [schema],
+  );
+  if (!advisory.rows[0]?.acquired) {
+    throw new Error("Another telemetry migration or verification is active on this destination schema");
+  }
+}
+
 export function inventoryTelemetrySource(database) {
   registerDestinationTimestampKey(database);
   const result = {};

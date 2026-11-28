@@ -33,7 +33,7 @@
     "test:code-quality": "node --test scripts/tests/code-quality-gates.test.mjs",
     "test:setup": "node --test scripts/tests/setup.test.mjs scripts/tests/setup.part-02.test.mjs scripts/tests/cloudflare-oauth.test.mjs scripts/tests/local-ci.test.mjs",
     "test:native-readiness": "node --test apps/ios/Tests/native-readiness.test.mjs",
-    "test:data-safety": "node --test scripts/tests/data-safety.test.mjs scripts/tests/data-safety.part-02.test.mjs scripts/tests/telemetry-migration-lineage.test.mjs scripts/tests/remove-stuguby-connection.test.mjs scripts/tests/scheduled-data-export-worker.test.mjs",
+    "test:data-safety": "node --test scripts/tests/data-safety.test.mjs scripts/tests/data-safety.part-02.test.mjs scripts/tests/telemetry-migration-lineage.test.mjs scripts/tests/telemetry-mode-indexes.test.mjs scripts/tests/remove-stuguby-connection.test.mjs scripts/tests/scheduled-data-export-worker.test.mjs",
     "test:r2-backup": "node --test scripts/tests/r2-backup.test.mjs",
     "test:live-migration": "node --test scripts/tests/live-migration.test.mjs scripts/tests/live-migration.part-02.test.mjs",
     "test:cloudflare": "node --test scripts/tests/cloudflare-stugu.test.mjs",
