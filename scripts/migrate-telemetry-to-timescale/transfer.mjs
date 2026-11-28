@@ -27,11 +27,12 @@ import {
   quoteSqliteIdentifier,
 } from ".././sqlite-snapshot-utils.mjs";
 
-import { MANIFEST_VERSION, PREFLIGHT_SEMANTICS_VERSION, SOURCE_TABLES, TARGET_PRIMARY_KEYS, TARGET_TABLES, destinationTimestampKey, q } from "./configuration.mjs";
+import { MANIFEST_VERSION, PREFLIGHT_SEMANTICS_VERSION, SOURCE_LINEAGE, SOURCE_TABLES, TARGET_PRIMARY_KEYS, TARGET_TABLES, TRANSFER_LINEAGE_VERSION, destinationTimestampKey, q } from "./configuration.mjs";
 
 import { finiteNumber } from "./destination-schema.mjs";
 
 import { inventoryTelemetrySource, readManifest, sourceBlockers, writeManifest } from "./source-state.mjs";
+import { verifiedDataMode } from "./lineage.mjs";
 
 export function textValue(value, label, nullable = false) {
   if (nullable && value === null) return null;
@@ -93,6 +94,8 @@ export function mapRows(table, rows) {
     canonical_unit: textValue(row.canonical_unit, "canonical_unit"),
     quality: textValue(row.quality, "quality"),
     metadata: {},
+    data_mode: verifiedDataMode(table, row),
+    recorded_at: nullableTimestampValue(row.recorded_at ?? null, "recorded_at"),
   }));
   if (table === "readings") return rows.map((row) => ({
     sensor_id: textValue(row.sensor_id, "sensor_id"),
@@ -103,6 +106,7 @@ export function mapRows(table, rows) {
     battery_pct: finiteNumber(row.battery, "battery", true),
     quality: textValue(row.quality, "quality"),
     metadata: {},
+    data_mode: verifiedDataMode(table, row),
   }));
   if (table === "outdoor_temperature_samples") return rows.map((row) => ({
     house_id: textValue(row.house_id, "house_id"),
@@ -116,6 +120,7 @@ export function mapRows(table, rows) {
     // Keep the original JSON text until PostgreSQL casts it to JSONB. Parsing
     // through JavaScript would round high-precision JSON numbers.
     conditions_json: textValue(row.conditions_json ?? null, "conditions_json", true),
+    data_mode: verifiedDataMode(table, row),
   }));
   if (table === "electricity_price_points") return rows.map((row) => ({
     property_id: textValue(row.property_id, "property_id"),
@@ -259,11 +264,11 @@ export function fetchSourceBatch(database, table, cursor, batchSize) {
 export function recordDefinition(table) {
   return {
     measurement_samples: `sensor_id text, metric text, observed_at timestamptz, source text, value double precision,
-      canonical_unit text, quality text, metadata jsonb`,
+      canonical_unit text, quality text, metadata jsonb, data_mode text, recorded_at timestamptz`,
     readings: `sensor_id text, observed_at timestamptz, source text, temperature_c double precision,
-      relative_humidity_pct double precision, battery_pct double precision, quality text, metadata jsonb`,
+      relative_humidity_pct double precision, battery_pct double precision, quality text, metadata jsonb, data_mode text`,
     outdoor_temperature_samples: `house_id text, location_key text, observed_at timestamptz, source text,
-      temperature_c double precision, fetched_at timestamptz, station_id text, station_name text, conditions_json text`,
+      temperature_c double precision, fetched_at timestamptz, station_id text, station_name text, conditions_json text, data_mode text`,
     electricity_price_points: `property_id text, starts_at timestamptz, source text, ends_at timestamptz,
       raw_price_cents_per_kwh double precision, margin_cents_per_kwh double precision,
       fetched_at timestamptz, metadata jsonb`,
@@ -285,12 +290,14 @@ export function recordDefinition(table) {
 
 export function targetColumns(table) {
   return {
-    measurement_samples: ["sensor_id", "metric", "observed_at", "source", "value", "canonical_unit", "quality", "metadata"],
+    measurement_samples: [
+      "sensor_id", "metric", "observed_at", "source", "value", "canonical_unit", "quality", "metadata", "data_mode", "recorded_at",
+    ],
     readings: [
-      "sensor_id", "observed_at", "source", "temperature_c", "relative_humidity_pct", "battery_pct", "quality", "metadata",
+      "sensor_id", "observed_at", "source", "temperature_c", "relative_humidity_pct", "battery_pct", "quality", "metadata", "data_mode",
     ],
     outdoor_temperature_samples: [
-      "house_id", "location_key", "observed_at", "source", "temperature_c", "fetched_at", "station_id", "station_name", "metadata",
+      "house_id", "location_key", "observed_at", "source", "temperature_c", "fetched_at", "station_id", "station_name", "metadata", "data_mode",
     ],
     electricity_price_points: [
       "property_id", "starts_at", "source", "ends_at", "raw_price_cents_per_kwh", "margin_cents_per_kwh",
@@ -331,18 +338,38 @@ export function targetProjection(table, alias) {
 export async function upsertBatch(client, schema, table, payload) {
   const columns = targetColumns(table);
   const sql = `
-    INSERT INTO ${q(schema)}.${q(TARGET_TABLES[table])} (${columns.map(q).join(", ")})
+    INSERT INTO ${q(schema)}.${q(TARGET_TABLES[table])} AS destination (${columns.map(q).join(", ")})
     SELECT ${targetProjection(table, "incoming")}
     FROM jsonb_to_recordset($1::jsonb) AS incoming(${recordDefinition(table)})
     ON CONFLICT (${TARGET_PRIMARY_KEYS[table].map(q).join(", ")})
-    DO NOTHING
+    ${lineageConflictAction(table, payload)}
   `;
   await client.query(sql, [JSON.stringify(payload)]);
 }
 
-export function payloadComparison(table, actual = "actual", expected = "expected") {
+function lineageConflictAction(table, payload) {
+  const columns = SOURCE_LINEAGE[table]?.columns ?? [];
+  if (!columns.some((column) => payload.some((row) => row[column] != null))) return "DO NOTHING";
+  const assignment = columns.map(q)
+    .map((field) => `${field} = coalesce(destination.${field}, excluded.${field})`).join(", ");
+  const missing = columns.map(q)
+    .map((field) => `(destination.${field} IS NULL AND excluded.${field} IS NOT NULL)`).join(" OR ");
+  return `DO UPDATE SET ${assignment}
+    WHERE (${missing}) AND ${payloadComparison(table, {
+      actual: "destination", expected: "excluded", allowMissingDestinationLineage: true,
+    })}`;
+}
+
+export function payloadComparison(table, { actual = "actual", expected = "expected", allowMissingDestinationLineage = false } = {}) {
+  const lineage = SOURCE_LINEAGE[table]?.columns ?? [];
   return mutableColumns(table)
-    .map((column) => `${actual}.${q(column)} IS NOT DISTINCT FROM ${expected}.${q(column)}`)
+    .map((column) => {
+      const field = q(column);
+      const equal = `${actual}.${field} IS NOT DISTINCT FROM ${expected}.${field}`;
+      if (!lineage.includes(column)) return equal;
+      const missing = allowMissingDestinationLineage ? ` OR ${actual}.${field} IS NULL` : "";
+      return `(${equal} OR ${expected}.${field} IS NULL${missing})`;
+    })
     .join(" AND ");
 }
 
@@ -389,6 +416,18 @@ export function assertVerified(table, verification) {
 }
 
 export async function migrateTables(client, database, options, manifest, interrupted) {
+  if (manifest.transferLineageVersion !== TRANSFER_LINEAGE_VERSION) {
+    for (const table of Object.keys(SOURCE_LINEAGE)) {
+      const lineage = manifest.inventory[table]?.lineage;
+      if (lineage && lineage.demoRows + lineage.liveRows + lineage.recordedRows > 0) delete manifest.progress[table];
+    }
+    delete manifest.verification;
+    delete manifest.aggregateRefresh;
+    delete manifest.completedAt;
+    manifest.state = "migrating";
+    manifest.transferLineageVersion = TRANSFER_LINEAGE_VERSION;
+    writeManifest(options.checkpoint, manifest);
+  }
   for (const table of Object.keys(SOURCE_TABLES)) {
     const sourceDetails = manifest.inventory[table];
     manifest.progress[table] ??= { cursor: null, rowsProcessed: 0, batches: 0, complete: false };
@@ -503,10 +542,11 @@ export async function buildOrLoadManifest(options) {
       if (manifest.preflightSemanticsVersion !== PREFLIGHT_SEMANTICS_VERSION) {
         manifest.inventory = inventoryTelemetrySource(database);
         manifest.blockers = sourceBlockers(manifest.inventory);
+        delete manifest.verification;
         manifest.preflightSemanticsVersion = PREFLIGHT_SEMANTICS_VERSION;
         manifest.preflightUpgrade = {
           upgradedAt: new Date().toISOString(),
-          reason: "Re-run destination-key normalization and optional source metadata validation",
+          reason: "Refresh destination-key, optional metadata and source lineage validation",
         };
         writeManifest(options.checkpoint, manifest);
       }
@@ -540,6 +580,7 @@ export async function buildOrLoadManifest(options) {
     snapshot: snapshotDetails.snapshot,
     sqliteChecks: snapshotDetails.checks,
     preflightSemanticsVersion: PREFLIGHT_SEMANTICS_VERSION,
+    transferLineageVersion: TRANSFER_LINEAGE_VERSION,
     inventory,
     progress: Object.fromEntries(Object.keys(SOURCE_TABLES).map((table) => [
       table,

@@ -27,7 +27,7 @@ import {
   quoteSqliteIdentifier,
 } from ".././sqlite-snapshot-utils.mjs";
 
-export const MANIFEST_VERSION = 4;
+export const MANIFEST_VERSION = 5;
 
 export const DEFAULT_BATCH_SIZE = 1_000;
 
@@ -41,7 +41,15 @@ export const MAX_MAINTENANCE_TIMEOUT_MS = 24 * 60 * 60 * 1_000;
 
 export const DESTINATION_TIMESTAMP_KEY_FUNCTION = "stuga_destination_timestamptz_key";
 
-export const PREFLIGHT_SEMANTICS_VERSION = 5;
+export const PREFLIGHT_SEMANTICS_VERSION = 6;
+
+export const TRANSFER_LINEAGE_VERSION = 1;
+
+export const SOURCE_LINEAGE = Object.freeze({
+  measurement_samples: { demoSources: ["mock", "replay"], columns: ["data_mode", "recorded_at"] },
+  readings: { demoSources: ["mock", "replay"], columns: ["data_mode"] },
+  outdoor_temperature_samples: { demoSources: ["mock"], columns: ["data_mode"] },
+});
 
 export const DESTINATION_FINGERPRINT_VERSION = 3;
 

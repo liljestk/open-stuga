@@ -107,6 +107,11 @@ work. It prioritizes the latest closed day and subsequently refreshes tracked
 days changed by late observations. Persisted ordered states and appliance cost
 still need work.
 
+The bulk SQLite-to-Timescale importer now inventories and carries verified
+demo/live tags and measurement recording times. It leaves unclassified history
+unclassified. Older checkpoints replay affected tables and fill absent lineage
+only when the destination payload and existing lineage agree.
+
 Still to implement:
 
 - Finish the SQLite/Timescale inventory and coordinated migration for explicit

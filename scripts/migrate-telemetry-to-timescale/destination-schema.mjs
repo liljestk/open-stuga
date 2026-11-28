@@ -391,6 +391,11 @@ export async function provisionDestination(client, schema, maintenanceTimeoutMs)
         ON ${s}.opening_state_samples (
           house_id, floor_id, element_id, source, external_id, connection_id, observed_at DESC
         );
+      ALTER TABLE ${s}.measurement_samples
+        ADD COLUMN IF NOT EXISTS data_mode text,
+        ADD COLUMN IF NOT EXISTS recorded_at timestamptz;
+      ALTER TABLE ${s}.legacy_readings ADD COLUMN IF NOT EXISTS data_mode text;
+      ALTER TABLE ${s}.outdoor_temperature_samples ADD COLUMN IF NOT EXISTS data_mode text;
       INSERT INTO ${s}.schema_migrations (version, description)
         VALUES (1, 'Initial append-only telemetry schema')
         ON CONFLICT (version) DO NOTHING;
@@ -445,13 +450,13 @@ export async function validateDestinationSchema(client, schema) {
     const columnNames = new Set(columns.rows.map(({ column_name }) => column_name));
     const expectedColumns = {
       measurement_samples: [
-        "sensor_id", "metric", "observed_at", "source", "value", "canonical_unit", "quality", "metadata", "ingested_at",
+        "sensor_id", "metric", "observed_at", "source", "value", "canonical_unit", "quality", "metadata", "ingested_at", "data_mode", "recorded_at",
       ],
       readings: [
-        "sensor_id", "observed_at", "source", "temperature_c", "relative_humidity_pct", "battery_pct", "quality", "metadata", "ingested_at",
+        "sensor_id", "observed_at", "source", "temperature_c", "relative_humidity_pct", "battery_pct", "quality", "metadata", "ingested_at", "data_mode",
       ],
       outdoor_temperature_samples: [
-        "house_id", "location_key", "observed_at", "source", "temperature_c", "fetched_at", "station_id", "station_name", "metadata", "ingested_at",
+        "house_id", "location_key", "observed_at", "source", "temperature_c", "fetched_at", "station_id", "station_name", "metadata", "ingested_at", "data_mode",
       ],
       electricity_price_points: [
         "property_id", "starts_at", "source", "ends_at", "raw_price_cents_per_kwh",
