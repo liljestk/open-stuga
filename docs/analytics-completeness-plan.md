@@ -78,8 +78,11 @@ Direct Timescale restore still needs an independent lineage check.
 SQLite now records immutable mode for new local measurements, legacy
 readings, and outdoor temperatures. The additive migration leaves older rows
 unclassified and preserves existing row IDs. The archive copies verified mode
-through measurement queue writes, checkpoint replay, and corrections. It keeps
-existing tags when replaying unclassified rows. Workspaces still use the
+through measurement queue writes, checkpoint replay, and corrections. Archive
+retries without verified mode can write unclassified rows. A correction to a
+verified archive row requires the same verified mode, and database guards
+reject new source/mode contradictions and reassignment of existing verified
+lineage. Workspaces still use the
 irreversible mode latch for production reads until the query and aggregate
 migration is ready.
 

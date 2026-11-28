@@ -82,7 +82,7 @@ describe("time-series schema", () => {
 });
 
 describe("TimeseriesStore", () => {
-  it("preserves verified mode on archive retries and enriches rows from old writers", async () => {
+  it("preserves verified payload and mode on archive retries and enriches rows from old writers", async () => {
     const database = new PGlite();
     try {
       const schemaSql = buildBaseSchemaSql("telemetry");
@@ -115,8 +115,10 @@ describe("TimeseriesStore", () => {
       expect(await store.upsertMeasurementSamples([{ ...measurement, dataMode: "live", recordedAt: TO }]))
         .toMatchObject({ affected: 1 });
       expect(await store.upsertMeasurementSamples([measurement])).toMatchObject({ affected: 0 });
-      expect(await store.upsertMeasurementSamples([{ ...measurement, value: 29, dataMode: "demo" }]))
+      expect(await store.upsertMeasurementSamples([{ ...measurement, value: 29 }]))
         .toMatchObject({ affected: 0 });
+      await expect(store.upsertMeasurementSamples([{ ...measurement, value: 29, dataMode: "demo" }]))
+        .rejects.toThrow("Invalid archive data mode for telemetry source");
       await store.upsertMeasurementSamples([
         { ...measurement, timestamp: TO, source: "mock", value: 15, dataMode: "demo" },
         { ...measurement, timestamp: TO, value: 30 },
@@ -127,15 +129,27 @@ describe("TimeseriesStore", () => {
       expect(await store.measurementWindow({ ...window, dataMode: "demo" }))
         .toMatchObject([{ timestamp: TO, value: 15, dataMode: "demo" }]);
       await store.upsertLegacyReadings([{ ...reading, dataMode: "live" }]);
-      await store.upsertLegacyReadings([{ ...reading, temperature: 22 }]);
+      expect(await store.upsertLegacyReadings([{ ...reading, temperature: 29 }])).toMatchObject({ affected: 0 });
+      await store.upsertLegacyReadings([{ ...reading, temperature: 22, dataMode: "live" }]);
       await store.upsertOutdoorTemperatureSamples([{ ...outdoor, dataMode: "demo" }]);
-      await store.upsertOutdoorTemperatureSamples([{ ...outdoor, temperatureC: 6 }]);
+      expect(await store.upsertOutdoorTemperatureSamples([{ ...outdoor, temperatureC: 29 }])).toMatchObject({ affected: 0 });
+      await store.upsertOutdoorTemperatureSamples([{ ...outdoor, temperatureC: 6, dataMode: "demo" }]);
       expect((await modes()).map(({ data_mode }) => data_mode).sort())
         .toEqual(["demo", "demo", "live", "live", null]);
       expect((await database.query("SELECT temperature_c FROM telemetry.legacy_readings")).rows)
         .toEqual([{ temperature_c: 22 }]);
       expect((await database.query("SELECT temperature_c FROM telemetry.outdoor_temperature_samples")).rows)
         .toEqual([{ temperature_c: 6 }]);
+      await expect(database.exec("UPDATE telemetry.legacy_readings SET data_mode = NULL"))
+        .rejects.toThrow("Verified archive telemetry mode and source are immutable");
+      await expect(database.exec("UPDATE telemetry.outdoor_temperature_samples SET source = 'api'"))
+        .rejects.toThrow("Verified archive telemetry mode and source are immutable");
+      const correctionRecordedAt = "2024-01-02T00:15:00.000Z";
+      expect(await store.upsertMeasurementSamples([{
+        ...measurement, value: 23, dataMode: "live", recordedAt: correctionRecordedAt,
+      }])).toMatchObject({ affected: 1 });
+      expect(await store.measurementWindow({ ...window, dataMode: "live" }))
+        .toMatchObject([{ timestamp: FROM, value: 23, recordedAt: correctionRecordedAt }]);
       await database.query(`UPDATE telemetry.measurement_samples SET value = 22 WHERE observed_at = $1::TIMESTAMPTZ`, [FROM]);
       expect(await store.measurementWindow({ ...window, dataMode: "live" }))
         .toMatchObject([{ timestamp: FROM, value: 22, recordedAt: null }]);

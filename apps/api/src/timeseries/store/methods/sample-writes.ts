@@ -218,8 +218,8 @@ registerTimeseriesStoreMethods({
           });
           return `(${placeholders.join(", ")})`;
         });
-        // A checkpoint replay may supply a missing tag, but old writers and
-        // transient bus events cannot clear an already verified mode.
+        // A verified checkpoint may enrich an old row. An untagged replay
+        // cannot supply new payload under a mode established by another write.
         const incoming = updateColumns.map(incomingSampleColumn);
         const assignments = updateColumns.map((column, index) => (
           `${quoteIdentifier(column)} = ${incoming[index]}`
@@ -228,7 +228,7 @@ registerTimeseriesStoreMethods({
         const distinctCurrent = updateColumns.map((column) => `current_row.${quoteIdentifier(column)}`).join(", ");
         const distinctIncoming = incoming.join(", ");
         const modeGuard = updateColumns.includes("data_mode")
-          ? " AND (current_row.data_mode IS NULL OR EXCLUDED.data_mode IS NULL OR current_row.data_mode = EXCLUDED.data_mode)"
+          ? " AND (current_row.data_mode IS NULL OR current_row.data_mode = EXCLUDED.data_mode)"
           : "";
         const insertSql = `INSERT INTO ${qualifiedName(this.schema, table)} AS current_row
           (${columns.map(quoteIdentifier).join(", ")})

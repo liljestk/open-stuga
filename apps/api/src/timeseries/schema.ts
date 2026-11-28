@@ -1,4 +1,5 @@
 import type { MeasurementBucket } from "./types.js";
+import { buildArchiveModeProtectionSql } from "./archive-mode-schema.js";
 
 export const TELEMETRY_TABLES = [
   "measurement_samples",
@@ -561,6 +562,10 @@ export function buildBaseSchemaSql(schemaName: string): string[] {
       END $recording$`,
     `INSERT INTO ${relation("schema_migrations")} (version, description)
       VALUES (11, 'Preserve the originating SQLite recording time for measurement evidence')
+      ON CONFLICT (version) DO NOTHING`,
+    ...buildArchiveModeProtectionSql(relation),
+    `INSERT INTO ${relation("schema_migrations")} (version, description)
+      VALUES (12, 'Protect verified telemetry mode and source on archive writes')
       ON CONFLICT (version) DO NOTHING`,
   ];
 }
