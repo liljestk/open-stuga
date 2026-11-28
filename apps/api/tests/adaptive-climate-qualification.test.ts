@@ -105,6 +105,10 @@ describe("Adaptive Home climate qualification", () => {
     const forecast = new CausalClimatePredictor(normal, thermal).predict(at);
     expect(forecast).toBeTypeOf("number");
     expect(new CausalClimatePredictor(changed, thermal).predict(at)).toBe(forecast);
+    const lateHoldout = outdoor.map((point) => point.time >= start + 3 * week
+      ? { ...point, availableAt: evaluatedAt + HOUR_MS } : point);
+    expect(qualifyAdaptiveClimateModel({ evidence, outdoor: lateHoldout, policy, metric: "temperature", evaluatedAt })
+      .candidates.map((candidate) => candidate.policy.kind)).toEqual(["daily-profile"]);
   });
 
   it("requires improvement over both baselines on the same hours and honors timely context guards", () => {

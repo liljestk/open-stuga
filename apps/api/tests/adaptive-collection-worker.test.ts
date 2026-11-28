@@ -238,4 +238,39 @@ describe("Adaptive Home shadow collection", () => {
     expect(artifacts.read(scope)?.evaluatedThrough).toBe(Date.now());
     expect(await artifacts.evaluate(epoch, signal)).toBe(false);
   });
+
+  it("qualifies the thermal candidate from sealed live weather and issues a prospective prediction", async () => {
+    database.activateRealDataMode();
+    createHome();
+    addStream("weather-target");
+    enable("live");
+    const scope = { houseId: homeId, sensorId: "weather-target", dataMode: "live", metric: "temperature", purpose: "climate" } as const;
+    const epoch = database.ensureAdaptiveEvidenceEpoch(scope)!;
+    const window = adaptiveQualificationWindow(Date.parse(epoch.effectiveAt));
+    const insert = database.db.prepare(`INSERT INTO adaptive_hourly_evidence
+      (epoch_id, hour, captured_at, value, coverage, observation_source) VALUES (?, ?, ?, ?, 1, 'api')`);
+    const weather = database.db.prepare(`INSERT INTO adaptive_weather_hours
+      (epoch_id, hour, temperature_c, observed_at, fetched_at, recorded_at, source) VALUES (?, ?, ?, ?, ?, ?, 'open-meteo-current')`);
+    let inside = 17;
+    for (let time = window.from; time < window.to; time += HOUR_MS) {
+      const index = (time - window.from) / HOUR_MS;
+      const outside = 5 + 9 * Math.sin(index / 26) + 3 * Math.sin(index / 11);
+      const stamp = new Date(time).toISOString();
+      insert.run(epoch.id, time, time + HOUR_MS + 2_000, inside);
+      weather.run(epoch.id, time, outside, stamp, stamp, stamp);
+      inside = 0.85 * inside + 0.15 * (outside + 12);
+    }
+    const issued = window.to + 5_000;
+    vi.setSystemTime(issued);
+    await worker.runOnce();
+    const artifacts = new AdaptiveClimateArtifacts(database);
+    expect(artifacts.read(scope)).toMatchObject({
+      basis: "sqlite-sealed-indoor-and-weather",
+      report: { state: "technical-pass", candidates: [expect.objectContaining({ policy: expect.objectContaining({ kind: "thermal-relaxation" }) }), expect.anything()] },
+    });
+    const ledger = new AdaptiveClimateLedger(database, artifacts);
+    expect(ledger.read(scope, { from: window.to + HOUR_MS, to: window.to + 2 * HOUR_MS })).toMatchObject([
+      { issued_at: issued, target_hour: window.to + HOUR_MS, prediction: expect.any(Number), observed: null },
+    ]);
+  });
 });

@@ -4,10 +4,11 @@ import type { ClimateDatabase } from "../../db.js";
 import { HOUR_MS, hourStart } from "../forecast/models.js";
 import { AdaptiveClimateArtifacts } from "./climate-artifacts.js";
 import { AdaptiveClimateDetector } from "./climate-detector.js";
-import { CausalClimatePredictor, CLIMATE_FIT_WINDOW_MS, climateBaselines } from "./climate-prediction.js";
+import { CausalClimatePredictor, CLIMATE_FIT_WINDOW_MS, climateBaselines, outdoorHours } from "./climate-prediction.js";
 import { ADAPTIVE_CAPTURE_HORIZON_MS, ADAPTIVE_HOUR_RETENTION_MS } from "./closed-hour.js";
 import { evidenceByHour } from "./evidence.js";
 import { FROZEN_MODEL_LIFETIME_MS, type DetectorState } from "./prospective-departure.js";
+import { readAdaptiveWeather } from "./weather-evidence.js";
 
 interface ClimateLedgerEntry {
   target_hour: number;
@@ -72,9 +73,8 @@ export class AdaptiveClimateLedger {
       .get(epoch.id, targetHour)) return 0;
     const artifact = this.artifacts.read(epoch);
     if (!artifact || artifact.report.state !== "technical-pass" || artifact.recordedAt > issuedAt) return 0;
-    // Automatic qualification currently has indoor evidence only.
     const policy = artifact.report.candidates[0]?.policy;
-    if (policy?.kind !== "daily-profile") return 0;
+    if (!policy) return 0;
     const frozenAt = state.frozen?.issuedAt ?? null;
     const earliest = frozenAt === null ? targetHour : hourStart(frozenAt) + HOUR_MS;
     const points = this.database.readAdaptiveHours({
@@ -84,11 +84,14 @@ export class AdaptiveClimateLedger {
     const target = evidenceByHour(points, {
       epochId: epoch.id, dataMode: epoch.dataMode, trustworthyFrom: Date.parse(epoch.effectiveAt),
     });
-    const predictor = new CausalClimatePredictor({ target, outdoor: new Map() }, policy);
+    const outdoor = outdoorHours(policy.kind === "thermal-relaxation" ? readAdaptiveWeather(this.database, epoch, {
+      from: earliest - CLIMATE_FIT_WINDOW_MS - 24 * HOUR_MS, to: earliest, knownAt: frozenAt ?? issuedAt,
+    }) : []);
+    const predictor = new CausalClimatePredictor({ target, outdoor }, policy);
     const value = frozenAt === null ? predictor.predict(targetHour, issuedAt) : predictor.predictFrozen(targetHour, frozenAt);
     const { persistence, seasonal } = climateBaselines(target, targetHour, issuedAt);
     const digest = createHash("sha256").update(JSON.stringify([
-      artifact.inputDigest, targetHour, issuedAt, frozenAt, [...target.values()],
+      artifact.inputDigest, targetHour, issuedAt, frozenAt, [...target.values()], [...outdoor.values()],
     ])).digest("hex");
     const publishedAt = Date.now();
     if (value === null || !Number.isFinite(value) || publishedAt >= targetHour || publishedAt < issuedAt) return 0;

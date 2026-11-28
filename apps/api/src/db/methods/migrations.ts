@@ -6,6 +6,7 @@ import { migrateMeasurementRecordingTime } from "../migrations/measurement-recor
 import { migrateAdaptiveSettings } from "../migrations/adaptive-settings-schema.js";
 import { migrateAdaptiveEvidence } from "../migrations/adaptive-evidence-schema.js";
 import { adaptiveHourlyEvidenceSchema } from "../migrations/adaptive-hourly-evidence-schema.js";
+import { migrateAdaptiveWeather } from "../migrations/adaptive-weather-schema.js";
 import { adaptiveCollectionSchema } from "../migrations/adaptive-collection-schema.js";
 import { adaptiveClimateArtifactsSchema } from "../migrations/adaptive-climate-artifacts-schema.js";
 import { adaptiveClimateLedgerSchema } from "../migrations/adaptive-climate-ledger-schema.js";
@@ -123,6 +124,7 @@ registerDatabaseMethods({
         migrateAdaptiveSettings(this.db);
         migrateAdaptiveEvidence(this.db);
         this.db.exec(adaptiveHourlyEvidenceSchema);
+        migrateAdaptiveWeather(this.db);
         this.db.exec(adaptiveCollectionSchema);
         this.db.exec(adaptiveClimateArtifactsSchema);
         this.db.exec(adaptiveClimateLedgerSchema);

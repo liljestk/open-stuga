@@ -5,6 +5,7 @@ import {
   type ClosedHour, type HourGap,
 } from "../../analytics/adaptive-monitoring/closed-hour.js";
 import { HOUR_MS } from "../../analytics/forecast/models.js";
+import { sealAdaptiveWeather } from "../../analytics/adaptive-monitoring/weather-evidence.js";
 import { registerDatabaseMethods, type DatabaseInternals } from "../core.js";
 
 interface EpochRequest { scope: AdaptiveEvidenceScope; epochId: string }
@@ -149,6 +150,7 @@ registerDatabaseMethods({
       if (!(hour >= localPrunedThrough(this))) return { status: "local-history-incomplete" };
       const capture = { hour, capturedAt, outcome: summarize(this, epoch, { hour, capturedAt }) };
       storeCapture(this, epochId, capture);
+      sealAdaptiveWeather(this, epoch, capture);
       return { status: "sealed", capture };
     });
   },

@@ -9,9 +9,10 @@ import { auditAdaptiveReadiness, evidenceByHour, type EvidencePolicy } from "./e
 import { calibrateResiduals, type ResidualEvidence } from "./residual-policy.js";
 import { contextGuardWindow } from "./context-window.js";
 
-export const ADAPTIVE_CLIMATE_QUALIFICATION_VERSION = "adaptive-climate-qualification/v1";
+export const ADAPTIVE_CLIMATE_QUALIFICATION_VERSION = "adaptive-climate-qualification/v2";
 
 const MIN_HOURLY_OVERLAP = 0.8;
+const MIN_WEATHER_COVERAGE = 0.8;
 const MIN_SKILL_GAIN = 0.05;
 const MIN_RANGE_COVERAGE = 0.95;
 const MAX_INPUTS = 50_000;
@@ -36,6 +37,17 @@ export type ClimateQualificationResult = ReturnType<typeof qualifyAdaptiveClimat
 interface AnalysisHours {
   climate: ClimateInputs;
   targets: AdaptiveHourlyEvidence[];
+}
+
+function weatherCoversBlocks(outdoor: ClimateInputs["outdoor"], blocks: ReadonlyArray<{ from: number; to: number }>): boolean {
+  return blocks.every(({ from, to }) => {
+    let count = 0;
+    for (let hour = from; hour < to; hour += HOUR_MS) {
+      const point = outdoor.get(hour);
+      if (point && point.availableAt <= to) count += 1;
+    }
+    return count >= (to - from) / HOUR_MS * MIN_WEATHER_COVERAGE;
+  });
 }
 
 interface ForecastEvidence {
@@ -220,7 +232,11 @@ export function qualifyAdaptiveClimateModel(input: QualificationInput) {
   if (readiness.state === "collecting") {
     return { ...details, state: "collecting" as const, reason: "evidence-coverage" as const, candidates: [], evaluation: null };
   }
-  const climate = { target: evidenceByHour(input.evidence, input.policy), outdoor: outdoorHours(input.outdoor ?? []) };
+  const outdoor = outdoorHours(input.outdoor ?? []);
+  const climate = {
+    target: evidenceByHour(input.evidence, input.policy),
+    outdoor: weatherCoversBlocks(outdoor, readiness.blocks) ? outdoor : new Map(),
+  };
   const guarded = guardAvailability(input.contextTransitions ?? []);
   const selection = readiness.blocks[1]!;
   const candidates = selectionResults(

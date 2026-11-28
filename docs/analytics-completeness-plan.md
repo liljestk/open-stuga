@@ -183,8 +183,14 @@ two-hour guards for same-Home opening and heating-setting changes known
 when the target was sealed. The guard interrupts the detection sequence
 and excludes the error from calibration. Historical rows without recording
 provenance and uncertain equipment reports do not create guards. The
-production profile still uses indoor measurements. Weather inputs and advisory
-evidence remain open.
+shadow worker now seals current provider weather observations with their local
+recording time, location, source, and station. Older rows with unknown lineage,
+backfills, corrections after capture, and a different location or producer do
+not enter the sealed evidence. Live temperature qualification considers the
+thermal candidate when all four blocks have at least 80% available outdoor
+hours. Qualified thermal models use weather known at issue time, including for
+frozen episodes. Existing indoor-only qualifications stay active for their
+current epochs. Prospective pilot evidence remains open.
 
 Approved temperature reference groups now build a same-Home shadow baseline
 from independently sealed paired hours. Four chronological weeks qualify the
@@ -216,7 +222,7 @@ recovery. Learning settings support enabling private evaluation, approved
 temperature reference groups and starting a new baseline with a reason.
 
 Continue milestones A–F in the adaptive plan: authorized evidence audit,
-complete causal evaluation matrix and prospective weather-aware models.
+complete causal evaluation matrix and verify performance on the target Pi.
 Use the private review UI to gather reviewed events from consenting Homes
 under the pilot's evidence and resource gates.
 

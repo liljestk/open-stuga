@@ -1,8 +1,8 @@
 # Adaptive Home monitoring specification
 
-Status: the 0.63.0 draft includes persisted shadow evaluation, private diagnostics
-and review in Data & analytics. Weather-driven prospective evaluation and the
-advisory pilot remain open. See the [delivery ledger](analytics-completeness-plan.md).
+Status: the 0.63.0 draft includes persisted shadow evaluation, including
+weather-aware temperature models, and private review in Data & analytics.
+The advisory pilot remains open. See the [delivery ledger](analytics-completeness-plan.md).
 
 Date: 11 November 2026.
 

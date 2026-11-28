@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { AdaptiveEvidenceScope } from "@climate-twin/contracts";
+import type { AdaptiveEvidenceScope, OutdoorTemperatureSource } from "@climate-twin/contracts";
+import { readAdaptiveWeather } from "../src/analytics/adaptive-monitoring/weather-evidence.js";
 import { HOUR_MS } from "../src/analytics/forecast/models.js";
-import { ClimateDatabase } from "../src/db.js";
+import { ClimateDatabase, outdoorLocationKey } from "../src/db.js";
 
 const interval = 5 * 60_000;
+const location = { latitude: 60.25, longitude: 24.75 };
 const scope: AdaptiveEvidenceScope = {
   houseId: "house-main", sensorId: "hour-target", dataMode: "live", metric: "temperature", purpose: "climate",
 };
@@ -25,6 +27,7 @@ describe("Adaptive Home closed-hour snapshots", () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     database = new ClimateDatabase(":memory:");
     database.activateRealDataMode();
+    database.updateHouse(scope.houseId, { location });
     database.createSensor({
       id: scope.sensorId, houseId: scope.houseId, floorId: database.getHouse(scope.houseId)!.floors[0]!.id,
       name: "Fixture", room: "", model: "Test", x: 1, y: 1, z: 1, tags: [], enabled: true,
@@ -60,6 +63,38 @@ describe("Adaptive Home closed-hour snapshots", () => {
   function capture(at = hour) {
     return database.captureAdaptiveHour({ scope, epochId, hour: at });
   }
+
+  it("seals only recorded, same-location current weather and fences the prediction cutoff", () => {
+    const weather = (minutes: number, source: OutdoorTemperatureSource, temperatureC: number, locationKey = outdoorLocationKey(location)) =>
+      database.upsertOutdoorTemperatureSample({
+        houseId: scope.houseId, locationKey, timestamp: new Date(hour + minutes * 60_000).toISOString(),
+        fetchedAt: new Date(hour + 59 * 60_000).toISOString(), temperatureC, source,
+        stationId: source === "fmi-observation" ? "synthetic-station" : null, stationName: null,
+      });
+    const sealedAt = Date.now();
+    weather(10, "fmi-observation", 3);
+    weather(55, "fmi-backfill", 16);
+    weather(56, "open-meteo-current", 20, "old-location");
+    weather(57, "api", 30);
+    weather(58, "open-meteo-current", 50);
+    database.db.prepare("UPDATE outdoor_temperature_samples SET recorded_at = NULL WHERE temperature_c = 50").run();
+    expect(capture().status).toBe("sealed");
+    const epoch = database.readAdaptiveEvidenceEpoch(scope)!;
+    const window = { from: hour, to: hour + HOUR_MS };
+    expect(readAdaptiveWeather(database, epoch, { ...window, knownAt: sealedAt - 1 })).toEqual([]);
+    expect(readAdaptiveWeather(database, epoch, { ...window, knownAt: sealedAt }))
+      .toEqual([{ time: hour, availableAt: sealedAt, value: 3 }]);
+    vi.setSystemTime(sealedAt + 5_000);
+    weather(10, "fmi-observation", 8);
+    weather(59, "fmi-observation", 9);
+    expect(capture().status).toBe("sealed");
+    expect(readAdaptiveWeather(database, epoch, { ...window, knownAt: Date.now() }))
+      .toEqual([{ time: hour, availableAt: sealedAt, value: 3 }]);
+    expect(() => database.db.prepare("UPDATE adaptive_weather_hours SET temperature_c = 2").run()).toThrow("immutable");
+    vi.setSystemTime(sealedAt + 91 * 24 * HOUR_MS);
+    database.pruneAdaptiveHours();
+    expect(database.db.prepare("SELECT count(*) AS count FROM adaptive_weather_hours").get()).toEqual({ count: 0 });
+  });
 
   it("seals observations at the transaction's capture time and preserves them after a late write", () => {
     priorCadence();
