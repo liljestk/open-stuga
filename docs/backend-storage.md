@@ -353,6 +353,24 @@ docker compose --profile maintenance run --rm telemetry-migrate `
   node /app/scripts/migrate-telemetry-to-timescale.mjs --prepare-mode-indexes --verify-only
 ```
 
+### Stage SQLite measurement identities
+
+The compiled migration tool can stage a fresh SQLite snapshot with separate
+measurement keys for each verified mode and for unclassified history. It
+preserves row IDs, archive watermarks, alert queue references, triggers and
+indexes. A matching live measurement can coexist with an unclassified row
+and appear in verified reads. The source is opened read-only.
+
+Run from a built API checkout or the maintenance image. Choose a new
+snapshot path in a protected backup directory. The staged file targets the
+coordinated cutover once archive storage and compatibility reads support the
+same identities.
+
+```powershell
+node scripts/migrate-telemetry-to-timescale.mjs --source ./data/climate-twin.sqlite `
+  --stage-measurement-mode-identities --snapshot ./backup/measurement-mode-staging.sqlite
+```
+
 ## Backup and restore
 
 Back up both authoritative stores. A PostgreSQL dump alone omits control-plane data and integration configuration; a SQLite snapshot alone omits the durable archive. Every backup is sensitive: core SQLite contains authentication/session hashes and household state, assets may reveal the home, and Timescale contains occupancy-adjacent telemetry. Keep sets outside Docker volumes on a protected, encrypted destination and encrypt every off-host copy, whether or not integration secrets are included.

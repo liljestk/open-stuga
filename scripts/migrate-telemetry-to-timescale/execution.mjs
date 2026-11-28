@@ -35,6 +35,7 @@ import { DESTINATION_FINGERPRINT_VERSION, help, parseMigrationArgs } from "./con
 
 import { ensureAndRefreshMeasurementAggregates, provisionDestination, requireTimescaleDestination, validateDestinationSchema } from "./destination-schema.mjs";
 import { runModeIndexMaintenance } from "./mode-indexes.mjs";
+import { stageLocalMeasurementModeIdentities } from "./local-mode-identities.mjs";
 
 export async function runDryMigration(options) {
   if (!existsSync(options.source)) throw new Error(`SQLite source does not exist: ${options.source}`);
@@ -54,6 +55,7 @@ export async function runDryMigration(options) {
 }
 
 export async function runMigration(options) {
+  if (options.stageMeasurementModeIdentities) return stageLocalMeasurementModeIdentities(options);
   if (options.prepareModeIndexes) return runModeIndexMaintenance(options);
   if (options.dryRun) return runDryMigration(options);
   let releaseLock = () => undefined;

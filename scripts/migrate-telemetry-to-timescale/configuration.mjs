@@ -176,6 +176,8 @@ Options:
   --verify-only            Compare an existing destination with the consistent source snapshot; no destination writes
   --prepare-mode-indexes   Prepare verified-mode lookup indexes on both existing stores
                            (combine with --verify-only to inspect without writing)
+  --stage-measurement-mode-identities
+                           Rebuild measurement keys on a new SQLite copy at --snapshot
   -h, --help               Show this help
 
 Safety and recovery:
@@ -208,6 +210,8 @@ Examples:
   $env:TIMESCALE_DATABASE_URL='postgresql://user:password@localhost:5432/stugu'
   node scripts/migrate-telemetry-to-timescale.mjs --source ./data/climate-twin.sqlite
   node scripts/migrate-telemetry-to-timescale.mjs --source ./data/climate-twin.sqlite --verify-only
+  node scripts/migrate-telemetry-to-timescale.mjs --source ./data/climate-twin.sqlite \\
+    --stage-measurement-mode-identities --snapshot ./backup/measurement-mode-staging.sqlite
 `;
 }
 
@@ -243,6 +247,7 @@ export function parseMigrationArgs(argv, env = process.env) {
     dryRun: false,
     verifyOnly: false,
     prepareModeIndexes: false,
+    stageMeasurementModeIdentities: false,
     help: false,
     sourceProvided: false,
     snapshotProvided: false,
@@ -253,6 +258,7 @@ export function parseMigrationArgs(argv, env = process.env) {
     else if (argument === "--dry-run") parsed.dryRun = true;
     else if (argument === "--verify-only") parsed.verifyOnly = true;
     else if (argument === "--prepare-mode-indexes") parsed.prepareModeIndexes = true;
+    else if (argument === "--stage-measurement-mode-identities") parsed.stageMeasurementModeIdentities = true;
     else if (argument === "--source") {
       parsed.source = readValue(argv, index, argument);
       parsed.sourceProvided = true;
@@ -285,6 +291,10 @@ export function parseMigrationArgs(argv, env = process.env) {
   if (parsed.prepareModeIndexes && (parsed.dryRun || parsed.snapshotProvided || parsed.checkpoint || parsed.batchSize !== undefined)) {
     throw new Error("--prepare-mode-indexes does not accept --dry-run, --snapshot, --checkpoint or --batch-size");
   }
+  if (parsed.stageMeasurementModeIdentities && (
+    !parsed.snapshotProvided || parsed.prepareModeIndexes || parsed.verifyOnly || parsed.dryRun
+    || parsed.checkpoint || parsed.batchSize !== undefined || parsed.postgresUrl
+  )) throw new Error("--stage-measurement-mode-identities requires --snapshot and runs as a separate SQLite operation");
   const sourceValue = parsed.source ?? env.DATABASE_PATH ?? "./data/climate-twin.sqlite";
   if (sourceValue === ":memory:") throw new Error("An in-memory SQLite database cannot be migrated");
   parsed.source = resolve(sourceValue);
@@ -306,6 +316,7 @@ export function parseMigrationArgs(argv, env = process.env) {
   }
   parsed.checkpoint = resolve(parsed.checkpoint ?? `${parsed.source}.timescale-migration.json`);
   parsed.snapshot = resolve(parsed.snapshot ?? `${parsed.source}.timescale-migration.snapshot.sqlite`);
+  if (parsed.stageMeasurementModeIdentities) return parsed;
   parsed.postgresUrl ??= env.TIMESCALE_DATABASE_URL ?? env.DATABASE_URL;
   if (parsed.postgresUrl) {
     parsed.pgClientConfig = { connectionString: parsed.postgresUrl };

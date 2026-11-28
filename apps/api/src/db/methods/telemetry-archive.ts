@@ -108,7 +108,8 @@ registerDatabaseMethods({
   measurementArchiveRecording(sample: MeasurementSample): MeasurementRecording | null {
       const row = this.db.prepare(`SELECT data_mode, recorded_at FROM measurement_samples
         WHERE sensor_id = ? AND metric = ? AND timestamp = ? AND source = ?
-          AND value = ? AND canonical_unit = ? AND quality = ?`)
+          AND value = ? AND canonical_unit = ? AND quality = ?
+        ORDER BY data_mode IS NULL, id DESC LIMIT 1`)
         .get(sample.sensorId, sample.metric, sample.timestamp, sample.source,
           sample.value, sample.canonicalUnit, sample.quality) as MeasurementRecordingColumns | undefined;
       return row ? { dataMode: row.data_mode, recordedAt: row.recorded_at } : null;

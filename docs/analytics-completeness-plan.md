@@ -120,6 +120,12 @@ indexes for measurements, legacy readings and outdoor temperatures in both
 stores. Existing keys and unclassified rows are preserved. Index work runs in
 explicit maintenance so startup can avoid scanning historical data.
 
+The migration service can stage a SQLite copy with mode-scoped measurement
+identities. A verified live sample can coexist with an unclassified row
+sharing the old key. The rebuild preserves row IDs, sequence high-water
+marks, triggers, indexes and alert references. The coordinated cutover still
+requires archive identity migration and compatibility-read validation.
+
 Still to implement:
 
 - Finish the SQLite/Timescale inventory and coordinated migration of

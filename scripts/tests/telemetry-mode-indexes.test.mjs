@@ -42,6 +42,15 @@ test("mode index preparation is explicit and keeps separate read-only verificati
   assert.throws(() => parseMigrationArgs(["--prepare-mode-indexes", "--dry-run"], {}), /does not accept --dry-run/u);
 });
 
+test("measurement identity staging uses an explicit SQLite copy without archive credentials", () => {
+  const command = ["--stage-measurement-mode-identities", "--snapshot", "mode-staging.sqlite"];
+  const stage = parseMigrationArgs(command, { TIMESERIES_PASSWORD_FILE: "not-needed" });
+  assert.equal(stage.stageMeasurementModeIdentities, true);
+  assert.equal(stage.pgClientConfig, undefined);
+  assert.throws(() => parseMigrationArgs(command.slice(0, 1), {}), /requires --snapshot/u);
+  assert.throws(() => parseMigrationArgs([...command, "--verify-only"], {}), /separate SQLite operation/u);
+});
+
 test("prepares verified mode indexes on both existing stores without changing boundaries or tags", async (t) => {
   const { sqlite, archive } = await stores(t);
   const values = ["sensor-1", "temperature", "live"];

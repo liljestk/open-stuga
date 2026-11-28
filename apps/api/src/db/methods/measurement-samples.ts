@@ -4,6 +4,7 @@ import { MeasurementSampleRow } from "../support/row-types.js";
 import { ClimateDataValidationError } from "../support/validation-errors.js";
 import { measurementSampleFromRow } from "../support/row-mappers.js";
 import { registerDatabaseMethods } from "../core.js";
+import { MEASUREMENT_MODE_IDENTITY_MARKER } from "../migrations/measurement-mode-identity.js";
 import type { LocalBucketQuery } from "../../timeseries/local-telemetry-worker-thread.js";
 import type { MeasurementHistoryBucketedMultiQuery, MeasurementWindowQuery, ThermalHistoryWindowQuery, MeasurementCoverageRecord } from "../../timeseries/types.js";
 import { compareCodeUnits } from "../../text-order.js";
@@ -98,8 +99,10 @@ registerDatabaseMethods({
       const sensor = this.getSensor(sample.sensorId);
       if (!sensor) return false;
       if (deduplicateAcrossSources && this.db.prepare(`SELECT 1 FROM measurement_samples
-        WHERE sensor_id = ? AND metric = ? AND timestamp = ? LIMIT 1`)
-        .get(sample.sensorId, sample.metric, sample.timestamp)) return false;
+        WHERE sensor_id = ? AND metric = ? AND timestamp = ?
+          AND (data_mode IS ? OR NOT EXISTS (SELECT 1 FROM metadata WHERE key = ? AND value = '1'))
+        LIMIT 1`)
+        .get(sample.sensorId, sample.metric, sample.timestamp, dataMode, MEASUREMENT_MODE_IDENTITY_MARKER)) return false;
       const result = this.db.prepare(`INSERT OR IGNORE INTO measurement_samples
         (sensor_id, metric, value, canonical_unit, timestamp, source, quality, data_mode, recorded_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`)
